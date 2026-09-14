@@ -1368,6 +1368,15 @@ impl WorkspaceCommandHelper {
         assert!(self.may_snapshot_working_copy);
         #[cfg(feature = "git")]
         if self.env.working_copy_shared_with_git {
+            let git_repo = jj_lib::git::get_git_repo(self.repo().store())
+                .map_err(CommandError::from).map_err(snapshot_command_error)?;
+            jj_lib::git::ensure_no_pending_remote_management(&git_repo)
+                .map_err(CommandError::from).map_err(snapshot_command_error)?;
+            for remote in jj_lib::git::get_all_remote_names(self.repo().store())
+                .map_err(CommandError::from).map_err(snapshot_command_error)? {
+                crate::git_remote::check_remote(&self.env.command, self, &remote)
+                    .map_err(snapshot_command_error)?;
+            }
             self.import_git_head(ui, git_import_export_lock)
                 .await
                 .map_err(snapshot_command_error)?;

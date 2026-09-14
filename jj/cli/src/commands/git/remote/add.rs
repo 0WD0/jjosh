@@ -18,6 +18,9 @@ use jj_lib::git;
 use jj_lib::ref_name::RemoteName;
 use jj_lib::ref_name::RemoteNameBuf;
 use jj_lib::repo::Repo;
+use jj_lib::object_id::ObjectId as _;
+use jj_lib::project::{BindingId, ConnectionId};
+use jj_lib::merge::Merge;
 
 use crate::cli_util::CommandHelper;
 use crate::command_error::CommandError;
@@ -41,6 +44,9 @@ pub struct GitRemoteAddArgs {
     /// Local path will be resolved to absolute form
     #[arg(long, value_hint = clap::ValueHint::Url)]
     push_url: Option<String>,
+
+    #[command(flatten)]
+    binding: crate::git_remote::GitRemoteBindingArgs,
 }
 
 pub async fn cmd_git_remote_add(
@@ -48,7 +54,7 @@ pub async fn cmd_git_remote_add(
     command: &CommandHelper,
     args: &GitRemoteAddArgs,
 ) -> Result<(), CommandError> {
-    let mut workspace_command = command.workspace_helper(ui).await?;
+    let mut workspace_command = command.workspace_helper_no_snapshot(ui).await?;
     let url = absolute_git_url(command.cwd(), &args.url)?;
     let push_url = args
         .push_url
@@ -56,12 +62,30 @@ pub async fn cmd_git_remote_add(
         .map(|url| absolute_git_url(command.cwd(), url))
         .transpose()?;
 
+    super::ensure_empty_remote_name(workspace_command.repo().view(), &args.remote)?;
+    let git_repo = git::get_git_repo(workspace_command.repo().store())?;
+    if git::try_find_active_remote(&git_repo, &args.remote)?.is_some() {
+        return Err(git::GitRemoteManagementError::RemoteAlreadyExists(args.remote.clone()).into());
+    }
+    let connection = ConnectionId::generate();
+    let binding = super::prepare_binding(command, &workspace_command, &args.remote, &connection, &args.binding)?;
+    let git_lock = workspace_command.lock_git_import_export()?;
+    let journal = git::begin_remote_management(workspace_command.repo().store(), &workspace_command.repo().operation().id().hex(), &[])?;
+    journal.expect_remote(&args.remote, true, Some(&connection), binding.is_some())?;
     let mut tx = workspace_command.start_transaction();
-
     git::add_remote(tx.repo_mut(), &args.remote, &url, push_url.as_deref())?;
+    let mut keys = vec![(args.remote.clone(), "jjosh-connectionId".into(), Some(connection.hex()))];
+    if let Some(binding) = binding {
+        keys.push((args.remote.clone(), "jjosh-requiredCapability".into(), Some("jjosh-v1".into())));
+        keys.push((args.remote.clone(), "jjosh-readOnly".into(), Some((args.binding.read_only || (!args.binding.writable && push_url.is_none())).to_string())));
+        tx.repo_mut().view_mut().project_state_mut().bindings.insert(BindingId::generate(), Merge::resolved(Some(binding)));
+        tx.repo_mut().view_mut().store_view_mut().remote_connections.insert(args.remote.clone(), Merge::resolved(Some(connection.clone())));
+    }
+    git::set_remote_config_keys(tx.repo().store(), &keys)?;
     warn_if_remote_url_matches(ui, tx.repo(), &args.remote, &url, push_url.as_deref())?;
-    tx.finish(ui, format!("add git remote {}", args.remote.as_symbol()))
-        .await?;
+    journal.expect_operation(tx.repo().view())?;
+    tx.finish_with_git_import_export_lock(ui, format!("add git remote {}", args.remote.as_symbol()), &git_lock).await?;
+    journal.complete()?;
     Ok(())
 }
 

@@ -962,6 +962,11 @@ pub struct MutableRepo {
 }
 
 impl MutableRepo {
+    /// Mutable operation-owned state. Callers must preserve the view invariants.
+    pub fn view_mut(&mut self) -> &mut View {
+        &mut self.view
+    }
+
     pub fn new(base_repo: Arc<ReadonlyRepo>, index: &dyn ReadonlyIndex, view: &View) -> Self {
         let mut_index = index.start_modification();
         Self {
@@ -2026,6 +2031,17 @@ impl MutableRepo {
             };
             self.set_wc_sparse_patterns(name.clone(), target);
         }
+        self.view.project_state_mut().merge(base.project_state(), other.project_state());
+        crate::project::merge_map(
+            &mut self.view.store_view_mut().remote_connections,
+            &base.store_view().remote_connections,
+            &other.store_view().remote_connections,
+        );
+        crate::project::merge_map(
+            &mut self.view.store_view_mut().project_observations,
+            &base.store_view().project_observations,
+            &other.store_view().project_observations,
+        );
 
         let base_heads = base.heads().iter().cloned().collect_vec();
         let own_heads = self.view().heads().iter().cloned().collect_vec();

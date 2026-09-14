@@ -424,6 +424,22 @@ pub async fn show_op_diff(
         }
     }
 
+    with_content_format.write(formatter, async |formatter| {
+        let from = from_repo.view().store_view();
+        let to = to_repo.view().store_view();
+        write_metadata_map_diff(formatter, "projects", &from.project_state.projects, &to.project_state.projects)?;
+        write_metadata_map_diff(formatter, "project bindings", &from.project_state.bindings, &to.project_state.bindings)?;
+        write_metadata_map_diff(formatter, "project labels", &from.project_state.labels, &to.project_state.labels)?;
+        write_metadata_map_diff(formatter, "remote connection owners", &from.remote_connections, &to.remote_connections)?;
+        write_metadata_map_diff(formatter, "conversion observations", &from.project_observations, &to.project_observations)?;
+        if from.project_state != to.project_state || from.remote_connections != to.remote_connections || from.project_observations != to.project_observations {
+            for diagnostic in to_repo.view().project_diagnostics() {
+                writeln!(formatter, "Project state conflict: {diagnostic}")?;
+            }
+        }
+        Ok::<(), std::io::Error>(())
+    }).await?;
+
     let changed_local_bookmarks = diff_named_ref_targets(
         from_repo.view().local_bookmarks(),
         to_repo.view().local_bookmarks(),
@@ -590,6 +606,26 @@ pub async fn show_op_diff(
         }
     }
 
+    Ok(())
+}
+
+fn write_metadata_map_diff<K: Ord + std::fmt::Debug, V: Eq + std::fmt::Debug>(
+    formatter: &mut dyn Formatter,
+    heading: &str,
+    from: &std::collections::BTreeMap<K, V>,
+    to: &std::collections::BTreeMap<K, V>,
+) -> std::io::Result<()> {
+    let mut written_heading = false;
+    for key in from.keys().chain(to.keys()).collect::<std::collections::BTreeSet<_>>() {
+        if from.get(key) == to.get(key) { continue; }
+        if !written_heading {
+            writeln!(formatter, "\nChanged {heading}:")?;
+            written_heading = true;
+        }
+        writeln!(formatter, "{key:?}:")?;
+        if let Some(value) = from.get(key) { writeln!(formatter, "  - {value:?}")?; }
+        if let Some(value) = to.get(key) { writeln!(formatter, "  + {value:?}")?; }
+    }
     Ok(())
 }
 

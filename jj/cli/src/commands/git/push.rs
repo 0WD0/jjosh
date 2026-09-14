@@ -248,6 +248,10 @@ pub struct GitPushArgs {
     #[arg(long)]
     base: Option<String>,
 
+    /// Explicit immutable source binding for an unbound destination.
+    #[arg(long)]
+    source: Option<String>,
+
     /// Merge reverse-projected history with its source context.
     #[arg(long)]
     merge: bool,
@@ -303,9 +307,10 @@ pub async fn cmd_git_push(
         ));
     }
     let mut workspace_command = command.workspace_helper(ui).await?;
-    if (args.base.is_some() || args.merge) && command.git_remote_extension().is_none() {
+    if (args.base.is_some() || args.merge || args.source.is_some())
+        && !crate::git_remote::capabilities(command).contains(&"jjosh-v1") {
         return Err(user_error(
-            "--base and --merge require a projection-aware remote",
+            "--source, --base and --merge require capability jjosh-v1",
         ));
     }
 
@@ -401,6 +406,9 @@ pub async fn cmd_git_push(
         return Err(user_error("No git remotes to push to"));
     }
 
+    for remote in &matching_remotes {
+        crate::git_remote::check_remote(command, tx.base_workspace_helper(), remote)?;
+    }
     let mut remote_sessions = std::collections::HashMap::new();
     if let Some(extension) = command.git_remote_extension() {
         for remote in &matching_remotes {
@@ -411,10 +419,15 @@ pub async fn cmd_git_push(
         }
     }
     let mut by_remote = Vec::with_capacity(matching_remotes.len());
+    let guard_repo = tx.base_workspace_helper().repo().clone();
     let routing = PushRouting {
         routes: routes.as_ref(),
         sessions: &remote_sessions,
         dry_run: args.dry_run,
+        store: guard_repo.store(),
+        view: guard_repo.view(),
+        capabilities: crate::git_remote::capabilities(command),
+        source: args.source.as_deref(),
     };
 
     if args.all {
@@ -670,6 +683,7 @@ pub async fn cmd_git_push(
     };
     let preparation = crate::git_remote::GitRemotePushOptions {
         base: args.base.clone(),
+        source: args.source.clone(),
         merge: args.merge,
     };
     // Keep every prepared pack alive until the whole command has passed
@@ -863,6 +877,10 @@ struct PushRouting<'a> {
     routes: Option<&'a HashMap<RefNameBuf, GitPushRoute>>,
     sessions: &'a HashMap<&'a RemoteName, Box<dyn GitRemoteSession>>,
     dry_run: bool,
+    store: &'a jj_lib::store::Store,
+    view: &'a View,
+    capabilities: &'a [&'a str],
+    source: Option<&'a str>,
 }
 
 impl PushRouting<'_> {
@@ -878,6 +896,7 @@ impl PushRouting<'_> {
         namespace: &str,
         targets: LocalAndRemoteRef<'_>,
     ) -> Result<(), CommandError> {
+        crate::git_remote::check_selected_ref(self.store, self.view, symbol.remote, symbol.name, self.capabilities, self.source)?;
         if self.dry_run
             && matches!(
                 classify_ref_push_action(targets),

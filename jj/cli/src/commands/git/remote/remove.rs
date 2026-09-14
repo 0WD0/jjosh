@@ -15,6 +15,8 @@
 use clap_complete::ArgValueCandidates;
 use jj_lib::git;
 use jj_lib::ref_name::RemoteNameBuf;
+use jj_lib::repo::Repo as _;
+use jj_lib::object_id::ObjectId as _;
 
 use super::super::remove_remote_from_repo_config;
 use crate::cli_util::CommandHelper;
@@ -37,16 +39,28 @@ pub async fn cmd_git_remote_remove(
 ) -> Result<(), CommandError> {
     let mut workspace_command = command.workspace_helper_no_snapshot(ui).await?;
     let git_lock = workspace_command.lock_git_import_export()?;
-    let mut options = command
-        .git_remote_extension()
-        .map(|extension| {
-            extension.prepare_remote_management(&workspace_command, &args.remote, None)
-        })
-        .transpose()?
-        .unwrap_or_default();
+    crate::git_remote::check_remote(command, &workspace_command, &args.remote)?;
+    let mut options = git::GitRemoteManagementOptions {
+        extra_config_keys: git::MANAGED_REMOTE_KEYS,
+        ..Default::default()
+    };
     options.repo_config = remove_remote_from_repo_config(ui, command.raw_config(), &args.remote)?;
+    let extra_paths = options.repo_config.iter().map(|file| file.path().to_owned()).collect::<Vec<_>>();
+    let journal = git::begin_remote_management(workspace_command.repo().store(), &workspace_command.repo().operation().id().hex(), &extra_paths)?;
+    let git_repo = git::get_git_repo(workspace_command.repo().store())?;
+    let connection = git::remote_connection_id(&git_repo, &args.remote).map_err(crate::command_error::user_error)?;
+    journal.expect_remote(&args.remote, false, connection.as_ref(), false)?;
     let mut tx = workspace_command.start_transaction();
     git::remove_remote_with_options(tx.repo_mut(), &args.remote, &options)?;
+    if let Some(connection) = connection {
+        tx.repo_mut().view_mut().project_state_mut().bindings.retain(|_, value| {
+            !value.iter().flatten().any(|binding| binding.connection_id == connection)
+        });
+    }
+    let view = tx.repo_mut().view_mut().store_view_mut();
+    view.remote_connections.remove(&args.remote);
+    view.project_observations.retain(|key, _| key.remote != args.remote);
+    journal.expect_operation(tx.repo().view())?;
     if tx.repo().has_changes() {
         tx.finish_with_git_import_export_lock(
             ui,
@@ -57,5 +71,6 @@ pub async fn cmd_git_remote_remove(
     } else {
         // Do not print "Nothing changed." for the remote named "git".
     }
+    journal.complete()?;
     Ok(())
 }

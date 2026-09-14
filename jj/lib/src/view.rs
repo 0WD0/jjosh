@@ -71,6 +71,110 @@ impl View {
         self.data.wc_commit_ids.get(name)
     }
 
+    pub fn project_state(&self) -> &crate::project::ProjectState {
+        &self.data.project_state
+    }
+
+    pub fn project_state_mut(&mut self) -> &mut crate::project::ProjectState {
+        &mut self.data.project_state
+    }
+
+    /// Reject adopting a pre-existing literal suffix as a project label.
+    pub fn check_project_label_available(&self, label: &str) -> Result<(), String> {
+        if self.data.project_state.labels.get(label).is_some_and(Merge::is_present) {
+            return Err(format!("Project label {label:?} is already registered"));
+        }
+        let occupied = self.data.local_bookmarks.keys().chain(self.data.local_tags.keys())
+            .chain(self.data.remote_views.values().flat_map(|v| v.bookmarks.keys().chain(v.tags.keys())))
+            .chain(self.data.project_observations.keys().map(|key| &key.name))
+            .any(|name| name.as_str().rsplit_once('#').is_some_and(|(_, suffix)| suffix == label));
+        if occupied {
+            return Err(format!("Project label {label:?} would adopt existing literal references; migrate them explicitly"));
+        }
+        Ok(())
+    }
+
+    /// Validate the relationship of current canonical targets and their immutable
+    /// observations without rewriting either side or choosing a conflict term.
+    pub fn validate_project_observation(&self, key: &crate::project::ObservationKey) -> Result<(), String> {
+        use crate::project::{BindingTarget, ObservationKind};
+        let Some(evidence) = self.data.project_observations.get(key) else { return Ok(()); };
+        let owner = self.data.remote_connections.get(&key.remote)
+            .and_then(Merge::as_resolved).and_then(Option::as_ref);
+        for observation in evidence.adds().flatten() {
+            if owner != Some(&observation.connection_id) {
+                return Err(format!("Observation {}@{} belongs to an unavailable or different connection", key.name.as_str(), key.remote.as_str()));
+            }
+            let binding = self.data.project_state.bindings.get(&observation.binding_id)
+                .and_then(Merge::as_resolved).and_then(Option::as_ref);
+            if binding != Some(&observation.binding) {
+                return Err(format!("Observation {}@{} requires unavailable binding {}", key.name.as_str(), key.remote.as_str(), observation.binding_id));
+            }
+            if let BindingTarget::Project(id) = &observation.binding.target {
+                self.data.project_state.validate_project(id)?;
+                if let Some((_, label)) = key.name.as_str().rsplit_once('#')
+                    && self.data.project_state.resolve_label(label)?.as_ref() != Some(id) {
+                    return Err(format!("Observation {}@{} has incompatible project label", key.name.as_str(), key.remote.as_str()));
+                }
+            }
+            if key.kind == ObservationKind::Revision
+                && (!observation.raw_ref.is_empty() || !observation.terms.iter().step_by(2).any(|term| term.raw.as_deref() == Some(key.name.as_str()))) {
+                return Err(format!("Revision observation {}@{} does not explain its pinned raw OID", key.name.as_str(), key.remote.as_str()));
+            }
+        }
+        let symbol = RemoteRefSymbol { remote: &key.remote, name: &key.name };
+        let target = match key.kind {
+            ObservationKind::Bookmark => &self.get_remote_bookmark(symbol).target,
+            ObservationKind::Tag => &self.get_remote_tag(symbol).target,
+            ObservationKind::Revision => return Ok(()),
+        };
+        // The evidence expression is independent of ancestry simplification of
+        // RefTarget. Each surviving positive target must nevertheless have an
+        // actual positive witness; do not zip term positions.
+        for canonical in target.as_merge().adds() {
+            if !evidence.adds().flatten().any(|observation|
+                observation.terms.iter().step_by(2).any(|term| &term.canonical == canonical)) {
+                return Err(format!("Observation {}@{} does not explain the current canonical target", key.name.as_str(), key.remote.as_str()));
+            }
+        }
+        Ok(())
+    }
+
+    pub fn project_diagnostics(&self) -> Vec<crate::project::ProjectDiagnostic> {
+        use crate::project::{BindingTarget, ProjectDiagnostic};
+        let mut diagnostics = self.data.project_state.diagnostics();
+        for (remote, owners) in &self.data.remote_connections {
+            if owners.is_resolved() { continue; }
+            let mut projects = Vec::new();
+            let mut bindings = Vec::new();
+            for (id, target) in &self.data.project_state.bindings {
+                for record in target.adds().flatten() {
+                    if owners.adds().flatten().any(|owner| owner == &record.connection_id) {
+                        bindings.push(id.clone());
+                        if let BindingTarget::Project(project) = &record.target { projects.push(project.clone()); }
+                    }
+                }
+            }
+            diagnostics.push(ProjectDiagnostic {
+                message: format!("Remote {} has unresolved connection ownership", remote.as_str()),
+                projects, bindings, labels: Vec::new(),
+            });
+        }
+        for (key, evidence) in &self.data.project_observations {
+            if let Err(message) = self.validate_project_observation(key) {
+                diagnostics.push(ProjectDiagnostic {
+                    message,
+                    projects: evidence.adds().flatten().filter_map(|observation| match &observation.binding.target {
+                        BindingTarget::Project(id) => Some(id.clone()), BindingTarget::RepositoryView => None,
+                    }).collect(),
+                    bindings: evidence.adds().flatten().map(|observation| observation.binding_id.clone()).collect(),
+                    labels: key.name.as_str().rsplit_once('#').map(|(_, label)| label.to_owned()).into_iter().collect(),
+                });
+            }
+        }
+        diagnostics
+    }
+
     pub fn wc_sparse_patterns(
         &self,
     ) -> &BTreeMap<WorkspaceNameBuf, Merge<Option<WorkingCopyPatternsId>>> {
@@ -644,6 +748,9 @@ impl View {
             git_heads,
             wc_commit_ids,
             wc_sparse_patterns: _,
+            project_state: _,
+            remote_connections: _,
+            project_observations,
         } = &self.data;
         itertools::chain!(
             head_ids,
@@ -656,7 +763,10 @@ impl View {
             }),
             git_refs.values().flat_map(ref_target_ids),
             git_heads.values().flat_map(ref_target_ids),
-            wc_commit_ids.values()
+            wc_commit_ids.values(),
+            project_observations.values().flat_map(|target| target.iter().flatten())
+                .flat_map(|observation| observation.terms.iter())
+                .filter_map(|term| term.canonical.as_ref())
         )
     }
 

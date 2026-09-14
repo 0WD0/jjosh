@@ -129,6 +129,7 @@ message View {
   repeated GitHead git_heads = 13;
   // Desired sparse selections keyed by workspace, including unresolved merges.
   repeated WcSparsePatterns wc_sparse_patterns = 14;
+  ProjectMetadata project_metadata = 15;
   reserved 10;
 }
 
@@ -168,4 +169,96 @@ message OperationMetadata {
 message CommitPredecessors {
   bytes commit_id = 1;
   repeated bytes predecessor_ids = 2;
+}
+
+message ProjectMetadata {
+  uint32 version = 1;
+  repeated ProjectEntry projects = 2;
+  repeated BindingEntry bindings = 3;
+  repeated LabelEntry labels = 4;
+  repeated ConnectionEntry connections = 5;
+  repeated ObservationEntry observations = 6;
+}
+
+message ProjectRecord {
+  string name = 1;
+  string canonical_root = 2;
+}
+
+message BindingRecord {
+  optional bytes project_id = 1;
+  bool repository_view = 2;
+  bytes connection_id = 3;
+  string provider = 4;
+  uint32 version = 5;
+  uint32 representation = 6;
+  string expression = 7;
+  optional string base = 8;
+}
+
+message ProjectTerm {
+  ProjectRecord value = 1;
+}
+
+message BindingTerm {
+  BindingRecord value = 1;
+}
+
+message IdTerm {
+  optional bytes value = 1;
+}
+
+message ProjectEntry {
+  bytes id = 1;
+  repeated ProjectTerm terms = 2;
+}
+
+message BindingEntry {
+  bytes id = 1;
+  repeated BindingTerm terms = 2;
+}
+
+message LabelEntry {
+  string label = 1;
+  repeated IdTerm terms = 2;
+}
+
+message ConnectionEntry {
+  string remote = 1;
+  repeated IdTerm terms = 2;
+}
+
+message ConversionTerm {
+  optional bytes canonical = 1;
+  optional string raw = 2;
+}
+
+message ConversionObservation {
+  bytes binding_id = 1;
+  BindingRecord binding = 2;
+  bytes connection_id = 3;
+  string endpoint = 4;
+  string raw_ref = 5;
+  repeated ConversionTerm terms = 6;
+  optional string base = 7;
+  optional string generation = 8;
+}
+
+message ObservationTerm {
+  ConversionObservation value = 1;
+}
+enum ObservationKind {
+  OBSERVATION_KIND_UNKNOWN = 0;
+  OBSERVATION_KIND_BOOKMARK = 1;
+  OBSERVATION_KIND_TAG = 2;
+  OBSERVATION_KIND_REVISION = 3;
+}
+
+
+message ObservationEntry {
+  string remote = 1;
+  string name = 2;
+  reserved 3; // Experimental boolean discriminator cannot represent revision pins.
+  repeated ObservationTerm terms = 4;
+  ObservationKind kind = 5;
 }

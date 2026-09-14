@@ -23,8 +23,18 @@ pub struct SourceRepo {
 #[derive(Debug, Default)]
 pub struct Normalized {
     pub tips: BTreeMap<ObjectId, ObjectId>,
-    /// Parent-first correspondences, including identities for unchanged ancestors.
+    /// Raw-to-complete correspondences, including unchanged ancestor identities.
     pub pairs: Vec<(ObjectId, ObjectId)>,
+}
+
+/// The generation locates its immutable graph, independently of publication endpoint.
+pub(crate) fn generation(endpoint: &str, input: ObjectId) -> String {
+    serde_json::to_string(&(endpoint, input.to_string())).expect("generation strings serialize")
+}
+
+pub(crate) fn parse_generation(value: &str) -> Result<(String, ObjectId)> {
+    let (endpoint, input): (String, String) = serde_json::from_str(value).context("Invalid source generation witness")?;
+    Ok((endpoint, ObjectId::from_hex(input.as_bytes())?))
 }
 
 impl SourceRepo {
@@ -78,6 +88,37 @@ impl SourceRepo {
         self.git.git_dir()
     }
 
+    /// Recover the exact complete input graph witnessed by an older operation.
+    pub fn witnessed_generation(&self, tx: &Transaction, raw: ObjectId, input: ObjectId) -> Result<Normalized> {
+        self.check_transaction(tx)?;
+        let inverse = self.persisted_inverse()?;
+        ensure!(inverse.get(&input).copied().unwrap_or(input) == raw, "Source generation does not identify the observed raw input");
+        let retained = tx.resolve_ref(&format!("refs/jjosh/generations/{input}"))?;
+        ensure!(retained == Some(input), "Observed source generation is unavailable; fetch cannot replace historical conversion evidence");
+        let mut visited = HashSet::new();
+        let mut pending = vec![input];
+        let mut pairs = Vec::new();
+        while let Some(id) = pending.pop() {
+            if !visited.insert(id) { continue; }
+            let commit = CommitData::read(tx.odb(), id)?;
+            pending.extend(commit.parsed()?.parents());
+            pairs.push((inverse.get(&id).copied().unwrap_or(id), id));
+        }
+        copy_objects(tx.odb(), None, &[input], &HashSet::new(), false)?;
+        Ok(Normalized { tips: BTreeMap::from([(raw, input)]), pairs })
+    }
+
+    pub fn retain_observations(&self, tx: &Transaction, objects: &[ObjectId]) -> Result<()> {
+        self.retain_raw(tx, objects)?;
+        for id in objects {
+            let name = format!("refs/jjosh/observed-objects/{id}");
+            let old = tx.resolve_ref(&name)?;
+            ensure!(old.is_none_or(|old| old == *id), "Observed object retention was modified");
+            tx.update_ref(&name, old.map_or(josh_core::cache::Expected::Absent, josh_core::cache::Expected::At), *id, "retain immutable source observation")?;
+        }
+        Ok(())
+    }
+
     /// Import the previous source context once, without changing canonical refs.
     /// Push previews use the old context read-only until a fetch completes this move.
     pub fn migrate_context(&self, main: &gix::Repository, prefix: &str) -> Result<()> {
@@ -109,7 +150,7 @@ impl SourceRepo {
     /// Source refs must remain valid even if canonical objects are later collected.
     pub fn retain_raw(&self, tx: &Transaction, tips: &[ObjectId]) -> Result<()> {
         self.check_transaction(tx)?;
-        copy_objects(tx.odb(), Some(&self.git), tips, &self.boundaries()?, false)
+        copy_objects(tx.odb(), Some(&self.git), tips, &self.retention_boundaries(tx)?, false)
     }
 
     /// Cut exactly the declared shallow edges, and rewrite only their descendants.
@@ -175,6 +216,12 @@ impl SourceRepo {
         self.retain_raw(tx, &raw_roots)?;
         let complete_roots: Vec<_> = normalized.tips.values().copied().collect();
         copy_objects(tx.odb(), Some(&self.git), &complete_roots, &HashSet::new(), false)?;
+        for input in &complete_roots {
+            let name = format!("refs/jjosh/generations/{input}");
+            let old = tx.resolve_ref(&name)?;
+            ensure!(old.is_none_or(|old| old == *input), "Source generation retention was modified");
+            tx.update_ref(&name, old.map_or(josh_core::cache::Expected::Absent, josh_core::cache::Expected::At), *input, "retain source normalization generation")?;
+        }
         let mut inverse = BTreeMap::new();
         for &(raw, input) in &normalized.pairs {
             if raw != input {
@@ -187,7 +234,7 @@ impl SourceRepo {
         let roots: Vec<_> = inverse.iter().flat_map(|(&input, &raw)| [input, raw]).collect();
         // Do not skip alternates here: source retention must not rely on a main
         // repository GC retaining objects only reachable from source-side refs.
-        copy_objects(tx.odb(), Some(&self.git), &roots, &self.boundaries()?, false)?;
+        copy_objects(tx.odb(), Some(&self.git), &roots, &self.retention_boundaries(tx)?, false)?;
         let mut edits = Vec::with_capacity(inverse.len() * 2);
         for (input, raw) in inverse {
             for (suffix, target) in [("raw", raw), ("normalized", input)] {
@@ -205,7 +252,7 @@ impl SourceRepo {
 
     /// Reverse both the current normalization and every retained older generation.
     /// Known raw originals are terminal anchors, even if their parents are absent.
-    pub fn denormalize(&self, tx: &Transaction, tip: ObjectId, normalized: &Normalized) -> Result<ObjectId> {
+    pub fn denormalize(&self, tx: &Transaction, tip: ObjectId, normalized: &Normalized) -> Result<Normalized> {
         self.check_transaction(tx)?;
         let mut anchors = self.persisted_inverse()?;
         for &(raw, input) in &normalized.pairs {
@@ -251,7 +298,10 @@ impl SourceRepo {
                 }
             }
         }
-        Ok(mapped[&tip])
+        Ok(Normalized {
+            tips: BTreeMap::from([(mapped[&tip], tip)]),
+            pairs: mapped.into_iter().map(|(input, raw)| (raw, input)).collect(),
+        })
     }
 
     /// Copy a complete canonical closure after the source transaction is flushed.
@@ -283,6 +333,18 @@ impl SourceRepo {
             ensure!(id.kind() == self.git.object_hash(), "Shallow boundary object format mismatch");
             Ok(id)
         }).collect()
+    }
+
+    /// Old normalized roots still witness cut edges after the live depth changes.
+    /// This union is only for retaining raw objects, never for new normalization.
+    fn retention_boundaries(&self, tx: &Transaction) -> Result<HashSet<ObjectId>> {
+        let mut boundaries = self.boundaries()?;
+        for (input, raw) in self.persisted_inverse()? {
+            if CommitData::read(tx.odb(), input)?.parsed()?.parents().next().is_none() {
+                boundaries.insert(raw);
+            }
+        }
+        Ok(boundaries)
     }
 
     fn persisted_inverse(&self) -> Result<BTreeMap<ObjectId, ObjectId>> {

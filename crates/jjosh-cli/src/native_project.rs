@@ -16,6 +16,7 @@ use jj_lib::index::ResolvedChangeState;
 use jj_lib::merge::Merge;
 use jj_lib::merged_tree::MergedTree;
 use jj_lib::object_id::ObjectId as _;
+use jj_lib::project::BindingId;
 use jj_lib::repo::Repo;
 use jj_lib::repo_path::RepoPath;
 use jj_lib::repo_path::RepoPathBuf;
@@ -45,6 +46,45 @@ pub(crate) fn validate_project(name: &str) -> Result<()> {
 
 pub(crate) fn project_ref_prefix(project: &str) -> String {
     format!("refs/jjosh/native/{project}/")
+}
+
+pub(crate) fn binding_ref_prefix(binding: &BindingId) -> String {
+    format!("refs/jjosh/native-bindings/{}/", binding.hex())
+}
+
+/// Direct imports are explicit reusable evidence, not disconnected named peers.
+pub(crate) fn record_offline_binding(transaction: &Transaction, binding: &BindingId) -> Result<()> {
+    let name = format!("{}offline", binding_ref_prefix(binding));
+    let marker = josh_core::objects::write_blob(transaction.odb(), b"offline-native-import-v1\n")?;
+    let old = transaction.resolve_ref(&name)?;
+    ensure!(old.is_none_or(|old| old == marker), "Offline native relation marker was modified");
+    transaction.update_ref(&name, old.map_or(Expected::Absent, Expected::At), marker, "record offline native relation")
+}
+
+pub(crate) fn is_offline_binding(transaction: &Transaction, binding: &BindingId) -> Result<bool> {
+    let name = format!("{}offline", binding_ref_prefix(binding));
+    Ok(transaction.resolve_ref(&name)?.is_some())
+}
+
+/// Copy only explicitly mapped legacy provenance; old operations retain their roots.
+pub(crate) fn migrate_binding_anchors(
+    transaction: &Transaction,
+    project: &str,
+    binding: &BindingId,
+) -> Result<()> {
+    let old = project_ref_prefix(project);
+    let new = binding_ref_prefix(binding);
+    transaction.for_each_ref_prefixed(&old, |name, target| {
+        let suffix = &name[old.len()..];
+        if suffix == "mount" {
+            return Ok(());
+        }
+        let name = format!("{new}{suffix}");
+        let previous = transaction.resolve_ref(&name)?;
+        ensure!(previous.is_none_or(|id| id == target), "Conflicting migrated native correspondence");
+        transaction.update_ref(&name, previous.map_or(Expected::Absent, Expected::At), target, "migrate native binding provenance")?;
+        Ok(())
+    })
 }
 
 fn mount_ref_name(project: &str) -> String {
@@ -94,13 +134,12 @@ pub(crate) fn check_mounts_disjoint<'a>(
     Ok(())
 }
 
-/// Projects with explicit mount ownership, independent of conversion provenance.
+/// Legacy registrations, read only for explicit migration.
 pub(crate) fn list_registered_projects(transaction: &Transaction) -> Result<Vec<String>> {
     project_names_matching(transaction, |suffix| suffix == "mount")
 }
 
-/// Only correspondence records establish native graph provenance. Mount records
-/// and retained raw objects alone must not change a Josh project's conversion.
+/// Legacy correspondence owners, read only for explicit migration.
 pub(crate) fn list_native_projects(transaction: &Transaction) -> Result<Vec<String>> {
     project_names_matching(transaction, |suffix| {
         suffix.split_once('/').is_some_and(|(kind, raw)| {
@@ -127,32 +166,6 @@ fn project_names_matching(
     Ok(names.into_iter().collect())
 }
 
-pub(crate) fn is_registered(transaction: &Transaction, project: &str) -> Result<bool> {
-    Ok(transaction.resolve_ref(&mount_ref_name(project))?.is_some())
-}
-
-/// Mount ownership includes offline registrations and legacy native provenance.
-pub(crate) fn project_for_mount(
-    transaction: &Transaction,
-    mount: &RepoPath,
-) -> Result<Option<String>> {
-    let names: BTreeSet<_> = list_registered_projects(transaction)?
-        .into_iter()
-        .chain(list_native_projects(transaction)?)
-        .collect();
-    let mut matched = None;
-    for project in names {
-        if load_mount(transaction, &project)?.as_ref() == mount {
-            ensure!(
-                matched.is_none(),
-                "Mount {} is claimed by multiple projects",
-                mount.as_internal_file_string()
-            );
-            matched = Some(project);
-        }
-    }
-    Ok(matched)
-}
 
 pub(crate) fn load_mount(transaction: &Transaction, project: &str) -> Result<RepoPathBuf> {
     let Some(oid) = transaction.resolve_ref(&mount_ref_name(project))? else {
@@ -165,54 +178,6 @@ pub(crate) fn load_mount(transaction: &Transaction, project: &str) -> Result<Rep
     parse_mount(text)
 }
 
-pub(crate) fn record_mount(
-    transaction: &Transaction,
-    project: &str,
-    mount: &RepoPath,
-) -> Result<()> {
-    validate_project(project)?;
-    parse_mount(mount.as_internal_file_string())?;
-    if let Some(other) = project_for_mount(transaction, mount)? {
-        ensure!(
-            other == project,
-            "Mount {} is already used by project {other}",
-            mount.as_internal_file_string()
-        );
-    }
-    let name = mount_ref_name(project);
-    if transaction.resolve_ref(&name)?.is_some() {
-        let existing = load_mount(transaction, project)?;
-        ensure!(
-            existing.as_ref() == mount,
-            "Project {project} is already mounted at {}",
-            existing.as_internal_file_string()
-        );
-        return Ok(());
-    }
-    let blob = josh_core::objects::write_blob(
-        transaction.odb(),
-        mount.as_internal_file_string().as_bytes(),
-    )?;
-    transaction.update_ref(&name, Expected::Absent, blob, "record project mount")
-}
-
-pub(crate) fn native_project_for_mount(
-    transaction: &Transaction,
-    mount: &RepoPath,
-) -> Result<Option<String>> {
-    let mut matched = None;
-    for project in list_native_projects(transaction)? {
-        if load_mount(transaction, &project)?.as_ref() == mount {
-            ensure!(
-                matched.as_ref().is_none_or(|previous| previous == &project),
-                "Mount {} is claimed by multiple native projects",
-                mount.as_internal_file_string()
-            );
-            matched = Some(project);
-        }
-    }
-    Ok(matched)
-}
 
 async fn value_at_path(
     store: &Store,
@@ -361,13 +326,13 @@ fn oid(id: &CommitId) -> Result<gix_hash::ObjectId> {
     Ok(gix_hash::ObjectId::try_from(id.as_bytes())?)
 }
 
-fn retain_original(transaction: &Transaction, project: &str, raw: &CommitId) -> Result<()> {
+fn retain_original(transaction: &Transaction, binding: &BindingId, raw: &CommitId) -> Result<()> {
     if raw.as_bytes().iter().all(|byte| *byte == 0) {
         return Ok(());
     }
     // A ref in the private namespace keeps raw ancestry alive without exposing
     // it as a branch or importing it into jj's visible graph.
-    let name = format!("refs/jjosh/native/{project}/{}", raw.hex());
+    let name = format!("{}{}", binding_ref_prefix(binding), raw.hex());
     let value = oid(raw)?;
     let previous = transaction.resolve_ref(&name)?;
     ensure!(
@@ -385,7 +350,7 @@ fn retain_original(transaction: &Transaction, project: &str, raw: &CommitId) -> 
 
 pub(crate) fn record_anchor(
     transaction: &Transaction,
-    project: &str,
+    binding: &BindingId,
     kind: &str,
     raw: &CommitId,
     canonical: &CommitId,
@@ -393,14 +358,14 @@ pub(crate) fn record_anchor(
     if raw.as_bytes().iter().all(|byte| *byte == 0) {
         return Ok(());
     }
-    let name = format!("{}{kind}/{}", project_ref_prefix(project), raw.hex());
+    let name = format!("{}{kind}/{}", binding_ref_prefix(binding), raw.hex());
     let value = oid(canonical)?;
     let previous = transaction.resolve_ref(&name)?;
     ensure!(
         previous.is_none_or(|old| old == value),
         "Native correspondence {name} already identifies another monorepo revision"
     );
-    retain_original(transaction, project, raw)?;
+    retain_original(transaction, binding, raw)?;
     transaction.update_ref(
         &name,
         previous.map_or(Expected::Absent, Expected::At),
@@ -412,13 +377,13 @@ pub(crate) fn record_anchor(
 
 pub(crate) fn record_imported_boundaries<'a>(
     transaction: &Transaction,
-    project: &str,
+    binding: &BindingId,
     imported: &crate::native_import::Imported,
     tips: impl IntoIterator<Item = &'a CommitId>,
 ) -> Result<()> {
     let mut grafted = HashSet::new();
     for (raw, canonical) in &imported.grafts {
-        record_anchor(transaction, project, "graft", raw, canonical)?;
+        record_anchor(transaction, binding, "graft", raw, canonical)?;
         grafted.insert(raw.clone());
     }
     for raw in tips {
@@ -428,7 +393,7 @@ pub(crate) fn record_imported_boundaries<'a>(
         let Some(canonical) = imported.ids.get(raw) else {
             continue;
         };
-        record_anchor(transaction, project, "origin", raw, canonical)?;
+        record_anchor(transaction, binding, "origin", raw, canonical)?;
     }
     Ok(())
 }
@@ -439,18 +404,9 @@ pub(crate) fn record_imported_boundaries<'a>(
 pub(crate) async fn anchors(
     repo: &dyn Repo,
     transaction: &Transaction,
-    project: &str,
+    binding: &BindingId,
 ) -> Result<HashMap<CommitId, CommitId>> {
-    ensure!(
-        !repo
-            .view()
-            .store_view()
-            .remote_views
-            .keys()
-            .any(|name| { name.as_str() == format!("jjosh-native-{project}") }),
-        "Run `jjosh native migrate` to move legacy correspondence bookmarks to private refs"
-    );
-    let prefix = project_ref_prefix(project);
+    let prefix = binding_ref_prefix(binding);
     let mut ids = HashMap::from([(
         repo.store().root_commit_id().clone(),
         repo.store().root_commit_id().clone(),
@@ -465,6 +421,7 @@ pub(crate) async fn anchors(
             raw.as_bytes().len() == 20,
             "Invalid native correspondence commit ID"
         );
+        if kind == "observed" { return Ok(()); }
         let canonical = CommitId::from_bytes(canonical.as_bytes());
         match kind {
             "origin" => pending.push((raw, canonical.clone())),
@@ -475,35 +432,6 @@ pub(crate) async fn anchors(
         }
         Ok(())
     })?;
-    let named = |name: &str| crate::ref_names::belongs_to_project(project, name);
-    let mut present = !pending.is_empty()
-        || ids.len() > 1
-        || repo
-            .view()
-            .local_bookmarks()
-            .any(|(name, _)| named(name.as_str()))
-        || repo
-            .view()
-            .local_tags()
-            .any(|(name, _)| named(name.as_str()))
-        || repo
-            .view()
-            .all_remote_bookmarks()
-            .any(|(symbol, _)| named(symbol.name.as_str()));
-    if !present {
-        let mount = load_mount(transaction, project)?;
-        for head in repo.view().heads() {
-            let commit = repo.store().get_commit_async(head).await?;
-            if commit_path_occupied(&commit, &mount).await? {
-                present = true;
-                break;
-            }
-        }
-    }
-    ensure!(
-        present,
-        "Project {project:?} is not present; import or link it first"
-    );
     while let Some((raw, canonical)) = pending.pop() {
         if let Some(previous) = ids.get(&raw) {
             ensure!(

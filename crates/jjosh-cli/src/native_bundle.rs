@@ -30,6 +30,7 @@ use jj_lib::op_store::RemoteRefState;
 use jj_lib::op_store::RemoteView;
 use jj_lib::op_store::View;
 use jj_lib::op_store::WorkingCopyPatternsId;
+use jj_lib::project::{BindingId, BindingRecord, BindingTarget, ConnectionId, ConversionObservation, ConversionTerm, ObservationKey, ObservationKind, ProjectId, ProjectRecord, ProjectState, Representation};
 use jj_lib::ref_name::RefNameBuf;
 use jj_lib::repo::ReadonlyRepo;
 use jj_lib::repo::Repo as _;
@@ -46,7 +47,7 @@ use tempfile::NamedTempFile;
 use crate::native_source::NativeSource;
 
 const FORMAT: &str = "jjosh-native";
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 const ROOT: &str = "0000000000000000000000000000000000000000";
 
 #[derive(Serialize, Deserialize)]
@@ -121,6 +122,279 @@ struct ViewData {
         deserialize_with = "unique_map"
     )]
     wc_sparse_patterns: BTreeMap<String, Vec<Option<String>>>,
+    #[serde(default)]
+    project_metadata: Option<ProjectMetadataData>,
+}
+
+/// Declarative source metadata only: no local remote config, URLs or permissions
+/// are activated when decoding this section or wrapping the source in a project.
+#[derive(Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProjectMetadataData {
+    #[serde(default, deserialize_with = "unique_map")]
+    projects: BTreeMap<String, Vec<Option<ProjectData>>>,
+    #[serde(default, deserialize_with = "unique_map")]
+    bindings: BTreeMap<String, Vec<Option<BindingData>>>,
+    #[serde(default, deserialize_with = "unique_map")]
+    labels: BTreeMap<String, Vec<Option<String>>>,
+    #[serde(default, deserialize_with = "unique_map")]
+    remote_connections: BTreeMap<String, Vec<Option<String>>>,
+    #[serde(default)]
+    observations: Vec<ObservationData>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProjectData {
+    name: String,
+    canonical_root: String,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BindingData {
+    /// None denotes a repository view, never an implicit root project.
+    project: Option<String>,
+    connection: String,
+    provider: String,
+    version: u32,
+    representation: RepresentationData,
+    base: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum RepresentationData { Whole, JoshFilter(String), JoshView(String) }
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ObservationData {
+    remote: String,
+    name: String,
+    kind: ObservationKindData,
+    terms: Vec<Option<ConversionData>>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum ObservationKindData { Bookmark, Tag, Revision }
+
+impl From<ObservationKind> for ObservationKindData {
+    fn from(kind: ObservationKind) -> Self {
+        match kind {
+            ObservationKind::Bookmark => Self::Bookmark,
+            ObservationKind::Tag => Self::Tag,
+            ObservationKind::Revision => Self::Revision,
+        }
+    }
+}
+
+impl From<ObservationKindData> for ObservationKind {
+    fn from(kind: ObservationKindData) -> Self {
+        match kind {
+            ObservationKindData::Bookmark => Self::Bookmark,
+            ObservationKindData::Tag => Self::Tag,
+            ObservationKindData::Revision => Self::Revision,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ConversionData {
+    binding_id: String,
+    binding: BindingData,
+    connection_id: String,
+    endpoint: String,
+    raw_ref: String,
+    terms: Vec<ConversionTermData>,
+    base: Option<String>,
+    generation: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ConversionTermData {
+    canonical: Option<String>,
+    raw: Option<String>,
+}
+
+fn project_id(value: &str) -> Result<ProjectId> {
+    validate_hex(value, 16, "project ID")?;
+    ProjectId::try_from_hex(value).context("invalid project ID")
+}
+
+fn binding_id(value: &str) -> Result<BindingId> {
+    validate_hex(value, 16, "binding ID")?;
+    BindingId::try_from_hex(value).context("invalid binding ID")
+}
+
+fn connection_id(value: &str) -> Result<ConnectionId> {
+    validate_hex(value, 16, "connection ID")?;
+    ConnectionId::try_from_hex(value).context("invalid connection ID")
+}
+
+impl BindingData {
+    fn encode(value: &BindingRecord) -> Self {
+        Self {
+            project: match &value.target {
+                BindingTarget::Project(id) => Some(id.hex()),
+                BindingTarget::RepositoryView => None,
+            },
+            connection: value.connection_id.hex(),
+            provider: "jjosh".to_owned(),
+            version: 1,
+            representation: match &value.representation {
+                Representation::Whole => RepresentationData::Whole,
+                Representation::JoshFilter(value) => RepresentationData::JoshFilter(value.clone()),
+                Representation::JoshView(value) => RepresentationData::JoshView(value.clone()),
+            },
+            base: value.base.clone(),
+        }
+    }
+
+    fn decode(self) -> Result<BindingRecord> {
+        ensure!(self.provider == "jjosh" && self.version == 1,
+            "unsupported binding provider/version {} {}", self.provider, self.version);
+        Ok(BindingRecord {
+            target: self.project.map(|id| project_id(&id).map(BindingTarget::Project))
+                .transpose()?.unwrap_or(BindingTarget::RepositoryView),
+            connection_id: connection_id(&self.connection)?,
+            representation: match self.representation {
+                RepresentationData::Whole => Representation::Whole,
+                RepresentationData::JoshFilter(value) => Representation::JoshFilter(value),
+                RepresentationData::JoshView(value) => Representation::JoshView(value),
+            },
+            base: self.base,
+        })
+    }
+}
+
+impl ConversionData {
+    fn encode(value: &ConversionObservation) -> Self {
+        Self {
+            binding_id: value.binding_id.hex(),
+            binding: BindingData::encode(&value.binding),
+            connection_id: value.connection_id.hex(),
+            endpoint: value.endpoint.clone(),
+            raw_ref: value.raw_ref.clone(),
+            terms: value.terms.iter().map(|term| ConversionTermData {
+                canonical: term.canonical.as_ref().map(|id| id.hex()), raw: term.raw.clone(),
+            }).collect(),
+            base: value.base.clone(),
+            generation: value.generation.clone(),
+        }
+    }
+
+    fn decode(self) -> Result<ConversionObservation> {
+        ensure!(!self.terms.is_empty() && self.terms.len() % 2 == 1,
+            "conversion evidence must have an odd nonzero number of signed terms");
+        ensure!(!self.endpoint.is_empty(), "conversion evidence requires an endpoint");
+        Ok(ConversionObservation {
+            binding_id: binding_id(&self.binding_id)?,
+            binding: self.binding.decode()?,
+            connection_id: connection_id(&self.connection_id)?,
+            endpoint: self.endpoint,
+            raw_ref: self.raw_ref,
+            terms: self.terms.into_iter().map(|term| Ok(ConversionTerm {
+                canonical: term.canonical.map(|id| commit_id(&id)).transpose()?,
+                raw: term.raw,
+            })).collect::<Result<_>>()?,
+            base: self.base,
+            generation: self.generation,
+        })
+    }
+}
+
+type DecodedProjectMetadata = (
+    ProjectState,
+    BTreeMap<jj_lib::ref_name::RemoteNameBuf, Merge<Option<ConnectionId>>>,
+    BTreeMap<ObservationKey, Merge<Option<ConversionObservation>>>,
+);
+
+impl ProjectMetadataData {
+    fn encode(view: &View) -> Self {
+        Self {
+            projects: view.project_state.projects.iter().map(|(id, target)| (
+                id.hex(), target.iter().map(|term| term.as_ref().map(|record| ProjectData {
+                    name: record.name.clone(), canonical_root: record.canonical_root.as_internal_file_string().to_owned(),
+                })).collect(),
+            )).collect(),
+            bindings: view.project_state.bindings.iter().map(|(id, target)| (
+                id.hex(), target.iter().map(|term| term.as_ref().map(BindingData::encode)).collect(),
+            )).collect(),
+            labels: view.project_state.labels.iter().map(|(label, target)| (
+                label.clone(), target.iter().map(|term| term.as_ref().map(|id| id.hex())).collect(),
+            )).collect(),
+            remote_connections: view.remote_connections.iter().map(|(name, target)| (
+                name.as_str().to_owned(), target.iter().map(|term| term.as_ref().map(|id| id.hex())).collect(),
+            )).collect(),
+            observations: view.project_observations.iter().map(|(key, target)| ObservationData {
+                remote: key.remote.as_str().to_owned(), name: key.name.as_str().to_owned(), kind: key.kind.into(),
+                terms: target.iter().map(|term| term.as_ref().map(ConversionData::encode)).collect(),
+            }).collect(),
+        }
+    }
+
+    fn decode(self) -> Result<DecodedProjectMetadata> {
+        let projects = self.projects.into_iter().map(|(id, terms)| {
+            let terms = terms.into_iter().map(|term| term.map(|record| {
+                crate::native_project::validate_project(&record.name)?;
+                Ok(ProjectRecord {
+                    name: record.name,
+                    canonical_root: crate::native_project::parse_mount(&record.canonical_root)?,
+                })
+            }).transpose()).collect::<Result<Vec<_>>>()?;
+            let target = merge(terms, "project definition")?;
+            let mut roots = target.iter().flatten().map(|record| &record.canonical_root);
+            if let Some(first) = roots.next() {
+                ensure!(roots.all(|root| root == first), "project {id} changes its immutable root");
+            }
+            Ok((project_id(&id)?, target))
+        }).collect::<Result<_>>()?;
+        let bindings: BTreeMap<_, _> = self.bindings.into_iter().map(|(id, terms)| {
+            let terms = terms.into_iter().map(|term| term.map(BindingData::decode).transpose()).collect::<Result<_>>()?;
+            let target = merge(terms, "binding definition")?;
+            let mut records = target.iter().flatten();
+            if let Some(first) = records.next() {
+                ensure!(records.all(|record| record == first), "binding {id} changes its immutable definition");
+            }
+            Ok((binding_id(&id)?, target))
+        }).collect::<Result<_>>()?;
+        let labels = self.labels.into_iter().map(|(label, terms)| {
+            crate::native_project::validate_project(&label)?;
+            let terms = terms.into_iter().map(|term| term.map(|id| project_id(&id)).transpose()).collect::<Result<_>>()?;
+            Ok((label, merge(terms, "project label")?))
+        }).collect::<Result<_>>()?;
+        let connections = self.remote_connections.into_iter().map(|(name, terms)| {
+            let terms = terms.into_iter().map(|term| term.map(|id| connection_id(&id)).transpose()).collect::<Result<_>>()?;
+            Ok((name.into(), merge(terms, "remote connection owner")?))
+        }).collect::<Result<_>>()?;
+        let mut observations = BTreeMap::new();
+        let mut known_bindings: BTreeMap<_, _> = bindings.iter().flat_map(|(id, target)| target.iter().flatten().map(move |record| (id.clone(), record.clone()))).collect();
+        for observation in self.observations {
+            let key = ObservationKey { remote: observation.remote.into(), name: observation.name.into(), kind: observation.kind.into() };
+            if key.kind == ObservationKind::Revision {
+                gix_hash::ObjectId::from_hex(key.name.as_str().as_bytes())
+                    .context("revision observation key must be a raw object ID")?;
+            }
+            let terms = observation.terms.into_iter().map(|term| term.map(ConversionData::decode).transpose()).collect::<Result<Vec<_>>>()?;
+            // Historical evidence can refer to inactive bindings, but no known
+            // immutable identity may contradict its snapshot.
+            for term in terms.iter().flatten() {
+                ensure!(key.kind == ObservationKind::Revision || !term.raw_ref.is_empty(),
+                    "bookmark and tag conversion evidence requires a raw ref");
+                if let Some(record) = known_bindings.get(&term.binding_id) {
+                    ensure!(record == &term.binding, "conversion snapshots contradict immutable binding {}", term.binding_id);
+                } else {
+                    known_bindings.insert(term.binding_id.clone(), term.binding.clone());
+                }
+            }
+            ensure!(observations.insert(key, merge(terms, "conversion observation")?).is_none(),
+                "duplicate conversion observation key");
+        }
+        Ok((ProjectState { projects, bindings, labels }, connections, observations))
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -402,6 +676,7 @@ impl From<&View> for ViewData {
                     )
                 })
                 .collect(),
+            project_metadata: Some(ProjectMetadataData::encode(value)),
         }
     }
 }
@@ -438,6 +713,7 @@ impl ViewData {
                 Ok((name.into(), merge(terms, "sparse configuration")?))
             })
             .collect::<Result<_>>()?;
+        let (project_state, remote_connections, project_observations) = self.project_metadata.unwrap_or_default().decode()?;
         Ok(View {
             head_ids,
             local_bookmarks: decode_refs(self.local_bookmarks)?,
@@ -455,6 +731,9 @@ impl ViewData {
                 .map(|(name, id)| Ok((name.into(), commit_id(&id)?)))
                 .collect::<Result<_>>()?,
             wc_sparse_patterns,
+            project_state,
+            remote_connections,
+            project_observations,
         })
     }
 }
@@ -758,10 +1037,12 @@ pub(crate) async fn load(path: &Path, settings: &UserSettings) -> Result<NativeS
     ensure!(have_pack, "native bundle is missing objects.pack");
     ensure!(manifest.format == FORMAT, "not a jjosh native bundle");
     ensure!(
-        manifest.version == VERSION,
-        "unsupported native bundle version {} (supported: {VERSION})",
+        matches!(manifest.version, 1 | VERSION),
+        "unsupported native bundle version {} (supported: 1 and {VERSION})",
         manifest.version
     );
+    ensure!(manifest.version == 1 || manifest.view.project_metadata.is_some(),
+        "native bundle version {VERSION} requires an explicit project_metadata section");
     ensure!(
         manifest.root_commit == ROOT,
         "invalid synthetic root ID in native bundle"

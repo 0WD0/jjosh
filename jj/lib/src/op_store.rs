@@ -35,6 +35,7 @@ use crate::object_id::HexPrefix;
 use crate::object_id::ObjectId as _;
 use crate::object_id::PrefixResolution;
 use crate::object_id::id_type;
+use crate::project::{ConnectionId, ConversionObservation, ObservationKey, ProjectState};
 use crate::ref_name::GitRefNameBuf;
 use crate::ref_name::RefName;
 use crate::ref_name::RefNameBuf;
@@ -265,6 +266,9 @@ pub struct View {
     /// Desired canonical sparse selection and layout object IDs.
     /// Missing entries retain unknown-history, working-copy-local configuration.
     pub wc_sparse_patterns: BTreeMap<WorkspaceNameBuf, Merge<Option<WorkingCopyPatternsId>>>,
+    pub project_state: ProjectState,
+    pub remote_connections: BTreeMap<RemoteNameBuf, Merge<Option<ConnectionId>>>,
+    pub project_observations: BTreeMap<ObservationKey, Merge<Option<ConversionObservation>>>,
 }
 
 impl ContentHash for View {
@@ -279,6 +283,15 @@ impl ContentHash for View {
         self.wc_commit_ids.hash(state);
         if !self.wc_sparse_patterns.is_empty() {
             self.wc_sparse_patterns.hash(state);
+        }
+        if !self.project_state.is_empty() || !self.remote_connections.is_empty() || !self.project_observations.is_empty() {
+            "jjosh-project-state-v1".hash(state);
+            "definitions".hash(state);
+            self.project_state.hash(state);
+            "remote-connections".hash(state);
+            self.remote_connections.hash(state);
+            "conversion-observations".hash(state);
+            self.project_observations.hash(state);
         }
     }
 }
@@ -295,6 +308,9 @@ impl View {
             git_heads: BTreeMap::new(),
             wc_commit_ids: BTreeMap::new(),
             wc_sparse_patterns: BTreeMap::new(),
+            project_state: ProjectState::default(),
+            remote_connections: BTreeMap::new(),
+            project_observations: BTreeMap::new(),
         }
     }
 }

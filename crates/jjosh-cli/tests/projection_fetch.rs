@@ -108,20 +108,18 @@ fn fetch_projects_refs_and_imports_only_visible_changes() {
     git(&client, &["commit", "-m", "local-seed"]);
     jjosh(&client, &["git", "init", "--colocate"]);
     git(&client, &["switch", "--detach"]);
-    git(
-        &client,
-        &["remote", "add", "origin", upstream_bare.to_str().unwrap()],
-    );
 
     jjosh(
         &client,
         &[
-            "projection",
+            "git",
             "remote",
             "add",
             "origin",
             upstream_bare.to_str().unwrap(),
+            "--filter",
             ":/app",
+            "--writable",
         ],
     );
 
@@ -177,7 +175,7 @@ fn fetch_projects_refs_and_imports_only_visible_changes() {
         git(&client, &["rev-parse", "refs/remotes/origin/main"]).trim(),
         initial_projected
     );
-    assert_eq!(operation_id(&client), initial_operation);
+    assert_ne!(operation_id(&client), initial_operation);
     assert_eq!(git(&client, &["for-each-ref", "refs/tags/outside-tag"]), "");
     assert_eq!(
         String::from_utf8(jjosh(&client, &["tag", "list", "--all-remotes", "outside-tag"]).stdout,)
@@ -248,11 +246,12 @@ fn projection_fetch_repo() -> (tempfile::TempDir, PathBuf, PathBuf) {
     jjosh(
         &client,
         &[
-            "projection",
+            "git",
             "remote",
             "add",
             "origin",
             source.to_str().unwrap(),
+            "--filter",
             ":/app",
         ],
     );

@@ -59,7 +59,6 @@ impl NativeRepo {
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .env("GIT_CONFIG_GLOBAL", "/dev/null")
             .env("LANG", "C.UTF-8")
-            .env("JOSH_EXPERIMENTAL_FEATURES", "1")
             .output()
             .unwrap_or_else(|err| panic!("failed to run jjosh {args:?}: {err}"))
     }
@@ -168,19 +167,15 @@ impl NativeRepo {
     }
 
     fn import(&self, a: &Path, b: &Path) {
-        self.jj(&[
-            "native",
-            "import",
-            "--source",
-            &format!("a={}", a.display()),
-            "--source",
-            &format!("b={}", b.display()),
-        ]);
+        self.jj(&["project", "import", "--source",
+        &format!("a={}", a.display()),
+        "--source",
+        &format!("b={}", b.display()),]);
     }
 
     fn add_project_remote(&self, name: &str, url: &Path, project: &str) {
-        self.jj(&["git", "remote", "add", name, url.to_str().unwrap()]);
-        self.jj(&["projection", "remote", "attach", name, project]);
+        self.jj(&["git", "remote", "add", name, url.to_str().unwrap(),
+            "--project", project, "--whole", "--writable"]);
     }
 }
 
@@ -484,9 +479,7 @@ fn rejects_namespace_collisions_without_publishing_any_source() {
         let target = NativeRepo::with_colocation(colocated);
         let before = target.state();
         for second in [&b_source, &repeated] {
-            let output = target.unchecked(&[
-                "native", "import", "--source", &a_source, "--source", second,
-            ]);
+            let output = target.unchecked(&["project", "import", "--source", &a_source, "--source", second,]);
             assert!(!output.status.success(), "collision unexpectedly succeeded");
             assert_eq!(target.state(), before);
         }
@@ -609,7 +602,7 @@ fn rejects_invalid_bundles_atomically_and_never_overwrites_an_export() {
             assert!(
                 !target
                     .unchecked(&[
-                        "native",
+                        "project",
                         "import",
                         "--source",
                         &valid_source,
@@ -669,12 +662,8 @@ fn direct_native_import_preserves_recorded_state_without_rebuilding_source_index
     let target = NativeRepo::new();
     target.write("existing.txt", "existing monorepo\n");
     target.jj(&["describe", "-m", "existing monorepo"]);
-    target.jj(&[
-        "native",
-        "import",
-        "--source",
-        &format!("app={}", source.path.display()),
-    ]);
+    target.jj(&["project", "import", "--source",
+    &format!("app={}", source.path.display()),]);
     assert!(!association.exists(), "source index was rebuilt");
     assert_eq!(
         fs::read_to_string(source.path.join("value.txt")).unwrap(),
@@ -693,7 +682,7 @@ fn direct_native_import_preserves_recorded_state_without_rebuilding_source_index
     assert!(
         !target
             .unchecked(&[
-                "native",
+                "project",
                 "import",
                 "--source",
                 &format!("app={}", source.path.display())
@@ -737,12 +726,8 @@ fn scope_suffix_convention_uses_native_tracking_and_project_publication() {
     mono.bookmark("main");
     let root_main = mono.log("main", "commit_id");
     let store_type = fs::read(mono.path.join(".jj/repo/op_store/type")).unwrap();
-    mono.jj(&[
-        "native",
-        "import",
-        "--source",
-        &format!("alpha={}", source.path.display()),
-    ]);
+    mono.jj(&["project", "import", "--source",
+    &format!("alpha={}", source.path.display()),]);
     let scoped = "main#alpha";
     assert_eq!(mono.change_id(scoped), source.change_id("main"));
     assert_eq!(
@@ -765,6 +750,7 @@ fn scope_suffix_convention_uses_native_tracking_and_project_publication() {
     mono.jj(&["new", "@", scoped, "-m", "composition"]);
 
     mono.add_project_remote("alpha-upstream", &upstream, "alpha");
+    mono.jj(&["git", "remote", "forget-observations", "alpha-origin"]);
     mono.add_project_remote("alpha-origin", &fork, "alpha");
     let publish = |remote: &str| {
         mono.jj(&[
@@ -842,12 +828,8 @@ fn scope_suffix_convention_rejects_an_occupied_name_namespace() {
     let mono = NativeRepo::new();
     mono.bookmark("\"existing#alpha\"");
     let before = mono.operation_id();
-    let output = mono.unchecked(&[
-        "native",
-        "import",
-        "--source",
-        &format!("alpha={}", source.path.display()),
-    ]);
+    let output = mono.unchecked(&["project", "import", "--source",
+    &format!("alpha={}", source.path.display()),]);
     assert!(!output.status.success());
     assert_eq!(mono.operation_id(), before);
 }
@@ -872,14 +854,10 @@ fn native_partial_publication_returns_to_canonical_change_and_accepts_contributi
     let mono = NativeRepo::new();
     mono.write("root.txt", "monorepo root\n");
     mono.jj(&["describe", "-m", "monorepo root"]);
-    mono.jj(&[
-        "native",
-        "import",
-        "--source",
-        &format!("alpha={}", alpha.path.display()),
-        "--source",
-        &format!("beta={}", beta.path.display()),
-    ]);
+    mono.jj(&["project", "import", "--source",
+    &format!("alpha={}", alpha.path.display()),
+    "--source",
+    &format!("beta={}", beta.path.display()),]);
     mono.jj(&["new", "@", "main#alpha", "main#beta", "-m", "composition"]);
     mono.jj(&["new", "-m", "one change across projects"]);
     mono.write("alpha/value.txt", "alpha local\n");
@@ -1128,12 +1106,8 @@ fn native_boundary_migration_preserves_rewrites_and_old_version_intake() {
         source.jj(&["git", "export"]);
         let raw = source.log("@", "commit_id");
         let mono = NativeRepo::with_colocation(colocated);
-        mono.jj(&[
-            "native",
-            "import",
-            "--source",
-            &format!("app={}", source.path.display()),
-        ]);
+        mono.jj(&["project", "import", "--source",
+        &format!("app={}", source.path.display()),]);
         let original = mono.log("main#app", "commit_id");
         let git_dir = mono.path.join(if colocated {
             ".git"
@@ -1158,9 +1132,8 @@ fn native_boundary_migration_preserves_rewrites_and_old_version_intake() {
             "-d",
             &format!("refs/jjosh/native/app/origin/{raw}"),
         ]);
-        mono.jj(&["git", "import"]);
         let graph = mono.graph("all()");
-        mono.jj(&["native", "migrate"]);
+        mono.jj(&["project", "migrate", "--apply", "--native-source", "app=detached"]);
         assert_eq!(mono.graph("all()"), graph);
         let remote_names = || {
             mono.jj(&[
@@ -1247,16 +1220,16 @@ fn native_fetch_grafts_by_change_id_onto_linked_suffix_history() {
     let git_dir = source.path.join(".jj/repo/store/git");
 
     let dest = NativeRepo::new();
+    dest.jj(&["project", "add", "jj", "--path", "jj"]);
     dest.jj(&[
-        "projection",
+        "git",
         "remote",
         "add",
         "jj-upstream",
         git_dir.to_str().unwrap(),
+        "--filter",
         ":/",
         "--project",
-        "jj",
-        "--mount",
         "jj",
         "--base",
         "main",
@@ -1306,16 +1279,16 @@ fn native_fetch_records_a_new_version_when_filtered_ancestor_differs() {
     let git_dir = source.path.join(".jj/repo/store/git");
 
     let dest = NativeRepo::new();
+    dest.jj(&["project", "add", "jj", "--path", "jj"]);
     dest.jj(&[
-        "projection",
+        "git",
         "remote",
         "add",
         "jj-upstream",
         git_dir.to_str().unwrap(),
+        "--filter",
         ":/",
         "--project",
-        "jj",
-        "--mount",
         "jj",
         "--base",
         "main",
@@ -1365,14 +1338,10 @@ fn native_import_fetch_push_use_nested_mounts() {
     let dest = NativeRepo::new();
     dest.write("keep.txt", "root\n");
     dest.jj(&["describe", "-m", "monorepo"]);
-    dest.jj(&[
-        "native",
-        "import",
-        "--source",
-        &format!("alpha={}", source.path.display()),
-        "--mount",
-        "alpha=vendor/alpha",
-    ]);
+    dest.jj(&["project", "import", "--source",
+    &format!("alpha={}", source.path.display()),
+    "--mount",
+    "alpha=vendor/alpha",]);
     assert!(!dest.path.join("vendor").exists());
     dest.jj(&["new", "@", "main#alpha"]);
     assert_eq!(
@@ -1414,6 +1383,7 @@ fn native_import_fetch_push_use_nested_mounts() {
         "add",
         "alpha-origin",
         remote.to_str().unwrap(),
+        "--project", "alpha", "--whole", "--writable",
     ]);
     dest.jj(&[
         "bookmark",
@@ -1465,29 +1435,21 @@ fn native_import_rejects_occupied_or_overlapping_mounts() {
     let dest = NativeRepo::new();
     dest.write("vendor/alpha/blocked.txt", "occupied\n");
     dest.jj(&["describe", "-m", "occupied"]);
-    let occupied = dest.unchecked(&[
-        "native",
-        "import",
-        "--source",
-        &format!("alpha={}", source.path.display()),
-        "--mount",
-        "alpha=vendor/alpha",
-    ]);
+    let occupied = dest.unchecked(&["project", "import", "--source",
+    &format!("alpha={}", source.path.display()),
+    "--mount",
+    "alpha=vendor/alpha",]);
     assert!(!occupied.status.success());
 
     let overlap = NativeRepo::new();
-    let overlapped = overlap.unchecked(&[
-        "native",
-        "import",
-        "--source",
-        &format!("alpha={}", source.path.display()),
-        "--source",
-        &format!("beta={}", other.path.display()),
-        "--mount",
-        "alpha=vendor",
-        "--mount",
-        "beta=vendor/beta",
-    ]);
+    let overlapped = overlap.unchecked(&["project", "import", "--source",
+    &format!("alpha={}", source.path.display()),
+    "--source",
+    &format!("beta={}", other.path.display()),
+    "--mount",
+    "alpha=vendor",
+    "--mount",
+    "beta=vendor/beta",]);
     assert!(!overlapped.status.success());
 }
 
@@ -1503,14 +1465,10 @@ fn native_project_names_are_jj_symbols() {
     chinese.bookmark("main");
 
     let dest = NativeRepo::new();
-    dest.jj(&[
-        "native",
-        "import",
-        "--source",
-        &format!("foo.bar={}", dotted.path.display()),
-        "--source",
-        &format!("项目={}", chinese.path.display()),
-    ]);
+    dest.jj(&["project", "import", "--source",
+    &format!("foo.bar={}", dotted.path.display()),
+    "--source",
+    &format!("项目={}", chinese.path.display()),]);
     dest.jj(&["new", "main#foo.bar", "main#项目"]);
     assert_eq!(
         fs::read_to_string(dest.path.join("foo.bar/file.txt")).unwrap(),
@@ -1521,11 +1479,7 @@ fn native_project_names_are_jj_symbols() {
         "han\n"
     );
 
-    let hash = dest.unchecked(&[
-        "native",
-        "import",
-        "--source",
-        &format!("a#b={}", dotted.path.display()),
-    ]);
+    let hash = dest.unchecked(&["project", "import", "--source",
+    &format!("a#b={}", dotted.path.display()),]);
     assert!(!hash.status.success());
 }

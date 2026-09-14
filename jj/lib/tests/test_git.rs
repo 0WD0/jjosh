@@ -2414,6 +2414,7 @@ fn test_import_remote_observations_selected_deletion() -> TestResult {
         symbol: remote_symbol(name, "origin").to_owned(),
         target: RefTarget::normal(jj_id(oid)),
         canonical_git_oid: Some(oid),
+        evidence: None,
     });
     let mut tx = repo.start_transaction();
     git::import_remote_observations(tx.repo_mut(), &options, observations, |_, symbol| {
@@ -2485,6 +2486,7 @@ fn test_import_remote_observations_tracked_native_conflict() -> TestResult {
             symbol: symbol.to_owned(),
             target: RefTarget::normal(jj_id(base)),
             canonical_git_oid: Some(base),
+            evidence: None,
         }],
         |_, candidate| candidate == symbol,
     )
@@ -2502,6 +2504,7 @@ fn test_import_remote_observations_tracked_native_conflict() -> TestResult {
             symbol: symbol.to_owned(),
             target: conflict.clone(),
             canonical_git_oid: None,
+            evidence: None,
         }],
         |_, candidate| candidate == symbol,
     )
@@ -2545,6 +2548,114 @@ fn test_import_remote_observations_tracked_native_conflict() -> TestResult {
 }
 
 #[test]
+fn test_remote_recovery_rejects_uncommitted_offline_retirement() -> TestResult {
+    let test_repo = TestRepo::init_with_backend(TestRepoBackend::Git);
+    let repo = &test_repo.repo;
+    let git_repo = get_git_repo(repo);
+    let name = "refs/jjosh/native/legacy/mount";
+    let oid = empty_git_commit(&git_repo, name, &[]);
+    let sidecar = git_repo.path().join("legacy.josh");
+    std::fs::write(&sidecar, b":/legacy")?;
+    let journal = git::begin_remote_management(repo.store(), &repo.operation().id().hex(), std::slice::from_ref(&sidecar))?;
+    journal.register_retirements(std::slice::from_ref(&sidecar), &[name.to_owned()])?;
+    let mut tx = repo.start_transaction();
+    let id = jj_lib::project::ProjectId::generate();
+    tx.repo_mut().view_mut().project_state_mut().projects.insert(id, jj_lib::merge::Merge::resolved(Some(
+        jj_lib::project::ProjectRecord {
+            name: "legacy".into(),
+            canonical_root: jj_lib::repo_path::RepoPathBuf::from_internal_string("legacy")?,
+        },
+    )));
+    journal.expect_operation(tx.repo().view())?;
+    drop(journal);
+    let result = git::recover_remote_management(repo.store(), repo.view(), &repo.operation().id().hex(), true, &["jjosh-v1"]);
+    assert!(result.is_err());
+    assert_eq!(std::fs::read(&sidecar)?, b":/legacy");
+    assert_eq!(git_repo.find_reference(name)?.target().try_id(), Some(oid.as_ref()));
+    git::recover_remote_management(repo.store(), repo.view(), &repo.operation().id().hex(), false, &["jjosh-v1"])?;
+    assert_eq!(std::fs::read(&sidecar)?, b":/legacy");
+    assert_eq!(git_repo.find_reference(name)?.target().try_id(), Some(oid.as_ref()));
+    Ok(())
+}
+
+#[test]
+fn test_remote_recovery_preserves_unrelated_git_refs() -> TestResult {
+    let test_repo = TestRepo::init_with_backend(TestRepoBackend::Git);
+    let mut tx = test_repo.repo.start_transaction();
+    git::add_remote(tx.repo_mut(), "origin".as_ref(), "https://example.invalid/repo", None)?;
+    let repo = tx.commit("add remote").block_on()?;
+    let git_repo = get_git_repo(&repo);
+    let before = empty_git_commit(&git_repo, "refs/remotes/origin/main", &[]);
+    let journal = git::begin_remote_management(repo.store(), &repo.operation().id().hex(), &[])?;
+    let mut tx = repo.start_transaction();
+    git::remove_remote(tx.repo_mut(), "origin".as_ref())?;
+    let unrelated = empty_git_commit(&git_repo, "refs/heads/new-during-recovery", &[before]);
+    drop(journal);
+    git::recover_remote_management(repo.store(), repo.view(), &repo.operation().id().hex(), false, &[])?;
+    assert_eq!(git_repo.find_reference("refs/remotes/origin/main")?.target().try_id(), Some(before.as_ref()));
+    assert_eq!(git_repo.find_reference("refs/heads/new-during-recovery")?.target().try_id(), Some(unrelated.as_ref()));
+    Ok(())
+}
+
+#[test]
+fn test_remote_recovery_refuses_changed_retirement_ref() -> TestResult {
+    let test_repo = TestRepo::init_with_backend(TestRepoBackend::Git);
+    let repo = &test_repo.repo;
+    let git_repo = get_git_repo(repo);
+    let name = "refs/jjosh/native/legacy/mount";
+    let before = empty_git_commit(&git_repo, name, &[]);
+    let journal = git::begin_remote_management(repo.store(), &repo.operation().id().hex(), &[])?;
+    journal.register_retirements(&[], &[name.to_owned()])?;
+    let intervening = empty_git_commit(&git_repo, name, &[before]);
+    drop(journal);
+    assert!(git::recover_remote_management(repo.store(), repo.view(), &repo.operation().id().hex(), false, &[]).is_err());
+    assert_eq!(git_repo.find_reference(name)?.target().try_id(), Some(intervening.as_ref()));
+    Ok(())
+}
+
+#[test]
+fn test_remote_observation_updates_evidence_with_unchanged_canonical_target() -> TestResult {
+    use jj_lib::project::{BindingId, BindingRecord, BindingTarget, ConnectionId, ConversionObservation, ConversionTerm, ObservationKey, ObservationKind, Representation};
+    let test_repo = TestRepo::init_with_backend(TestRepoBackend::Git);
+    let repo = &test_repo.repo;
+    let git_repo = get_git_repo(repo);
+    let canonical = empty_git_commit(&git_repo, "refs/remotes/origin/main", &[]);
+    let raw = empty_git_commit(&git_repo, "refs/jjosh/source/raw", &[canonical]);
+    let connection = ConnectionId::generate();
+    let binding_id = BindingId::generate();
+    let binding = BindingRecord { connection_id: connection.clone(), target: BindingTarget::RepositoryView, representation: Representation::Whole, base: None };
+    let mut tx = repo.start_transaction();
+    git::add_remote(tx.repo_mut(), "origin".as_ref(), "https://example.invalid/first", None)?;
+    git::set_remote_config_keys(tx.repo().store(), &[
+        ("origin".into(), "jjosh-connectionId".into(), Some(connection.hex())),
+        ("origin".into(), "jjosh-requiredCapability".into(), Some("jjosh-v1".into())),
+    ])?;
+    tx.repo_mut().view_mut().project_state_mut().bindings.insert(binding_id.clone(), jj_lib::merge::Merge::resolved(Some(binding.clone())));
+    let evidence = ConversionObservation {
+        binding_id, binding, connection_id: connection,
+        endpoint: "https://example.invalid/first".into(), raw_ref: "refs/heads/main".into(),
+        terms: vec![ConversionTerm { canonical: Some(jj_id(canonical)), raw: Some(canonical.to_string()) }],
+        base: None, generation: None,
+    };
+    let mut observation = git::GitRemoteObservation {
+        kind: GitRefKind::Bookmark, symbol: remote_symbol("main", "origin").to_owned(),
+        target: RefTarget::normal(jj_id(canonical)), canonical_git_oid: Some(canonical),
+        evidence: Some(evidence),
+    };
+    let options = auto_track_import_options();
+    git::import_remote_observations(tx.repo_mut(), &options, [observation.clone()], |_, _| true).block_on()?;
+    let evidence = observation.evidence.as_mut().unwrap();
+    evidence.endpoint = "https://example.invalid/second".into();
+    evidence.terms[0].raw = Some(raw.to_string());
+    let expected = evidence.clone();
+    let stats = git::import_remote_observations(tx.repo_mut(), &options, [observation], |_, _| true).block_on()?;
+    assert!(stats.changed_remote_bookmarks.is_empty());
+    let key = ObservationKey { remote: "origin".into(), name: "main".into(), kind: ObservationKind::Bookmark };
+    assert_eq!(tx.repo().view().store_view().project_observations[&key].as_resolved(), Some(&Some(expected)));
+    Ok(())
+}
+
+#[test]
 fn test_import_remote_observations_unchanged_after_restore() -> TestResult {
     let test_repo = TestRepo::init_with_backend(TestRepoBackend::Git);
     let repo = &test_repo.repo;
@@ -2558,6 +2669,7 @@ fn test_import_remote_observations_unchanged_after_restore() -> TestResult {
         symbol: symbol.to_owned(),
         target: RefTarget::normal(jj_id(after)),
         canonical_git_oid: Some(after),
+        evidence: None,
     };
     let mut tx = repo.start_transaction();
     git::import_remote_observations(

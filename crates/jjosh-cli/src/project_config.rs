@@ -1,520 +1,94 @@
-use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
-
-use anyhow::{Context as _, Result, ensure};
-use gix::remote::Direction;
+use anyhow::{Result, ensure};
+use jj_lib::merge::Merge;
+use jj_lib::object_id::ObjectId as _;
+use jj_lib::op_store::View;
+use jj_lib::project::{BindingTarget, ProjectId, ProjectRecord};
 use jj_lib::repo_path::RepoPath;
-use serde::Serialize;
 
-use crate::native_project;
-
-#[derive(Serialize)]
-pub(crate) struct Inventory {
-    pub(crate) projects: Vec<ProjectInfo>,
-    pub(crate) remotes: Vec<RemoteInfo>,
-    pub(crate) issues: Vec<Diagnostic>,
-}
-
-#[derive(Serialize)]
-pub(crate) struct ProjectInfo {
-    pub(crate) name: String,
-    pub(crate) mount: Option<String>,
-    pub(crate) native: bool,
-    pub(crate) registered: bool,
-    pub(crate) remotes: Vec<String>,
-}
-
-#[derive(Serialize)]
-pub(crate) struct RemoteInfo {
-    pub(crate) name: String,
-    pub(crate) project: Option<String>,
-    pub(crate) mount: Option<String>,
-    pub(crate) filter: Option<String>,
-    pub(crate) fetch_url: Option<String>,
-    pub(crate) push_url: Option<String>,
-    pub(crate) read_only: Option<bool>,
-}
-
-#[derive(Serialize)]
-pub(crate) struct Diagnostic {
-    pub(crate) subject: String,
-    pub(crate) severity: Severity,
-    pub(crate) message: String,
-}
-
-#[derive(PartialEq, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub(crate) enum Severity {
-    Error,
-    Warning,
-}
-
-struct ProjectState {
-    info: ProjectInfo,
-    mounts: BTreeSet<String>,
-    filters: BTreeSet<String>,
-}
-
-impl ProjectState {
-    fn new(name: &str) -> Self {
-        Self {
-            info: ProjectInfo {
-                name: name.to_owned(),
-                mount: None,
-                native: false,
-                registered: false,
-                remotes: Vec::new(),
-            },
-            mounts: BTreeSet::new(),
-            filters: BTreeSet::new(),
+/// Every active suffix-bearing reference participates in a label claim, including
+/// tracking and local Git mirrors. Never reinterpret a pre-existing literal name.
+pub(crate) fn label_references(view: &View, label: &str) -> Vec<String> {
+    let mut references = Vec::new();
+    let matches = |name: &str| crate::ref_names::belongs_to_project(label, name);
+    for (kind, refs) in [("bookmark", &view.local_bookmarks), ("tag", &view.local_tags)] {
+        for (name, target) in refs {
+            if target.is_present() && matches(name.as_str()) {
+                references.push(format!("{kind} {}", name.as_str()));
+            }
         }
     }
-}
-
-fn diagnose(
-    issues: &mut Vec<Diagnostic>,
-    subject: &str,
-    severity: Severity,
-    message: impl Into<String>,
-) {
-    issues.push(Diagnostic {
-        subject: subject.to_owned(),
-        severity,
-        message: message.into(),
-    });
-}
-
-fn collect<T>(issues: &mut Vec<Diagnostic>, subject: &str, result: Result<T>) -> Option<T> {
-    match result {
-        Ok(value) => Some(value),
-        Err(error) => {
-            diagnose(issues, subject, Severity::Error, format!("{error:#}"));
-            None
+    for (remote, refs) in &view.remote_views {
+        for (kind, refs) in [("bookmark", &refs.bookmarks), ("tag", &refs.tags)] {
+            for (name, reference) in refs {
+                if reference.target.is_present() && matches(name.as_str()) {
+                    references.push(format!("{kind} {}@{}", name.as_str(), remote.as_str()));
+                }
+            }
         }
     }
-}
-
-fn read_setting(
-    git: &gix::Repository,
-    remote: &str,
-    setting: &str,
-    issues: &mut Vec<Diagnostic>,
-) -> Option<String> {
-    let key = format!("remote.{remote}.{setting}");
-    collect(
-        issues,
-        remote,
-        crate::git_remote::config_string(git, &key).with_context(|| format!("Invalid {key}")),
-    )
-    .flatten()
-}
-
-/// Normalize an explicit source context without resolving or fetching it.
-pub(crate) fn parse_base(value: &str) -> Result<String> {
-    if let Ok(oid) = gix_hash::ObjectId::from_hex(value.as_bytes()) {
-        return Ok(format!("pins/{oid}"));
+    for (name, target) in &view.git_refs {
+        if target.is_present() && matches(name.as_str()) {
+            references.push(format!("Git ref {}", name.as_str()));
+        }
     }
-    let reference = if value.starts_with("refs/") {
-        value.to_owned()
-    } else {
-        ensure!(!value.is_empty(), "Source base cannot be empty");
-        format!("refs/heads/{value}")
-    };
-    gix_validate::reference::name_partial(reference.as_bytes().into())
-        .with_context(|| format!("Invalid source base {value:?}"))?;
-    Ok(reference)
+    for (key, observation) in &view.project_observations {
+        if key.kind != jj_lib::project::ObservationKind::Revision && matches(key.name.as_str()) && observation.adds().flatten().any(|observation| {
+            observation.terms.iter().any(|term| term.canonical.is_some())
+        }) {
+            references.push(format!("observation {}@{}", key.name.as_str(), key.remote.as_str()));
+        }
+    }
+    references.sort();
+    references.dedup();
+    references
 }
 
-/// Validate all recorded and remote-derived ownership without writing any state.
-pub(crate) fn validate_registration(git_path: &Path, name: &str, mount: &RepoPath) -> Result<()> {
-    native_project::validate_project(name)?;
-    native_project::parse_mount(mount.as_internal_file_string())?;
-    let git = gix::open(git_path)?;
-    ensure!(
-        git.object_hash() == gix::hash::Kind::Sha1,
-        "Project registration requires SHA-1"
-    );
-    let transaction = crate::interop::open_josh_transaction(git_path, true)
-        .map_err(|error| anyhow::anyhow!(error.error))?;
-    let registered = native_project::list_registered_projects(&transaction)?;
-    let native = native_project::list_native_projects(&transaction)?;
-    let names: BTreeSet<_> = registered.into_iter().chain(native).collect();
-    let mut mounts = BTreeMap::new();
-    for existing in names {
-        native_project::validate_project(&existing)?;
-        mounts.insert(
-            existing.clone(),
-            native_project::load_mount(&transaction, &existing)?,
-        );
-    }
-    let mut remote_projects = BTreeSet::new();
-    for remote in git.remote_names() {
-        let remote = std::str::from_utf8(&remote).context("Remote name is not UTF-8")?;
-        let project =
-            crate::git_remote::config_string(&git, &format!("remote.{remote}.jjosh-project"))?;
-        let configured_mount =
-            crate::git_remote::config_string(&git, &format!("remote.{remote}.jjosh-mount"))?;
-        let Some(project) = project else {
+pub(crate) fn validate_registration(view: &View, name: &str, root: &RepoPath) -> Result<()> {
+    crate::native_project::validate_project(name)?;
+    ensure!(!root.is_root(), "A project requires a non-root canonical directory");
+    for (id, definition) in &view.project_state.projects {
+        for record in definition.adds().flatten() {
+            ensure!(record.name != name, "Project name {name:?} is already claimed by {}", id.hex());
             ensure!(
-                configured_mount.is_none(),
-                "Remote {remote} has a project mount without a project identity"
+                !root.starts_with(&record.canonical_root) && !record.canonical_root.starts_with(root),
+                "Project path {} overlaps {} ({}, {})",
+                root.as_internal_file_string(), record.canonical_root.as_internal_file_string(), record.name, id.hex()
             );
-            continue;
-        };
-        native_project::validate_project(&project)?;
-        remote_projects.insert(project.clone());
-        if let Some(value) = configured_mount {
-            let existing = native_project::parse_mount(&value)?;
-            if let Some(previous) = mounts.insert(project.clone(), existing.clone()) {
-                ensure!(
-                    previous == existing,
-                    "Project {project} has conflicting registered or remote mounts"
-                );
-            }
         }
     }
-    // Resolve omitted mounts only after collecting every explicit peer.
-    for project in remote_projects {
-        if let std::collections::btree_map::Entry::Vacant(entry) = mounts.entry(project) {
-            let mount = native_project::default_mount(entry.key())?;
-            entry.insert(mount);
-        }
-    }
-    if let Some(existing) = mounts.get(name) {
-        ensure!(
-            existing.as_ref() == mount,
-            "Project {name} is already mounted at {}",
-            existing.as_internal_file_string()
-        );
-    } else {
-        mounts.insert(name.to_owned(), mount.to_owned());
-    }
-    native_project::check_mounts_disjoint(
-        mounts
-            .iter()
-            .map(|(project, mount)| (project.as_str(), mount.as_ref())),
-    )?;
+    ensure!(
+        view.project_state.labels.get(name).is_none_or(Merge::is_absent),
+        "Reference label {name:?} is already registered or unresolved"
+    );
+    let references = label_references(view, name);
+    ensure!(references.is_empty(), "Reference label {name:?} is occupied by literal references: {}. Use explicit project migration to adopt existing names", references.join(", "));
     Ok(())
 }
 
-/// Persist ownership after validation, independently of any remote configuration.
-pub(crate) fn write_registration(git_path: &Path, name: &str, mount: &RepoPath) -> Result<()> {
-    let transaction = crate::interop::open_josh_transaction(git_path, false)
-        .map_err(|error| anyhow::anyhow!(error.error))?;
-    native_project::record_mount(&transaction, name, mount)?;
-    transaction.flush_mem_odb()?;
-    Ok(())
+pub(crate) fn register(view: &mut View, name: &str, root: &RepoPath) -> Result<ProjectId> {
+    validate_registration(view, name, root)?;
+    let id = ProjectId::generate();
+    view.project_state.projects.insert(id.clone(), Merge::resolved(Some(ProjectRecord {
+        name: name.to_owned(), canonical_root: root.to_owned(),
+    })));
+    view.project_state.labels.insert(name.to_owned(), Merge::resolved(Some(id.clone())));
+    Ok(id)
 }
 
-/// Register ownership without creating a remote or selecting a conversion mode.
-pub(crate) fn register(git_path: &Path, name: &str, mount: &RepoPath) -> Result<()> {
-    validate_registration(git_path, name, mount)?;
-    write_registration(git_path, name, mount)
-}
-
-/// Inspect local configuration only. Broken entries remain visible alongside
-/// their diagnostics; they never silently become ordinary Git remotes.
-pub(crate) fn inspect(git_path: &Path) -> Result<Inventory> {
-    let git = gix::open(git_path)?;
-    let transaction = crate::interop::open_josh_transaction(git_path, true)
-        .map_err(|error| anyhow::anyhow!(error.error))?;
-    let mut issues = Vec::new();
-    let mut projects = BTreeMap::<String, ProjectState>::new();
-    for name in native_project::list_registered_projects(&transaction)? {
-        projects
-            .entry(name.clone())
-            .or_insert_with(|| ProjectState::new(&name))
-            .info
-            .registered = true;
+/// Removal never cascades through bindings, references, or unresolved labels.
+pub(crate) fn validate_removal(view: &View, id: &ProjectId) -> Result<Vec<String>> {
+    for (binding_id, definition) in &view.project_state.bindings {
+        ensure!(!definition.adds().flatten().any(|record| record.target == BindingTarget::Project(id.clone())),
+            "Project {} has active binding {}; remove its remote or explicitly retire the disconnected binding with project resolve --binding ID --delete first", id.hex(), binding_id.hex());
     }
-    for name in native_project::list_native_projects(&transaction)? {
-        projects
-            .entry(name.clone())
-            .or_insert_with(|| ProjectState::new(&name))
-            .info
-            .native = true;
-    }
-    for (name, project) in &mut projects {
-        collect(&mut issues, name, native_project::validate_project(name));
-        if let Some(mount) = collect(
-            &mut issues,
-            name,
-            native_project::load_mount(&transaction, name),
-        ) {
-            project
-                .mounts
-                .insert(mount.as_internal_file_string().to_owned());
+    let mut labels = Vec::new();
+    for (label, target) in &view.project_state.labels {
+        if target.adds().flatten().any(|candidate| candidate == id) {
+            ensure!(target.as_resolved().is_some(), "Reference label {label:?} is unresolved; resolve it before removing its project");
+            let references = label_references(view, label);
+            ensure!(references.is_empty(), "Project label {label:?} still has references or tracking: {}", references.join(", "));
+            labels.push(label.clone());
         }
     }
-
-    let mut configured = BTreeSet::new();
-    for name in git.remote_names() {
-        if let Some(name) = collect(
-            &mut issues,
-            "remotes",
-            std::str::from_utf8(&name)
-                .map(str::to_owned)
-                .map_err(Into::into),
-        ) {
-            configured.insert(name);
-        }
-    }
-    // Resolve omitted mounts from all explicit peers, not remote iteration order.
-    // The main pass below reports malformed values rather than dropping them.
-    for remote in &configured {
-        let project =
-            crate::git_remote::config_string(&git, &format!("remote.{remote}.jjosh-project"));
-        let mount = crate::git_remote::config_string(&git, &format!("remote.{remote}.jjosh-mount"));
-        if let (Ok(Some(project)), Ok(Some(mount))) = (project, mount)
-            && native_project::parse_mount(&mount).is_ok()
-        {
-            projects
-                .entry(project.clone())
-                .or_insert_with(|| ProjectState::new(&project))
-                .mounts
-                .insert(mount);
-        }
-    }
-    let mut sidecars = BTreeSet::new();
-    let directory = git.common_dir().join("josh/remotes");
-    match std::fs::read_dir(&directory) {
-        Ok(entries) => {
-            for entry in entries {
-                let Some(entry) = collect(&mut issues, "josh/remotes", entry.map_err(Into::into))
-                else {
-                    continue;
-                };
-                let filename = entry.file_name();
-                let Some(filename) = filename.to_str() else {
-                    diagnose(
-                        &mut issues,
-                        "josh/remotes",
-                        Severity::Error,
-                        "Sidecar filename is not UTF-8",
-                    );
-                    continue;
-                };
-                if let Some(name) = filename.strip_suffix(".josh") {
-                    sidecars.insert(name.to_owned());
-                }
-            }
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => diagnose(
-            &mut issues,
-            "josh/remotes",
-            Severity::Error,
-            error.to_string(),
-        ),
-    }
-    let names: BTreeSet<_> = configured.union(&sidecars).cloned().collect();
-    let mut remotes = Vec::new();
-    for name in names {
-        let project = read_setting(&git, &name, "jjosh-project", &mut issues);
-        let configured_mount = read_setting(&git, &name, "jjosh-mount", &mut issues);
-        let base = read_setting(&git, &name, "jjosh-base", &mut issues);
-        let read_only = collect(
-            &mut issues,
-            &name,
-            crate::git_remote::remote_read_only(&git, jj_lib::ref_name::RemoteName::new(&name)),
-        );
-        let fetch_url = read_setting(&git, &name, "url", &mut issues);
-        let push_url =
-            read_setting(&git, &name, "pushurl", &mut issues).or_else(|| fetch_url.clone());
-        let has_sidecar = sidecars.contains(&name);
-        if has_sidecar && !configured.contains(&name) {
-            diagnose(
-                &mut issues,
-                &name,
-                Severity::Warning,
-                "Stale Josh sidecar has no named Git remote",
-            );
-        }
-        // Plain Git permits slash-containing aliases; only sidecar-backed
-        // remotes must satisfy Josh's single-component naming rules.
-        let config = if has_sidecar {
-            collect(
-                &mut issues,
-                &name,
-                josh_changes::remote_config::try_read_remote_config(git_path, &name),
-            )
-            .flatten()
-        } else {
-            None
-        };
-        let filter = config
-            .as_ref()
-            .map(|config| josh_core::filter::spec(config.semantic_filter()));
-        let relevant =
-            has_sidecar || project.is_some() || configured_mount.is_some() || base.is_some();
-        if relevant && configured.contains(&name)
-            && let Some(remote) = collect(
-                &mut issues,
-                &name,
-                git.find_remote(name.as_str()).map_err(Into::into),
-            ) {
-                for (direction, label) in [(Direction::Fetch, "fetch"), (Direction::Push, "push")] {
-                    if matches!(direction, Direction::Push) && read_only != Some(false) {
-                        continue;
-                    }
-                    if remote.urls(direction).count() != 1 {
-                        diagnose(
-                            &mut issues,
-                            &name,
-                            Severity::Error,
-                            format!("Remote must have exactly one selected {label} endpoint"),
-                        );
-                    }
-                }
-            }
-        if project.is_none() && configured_mount.is_some() {
-            diagnose(
-                &mut issues,
-                &name,
-                Severity::Error,
-                "Project mount has no project identity",
-            );
-        }
-        if let Some(value) = &configured_mount {
-            collect(&mut issues, &name, native_project::parse_mount(value));
-        }
-        let mut mount = configured_mount;
-        if let Some(project_name) = &project {
-            collect(
-                &mut issues,
-                &name,
-                native_project::validate_project(project_name),
-            );
-            let state = projects
-                .entry(project_name.clone())
-                .or_insert_with(|| ProjectState::new(project_name));
-            if mount.is_none() {
-                mount = if state.info.registered || state.info.native {
-                    collect(
-                        &mut issues,
-                        &name,
-                        native_project::load_mount(&transaction, project_name),
-                    )
-                    .map(|path| path.as_internal_file_string().to_owned())
-                } else if !state.mounts.is_empty() {
-                    (state.mounts.len() == 1).then(|| state.mounts.first().unwrap().clone())
-                } else {
-                    collect(
-                        &mut issues,
-                        &name,
-                        native_project::default_mount(project_name),
-                    )
-                    .map(|path| path.as_internal_file_string().to_owned())
-                };
-            }
-            if let Some(mount) = &mount {
-                if native_project::parse_mount(mount).is_ok() {
-                    state.mounts.insert(mount.clone());
-                }
-                if state.info.native
-                    && let Some(config) = &config
-                {
-                    let filter = config.semantic_filter();
-                    if filter != josh_core::filter::Filter::new()
-                        && filter != josh_core::filter::Filter::new().prefix(mount)
-                    {
-                        diagnose(
-                            &mut issues,
-                            &name,
-                            Severity::Error,
-                            "Native project has a source-changing Josh filter",
-                        );
-                    }
-                }
-            }
-            if let Some(filter) = &filter {
-                state.filters.insert(filter.clone());
-            }
-            state.info.remotes.push(name.clone());
-        }
-        remotes.push(RemoteInfo {
-            name,
-            project,
-            mount,
-            filter,
-            fetch_url,
-            push_url,
-            read_only,
-        });
-    }
-
-    let mut owners = BTreeMap::<String, Vec<String>>::new();
-    for (name, project) in &mut projects {
-        if project.mounts.len() > 1 {
-            diagnose(
-                &mut issues,
-                name,
-                Severity::Error,
-                format!(
-                    "Project has conflicting mounts: {}",
-                    project
-                        .mounts
-                        .iter()
-                        .cloned()
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ),
-            );
-        } else {
-            project.info.mount = project.mounts.first().cloned();
-        }
-        for mount in &project.mounts {
-            owners.entry(mount.clone()).or_default().push(name.clone());
-        }
-        if project.filters.len() > 1 {
-            diagnose(
-                &mut issues,
-                name,
-                Severity::Error,
-                "Project has conflicting source filters",
-            );
-        }
-        let writable = remotes
-            .iter()
-            .filter(|remote| {
-                remote.project.as_ref() == Some(name)
-                    && remote.read_only == Some(false)
-                    && remote.push_url.is_some()
-            })
-            .count();
-        match writable {
-            0 => diagnose(
-                &mut issues,
-                name,
-                Severity::Warning,
-                "Project has no writable publication route",
-            ),
-            1 => {}
-            _ => diagnose(
-                &mut issues,
-                name,
-                Severity::Warning,
-                "Project has multiple writable publication routes; select a remote explicitly",
-            ),
-        }
-    }
-    for (mount, names) in owners {
-        if names.len() > 1 {
-            let message = format!(
-                "Mount {mount} is claimed by multiple projects: {}",
-                names.join(", ")
-            );
-            for name in names {
-                diagnose(&mut issues, &name, Severity::Error, message.clone());
-            }
-        }
-    }
-    issues.sort_by(|left, right| {
-        (&left.subject, &left.message).cmp(&(&right.subject, &right.message))
-    });
-    Ok(Inventory {
-        projects: projects.into_values().map(|project| project.info).collect(),
-        remotes,
-        issues,
-    })
+    Ok(labels)
 }

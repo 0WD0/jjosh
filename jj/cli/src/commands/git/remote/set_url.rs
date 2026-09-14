@@ -16,6 +16,7 @@ use clap_complete::ArgValueCandidates;
 use jj_lib::git;
 use jj_lib::ref_name::RemoteNameBuf;
 use jj_lib::repo::Repo as _;
+use jj_lib::object_id::ObjectId as _;
 
 use crate::cli_util::CommandHelper;
 use crate::command_error::CommandError;
@@ -56,7 +57,8 @@ pub async fn cmd_git_remote_set_url(
     command: &CommandHelper,
     args: &GitRemoteSetUrlArgs,
 ) -> Result<(), CommandError> {
-    let workspace_command = command.workspace_helper(ui).await?;
+    let workspace_command = command.workspace_helper_no_snapshot(ui).await?;
+    crate::git_remote::check_remote(command, &workspace_command, &args.remote)?;
 
     let process_url = |url: Option<&String>| {
         url.map(|url| absolute_git_url(command.cwd(), url))
@@ -65,6 +67,8 @@ pub async fn cmd_git_remote_set_url(
 
     let fetch_url = process_url(args.url.as_ref().or(args.fetch.as_ref()))?;
     let push_url = process_url(args.push.as_ref())?;
+    let _git_lock = workspace_command.lock_git_import_export()?;
+    let journal = git::begin_remote_management(workspace_command.repo().store(), &workspace_command.repo().operation().id().hex(), &[])?;
 
     git::set_remote_urls(
         workspace_command.repo().store(),
@@ -72,5 +76,7 @@ pub async fn cmd_git_remote_set_url(
         fetch_url.as_deref(),
         push_url.as_deref(),
     )?;
+    journal.expect_unchanged_operation(workspace_command.repo().view())?;
+    journal.complete()?;
     Ok(())
 }

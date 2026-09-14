@@ -160,14 +160,14 @@ pub async fn cmd_git_fetch(
         // into a temporary namespace.
         return Err(cli_error("--no-integrate-operation is not respected"));
     }
-    if command.git_remote_extension().is_none()
+    if !crate::git_remote::capabilities(command).contains(&"jjosh-v1")
         && (!args.revisions.is_empty()
             || args.deepen.is_some()
             || args.unshallow
             || args.fetch_url.is_some())
     {
         return Err(user_error(
-            "--revision, --deepen, --unshallow, and --fetch-url require a remote extension",
+            "--revision, --deepen, --unshallow, and --fetch-url require capability jjosh-v1",
         ));
     }
     for revision in &args.revisions {
@@ -219,6 +219,9 @@ pub async fn cmd_git_fetch(
         ));
     }
 
+    for remote in &matching_remotes {
+        crate::git_remote::check_remote(command, &workspace_command, remote)?;
+    }
     let mut remote_sessions = std::collections::HashMap::new();
     if let Some(extension) = command.git_remote_extension() {
         for remote in &matching_remotes {
@@ -276,6 +279,9 @@ pub async fn cmd_git_fetch(
                     .collect(),
             );
             let ref_expr = GitFetchRefExpression { bookmark, tag };
+            if !crate::git_remote::capabilities(command).contains(&"jjosh-v1") {
+                git::check_raw_fetch_selection(workspace_command.repo().view(), remote, &ref_expr).map_err(user_error)?;
+            }
             let expanded = expand_fetch_refspecs(remote, ref_expr)?;
             expansions.push((remote, expanded));
         }
@@ -303,6 +309,9 @@ pub async fn cmd_git_fetch(
                 StringExpression::all()
             };
             let ref_expr = GitFetchRefExpression { bookmark, tag };
+            if !crate::git_remote::capabilities(command).contains(&"jjosh-v1") {
+                git::check_raw_fetch_selection(workspace_command.repo().view(), remote, &ref_expr).map_err(user_error)?;
+            }
             let expanded = expand_fetch_refspecs(remote, ref_expr)?;
             expansions.push((remote, expanded));
         }
