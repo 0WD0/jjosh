@@ -35,7 +35,7 @@ scope 属于引用和连接配置，不属于 commit。
 仓库保留唯一的 DAG、heads、workspaces、change ID 索引和 operation history。
 
 View 按 scope 保存本地引用、远端观察和 tracking；引用目标继续使用完整 RefTarget，保留 adds/removes/absence。
-远端观察可以在没有可用连接配置时存在，例如从 native bundle 导入的状态。
+远端观察可以在没有可用连接配置时存在，例如从本地 jj 仓库导入的状态。
 不得把冲突目标压成一个 OID，也不得要求“每个 scope 的每个 change 只有一个版本”。
 
 项目挂载、filter、来源 base 是转换配置，不是引用身份。
@@ -143,14 +143,14 @@ handle 是局部存储键，不是项目身份；原生 Git 的 remote list 会�
 * 如何迁移而不重新解释历史
 
 remote 命名空间的显式迁移由 =project migrate= 执行：旧逻辑别名逐字保留，物理配置键和 refs 重定位到独立 handle，不自动剥掉项目前缀。简化别名使用显式 remote rename；稳定 ID、有效引用、tracking 和转换依据保持身份。
-恢复旧操作不会把被删除后重建的同名连接视为旧实例。必要时清理断开的旧观察，并用 =project resolve --connection ID --name NAME= 明确修复当前连接的名字，而不是按名字猜测。项目 operation-store 使用 =simple_op_store_projects_v2=，native bundle 使用 v3 保存 scoped remote 元数据；导入不会激活来源连接或认证。
+恢复旧操作不会把被删除后重建的同名连接视为旧实例。必要时清理断开的旧观察，并用 =project resolve --connection ID --name NAME= 明确修复当前连接的名字，而不是按名字猜测。项目 operation-store 使用 =simple_op_store_projects_v2= 保存 scoped remote 元数据；本地项目导入不会激活来源连接或认证。
 
 未来 typed 本地引用迁移还需要覆盖：
 
 1. typed symbols、View 编码、全局遍历和引用合并；所有冲突项与 tracking 状态保持完整。
 2. parser/formatter、revset、模板、补全、命令范围和默认策略。
 3. 已有 scoped remote 和物理 refs 与 typed 本地引用的对应关系、转换更新接口、逐 endpoint 发布记账。
-4. operation restore、native bundle 编码、能力标记与旧 writer 排除。
+4. operation restore、能力标记与旧 writer 排除。
 5. 显式本地引用归属迁移和中断恢复；确认新状态成立后移除退役路径。
 
 旧 operation 按各自格式记录的身份解码，不拿当前项目目录或配置重新解释旧历史，也不把已记录的项目引用一概降为根字面名字。
@@ -168,7 +168,7 @@ Git config、物理 refs 和 jj operation 不是一个原子存储。
 - 获取部分 refs 不删除未选择观察，根 Git import/export 不复活或清空 scoped 私有状态。
 - 部分项目往返保留其他项目的未发布工作；相同 change ID 不触发未经证明的整体替换。
 - fork 的过滤范围外内容不丢失；stale lease、annotation-only 更新和重复目的地都被正确处理。
-- native import/bundle/operation restore 保留冲突、divergence 和 tracking；恢复本地状态不撤销远端发布。
+- 本地项目导入和 operation restore 保留冲突、divergence 和 tracking；恢复本地状态不撤销远端发布。
 - 浅边界变化不导致 canonical 图缺父，也不丢失旧本地版本需要的逆转换依据。
 - 迁移在歧义、中断和旧 writer 面前明确停下，恢复后旧物理 refs 不再作为根引用出现。
 

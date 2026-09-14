@@ -3360,7 +3360,6 @@ dependencies = [
  "josh-core",
  "serde",
  "serde_json",
- "tar",
  "tempfile",
 ]
 

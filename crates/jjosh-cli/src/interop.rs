@@ -48,45 +48,6 @@ pub(crate) fn commit_id_from_josh_oid(oid: gix_hash::ObjectId) -> jj_lib::backen
     jj_lib::backend::CommitId::from_bytes(oid.as_bytes())
 }
 
-
-pub(crate) fn check_git_state(workspace: &WorkspaceCommandHelper) -> Result<(), CommandError> {
-    let backend = jj_lib::git::get_git_backend(workspace.repo().store())?;
-    let repo = backend.git_repo();
-    if jj_lib::git::has_pending_imports(workspace.repo().view(), &repo)
-        .map_err(|err| user_error_with_message("Failed to inspect pending Git imports", err))?
-    {
-        return Err(user_error(
-            "Git refs have unimported changes; run jjosh git import separately before continuing",
-        ));
-    }
-    if workspace.working_copy_shared_with_git() {
-        let repo = backend
-            .open_git_repo_at_workdir(workspace.workspace_root())
-            .map_err(|err| {
-                user_error_with_message("Failed to inspect the colocated Git repository", err)
-            })?;
-        if repo.state().is_some() {
-            return Err(user_error(
-                "Finish or abort the ongoing Git operation before continuing",
-            ));
-        }
-        let mut head = repo
-            .head()
-            .map_err(|err| user_error_with_message("Failed to inspect Git HEAD", err))?;
-        let actual = head
-            .try_peel_to_id()
-            .map_err(|err| user_error_with_message("Failed to resolve Git HEAD", err))?
-            .map(|id| jj_lib::backend::CommitId::from_bytes(id.as_bytes()));
-        let recorded = workspace.repo().view().git_head(workspace.workspace_name());
-        if recorded.as_normal() != actual.as_ref() || recorded.has_conflict() {
-            return Err(user_error(
-                "Git HEAD has unimported changes; reconcile the Git checkout with jj separately before continuing",
-            ));
-        }
-    }
-    Ok(())
-}
-
 /// Josh operates on Git histories. A native conflict's Git representation is
 /// transport data, not a resolved tree that can safely be filtered or pushed.
 pub(crate) async fn check_projectable_repo_history(
@@ -106,7 +67,7 @@ pub(crate) async fn check_projectable_repo_history(
         let ancestor = store.get_commit_async(&id).await?;
         if ancestor.has_conflict() {
             return Err(user_error(format!(
-                "Revision {} contains a native conflict; resolve it before projecting this history. Native bundles can transport unresolved conflicts without projecting them.",
+                "Revision {} contains a native conflict; resolve it before projecting this history.",
                 id.hex()
             )));
         }
@@ -133,7 +94,7 @@ pub(crate) fn check_raw_projectable_history(
             .map_err(|err| user_error_with_message("Failed to parse fetched source commit", err))?;
         if parsed.extra_headers().find("jj:trees").is_some() {
             return Err(user_error(format!(
-                "Source revision {id} carries native conflict trees; resolve them before projecting this history, or use a native bundle to transport them unchanged"
+                "Source revision {id} carries native conflict trees; resolve them before projecting this history"
             )));
         }
         pending.extend(commit.parent_ids());

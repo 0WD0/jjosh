@@ -256,9 +256,10 @@ GC 将保留 View 中转换观察引用的 canonical commits 纳入根集合。
 来源 raw 对象、normalization 和原生对应关系也需保留，以便旧观察继续解释历史和支持反向转换。
 仓库备份因此包括操作元数据及来源对象库，而不仅是可见工作文件。
 
-native bundle v3 携带原生开发图及项目、绑定、label、scoped remote 名字、连接归属和观察元数据。
-project import 将来源开发图放进一个新外层项目，建立这个项目的定义和离线原生对应关系。
-bundle 中的内部项目元数据描述来源的组织方式；目标仓库的活动连接、URL 和认证通过本地 remote 单独配置。
+=project import= 直接读取本地 jj 仓库已记录的开发图，不经过独立 bundle 格式。
+它将来源开发图放进一个新外层项目，建立这个项目的定义和离线原生对应关系。
+来源的内部项目定义不会在目标激活；目标仓库的活动连接、URL 和认证通过本地 remote 单独配置。
+仅导入真实书签，不将工作副本或 Git HEAD 状态改造成书签；未命名的导入版本通过保留的 change ID 选择。
 
 将一个多项目来源按内部项目逐个重映射，涉及源/目标身份、目录、label 和绑定的对应关系，是独立的导入契约。
 普通 Git clone 运输 Git 历史，完整 jj 仓库备份则承担 operation history 等状态的保存。
@@ -274,4 +275,4 @@ bundle 中的内部项目元数据描述来源的组织方式；目标仓库的�
 | 项目命令和迁移 | [[file:../crates/jjosh-cli/src/project.rs][project CLI]]、[[file:../crates/jjosh-cli/src/project_migration.rs][migration]] |
 | 连接管理和本地恢复 | [[file:../jj/cli/src/commands/git/remote/mod.rs][remote CLI]]、[[file:../jj/lib/src/git.rs][git.rs]] |
 | 转换绑定和发布 | [[file:../crates/jjosh-cli/src/git_remote/mod.rs][conversion sessions]]、[[file:../crates/jjosh-cli/src/git_remote/push.rs][push]] |
-| 原生运输与临时预览 | [[file:../crates/jjosh-cli/src/native_bundle.rs][native bundle]]、[[file:../crates/jjosh-cli/src/projection.rs][preview]] |
+| 本地项目导入与临时预览 | [[file:../crates/jjosh-cli/src/project_import.rs][project import]]、[[file:../crates/jjosh-cli/src/projection.rs][preview]] |
