@@ -19,6 +19,7 @@
 use std::num::NonZeroU32;
 use std::pin::Pin;
 
+use jj_lib::config::ConfigGetResultExt as _;
 use jj_lib::git::GitFetchRefExpression;
 use jj_lib::git::GitPushOptions;
 use jj_lib::git::GitPushRefTargets;
@@ -31,11 +32,13 @@ use jj_lib::ref_name::RefNameBuf;
 use jj_lib::ref_name::RemoteName;
 use jj_lib::ref_name::RemoteNameBuf;
 use jj_lib::repo::MutableRepo;
+use jj_lib::settings::UserSettings;
 use jj_lib::str_util::StringExpression;
 
 use crate::cli_util::CommandHelper;
 use crate::cli_util::WorkspaceCommandHelper;
 use crate::command_error::CommandError;
+use crate::command_error::user_error;
 use crate::ui::Ui;
 
 pub type RemoteFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, CommandError>> + 'a>>;
@@ -51,6 +54,44 @@ pub struct GitPushRoute {
 pub trait GitPushRouter {
     /// `None` delegates an unscoped ref to jj's ordinary default-remote rules.
     fn route(&self, name: &RefName) -> Result<Option<GitPushRoute>, CommandError>;
+}
+
+/// Selects a project's literal default after explicit and global remote choices.
+///
+/// Candidates must be existing local remotes bound to the selected project.
+pub fn select_project_remote(
+    settings: &UserSettings,
+    label: &str,
+    candidates: &[RemoteNameBuf],
+    direction: gix::remote::Direction,
+) -> Result<RemoteNameBuf, CommandError> {
+    let direction = match direction {
+        gix::remote::Direction::Fetch => "fetch",
+        gix::remote::Direction::Push => "push",
+    };
+    let key = ["git", "projects", label, direction];
+    if let Some(remote) = settings.get_string(key).optional()? {
+        return candidates
+            .iter()
+            .find(|candidate| candidate.as_str() == remote)
+            .cloned()
+            .ok_or_else(|| {
+                user_error(format!(
+                    "Configured git.projects.{label}.{direction} remote {remote:?} is not an \
+                     existing remote bound to project label {label:?}"
+                ))
+            });
+    }
+    if let [remote] = candidates {
+        return Ok(remote.clone());
+    }
+    if let Some(remote) = candidates.iter().find(|remote| remote.as_str() == "origin") {
+        return Ok(remote.clone());
+    }
+    Err(user_error(format!(
+        "No default {direction} remote for project label {label:?}; select --remote or set \
+         git.projects.{label}.{direction} to an existing remote bound to this project"
+    )))
 }
 
 /// Resolves the authoritative configuration for a selected named remote.
@@ -182,17 +223,16 @@ pub struct GitRemoteBindingArgs {
     pub like_remote: Option<String>,
     #[arg(long)]
     pub base: Option<String>,
-    #[arg(long, conflicts_with = "writable")]
-    pub read_only: bool,
-    #[arg(long)]
-    pub writable: bool,
 }
 
 impl GitRemoteBindingArgs {
     pub fn is_managed(&self) -> bool {
-        self.project.is_some() || self.whole || self.filter.is_some()
-            || self.view.is_some() || self.like_remote.is_some() || self.base.is_some()
-            || self.read_only || self.writable
+        self.project.is_some()
+            || self.whole
+            || self.filter.is_some()
+            || self.view.is_some()
+            || self.like_remote.is_some()
+            || self.base.is_some()
     }
 }
 
@@ -214,7 +254,6 @@ pub fn check_selected_ref(
     capabilities: &[&str],
     source: Option<&str>,
 ) -> Result<(), CommandError> {
-    use crate::command_error::user_error;
     use jj_lib::project::BindingTarget;
     jj_lib::git::check_remote_capability(store, view, remote, capabilities).map_err(user_error)?;
     let project = name.as_str().rsplit_once('#')

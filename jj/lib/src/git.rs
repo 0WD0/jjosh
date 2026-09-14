@@ -442,12 +442,49 @@ pub fn get_git_repo(store: &Store) -> Result<gix::Repository, UnexpectedGitBacke
     get_git_backend(store).map(|backend| backend.git_repo())
 }
 
-pub const MANAGED_REMOTE_KEYS: &[&str] = &[
-    "jjosh-connectionId", "jjosh-requiredCapability", "jjosh-readOnly",
-];
+pub const MANAGED_REMOTE_KEYS: &[&str] = &["jjosh-connectionId", "jjosh-requiredCapability"];
 
-pub fn remote_required_capability(git_repo: &gix::Repository, remote: &RemoteName) -> Option<String> {
-    git_repo.config_snapshot().string(&format!("remote.{}.jjosh-requiredCapability", remote.as_str()))
+/// Obsolete connection settings must be retired before using this remote.
+pub fn check_obsolete_remote_config(
+    git_repo: &gix::Repository,
+    remote: &RemoteName,
+) -> Result<(), String> {
+    if git_repo
+        .config_snapshot()
+        .sections_by_name("remote")
+        .into_iter()
+        .flatten()
+        .filter(|section| {
+            section
+                .header()
+                .subsection_name()
+                .is_some_and(|name| name == remote.as_str())
+        })
+        .any(|section| {
+            section
+                .value_names()
+                .any(|name| name.eq_ignore_ascii_case("jjosh-readOnly"))
+        })
+    {
+        return Err(format!(
+            "Remote {} has obsolete jjosh-readOnly configuration; run `jjosh project migrate` to \
+             remove it",
+            remote.as_symbol(),
+        ));
+    }
+    Ok(())
+}
+
+pub fn remote_required_capability(
+    git_repo: &gix::Repository,
+    remote: &RemoteName,
+) -> Option<String> {
+    git_repo
+        .config_snapshot()
+        .string(&format!(
+            "remote.{}.jjosh-requiredCapability",
+            remote.as_str()
+        ))
         .map(|value| value.to_string())
 }
 
@@ -485,23 +522,42 @@ pub fn check_remote_owner(view: &View, remote: &RemoteName, connection: Option<&
 
 /// Core-readable fence used before an extension or raw transport is selected.
 pub fn check_remote_capability(
-    store: &Store, view: &View, remote: &RemoteName, capabilities: &[&str],
+    store: &Store,
+    view: &View,
+    remote: &RemoteName,
+    capabilities: &[&str],
 ) -> Result<(), String> {
     let git_repo = get_git_repo(store).map_err(|err| err.to_string())?;
     ensure_no_pending_remote_management(&git_repo).map_err(|err| err.to_string())?;
     check_remote_capability_inner(&git_repo, view, remote, capabilities)
 }
 
-fn check_remote_capability_inner(git_repo: &gix::Repository, view: &View, remote: &RemoteName, capabilities: &[&str]) -> Result<(), String> {
+fn check_remote_capability_inner(
+    git_repo: &gix::Repository,
+    view: &View,
+    remote: &RemoteName,
+    capabilities: &[&str],
+) -> Result<(), String> {
     let connection = remote_connection_id(git_repo, remote)?;
     check_remote_owner(view, remote, connection.as_ref())?;
-    let binding = connection.as_ref().map(|id| view.project_state().binding_for_connection(id)).transpose()?.flatten();
+    let binding = connection
+        .as_ref()
+        .map(|id| view.project_state().binding_for_connection(id))
+        .transpose()?
+        .flatten();
     if let Some(required) = remote_required_capability(git_repo, remote) {
         if !capabilities.contains(&required.as_str()) {
-            return Err(format!("Remote {} requires unavailable capability {required}", remote.as_symbol()));
+            return Err(format!(
+                "Remote {} requires unavailable capability {required}",
+                remote.as_symbol()
+            ));
         }
         if binding.is_none() {
-            return Err(format!("Managed remote {} has no active binding in this operation; restore or explicitly migrate the binding", remote.as_symbol()));
+            return Err(format!(
+                "Managed remote {} has no active binding in this operation; restore or explicitly \
+                 migrate the binding",
+                remote.as_symbol()
+            ));
         }
     }
     if let Some((_, binding)) = binding {

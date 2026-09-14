@@ -97,7 +97,10 @@ pub struct GitRemoteRecoverArgs {
     accept: bool,
 }
 
-fn ensure_empty_remote_name(view: &jj_lib::view::View, remote: &RemoteName) -> Result<(), CommandError> {
+fn ensure_empty_remote_name(
+    view: &jj_lib::view::View,
+    remote: &RemoteName,
+) -> Result<(), CommandError> {
     if view.store_view().remote_connections.contains_key(remote)
         || view.store_view().project_observations.keys().any(|key| key.remote == remote)
         || view.all_remote_bookmarks().any(|(symbol, _)| symbol.remote == remote)
@@ -108,17 +111,32 @@ fn ensure_empty_remote_name(view: &jj_lib::view::View, remote: &RemoteName) -> R
 }
 
 fn prepare_binding(
-    command: &CommandHelper, workspace: &WorkspaceCommandHelper, remote: &RemoteName,
-    connection: &ConnectionId, args: &GitRemoteBindingArgs,
+    command: &CommandHelper,
+    workspace: &WorkspaceCommandHelper,
+    remote: &RemoteName,
+    connection: &ConnectionId,
+    args: &GitRemoteBindingArgs,
 ) -> Result<Option<BindingRecord>, CommandError> {
-    if !args.is_managed() { return Ok(None); }
-    if !crate::git_remote::capabilities(command).contains(&"jjosh-v1") {
-        return Err(user_error("Conversion arguments require capability jjosh-v1"));
+    if !args.is_managed() {
+        return Ok(None);
     }
-    command.git_remote_extension().unwrap().prepare_binding(workspace, remote, connection, args).map(Some)
+    if !crate::git_remote::capabilities(command).contains(&"jjosh-v1") {
+        return Err(user_error(
+            "Conversion arguments require capability jjosh-v1",
+        ));
+    }
+    command
+        .git_remote_extension()
+        .unwrap()
+        .prepare_binding(workspace, remote, connection, args)
+        .map(Some)
 }
 
-async fn cmd_attach(ui: &mut Ui, command: &CommandHelper, args: &GitRemoteAttachArgs) -> Result<(), CommandError> {
+async fn cmd_attach(
+    ui: &mut Ui,
+    command: &CommandHelper,
+    args: &GitRemoteAttachArgs,
+) -> Result<(), CommandError> {
     let mut workspace = command.workspace_helper_no_snapshot(ui).await?;
     crate::git_remote::check_remote(command, &workspace, &args.remote)?;
     let git_repo = git::get_git_repo(workspace.repo().store())?;
@@ -137,21 +155,58 @@ async fn cmd_attach(ui: &mut Ui, command: &CommandHelper, args: &GitRemoteAttach
         || workspace.repo().view().store_view().project_observations.keys().any(|key| key.remote == args.remote) {
         return Err(user_error("Attach requires an unused remote; explicitly migrate its existing observations and tracking"));
     }
-    let binding = prepare_binding(command, &workspace, &args.remote, &connection, &args.binding)?
-        .ok_or_else(|| user_error("Attach requires an explicit representation (--whole, --filter, --view, or --like)"))?;
+    let binding = prepare_binding(
+        command,
+        &workspace,
+        &args.remote,
+        &connection,
+        &args.binding,
+    )?
+    .ok_or_else(|| {
+        user_error(
+            "Attach requires an explicit representation (--whole, --filter, --view, or --like)",
+        )
+    })?;
     let git_lock = workspace.lock_git_import_export()?;
-    let journal = git::begin_remote_management(workspace.repo().store(), &workspace.repo().operation().id().hex(), &[])?;
+    let journal = git::begin_remote_management(
+        workspace.repo().store(),
+        &workspace.repo().operation().id().hex(),
+        &[],
+    )?;
     journal.expect_remote(&args.remote, true, Some(&connection), true)?;
     let mut tx = workspace.start_transaction();
-    git::set_remote_config_keys(tx.repo().store(), &[
-        (args.remote.clone(), "jjosh-connectionId".into(), Some(connection.hex())),
-        (args.remote.clone(), "jjosh-requiredCapability".into(), Some("jjosh-v1".into())),
-        (args.remote.clone(), "jjosh-readOnly".into(), Some((!args.binding.writable).to_string())),
-    ])?;
-    tx.repo_mut().view_mut().project_state_mut().bindings.insert(BindingId::generate(), Merge::resolved(Some(binding)));
-    tx.repo_mut().view_mut().store_view_mut().remote_connections.insert(args.remote.clone(), Merge::resolved(Some(connection)));
+    git::set_remote_config_keys(
+        tx.repo().store(),
+        &[
+            (
+                args.remote.clone(),
+                "jjosh-connectionId".into(),
+                Some(connection.hex()),
+            ),
+            (
+                args.remote.clone(),
+                "jjosh-requiredCapability".into(),
+                Some("jjosh-v1".into()),
+            ),
+        ],
+    )?;
+    tx.repo_mut()
+        .view_mut()
+        .project_state_mut()
+        .bindings
+        .insert(BindingId::generate(), Merge::resolved(Some(binding)));
+    tx.repo_mut()
+        .view_mut()
+        .store_view_mut()
+        .remote_connections
+        .insert(args.remote.clone(), Merge::resolved(Some(connection)));
     journal.expect_operation(tx.repo().view())?;
-    tx.finish_with_git_import_export_lock(ui, format!("attach git remote {}", args.remote.as_symbol()), &git_lock).await?;
+    tx.finish_with_git_import_export_lock(
+        ui,
+        format!("attach git remote {}", args.remote.as_symbol()),
+        &git_lock,
+    )
+    .await?;
     journal.complete()?;
     Ok(())
 }

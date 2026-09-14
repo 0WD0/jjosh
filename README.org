@@ -70,12 +70,12 @@ jjosh bookmark create topic#parser -r @
 
 #+begin_src sh
 jjosh git remote add parser-origin /path/to/parser-fork.git \
-  --like parser-upstream --writable
+  --like parser-upstream
 jjosh git fetch --remote parser-origin --branch main
 jjosh git push --remote parser-origin --bookmark topic#parser --dry-run
 #+end_src
 
-=--like= 采用与 upstream 相同的目录映射，=--writable= 开启这个 remote 的发布能力。
+=--like= 采用与 upstream 相同的目录映射。这个 remote 与普通 jj remote 一样用于 fetch 和 push。
 检查计划中的地址、项目和分支，确认后执行：
 
 #+begin_src sh
@@ -84,6 +84,15 @@ jjosh git push --remote parser-origin --bookmark topic#parser
 
 fork 收到的是名为 =topic= 的分支，=libs/parser/= 中的内容出现在它的根目录。
 同一提交里对应用的修改仍留在本地，可以另选应用的发布地址。
+
+日常可以为项目分别记住获取和发布的 remote：
+
+#+begin_src sh
+jjosh config set --repo git.projects.parser.fetch parser-upstream
+jjosh config set --repo git.projects.parser.push parser-origin
+jjosh git fetch --project parser --branch main
+jjosh git push --bookmark topic#parser
+#+end_src
 
 * 继续使用
 

@@ -211,6 +211,8 @@ fn rename_remote_in_repo_config(
         remotes_table.insert(new_remote.as_str(), old_item);
     }
 
+    update_project_remote_defaults(&mut file, old_remote, Some(new_remote));
+
     // trunk = <name>@<old_remote> -> <name>@<new_remote>
     if let Some(old_symbol) = get_trunk_symbol(file.layer())
         && old_symbol.remote == old_remote
@@ -244,6 +246,8 @@ fn remove_remote_from_repo_config(
         remotes_table.remove(old_remote.as_str());
     }
 
+    update_project_remote_defaults(&mut file, old_remote, None);
+
     // trunk = <name>@<old_remote>
     if let Some(old_symbol) = get_trunk_symbol(file.layer())
         && old_symbol.remote == old_remote
@@ -257,6 +261,45 @@ fn remove_remote_from_repo_config(
     }
 
     Ok(Some(file))
+}
+
+/// Retargets literal repo-local defaults without rebuilding their parent tables.
+fn update_project_remote_defaults(
+    file: &mut ConfigFile,
+    old_remote: &RemoteName,
+    new_remote: Option<&RemoteName>,
+) {
+    let Some(projects) = file
+        .data_mut()
+        .as_table_mut()
+        .get_mut("git")
+        .and_then(|item| item.as_table_like_mut())
+        .and_then(|table| table.get_mut("projects"))
+        .and_then(|item| item.as_table_like_mut())
+    else {
+        return;
+    };
+    for (_, project) in projects.iter_mut() {
+        let Some(defaults) = project.as_table_like_mut() else {
+            continue;
+        };
+        for direction in ["fetch", "push"] {
+            if defaults.get(direction).and_then(|item| item.as_str()) != Some(old_remote.as_str()) {
+                continue;
+            }
+            if let Some(new_remote) = new_remote {
+                let value = defaults
+                    .get_mut(direction)
+                    .and_then(|item| item.as_value_mut())
+                    .expect("matching remote default is a string");
+                let mut replacement = toml_edit::Value::from(new_remote.as_str());
+                *replacement.decor_mut() = value.decor().clone();
+                *value = replacement;
+            } else {
+                defaults.remove(direction);
+            }
+        }
+    }
 }
 
 fn get_trunk_symbol(layer: &ConfigLayer) -> Option<RemoteRefSymbolBuf> {

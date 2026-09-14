@@ -14,11 +14,17 @@ pub(super) fn prepare_binding(
     args: &GitRemoteBindingArgs,
 ) -> Result<BindingRecord, CommandError> {
     let git = jj_lib::git::get_git_backend(workspace.repo().store())?.git_repo();
+    jj_lib::git::check_obsolete_remote_config(&git, remote).map_err(user_error)?;
     if git.object_hash() != gix::hash::Kind::Sha1 {
-        return Err(user_error("jjosh-v1 history conversion requires a SHA-1 Git backend"));
+        return Err(user_error(
+            "jjosh-v1 history conversion requires a SHA-1 Git backend",
+        ));
     }
     for key in ["jjosh-project", "jjosh-mount", "jjosh-base"] {
-        if super::config_string(&git, &format!("remote.{}.{key}", remote.as_str())).map_err(user_error)?.is_some() {
+        if super::config_string(&git, &format!("remote.{}.{key}", remote.as_str()))
+            .map_err(user_error)?
+            .is_some()
+        {
             return Err(user_error(format!("Remote {} still has legacy configuration; use project migrate rather than attaching a new definition", remote.as_str())));
         }
     }

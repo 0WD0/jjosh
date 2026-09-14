@@ -715,13 +715,26 @@ fn test_git_remote_named_git() {
     ");
 
     // The remote cannot be renamed back by jj.
+    let config_before = std::fs::read(work_dir.root().join(".git/config")).unwrap();
+    let bookmark_before = work_dir
+        .run_jj(["log", "--no-graph", "-r", "main@git", "-T", "commit_id"])
+        .success()
+        .stdout
+        .to_string();
     let output = work_dir.run_jj(["git", "remote", "rename", "bar", "git"]);
-    insta::assert_snapshot!(output, @"
-    ------- stderr -------
-    Error: Git remote named 'git' is reserved for local Git repository
-    [EOF]
-    [exit status: 1]
-    ");
+    assert!(!output.status.success());
+    assert_eq!(
+        std::fs::read(work_dir.root().join(".git/config")).unwrap(),
+        config_before
+    );
+    assert_eq!(
+        work_dir
+            .run_jj(["log", "--no-graph", "-r", "main@git", "-T", "commit_id"])
+            .success()
+            .stdout
+            .to_string(),
+        bookmark_before,
+    );
 
     // Reinitialize the repo with remote named 'git'.
     work_dir.remove_dir_all(".jj");

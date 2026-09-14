@@ -311,10 +311,10 @@ fn local_diagnostics(
             let binding_ids: Vec<_> = state.bindings.iter().filter(|(_, target)| target.adds().flatten().any(|record| identity.as_ref() == Some(&record.connection_id))).map(|(id, _)| id.clone()).collect();
             let project_ids: Vec<_> = binding_ids.iter().flat_map(|id| state.bindings[id].adds().flatten()).filter_map(|record| match &record.target { BindingTarget::Project(id) => Some(id.clone()), BindingTarget::RepositoryView => None }).collect();
             let mut problems = Vec::new();
+            if let Err(error) = jj_lib::git::check_obsolete_remote_config(&git, remote) { problems.push(error); }
             if let Err(error) = jj_lib::git::remote_connection_id(&git, remote) { problems.push(error); }
             if let Err(error) = jj_lib::git::check_remote_owner(repo.view(), remote, identity.as_ref()) { problems.push(error); }
             if !binding_ids.is_empty() {
-                if let Err(error) = crate::git_remote::remote_read_only(&git, remote) { problems.push(format!("{error:#}")); }
                 if jj_lib::git::remote_required_capability(&git, remote).as_deref() != Some("jjosh-v1") {
                     problems.push(format!("Remote {name} has a binding but lacks the required jjosh-v1 capability marker"));
                 }

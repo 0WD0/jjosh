@@ -174,8 +174,16 @@ impl NativeRepo {
     }
 
     fn add_project_remote(&self, name: &str, url: &Path, project: &str) {
-        self.jj(&["git", "remote", "add", name, url.to_str().unwrap(),
-            "--project", project, "--whole", "--writable"]);
+        self.jj(&[
+            "git",
+            "remote",
+            "add",
+            name,
+            url.to_str().unwrap(),
+            "--project",
+            project,
+            "--whole",
+        ]);
     }
 }
 
@@ -1241,6 +1249,228 @@ fn native_migration_preserves_external_update_to_observed_mirror() {
 }
 
 #[test]
+fn obsolete_remote_key_retirement_preserves_current_bindings_and_publication() {
+    let source = NativeRepo::new();
+    source.write("value.txt", "source\n");
+    source.jj(&["describe", "-m", "source"]);
+    source.bookmark("main");
+    source.jj(&["tag", "set", "v1"]);
+    let upstream = source.temp.path().join("upstream.git");
+    native_git(
+        &source.path,
+        &["init", "--bare", upstream.to_str().unwrap()],
+    );
+    source.jj(&["git", "remote", "add", "origin", upstream.to_str().unwrap()]);
+    source.jj(&[
+        "git",
+        "push",
+        "--remote",
+        "origin",
+        "--bookmark",
+        "main",
+        "--tag",
+        "v1",
+    ]);
+    let publication = source.temp.path().join("publication.git");
+    native_git(
+        &source.path,
+        &[
+            "clone",
+            "--bare",
+            upstream.to_str().unwrap(),
+            publication.to_str().unwrap(),
+        ],
+    );
+
+    let mono = NativeRepo::new();
+    mono.jj(&["project", "add", "app", "--path", "vendor/app"]);
+    mono.jj(&[
+        "git",
+        "remote",
+        "add",
+        "source",
+        upstream.to_str().unwrap(),
+        "--push-url",
+        publication.to_str().unwrap(),
+        "--project",
+        "app",
+        "--whole",
+    ]);
+    mono.jj(&["git", "fetch", "--remote", "source"]);
+    mono.jj(&["bookmark", "track", "main#app@source"]);
+    mono.jj(&["new", "main#app@source", "-m", "local continuation"]);
+    mono.write("vendor/app/value.txt", "published before migration\n");
+    mono.jj(&["describe", "-m", "local continuation"]);
+    mono.bookmark("main#app");
+    // Establish publication evidence and a lease at the distinct push endpoint.
+    mono.jj(&["git", "push", "--bookmark", "main#app"]);
+    let git_dir = mono.path.join(".jj/repo/store/git");
+    let git = |args: &[&str]| {
+        let mut command = vec!["--git-dir", git_dir.to_str().unwrap()];
+        command.extend_from_slice(args);
+        native_git(&mono.path, &command)
+    };
+    let definitions: serde_json::Value =
+        serde_json::from_str(&mono.jj(&["project", "show", "app", "--json"])).unwrap();
+    let settings = git(&["config", "--local", "--null", "--list"]);
+    let refs = || {
+        git(&[
+            "for-each-ref",
+            "--format=%(refname) %(objectname)",
+            "refs/heads",
+            "refs/remotes",
+            "refs/tags",
+            "refs/jjosh",
+        ])
+    };
+    let references = refs();
+    let tags = mono.jj(&["tag", "list", "--all-remotes"]);
+
+    // Different values, including malformed input, and duplicate remote sections
+    // are all obsolete syntax, not permissions or new source definitions.
+    let config_path = git_dir.join("config");
+    let mut legacy_config = fs::read_to_string(&config_path).unwrap();
+    legacy_config.push_str("\n[remote \"source\"]\n\tjjosh-readOnly\n");
+    fs::write(&config_path, &legacy_config).unwrap();
+    let state = mono.state();
+    let rejected = mono.unchecked(&["git", "fetch", "--remote", "source", "--branch", "main"]);
+    assert!(!rejected.status.success());
+    assert_eq!(mono.state(), state);
+    assert_eq!(refs(), references);
+    legacy_config.push_str(
+        "\n[remote \"source\"]\n\tjjosh-readOnly = true\n\tjjosh-readOnly = false\n[remote \
+         \"source\"]\n\tjjosh-readOnly = malformed\n",
+    );
+    fs::write(&config_path, &legacy_config).unwrap();
+    let state = mono.state();
+    mono.jj(&["project", "migrate", "--dry-run"]);
+    assert_eq!(mono.state(), state);
+    assert_eq!(fs::read_to_string(&config_path).unwrap(), legacy_config);
+    assert_eq!(refs(), references);
+
+    mono.jj(&["project", "migrate", "--apply"]);
+    let migrated: serde_json::Value =
+        serde_json::from_str(&mono.jj(&["project", "show", "app", "--json"])).unwrap();
+    assert_eq!(migrated["projects"], definitions["projects"]);
+    assert_eq!(git(&["config", "--local", "--null", "--list"]), settings);
+    assert_eq!(refs(), references);
+    assert_eq!(mono.jj(&["tag", "list", "--all-remotes"]), tags);
+    let after = mono.state();
+    assert_eq!(
+        (&after.1, &after.2, &after.3),
+        (&state.1, &state.2, &state.3)
+    );
+    mono.jj(&["project", "check", "app"]);
+
+    // Publishing again must use the same source identity, tracking and lease,
+    // without reattachment, re-fetching or clearing observations.
+    mono.jj(&["new", "-m", "continued publication"]);
+    mono.write("vendor/app/value.txt", "published after migration\n");
+    mono.jj(&["describe", "-m", "continued publication"]);
+    mono.bookmark("main#app");
+    mono.jj(&["git", "push", "--bookmark", "main#app"]);
+    assert_eq!(
+        native_git(&publication, &["show", "main:value.txt"]),
+        "published after migration\n"
+    );
+    assert_eq!(
+        native_git(&upstream, &["show", "main:value.txt"]),
+        "source\n"
+    );
+}
+
+#[test]
+fn obsolete_remote_key_retirement_preflights_included_remote_sections() {
+    let mono = NativeRepo::new();
+    let remote = mono.temp.path().join("remote.git");
+    native_git(&mono.path, &["init", "--bare", remote.to_str().unwrap()]);
+    mono.jj(&["project", "add", "app", "--path", "app"]);
+    mono.add_project_remote("source", &remote, "app");
+    let git_dir = mono.path.join(".jj/repo/store/git");
+    let config_path = git_dir.join("config");
+    let included = mono.temp.path().join("included.gitconfig");
+    fs::write(
+        &included,
+        "[remote \"source\"]\n\tjjosh-readOnly = malformed\n",
+    )
+    .unwrap();
+    native_git(
+        &git_dir,
+        &["config", "include.path", included.to_str().unwrap()],
+    );
+    let config = fs::read(&config_path).unwrap();
+    let state = mono.state();
+    for mode in ["--dry-run", "--apply"] {
+        let output = mono.unchecked(&["project", "migrate", mode]);
+        assert!(!output.status.success());
+        assert_eq!(mono.state(), state);
+        assert_eq!(fs::read(&config_path).unwrap(), config);
+        assert_eq!(
+            fs::read_to_string(&included).unwrap(),
+            "[remote \"source\"]\n\tjjosh-readOnly = malformed\n"
+        );
+    }
+    // Correcting ownership is sufficient: preflight must not leave a journal
+    // requiring recovery before the user can retry migration.
+    native_git(&git_dir, &["config", "--unset", "include.path"]);
+    native_git(
+        &git_dir,
+        &["config", "remote.source.jjosh-readOnly", "malformed"],
+    );
+    mono.jj(&["project", "migrate", "--apply"]);
+    mono.jj(&["project", "check", "app"]);
+}
+
+#[test]
+fn legacy_source_migration_also_retires_malformed_remote_key() {
+    let mono = NativeRepo::new();
+    mono.write("app/value.txt", "local project\n");
+    mono.jj(&["describe", "-m", "local project"]);
+    mono.bookmark("main#app");
+    let remote = mono.temp.path().join("remote.git");
+    native_git(&mono.path, &["init", "--bare", remote.to_str().unwrap()]);
+    let git_dir = mono.path.join(".jj/repo/store/git");
+    native_git(
+        &git_dir,
+        &["remote", "add", "source", remote.to_str().unwrap()],
+    );
+    native_git(&git_dir, &["config", "remote.source.jjosh-project", "app"]);
+    native_git(&git_dir, &["config", "remote.source.jjosh-mount", "app"]);
+    native_git(
+        &git_dir,
+        &["config", "remote.source.jjosh-readOnly", "malformed"],
+    );
+    let state = mono.state();
+    let config_path = git_dir.join("config");
+    let config = fs::read(&config_path).unwrap();
+    mono.jj(&["project", "migrate", "--dry-run"]);
+    assert_eq!(mono.state(), state);
+    assert_eq!(fs::read(&config_path).unwrap(), config);
+    mono.jj(&["project", "migrate", "--apply"]);
+    let keys = native_git(&git_dir, &["config", "--local", "--name-only", "--list"]);
+    assert!(
+        !keys
+            .lines()
+            .any(|key| key.eq_ignore_ascii_case("remote.source.jjosh-readOnly"))
+    );
+    assert_eq!(
+        native_git(&git_dir, &["remote", "get-url", "source"]).trim(),
+        remote.to_str().unwrap()
+    );
+    let after = mono.state();
+    assert_eq!(
+        (&after.1, &after.2, &after.3),
+        (&state.1, &state.2, &state.3)
+    );
+    mono.jj(&["project", "check", "app"]);
+    mono.jj(&["git", "push", "--bookmark", "main#app"]);
+    assert_eq!(
+        native_git(&remote, &["show", "main:value.txt"]),
+        "local project\n"
+    );
+}
+
+#[test]
 fn native_fetch_grafts_by_change_id_onto_linked_suffix_history() {
     let source = NativeRepo::new();
     source.write("value.txt", "base\n");
@@ -1417,7 +1647,7 @@ fn native_import_fetch_push_use_nested_mounts() {
         "add",
         "alpha-origin",
         remote.to_str().unwrap(),
-        "--project", "alpha", "--whole", "--writable",
+        "--project", "alpha", "--whole",
     ]);
     dest.jj(&[
         "bookmark",

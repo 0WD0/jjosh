@@ -34,8 +34,6 @@ pub(crate) struct RemoteInfo {
     pub(crate) project: Option<String>,
     pub(crate) mount: Option<String>,
     pub(crate) filter: Option<String>,
-    pub(crate) push_url: Option<String>,
-    pub(crate) read_only: Option<bool>,
 }
 
 pub(crate) struct Diagnostic {
@@ -211,14 +209,6 @@ pub(crate) fn inspect(git_path: &Path) -> Result<Inventory> {
         let project = read_setting(&git, &name, "jjosh-project", &mut issues);
         let configured_mount = read_setting(&git, &name, "jjosh-mount", &mut issues);
         let base = read_setting(&git, &name, "jjosh-base", &mut issues);
-        let read_only = collect(
-            &mut issues,
-            &name,
-            crate::git_remote::remote_read_only(&git, jj_lib::ref_name::RemoteName::new(&name)),
-        );
-        let fetch_url = read_setting(&git, &name, "url", &mut issues);
-        let push_url =
-            read_setting(&git, &name, "pushurl", &mut issues).or_else(|| fetch_url.clone());
         let has_sidecar = sidecars.contains(&name);
         if has_sidecar && !configured.contains(&name) {
             diagnose(
@@ -252,9 +242,6 @@ pub(crate) fn inspect(git_path: &Path) -> Result<Inventory> {
                 git.find_remote(name.as_str()).map_err(Into::into),
             ) {
                 for (direction, label) in [(Direction::Fetch, "fetch"), (Direction::Push, "push")] {
-                    if matches!(direction, Direction::Push) && read_only != Some(false) {
-                        continue;
-                    }
                     if remote.urls(direction).count() != 1 {
                         diagnose(
                             &mut issues,
@@ -335,8 +322,6 @@ pub(crate) fn inspect(git_path: &Path) -> Result<Inventory> {
             project,
             mount,
             filter,
-            push_url,
-            read_only,
         });
     }
 
@@ -370,29 +355,6 @@ pub(crate) fn inspect(git_path: &Path) -> Result<Inventory> {
                 Severity::Error,
                 "Project has conflicting source filters",
             );
-        }
-        let writable = remotes
-            .iter()
-            .filter(|remote| {
-                remote.project.as_ref() == Some(name)
-                    && remote.read_only == Some(false)
-                    && remote.push_url.is_some()
-            })
-            .count();
-        match writable {
-            0 => diagnose(
-                &mut issues,
-                name,
-                Severity::Warning,
-                "Project has no writable publication route",
-            ),
-            1 => {}
-            _ => diagnose(
-                &mut issues,
-                name,
-                Severity::Warning,
-                "Project has multiple writable publication routes; select a remote explicitly",
-            ),
         }
     }
     for (mount, names) in owners {
@@ -471,8 +433,8 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
         writeln!(ui.status(), "Storage requires an exclusive project-aware format upgrade; stop incompatible writers before --apply --exclusive")?;
     }
     let mut blockers = Vec::new();
-    // These old policy diagnostics are superseded by explicit per-binding
-    // definitions below. Structural corruption is never overridden by a mapping.
+    // Legacy project-wide filter diagnostics are superseded by explicit
+    // per-binding definitions below. Structural corruption is never overridden.
     for issue in &inventory.issues {
         if issue.severity == Severity::Error
             && issue.message != "Project has conflicting source filters"
@@ -646,6 +608,29 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
         writeln!(ui.status(), "Retire legacy native mirror {reference}; identical local target retained")?;
     }
     let mut updates = Vec::new();
+    let config = git.config_snapshot();
+    let mut retired_config_remotes = BTreeSet::new();
+    for section in config.sections_by_name("remote").into_iter().flatten() {
+        if section
+            .value_names()
+            .any(|name| name.eq_ignore_ascii_case("jjosh-readOnly"))
+            && let Some(name) = section.header().subsection_name()
+        {
+            let name = std::str::from_utf8(name).map_err(user_error)?;
+            retired_config_remotes.insert(RemoteNameBuf::from(name));
+        }
+    }
+    // This is config retirement, not legacy source adoption. In particular,
+    // operation-owned bindings and their observations must remain untouched.
+    for remote in &retired_config_remotes {
+        updates.push((remote.clone(), "jjosh-readOnly".to_owned(), None));
+        writeln!(
+            ui.status(),
+            "Retire obsolete remote.{}.jjosh-readOnly; source definitions and observations \
+             unchanged",
+            remote.as_str()
+        )?;
+    }
     let mut sidecars = Vec::new();
     let mut remote_bindings = BTreeMap::new();
     let mut cleared = Vec::new();
@@ -718,11 +703,10 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
         let id = BindingId::generate();
         writeln!(
             ui.status(),
-            "Bind {}: {:?}; base={:?}; read-only={:?}; endpoints/refspec/auth unchanged",
+            "Bind {}: {:?}; base={:?}; endpoints/refspec/auth unchanged",
             remote.name,
             binding.representation,
-            binding.base,
-            remote.read_only
+            binding.base
         )?;
         if let Some(refs) = view.remote_views.get(&name)
             && (!refs.bookmarks.is_empty() || !refs.tags.is_empty())
@@ -813,13 +797,25 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
     }
     // Match the core journal's ownership rule during read-only planning, before
     // any provenance copying or operation publication.
-    let config = git.config_snapshot();
-    for remote in remote_bindings.keys() {
-        if config.sections_by_name("remote").into_iter().flatten()
-            .filter(|section| section.header().subsection_name().is_some_and(|name| name == remote.as_str()))
+    let updated_remotes: BTreeSet<_> = updates.iter().map(|(remote, _, _)| remote).collect();
+    for remote in updated_remotes {
+        if config
+            .sections_by_name("remote")
+            .into_iter()
+            .flatten()
+            .filter(|section| {
+                section
+                    .header()
+                    .subsection_name()
+                    .is_some_and(|name| name == remote.as_str())
+            })
             .any(|section| section.meta() != config.meta())
         {
-            blockers.push(format!("Remote {remote} has include/global configuration; move all its effective settings into local Git config before migration"));
+            blockers.push(format!(
+                "Remote {} has include/global configuration; move all its effective settings into \
+                 local Git config before migration",
+                remote.as_symbol()
+            ));
         }
     }
     let legacy_transaction = crate::interop::open_josh_transaction(&git_path, true)?;
@@ -919,6 +915,14 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
     // Completion and `git remote recover --accept` perform the same idempotent
     // post-commit retirement. The journal remains until every retirement succeeds.
     journal.complete()?;
-    writeln!(ui.status(), "Migrated {} projects and {} remote bindings; local references, working files, raw objects, shallow state and publication leases preserved.", projects.len(), remote_bindings.len())?;
+    writeln!(
+        ui.status(),
+        "Migrated {} projects and {} remote bindings; retired obsolete configuration for {} \
+         remotes; local references, working files, raw objects, shallow state and publication \
+         leases preserved.",
+        projects.len(),
+        remote_bindings.len(),
+        retired_config_remotes.len()
+    )?;
     Ok(())
 }
