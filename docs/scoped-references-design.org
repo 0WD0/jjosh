@@ -5,6 +5,9 @@
 本提案讨论 jjosh 是否需要超出普通引用名约定的能力，不是当前命令手册。
 当前可执行流程见 [[file:workflows.org][操作指南]]。下文的 typed scope、组件引用语法和 =--scope= 都是拟议接口。
 
+子项目作为仓库开发单元的定义、目录归属、来源关系和本地身份，先由 [[file:subprojects-design.org][子项目模型]] 讨论。
+本文只讨论引用 namespace；项目与 scope 可以关联，但不是同一个概念，也不要求项目模型与全部结构化引用改造同时落地。
+
 * 要解决的歧义
 
 当前 =main#engine@engine-upstream= 足以表达常见工作流，但底层仍是普通名字和全局 remote：
@@ -37,7 +40,7 @@ View 按 scope 保存本地引用、远端观察和 tracking；引用目标继�
 
 项目挂载、filter、来源 base 是转换配置，不是引用身份。
 移动目录、修改 filter、scope rename 和 remote rename 是四种不同操作。
-本提案不附带任意历史布局搬迁或项目 UUID。
+本提案不附带任意历史布局搬迁，也不引入跨仓库项目 UUID。子项目模型中的仓库本地 ProjectId 用于元数据关联，不是这里的引用 scope 或另一套 change 身份。
 
 * 用户如何选择
 

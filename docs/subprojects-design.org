@@ -1,0 +1,387 @@
+#+title: 子项目在 jj 中的位置
+#+subtitle: 概念、状态归属与命令边界设计
+#+options: toc:2 num:nil
+
+* 状态与结论
+
+这是设计建议，不是当前命令手册。先确定子项目模型，再据此调整 =projection= 和 =git remote=；不把命令改名当成模型设计。
+现有代码和实验依据在文末。本文中的新命令、类型和存储规则均尚未实现。
+
+建议采用以下划分：
+
+- *子项目* 是当前 jj 仓库中可被独立选择、接收和交付的逻辑开发单元。
+- *目录布局* 决定该单元的内容在 canonical 树中的位置，不决定磁盘检出位置。
+- *来源绑定* 描述一个外部表示怎样映射到这个单元。一个项目可以有多个表示。
+- *projection* 是历史与内容之间的转换，不是项目类型，也不是另一套 remote 管理。
+- *remote* 是连接和传输配置。项目归属、转换依据和写入授权不能只靠一个 remote 名同时表达。
+
+因此，不把项目分成永久的“native 项目”和“projection 项目”。native 保真导入与 Josh 有损过滤是具体转换关系的能力与约束，不是项目身份。
+
+* 为什么不能只合并两个 remote add
+
+当前实现的几个事实决定了这次不是命令整理：
+
+1. =projection add= 登记的是 =refs/jjosh/native/PROJECT/mount=，不产生 jj operation。恢复到登记前的 operation，项目仍在。
+2. 项目 filter 保存在按 remote 命名的 Josh 文件里，却要求同一项目的显式 filter 相同；普通 attach 又可以绕过这个比较。
+3. fetch 按所选 remote 的转换读取内容，scoped push 则可能挑选另一个 remote 的转换，再把结果发往所选目的地。同一个绑定并不一定双向使用同一种表示。
+4. 删除最后一个 filtered remote 后，项目目录登记仍在，但其唯一配置的转换关系消失；当前 push 可以退回纯目录导出，而不是报告缺失转换选择。
+5. native provenance 的存在会让整个项目优先走 native 转换；它把曾经采用的导入算法提升成了项目的永久分类。
+6. 当前 native bundle 传输提交、引用和 sparse 状态，但不传输独立项目登记和来源转换定义。
+
+把 =projection remote add= 原样搬到 =git remote add= 会保留上述问题。
+此前“只要指定同一项目就自动继承 filter”的建议也不成立：同一项目的不同外部仓库可能有不同布局。
+
+* 子项目与 jj 核心概念的关系
+
+| jj 概念 | 子项目应提供什么 | 不应改变什么 |
+|---------+------------------+--------------|
+| repository | 仓库范围内的项目登记、内容边界和关联信息 | 不创建子仓库，不要求每项目一个 backend |
+| tree / path | canonical 内容范围；本轮为一个非根目录 | 不随 cwd、磁盘位置或 sparse 布局重新推断归属 |
+| commit | 可查询一个提交对哪些项目有影响，可按项目导出 | 提交仍保存完整树，可以同时修改多个项目 |
+| change | 不增加第二套 change 身份 | change ID 仍可有多个版本；项目不消除 divergence |
+| bookmark / tag | 为交付选择项目和具体版本 | 不把书签变成项目的私有 HEAD，不限制目标提交内容 |
+| remote observation | 记住哪个外部表示被怎样转换成哪个本地版本 | 不将 canonical ID 当成远端 raw ID |
+| workspace | 可以只检出一个项目，也可以同时开发多个 | workspace 仍有一个完整的工作提交，不隶属于唯一项目 |
+| operation | 记录项目定义及语义绑定的变化，支持冲突与恢复 | 不撤销外部发布，不恢复凭据或远端真实位置 |
+| revset / fileset | 提供显式的项目内容选择 | 不因进入项目目录就暗中缩小全局命令范围 |
+| backend / GC | 保活本地历史及转换所需来源对象 | 不将项目的可见性等同于对象可达性或访问控制 |
+
+** 项目不是提交分区
+
+例如一个提交同时修改应用、lib 和构建脚本。它仍然是一个 commit、一个 change 的版本，可以同时成为多个项目书签的目标。
+
+“影响 lib 的提交”“从 lib 上游取来的提交”“发布 lib 时产生的历史”是三个集合，不能统一成一个 =project.commits= 表。
+前者是内容查询，第二个需要来源 provenance，第三个是选定转换及上下文的计算结果。
+项目专属 DAG、每项目 change ID 索引、每项目工作头都不属于此模型。
+
+** 项目不是工作副本布局
+
+项目根 =packages/lib/= 是 canonical 路径。某个 workspace 可以将其映射到磁盘根，另一个仍使用完整 monorepo 布局。
+这不会修改项目定义，也不会改变其他 workspace 的视图。
+
+=sparse= 负责检出和路径映射；project 命令不隐式调用 sparse，不创建所谓“项目 workspace”。
+来自 native 导入的 =workspace/default#lib= 仍是指向来源工作入口的普通书签。
+
+** 内容边界的明确限制
+
+本轮项目拥有一个非根 canonical 目录；活动项目的目录不能相等或互相包含。
+没有登记的路径仍属于普通仓库内容，不必补一个 root 项目。
+项目登记不等于构建系统的 package、依赖图、权限边界或 Git submodule；不会新增 gitlink，也不承诺独立访问控制。
+
+选择这个限制是为了让可写内容归属明确，不是因为子项目概念只能是一棵子树。
+多个目录、重叠视图、依赖组合可以由 projection 或 sparse 表达，但不能未经冲突语义设计就变成多个可写项目。
+
+项目可以在当前 revision 中没有文件，例如尚未 fetch 或当前版本尚未包含它。
+因此，项目存在不能以“磁盘上有这个目录”或“至少有一个 remote”为条件。
+登记不创建源码提交，不自动接收远端，也不移动工作文件；已有普通文件或 symlink 不能占用声明的目录位置。
+
+* 身份、定义与版本
+
+建议项目有稳定的 *仓库本地 ProjectId*，显示名和目录是可记录的定义属性。
+它只用于本仓库的元数据关联，不是跨仓库 UUID，不是另一个 commit/change ID，也不参与网络身份推断。
+
+#+begin_example
+ProjectId -> { name, canonical_root }
+#+end_example
+
+采用本地稳定 ID 的理由是：改显示名不应靠搬动所有来源对象和 lease 才能保住身份；恢复旧 operation 时，旧名字与旧定义仍需可解释。
+导入到另一个仓库时重新分配本地 ID，并显式映射引用，不因两个项目重名或 URL 相同就认为它们相同。
+
+本地 ID 与显示名的约束也需要进入操作合并：同一活动名字只能对应一个 ProjectId，同一内容范围不能被两个活动项目占用。
+并发创建同名/重叠项目时保留两个定义的冲突并要求解决，不能只按 ID 不同就认为可以并存。
+过渡期名字仍受 =#PROJECT= 适配器的字符限制；放宽名字语法属于结构化引用设计。
+
+生命周期以显式操作为界：移除 remote 不注销项目；注销项目不删除工作文件或提交。
+注销入口只有在当前绑定、项目引用与 tracking 已显式处理后才允许成功，不做隐式级联删除；历史定义和转换依据继续由旧 operation/provenance 保活。
+重新使用一个已注销名字创建项目会分配新的本地 ID，不复用旧项目的 raw 对应关系或发布授权。
+
+目录位置与名字仍有不同生命周期：
+
+- 改名只改项目显示名；已登记的引用 label 保持稳定，不移动源码、不改变远端 wire ref 名、不刷新 lease。引用 namespace 改名是另一个显式迁移。
+- 改目录是内容与历史布局变更，不能通过改一条 remote 配置实现。
+- 普通文件移动不会自动修改项目定义；历史路径迁移需要另一个明确操作和对应关系设计。
+
+本轮不把任意项目布局迁移塞进 remote 合并。首次落地先保持已登记布局不可就地更换；不提供会静默丢失历史含义的 =set --mount=。
+
+* 转换应属于哪一层
+
+项目的 canonical 目录与来源 filter 必须拆开保存。不能继续把目标 prefix 拼进每个 remote 的 filter，随后靠“是否 attach 过”判断需不需要再拼一次。
+
+#+begin_example
+外部仓库的历史
+      │ 来源表示转换 F
+      ▼
+项目根坐标下的内容与历史
+      │ 项目布局 L
+      ▼
+monorepo canonical 历史
+#+end_example
+
+导入的组合是 =L ∘ F=。发布要先隔离所选项目，再在明确的 raw 上下文中进行反向重建；不是简单应用 =F⁻¹=，因为有损过滤不一定存在数学意义上的逆函数。
+
+** 一个项目的不同外部表示
+
+同一个 api 可以对应：
+
+| 外部仓库 | 外部布局 | 来源表示 |
+|----------+----------+----------|
+| 上游 monorepo | =src/api/=，还有其他目录 | 提取 =:/src/api= |
+| 与上游同布局的 fork | 同上 | 复用相同转换定义，但有自己的历史与 lease |
+| 独立维护仓库 | 根目录就是 api | whole-project 表示 |
+| 本地 jj 工作仓库 | 根目录就是 api，含未发布原生状态 | whole-project 表示，输入支持 native 状态 |
+
+它们可映射到同一个 canonical 项目，但不能共用一个无条件的 source filter 或单值 raw/canonical 映射。
+相同 filter 字符串也不能证明相同来源上下文，尤其是版本化 workspace 定义、literal raw OID 和过滤范围外内容。
+
+** 来源绑定的语义内容
+
+每个绑定明确记录：
+
+- 它关联哪个本地连接 handle，以及目标是 =Project(ProjectId)= 还是 =RepositoryView=。后者支持不属于子项目的独立根视图，不创建 root 项目。
+- 外部表示的转换定义：whole-project，或显式 Josh filter / versioned view。
+- 转换定义的版本，以及反向重建所用的 base 选择规则。
+- 对应的来源历史与 provenance 引用；这些不能仅按项目名建立单值逆映射。
+
+转换定义不可因另一个 peer 被删除而变化。同一绑定的 fetch/push 必须使用同一表示；跨表示发布是显式选择，不借目的地别名偷偷换转换。
+已经参与获取或发布的定义不能被 =remote set= 原地覆盖。需要不同表示时新建绑定，保留旧观察和旧 provenance；未来如提供迁移命令，必须单独定义历史迁移和 tracking 行为。
+
+whole-project 的原生导入应在输入能提供时保留 change 身份、有序父边、冲突和空提交；重新挂载会改变 commit ID，失效签名不能保留。
+项目导出则可以裁剪只影响其他项目的提交，不能把导入保真承诺误写成“每次导出保留所有空提交”。Josh 关系承认其有损语义并拒绝不能正确处理的 native 冲突输入。
+不能为实现统一接口，把 native 状态先降成 Git 快照，也不能看到一个 native anchor 就把所有来源强行改成 native。
+
+** 复用定义，而不是猜继承
+
+为同布局 fork 配置来源时，可以提供“与某个已有绑定使用相同表示”的便利操作。
+这是创建时复制/引用一个不可变转换定义，不是随着另一个 remote 配置变化而动态继承。
+
+复用不复制 URL、写权限、tracking、raw 观察、发布 lease 或浅边界；也不把另一个来源的已解析 base OID 当成这个 fork 的状态。
+base 选择与新来源的实际对象仍需独立验证。
+
+对于已有项目，新绑定没有声明 whole/filter/view/复用来源时应拒绝，不能靠“刚好只剩一个 remote”猜测。
+这比 =--project lib= 暗中借用某个来源多一点显式信息，但消除了目前删除 peer 会改变发布语义的问题。
+
+* remote、来源上下文和发布权限
+
+这三件事需要分别解析：
+
+1. 用户选定哪个项目和 canonical 版本。
+2. 使用哪个外部表示、转换版本及 raw 上下文。
+3. 向哪个实际 endpoint 的哪个完整 ref 写入，expected-old 是什么。
+
+通常目的 remote 自己就有该项目的绑定，直接使用它。
+向未绑定的 endpoint 发布仍应保留，但必须显式选择采用哪个已有来源表示；不能再按“有 base 的唯一候选”代替用户选择。
+多个项目可向同一 endpoint 发布，每个选中项目分别解析表示和 wire ref，并在传输前检查重复目的地。
+
+没有绑定时，允许查看和编辑项目，但发布要报告缺少表示/路由；不能将“丢失了以前的 filtered 绑定”解释成“改为纯目录发布”。
+本地已有目录想发布为独立仓库时，明确创建 whole-project 发布绑定即可。
+
+连接的 URL、push URL、认证、per-remote Git 设置和写权限继续由本地 Git 配置管理。
+新建普通 Git remote 保留普通 jj 语义；新建带项目/转换绑定的连接默认只读，显式开启写入。迁移现有配置时保留已有有效权限，不因为新默认值重新解释它。
+这里的只读是 jjosh 的发布策略，不是服务器权限。原生 =git fetch/push= 仍直接连接真实 endpoint，绕过项目转换和策略；不引入本地代理，也不把绑定当访问控制。
+
+URL 改变不是项目改名。endpoint ledger、来源对象库和 shallow 状态按实际来源/目的身份处理，不能跟随 remote 别名改名而获得新的覆盖授权。
+临时 fetch URL 也不能把镜像观察变成配置地址上的 lease。
+
+* 与引用 scope 的边界
+
+项目是内容和开发单元；scope 是引用的命名/选择维度。二者可以关联，不应定义成同一种对象。
+一个项目可以还没有引用，一个普通引用范围也不必有可写项目目录。
+
+当前 =NAME#PROJECT= 可以作为过渡适配，但它不是一等 scope，不具备字面根名字与 scoped 名字共存的能力。
+过渡期由 operation-owned 的 =RefLabel -> ProjectId= 关联表解释后缀，而不是从当前项目显示名临时推断。关联随 repo 部分恢复；只有已显式登记的 label 才表示项目引用。
+
+建立 label 前必须检查当前所有相关本地引用、远端观察与 tracking：若已有带该后缀的未关联名字，不能直接接管。普通注册应拒绝这种 label 占用；显式迁移则逐项列出要接纳的旧引用。
+例如先有字面书签 =topic#lib=，再登记 lib，不能让旧书签突然获得项目发布含义。label 登记后，该保留后缀的新引用才按这个明确的关联解释。
+项目显示名改为 api 不自动把 =topic#lib= 改名。用户另行迁移 label 时，先检查全部目标名字；已有不相关 =topic#api= 就拒绝，不覆盖或合并。
+旧 operation 使用自己的关联表和原名字；缺少这张表的旧历史不能按当前项目列表重解释。关联冲突和部分恢复中的悬空 ProjectId 必须显式显示并阻止相关传输。
+
+结构化引用应作为 [[file:scoped-references-design.org][独立设计]] 处理，不以此次 remote 创建入口统一为借口顺便重写所有引用语法。
+因此本轮不引入全局 =--project=，也不让进入项目目录改变 =log=、=rebase=、=squash= 或 =push= 的默认范围。
+
+内容查询可以提供显式 project fileset，解析到当前所选 operation 中的 canonical 内容范围。
+历史查询仍作用于完整提交：按项目内容筛选日志不等于把提交投影成新历史。修改历史布局前的路径跟随不是普通 fileset 可以自动保证的能力。
+
+* 状态应该存在哪里
+
+建议分成四个明确的存储域：
+
+| 数据 | 权威位置 | 恢复/共享规则 |
+|------+----------+----------------|
+| Project 定义、绑定的语义定义与版本 | jj operation-owned repository metadata | 可 undo/restore，保留并发冲突 |
+| 本地引用、label 关联、远端观察与 tracking | View 及其不可变观察证据引用 | 引用/关联属 repo 部分；远端观察继续遵守 remote-tracking 恢复选择 |
+| URL、凭据、写权限、连接 handle | 本地 Git 配置 | 不随 op restore 回滚，不通过导入自动激活 |
+| raw 对象、浅边界、逆转换 provenance、endpoint lease | backend/来源存储与外部观察账本 | 保活所有仍被历史引用的版本；不因 op restore 撤销外部结果 |
+
+不是把四类数据复制到四处。operation metadata 引用语义对象，Git config 保留连接信息，存储层只保存必要对象与外部证据。
+同一语义字段不同时以 View 和 Git config 为权威。
+
+转换观察不能只记录“binding + filter 版本”。它还需引用不可变的来源 endpoint 身份、raw ref 与直接 raw 对象 ID、使用过的 normalization generation，以及实际采用的 resolved base/provenance。
+这些证据必须逐个保留引用冲突项，不能把多个 adds/removes 压成一个配对。来源 URL 之后改变，即使新的投影结果具有相同 canonical ID，旧观察仍指向当时的输入。
+这不是一个全局 raw-to-canonical 身份表；它是解释具体引用更新所需的输入证据。恢复时按该证据定位原来源存储，缺失则拒绝，不能按当前 URL 查一个“看起来相同”的输入替代。
+
+** 为什么选择 operation-owned，而不是新的版本化文件
+
+项目是一个 jj 仓库中跨分支、跨 workspace 的开发配置；不同工作提交可以同时存在，不能让任意一个工作副本中的文件自动成为全仓库权威。
+operation-owned 模型可与引用、并发操作、sparse 配置保持相同的恢复边界，并避免注册项目制造源码提交。
+
+代价必须说明：普通 Git clone 不会自动恢复全部项目配置。
+需要携带原生开发状态时，native bundle/导入格式应显式支持项目元数据；连接与写权限不携带。
+如果产品目标要求“只靠普通 Git clone 自动还原项目声明”，那是另一项共享契约，应另设计纯声明式 manifest 的导出/导入，不能重新引入兼任 URL、pin、lease 权威的 marker。
+
+** 并发和恢复
+
+同一项目定义或绑定的并发修改保留冲突，不按文件写入顺序选一个。
+即使按 ProjectId 合并没有同键冲突，merge/restore 后也必须验证全仓库名字、label 关联和内容范围：两个并发创建的不同 ID 可能同名，或分别占用 =packages/lib= 与 =packages/lib/internal=。
+跨记录冲突也作为有效但未解决的仓库状态保存，并指出涉及的定义；不能因为 map 合并成功就允许重叠写入。受影响的项目选择、布局相关变更和传输拒绝，其他正常项目仍可查看和使用。
+
+恢复项目定义不会恢复当前网络环境。若恢复出的绑定所需连接已删除，状态可显示为未连接，不能自动创建或激活 remote。
+恢复 remote-tracking 而保留当前定义时，旧观察仍携带当时的绑定/转换版本、endpoint、raw 输入和 normalization/base 证据；不能用当前 filter 或当前 URL 重新解释旧 canonical 目标。
+没有兼容来源上下文时，发布拒绝并指出需要获取或选择的绑定。
+
+** native 导入和嵌套项目
+
+“把整个来源仓库作为一个新项目”与“搬迁一个已含多个项目的 jj 仓库”是不同操作。
+前者选择外层单位，不能同时激活重叠的内部项目；后者必须显式映射源 ProjectId、名字、目录与绑定，且不能激活源 URL/权限。
+
+当前 native import 属于前者，不能宣传为完整搬运内部项目管理状态。
+增加后者需要 bundle 格式和导入映射契约；不能把几条 =NAME#PROJECT= 字符串搬过来就宣布项目模型已传输完整。
+
+* 从模型推导命令职责
+
+先定职责，下面的名字只是本设计的候选接口，不修改当前 CLI：
+
+| 任务 | 建议入口 | 明确不做的事 |
+|------+----------+--------------|
+| 声明/查看/诊断项目 | =project add/list/show/check= | 不配置 endpoint、不 fetch、不检出 |
+| 把已有原生开发状态纳入项目 | =project import= | 不做 Git 来源的另一套同步编排 |
+| 创建/修改/改名/移除连接及绑定 | =git remote …= | 不拥有项目目录，不自动换转换 |
+| 获取/发布 | =git fetch/push= | 不自动整合，不按文件变化猜项目 |
+| 选择本地工作头和整理修改 | 现有 =new/rebase/squash/bookmark/tag= | 不增加项目专属 HEAD 或另一套合并 |
+| 检出选择与物理布局 | =sparse=、=workspace= | 不改项目身份或转换关系 |
+| 临时求值任意历史过滤/视图 | 独立的 projection 查询入口 | 不注册项目、不管理 remote |
+
+这意味着 =projection add/list/show/check= 应迁到 =project=，=projection remote= 应移除。
+=projection preview --project= 当前只是本地目录视图，不是远端发布结果；项目内容查看应由正常内容查询承担，实际发布计划仍由 push dry-run 负责。
+projection 若保留，应是面向任意 filter/view 的显式转换工具，而不是“子项目功能杂物箱”。是否保留 =preview= 这一层命令包装是后续语法细节，不影响以上职责。
+
+native bundle 的 export/inspect 和任意图 transplant 不因项目命令出现就都改成 project 命令：它们还能操作完整仓库或跨项目修改图。
+
+不绑定项目的独立历史视图仍是有效用途：=git remote add NAME URL --filter FILTER= / =--view PATH= 作用于整个本地仓库视图，不创建 root 项目。
+统一入口必须保留这条路径，不能把所有 projection remote 强制改成子项目。具体转换定义仍由扩展解析，普通 jj CLI 和项目元数据不依赖 Josh 的 filter AST。
+
+** 典型命令草图
+
+以下全部是拟议接口：
+
+#+begin_example
+# 项目只声明本仓库的内容位置；目录可以尚未获取。
+jjosh project add lib --path packages/lib
+
+# remote 不再接受 --mount；它引用已有项目，并明确外部表示。
+jjosh git remote add lib-upstream URL --project lib --filter ':/src' --base main --read-only
+
+# 同布局 fork：--like 复用表示，不复制连接、权限、lease 或已解析 base。
+jjosh git remote add lib-origin FORK_URL --like lib-upstream --writable
+
+# 独立根布局的外部仓库：不误套上游的 :/src。
+jjosh git remote add lib-standalone ROOT_URL --project lib --whole --writable
+
+jjosh git fetch --remote lib-upstream --branch main
+jjosh new @ main#lib@lib-upstream
+jjosh git push --remote lib-origin --bookmark topic#lib
+#+end_example
+
+=--like= 和 =--whole= 是对“复用哪种表示”和“明确根布局”的候选表达，不是已实现选项。
+带 =--project= 的 remote 创建要求项目已登记，不隐式创建项目，避免一个命令跨两类权威状态完成半次登记。
+=project import= 则是显式创建项目并导入已记录状态的仓库操作，应在同一 jj operation 中完成。
+
+** 创建和修改不能再混为一谈
+
+=git remote add= 仅创建，已有名字报错；不沿用当前 projection add 的 upsert。
+现有 =set-url= 负责连接地址；绑定/权限的显式修改操作负责它们自己的字段，不再用 add 代替修改。
+
+修改中“省略字段”统一表示保留；清除必须显式，冲突组合在写入前拒绝。
+已经使用的转换定义不能原地变更。给一个已存在的普通 remote 加绑定时，也不能直接把已有 raw 观察重新解释成 canonical 观察：必须为空/未使用，或走单独的迁移流程。
+
+* 迁移与落地约束
+
+1. *先引入项目模型。* 提供 backend-independent 的项目记录、operation 序列化/冲突/恢复，以及当前 =#PROJECT= 名字适配。项目登记本身不再因私有 Git blob 存储而强制 SHA-1；具体转换仍检查自身能力。
+2. *显式保存绑定。* 拆开 canonical 布局和未加 mount 的来源表示；原生 anchor、raw/canonical 对应关系按绑定与转换版本组织，不把全项目单值逆映射直接扩展到多表示。
+3. *统一运行时选择。* fetch/push 使用同一绑定定义；任意 endpoint 发布保留能力，但来源表示选择显式化。缺失定义不得降级为普通/whole 转换。
+4. *再统一创建入口。* 为现有 GitRemoteExtension 增加不含 Josh 算法的配置准备/提交边界；jj CLI 持有参数和正常 remote 生命周期，jjosh 扩展负责转换验证。独立 jj 未安装扩展时必须拒绝扩展参数，不能忽略。
+5. *迁移当前数据并切换命令。* mount ref、remote-derived 项目、显式 Josh sidecar、native provenance、base 和有效权限都进入迁移清单。旧 ordinary refs、原始对象、浅边界和 lease 不因迁移改写。
+
+核心还必须识别“这个连接或所选项目引用需要转换扩展”。仅拒绝 =git remote add= 的扩展参数不够：用户可以用未加载 jjosh 扩展的 jj 执行普通拼写的 =git fetch/push=。
+进入传输或受管 remote 生命周期操作前，应检查核心可读的 required-capability 标记和活动绑定；扩展缺失或绑定未恢复时明确拒绝，不能走 raw Git fallback。
+这个检查也覆盖向普通未绑定 endpoint 发布的项目引用，不能只检查目的 remote。真正的普通 remote/普通引用保持原行为；原生 Git 的显式绕过仍是另外的边界。
+
+当前“同项目所有显式 filter 相同”只是选择算法的限制，不能直接删除校验就声称已支持多表示；逆映射键、冲突处理和发布上下文选择必须先改。
+
+迁移需要特别处理：
+
+- plain peer 与 filtered peer 混用：列出原 fetch/push 表示差异，要求明确选择，不静默继承某一个。
+- 缺少显式 mount 的旧 native 项目：先物化原默认目录，再迁移身份，不能改名后重新计算目录。
+- 旧 project-wide native anchor 无法按来源区分：保留原始依据，不按当前 remote 名猜测或复制成若干互相冲突的单值逆映射；在可证明兼容的绑定中使用，不能证明时停止并要求映射。
+- 所有 sidecar 都已删除的项目：能恢复目录不等于能恢复来源表示；不凭对象或名字猜 filter。
+- include/global 定义的 remote：不能只写本地配置并假装删除了有效来源；写入前检查配置所有权和实际结果。
+- 自定义 refspec、认证/传输设置、孤立 sidecar：保留或明确拒绝，不能被重建默认 remote 覆盖。
+
+** 失败状态是契约的一部分
+
+目前配置文件、sidecar、私有 ref 和 jj operation 有独立的提交点。新的入口不能只包一层 transaction 名字就宣称原子。
+
+跨存储操作应先构造完整变更计划，验证有效配置、取得必要锁并保存旧/新值；发布前不改变可观察配置。
+无法一次提交的部分需要持久化恢复记录，覆盖进程中断和部分成功；未恢复完成时相关变更/传输拒绝，并提供明确恢复路径。
+恢复不会向网络发送请求，也不会刷新 expected-old。jjosh 读者必须先检查待恢复状态并读取自洽的 generation，不能拿旧绑定配新 endpoint 后静默执行；对绕过 jjosh 的原生 Git 读写不宣称跨文件原子性。
+
+先实现这些边界，再删除旧命令和存储路径；不保留两套长期权威或静默别名。
+
+* 用哪些情形审查这个设计
+
+| 情形 | 设计要求 |
+|------+----------|
+| 离线登记项目，尚无文件和 remote | 定义成立；不产生源码提交；发布说明缺少什么 |
+| 同一提交修改两个项目 | 两个书签可指向它；分项目发布不丢其他内容 |
+| 一个项目出现在两个不同 sparse 布局 | 项目身份和 canonical 内容不变 |
+| 上游子目录与独立根布局 fork | 可显式定义两种关系，双向各用自己的表示 |
+| 两个相同 filter 的不同源 | 不共享 raw base、写权限或 lease |
+| 同布局新增 fork | 明确复用定义，不动态继承后续配置变更 |
+| 删除一个/最后一个 remote | 不改变项目内容定义，不自动换发布表示 |
+| 恢复登记前 operation | 项目定义随 repo 部分恢复；外部发布不回滚 |
+| 恢复旧 tracking、保留当前配置 | 旧观察的转换版本仍可解释，否则拒绝发布 |
+| 同 change ID 的多个 raw 表示 | 按关系保留 provenance，不强行单值归并 |
+| 对旧浅边界的工作继续发布 | 旧逆转换依据保活，不能发布截断假根 |
+| native 历史存在冲突祖先 | 保留 native 能力；Josh 路径不能假装保真 |
+| 导入一个已有子项目的 monorepo | 明确外层封装还是项目映射，不自动激活嵌套连接 |
+| 改名、配置锁失败、进程中断 | 不错误改目录、不遗留可被当成普通 remote 使用的半绑定 |
+| 并发创建不同 ID 的同名/重叠项目 | 跨记录校验保留冲突，不能因 map 无同键冲突就继续传输 |
+| 项目登记前已存在字面 =topic#lib= | 不自动接管；label 登记/迁移显式处理占用 |
+| 同绑定换 URL 后恢复旧观察 | 根据旧 endpoint/raw/generation/base 证据解释，不看当前 URL 猜输入 |
+| 独立 projection 没有 ProjectId | 保留根视图、普通名字和持久 fetch/push，不制造 root 项目 |
+| 未加载扩展的 jj 操作受管连接/项目引用 | 在普通 Git fallback 之前拒绝；未受管操作仍正常 |
+
+* 依据与已做的验证
+
+** 代码依据
+
+- C1：[[file:../jj/lib/src/backend.rs][backend::Commit]] 190–221 与 [[file:../jj/lib/src/op_store.rs][op_store::View]] 248–311：提交全局，View 目前没有项目登记。
+- C2：[[file:../crates/jjosh-cli/src/projection.rs][projection.rs]] 19–31、251–282、598–788：命令职责混合、登记不创建 operation、upsert/attach 的配置写入顺序。
+- C3：[[file:../crates/jjosh-cli/src/project_config.rs][project_config.rs]] 128–213 与 [[file:../crates/jjosh-cli/src/native_project.rs][native_project.rs]] 94–201：目录登记、native provenance 和独立挂载状态。
+- C4：[[file:../crates/jjosh-cli/src/git_remote/mod.rs][git_remote/mod.rs]] 170–244、329–397、429–577：peer filter 校验、native 推断、fetch/push 转换选择差异。
+- C5：[[file:../crates/jjosh-cli/src/git_remote/push.rs][git_remote/push.rs]] 301–574 与 [[file:../crates/jjosh-cli/src/source_repo.rs][source_repo.rs]]：raw 上下文、normalized generations 与逆转换。
+- C6：[[file:../jj/cli/src/commands/operation/mod.rs][operation/mod.rs]] 78–118、[[file:../crates/jjosh-cli/src/native_bundle.rs][native_bundle.rs]] 54–147：当前恢复/运输的状态边界。
+- C7：[[file:../jj/docs/filesets.md][filesets]] 的 Native path mapping / Operation-versioned configuration：workspace 布局与 canonical 树分离。
+- C8：[[file:../jj/cli/src/git_remote.rs][GitRemoteExtension]] 56–83 与 [[file:../jj/cli/src/commands/git/remote/add.rs][remote/add.rs]] 27–65：已有扩展参与生命周期，但 add 尚无绑定配置 hook。
+- C9：[[file:../josh/josh-changes/src/remote_config.rs][remote_config.rs]] 的配置写入、[[file:../jj/lib/src/git.rs][git.rs]] 的 remote lifecycle：多个本地存储提交点、有效配置与配置来源的限制。
+
+** 隔离实验
+
+以下使用当前 =target/debug/jjosh=，只操作新建的临时仓库；没有修改真实应用仓库，也没有运行或声称通过项目测试套件。
+
+- 登记 api 前后 operation ID 相同；恢复到登记前 operation 后，api 仍显示为 registered。
+- 对该仓库做 native export，再作为 outer 导入：项目列表只包含 outer，不包含内部 api 定义。
+- 同一原始来源中有 =src/value.txt= 与 =outside.txt=：显式 =:/src= peer 获取为 =packages/api/value.txt=；普通 attach peer 获取为 =packages/api/src/value.txt= 和 =packages/api/outside.txt=。
+- 同一项目尝试配置不同的显式 filter 被拒绝；删除最后一个 remote 后仅保留项目挂载登记。
+- 根布局 flat 仓库获取后只有 =packages/api/value.txt=；在存在 filtered upstream 的情况下向 flat 发布 topic，远端却得到 =src/value.txt= 和 =outside.txt=。这验证了当前绑定 fetch/push 表示不对称，而不只是参数命名问题。
+
+这些结果描述当前实现，不是对本文拟议模型的测试报告。
