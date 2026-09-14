@@ -14,7 +14,7 @@
 
 use clap_complete::ArgValueCandidates;
 use jj_lib::git;
-use jj_lib::object_id::ObjectId as _;
+use jj_lib::local_state;
 use jj_lib::ref_name::RemoteNameBuf;
 use jj_lib::repo::Repo as _;
 
@@ -44,6 +44,7 @@ pub async fn cmd_git_remote_rename(
     command: &CommandHelper,
     args: &GitRemoteRenameArgs,
 ) -> Result<(), CommandError> {
+    super::require_integrated_local_state(command)?;
     let mut workspace_command = command.workspace_helper_no_snapshot(ui).await?;
     let git_lock = workspace_command.lock_git_import_export()?;
     let old = super::resolve_management_remote(
@@ -103,12 +104,9 @@ pub async fn cmd_git_remote_rename(
         .iter()
         .map(|file| file.path().to_owned())
         .collect::<Vec<_>>();
-    let journal = git::begin_remote_management(
-        workspace_command.repo().store(),
-        &workspace_command.repo().operation().id().hex(),
-        &extra_paths,
-    )?;
+    let journal = local_state::begin(workspace_command.repo(), &extra_paths).await?;
     let mut tx = workspace_command.start_transaction();
+    tx.bind_local_state(&journal)?;
     if let Some(mut identity) = identity {
         let connection = connection.ok_or_else(|| {
             crate::command_error::user_error("Scoped remote has no logical connection")
@@ -117,12 +115,6 @@ pub async fn cmd_git_remote_rename(
             .view_mut()
             .archive_remote_observations(&old)
             .map_err(crate::command_error::user_error)?;
-        journal.expect_remote(
-            &old,
-            inspection.has_config,
-            inspection.configured_connection.as_ref(),
-            inspection.managed,
-        )?;
         git::commit_remote_management_config(
             tx.repo().store(),
             &old,
@@ -142,21 +134,8 @@ pub async fn cmd_git_remote_rename(
             .view_mut()
             .archive_remote_observations(&new)
             .map_err(crate::command_error::user_error)?;
-        journal.expect_remote(
-            &old,
-            inspection.has_config && !inspection.owns_config(),
-            inspection.configured_connection.as_ref(),
-            inspection.managed && !inspection.owns_config(),
-        )?;
-        journal.expect_remote(
-            &new,
-            inspection.owns_config(),
-            connection,
-            inspection.managed && inspection.owns_config(),
-        )?;
         git::rename_remote_with_options(tx.repo_mut(), &old, &new, &options)?;
     }
-    journal.expect_operation(tx.repo().view())?;
     if tx.repo().has_changes() {
         tx.finish_with_git_import_export_lock(
             ui,
@@ -166,7 +145,8 @@ pub async fn cmd_git_remote_rename(
         .await?;
     } else {
         // Do not print "Nothing changed."
+        journal.commit_local()?;
     }
-    journal.complete()?;
+    journal.complete().await?;
     Ok(())
 }

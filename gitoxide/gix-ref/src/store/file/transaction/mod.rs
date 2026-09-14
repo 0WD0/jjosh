@@ -83,6 +83,20 @@ impl<'p> Transaction<'_, 'p> {
         self.packed_refs = packed_refs;
         self
     }
+
+    /// Iterate over the prepared edits whose reference locks are still held by this transaction.
+    ///
+    /// Call this only after [`Self::prepare()`]. Unchanged direct updates whose locks were released during
+    /// preparation are excluded; verification edits and other edits retaining their locks are included.
+    /// Symbolic references may have been split into multiple edits during preparation.
+    pub fn locked_edits(&self) -> impl Iterator<Item = &RefEdit> {
+        self.updates
+            .as_ref()
+            .expect("BUG: must call prepare before inspecting locked edits")
+            .iter()
+            .filter(|edit| edit.lock.is_some())
+            .map(|edit| &edit.update)
+    }
 }
 
 impl std::fmt::Debug for Transaction<'_, '_> {

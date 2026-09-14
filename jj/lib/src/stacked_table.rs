@@ -32,6 +32,8 @@ use std::io;
 use std::io::Read;
 use std::io::Write as _;
 use std::iter;
+#[cfg(feature = "git")]
+use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::RwLock;
@@ -426,6 +428,11 @@ pub struct TableStore {
 }
 
 impl TableStore {
+    #[cfg(feature = "git")]
+    pub(crate) fn directory(&self) -> &Path {
+        &self.dir
+    }
+
     pub fn init(dir: PathBuf, key_size: usize) -> Self {
         std::fs::create_dir(dir.join("heads")).unwrap();
         Self {

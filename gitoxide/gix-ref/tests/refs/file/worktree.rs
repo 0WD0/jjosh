@@ -221,6 +221,41 @@ mod writable {
     }
 
     #[test]
+    fn verification_locks_only_the_linked_worktrees_head() -> crate::Result {
+        for worktree_name in ["w1", "w-detached"] {
+            let (store, _odb, _tmp) = worktree_store(false, worktree_name, Mode::Write)?;
+            let head_path = store.git_dir().join("HEAD");
+            let log_path = store.git_dir().join("logs/HEAD");
+            let head = std::fs::read(&head_path)?;
+            let log = std::fs::read(&log_path)?;
+            let target = store.find("HEAD")?.target;
+            let transaction = store.transaction().prepare(
+                [RefEdit::verify(
+                    "HEAD".try_into()?,
+                    PreviousValue::MustExistAndMatch(target),
+                )],
+                Fail::Immediately,
+                Fail::Immediately,
+            )?;
+            assert!(matches!(
+                gix_lock::File::acquire_to_update_resource(&head_path, Fail::Immediately, None),
+                Err(gix_lock::acquire::Error::PermanentlyLocked { .. })
+            ));
+            let main_head_lock = gix_lock::File::acquire_to_update_resource(
+                store.common_dir().expect("linked worktree").join("HEAD"),
+                Fail::Immediately,
+                None,
+            )?;
+            transaction.commit(None)?;
+            assert_eq!(std::fs::read(&head_path)?, head);
+            assert_eq!(std::fs::read(&log_path)?, log);
+            assert!(!head_path.with_extension("lock").exists());
+            drop(main_head_lock);
+        }
+        Ok(())
+    }
+
+    #[test]
     fn main() -> crate::Result {
         let new_id_main = hex_to_id("11111111111111111162102c6a483440bfda2a03");
         let new_id_main_str = new_id_main.to_string();

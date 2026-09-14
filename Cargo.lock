@@ -1844,6 +1844,7 @@ dependencies = [
  "gix-ignore",
  "gix-index",
  "gix-lock",
+ "gix-mailmap",
  "gix-negotiate",
  "gix-note",
  "gix-object",
@@ -1872,6 +1873,7 @@ dependencies = [
  "gix-worktree-stream",
  "gix-zlib",
  "nonempty",
+ "serde",
  "smallvec",
  "thiserror 2.0.19",
 ]
@@ -1883,6 +1885,7 @@ dependencies = [
  "bstr",
  "gix-date",
  "gix-error",
+ "serde",
 ]
 
 [[package]]
@@ -1895,6 +1898,7 @@ dependencies = [
  "gix-path",
  "gix-quote",
  "gix-trace",
+ "serde",
  "smallvec",
  "thiserror 2.0.19",
  "unicode-bom",
@@ -1934,6 +1938,7 @@ dependencies = [
  "gix-hash",
  "memmap2",
  "nonempty",
+ "serde",
 ]
 
 [[package]]
@@ -1978,6 +1983,7 @@ dependencies = [
  "gix-sec",
  "gix-trace",
  "gix-url",
+ "serde",
  "thiserror 2.0.19",
 ]
 
@@ -1989,6 +1995,7 @@ dependencies = [
  "gix-error",
  "itoa",
  "jiff",
+ "serde",
 ]
 
 [[package]]
@@ -2085,6 +2092,7 @@ dependencies = [
  "bstr",
  "gix-features",
  "gix-path",
+ "serde",
 ]
 
 [[package]]
@@ -2093,6 +2101,7 @@ version = "0.26.2"
 dependencies = [
  "faster-hex",
  "gix-features",
+ "serde",
  "sha1-checked",
  "sha2 0.11.0",
  "thiserror 2.0.19",
@@ -2115,6 +2124,7 @@ dependencies = [
  "gix-glob",
  "gix-path",
  "gix-trace",
+ "serde",
  "unicode-bom",
 ]
 
@@ -2148,6 +2158,7 @@ dependencies = [
  "libc",
  "memmap2",
  "rustix",
+ "serde",
  "smallvec",
  "thiserror 2.0.19",
 ]
@@ -2168,6 +2179,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "gix-mailmap"
+version = "0.34.1"
+dependencies = [
+ "bstr",
+ "gix-actor",
+ "gix-date",
+ "gix-error",
+ "serde",
 ]
 
 [[package]]
@@ -2231,6 +2253,7 @@ dependencies = [
  "gix-utils",
  "gix-validate",
  "itoa",
+ "serde",
  "smallvec",
  "thiserror 2.0.19",
 ]
@@ -2251,6 +2274,7 @@ dependencies = [
  "gix-zlib",
  "memmap2",
  "parking_lot 0.12.5",
+ "serde",
  "tempfile",
  "thiserror 2.0.19",
 ]
@@ -2274,6 +2298,7 @@ dependencies = [
  "gix-zlib",
  "memmap2",
  "parking_lot 0.12.5",
+ "serde",
  "smallvec",
  "thiserror 2.0.19",
  "uluru",
@@ -2344,6 +2369,7 @@ dependencies = [
  "gix-transport",
  "gix-utils",
  "nonempty",
+ "serde",
  "thiserror 2.0.19",
 ]
 
@@ -2371,6 +2397,7 @@ dependencies = [
  "gix-utils",
  "gix-validate",
  "memmap2",
+ "serde",
  "thiserror 2.0.19",
 ]
 
@@ -2400,6 +2427,7 @@ dependencies = [
  "gix-revwalk",
  "gix-trace",
  "nonempty",
+ "serde",
 ]
 
 [[package]]
@@ -2423,6 +2451,7 @@ dependencies = [
  "bitflags 2.13.1",
  "gix-path",
  "libc",
+ "serde",
  "windows-sys 0.61.2",
 ]
 
@@ -2434,6 +2463,7 @@ dependencies = [
  "gix-hash",
  "gix-lock",
  "nonempty",
+ "serde",
  "thiserror 2.0.19",
 ]
 
@@ -2482,6 +2512,7 @@ dependencies = [
  "gix-url",
  "parking_lot 0.12.5",
  "reqwest",
+ "serde",
  "thiserror 2.0.19",
 ]
 
@@ -2508,6 +2539,7 @@ dependencies = [
  "gix-path",
  "gix-utils",
  "percent-encoding",
+ "serde",
  "thiserror 2.0.19",
 ]
 
@@ -2543,6 +2575,7 @@ dependencies = [
  "gix-object",
  "gix-path",
  "gix-validate",
+ "serde",
 ]
 
 [[package]]
@@ -2565,6 +2598,7 @@ dependencies = [
 name = "gix-zlib"
 version = "0.1.0"
 dependencies = [
+ "serde",
  "thiserror 2.0.19",
  "zlib-rs",
 ]
@@ -4279,6 +4313,9 @@ name = "nonempty"
 version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9737e026353e5cd0736f98eddae28665118eb6f6600902a7f50db585621fecb6"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "nu-ansi-term"

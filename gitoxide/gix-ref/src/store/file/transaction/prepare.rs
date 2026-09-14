@@ -1,5 +1,5 @@
 use crate::{
-    FullName, FullNameRef, Reference, Target, packed,
+    FullNameRef, Reference, Target, packed,
     packed::transaction::buffer_into_transaction,
     store_impl::{
         file,
@@ -20,6 +20,7 @@ impl Transaction<'_, '_> {
         store: &file::Store,
         name: &FullNameRef,
         packed: Option<&packed::Buffer>,
+        allow_invalid_loose_ref: bool,
     ) -> Result<Option<Reference>, Error> {
         store
             .ref_contents(name)
@@ -34,14 +35,27 @@ impl Transaction<'_, '_> {
                     .transpose()
             })
             .or_else(|err| match err {
-                Error::ReferenceDecode(_) => Ok(None),
+                Error::ReferenceDecode(_) if allow_invalid_loose_ref => Ok(None),
                 other => Err(other),
             })
             .and_then(|maybe_loose| match (maybe_loose, packed) {
-                (None, Some(packed)) => packed
-                    .try_find(name)
-                    .map(|opt| opt.map(Into::into))
-                    .map_err(Error::from),
+                (None, Some(packed)) => {
+                    let Some(name) = packed::find::transform_full_name_for_lookup(name) else {
+                        return Ok(None);
+                    };
+                    let namespaced;
+                    let name = match &store.namespace {
+                        Some(namespace) => {
+                            namespaced = namespace.clone().into_namespaced_name(name);
+                            namespaced.as_ref()
+                        }
+                        None => name,
+                    };
+                    packed
+                        .try_find_full_name(name)
+                        .map(|opt| opt.map(Into::into))
+                        .map_err(Error::from)
+                }
                 (None, None) => Ok(None),
                 (maybe_loose, _) => Ok(maybe_loose),
             })
@@ -81,6 +95,49 @@ impl Transaction<'_, '_> {
         store.check_windows_device_name(change.update.name.as_ref())?;
 
         let lock = match &mut change.update.change {
+            Change::Verify { expected } => {
+                let (base, relative_path) = store.reference_path_with_base(change.update.name.as_ref());
+                let lock = gix_lock::Marker::acquire_to_hold_resource(
+                    base.join(relative_path.as_ref()),
+                    lock_fail_mode,
+                    Some(base.clone().into_owned()),
+                )
+                .map_err(|err| Self::lock_acquire_error(err, "replaced by caller"))?;
+                let existing_ref = Self::read_existing_ref(store, change.update.name.as_ref(), packed, false)?;
+                match (&*expected, &existing_ref) {
+                    (PreviousValue::Any, _)
+                    | (PreviousValue::MustExist, Some(_))
+                    | (PreviousValue::MustNotExist | PreviousValue::ExistingMustMatch(_), None) => {}
+                    (PreviousValue::MustNotExist, Some(existing)) => {
+                        return Err(Error::VerifyMustNotExist {
+                            full_name: change.name(),
+                            actual: existing.target.clone(),
+                        });
+                    }
+                    (PreviousValue::MustExist | PreviousValue::MustExistAndMatch(_), None) => {
+                        return Err(Error::VerifyMustExist {
+                            full_name: change.name(),
+                        });
+                    }
+                    (
+                        PreviousValue::MustExistAndMatch(previous) | PreviousValue::ExistingMustMatch(previous),
+                        Some(existing),
+                    ) => {
+                        if *previous != existing.target {
+                            let expected = previous.clone();
+                            return Err(Error::ReferenceOutOfDate {
+                                full_name: change.name(),
+                                expected,
+                                actual: existing.target.clone(),
+                            });
+                        }
+                    }
+                }
+                *expected = existing_ref.map_or(PreviousValue::MustNotExist, |existing| {
+                    PreviousValue::MustExistAndMatch(existing.target)
+                });
+                Some(lock)
+            }
             Change::Delete { expected, .. } => {
                 let (base, relative_path) = store.reference_path_with_base(change.update.name.as_ref());
                 let lock = gix_lock::Marker::acquire_to_hold_resource(
@@ -90,7 +147,7 @@ impl Transaction<'_, '_> {
                 )
                 .map_err(|err| Self::lock_acquire_error(err, "borrowcheck won't allow change.name()"))?;
 
-                let existing_ref = Self::read_existing_ref(store, change.update.name.as_ref(), packed)?;
+                let existing_ref = Self::read_existing_ref(store, change.update.name.as_ref(), packed, true)?;
 
                 match (&expected, &existing_ref) {
                     (PreviousValue::MustNotExist, _) => {
@@ -143,7 +200,7 @@ impl Transaction<'_, '_> {
                 };
                 let mut lock = obtain_lock()?;
 
-                let existing_ref = Self::read_existing_ref(store, change.update.name.as_ref(), packed)?;
+                let existing_ref = Self::read_existing_ref(store, change.update.name.as_ref(), packed, true)?;
 
                 match (&expected, &existing_ref) {
                     (PreviousValue::Any, _)
@@ -281,7 +338,13 @@ impl Transaction<'_, '_> {
             | PackedRefs::DeletionsAndNonSymbolicUpdatesRemoveLooseSourceReference(_) => Some(0_usize),
             PackedRefs::DeletionsOnly => None,
         };
+        // Even absence needs a packed lock: another writer could create packed-refs without touching the loose ref.
+        let verifies_packed_refs = updates.iter().any(|edit| {
+            matches!(edit.update.change, Change::Verify { .. })
+                && possibly_adjust_name_for_prefixes(edit.update.name.as_ref()).is_some()
+        });
         if maybe_updates_for_packed_refs.is_some()
+            || verifies_packed_refs
             || self.store.packed_refs_path().is_file()
             || self.store.packed_refs_lock_path().is_file()
         {
@@ -294,6 +357,7 @@ impl Transaction<'_, '_> {
                         ..
                     } => mode,
                     Change::Delete { log, .. } => log,
+                    Change::Verify { .. } => RefLog::AndReference,
                 };
                 if log_mode == RefLog::Only {
                     continue;
@@ -308,7 +372,7 @@ impl Transaction<'_, '_> {
                     } = edit.update.change
                 {
                     edits_for_packed_transaction.push(RefEdit {
-                        name,
+                        name: name.to_owned(),
                         ..edit.update.clone()
                     });
                     *num_updates += 1;
@@ -321,7 +385,7 @@ impl Transaction<'_, '_> {
                     } => needs_packed_refs_lookups = true,
                     Change::Delete { .. } => {
                         edits_for_packed_transaction.push(RefEdit {
-                            name,
+                            name: name.to_owned(),
                             ..edit.update.clone()
                         });
                     }
@@ -335,34 +399,36 @@ impl Transaction<'_, '_> {
                 // What follows means that we will only create a transaction if we have to access packed refs for looking
                 // up current ref values, or that we definitely have a transaction if we need to make updates. Otherwise
                 // we may have no transaction at all which isn't required if we had none and would only try making deletions.
-                let packed_transaction: Option<_> =
-                    if maybe_updates_for_packed_refs.unwrap_or(0) > 0 || self.store.packed_refs_lock_path().is_file() {
-                        // We have to create a packed-ref even if it doesn't exist
-                        self.store
-                            .packed_transaction(packed_refs_lock_fail_mode)
-                            .map_err(|err| match err {
-                                file::packed::transaction::Error::BufferOpen(err) => Error::from(err),
-                                file::packed::transaction::Error::TransactionLock(err) => {
-                                    Error::PackedTransactionAcquire(err)
-                                }
-                            })?
-                            .into()
-                    } else {
-                        // A packed transaction is optional - we only have deletions that can't be made if
-                        // no packed-ref file exists anyway
-                        self.store
-                            .assure_packed_refs_uptodate()?
-                            .map(|p| {
-                                buffer_into_transaction(
-                                    p,
-                                    packed_refs_lock_fail_mode,
-                                    self.store.precompose_unicode,
-                                    self.store.namespace.clone(),
-                                )
-                                .map_err(Error::PackedTransactionAcquire)
-                            })
-                            .transpose()?
-                    };
+                let packed_transaction: Option<_> = if verifies_packed_refs
+                    || maybe_updates_for_packed_refs.unwrap_or(0) > 0
+                    || self.store.packed_refs_lock_path().is_file()
+                {
+                    // We have to create a packed-ref even if it doesn't exist
+                    self.store
+                        .packed_transaction(packed_refs_lock_fail_mode)
+                        .map_err(|err| match err {
+                            file::packed::transaction::Error::BufferOpen(err) => Error::from(err),
+                            file::packed::transaction::Error::TransactionLock(err) => {
+                                Error::PackedTransactionAcquire(err)
+                            }
+                        })?
+                        .into()
+                } else {
+                    // A packed transaction is optional - we only have deletions that can't be made if
+                    // no packed-ref file exists anyway
+                    self.store
+                        .assure_packed_refs_uptodate()?
+                        .map(|p| {
+                            buffer_into_transaction(
+                                p,
+                                packed_refs_lock_fail_mode,
+                                self.store.precompose_unicode,
+                                self.store.namespace.clone(),
+                            )
+                            .map_err(Error::PackedTransactionAcquire)
+                        })
+                        .transpose()?
+                };
                 if let Some(transaction) = packed_transaction {
                     self.packed_transaction = Some(match &mut self.packed_refs {
                         PackedRefs::DeletionsAndNonSymbolicUpdatesRemoveLooseSourceReference(f)
@@ -442,7 +508,7 @@ impl Transaction<'_, '_> {
     }
 }
 
-fn possibly_adjust_name_for_prefixes(name: &FullNameRef) -> Option<FullName> {
+fn possibly_adjust_name_for_prefixes(name: &FullNameRef) -> Option<&FullNameRef> {
     match name.category_and_short_name() {
         Some((c, sn)) => {
             use crate::Category::*;
@@ -455,9 +521,8 @@ fn possibly_adjust_name_for_prefixes(name: &FullNameRef) -> Option<FullName> {
                     .is_some_and(|cat| !cat.is_worktree_private())
                     .then_some(sn),
             }
-            .map(ToOwned::to_owned)
         }
-        None => Some(name.to_owned()), // allow (uncategorized/very special) refs to be packed
+        None => Some(name), // allow (uncategorized/very special) refs to be packed
     }
 }
 
@@ -492,6 +557,10 @@ mod error {
         Io(#[from] std::io::Error),
         #[error("The reference {full_name:?} for deletion did not exist or could not be parsed")]
         DeleteReferenceMustExist { full_name: BString },
+        #[error("The reference {full_name:?} to verify did not exist")]
+        VerifyMustExist { full_name: BString },
+        #[error("Reference {full_name:?} was required to be absent, but its actual content was {actual}")]
+        VerifyMustNotExist { full_name: BString, actual: Target },
         #[error(
             "Reference {full_name:?} was not supposed to exist when writing it with value {new:?}, but actual content was {actual:?}"
         )]

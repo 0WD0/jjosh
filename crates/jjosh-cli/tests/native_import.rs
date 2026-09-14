@@ -335,7 +335,7 @@ fn mixed_import_recovers_failed_mirror_installation_before_retry() {
     assert!(!target.unchecked(&args).status.success());
     assert_eq!(target.operation_id(), state_before.0);
     fs::remove_file(lock).unwrap();
-    target.jj(&["git", "remote", "recover", "--rollback"]);
+    target.jj(&["git", "remote", "list"]);
     assert_eq!(target.state(), state_before);
     assert_eq!(fs::read(git_dir.join("config")).unwrap(), config_before);
     assert_eq!(
@@ -418,7 +418,7 @@ fn outer_import_recovers_failed_mirror_installation_before_retry() {
     assert!(!target.unchecked(&args).status.success());
     assert_eq!(target.operation_id(), state_before.0);
     fs::remove_file(lock).unwrap();
-    target.jj(&["git", "remote", "recover", "--rollback"]);
+    target.jj(&["util", "recover"]);
     assert_eq!(target.state(), state_before);
     assert_eq!(fs::read(git_dir.join("config")).unwrap(), config_before);
     assert_eq!(

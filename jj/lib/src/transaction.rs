@@ -46,6 +46,8 @@ pub enum TransactionCommitError {
     IndexStore(#[from] IndexStoreError),
     OpHeadsStore(#[from] OpHeadsStoreError),
     OpStore(#[from] OpStoreError),
+    #[cfg(feature = "git")]
+    LocalState(#[from] crate::local_state::LocalStateError),
 }
 
 /// An in-memory representation of a repo and any changes being made to it.
@@ -230,9 +232,13 @@ impl UnpublishedOperation {
 
     pub async fn publish(self) -> Result<Arc<ReadonlyRepo>, TransactionCommitError> {
         let _lock = self.op_heads_store.lock().await?;
+        #[cfg(feature = "git")]
+        crate::local_state::before_publish(&self.repo)?;
         self.op_heads_store
             .update_op_heads(self.operation().parent_ids(), self.operation().id())
             .await?;
+        #[cfg(feature = "git")]
+        crate::local_state::after_publish(&self.repo)?;
         Ok(self.repo)
     }
 

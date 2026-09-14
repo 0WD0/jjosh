@@ -414,7 +414,11 @@ impl From<ResetError> for CommandError {
 
 impl From<TransactionCommitError> for CommandError {
     fn from(err: TransactionCommitError) -> Self {
-        internal_error(err)
+        match err {
+            #[cfg(feature = "git")]
+            TransactionCommitError::LocalState(err) => err.into(),
+            err => internal_error(err),
+        }
     }
 }
 
@@ -629,6 +633,12 @@ jj currently does not support partial clones. To use jj with this repository, tr
 
     impl From<GitRemoteManagementError> for CommandError {
         fn from(err: GitRemoteManagementError) -> Self {
+            user_error(err)
+        }
+    }
+
+    impl From<jj_lib::local_state::LocalStateError> for CommandError {
+        fn from(err: jj_lib::local_state::LocalStateError) -> Self {
             user_error(err)
         }
     }

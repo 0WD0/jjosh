@@ -247,11 +247,15 @@ preserve 还搬运私有原生锚点、raw 对象、normalization generations �
 
 ** 本地恢复日志不是分布式事务
 
-remote 管理、迁移和导入跨越 Git config、refs 与 jj operation。持久日志记录修改前状态、预期状态、ref 中间步骤和提交后退役项；存在未完成记录时，相关管理和传输暂停。
+remote 管理、迁移和导入跨越 Git config、refs 与 jj operation。=local_state= 记录所属 JJ 仓库、事务 nonce、起始 heads、文件／引用变更及退役项。绑定的 Transaction 在发布前写入确切目标 operation ID，在更新 heads 后持久化已发布决定；没有新 operation 的纯配置修改使用独立提交决定，不以部分 View 指纹作为提交证据。
 
-=git remote recover --rollback= 只在日志原 operation 上回退已记录的本地修改；=--accept= 验证准备的语义 operation 和本地文件／refs 已到达目标，再完成退役。文件锁、ref 比较和预期身份校验阻止覆盖不相容的外部更新；冲突须处理，不能强行接受。日志允许恢复中断的步骤，不把三种存储变成一个原子提交。
+=util recover= 不接受用户选择恢复方向。目标可从实际 heads 到达，或已有持久提交决定时向前完成；未发布且 heads 未变时回滚；无法归因的 heads／外部修改则拒绝。已确认的提交决定不可逆，收尾中断后仍向前完成。恢复先验证全部已记录的前态、中间态或后态并获取文件／ref 锁，再安装对应状态；重复执行不会覆盖未知更新。
 
-恢复不 fetch、不 push、不刷新 lease。维护期间须停止不参与协议的旧 jj 和原生 Git 写者；已经发生的远端写入不在本地 rollback 能力之内。
+本地 Git 写入复用 jj 的同步入口，协调锁位于 Git common directory，覆盖共享 Git 的 worktrees 和多个 JJ 仓库。ref 的作用域、namespace、CAS 和锁由 gix 处理；无变化及不存在的 ref 使用原生 Verify，不把 no-op Update 当作持锁保证。index 在 gix 已准备并持锁的写入边界记录，不复制其序列化实现。日志覆盖发布前的 HEAD/index 副作用，工作副本文件和 checkout／stale 恢复仍由 jj 管理。
+
+普通当前 operation 命令在 snapshot 或自动合并 heads 前尝试恢复，再重新加载配置。=ConfigEnv= 重新授权实际 repo config 路径，包括仓库目录外的安全配置目录；库不从日志本身接受任意外部写入路径。协议要求 Git backend 和提供独占 heads 锁的内置 =SimpleOpHeadsStore=，不加强上游允许空锁的通用 =OpHeadsStore= 合同。
+
+物理协调文件保留 =jj-remote-journal= 名称，新日志为 version 2；它与 =simple_op_store_projects_v3= 是不同格式。旧日志没有可靠的发布证据，须用创建它的版本完成恢复后升级。恢复不 fetch、不 push、不刷新 lease；不参与协议的旧 jj／原生 Git 并发写者仍须停止，已经发生的远端写入不在本地回滚能力内。
 
 * 维护入口
 
@@ -264,7 +268,8 @@ remote 管理、迁移和导入跨越 Git config、refs 与 jj operation。持�
 | operation 合并及部分恢复 | [[file:../jj/lib/src/repo.rs][repo.rs]]、[[file:../jj/lib/src/view/restore.rs][restore.rs]]；[[file:../jj/cli/src/commands/operation/mod.rs][CLI]]只选择恢复来源 |
 | 编码、散列和 writer gate | [[file:../jj/lib/src/project_store.rs][project_store.rs]]、[[file:../jj/lib/src/simple_op_store.rs][simple_op_store.rs]] |
 | 项目命令与迁移 | [[file:../crates/jjosh-cli/src/project.rs][project CLI]]、[[file:../crates/jjosh-cli/src/project_migration.rs][migration]] |
-| 连接管理与本地日志 | [[file:../jj/cli/src/commands/git/remote/][remote CLI]]、[[file:../jj/lib/src/git.rs][git.rs]] |
+| 连接管理与 Git 写入 | [[file:../jj/cli/src/commands/git/remote/][remote CLI]]、[[file:../jj/lib/src/git.rs][git.rs]] |
+| 本地提交证据与中断恢复 | [[file:../jj/lib/src/local_state.rs][local_state.rs]]、[[file:../jj/lib/src/transaction.rs][transaction.rs]]；[[file:../jj/cli/src/commands/util/recover.rs][util recover]]只提供入口 |
 | fetch / push 转换 | [[file:../crates/jjosh-cli/src/git_remote/][git_remote]] |
 | 来源材料与原生映射 | [[file:../crates/jjosh-cli/src/source_repo.rs][source_repo.rs]]、[[file:../crates/jjosh-cli/src/native_source.rs][native_source.rs]] |
 | 导入规划 | [[file:../crates/jjosh-cli/src/project_import.rs][project_import.rs]]、[[file:../crates/jjosh-cli/src/native_import.rs][native_import.rs]]、[[file:../crates/jjosh-cli/src/project_preserve.rs][project_preserve.rs]] |

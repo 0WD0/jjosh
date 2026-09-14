@@ -70,4 +70,6 @@ pub(crate) mod prepare_and_commit {
     mod create_or_update;
 
     mod delete;
+
+    mod verify;
 }

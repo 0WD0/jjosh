@@ -22,7 +22,6 @@ use testutils::git;
 
 use crate::common::TestEnvironment;
 
-
 #[test]
 fn test_git_remotes() {
     let test_env = TestEnvironment::default();
@@ -848,8 +847,14 @@ fn test_git_remote_with_branch_config() -> TestResult {
 
     let git_repo = gix::open(work_dir.root().join(".jj/repo/store/git"))?;
     let config = git_repo.config_snapshot();
-    assert_eq!(config.string("branch.test.remote").unwrap().to_string(), "bar");
-    assert_eq!(config.string("branch.test.merge").unwrap().to_string(), "refs/heads/test");
+    assert_eq!(
+        config.string("branch.test.remote").unwrap().to_string(),
+        "bar"
+    );
+    assert_eq!(
+        config.string("branch.test.merge").unwrap().to_string(),
+        "refs/heads/test"
+    );
     Ok(())
 }
 
@@ -882,24 +887,44 @@ fn test_git_remote_with_global_git_remote_config() {
     foo htps://example.com/repo/foo
     [EOF]
     ");
+    let original_remotes = output.success().stdout;
 
     // Local lifecycle commands must not pretend they renamed an included/global remote.
     let output = work_dir.run_jj(["git", "remote", "rename", "foo", "bar"]);
     assert!(!output.status.success());
     let output = work_dir.run_jj(["git", "remote", "list"]);
-    insta::assert_snapshot!(output, @"
-    foo htps://example.com/repo/foo
-    [EOF]
-    ");
+    assert_eq!(output.success().stdout.raw(), original_remotes.raw());
 
     let output = work_dir.run_jj(["git", "remote", "remove", "foo"]);
     assert!(!output.status.success());
-    let output = work_dir.run_jj(["git", "remote", "set-url", "foo", "https://example.com/replacement"]);
+    let output = work_dir.run_jj([
+        "git",
+        "remote",
+        "set-url",
+        "foo",
+        "https://example.com/replacement",
+    ]);
     assert!(!output.status.success());
 
     // A new connection with no global section remains independently editable.
-    work_dir.run_jj(["git", "remote", "add", "local", "http://example.com/local/1"]).success();
-    work_dir.run_jj(["git", "remote", "set-url", "local", "https://example.com/local/2"]).success();
+    work_dir
+        .run_jj([
+            "git",
+            "remote",
+            "add",
+            "local",
+            "http://example.com/local/1",
+        ])
+        .success();
+    work_dir
+        .run_jj([
+            "git",
+            "remote",
+            "set-url",
+            "local",
+            "https://example.com/local/2",
+        ])
+        .success();
 
     let output = work_dir.run_jj(["git", "remote", "list"]);
     insta::assert_snapshot!(output, @"

@@ -478,7 +478,9 @@ fn mappings(values: &[String]) -> Result<BTreeMap<String, String>> {
 /// Preparation is read-only; all physical mutations are covered by the core
 /// journal before the operation commit makes the new semantic state authoritative.
 pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result<(), CommandError> {
-    if !command.is_at_head_operation() || command.global_args().no_integrate_operation {
+    if !command.is_at_head_operation()
+        || (args.apply && command.global_args().no_integrate_operation)
+    {
         return Err(user_error(
             "Project migration requires the current integrated operation",
         ));
@@ -486,7 +488,7 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
     let mut workspace = crate::project::recorded_workspace(ui, command).await?;
     let git_path = crate::interop::sha1_git_repo_path(&workspace)?;
     let git = jj_lib::git::get_git_backend(workspace.repo().store())?.git_repo();
-    jj_lib::git::ensure_no_pending_remote_management(&git)?;
+    jj_lib::local_state::ensure_no_pending(&git)?;
     let inventory = inspect(&git_path).map_err(user_error)?;
     let mut explicit = mappings(&args.representation).map_err(user_error)?;
     let mut native_sources = mappings(&args.native_source).map_err(user_error)?;
@@ -1525,26 +1527,8 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
     let _git_lock = workspace.lock_git_import_export()?;
     let mut journal_paths = sidecars.clone();
     journal_paths.extend(repo_config.iter().map(|file| file.path().to_owned()));
-    let journal = jj_lib::git::begin_remote_management(
-        workspace.repo().store(),
-        &workspace.repo().operation().id().hex(),
-        &journal_paths,
-    )?;
+    let journal = jj_lib::local_state::begin(workspace.repo(), &journal_paths).await?;
     journal.register_retirements(&sidecars, &retire_refs)?;
-    for (remote, (_, binding)) in &remote_bindings {
-        if !alias_remotes.contains_key(jj_lib::ref_name::RemoteName::new(remote)) {
-            journal.expect_remote(
-                jj_lib::ref_name::RemoteName::new(remote),
-                true,
-                Some(&binding.connection_id),
-                true,
-            )?;
-        }
-    }
-    for (old, new, connection, exists) in &rekeys {
-        journal.expect_remote(old, false, None, false)?;
-        journal.expect_remote(new, *exists, exists.then_some(connection), *exists)?;
-    }
     if store_upgrade {
         workspace
             .repo()
@@ -1576,6 +1560,7 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
         jj_lib::git::set_remote_config_keys(workspace.repo().store(), &updates)?;
     }
     let mut tx = workspace.start_transaction();
+    tx.bind_local_state(&journal)?;
     if !clear_edits.is_empty() {
         let prepared = git
             .refs
@@ -1628,13 +1613,12 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
             })?;
         jj_lib::git::commit_remote_management_config(tx.repo().store(), remote, Some(config))?;
     }
-    journal.expect_operation(tx.repo().view())?;
     tx.into_inner()
         .commit("migrate projects, immutable source bindings and scoped remote names")
         .await?;
-    // Completion and `git remote recover --accept` perform the same idempotent
-    // post-commit retirement. The journal remains until every retirement succeeds.
-    journal.complete()?;
+    // Completion and `util recover` perform the same idempotent post-publication
+    // retirement. The journal remains until every retirement succeeds.
+    journal.complete().await?;
     writeln!(
         ui.status(),
         "Migrated {} projects and {} remote bindings; adopted {} existing scoped remote names; \

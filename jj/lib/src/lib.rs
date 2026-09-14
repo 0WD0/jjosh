@@ -63,6 +63,8 @@ pub use jj_core::hex_util;
 pub mod id_prefix;
 pub mod index;
 pub mod iter_util;
+#[cfg(feature = "git")]
+pub mod local_state;
 pub mod local_working_copy;
 pub mod lock;
 pub use jj_core::matchers;
@@ -77,9 +79,9 @@ pub mod operation;
 #[expect(missing_docs)]
 pub mod protos;
 pub use jj_core::ref_name;
-pub mod refs;
 pub mod project;
 mod project_store;
+pub mod refs;
 pub mod repo;
 pub use jj_core::repo_path;
 pub mod revset;

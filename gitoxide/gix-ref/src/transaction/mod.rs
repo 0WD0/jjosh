@@ -80,6 +80,13 @@ pub enum Change {
         /// How to treat the reference log during deletion.
         log: RefLog,
     },
+    /// Verify the current reference without changing it or its reflog, holding its lock until commit or rollback.
+    Verify {
+        /// The required state of the reference, including absence with [`PreviousValue::MustNotExist`].
+        /// Preparation records an observed target as [`PreviousValue::MustExistAndMatch`], or absence as
+        /// [`PreviousValue::MustNotExist`].
+        expected: PreviousValue,
+    },
 }
 
 impl Change {
@@ -87,7 +94,7 @@ impl Change {
     pub fn new_value(&self) -> Option<crate::TargetRef<'_>> {
         match self {
             Change::Update { new, .. } => new.to_ref().into(),
-            Change::Delete { .. } => None,
+            Change::Delete { .. } | Change::Verify { .. } => None,
         }
     }
 
@@ -101,6 +108,9 @@ impl Change {
             | Change::Delete {
                 expected: PreviousValue::MustExistAndMatch(previous) | PreviousValue::ExistingMustMatch(previous),
                 ..
+            }
+            | Change::Verify {
+                expected: PreviousValue::MustExistAndMatch(previous) | PreviousValue::ExistingMustMatch(previous),
             } => previous,
             _ => return None,
         }
@@ -174,6 +184,12 @@ impl RefEdit {
     /// handling and without dereferencing symbolic references.
     pub fn delete_with_log(name: FullName, expected: PreviousValue, log: RefLog) -> Self {
         RefEdit::new(name, Change::Delete { expected, log })
+    }
+
+    /// Verify `name` against `expected`, keeping it locked without changing the reference or its log.
+    /// Symbolic references are not dereferenced unless [`Self::with_deref()`] enables it.
+    pub fn verify(name: FullName, expected: PreviousValue) -> Self {
+        RefEdit::new(name, Change::Verify { expected })
     }
 }
 

@@ -20,6 +20,7 @@ mod set_url;
 
 use clap::Subcommand;
 use jj_lib::git;
+use jj_lib::local_state;
 use jj_lib::merge::Merge;
 use jj_lib::object_id::ObjectId as _;
 use jj_lib::project::BindingId;
@@ -56,7 +57,6 @@ use crate::ui::Ui;
 pub enum RemoteCommand {
     Add(GitRemoteAddArgs),
     Attach(GitRemoteAttachArgs),
-    Recover(GitRemoteRecoverArgs),
     List(GitRemoteListArgs),
     Remove(GitRemoteRemoveArgs),
     Rename(GitRemoteRenameArgs),
@@ -71,7 +71,6 @@ pub async fn cmd_git_remote(
     match subcommand {
         RemoteCommand::Add(args) => cmd_git_remote_add(ui, command, args).await,
         RemoteCommand::Attach(args) => cmd_attach(ui, command, args).await,
-        RemoteCommand::Recover(args) => cmd_recover(ui, command, args).await,
         RemoteCommand::List(args) => cmd_git_remote_list(ui, command, args).await,
         RemoteCommand::Remove(args) => cmd_git_remote_remove(ui, command, args).await,
         RemoteCommand::Rename(args) => cmd_git_remote_rename(ui, command, args).await,
@@ -87,16 +86,13 @@ pub struct GitRemoteAttachArgs {
     binding: GitRemoteBindingArgs,
 }
 
-/// Recover an interrupted local remote change without network access.
-#[derive(clap::Args, Clone, Debug)]
-#[group(required = true, multiple = false)]
-pub struct GitRemoteRecoverArgs {
-    /// Restore saved config and refs; requires the original operation.
-    #[arg(long)]
-    rollback: bool,
-    /// Keep local changes after verifying current binding and owner consistency.
-    #[arg(long)]
-    accept: bool,
+fn require_integrated_local_state(command: &CommandHelper) -> Result<(), CommandError> {
+    if command.global_args().no_integrate_operation {
+        return Err(user_error(
+            "Local state changes require operation integration; omit --no-integrate-operation",
+        ));
+    }
+    Ok(())
 }
 
 /// Parse a new logical name without accepting physical handles as aliases.
@@ -289,6 +285,7 @@ async fn cmd_attach(
     command: &CommandHelper,
     args: &GitRemoteAttachArgs,
 ) -> Result<(), CommandError> {
+    require_integrated_local_state(command)?;
     let mut workspace = command.workspace_helper_no_snapshot(ui).await?;
     let (local_name, requested_scope) =
         new_remote_name(&workspace, &args.remote, args.binding.project.as_deref())?;
@@ -389,15 +386,10 @@ async fn cmd_attach(
         .map(|file| file.path().to_owned())
         .collect::<Vec<_>>();
     let git_lock = workspace.lock_git_import_export()?;
-    let journal = git::begin_remote_management(
-        workspace.repo().store(),
-        &workspace.repo().operation().id().hex(),
-        &extra_paths,
-    )?;
-    journal.expect_remote(&remote, true, Some(&connection), true)?;
+    let journal = local_state::begin(workspace.repo(), &extra_paths).await?;
     let mut tx = workspace.start_transaction();
+    tx.bind_local_state(&journal)?;
     if remote != old_remote {
-        journal.expect_remote(&old_remote, false, Some(&connection), false)?;
         // Scope attachment is an explicit identity transition. Retire the root
         // physical key so the root alias can be reused independently.
         git::rename_remote_with_options(tx.repo_mut(), &old_remote, &remote, &options)?;
@@ -440,7 +432,6 @@ async fn cmd_attach(
         .store_view_mut()
         .remote_connections
         .insert(remote.clone(), Merge::resolved(Some(connection)));
-    journal.expect_operation(tx.repo().view())?;
     let display_name = tx.repo().view().remote_qualified_name(&remote);
     tx.finish_with_git_import_export_lock(
         ui,
@@ -448,24 +439,6 @@ async fn cmd_attach(
         &git_lock,
     )
     .await?;
-    journal.complete()?;
-    Ok(())
-}
-
-async fn cmd_recover(
-    ui: &mut Ui,
-    command: &CommandHelper,
-    args: &GitRemoteRecoverArgs,
-) -> Result<(), CommandError> {
-    let workspace = command.workspace_helper_no_snapshot(ui).await?;
-    let _git_lock = workspace.lock_git_import_export()?;
-    git::recover_remote_management(
-        workspace.repo().store(),
-        workspace.repo().view(),
-        &workspace.repo().operation().id().hex(),
-        args.accept,
-        crate::git_remote::capabilities(command),
-    )?;
-    writeln!(ui.status(), "Recovered local remote change.")?;
+    journal.complete().await?;
     Ok(())
 }
