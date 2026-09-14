@@ -2652,16 +2652,36 @@ pub fn resolve_remote_ref_symbol(
     symbol: RemoteRefSymbol<'_>,
 ) -> Result<RemoteRefSymbolBuf, String> {
     let reference_project = remote_ref_project(view, symbol.name)?;
-    let (remote_name, project) = match symbol.remote.as_str().strip_suffix('#') {
-        Some(name) => (RemoteName::new(name), None),
+    let (remote_name, project) = match symbol.remote.as_str().rsplit_once('#') {
+        Some((name, "")) => (RemoteName::new(name), None),
+        Some((name, label)) => match view.project_state().resolve_label(label)? {
+            Some(project) => {
+                if reference_project.as_ref() != Some(&project) {
+                    return Err("Remote selector and local reference belong to different project scopes".into());
+                }
+                (RemoteName::new(name), Some(project))
+            }
+            None => (symbol.remote, reference_project),
+        },
         None => (symbol.remote, reference_project),
     };
     #[cfg(feature = "git")]
-    if remote_name == crate::git::REMOTE_NAME_FOR_LOCAL_GIT_REPO {
+    if symbol.remote == crate::git::REMOTE_NAME_FOR_LOCAL_GIT_REPO
+        || (project.is_none() && remote_name == crate::git::REMOTE_NAME_FOR_LOCAL_GIT_REPO)
+    {
         return Ok(RemoteRefSymbolBuf { name: symbol.name.to_owned(), remote: remote_name.to_owned() });
     }
-    let remotes = view.remote_views().map(|(remote, _)| remote.to_owned()).collect_vec();
-    let remote = view.resolve_remote_name(&remotes, project.as_ref(), remote_name)?;
+    let remote = if let Some(project) = &project {
+        let remotes = view.remote_views().map(|(remote, _)| remote.to_owned()).collect_vec();
+        view.resolve_remote_name(&remotes, Some(project), remote_name)?
+    } else {
+        // Unknown root symbols remain addressable for native no-match diagnostics
+        // and tracking's partial matches. Explicit project identities never do.
+        if !view.remote_in_scope(remote_name, None)? {
+            return Err("A physical project remote cannot be addressed in the root scope".into());
+        }
+        remote_name.to_owned()
+    };
     Ok(RemoteRefSymbolBuf { name: symbol.name.to_owned(), remote })
 }
 

@@ -49,7 +49,7 @@ fetch 带入历史，最后的 new 将它与本地工作合在一起。
 | =main#parser= | 用于交付 parser 的本地 main 书签 |
 | =main#parser@origin= | 从 parser 的 origin 获取的 main |
 
-每个项目有自己的 remote 名字。parser、app 和仓库根可以各自配置 =origin=；只有一个 remote 时，fetch 和 push 都自动使用它。
+每个项目有自己的 remote 名字。parser、app 和仓库根可以各自配置 =origin=，不需要加项目前缀。未设置默认值时，fetch 和 push 选择项目唯一的 remote，否则选择项目内的 origin；仍有歧义就报错。项目不继承根的 =git.fetch=／=git.push=。
 
 如果代码已经在 monorepo 里，只需登记目录：
 
@@ -58,6 +58,16 @@ jjosh project add app --path apps/app
 #+end_src
 
 项目也可以来自正在开发的 jj 仓库，或外部仓库中的某个子目录。这些接入方式见[[file:docs/workflows.org][使用指南]]。
+
+为 app 也配置好 remote 后，可以一次接收多个项目：
+
+#+begin_src sh
+jjosh git fetch --project parser --project app
+jjosh git fetch --all-projects
+#+end_src
+
+两种写法分别选择指定项目和全部未删除的登记项目，不能混用；重复指定同一项目只获取一次。每个项目独立解析 =--remote= 或 =git.projects.LABEL.fetch=，不包含根。省略项目选择时只获取根；=--all-remotes= 也只在选中的范围内展开。
+所有项目和连接先完成预检，缺少连接、错误配置或未解决的项目冲突会阻止整批获取，不会跳过离线项目。网络阶段仍可能部分失败。
 
 * 把修改送回去
 
@@ -90,6 +100,15 @@ jjosh git push --bookmark topic#parser --dry-run
 
 =--like origin#parser= 采用 parser 的 origin 的目录映射。两个 remote 都能 fetch 和 push；获取仍默认使用 origin。
 配置中的 parser 是稳定的引用 label，项目改显示名后仍然有效。
+
+多个项目都准备好交付书签后，用显式模式批量选择：
+
+#+begin_src sh
+jjosh git push --bookmark 'glob:topic#*' --dry-run
+jjosh git push --remote fork --bookmark 'glob:topic#*' --dry-run
+#+end_src
+
+第一条为每个引用分别选择所在项目的默认目的地；第二条要求每个项目都有自己的 fork。根的 origin 必须明确写成 =--remote origin#=，不会因同名而被项目选中。整批转换和目标检查通过后才开始发布；不同远端之间不提供原子提交，后续传输失败可能留下部分成功结果。确认计划后去掉 =--dry-run=。
 
 * 继续使用
 

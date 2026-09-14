@@ -145,12 +145,18 @@ pub struct GitFetchArgs {
     #[arg(add = ArgValueCandidates::new(complete::git_remotes))]
     remotes: Option<Vec<String>>,
 
-    /// Fetch only from remotes bound to this project's display name
+    /// Fetch from this project's remotes (can be repeated)
     ///
-    /// Uses git.projects.<label>.fetch after --remote. The label
+    /// Each project uses git.projects.<label>.fetch after --remote. The label
     /// remains stable when the project's display name changes.
     #[arg(long, value_name = "NAME")]
-    project: Option<String>,
+    project: Vec<String>,
+
+    /// Fetch from every registered project's remotes, excluding root remotes
+    ///
+    /// Resolves remote selections and defaults independently in each project.
+    #[arg(long, conflicts_with = "project")]
+    all_projects: bool,
 
     /// Fetch from all remotes
     #[arg(long, conflicts_with = "remotes")]
@@ -172,11 +178,12 @@ pub async fn cmd_git_fetch(
         && (!args.revisions.is_empty()
             || args.deepen.is_some()
             || args.unshallow
-            || args.project.is_some()
+            || !args.project.is_empty()
+            || args.all_projects
             || args.fetch_url.is_some())
     {
         return Err(user_error(
-            "--revision, --deepen, --unshallow, --fetch-url, and --project require capability jjosh-v1",
+            "--revision, --deepen, --unshallow, --fetch-url, --project, and --all-projects require capability jjosh-v1",
         ));
     }
     for revision in &args.revisions {
@@ -192,20 +199,50 @@ pub async fn cmd_git_fetch(
     };
     let mut workspace_command = command.workspace_helper(ui).await?;
     let all_remotes = git::get_all_remote_names(workspace_command.repo().store())?;
-    let project = args.project.as_deref()
-        .map(|name| workspace_command.repo().view().project_state()
-            .project_by_name(name).map(|(id, _)| id))
-        .transpose().map_err(user_error)?;
-    let selected_remotes = select_remote_names(
-        ui,
-        workspace_command.repo().view(),
-        workspace_command.settings(),
-        &all_remotes,
-        project.as_ref(),
-        args.remotes.as_deref(),
-        gix::remote::Direction::Fetch,
-        args.all_remotes,
-    )?;
+    let view = workspace_command.repo().view();
+    let state = view.project_state();
+    let projects = if args.all_projects {
+        let mut projects = Vec::new();
+        for (id, target) in &state.projects {
+            if target.adds().flatten().next().is_none() {
+                continue;
+            }
+            state.validate_project(id).map_err(user_error)?;
+            projects.push(Some(id.clone()));
+        }
+        if projects.is_empty() {
+            return Err(user_error("No registered projects to fetch from"));
+        }
+        projects
+    } else if args.project.is_empty() {
+        vec![None]
+    } else {
+        args.project.iter().map(|name| {
+            state.project_by_name(name).map(|(id, _)| Some(id)).map_err(user_error)
+        }).try_collect()?
+    };
+    let mut selected_remotes = Vec::new();
+    let mut selected_projects = std::collections::HashSet::new();
+    let mut seen_remotes = std::collections::HashSet::new();
+    for project in projects {
+        if !selected_projects.insert(project.clone()) {
+            continue;
+        }
+        let remotes = select_remote_names(
+            ui,
+            view,
+            workspace_command.settings(),
+            &all_remotes,
+            project.as_ref(),
+            args.remotes.as_deref(),
+            gix::remote::Direction::Fetch,
+            args.all_remotes,
+        )?;
+        if remotes.is_empty() {
+            return Err(user_error("No git remotes to fetch from in a selected scope"));
+        }
+        selected_remotes.extend(remotes.into_iter().filter(|remote| seen_remotes.insert(remote.clone())));
+    }
     let matching_remotes: Vec<&RemoteName> =
         selected_remotes.iter().map(AsRef::as_ref).collect();
     if matching_remotes.is_empty() {
@@ -327,15 +364,16 @@ pub async fn cmd_git_fetch(
             git_settings.to_subprocess_options(),
             &import_options,
         )?;
-        for (remote, expanded) in expansions {
+        for (completed, (remote, expanded)) in expansions.into_iter().enumerate() {
             let mut callback = GitSubprocessUi::new(ui);
-            git_fetch.fetch(remote, expanded, &mut callback, fetch_options.depth)?;
+            git_fetch.fetch(remote, expanded, &mut callback, fetch_options.depth)
+                .map_err(|error| fetch_failure_context(error.into(), workspace_command.repo().view(), &matching_remotes, completed))?;
         }
         git_fetch.import_refs().await?
     } else {
         let mut observations = Vec::new();
         let mut selections = Vec::with_capacity(expansions.len());
-        for (remote, expanded) in expansions {
+        for (completed, (remote, expanded)) in expansions.into_iter().enumerate() {
             let expr = expanded.into_expression();
             let bookmarks = expr.bookmark.to_matcher();
             let tags = expr.tag.to_matcher();
@@ -343,7 +381,8 @@ pub async fn cmd_git_fetch(
             observations.extend(
                 session
                     .fetch(ui, command, tx.repo_mut(), expr, &fetch_options)
-                    .await?,
+                    .await
+                    .map_err(|error| fetch_failure_context(error, workspace_command.repo().view(), &matching_remotes, completed))?,
             );
             // An empty selected result still observes a configured peer. Keep
             // it addressable for explicit tracking and first publication.
@@ -385,6 +424,26 @@ pub async fn cmd_git_fetch(
         tx.finish(ui, description).await?;
     }
     Ok(())
+}
+
+fn fetch_failure_context(
+    error: CommandError,
+    view: &jj_lib::view::View,
+    remotes: &[&RemoteName],
+    completed: usize,
+) -> CommandError {
+    if remotes.len() <= 1 {
+        return error;
+    }
+    let received = if completed == 0 {
+        "none".to_owned()
+    } else {
+        remotes[..completed].iter().map(|remote| view.remote_qualified_name(remote)).join(", ")
+    };
+    error.hinted(format!(
+        "Fetch failed at {}. Completed transfers: {received}. No fetch operation was committed; local caches and Git refs may have changed.",
+        view.remote_qualified_name(remotes[completed]),
+    ))
 }
 
 

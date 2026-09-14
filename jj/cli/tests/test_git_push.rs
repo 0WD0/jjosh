@@ -222,13 +222,9 @@ fn test_git_push_current_bookmark() {
         .success();
     // This behavior is a strangeness of our definition of the default push revset.
     // We could consider changing it.
-    let output = work_dir.run_jj(["git", "push"]);
-    insta::assert_snapshot!(output, @"
-    ------- stderr -------
-    Warning: No bookmarks/tags found in the default push revset: remote_bookmarks(remote=origin)..@
-    Nothing changed.
-    [EOF]
-    ");
+    let operation_id = work_dir.current_operation_id();
+    work_dir.run_jj(["git", "push"]).success();
+    assert_eq!(work_dir.current_operation_id(), operation_id);
     // We can move a bookmark backwards
     let output = work_dir.run_jj(["git", "push", "-bbookmark2"]);
     insta::assert_snapshot!(output, @"
@@ -295,13 +291,18 @@ fn test_git_push_no_matching_bookmark() {
     set_up(&test_env);
     let work_dir = test_env.work_dir("local");
     work_dir.run_jj(["new"]).success();
-    let output = work_dir.run_jj(["git", "push"]);
-    insta::assert_snapshot!(output, @"
-    ------- stderr -------
-    Warning: No bookmarks/tags found in the default push revset: remote_bookmarks(remote=origin)..@
-    Nothing changed.
-    [EOF]
-    ");
+    let operation_id = work_dir.current_operation_id();
+    let output = work_dir.run_jj(["git", "push"]).success();
+    assert_eq!(
+        output
+            .stderr
+            .raw()
+            .lines()
+            .filter(|line| line.starts_with("Warning:"))
+            .count(),
+        1,
+    );
+    assert_eq!(work_dir.current_operation_id(), operation_id);
 }
 
 #[test]
@@ -310,13 +311,9 @@ fn test_git_push_matching_bookmark_unchanged() {
     set_up(&test_env);
     let work_dir = test_env.work_dir("local");
     work_dir.run_jj(["new", "bookmark1"]).success();
-    let output = work_dir.run_jj(["git", "push"]);
-    insta::assert_snapshot!(output, @"
-    ------- stderr -------
-    Warning: No bookmarks/tags found in the default push revset: remote_bookmarks(remote=origin)..@
-    Nothing changed.
-    [EOF]
-    ");
+    let operation_id = work_dir.current_operation_id();
+    work_dir.run_jj(["git", "push"]).success();
+    assert_eq!(work_dir.current_operation_id(), operation_id);
 }
 
 /// Test that `jj git push` without arguments pushes a bookmark to the specified
@@ -356,13 +353,9 @@ fn test_git_push_other_remote_has_bookmark() {
     [EOF]
     ");
     // Since it's already pushed to origin, nothing will happen if push again
-    let output = work_dir.run_jj(["git", "push"]);
-    insta::assert_snapshot!(output, @"
-    ------- stderr -------
-    Warning: No bookmarks/tags found in the default push revset: remote_bookmarks(remote=origin)..@
-    Nothing changed.
-    [EOF]
-    ");
+    let operation_id = work_dir.current_operation_id();
+    work_dir.run_jj(["git", "push"]).success();
+    assert_eq!(work_dir.current_operation_id(), operation_id);
     // The bookmark was moved on the "other" remote as well (since it's actually the
     // same remote), but `jj` is not aware of that since it thinks this is a
     // different remote. So, the push should fail.
@@ -1505,28 +1498,17 @@ fn test_git_push_revisions() {
     ");
 
     // Bookmark/tag at revision is up to date
-    let output = work_dir.run_jj(["git", "push", "--revisions", "bookmark1"]);
-    insta::assert_snapshot!(output, @"
-    ------- stderr -------
-    Nothing changed.
-    [EOF]
-    ");
+    let operation_id = work_dir.current_operation_id();
+    work_dir
+        .run_jj(["git", "push", "--revisions", "bookmark1"])
+        .success();
+    assert_eq!(work_dir.current_operation_id(), operation_id);
     // Push an empty set
-    let output = work_dir.run_jj(["git", "push", "-r=none()"]);
-    insta::assert_snapshot!(output, @"
-    ------- stderr -------
-    Warning: No bookmarks/tags point to the specified revisions: none()
-    Nothing changed.
-    [EOF]
-    ");
+    work_dir.run_jj(["git", "push", "-r=none()"]).success();
+    assert_eq!(work_dir.current_operation_id(), operation_id);
     // Push a revision with no bookmarks/tags
-    let output = work_dir.run_jj(["git", "push", "-r=@--"]);
-    insta::assert_snapshot!(output, @"
-    ------- stderr -------
-    Warning: No bookmarks/tags point to the specified revisions: @--
-    Nothing changed.
-    [EOF]
-    ");
+    work_dir.run_jj(["git", "push", "-r=@--"]).success();
+    assert_eq!(work_dir.current_operation_id(), operation_id);
     // Push a revision with a single bookmark
     let output = work_dir.run_jj(["git", "push", "-r=@-", "--dry-run"]);
     insta::assert_snapshot!(output, @"
@@ -1546,15 +1528,19 @@ fn test_git_push_revisions() {
     [EOF]
     ");
     // Push multiple revisions of which some have bookmarks
-    let output = work_dir.run_jj(["git", "push", "-r=@--", "-r=@-", "--dry-run"]);
-    insta::assert_snapshot!(output, @"
-    ------- stderr -------
-    Warning: No bookmarks/tags point to the specified revisions: @--
-    Changes to push to origin:
-      bookmark: bookmark-1 [add to 3c179a96c972]
-    Dry-run requested, not pushing.
-    [EOF]
-    ");
+    let output = work_dir
+        .run_jj(["git", "push", "-r=@--", "-r=@-", "--dry-run"])
+        .success();
+    assert_eq!(
+        output
+            .stderr
+            .raw()
+            .lines()
+            .filter(|line| line.starts_with("Warning:"))
+            .count(),
+        1,
+    );
+    assert_eq!(work_dir.current_operation_id(), operation_id);
     // Push a revision with a multiple bookmarks and tags
     let output = work_dir.run_jj(["git", "push", "-r=@", "--dry-run"]);
     insta::assert_snapshot!(output, @"

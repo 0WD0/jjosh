@@ -335,7 +335,7 @@ pub async fn cmd_git_push(
         tx.repo_mut()
             .set_local_bookmark_target(name, RefTarget::normal(commit.id().clone()));
     }
-    let routes = resolve_push_routes(
+    let selection = resolve_push_routes(
         ui,
         tx.base_workspace_helper(),
         tx.repo().view(),
@@ -345,6 +345,7 @@ pub async fn cmd_git_push(
             .chain(named_bookmark_commits.iter().map(|(name, _)| name)),
         &all_remotes,
     ).await?;
+    let routes = &selection.routes;
     let remote_expr = StringExpression::union_all(
         routes.values().flatten()
             .map(|route| StringExpression::exact(&route.remote))
@@ -388,7 +389,7 @@ pub async fn cmd_git_push(
     let mut by_remote = Vec::with_capacity(matching_remotes.len());
     let guard_repo = tx.base_workspace_helper().repo().clone();
     let routing = PushRouting {
-        routes: &routes,
+        routes,
         sessions: &remote_sessions,
         dry_run: args.dry_run,
         store: guard_repo.store(),
@@ -568,16 +569,10 @@ pub async fn cmd_git_push(
                 .await?
                 .map_err(|reason| reason.to_command_error(tx.base_workspace_helper()))?;
 
-            let use_default_revset = args.bookmark.is_empty()
-                && args.tag.is_empty()
-                && args.change.is_empty()
-                && args.revisions.is_empty()
-                && args.named.is_empty();
-            let target_revisions = if use_default_revset {
-                find_default_target_revisions(ui, tx.base_workspace_helper(), remote, true).await?
-            } else {
-                find_target_revisions(ui, tx.base_workspace_helper(), &args.revisions).await?
-            };
+            let target_revisions = selection
+                .default_revisions
+                .get(remote)
+                .unwrap_or(&selection.revisions);
 
             let params = ClassifyParams {
                 allow_new: false,
@@ -585,7 +580,7 @@ pub async fn cmd_git_push(
             };
             for (name, targets) in tx.base_repo().view().local_remote_bookmarks(remote) {
                 if !routing.includes(name, remote)
-                    || !matches_local_target(targets, &target_revisions)
+                    || !matches_local_target(targets, target_revisions)
                     || !seen_bookmarks.insert(name)
                 {
                     continue;
@@ -606,7 +601,7 @@ pub async fn cmd_git_push(
             }
             for (name, targets) in tx.base_repo().view().local_remote_tags(remote) {
                 if !routing.includes(name, remote)
-                    || !matches_local_target(targets, &target_revisions)
+                    || !matches_local_target(targets, target_revisions)
                     || !seen_tags.insert(name)
                 {
                     continue;
@@ -863,6 +858,12 @@ impl PushRouting<'_> {
     }
 }
 
+struct PushSelection {
+    routes: HashMap<RefNameBuf, Vec<GitPushRoute>>,
+    revisions: HashSet<CommitId>,
+    default_revisions: HashMap<RemoteNameBuf, HashSet<CommitId>>,
+}
+
 async fn resolve_push_routes<'a>(
     ui: &Ui,
     workspace: &WorkspaceCommandHelper,
@@ -870,7 +871,7 @@ async fn resolve_push_routes<'a>(
     args: &GitPushArgs,
     created_names: impl IntoIterator<Item = &'a RefNameBuf>,
     all_remotes: &[RemoteNameBuf],
-) -> Result<HashMap<RefNameBuf, Vec<GitPushRoute>>, CommandError> {
+) -> Result<PushSelection, CommandError> {
     let bookmark_matcher = parse_union_name_patterns(ui, &args.bookmark)?.to_matcher();
     let tag_matcher = parse_union_name_patterns(ui, &args.tag)?.to_matcher();
     let mut selected: IndexSet<RefNameBuf> = created_names.into_iter().cloned().collect();
@@ -883,6 +884,7 @@ async fn resolve_push_routes<'a>(
         && args.revisions.is_empty()
         && args.named.is_empty();
     let revisions = find_target_revisions(ui, workspace, &args.revisions).await?;
+    let mut default_revisions_by_remote = HashMap::new();
     let mut tracked_names = HashMap::new();
 
     // Include local refs even without a configured destination; resolve defaults
@@ -894,7 +896,7 @@ async fn resolve_push_routes<'a>(
         .unique()
     {
         let default_revisions = if use_default_revset {
-            find_default_target_revisions(ui, workspace, remote, false).await?
+            find_default_target_revisions(workspace, remote).await?
         } else {
             HashSet::new()
         };
@@ -939,6 +941,9 @@ async fn resolve_push_routes<'a>(
                 selected.insert(name.to_owned());
             }
         }
+        if use_default_revset {
+            default_revisions_by_remote.insert(remote.to_owned(), default_revisions);
+        }
     }
     if selected.is_empty() {
         // There will be no per-remote selection loop to emit the usual
@@ -974,7 +979,47 @@ async fn resolve_push_routes<'a>(
         }).collect();
         routes.insert(name, selected_routes);
     }
-    Ok(routes)
+    if use_default_revset {
+        // With no selected refs, native repositories still report why the
+        // default push is a no-op. Do not infer a root destination for project
+        // repositories: their defaults are resolved only for selected scopes.
+        if routes.is_empty()
+            && !all_remotes.is_empty()
+            && all_remotes
+                .iter()
+                .all(|remote| view.remote_in_scope(remote, None).unwrap_or(false))
+        {
+            destinations.insert(
+                None,
+                crate::git_remote::select_remote_names(
+                    ui, view, workspace.settings(), all_remotes, None,
+                    args.remotes.as_deref(), gix::remote::Direction::Push, false,
+                )?,
+            );
+        }
+        // Selection evaluates each remote's range once. Report only actual
+        // destinations, not unrelated remotes considered during routing.
+        for remote in all_remotes.iter().filter(|remote| {
+            destinations.values().any(|remotes| remotes.contains(remote))
+        }) {
+            if default_revisions_by_remote
+                .get(remote)
+                .is_some_and(HashSet::is_empty)
+            {
+                writeln!(
+                    ui.warning_default(),
+                    "No bookmarks/tags found in the default push revset: \
+                     remote_bookmarks(remote={remote})..@",
+                    remote = view.remote_qualified_name(remote),
+                )?;
+            }
+        }
+    }
+    Ok(PushSelection {
+        routes,
+        revisions,
+        default_revisions: default_revisions_by_remote,
+    })
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -1722,10 +1767,8 @@ fn find_tags_to_push<'a>(
 }
 
 async fn find_default_target_revisions(
-    ui: &Ui,
     workspace_command: &WorkspaceCommandHelper,
     remote: &RemoteName,
-    warn_if_empty: bool,
 ) -> Result<HashSet<CommitId>, CommandError> {
     // remote_bookmarks(remote=<remote>)..@
     let workspace_name = workspace_command.workspace_name();
@@ -1741,20 +1784,11 @@ async fn find_default_target_revisions(
         &RevsetExpression::bookmarks(StringExpression::all())
             .union(&RevsetExpression::tags(StringExpression::all())),
     );
-    let commit_ids = workspace_command
+    Ok(workspace_command
         .attach_revset_evaluator(expression)
         .evaluate_to_commit_ids()?
-        .peekable();
-    let mut commit_ids = std::pin::pin!(commit_ids);
-    if warn_if_empty && commit_ids.as_mut().peek().await.is_none() {
-        writeln!(
-            ui.warning_default(),
-            "No bookmarks/tags found in the default push revset: \
-             remote_bookmarks(remote={remote})..@",
-            remote = workspace_command.repo().view().remote_qualified_name(remote)
-        )?;
-    }
-    Ok(commit_ids.try_collect().await?)
+        .try_collect()
+        .await?)
 }
 
 async fn find_target_revisions(
