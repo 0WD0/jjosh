@@ -30,7 +30,19 @@ use jj_lib::op_store::RemoteRefState;
 use jj_lib::op_store::RemoteView;
 use jj_lib::op_store::View;
 use jj_lib::op_store::WorkingCopyPatternsId;
-use jj_lib::project::{BindingId, BindingRecord, BindingTarget, ConnectionId, ConversionObservation, ConversionTerm, ObservationKey, ObservationKind, ProjectId, ProjectRecord, ProjectState, Representation, ScopedRemoteName};
+use jj_lib::project::BindingId;
+use jj_lib::project::BindingRecord;
+use jj_lib::project::BindingTarget;
+use jj_lib::project::ConnectionId;
+use jj_lib::project::ConversionObservation;
+use jj_lib::project::ConversionTerm;
+use jj_lib::project::ObservationKey;
+use jj_lib::project::ObservationKind;
+use jj_lib::project::ProjectId;
+use jj_lib::project::ProjectRecord;
+use jj_lib::project::ProjectState;
+use jj_lib::project::Representation;
+use jj_lib::project::ScopedRemoteName;
 use jj_lib::ref_name::RefNameBuf;
 use jj_lib::repo::ReadonlyRepo;
 use jj_lib::repo::Repo as _;
@@ -380,19 +392,51 @@ impl ProjectMetadataData {
             let terms = terms.into_iter().map(|term| term.map(|id| project_id(&id)).transpose()).collect::<Result<_>>()?;
             Ok((label, merge(terms, "project label")?))
         }).collect::<Result<_>>()?;
-        let remote_names = self.remote_names.unwrap_or_default().into_iter().map(|(id, terms)| {
-            let terms = terms.into_iter().map(|term| term.map(|alias| {
-                ensure!(!alias.name.is_empty() && !alias.name.contains('\0'), "invalid scoped remote name");
-                Ok(ScopedRemoteName { project: project_id(&alias.project)?, name: alias.name.into() })
-            }).transpose()).collect::<Result<Vec<_>>>()?;
-            Ok((connection_id(&id)?, merge(terms, "scoped remote name")?))
-        }).collect::<Result<_>>()?;
-        let connections = self.remote_connections.into_iter().map(|(name, terms)| {
-            let terms = terms.into_iter().map(|term| term.map(|id| connection_id(&id)).transpose()).collect::<Result<_>>()?;
-            Ok((name.into(), merge(terms, "remote connection owner")?))
-        }).collect::<Result<_>>()?;
+        let remote_names = self
+            .remote_names
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(id, terms)| {
+                let terms = terms
+                    .into_iter()
+                    .map(|term| {
+                        term.map(|alias| {
+                            ensure!(
+                                !alias.name.is_empty() && !alias.name.contains('\0'),
+                                "invalid scoped remote name"
+                            );
+                            Ok(ScopedRemoteName {
+                                project: project_id(&alias.project)?,
+                                name: alias.name.into(),
+                            })
+                        })
+                        .transpose()
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                Ok((connection_id(&id)?, merge(terms, "scoped remote name")?))
+            })
+            .collect::<Result<_>>()?;
+        let connections = self
+            .remote_connections
+            .into_iter()
+            .map(|(name, terms)| {
+                let terms = terms
+                    .into_iter()
+                    .map(|term| term.map(|id| connection_id(&id)).transpose())
+                    .collect::<Result<_>>()?;
+                Ok((name.into(), merge(terms, "remote connection owner")?))
+            })
+            .collect::<Result<_>>()?;
         let mut observations = BTreeMap::new();
-        let mut known_bindings: BTreeMap<_, _> = bindings.iter().flat_map(|(id, target)| target.iter().flatten().map(move |record| (id.clone(), record.clone()))).collect();
+        let mut known_bindings: BTreeMap<_, _> = bindings
+            .iter()
+            .flat_map(|(id, target)| {
+                target
+                    .iter()
+                    .flatten()
+                    .map(move |record| (id.clone(), record.clone()))
+            })
+            .collect();
         for observation in self.observations {
             let key = ObservationKey { remote: observation.remote.into(), name: observation.name.into(), kind: observation.kind.into() };
             if key.kind == ObservationKind::Revision {
@@ -411,10 +455,23 @@ impl ProjectMetadataData {
                     known_bindings.insert(term.binding_id.clone(), term.binding.clone());
                 }
             }
-            ensure!(observations.insert(key, merge(terms, "conversion observation")?).is_none(),
-                "duplicate conversion observation key");
+            ensure!(
+                observations
+                    .insert(key, merge(terms, "conversion observation")?)
+                    .is_none(),
+                "duplicate conversion observation key"
+            );
         }
-        Ok((ProjectState { projects, bindings, labels, remote_names }, connections, observations))
+        Ok((
+            ProjectState {
+                projects,
+                bindings,
+                labels,
+                remote_names,
+            },
+            connections,
+            observations,
+        ))
     }
 }
 
@@ -469,7 +526,9 @@ where
     deserializer.deserialize_map(Visitor(std::marker::PhantomData))
 }
 
-fn optional_unique_map<'de, D, T>(deserializer: D) -> std::result::Result<Option<BTreeMap<String, T>>, D::Error>
+fn optional_unique_map<'de, D, T>(
+    deserializer: D,
+) -> std::result::Result<Option<BTreeMap<String, T>>, D::Error>
 where
     D: serde::Deserializer<'de>,
     T: Deserialize<'de>,
@@ -1070,11 +1129,21 @@ pub(crate) async fn load(path: &Path, settings: &UserSettings) -> Result<NativeS
         "unsupported native bundle version {} (supported: 1, 2 and {VERSION})",
         manifest.version
     );
-    ensure!(manifest.version == 1 || manifest.view.project_metadata.is_some(),
-        "native bundle version {} requires an explicit project_metadata section", manifest.version);
-    let aliases_present = manifest.view.project_metadata.as_ref().is_some_and(|metadata| metadata.remote_names.is_some());
-    ensure!(aliases_present == (manifest.version == VERSION),
-        "scoped remote names require native bundle version {VERSION}, with an explicit remote_names section");
+    ensure!(
+        manifest.version == 1 || manifest.view.project_metadata.is_some(),
+        "native bundle version {} requires an explicit project_metadata section",
+        manifest.version
+    );
+    let aliases_present = manifest
+        .view
+        .project_metadata
+        .as_ref()
+        .is_some_and(|metadata| metadata.remote_names.is_some());
+    ensure!(
+        aliases_present == (manifest.version == VERSION),
+        "scoped remote names require native bundle version {VERSION}, with an explicit \
+         remote_names section"
+    );
     ensure!(
         manifest.root_commit == ROOT,
         "invalid synthetic root ID in native bundle"

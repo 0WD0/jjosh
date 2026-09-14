@@ -187,16 +187,33 @@ impl NativeRepo {
     }
 
     fn physical_remote(&self, project: &str, alias: &str) -> String {
-        let state: serde_json::Value = serde_json::from_str(
-            &self.jj(&["project", "show", project, "--json"]),
-        ).unwrap();
-        let identity = state["projects"][0]["remotes"].as_array().unwrap().iter()
+        let state: serde_json::Value =
+            serde_json::from_str(&self.jj(&["project", "show", project, "--json"])).unwrap();
+        let identity = state["projects"][0]["remotes"]
+            .as_array()
+            .unwrap()
+            .iter()
             .find(|remote| remote["candidates"][0]["definition"]["name"] == alias)
-            .unwrap()["connection"].as_str().unwrap();
+            .unwrap()["connection"]
+            .as_str()
+            .unwrap();
         let git_dir = self.path.join(".jj/repo/store/git");
-        native_git(&git_dir, &["remote"]).lines().find(|name| {
-            native_git(&git_dir, &["config", "--get", &format!("remote.{name}.jjosh-connectionId")]).trim() == identity
-        }).unwrap().to_owned()
+        native_git(&git_dir, &["remote"])
+            .lines()
+            .find(|name| {
+                native_git(
+                    &git_dir,
+                    &[
+                        "config",
+                        "--get",
+                        &format!("remote.{name}.jjosh-connectionId"),
+                    ],
+                )
+                .trim()
+                    == identity
+            })
+            .unwrap()
+            .to_owned()
     }
 }
 
@@ -208,8 +225,13 @@ fn native_bundle_preserves_root_and_nested_scoped_aliases_without_activating_end
     seed.bookmark("main");
     seed.jj(&["git", "export"]);
     let source = NativeRepo::new();
-    source.jj(&["git", "remote", "add", "origin",
-        seed.path.join(".jj/repo/store/git").to_str().unwrap()]);
+    source.jj(&[
+        "git",
+        "remote",
+        "add",
+        "origin",
+        seed.path.join(".jj/repo/store/git").to_str().unwrap(),
+    ]);
     source.jj(&["git", "fetch", "--remote", "origin", "--branch", "main"]);
     source.jj(&["project", "add", "inner", "--path", "inner"]);
     source.add_project_remote("origin", &seed.path, "inner");
@@ -219,25 +241,59 @@ fn native_bundle_preserves_root_and_nested_scoped_aliases_without_activating_end
     source.export(&bundle);
 
     let target = NativeRepo::new();
-    target.jj(&["project", "import", "--source", &format!("outer={}", bundle.display())]);
-    assert_eq!(target.jj(&["file", "show", "-r", "main#outer@origin", "outer/value.txt"]), "portable source\n");
-    assert_eq!(target.jj(&["file", "show", "-r", "main#inner#outer@\"origin@inner\"",
-        "outer/inner/value.txt"]), "portable source\n");
-    let state: serde_json::Value = serde_json::from_str(
-        &target.jj(&["project", "show", "outer", "--json"]),
-    ).unwrap();
+    target.jj(&[
+        "project",
+        "import",
+        "--source",
+        &format!("outer={}", bundle.display()),
+    ]);
+    assert_eq!(
+        target.jj(&["file", "show", "-r", "main#outer@origin", "outer/value.txt"]),
+        "portable source\n"
+    );
+    assert_eq!(
+        target.jj(&[
+            "file",
+            "show",
+            "-r",
+            "main#inner#outer@\"origin@inner\"",
+            "outer/inner/value.txt"
+        ]),
+        "portable source\n"
+    );
+    let state: serde_json::Value =
+        serde_json::from_str(&target.jj(&["project", "show", "outer", "--json"])).unwrap();
     let aliases: std::collections::BTreeSet<_> = state["projects"][0]["remotes"]
-        .as_array().unwrap().iter()
-        .map(|remote| remote["candidates"][0]["definition"]["name"].as_str().unwrap())
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|remote| {
+            remote["candidates"][0]["definition"]["name"]
+                .as_str()
+                .unwrap()
+        })
         .collect();
     assert!(aliases.contains("origin"));
     assert!(aliases.contains("origin@inner"));
     assert!(target.jj(&["git", "remote", "list"]).is_empty());
-    assert!(!target.unchecked(&["git", "fetch", "--project", "outer", "--remote", "origin"]).status.success());
+    assert!(
+        !target
+            .unchecked(&["git", "fetch", "--project", "outer", "--remote", "origin"])
+            .status
+            .success()
+    );
     target.jj(&["git", "export"]);
     target.jj(&["git", "import"]);
-    assert_eq!(target.jj(&["file", "show", "-r", "main#inner#outer@\"origin@inner\"",
-        "outer/inner/value.txt"]), "portable source\n");
+    assert_eq!(
+        target.jj(&[
+            "file",
+            "show",
+            "-r",
+            "main#inner#outer@\"origin@inner\"",
+            "outer/inner/value.txt"
+        ]),
+        "portable source\n"
+    );
 }
 
 #[test]
@@ -825,7 +881,16 @@ fn scope_suffix_convention_uses_native_tracking_and_project_publication() {
         ]);
     };
     let fetch = |remote: &str| {
-        mono.jj(&["git", "fetch", "--project", "alpha", "--remote", remote, "--branch", "main"]);
+        mono.jj(&[
+            "git",
+            "fetch",
+            "--project",
+            "alpha",
+            "--remote",
+            remote,
+            "--branch",
+            "main",
+        ]);
     };
     mono.jj(&["bookmark", "track", "main#alpha@origin"]);
     for label in ["upstream", "origin"] {
@@ -861,14 +926,8 @@ fn scope_suffix_convention_uses_native_tracking_and_project_publication() {
     );
     assert_eq!(native_git(&upstream, &["show", "main:value.txt"]), "base\n");
     fetch("origin");
-    assert_eq!(
-        mono.log(&format!("{scoped}@origin"), "commit_id"),
-        local
-    );
-    assert_eq!(
-        mono.log(&format!("{scoped}@upstream"), "commit_id"),
-        old
-    );
+    assert_eq!(mono.log(&format!("{scoped}@origin"), "commit_id"), local);
+    assert_eq!(mono.log(&format!("{scoped}@upstream"), "commit_id"), old);
     assert_eq!(mono.log("main", "commit_id"), root_main);
     assert_eq!(
         fs::read_to_string(mono.path.join("root.txt")).unwrap(),
@@ -967,8 +1026,14 @@ fn native_partial_publication_returns_to_canonical_change_and_accepts_contributi
             &["--git-dir", fork.to_str().unwrap(), "rev-parse", "review"]
         ),
     );
-    mono.jj(&["git", "fetch", "--remote", "alpha-upstream#alpha", "--branch",
-    "topic",]);
+    mono.jj(&[
+        "git",
+        "fetch",
+        "--remote",
+        "alpha-upstream#alpha",
+        "--branch",
+        "topic",
+    ]);
     assert_eq!(
         mono.log("topic#alpha@alpha-upstream", "commit_id"),
         canonical
@@ -1002,8 +1067,14 @@ fn native_partial_publication_returns_to_canonical_change_and_accepts_contributi
     native_git(&contributor, &["commit", "-m", "external contribution"]);
     native_git(&contributor, &["push", "origin", "HEAD:topic"]);
     let before_fetch = mono.operation_id();
-    mono.jj(&["git", "fetch", "--remote", "alpha-upstream#alpha", "--branch",
-    "topic",]);
+    mono.jj(&[
+        "git",
+        "fetch",
+        "--remote",
+        "alpha-upstream#alpha",
+        "--branch",
+        "topic",
+    ]);
     let received = mono.log("topic#alpha@alpha-upstream", "commit_id");
     assert_eq!(
         mono.log(
@@ -1034,8 +1105,14 @@ fn native_partial_publication_returns_to_canonical_change_and_accepts_contributi
         mono.log("topic#alpha@alpha-upstream", "commit_id"),
         canonical
     );
-    mono.jj(&["git", "fetch", "--remote", "alpha-upstream#alpha", "--branch",
-    "topic",]);
+    mono.jj(&[
+        "git",
+        "fetch",
+        "--remote",
+        "alpha-upstream#alpha",
+        "--branch",
+        "topic",
+    ]);
     assert_eq!(
         mono.log("topic#alpha@alpha-upstream", "commit_id"),
         received
@@ -1049,8 +1126,14 @@ fn native_partial_publication_returns_to_canonical_change_and_accepts_contributi
         &["commit", "-am", "external conflicting edit"],
     );
     native_git(&contributor, &["push", "origin", "HEAD:topic"]);
-    mono.jj(&["git", "fetch", "--remote", "alpha-upstream#alpha", "--branch",
-    "topic",]);
+    mono.jj(&[
+        "git",
+        "fetch",
+        "--remote",
+        "alpha-upstream#alpha",
+        "--branch",
+        "topic",
+    ]);
     mono.jj(&[
         "new",
         "@",
@@ -1415,11 +1498,7 @@ fn obsolete_remote_key_retirement_preflights_included_remote_sections() {
     let git_dir = mono.path.join(".jj/repo/store/git");
     let config_path = git_dir.join("config");
     let included = mono.temp.path().join("included.gitconfig");
-    fs::write(
-        &included,
-        &included_contents,
-    )
-    .unwrap();
+    fs::write(&included, &included_contents).unwrap();
     native_git(
         &git_dir,
         &["config", "include.path", included.to_str().unwrap()],
@@ -1441,7 +1520,11 @@ fn obsolete_remote_key_retirement_preflights_included_remote_sections() {
     native_git(&git_dir, &["config", "--unset", "include.path"]);
     native_git(
         &git_dir,
-        &["config", &format!("remote.{physical}.jjosh-readOnly"), "malformed"],
+        &[
+            "config",
+            &format!("remote.{physical}.jjosh-readOnly"),
+            "malformed",
+        ],
     );
     mono.jj(&["project", "migrate", "--apply"]);
     mono.jj(&["project", "check", "app"]);
@@ -1460,8 +1543,14 @@ fn legacy_source_migration_preserves_alias_verbatim_and_retires_malformed_remote
         &git_dir,
         &["remote", "add", "app-origin", remote.to_str().unwrap()],
     );
-    native_git(&git_dir, &["config", "remote.app-origin.jjosh-project", "app"]);
-    native_git(&git_dir, &["config", "remote.app-origin.jjosh-mount", "app"]);
+    native_git(
+        &git_dir,
+        &["config", "remote.app-origin.jjosh-project", "app"],
+    );
+    native_git(
+        &git_dir,
+        &["config", "remote.app-origin.jjosh-mount", "app"],
+    );
     native_git(
         &git_dir,
         &["config", "remote.app-origin.jjosh-readOnly", "malformed"],
@@ -1473,16 +1562,27 @@ fn legacy_source_migration_preserves_alias_verbatim_and_retires_malformed_remote
     );
     // Planned obsolete-key retirement must not authorize dropping unrelated
     // configuration or begin a journal before preflight rejects it.
-    native_git(&git_dir, &["config", "remote.app-origin.customSetting", "retain"]);
+    native_git(
+        &git_dir,
+        &["config", "remote.app-origin.customSetting", "retain"],
+    );
     let config_path = git_dir.join("config");
     let blocked_config = fs::read(&config_path).unwrap();
     let blocked_state = mono.state();
     for mode in ["--dry-run", "--apply"] {
-        assert!(!mono.unchecked(&["project", "migrate", mode]).status.success());
+        assert!(
+            !mono
+                .unchecked(&["project", "migrate", mode])
+                .status
+                .success()
+        );
         assert_eq!(mono.state(), blocked_state);
         assert_eq!(fs::read(&config_path).unwrap(), blocked_config);
     }
-    native_git(&git_dir, &["config", "--unset", "remote.app-origin.customSetting"]);
+    native_git(
+        &git_dir,
+        &["config", "--unset", "remote.app-origin.customSetting"],
+    );
     let state = mono.state();
     let config = fs::read(&config_path).unwrap();
     mono.jj(&["project", "migrate", "--dry-run"]);
@@ -1507,14 +1607,32 @@ fn legacy_source_migration_preserves_alias_verbatim_and_retires_malformed_remote
         (&state.1, &state.2, &state.3)
     );
     mono.jj(&["project", "check", "app"]);
-    let aliases: serde_json::Value = serde_json::from_str(
-        &mono.jj(&["project", "show", "app", "--json"]),
-    ).unwrap();
-    assert_eq!(aliases["projects"][0]["remotes"][0]["candidates"][0]["definition"]["name"], "app-origin");
-    assert!(!mono.unchecked(&["git", "fetch", "--remote", "app-origin"]).status.success());
-    assert!(!mono.unchecked(&["git", "fetch", "--project", "app", "--remote", "origin"]).status.success());
+    let aliases: serde_json::Value =
+        serde_json::from_str(&mono.jj(&["project", "show", "app", "--json"])).unwrap();
+    assert_eq!(
+        aliases["projects"][0]["remotes"][0]["candidates"][0]["definition"]["name"],
+        "app-origin"
+    );
+    assert!(
+        !mono
+            .unchecked(&["git", "fetch", "--remote", "app-origin"])
+            .status
+            .success()
+    );
+    assert!(
+        !mono
+            .unchecked(&["git", "fetch", "--project", "app", "--remote", "origin"])
+            .status
+            .success()
+    );
     // Adoption frees the old root slot while preserving the project-local alias verbatim.
-    mono.jj(&["git", "remote", "add", "app-origin", remote.to_str().unwrap()]);
+    mono.jj(&[
+        "git",
+        "remote",
+        "add",
+        "app-origin",
+        remote.to_str().unwrap(),
+    ]);
     assert_eq!(mono.physical_remote("app", "app-origin"), physical);
     mono.jj(&["git", "push", "--bookmark", "main#app"]);
     assert_eq!(
@@ -1551,7 +1669,14 @@ fn native_fetch_grafts_by_change_id_onto_linked_suffix_history() {
         "--base",
         "main",
     ]);
-    dest.jj(&["git", "fetch", "--remote", "jj-upstream#jj", "--branch", "main"]);
+    dest.jj(&[
+        "git",
+        "fetch",
+        "--remote",
+        "jj-upstream#jj",
+        "--branch",
+        "main",
+    ]);
     dest.jj(&["new", "@", "main#jj@jj-upstream"]);
     let linked_main = dest.log("main#jj@jj-upstream", "commit_id");
     assert_eq!(
@@ -1560,7 +1685,14 @@ fn native_fetch_grafts_by_change_id_onto_linked_suffix_history() {
     );
 
     dest.add_project_remote("jj-local", &source.path, "jj");
-    dest.jj(&["git", "fetch", "--remote", "jj-local#jj", "--branch", "topic"]);
+    dest.jj(&[
+        "git",
+        "fetch",
+        "--remote",
+        "jj-local#jj",
+        "--branch",
+        "topic",
+    ]);
     let fetched = "topic#jj@jj-local";
     assert_eq!(dest.change_id(fetched), source.change_id("topic"));
     assert_eq!(dest.log(&format!("{fetched}-"), "commit_id"), linked_main);
@@ -1571,12 +1703,26 @@ fn native_fetch_grafts_by_change_id_onto_linked_suffix_history() {
     assert!(dest.log("divergent()", "commit_id").is_empty());
 
     let first = dest.log(fetched, "commit_id");
-    dest.jj(&["git", "fetch", "--remote", "jj-local#jj", "--branch", "topic"]);
+    dest.jj(&[
+        "git",
+        "fetch",
+        "--remote",
+        "jj-local#jj",
+        "--branch",
+        "topic",
+    ]);
     assert_eq!(dest.log(fetched, "commit_id"), first);
 
     source.write("value.txt", "amended\n");
     source.jj(&["describe", "-m", "amended topic"]);
-    dest.jj(&["git", "fetch", "--remote", "jj-local#jj", "--branch", "topic"]);
+    dest.jj(&[
+        "git",
+        "fetch",
+        "--remote",
+        "jj-local#jj",
+        "--branch",
+        "topic",
+    ]);
     assert_eq!(dest.change_id(fetched), source.change_id("topic"));
     assert_ne!(dest.log(fetched, "commit_id"), first);
     assert_eq!(dest.log(&format!("{fetched}-"), "commit_id"), linked_main);
@@ -1610,7 +1756,14 @@ fn native_fetch_records_a_new_version_when_filtered_ancestor_differs() {
         "--base",
         "main",
     ]);
-    dest.jj(&["git", "fetch", "--remote", "jj-upstream#jj", "--branch", "main"]);
+    dest.jj(&[
+        "git",
+        "fetch",
+        "--remote",
+        "jj-upstream#jj",
+        "--branch",
+        "main",
+    ]);
     dest.jj(&["new", "@", "main#jj@jj-upstream"]);
     let linked_main = dest.log("main#jj@jj-upstream", "commit_id");
     let main_change = source.change_id("main");
@@ -1624,7 +1777,14 @@ fn native_fetch_records_a_new_version_when_filtered_ancestor_differs() {
     source.bookmark("topic");
 
     dest.add_project_remote("jj-local", &source.path, "jj");
-    dest.jj(&["git", "fetch", "--remote", "jj-local#jj", "--branch", "topic"]);
+    dest.jj(&[
+        "git",
+        "fetch",
+        "--remote",
+        "jj-local#jj",
+        "--branch",
+        "topic",
+    ]);
     let fetched = "topic#jj@jj-local";
     assert_eq!(dest.change_id(fetched), source.change_id("topic"));
     assert_eq!(dest.change_id(&format!("{fetched}-")), main_change);

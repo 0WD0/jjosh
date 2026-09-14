@@ -1,11 +1,16 @@
 use std::io::Write as _;
 
-use jj_cli::cli_util::{CommandHelper, RevisionArg, WorkspaceCommandHelper};
-use jj_cli::command_error::{CommandError, user_error};
+use jj_cli::cli_util::CommandHelper;
+use jj_cli::cli_util::RevisionArg;
+use jj_cli::cli_util::WorkspaceCommandHelper;
+use jj_cli::command_error::CommandError;
+use jj_cli::command_error::user_error;
 use jj_cli::ui::Ui;
 use jj_lib::merge::Merge;
 use jj_lib::object_id::ObjectId as _;
-use jj_lib::project::{BindingId, ConnectionId, ProjectId};
+use jj_lib::project::BindingId;
+use jj_lib::project::ConnectionId;
+use jj_lib::project::ProjectId;
 use jj_lib::repo::Repo as _;
 
 #[derive(clap::Args, Clone, Debug)]
@@ -67,10 +72,15 @@ struct CheckArgs {
 }
 
 #[derive(clap::Args, Clone, Debug)]
-struct NameArgs { name: String }
+struct NameArgs {
+    name: String,
+}
 
 #[derive(clap::Args, Clone, Debug)]
-struct RenameArgs { old: String, new: String }
+struct RenameArgs {
+    old: String,
+    new: String,
+}
 
 #[derive(clap::Args, Clone, Debug)]
 #[command(group(clap::ArgGroup::new("record").required(true).args(["id", "binding", "label", "connection"])))]
@@ -204,74 +214,134 @@ fn resolve(
             target.ok_or_else(|| user_error("Unknown scoped remote connection"))?;
             None
         } else if let Some(name) = args.name {
-            jj_lib::git::validate_remote_name(jj_lib::ref_name::RemoteName::new(&name)).map_err(user_error)?;
+            jj_lib::git::validate_remote_name(jj_lib::ref_name::RemoteName::new(&name))
+                .map_err(user_error)?;
             if name.contains('#') {
                 return Err(user_error("A project-local remote name cannot contain #"));
             }
-            let mut definitions = target.into_iter().flat_map(|target| target.adds().flatten());
+            let mut definitions = target
+                .into_iter()
+                .flat_map(|target| target.adds().flatten());
             let project = if let Some(first) = definitions.next() {
                 if definitions.any(|other| other.project != first.project) {
-                    return Err(user_error("Remote scope is unresolved; choose a candidate before renaming"));
+                    return Err(user_error(
+                        "Remote scope is unresolved; choose a candidate before renaming",
+                    ));
                 }
                 first.project.clone()
             } else {
-                let (_, binding) = view.project_state.binding_for_connection(&connection)
-                    .map_err(user_error)?.ok_or_else(|| user_error("A missing remote name requires an active project binding"))?;
+                let (_, binding) = view
+                    .project_state
+                    .binding_for_connection(&connection)
+                    .map_err(user_error)?
+                    .ok_or_else(|| {
+                        user_error("A missing remote name requires an active project binding")
+                    })?;
                 let jj_lib::project::BindingTarget::Project(project) = &binding.target else {
-                    return Err(user_error("A root connection has no project-local remote name"));
+                    return Err(user_error(
+                        "A root connection has no project-local remote name",
+                    ));
                 };
                 let git = jj_lib::git::get_git_repo(store)?;
                 let connection_hex = connection.hex();
                 let candidates = jj_lib::git::get_all_remote_names(store)?;
                 let mut matching = candidates.into_iter().filter(|remote| {
-                    git.config_snapshot().string(&format!("remote.{}.jjosh-connectionId", remote.as_str()))
+                    git.config_snapshot()
+                        .string(&format!("remote.{}.jjosh-connectionId", remote.as_str()))
                         .is_some_and(|value| value.eq_ignore_ascii_case(connection_hex.as_bytes()))
                 });
-                let remote = matching.next().ok_or_else(|| user_error("The selected connection is not configured locally"))?;
+                let remote = matching.next().ok_or_else(|| {
+                    user_error("The selected connection is not configured locally")
+                })?;
                 if matching.next().is_some() {
-                    return Err(user_error("The connection identity is claimed by multiple local remotes"));
+                    return Err(user_error(
+                        "The connection identity is claimed by multiple local remotes",
+                    ));
                 }
                 jj_lib::git::remote_connection_id(&git, &remote).map_err(user_error)?;
                 if view.remote_connections.get(&remote).is_some_and(|owners| {
                     owners.as_resolved().and_then(Option::as_ref) != Some(&connection)
                 }) || view.project_observations.iter().any(|(key, observations)| {
-                    key.remote == remote && observations.iter().flatten().any(|observation| observation.connection_id != connection)
+                    key.remote == remote
+                        && observations
+                            .iter()
+                            .flatten()
+                            .any(|observation| observation.connection_id != connection)
                 }) {
-                    return Err(user_error("The configured connection still has incompatible observations; forget them before restoring its name"));
+                    return Err(user_error(
+                        "The configured connection still has incompatible observations; forget \
+                         them before restoring its name",
+                    ));
                 }
                 restored_bridge = Some(remote);
                 project.clone()
             };
-            Some(jj_lib::project::ScopedRemoteName { project, name: name.into() })
+            Some(jj_lib::project::ScopedRemoteName {
+                project,
+                name: name.into(),
+            })
         } else {
-            candidate(target.ok_or_else(|| user_error("Unknown scoped remote connection"))?, args.candidate)?
+            candidate(
+                target.ok_or_else(|| user_error("Unknown scoped remote connection"))?,
+                args.candidate,
+            )?
         };
         if let Some(selected) = &selected {
-            if !view.project_state.projects.get(&selected.project)
-                .is_some_and(|target| target.adds().flatten().next().is_some()) {
-                return Err(user_error("Remote name refers to an absent project; restore or resolve the project first"));
+            if !view
+                .project_state
+                .projects
+                .get(&selected.project)
+                .is_some_and(|target| target.adds().flatten().next().is_some())
+            {
+                return Err(user_error(
+                    "Remote name refers to an absent project; restore or resolve the project first",
+                ));
             }
-            if view.project_state.remote_names.iter().any(|(other, target)| {
-                other != &connection && target.adds().flatten().any(|name| name == selected)
-            }) {
-                return Err(user_error("Another connection already claims this project-local remote name"));
+            if view
+                .project_state
+                .remote_names
+                .iter()
+                .any(|(other, target)| {
+                    other != &connection && target.adds().flatten().any(|name| name == selected)
+                })
+            {
+                return Err(user_error(
+                    "Another connection already claims this project-local remote name",
+                ));
             }
         } else {
-            if view.project_state.bindings.values().any(|target| target.adds().flatten().any(|binding| binding.connection_id == connection)) {
-                return Err(user_error("Remote name still belongs to an active binding; remove the remote or retire the disconnected binding first"));
+            if view.project_state.bindings.values().any(|target| {
+                target
+                    .adds()
+                    .flatten()
+                    .any(|binding| binding.connection_id == connection)
+            }) {
+                return Err(user_error(
+                    "Remote name still belongs to an active binding; remove the remote or retire \
+                     the disconnected binding first",
+                ));
             }
             for (remote, owners) in &view.remote_connections {
                 if owners.adds().flatten().any(|owner| owner == &connection)
                     && (view.remote_views.contains_key(remote)
-                        || view.project_observations.keys().any(|key| &key.remote == remote)) {
-                    return Err(user_error("Remote name still owns reference records; forget its observations first"));
+                        || view
+                            .project_observations
+                            .keys()
+                            .any(|key| &key.remote == remote))
+                {
+                    return Err(user_error(
+                        "Remote name still owns reference records; forget its observations first",
+                    ));
                 }
             }
         }
         if missing_identity && let Some(remote) = restored_bridge {
-            view.remote_connections.insert(remote, Merge::resolved(Some(connection.clone())));
+            view.remote_connections
+                .insert(remote, Merge::resolved(Some(connection.clone())));
         }
-        view.project_state.remote_names.insert(connection, Merge::resolved(selected));
+        view.project_state
+            .remote_names
+            .insert(connection, Merge::resolved(selected));
         return Ok(());
     }
     if let Some(value) = args.id {
@@ -334,10 +404,25 @@ fn resolve(
     Ok(())
 }
 
-async fn inspect(ui: &mut Ui, command: &CommandHelper, selected: Option<String>, json: bool, check: bool) -> Result<(), CommandError> {
+async fn inspect(
+    ui: &mut Ui,
+    command: &CommandHelper,
+    selected: Option<String>,
+    json: bool,
+    check: bool,
+) -> Result<(), CommandError> {
     let workspace = recorded_workspace(ui, command).await?;
     let state = workspace.repo().view().project_state();
-    let selected_ids: Vec<_> = state.projects.iter().filter(|(id, target)| selected.as_ref().is_none_or(|name| id.hex() == *name || target.adds().flatten().any(|record| record.name == *name))).map(|(id, _)| id.clone()).collect();
+    let selected_ids: Vec<_> = state
+        .projects
+        .iter()
+        .filter(|(id, target)| {
+            selected.as_ref().is_none_or(|name| {
+                id.hex() == *name || target.adds().flatten().any(|record| record.name == *name)
+            })
+        })
+        .map(|(id, _)| id.clone())
+        .collect();
     if selected.is_some() && selected_ids.is_empty() { return Err(user_error("Unknown project name or ProjectId")); }
     let mut diagnostics = workspace.repo().view().project_diagnostics();
     let (connections, offline_bindings) = local_diagnostics(workspace.repo().as_ref(), &mut diagnostics);
@@ -375,11 +460,19 @@ async fn inspect(ui: &mut Ui, command: &CommandHelper, selected: Option<String>,
             for binding in project["bindings"].as_array().unwrap() { writeln!(ui.stdout(), "  binding: {binding}")?; }
             for remote in project["remotes"].as_array().unwrap() { writeln!(ui.stdout(), "  remote: {remote}")?; }
         }
-        for diagnostic in &diagnostics { writeln!(ui.stdout(), "Problem: {diagnostic}")?; }
-        if projects.is_empty() && diagnostics.is_empty() { writeln!(ui.stdout(), "No projects registered.")?; }
-        if check && diagnostics.is_empty() { writeln!(ui.stdout(), "Project metadata is consistent.")?; }
+        for diagnostic in &diagnostics {
+            writeln!(ui.stdout(), "Problem: {diagnostic}")?;
+        }
+        if projects.is_empty() && diagnostics.is_empty() {
+            writeln!(ui.stdout(), "No projects registered.")?;
+        }
+        if check && diagnostics.is_empty() {
+            writeln!(ui.stdout(), "Project metadata is consistent.")?;
+        }
     }
-    if check && !diagnostics.is_empty() { return Err(user_error("Project metadata has unresolved problems")); }
+    if check && !diagnostics.is_empty() {
+        return Err(user_error("Project metadata has unresolved problems"));
+    }
     Ok(())
 }
 

@@ -80,7 +80,8 @@ pub async fn cmd_bookmark_forget(
 ) -> Result<(), CommandError> {
     let mut workspace_command = command.workspace_helper(ui).await?;
     let repo = workspace_command.repo().clone();
-    let (bookmark_exprs, remote_symbols) = parse_name_patterns_or_remote_symbols(ui, repo.view(), &args.names)?;
+    let (bookmark_exprs, remote_symbols) =
+        parse_name_patterns_or_remote_symbols(ui, repo.view(), &args.names)?;
     let bookmark_expr = StringExpression::union_all(bookmark_exprs);
     let matched_bookmarks = find_forgettable_bookmarks(ui, repo.view(), &bookmark_expr)?;
     let matched_remote_bookmarks = find_remote_bookmarks(ui, repo.view(), &remote_symbols)?;

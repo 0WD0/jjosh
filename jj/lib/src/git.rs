@@ -3373,15 +3373,24 @@ pub fn commit_remote_management_config(
     let mut git_repo = get_git_repo(store)?;
     let _config_lock = lock_remote_config(&git_repo)?;
     // Earlier journaled steps may have changed the physical remote configuration.
-    git_repo.reload().map_err(GitRemoteManagementError::from_git)?;
+    git_repo
+        .reload()
+        .map_err(GitRemoteManagementError::from_git)?;
     try_find_active_remote(&git_repo, remote)?
         .ok_or_else(|| GitRemoteManagementError::NoSuchRemote(remote.to_owned()))?;
     let config = git_repo.config_snapshot();
-    if config.sections_by_name("remote").into_iter().flatten().any(|section| {
-        section.header().subsection_name() == Some(BStr::new(remote.as_str()))
-            && section.meta() != config.meta()
-    }) {
-        return Err(GitRemoteManagementError::NonstandardConfiguration(remote.to_owned()));
+    if config
+        .sections_by_name("remote")
+        .into_iter()
+        .flatten()
+        .any(|section| {
+            section.header().subsection_name() == Some(BStr::new(remote.as_str()))
+                && section.meta() != config.meta()
+        })
+    {
+        return Err(GitRemoteManagementError::NonstandardConfiguration(
+            remote.to_owned(),
+        ));
     }
     if let Some(repo_config) = repo_config {
         commit_remote_management(
@@ -3947,7 +3956,9 @@ pub fn rename_remote_with_options(
     let _config_lock = lock_remote_config(&git_repo)?;
     // Validate and rekey the committed state, including preceding journaled
     // configuration retirements, rather than the backend's cached snapshot.
-    git_repo.reload().map_err(GitRemoteManagementError::from_git)?;
+    git_repo
+        .reload()
+        .map_err(GitRemoteManagementError::from_git)?;
 
     validate_remote_name(new_remote_name)?;
 

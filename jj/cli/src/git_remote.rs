@@ -26,6 +26,7 @@ use jj_lib::git::GitPushRefTargets;
 use jj_lib::git::GitPushStats;
 use jj_lib::git::GitRemoteObservation;
 use jj_lib::git::IgnoredRefspecs;
+use jj_lib::project::ProjectId;
 use jj_lib::ref_name::GitRefNameBuf;
 use jj_lib::ref_name::RefName;
 use jj_lib::ref_name::RefNameBuf;
@@ -33,10 +34,9 @@ use jj_lib::ref_name::RemoteName;
 use jj_lib::ref_name::RemoteNameBuf;
 use jj_lib::repo::MutableRepo;
 use jj_lib::repo::Repo as _;
-use jj_lib::project::ProjectId;
-use jj_lib::view::View;
 use jj_lib::settings::UserSettings;
 use jj_lib::str_util::StringExpression;
+use jj_lib::view::View;
 
 use crate::cli_util::CommandHelper;
 use crate::cli_util::WorkspaceCommandHelper;
@@ -84,7 +84,8 @@ pub fn resolve_remote_selector_in_view(
     project: Option<&ProjectId>,
 ) -> Result<RemoteNameBuf, CommandError> {
     let (name, scope) = parse_remote_selector_scope(view, selector, project)?;
-    view.resolve_remote_name(candidates, scope.as_ref(), RemoteName::new(name)).map_err(user_error)
+    view.resolve_remote_name(candidates, scope.as_ref(), RemoteName::new(name))
+        .map_err(user_error)
 }
 
 /// Parse a local alias and optional registered scope without requiring it to exist.
@@ -95,15 +96,22 @@ pub fn parse_remote_selector_scope<'a>(
 ) -> Result<(&'a str, Option<ProjectId>), CommandError> {
     if let Some(name) = selector.strip_suffix('#') {
         if project.is_some() {
-            return Err(user_error("Root remote selector and selected project scopes disagree"));
+            return Err(user_error(
+                "Root remote selector and selected project scopes disagree",
+            ));
         }
         return Ok((name, None));
     }
     if let Some((name, label)) = selector.rsplit_once('#')
-        && let Some(scope) = view.project_state().resolve_label(label).map_err(user_error)?
+        && let Some(scope) = view
+            .project_state()
+            .resolve_label(label)
+            .map_err(user_error)?
     {
         if project.is_some_and(|project| project != &scope) {
-            return Err(user_error("Remote selector and selected project scopes disagree"));
+            return Err(user_error(
+                "Remote selector and selected project scopes disagree",
+            ));
         }
         Ok((name, Some(scope)))
     } else {
@@ -127,7 +135,8 @@ fn expand_remote_expression(
                 return Err(user_error("Configured remote belongs to another scope"));
             }
             if let Some(name) = pattern.as_exact() {
-                let missing_root = scope.is_none() && local == pattern.as_str()
+                let missing_root = scope.is_none()
+                    && local == pattern.as_str()
                     && !candidates.iter().any(|remote| {
                         remote.as_str() == name
                             && !matches!(view.remote_in_scope(remote, None), Ok(false))
@@ -142,7 +151,10 @@ fn expand_remote_expression(
             let matcher = pattern.to_matcher();
             let mut matching = Vec::new();
             for remote in candidates {
-                if !view.remote_in_scope(remote, scope.as_ref()).unwrap_or(false) {
+                if !view
+                    .remote_in_scope(remote, scope.as_ref())
+                    .unwrap_or(false)
+                {
                     continue;
                 }
                 eligible.insert(remote.clone());
@@ -161,20 +173,67 @@ fn expand_remote_expression(
             }
             Ok(StringExpression::union_all(matching))
         }
-        StringExpression::NotIn(inner) => {
-            Ok(expand_remote_expression(view, candidates, project, inner, allow_qualified, eligible, missing_root_names)?.negated())
-        }
+        StringExpression::NotIn(inner) => Ok(expand_remote_expression(
+            view,
+            candidates,
+            project,
+            inner,
+            allow_qualified,
+            eligible,
+            missing_root_names,
+        )?
+        .negated()),
         StringExpression::Union(left, right) => {
-            let left = expand_remote_expression(view, candidates, project, left, allow_qualified, eligible, missing_root_names)?;
-            let right = expand_remote_expression(view, candidates, project, right, allow_qualified, eligible, missing_root_names)?;
+            let left = expand_remote_expression(
+                view,
+                candidates,
+                project,
+                left,
+                allow_qualified,
+                eligible,
+                missing_root_names,
+            )?;
+            let right = expand_remote_expression(
+                view,
+                candidates,
+                project,
+                right,
+                allow_qualified,
+                eligible,
+                missing_root_names,
+            )?;
             Ok(left.union(right))
         }
         StringExpression::Intersection(left, right) => {
-            let left = expand_remote_expression(view, candidates, project, left, allow_qualified, eligible, missing_root_names)?;
-            let right = expand_remote_expression(view, candidates, project, right, allow_qualified, eligible, missing_root_names)?;
+            let left = expand_remote_expression(
+                view,
+                candidates,
+                project,
+                left,
+                allow_qualified,
+                eligible,
+                missing_root_names,
+            )?;
+            let right = expand_remote_expression(
+                view,
+                candidates,
+                project,
+                right,
+                allow_qualified,
+                eligible,
+                missing_root_names,
+            )?;
             Ok(left.intersection(right))
         }
     }
+}
+
+/// Mutually exclusive ways to select remotes within a scope.
+#[derive(Clone, Copy)]
+pub enum RemoteSelection<'a> {
+    Default,
+    Explicit(&'a [String]),
+    All,
 }
 
 /// Select local aliases using native string/list pattern syntax in one scope.
@@ -187,9 +246,8 @@ pub fn select_remote_names(
     settings: &UserSettings,
     candidates: &[RemoteNameBuf],
     project: Option<&ProjectId>,
-    explicit: Option<&[String]>,
+    selection: RemoteSelection<'_>,
     direction: gix::remote::Direction,
-    all: bool,
 ) -> Result<Vec<RemoteNameBuf>, CommandError> {
     let direction = match direction {
         gix::remote::Direction::Fetch => "fetch",
@@ -202,20 +260,31 @@ pub fn select_remote_names(
             scoped.push(remote.clone());
         }
     }
+    let explicit = match selection {
+        RemoteSelection::Default => None,
+        RemoteSelection::Explicit(texts) => Some(texts),
+        RemoteSelection::All => return Ok(scoped),
+    };
     let configured;
     let texts = if let Some(explicit) = explicit {
         Some(explicit)
-    } else if all {
-        None
     } else {
         let label = if let Some(project) = project {
-            view.project_state().validate_project(project).map_err(user_error)?;
-            let labels: Vec<_> = view.project_state().labels.iter()
+            view.project_state()
+                .validate_project(project)
+                .map_err(user_error)?;
+            let labels: Vec<_> = view
+                .project_state()
+                .labels
+                .iter()
                 .filter_map(|(label, value)| {
                     (value.as_resolved().and_then(Option::as_ref) == Some(project)).then_some(label)
-                }).collect();
+                })
+                .collect();
             let [label] = labels.as_slice() else {
-                return Err(user_error("Project transport requires one unambiguous registered reference label"));
+                return Err(user_error(
+                    "Project transport requires one unambiguous registered reference label",
+                ));
             };
             Some((*label).as_str())
         } else {
@@ -228,7 +297,10 @@ pub fn select_remote_names(
         configured = if let Ok(values) = settings.get::<Vec<String>>(key.as_slice()) {
             Some(values)
         } else {
-            settings.get_string(key.as_slice()).optional()?.map(|value| vec![value])
+            settings
+                .get_string(key.as_slice())
+                .optional()?
+                .map(|value| vec![value])
         };
         configured.as_deref()
     };
@@ -236,20 +308,26 @@ pub fn select_remote_names(
     let texts = if let Some(texts) = texts {
         texts
     } else {
-        if all {
-            return Ok(scoped);
-        }
         if let [remote] = scoped.as_slice() {
             if view.remote_local_name(remote).as_str() != "origin" {
-                writeln!(ui.hint_default(), "{} the only existing remote: {}",
-                    if direction == "fetch" { "Fetching from" } else { "Pushing to" },
-                    view.remote_qualified_name(remote))?;
+                writeln!(
+                    ui.hint_default(),
+                    "{} the only existing remote: {}",
+                    if direction == "fetch" {
+                        "Fetching from"
+                    } else {
+                        "Pushing to"
+                    },
+                    view.remote_qualified_name(remote)
+                )?;
             }
             return Ok(scoped);
         }
         if project.is_some() {
-            return view.resolve_remote_name(candidates, project, RemoteName::new("origin"))
-                .map(|remote| vec![remote]).map_err(user_error);
+            return view
+                .resolve_remote_name(candidates, project, RemoteName::new("origin"))
+                .map(|remote| vec![remote])
+                .map_err(user_error);
         }
         default_names = vec!["origin".to_owned()];
         &default_names
@@ -258,16 +336,31 @@ pub fn select_remote_names(
     let mut eligible = scoped.into_iter().collect();
     let mut missing_root_names = Vec::new();
     let physical_expression = expand_remote_expression(
-        view, candidates, project, &expression, explicit.is_some(), &mut eligible, &mut missing_root_names,
+        view,
+        candidates,
+        project,
+        &expression,
+        explicit.is_some(),
+        &mut eligible,
+        &mut missing_root_names,
     )?;
     if !missing_root_names.is_empty() {
-        writeln!(ui.warning_default(), "No matching remotes for names: {}",
-            missing_root_names.iter().map(|name| name.as_symbol().to_string()).collect::<Vec<_>>().join(", "))?;
+        writeln!(
+            ui.warning_default(),
+            "No matching remotes for names: {}",
+            missing_root_names
+                .iter()
+                .map(|name| name.as_symbol().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )?;
     }
     let matcher = physical_expression.to_matcher();
-    let selected: Vec<_> = candidates.iter()
+    let selected: Vec<_> = candidates
+        .iter()
         .filter(|remote| eligible.contains(*remote) && matcher.is_match(remote.as_str()))
-        .cloned().collect();
+        .cloned()
+        .collect();
     if selected.is_empty() {
         return Err(user_error(if direction == "fetch" {
             "No git remotes to fetch from"
@@ -300,9 +393,10 @@ pub trait GitRemoteExtension {
         _connection_id: &jj_lib::project::ConnectionId,
         _args: &GitRemoteBindingArgs,
     ) -> Result<jj_lib::project::BindingRecord, CommandError> {
-        Err(crate::command_error::user_error("Remote provider does not support bindings"))
+        Err(crate::command_error::user_error(
+            "Remote provider does not support bindings",
+        ))
     }
-
 }
 
 /// Source history and one-shot endpoint selection for a named remote fetch.
@@ -437,7 +531,12 @@ pub fn check_selected_ref(
         .map(|(_, label)| view.project_state().resolve_label(label)).transpose().map_err(user_error)?.flatten();
     let git_repo = jj_lib::git::get_git_repo(store)?;
     let connection = jj_lib::git::remote_connection_id(&git_repo, remote).map_err(user_error)?;
-    let destination = connection.as_ref().map(|id| view.project_state().binding_for_connection(id)).transpose().map_err(user_error)?.flatten();
+    let destination = connection
+        .as_ref()
+        .map(|id| view.project_state().binding_for_connection(id))
+        .transpose()
+        .map_err(user_error)?
+        .flatten();
     let selected = if let Some(source) = source {
         let candidates = jj_lib::git::get_all_remote_names(store)?;
         let source = resolve_remote_selector_in_view(view, &candidates, source, project.as_ref())?;

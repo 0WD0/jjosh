@@ -183,7 +183,9 @@ pub async fn cmd_bookmark_list(
         include_synced_remotes: args.tracked || args.all_remotes || args.remotes.is_some(),
         include_untracked_remotes: !args.tracked && (args.all_remotes || args.remotes.is_some()),
     };
-    let mut bookmark_list_items = commit_ref_list::collect_items(view, view.bookmarks(), &predicates).map_err(crate::command_error::user_error)?;
+    let mut bookmark_list_items =
+        commit_ref_list::collect_items(view, view.bookmarks(), &predicates)
+            .map_err(crate::command_error::user_error)?;
     let sort_keys = if args.sort.is_empty() {
         workspace_command.settings().get_value_with(
             "ui.bookmark-list-sort-keys",

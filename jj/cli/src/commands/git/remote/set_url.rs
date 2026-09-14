@@ -62,7 +62,11 @@ pub async fn cmd_git_remote_set_url(
     args: &GitRemoteSetUrlArgs,
 ) -> Result<(), CommandError> {
     let workspace_command = command.workspace_helper_no_snapshot(ui).await?;
-    let remote = crate::git_remote::resolve_remote_selector(&workspace_command, args.remote.as_str(), args.project.as_deref())?;
+    let remote = crate::git_remote::resolve_remote_selector(
+        &workspace_command,
+        args.remote.as_str(),
+        args.project.as_deref(),
+    )?;
     crate::git_remote::check_remote(command, &workspace_command, &remote)?;
 
     let process_url = |url: Option<&String>| {

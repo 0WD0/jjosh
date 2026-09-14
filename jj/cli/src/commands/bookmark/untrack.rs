@@ -80,7 +80,8 @@ pub async fn cmd_bookmark_untrack(
         // suppress unmatched remotes warning for default-ignored remote
         .filter(|name| view.get_remote_view(name).is_some());
 
-    let (bookmark_exprs, remote_symbols) = parse_name_patterns_or_remote_symbols(ui, repo.view(), &args.names)?;
+    let (bookmark_exprs, remote_symbols) =
+        parse_name_patterns_or_remote_symbols(ui, repo.view(), &args.names)?;
     // Reject mixed syntax. It is confusing if the default @<remote> or
     // user-specified --remote flag applies only to <bookmark> patterns.
     if !bookmark_exprs.is_empty() && !remote_symbols.is_empty() {
@@ -141,7 +142,13 @@ pub async fn cmd_bookmark_untrack(
     }
     tx.finish(
         ui,
-        format!("untrack remote bookmark {}", symbols.iter().map(|symbol| view.remote_ref_symbol(*symbol)).join(", ")),
+        format!(
+            "untrack remote bookmark {}",
+            symbols
+                .iter()
+                .map(|symbol| view.remote_ref_symbol(*symbol))
+                .join(", ")
+        ),
     )
     .await?;
     Ok(())

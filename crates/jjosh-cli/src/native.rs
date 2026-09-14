@@ -165,15 +165,23 @@ pub(crate) async fn run_import(
     let mut planned_view = workspace.repo().view().store_view().clone();
     let mut reserved_remotes = HashSet::new();
     for (name, path, mount) in resolved {
-        workspace.repo().view().check_project_label_available(&name).map_err(user_error)?;
-        let project_id = crate::project_config::register(&mut planned_view, &name, &mount).map_err(user_error)?;
+        workspace
+            .repo()
+            .view()
+            .check_project_label_available(&name)
+            .map_err(user_error)?;
+        let project_id = crate::project_config::register(&mut planned_view, &name, &mount)
+            .map_err(user_error)?;
         let binding_id = jj_lib::project::BindingId::generate();
-        planned_view.project_state.bindings.insert(binding_id.clone(), jj_lib::merge::Merge::resolved(Some(jj_lib::project::BindingRecord {
-            target: jj_lib::project::BindingTarget::Project(project_id.clone()),
-            connection_id: jj_lib::project::ConnectionId::generate(),
-            representation: jj_lib::project::Representation::Whole,
-            base: None,
-        })));
+        planned_view.project_state.bindings.insert(
+            binding_id.clone(),
+            jj_lib::merge::Merge::resolved(Some(jj_lib::project::BindingRecord {
+                target: jj_lib::project::BindingTarget::Project(project_id.clone()),
+                connection_id: jj_lib::project::ConnectionId::generate(),
+                representation: jj_lib::project::Representation::Whole,
+                base: None,
+            })),
+        );
         let view = workspace.repo().view().store_view();
         for head in &view.head_ids {
             let commit = workspace.repo().store().get_commit_async(head).await?;
@@ -201,21 +209,36 @@ pub(crate) async fn run_import(
             crate::native_bundle::load(&path, workspace.settings()).await
         }
         .map_err(|err| user_error_with_message(format!("Cannot read native source {name}"), err))?;
-        let remote_plan = crate::native_import::plan_remotes(&source.view, &project_id)
-            .map_err(|err| user_error_with_message(format!("Cannot map native source remotes for {name}"), err))?;
+        let remote_plan =
+            crate::native_import::plan_remotes(&source.view, &project_id).map_err(|err| {
+                user_error_with_message(format!("Cannot map native source remotes for {name}"), err)
+            })?;
         let source_view = jj_lib::view::View::new(source.view.clone(), false);
         for remote in &remote_plan {
             if !reserved_remotes.insert(remote.physical.clone()) {
-                return Err(user_error("Imported sources have colliding remote connection identities"));
+                return Err(user_error(
+                    "Imported sources have colliding remote connection identities",
+                ));
             }
-            if planned_view.remote_connections.contains_key(&remote.physical)
+            if planned_view
+                .remote_connections
+                .contains_key(&remote.physical)
                 || planned_view.remote_views.contains_key(&remote.physical)
-                || jj_lib::git::get_git_repo(workspace.repo().store())?.find_remote(remote.physical.as_str()).is_ok()
+                || jj_lib::git::get_git_repo(workspace.repo().store())?
+                    .find_remote(remote.physical.as_str())
+                    .is_ok()
             {
-                return Err(user_error("Imported remote identity collides with an existing connection"));
+                return Err(user_error(
+                    "Imported remote identity collides with an existing connection",
+                ));
             }
-            writeln!(ui.status(), "Import remote {} -> {}#{} (disconnected)",
-                source_view.remote_qualified_name(&remote.source), remote.alias.name.as_str(), name)?;
+            writeln!(
+                ui.status(),
+                "Import remote {} -> {}#{} (disconnected)",
+                source_view.remote_qualified_name(&remote.source),
+                remote.alias.name.as_str(),
+                name
+            )?;
         }
         sources.push((name, source, mount, binding_id, remote_plan));
     }
@@ -253,9 +276,16 @@ pub(crate) async fn run_import(
         view.local_bookmarks.extend(imported.view.local_bookmarks);
         view.local_tags.extend(imported.view.local_tags);
         view.remote_views.extend(imported.view.remote_views);
-        view.remote_connections.extend(imported.view.remote_connections);
-        view.project_state.remote_names.extend(imported.view.project_state.remote_names);
-        summaries.push((name.clone(), imported.commits.len(), imported.stripped_signatures));
+        view.remote_connections
+            .extend(imported.view.remote_connections);
+        view.project_state
+            .remote_names
+            .extend(imported.view.project_state.remote_names);
+        summaries.push((
+            name.clone(),
+            imported.commits.len(),
+            imported.stripped_signatures,
+        ));
     }
     let git = jj_lib::git::get_git_repo(tx.repo().store())?;
     for configured in git.remote_names() {
@@ -270,8 +300,9 @@ pub(crate) async fn run_import(
     }
     tx.repo_mut().set_view(view);
     for (_, _, _, binding_id, _) in &sources {
-        crate::native_project::record_offline_binding(&transaction, binding_id)
-            .map_err(|err| user_error_with_message("Cannot retain offline native binding provenance", err))?;
+        crate::native_project::record_offline_binding(&transaction, binding_id).map_err(|err| {
+            user_error_with_message("Cannot retain offline native binding provenance", err)
+        })?;
     }
     for (binding_id, raw, mapped) in roots {
         crate::native_project::record_anchor(&transaction, &binding_id, "origin", &raw, &mapped)

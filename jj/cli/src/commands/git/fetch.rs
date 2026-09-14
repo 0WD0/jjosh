@@ -217,9 +217,15 @@ pub async fn cmd_git_fetch(
     } else if args.project.is_empty() {
         vec![None]
     } else {
-        args.project.iter().map(|name| {
-            state.project_by_name(name).map(|(id, _)| Some(id)).map_err(user_error)
-        }).try_collect()?
+        args.project
+            .iter()
+            .map(|name| {
+                state
+                    .project_by_name(name)
+                    .map(|(id, _)| Some(id))
+                    .map_err(user_error)
+            })
+            .try_collect()?
     };
     let mut selected_remotes = Vec::new();
     let mut selected_projects = std::collections::HashSet::new();
@@ -234,17 +240,28 @@ pub async fn cmd_git_fetch(
             workspace_command.settings(),
             &all_remotes,
             project.as_ref(),
-            args.remotes.as_deref(),
+            if args.all_remotes {
+                crate::git_remote::RemoteSelection::All
+            } else {
+                args.remotes.as_deref().map_or(
+                    crate::git_remote::RemoteSelection::Default,
+                    crate::git_remote::RemoteSelection::Explicit,
+                )
+            },
             gix::remote::Direction::Fetch,
-            args.all_remotes,
         )?;
         if remotes.is_empty() {
-            return Err(user_error("No git remotes to fetch from in a selected scope"));
+            return Err(user_error(
+                "No git remotes to fetch from in a selected scope",
+            ));
         }
-        selected_remotes.extend(remotes.into_iter().filter(|remote| seen_remotes.insert(remote.clone())));
+        selected_remotes.extend(
+            remotes
+                .into_iter()
+                .filter(|remote| seen_remotes.insert(remote.clone())),
+        );
     }
-    let matching_remotes: Vec<&RemoteName> =
-        selected_remotes.iter().map(AsRef::as_ref).collect();
+    let matching_remotes: Vec<&RemoteName> = selected_remotes.iter().map(AsRef::as_ref).collect();
     if matching_remotes.is_empty() {
         return Err(user_error("No git remotes to fetch from"));
     }
@@ -277,8 +294,7 @@ pub async fn cmd_git_fetch(
         workspace_command.settings().remote_settings()?,
     )?;
 
-    let is_specific =
-        args.branches.is_some() || args.tags.is_some() || !args.revisions.is_empty();
+    let is_specific = args.branches.is_some() || args.tags.is_some() || !args.revisions.is_empty();
     let common_bookmark_expr = match &args.branches {
         Some(texts) => Some(parse_union_name_patterns(ui, texts)?),
         None => is_specific.then(StringExpression::none),
@@ -367,8 +383,16 @@ pub async fn cmd_git_fetch(
         )?;
         for (completed, (remote, expanded)) in expansions.into_iter().enumerate() {
             let mut callback = GitSubprocessUi::new(ui);
-            git_fetch.fetch(remote, expanded, &mut callback, fetch_options.depth)
-                .map_err(|error| fetch_failure_context(error.into(), base_repo.view(), &matching_remotes, completed))?;
+            git_fetch
+                .fetch(remote, expanded, &mut callback, fetch_options.depth)
+                .map_err(|error| {
+                    fetch_failure_context(
+                        error.into(),
+                        base_repo.view(),
+                        &matching_remotes,
+                        completed,
+                    )
+                })?;
         }
         git_fetch.import_refs().await?
     } else {
@@ -383,7 +407,9 @@ pub async fn cmd_git_fetch(
                 session
                     .fetch(ui, command, tx.repo_mut(), expr, &fetch_options)
                     .await
-                    .map_err(|error| fetch_failure_context(error, base_repo.view(), &matching_remotes, completed))?,
+                    .map_err(|error| {
+                        fetch_failure_context(error, base_repo.view(), &matching_remotes, completed)
+                    })?,
             );
             // An empty selected result still observes a configured peer. Keep
             // it addressable for explicit tracking and first publication.
@@ -416,7 +442,10 @@ pub async fn cmd_git_fetch(
     // TODO: warn_if_tags_not_found()
     let description = format!(
         "fetch from git remote(s) {}",
-        matching_remotes.iter().map(|n| tx.repo().view().remote_qualified_name(n)).join(","),
+        matching_remotes
+            .iter()
+            .map(|n| tx.repo().view().remote_qualified_name(n))
+            .join(","),
     );
     if let Some(git_lock) = git_lock {
         tx.finish_with_git_import_export_lock(ui, description, &git_lock)
@@ -439,14 +468,17 @@ fn fetch_failure_context(
     let received = if completed == 0 {
         "none".to_owned()
     } else {
-        remotes[..completed].iter().map(|remote| view.remote_qualified_name(remote)).join(", ")
+        remotes[..completed]
+            .iter()
+            .map(|remote| view.remote_qualified_name(remote))
+            .join(", ")
     };
     error.hinted(format!(
-        "Fetch failed at {}. Completed transfers: {received}. No fetch operation was committed; local caches and Git refs may have changed.",
+        "Fetch failed at {}. Completed transfers: {received}. No fetch operation was committed; \
+         local caches and Git refs may have changed.",
         view.remote_qualified_name(remotes[completed]),
     ))
 }
-
 
 fn warn_if_branches_not_found(
     ui: &mut Ui,

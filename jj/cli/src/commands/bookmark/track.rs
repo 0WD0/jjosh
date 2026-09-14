@@ -80,7 +80,8 @@ pub async fn cmd_bookmark_track(
     let repo = workspace_command.repo().clone();
     let view = repo.view();
 
-    let (bookmark_exprs, remote_symbols) = parse_name_patterns_or_remote_symbols(ui, repo.view(), &args.names)?;
+    let (bookmark_exprs, remote_symbols) =
+        parse_name_patterns_or_remote_symbols(ui, repo.view(), &args.names)?;
     // Reject mixed syntax. It is confusing if the default @<remote> or
     // user-specified --remote flag applies only to <bookmark> patterns.
     if !bookmark_exprs.is_empty() && !remote_symbols.is_empty() {
@@ -137,7 +138,13 @@ pub async fn cmd_bookmark_track(
     }
     tx.finish(
         ui,
-        format!("track remote bookmark {}", symbols.iter().map(|symbol| view.remote_ref_symbol(*symbol)).join(", ")),
+        format!(
+            "track remote bookmark {}",
+            symbols
+                .iter()
+                .map(|symbol| view.remote_ref_symbol(*symbol))
+                .join(", ")
+        ),
     )
     .await?;
 

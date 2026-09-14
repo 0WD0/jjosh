@@ -395,7 +395,9 @@ where
     for text in texts {
         let node = revset::parse_program(text.as_ref()).map_err(wrap_err)?;
         if let revset::ExpressionKind::RemoteSymbol(symbol) = node.kind {
-            remote_symbols.push(revset::resolve_remote_ref_symbol(view, symbol.as_ref()).map_err(user_error)?);
+            remote_symbols.push(
+                revset::resolve_remote_ref_symbol(view, symbol.as_ref()).map_err(user_error)?,
+            );
         } else {
             let expr =
                 revset::expect_string_expression(&mut diagnostics, &node).map_err(wrap_err)?;
@@ -414,14 +416,22 @@ pub fn resolve_remote_settings(
     settings: RemoteSettingsMap,
 ) -> Result<RemoteSettingsMap, CommandError> {
     let mut resolved = RemoteSettingsMap::new();
-    let candidates = view.remote_views().map(|(remote, _)| remote.to_owned())
+    let candidates = view
+        .remote_views()
+        .map(|(remote, _)| remote.to_owned())
         .chain(view.store_view().remote_connections.keys().cloned())
         .collect::<std::collections::BTreeSet<_>>()
-        .into_iter().collect::<Vec<_>>();
+        .into_iter()
+        .collect::<Vec<_>>();
     for (selector, settings) in settings {
         let (name, project) = match selector.as_str().rsplit_once('#') {
             Some((name, "")) => (RemoteName::new(name), None),
-            Some((name, label)) => match view.store_view().project_state.resolve_label(label).map_err(user_error)? {
+            Some((name, label)) => match view
+                .store_view()
+                .project_state
+                .resolve_label(label)
+                .map_err(user_error)?
+            {
                 Some(project) => (RemoteName::new(name), Some(project)),
                 None => (selector.as_ref(), None),
             },
@@ -430,7 +440,9 @@ pub fn resolve_remote_settings(
         let mut matching = Vec::new();
         for remote in &candidates {
             if view.remote_local_name(remote) == name
-                && view.remote_in_scope(remote, project.as_ref()).map_err(user_error)?
+                && view
+                    .remote_in_scope(remote, project.as_ref())
+                    .map_err(user_error)?
             {
                 matching.push(remote.clone());
             }
@@ -438,18 +450,33 @@ pub fn resolve_remote_settings(
         match matching.as_slice() {
             [remote] => {
                 if resolved.insert(remote.clone(), settings).is_some() {
-                    return Err(user_error(format!("Multiple remote settings entries select {}", selector.as_symbol())));
+                    return Err(user_error(format!(
+                        "Multiple remote settings entries select {}",
+                        selector.as_symbol()
+                    )));
                 }
             }
-            [] if project.is_none() && !candidates.iter().any(|remote| remote.as_str() == name.as_str()) => {
+            [] if project.is_none()
+                && !candidates
+                    .iter()
+                    .any(|remote| remote.as_str() == name.as_str()) =>
+            {
                 // Ordinary root settings may precede the first Git import.
                 // Keeping an unknown root name is inert until that remote exists.
                 if resolved.insert(name.to_owned(), settings).is_some() {
-                    return Err(user_error(format!("Multiple remote settings entries select {}", selector.as_symbol())));
+                    return Err(user_error(format!(
+                        "Multiple remote settings entries select {}",
+                        selector.as_symbol()
+                    )));
                 }
             }
             [] => {}
-            _ => return Err(user_error(format!("Ambiguous remote settings key {}", selector.as_symbol()))),
+            _ => {
+                return Err(user_error(format!(
+                    "Ambiguous remote settings key {}",
+                    selector.as_symbol()
+                )));
+            }
         }
     }
     Ok(resolved)
