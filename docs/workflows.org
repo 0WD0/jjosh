@@ -1,358 +1,371 @@
-#+title: jjosh 工作流
+#+title: 使用 jjosh
 #+options: toc:2 num:nil
 
-按当前要做的事选择一节，不需要从头依次执行。
-命令默认在目标仓库根目录运行；构建和创建仓库见 [[file:../README.org][README]]。
+本文以 =parser= 项目和 =libs/parser/= 目录为例。命令在目标 monorepo 的根目录运行；仓库创建和程序安装见 [[file:../README.org][README]]。
+=parser-upstream= 是接收更新的来源，=parser-origin= 是自己的发布仓库。地址和分支名按实际情况替换。
 
-示例使用项目 =lib=、目录 =packages/lib/=、来源分支 =main=。
-=lib-upstream= 用于接收上游，=lib-origin= 用于向自己的 fork 发布；名字没有特殊含义。
-把示例地址换成实际仓库地址，分支名也以来源为准。
+* 准备项目
 
-* 接入项目
+** 代码已经在当前仓库
 
-根据项目当前在哪里，选择一种方式。同一项目不需要重复接入。
-
-** 来源是 Git 仓库
-
-假设要把来源的 =src/= 放到 =packages/lib/=：
-
-#+begin_src sh
-jjosh project add lib --path packages/lib
-jjosh git remote add lib-upstream /path/to/lib.git \
-  --project lib --filter ':/src' --base main --read-only
-jjosh git fetch --remote lib-upstream --branch main
-jjosh new @ main#lib@lib-upstream
-#+end_src
-
-project 声明 canonical 目录，filter 选择来源内容；来源根目录就是项目时，用 =--whole= 代替 =--filter=。
-=--path= 从 cwd 经当前工作副本布局解析，登记后不随 cwd 或 sparse 映射改变。
-=--base main= 指定反向转换的来源上下文；实际获取哪些引用仍由 fetch 选择。发布前必须获取所选 base 的观察。
-
-这里用 =new= 把当前工作与来源合在一起。若目标还是空仓库，也可以直接 =new main#lib@lib-upstream=，从来源开始工作。
-只需当前版本、不需要完整来源历史时，在首次 fetch 加 =--depth 1=；后续仍使用同一个 remote。
-
-** 来源是正在开发的 jj 仓库
-
-先在来源仓库运行 =jjosh status=，记录要带走的工作文件。然后回到目标仓库：
-
-#+begin_src sh
-jjosh project import --source lib=/path/to/lib-work --mount lib=packages/lib
-jjosh new @ workspace/default#lib
-#+end_src
-
-=default= 是来源 workspace 名，这个入口只是书签，不是新 workspace。import 保留已记录的原生版本、change ID、分叉、空提交和冲突，不复制未记录文件或旧 operation/evolution history。
-目录和父边映射会改变 commit ID；失效的提交签名会移除并报告。
-已有本地工作用上面的 =new @ …= 组合；空目标可以直接 =new workspace/default#lib=。
-
-为已导入项目登记持续获取的来源，不再重复 import：
-
-#+begin_src sh
-jjosh git remote add lib-upstream /path/to/lib-work \
-  --project lib --whole --read-only
-#+end_src
-
-来源可以是本地 jj workspace，也可以是项目根布局的 Git 仓库。whole 是这个绑定的表示，不是项目的永久类型。
-多个来源可重复 =--source NAME=PATH=。离线运输先在来源运行 =native export /path/to/lib.bundle=，目标用 =native inspect /path/to/lib.bundle= 检查，再以 bundle 路径执行 project import。
-bundle v2 带有项目与观察元数据，但当前 import 把整个来源封装成外层项目，不激活内部项目、连接或写权限；它不是完整仓库备份。
-
-** 目录已经在当前仓库里
-
-只需把已记录的目录登记成项目：
+例如，应用使用的 parser 位于 =libs/parser/=，现在准备为它建立独立的发布仓库：
 
 #+begin_src sh
 jjosh status
-jjosh project add lib --path packages/lib
+jjosh project add parser --path libs/parser
 #+end_src
 
-这创建一个 jj operation，不创建源码提交，不移动文件，也不要求目录或 upstream 已存在。
-活动项目必须各占一个非根 canonical 目录，不能相等或互相包含。登记不替你记录工作文件。
+这样就建立了 =parser → libs/parser/= 的关联。接下来配置发布 remote，即可单独交付这个目录。
+登记本身只记录项目定义；目录里的文件继续由 jj 管理。
 
-* 接收上游更新
+** 代码在 Git 仓库
 
-项目已接入且来源已配置时，日常只需要获取所需分支：
+先选好本地目录，再配置来源：
 
 #+begin_src sh
-jjosh git fetch --remote lib-upstream --branch main
-jjosh log -r '@ | main#lib@lib-upstream'
+jjosh project add parser --path libs/parser
+jjosh git remote add parser-upstream /path/to/parser.git \
+  --project parser --whole
+jjosh git fetch --remote parser-upstream --branch main
+jjosh new @ main#parser@parser-upstream
 #+end_src
 
-=main#lib@lib-upstream= 是来源 main 的观察，不是当前工作头。
-确认要接收这个版本后，再决定如何整合。例如保留当前工作，并把上游作为另一个父提交：
+=--whole= 把来源仓库的根目录放进 =libs/parser/=。
+若来源是一个更大的仓库，只有其中的 =src/parser/= 属于这个项目，则将 remote add 写成：
 
 #+begin_src sh
-jjosh new @ main#lib@lib-upstream
+jjosh git remote add parser-upstream /path/to/components.git \
+  --project parser --filter ':/src/parser' --base main
 #+end_src
 
-也可以按自己的修改图选择 rebase 或 squash。fetch 不替你选择这种策略；jj 的 tracking 和不可达提交处理规则仍然适用。
-整合产生冲突时先解决冲突，不要直接发布所选项目的冲突版本。
+其余 fetch、new 步骤相同。=--base main= 为反向发布选择来源上下文，因此发布前需要获取这个分支。
 
-若希望本地 =main#lib= 跟踪这个来源，显式执行 =jjosh bookmark track main#lib@lib-upstream=。
-跟踪负责引用更新，不等于把工作副本切换到该分支。
+** 代码在正在开发的 jj 仓库
 
-* 向自己的 fork 发布
-
-先在托管平台或本地创建目标 Git 仓库，再配置一次发布 remote。选择的是目标的外部布局，不是“native 项目”或“Git 项目”类型。
-
-** 与 upstream 同布局的 fork
+要带入未发布的 change、分叉、空提交和原生冲突，使用 project import。
+先在来源仓库运行 =jjosh status=，让工作文件进入已记录状态，再回到目标仓库执行：
 
 #+begin_src sh
-jjosh git remote add lib-origin /path/to/lib-fork.git \
-  --like lib-upstream --writable
+jjosh project import --source parser=/path/to/parser-work --mount parser=libs/parser
+jjosh new @ workspace/default#parser
 #+end_src
 
-=--like= 复制不可变表示、项目归属和 base 选择规则，不复制 URL、写权限、tracking、已解析 base、浅边界或 lease；不能与 =--base= 同用。
-也可以明确写 =--project lib --filter ':/src' --base main=。新绑定的 fetch/push 使用同一种表示，不随其他 peer 的增删改变。
+import 会一并登记项目。这一入口用于尚未登记的 parser；=default= 是来源 workspace 的名字。
+需要一次带入多个项目时，重复指定 =--source= 和相应的 =--mount=。
 
-** 目标根目录就是项目
+来源的 change ID 会保留。目录和父提交的变化会生成新的 commit ID，失效的提交签名会移除并报告。
+导入范围是来源已记录的开发状态和所需祖先历史；未记录文件及旧 operation/evolution history 留在来源仓库。
 
-本仓库已有目录，或目标与 upstream 布局不同，都可以明确选择 whole 表示：
+以后持续接收来源更新，为项目配置 whole remote：
 
 #+begin_src sh
-jjosh git remote add lib-origin /path/to/lib-fork.git \
-  --project lib --whole --writable
+jjosh git remote add parser-upstream /path/to/parser-work --project parser --whole
 #+end_src
 
-这不会继承 upstream 的 =:/src=。一个项目可以有多个不同表示的来源。
+无法直接读取来源目录时，可通过 bundle 运输。在来源运行 =jjosh native export /path/to/parser.bundle=；在目标运行 =native inspect= 检查，然后将 project import 的来源地址换成 bundle 路径。
+bundle 还可携带来源的项目元数据，project import 以一个外层项目接入开发图；备份整个仓库时还需保存仓库元数据和来源对象库。
 
-** 已有普通 remote，想绑定项目
+* 配置与外部仓库的关系
 
-仅当它没有获取观察、tag 或 tracking，且没有绑定时，使用：
+一个项目可以同时使用 upstream、fork 和发布仓库。每个 remote 都描述自己的地址和外部布局。
+
+| 外部布局 | remote add 的选项 |
+|----------+-------------------|
+| 仓库根目录就是 parser | =--project parser --whole= |
+| parser 位于 src/parser | =--project parser --filter ':/src/parser' --base main= |
+| 布局与 parser-upstream 一致 | =--like parser-upstream= |
+| 布局由版本化 workspace.josh 描述 | =--project parser --view PATH= |
+
+=--view PATH= 使用来源各版本中 PATH 目录下的 =workspace.josh=。
+=--like= 复用项目归属、布局表示和 base 选择规则；新 remote 使用自己的地址、远端记录和写权限。需要不同 base 时，直接指定 filter/view 和 base。
+
+接收更新的转换 remote 默认只读。发布地址加 =--writable=：
 
 #+begin_src sh
-jjosh git remote attach lib-origin --project lib --whole --writable
+jjosh git remote add parser-origin /path/to/parser-fork.git \
+  --like parser-upstream --writable
 #+end_src
 
-attach 不导入内容，也不会猜测或复制其他 peer 的表示。已有观察必须先显式处理；旧版项目配置走迁移，不用 attach 绕过。
-add 只创建，已有名字报错。绑定从创建起不可原地改表示；需要另一种表示时新建连接。
-新建转换绑定默认只读，attach 也默认只读；需要发布时明确 =--writable=。add 时的 =--push-url= 也可启用发布，显式 =--read-only= 优先。普通 Git remote 保持普通行为。
+读取与发布使用不同地址时，add 还可指定 =--push-url URL=，这也会启用发布；显式 =--read-only= 优先。
+普通 Git remote 沿用普通传输行为。
 
-** 选择并发布修改
-
-如果 fork 已有 main，先用 =jjosh git fetch --remote lib-origin --branch main= 获取它的状态。
-发布其他已有分支时，获取那个分支，而不是用 upstream 的观察代替目标观察。
-whole 绑定向空仓库首次发布可跳过 fetch。filtered 绑定若复制了 =--base main=，空目标不能提供这个 base；这种一次性发布应显式选择 upstream 表示，见下一节。
-
-整理待发布的修改，并为待发布历史中的提交写好说明，不只是当前提交。下面以 =@= 为发布终点，新建一个 topic 书签：
+已经创建、尚未使用的普通 remote 可以补上项目映射：
 
 #+begin_src sh
-jjosh bookmark create topic#lib -r @
-jjosh git push --remote lib-origin --bookmark topic#lib --dry-run
+jjosh git remote attach parser-origin --project parser --whole --writable
 #+end_src
 
-确认实际 push endpoint、项目/label/目录、所选来源绑定与表示，以及 expected-old/new raw target 后发布；计划有 resolved base 时也应核对：
+attach 要求该 remote 没有绑定、获取记录或 tracking。来源映射在绑定创建时确定；另一种布局使用另一个 remote。
+日后改地址用 =git remote set-url=，改别名用 =git remote rename=，停用连接用 =git remote remove=。
+
+* 在同一张修改图上开发
+
+应用和 parser 可以在同一个 change 中修改，也可以拆成相互依赖的多个 change。
+照常用 describe 写说明，用 new 开始新修改，用 rebase 和 squash 整理历史。
+
+** 接收更新
 
 #+begin_src sh
-jjosh git push --remote lib-origin --bookmark topic#lib
+jjosh git fetch --remote parser-upstream --branch main
+jjosh log -r '@ | main#parser@parser-upstream'
 #+end_src
 
-已有 =topic#lib= 时，用 =bookmark set topic#lib -r @= 移动它，不重复 create。
-远端分支叫 =topic=；Git 过滤项目的文件映射回来源路径。其他项目的修改留在本地，不必为了单独发布而拆开整合提交。
-
-再次获取自己发布的分支仍用 =git fetch --remote lib-origin --branch topic=。
-不要假定有损转换后的版本一定具有原 commit ID，也不要把相同 change ID 当成整份提交等价的证明。
-
-** 一次性发布到未绑定的目标
-
-目标只是接收导出，不用于持续获取时，创建普通 remote，并显式选用已获取的来源表示：
+fetch 更新远端记录。接下来根据修改图决定如何整合，例如将当前工作与新来源合在一起：
 
 #+begin_src sh
-jjosh git remote add lib-export /path/to/empty-lib-export.git
-jjosh git push --remote lib-export --source lib-upstream \
-  --bookmark topic#lib --dry-run
+jjosh new @ main#parser@parser-upstream
 #+end_src
 
-检查后去掉 =--dry-run=。示例要求目标为空；它使用 upstream 的转换及来源上下文，不把 upstream 的观察当成目标的覆盖授权。
-若目标已有内容，应为它配置适当绑定并获取它自己的状态，再发布。
-目的地已有绑定时不能用 =--source= 偷换表示；多个项目需要各自选来源或分次发布。
+整合后在同一个工作目录中解决冲突、构建和测试应用及其依赖。
 
-* 同时交付多个项目
+** 用书签选定交付版本
 
-先为每个项目选择发布终点。多个书签可以指向同一个整合提交，也可以指向不同版本。
+=topic#parser= 表示“将这个版本中的 parser 交付为 topic”。
+后面的 =@parser-upstream= 则表示某个 remote 上的记录：
 
-没有显式 =--remote= 或 =git.push= 配置时，以下命令按每个项目的唯一可写绑定分别发布：
+#+begin_example
+topic#parser                    本地选定的 parser 版本
+topic#parser@parser-upstream    上次从 parser-upstream 得到的 topic
+#+end_example
+
+创建交付书签：
+
+#+begin_src sh
+jjosh bookmark create topic#parser -r @
+#+end_src
+
+后续选择其他版本时，用 =bookmark set topic#parser -r REV=。
+书签指向的是完整提交；parser 的内容范围在发布时根据项目定义选取。
+
+若希望本地 main 随来源更新而合并移动，开启 tracking：
+
+#+begin_src sh
+jjosh bookmark track main#parser@parser-upstream
+#+end_src
+
+fetch 默认将新远端书签保留为 untracked，工作头由你通过 new 等命令选择。
+
+* 发布修改
+
+** 发布分支
+
+先准备目标 Git 仓库，并配置好可写的 parser-origin。
+目标已有相应分支时，获取它的状态；例如：
+
+#+begin_src sh
+jjosh git fetch --remote parser-origin --branch main
+#+end_src
+
+书签已经跟踪其他 remote 时，首次向新目标发布前，用 =bookmark track NAME@REMOTE= 建立对这个目标的跟踪。
+
+整理待交付历史，为其中的修改写好说明，解决所选项目中的冲突，然后检查发布计划：
+
+#+begin_src sh
+jjosh git push --remote parser-origin --bookmark topic#parser --dry-run
+#+end_src
+
+计划列出实际发布地址、项目目录、所用来源映射、远端 ref，以及更新前后的 Git 对象 ID。
+确认后执行：
+
+#+begin_src sh
+jjosh git push --remote parser-origin --bookmark topic#parser
+#+end_src
+
+远端收到 =topic= 分支。whole 绑定将 parser 放在远端根目录；上面的 filter 示例则将它放回 =src/parser/=。
+
+发布到空仓库时，whole 绑定可以直接进行首次 push。
+filtered 绑定需要可用的来源上下文；若空目标无法提供配置的 base，使用下文的一次性导出。
+
+** 同时发布几个项目
+
+为各项目创建交付书签后，可以一次选择它们：
 
 #+begin_src sh
 jjosh git push --bookmark 'topic#*' --dry-run
 #+end_src
 
-检查计划后去掉 =--dry-run=。引用模式需要引号，避免 shell 展开。
-有多个可写候选时逐个明确选择 remote；命令不会根据提交改了哪些目录猜发布对象。
-多个 remote 不是原子事务，发生部分失败时要分别处理已经成功与尚未成功的目标。
+在没有显式 =--remote= 或 =git.push= 配置时，命令为每个项目选择唯一可写的绑定。
+有多个可写地址时，用 =--remote= 明确选择。引用模式加引号，交给 jjosh 而不是 shell 展开。
 
-* 发布版本号
+所有目标先完成预检，再开始发布。不同服务器之间无法原子提交；若发生部分失败，以命令报告的各目标结果为准。
 
-选择已准备好的具体版本创建 tag，例如已发布的 =topic#lib=：
+** 发布版本 tag
 
 #+begin_src sh
-jjosh tag set v1.0#lib -r topic#lib
-jjosh git push --remote lib-origin --tag v1.0#lib
+jjosh tag set v1.0#parser -r topic#parser
+jjosh git push --remote parser-origin --tag v1.0#parser
 #+end_src
 
-远端 tag 叫 =v1.0=。创建 tag 可能使目标不可变，并让当前工作副本移到新子提交。
-移动已有 tag 要显式使用 =tag set --allow-move=；删除则先 =tag delete=，再发布该 tag 的删除。
+远端 tag 名为 =v1.0=。支持轻量 tag 和未签名的 annotated commit tag；签名 tag 的转换会被拒绝。
+tag 的不可变规则可能让当前工作副本移到新的子提交。
 
-轻量与 unsigned annotated commit tag 支持转换。签名 tag 的转换会拒绝；annotation-only 的远端变更也会触发 stale lease。
-获取 tag 不会自动把它变成本地 tag，需要时显式 =tag track=。
+移动已有 tag 使用 =tag set --allow-move=；删除使用 =tag delete=，随后 push 对应 tag 的删除。
+从远端获取 tag 后，可用 =tag track= 建立本地跟踪。
 
-* 调整浅历史的深度
+** 一次性导出
 
-前提是这个 Git 转换来源已通过 =--depth= 浅获取。普通后续 fetch 不会自动补齐旧历史。
+例如，想把 parser 按 upstream 的目录结构导出到一个空 Git 仓库：
 
-再获取一段祖先历史：
+#+begin_src sh
+jjosh git remote add parser-export /path/to/empty-parser.git
+jjosh bookmark track topic#parser@parser-export
+jjosh git push --remote parser-export --source parser-upstream \
+  --bookmark topic#parser --dry-run
+#+end_src
+
+检查后去掉 =--dry-run=。这里 parser-upstream 提供转换方式和已获取的来源上下文，parser-export 提供发布地址。
+持续双向同步使用带项目绑定的 remote；已有绑定的目标始终使用自己的表示。
+
+** 目标被别人更新了
+
+发布会校验目标 ref 的精确 Git 对象 ID，这份更新依据称为 lease。
+出现 stale lease 时，重新获取实际发布目标，再决定如何整合或重写。annotated tag 只修改注释，也会改变对象 ID。
+
+upstream、fork 和镜像各有自己的状态。发布目标的 lease 必须来自那个实际地址；=--force= 不能绕过这项保护。
+
+* 选择历史和检出布局
+
+** 调整工作目录
+
+如果只构建 parser，可以把完整树中的 =libs/parser/= 检出到工作目录根部：
+
+#+begin_src sh
+jjosh sparse set root:libs/parser
+jjosh sparse map set libs/parser=.
+#+end_src
+
+随后在根目录编辑和构建，修改仍记录到提交中的 =libs/parser/=。
+这种映射需要非 colocated 工作树。=sparse map reset= 恢复原路径映射，=sparse reset= 恢复完整检出。
+多目录规则见 [[file:../jj/docs/filesets.md][filesets 文档]]。
+
+** 只取一部分来源历史
+
+Git filter/view 来源首次获取可加 =--depth 1=。后续按需要增加深度：
 
 #+begin_src sh
 jjosh --config git.abandon-unreachable-commits=false \
-  git fetch --remote lib-upstream --branch main --deepen 50
+  git fetch --remote parser-upstream --branch main --deepen 50
 #+end_src
 
-或者补全来源能提供的历史：
+要补全剩余历史，将 =--deepen 50= 换成 =--unshallow=。
+这项配置保留原来的浅边界版本，便于随后显式整合；当前自动放弃旧边界并重写本地后继的路径可能触发 root merge 错误。
+
+浅边界按来源地址隔离。向缺少所需祖先的目标发布时，可能要先补全历史。
+普通 remote 和本地 jj 原生来源使用完整获取。
+
+** 获取指定 commit 或使用镜像
 
 #+begin_src sh
-jjosh --config git.abandon-unreachable-commits=false \
-  git fetch --remote lib-upstream --branch main --unshallow
+jjosh git fetch --remote parser-upstream --revision OID
 #+end_src
 
-这两个操作按需选择，不必连续执行。若 deepen 已补齐全部历史，就不再 unshallow。
+将 OID 替换为来源完整 commit ID。输出中的 =Fetched revision RAW as CANONICAL= 给出本地应使用的 commit ID。
+此方式直接带入指定版本；=--revision= 可重复，要求服务器允许获取该对象，并与 =--tracked= 互斥。本地 jj 原生来源不支持 raw OID 选择。
 
-*现有限制：* 深化会改变转换后的父图。默认自动放弃旧边界版本可能重写本地后继并触发 root merge 错误。
-上面的配置保留旧版本，之后由你显式整合新的来源观察；这项底层问题尚未修复。
-
-浅历史只适用于 Git 转换来源，不适用于本地 jj 原生输入。
-浅边界按来源 endpoint 隔离，不把 monorepo 标成 shallow。向缺少共同祖先对象的目标发布时，可能需要先补全历史。
-
-* 获取指定版本或改用镜像
-
-已知完整的来源 commit ID 时，用 =jjosh git fetch --remote lib-upstream --revision OID=，将 =OID= 替换为该 ID。
-命令输出 =Fetched revision RAW as CANONICAL=，其中 =CANONICAL= 才是本地 revision 操作使用的 ID；这次获取不会创建 remote bookmark，也不会顺带获取默认分支/tag。
-=--revision= 可重复，但不能与 =--tracked= 合用；服务器必须允许请求该对象。
-
-临时改从镜像获取，不修改已配置的 remote 地址：
+临时从镜像获取：
 
 #+begin_src sh
-jjosh git fetch --remote lib-upstream --branch main --fetch-url /path/to/lib-mirror.git
+jjosh git fetch --remote parser-upstream --branch main --fetch-url /path/to/parser-mirror.git
 #+end_src
 
-这两个选项都要求恰好选中一个 named remote。直接读取本地 jj workspace 的 native 路径不支持 raw OID 选择。
-镜像提供转换输入，不授权覆盖另一个 endpoint 上的引用。
+=--revision= 和 =--fetch-url= 都要求恰好选中一个 named remote。镜像地址仅用于本次获取，发布仍依据目标自己的状态。
 
-* 独立历史视图与临时预览
+** 建立整个仓库的过滤视图
 
-不想把内容挂到 monorepo 的项目目录，而是让整个目标仓库成为一个过滤视图时，在单独的目标仓库执行：
+在另一个目标仓库中，为整个仓库配置 filter：
 
 #+begin_src sh
-jjosh git remote add upstream /path/to/source.git --filter ':/src' --read-only
+jjosh git remote add upstream /path/to/components.git --filter ':/src/parser'
 jjosh git fetch --remote upstream --branch main
 jjosh new main@upstream
 #+end_src
 
-不带 =--project= 的 filter/view 绑定是独立 repository view，不会制造 root 项目，引用仍用普通名字。
-=--view PATH= 从来源历史各版本该路径下的 =workspace.josh= 读取布局；它改变历史语义，不是 sparse 的别名。
-需要持久发布时创建可写绑定，照常使用 git push。
+这里没有 =--project=，过滤结果直接成为仓库根内容，引用使用 =main@upstream=。
+可用 =--view PATH= 选择版本化布局；需要发布时配置可写绑定。
 
-只想临时求值当前仓库中已记录 revision 的任意 filter：
-
-#+begin_src sh
-jjosh projection preview ':/packages/lib' -r @ --files --history
-#+end_src
-
-也可用 =projection preview --view PATH -r REV=，并加 =--json=。
-preview 不快照未记录文件，不持久化转换对象，不登记项目或配置 remote；必须显式选 filter/view，不接受 =--project=。
-这只是过滤结果，不是向某个远端反向重建后的发布计划；实际目的地、wire ref 和动作以 =git push --dry-run= 为准。
-
-* 让项目在工作副本根目录构建
-
-如果完整提交里已有 =packages/lib/=，只想把它检出到根目录，不需要重新导入或建立另一份历史。
-在非 colocated 工作树中执行：
+临时查看当前仓库某个 filter 的结果，使用：
 
 #+begin_src sh
-jjosh sparse set root:packages/lib
-jjosh sparse map set packages/lib=.
+jjosh projection preview ':/libs/parser' -r @ --files --history
 #+end_src
 
-之后直接在工作副本根目录编辑、构建。修改仍记录在 canonical 的 =packages/lib/= 下，未检出的内容保留。
-要恢复全量布局，执行 =jjosh sparse reset=；只重置映射用 =jjosh sparse map reset=。
-多目录映射与中断恢复见 [[file:../jj/docs/filesets.md][filesets 文档]]。
+preview 对已记录的版本求值，可加 =--json= 或改用 =--view PATH=。
+结果用于查看过滤后的内容和历史；向具体 remote 交付的结果用 push dry-run 检查。
 
-* 遇到问题时
+* 仓库维护
 
-- *不知道项目绑定了什么*：用 =project list=、=project show lib=、=project check lib=；不带项目的 check 检查全仓库。它们离线工作，支持 =--json=。
-- *不确定要发布什么*：用普通内容查询查看 canonical 文件，再用 =git push --dry-run= 看实际目的地和引用动作。
-- *目标已经变化*：重新 fetch 实际发布目标，再决定如何整合或重写。lease 比较实际 endpoint 和完整 ref 的精确 raw 对象 ID；镜像、其他 fork 或相同 canonical commit 都不能替代，没有绕过保护的 =--force=。
-- *项目定义有冲突*：list/show 显示稳定 ID 和候选序号。用 =project resolve --id ID --candidate N= 选择定义，或 =--name NAME= 解决显示名；绑定用 =--binding ID=，label 用 =--label LABEL=。删除候选用 =--delete=，必须先处理依赖。不要靠改 Git config 覆盖 operation 中的冲突。
-- *需要撤销本地操作*：=op restore= 的 repo 部分恢复项目、绑定、label 和本地引用；remote-tracking 部分恢复观察及其来源证据。连接配置、写权限、endpoint lease 和外部发布不回滚。
-- *想改项目显示名*：=project rename lib library= 保留 ProjectId、canonical 目录和原引用 label；仍使用 =topic#lib=。当前不提供原地改项目路径或引用 label 的迁移命令。
-- *不再需要项目*：=project remove lib= 只注销已无绑定、引用和 tracking 依赖的项目，不删除文件或提交。先明确处理依赖，不做隐式级联。
+** 查看和调整项目
 
-** 删除或重建 remote 后恢复了旧观察
+=project list= 列出项目，=project show parser= 查看目录、label 和绑定，=project check= 检查全仓库的项目状态。
+这些命令离线工作并支持 =--json=；=project check parser= 可单独检查 parser。
 
-remote rename 保留连接身份；remove 后同名 add 是新连接，不会继承旧身份。
-op restore 不会复活 Git config 中已删除的连接。旧观察仍占着别名时，先明确忘记它们，再配置或获取新连接：
+项目显示名用 =project rename parser syntax= 修改。目录和引用 label 保持原值，因此书签仍叫 =topic#parser=。
+当前项目各占一个非根目录，目录之间互不重叠；路径与 label 的整体迁移尚无专用命令。
+
+停止维护一个项目时，先处理它的绑定、引用及 tracking，再用 =project remove= 注销。文件和提交继续保留。
+项目定义冲突会显示候选项：=project resolve --id ID --candidate N= 选择项目定义，=--name NAME= 解决显示名；绑定和 label 分别用 =--binding ID=、=--label LABEL= 选择。=--delete= 用于删除所选定义，仍需先处理依赖。
+
+** 恢复操作
+
+op restore 按所选部分恢复状态：repo 包含项目定义、绑定和本地引用，remote-tracking 包含远端记录及转换依据。
+本地连接地址、写权限和已经发生的外部发布独立保存。
+
+删除 remote 后再同名创建，会得到一个新连接。若恢复出来的旧远端记录占用了这个名字，可以明确清理它们：
 
 #+begin_src sh
-jjosh git remote forget-observations lib-origin
+jjosh git remote forget-observations parser-origin
 #+end_src
 
-这不连接网络，清除该别名的远端 bookmark/tag 观察、tracking、owner/转换证据及缓存 mirror。
-本地 bookmark/tag、项目定义、绑定、源码、来源对象和 endpoint lease 保留；别名没有对应 remote 也可以执行。
-下一次 fetch 后，如需跟踪，要重新 bookmark track/tag track。
-遗留的未连接绑定不会自动转接新 remote；确认不再使用时，可按 project show 中的 ID 用 =project resolve --binding ID --delete= 显式停用。
+该操作清除远端记录、tracking 和对应缓存 mirror，保留本地书签、tag、项目、绑定、源码及来源对象。
+随后重新 fetch，并按需要开启 tracking。已断开的旧绑定可按其 ID 用 =project resolve --binding ID --delete= 停用。
 
-** 本地 remote 修改中断
+** 处理 remote 修改中断
 
-有待恢复记录时，相关修改/传输会拒绝。按命令诊断二选一，不要连续执行：
+按报错提示选择恢复方式：
 
-#+begin_src sh
-jjosh git remote recover --rollback
-# 或者
-jjosh git remote recover --accept
-#+end_src
+| 命令 | 结果 |
+|------+------|
+| =git remote recover --rollback= | 在原 operation 上恢复记录的旧本地状态 |
+| =git remote recover --accept= | 校验已提交状态，保留修改并完成待处理清理 |
 
-rollback 在原 operation 上恢复记录中的旧配置和 refs；accept 校验当前 operation、绑定和 owner 一致后保留已完成的本地修改。
-二者都不访问网络，不撤销发布，不刷新 lease。不兼容的外部配置/ref 修改会阻止恢复；不要盲目删除 Git 可能仍在使用的锁文件。
+恢复在本地进行。外部配置或 ref 已发生不兼容修改时，先处理报出的差异；仍在使用的 Git 锁文件应交给对应进程释放。
 
-* 升级旧版项目配置
+** 升级旧仓库
 
-先停止所有不兼容的 jj 进程，并备份仓库元数据和来源对象库。计划及 apply 期间也应停止原生 Git 并发写者。进入需要迁移的仓库，查看计划：
+升级前备份仓库元数据和来源对象库，停止不兼容的 jj 进程及原生 Git 并发写者。进入待迁移仓库查看计划：
 
 #+begin_src sh
 jjosh project migrate --dry-run
 #+end_src
 
-省略 =--dry-run= 也是只读计划。计划列出项目目录、来源表示、将接纳的旧引用、需要清除的观察，以及提交后退出权威位置的旧 sidecar/private refs。
-它不获取源码、不改 endpoint/refspec/认证，不用当前 URL 为旧观察补造来源证据。
+计划列出项目目录、来源表示、引用处理及将退役的旧元数据。省略 =--dry-run= 也只显示计划。
+根据诊断补充选择：
 
-按诊断添加必要选择，重新查看同一计划：
-
-| 情况 | 选择 |
+| 选项 | 用途 |
 |------+------|
-| 旧 plain peer 和 filtered peer 混用，表示有歧义 | =--representation REMOTE=whole=、=REMOTE=filter:EXPR= 或 =REMOTE=view:PATH= |
-| 旧观察无法证明 endpoint/raw/generation | =--clear-observations REMOTE=，之后重新 fetch |
-| 旧 native 对应关系可明确归给一个 whole 绑定 | =--native-source PROJECT=REMOTE= |
-| 旧 native 对应关系没有可靠连接归属 | =--native-source PROJECT=detached=；默认也是 detached |
+| =--representation REMOTE=whole= | 指定整个来源作为项目内容 |
+| =--representation REMOTE=filter:EXPR= | 指定项目挂载前的来源 filter |
+| =--representation REMOTE=view:PATH= | 指定来源 view |
+| =--clear-observations REMOTE= | 清除缺少可靠转换依据的旧远端记录，之后重新获取 |
+| =--native-source PROJECT=REMOTE= | 将原生对应关系归给同项目的 whole 绑定 |
+| =--native-source PROJECT=detached= | 保留离线原生对应关系；这是默认选择 |
 
-representation 指项目挂载之前的来源表示，不再拼入 =packages/lib=。这些选项可重复。
-detached 保留离线原生对应关系，不创建 endpoint 或发布授权。明确指定 remote 时，它必须是同一项目的 whole 绑定。
-clear-observations 清除对应远端观察、tracking 和 canonical mirror，不清除本地引用、工作文件、来源对象、浅边界或 lease。
-include/global remote 配置需先整理到本地；孤立 sidecar、路径冲突及不合法配置按诊断解决，不能靠强行 apply 跳过。
-
-例如计划已确认 lib-upstream 应使用 src 子目录，并需要忘记它的旧观察：
+例如，确认来源布局为 =src/parser/=，并需要重建其远端记录：
 
 #+begin_src sh
 jjosh project migrate --dry-run \
-  --representation 'lib-upstream=filter::/src' --clear-observations lib-upstream
+  --representation 'parser-upstream=filter::/src/parser' --clear-observations parser-upstream
 jjosh project migrate --apply --exclusive \
-  --representation 'lib-upstream=filter::/src' --clear-observations lib-upstream
+  --representation 'parser-upstream=filter::/src/parser' --clear-observations parser-upstream
 jjosh project check
-jjosh git fetch --remote lib-upstream --branch main
+jjosh git fetch --remote parser-upstream --branch main
 #+end_src
 
-只在确认计划且所有不兼容 writer 已停止后执行 apply；=--exclusive= 是维护窗口确认，不是替你终止旧进程，也不是原生 Git 的全局锁。恢复检查以日志建立时的本地状态为基线，不保证计划期间任意并发修改安全。
-升级后的 operation-store 使用 =simple_op_store_projects_v1=；旧程序不能写入，恢复空项目状态也不降级。
-新 operation 提交后退出旧配置权威位置；中断时使用上面的 git remote recover，而不是重跑旧命令。
+迁移保留本地引用、工作文件、来源对象、浅边界、发布 lease 及有效连接配置。
+include/global 中的 remote 设置需要先整理到本地；孤立 sidecar 和配置冲突按计划中的诊断处理。
 
-* 当前边界
+从计划到 apply 结束都应保持维护窗口。=--exclusive= 是停止不兼容写者的确认，而非全局 Git 锁；日志建立前的并发写入不受恢复校验保护。
+项目状态使用 =simple_op_store_projects_v1= 格式，旧程序无法写入；迁移中断按上面的 remote recover 步骤处理。
 
-=NAME#LABEL= 仍是过渡引用语法，只由当前 operation 中已登记的 label 解释。未登记后缀是字面名字；登记不能接管已存在的同后缀字面引用。
-remote 名全仓库唯一；尚无完整结构化 scope、项目专属 DAG/HEAD、隐式 cwd 项目选择或通用嵌套项目迁移。
-项目登记本身不要求 SHA-1；当前 jjosh 历史转换仍要求 SHA-1 Git backend，gitlink 不递归展开。
-原生 Git 可以绕过转换和本地只读策略，这些不是访问控制。私有来源对象与转换对应关系可能是后续逆转换的必要输入；不要只备份工作文件，也不要把这些记录当临时缓存删除。
+备份应覆盖仓库元数据和来源对象库。历史转换目前要求 SHA-1 Git backend；gitlink 保留为引用，不递归展开。
+原生 Git 直接操作外部仓库，因此过滤和本地只读配置都不能充当访问控制。
