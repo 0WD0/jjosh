@@ -64,7 +64,17 @@ pub async fn cmd_util_gc(
         .await?;
     #[cfg(feature = "git")]
     if let Ok(git_backend) = jj_lib::git::get_git_backend(repo.store()) {
-        git_backend.gc(repo.index(), keep_newer)?;
+        if let Some(op_store) = repo.op_store().downcast_ref::<jj_lib::simple_op_store::SimpleOpStore>() {
+            let mut tx = repo.start_transaction();
+            let mut witnesses = Vec::new();
+            for id in op_store.retained_project_commit_ids().await? {
+                witnesses.push(repo.store().get_commit_async(&id).await?);
+            }
+            tx.repo_mut().index_commits(&witnesses).await?;
+            git_backend.gc(tx.repo().index(), keep_newer)?;
+        } else {
+            git_backend.gc(repo.index(), keep_newer)?;
+        }
     }
     Ok(())
 }

@@ -55,6 +55,11 @@ pub trait GitPushRouter {
 
 /// Resolves the authoritative configuration for a selected named remote.
 pub trait GitRemoteExtension {
+    /// Capabilities this provider actually implements, not merely its presence.
+    fn capabilities(&self) -> &'static [&'static str] {
+        &[]
+    }
+
     fn open(
         &self,
         command: &CommandHelper,
@@ -62,15 +67,15 @@ pub trait GitRemoteExtension {
         remote: &RemoteName,
     ) -> Result<Box<dyn GitRemoteSession>, CommandError>;
 
-    /// Prepare name-keyed metadata and declare the remote keys owned by this
-    /// extension. This must not mutate repository state.
-    fn prepare_remote_management(
+    /// Validate an immutable binding without changing local or operation state.
+    fn prepare_binding(
         &self,
         _workspace: &WorkspaceCommandHelper,
-        _old: &RemoteName,
-        _new: Option<&RemoteName>,
-    ) -> Result<jj_lib::git::GitRemoteManagementOptions, CommandError> {
-        Ok(Default::default())
+        _remote: &RemoteName,
+        _connection_id: &jj_lib::project::ConnectionId,
+        _args: &GitRemoteBindingArgs,
+    ) -> Result<jj_lib::project::BindingRecord, CommandError> {
+        Err(crate::command_error::user_error("Remote provider does not support bindings"))
     }
 
     /// Used only when neither `--remote` nor `git.push` selects a destination.
@@ -96,6 +101,7 @@ pub struct GitRemoteFetchOptions {
 #[derive(Clone, Debug, Default)]
 pub struct GitRemotePushOptions {
     pub base: Option<String>,
+    pub source: Option<String>,
     pub merge: bool,
 }
 
@@ -156,4 +162,87 @@ pub trait GitRemoteSession {
         preparation: &'a GitRemotePushOptions,
         dry_run: bool,
     ) -> RemoteFuture<'a, Box<dyn GitPreparedPush>>;
+}
+
+/// Declarative conversion configuration shared by add and explicit attach.
+#[derive(clap::Args, Clone, Debug, Default)]
+pub struct GitRemoteBindingArgs {
+    #[arg(long)]
+    pub project: Option<String>,
+    #[arg(long, group = "representation")]
+    pub whole: bool,
+    #[arg(long, group = "representation")]
+    pub filter: Option<String>,
+    #[arg(long, group = "representation")]
+    pub view: Option<String>,
+    #[arg(long = "like", group = "representation")]
+    pub like_remote: Option<String>,
+    #[arg(long)]
+    pub base: Option<String>,
+    #[arg(long, conflicts_with = "writable")]
+    pub read_only: bool,
+    #[arg(long)]
+    pub writable: bool,
+}
+
+impl GitRemoteBindingArgs {
+    pub fn is_managed(&self) -> bool {
+        self.project.is_some() || self.whole || self.filter.is_some()
+            || self.view.is_some() || self.like_remote.is_some() || self.base.is_some()
+            || self.read_only || self.writable
+    }
+}
+
+pub fn capabilities(command: &CommandHelper) -> &'static [&'static str] {
+    command.git_remote_extension().map_or(&[], |extension| extension.capabilities())
+}
+
+pub fn check_remote(command: &CommandHelper, workspace: &WorkspaceCommandHelper, remote: &RemoteName) -> Result<(), CommandError> {
+    use jj_lib::repo::Repo as _;
+    jj_lib::git::check_remote_capability(workspace.repo().store(), workspace.repo().view(), remote, capabilities(command))
+        .map_err(crate::command_error::user_error)
+}
+
+pub fn check_selected_ref(
+    store: &jj_lib::store::Store,
+    view: &jj_lib::view::View,
+    remote: &RemoteName,
+    name: &RefName,
+    capabilities: &[&str],
+    source: Option<&str>,
+) -> Result<(), CommandError> {
+    use crate::command_error::user_error;
+    use jj_lib::project::BindingTarget;
+    jj_lib::git::check_remote_capability(store, view, remote, capabilities).map_err(user_error)?;
+    let project = name.as_str().rsplit_once('#')
+        .map(|(_, label)| view.project_state().resolve_label(label)).transpose().map_err(user_error)?.flatten();
+    let git_repo = jj_lib::git::get_git_repo(store)?;
+    let connection = jj_lib::git::remote_connection_id(&git_repo, remote).map_err(user_error)?;
+    let destination = connection.as_ref().map(|id| view.project_state().binding_for_connection(id)).transpose().map_err(user_error)?.flatten();
+    let selected = if let Some(source) = source {
+        let source = RemoteName::new(source);
+        jj_lib::git::check_remote_capability(store, view, source, capabilities).map_err(user_error)?;
+        let id = jj_lib::git::remote_connection_id(&git_repo, source).map_err(user_error)?
+            .ok_or_else(|| user_error("--source must name a bound connection"))?;
+        Some(view.project_state().binding_for_connection(&id).map_err(user_error)?
+            .ok_or_else(|| user_error("--source has no active binding"))?)
+    } else { None };
+    if project.is_some() && !capabilities.contains(&"jjosh-v1") {
+        return Err(user_error(format!("Selected project ref {} requires capability jjosh-v1", name.as_symbol())));
+    }
+    if let Some((destination_id, _)) = &destination {
+        if selected.as_ref().is_some_and(|(source_id, _)| source_id != destination_id) {
+            return Err(user_error("A bound destination must use its own immutable binding, not another --source"));
+        }
+    }
+    let binding = destination.or(selected);
+    if let Some(project) = project {
+        view.project_state().validate_project(&project).map_err(user_error)?;
+        if !binding.is_some_and(|(_, binding)| binding.target == BindingTarget::Project(project.clone())) {
+            return Err(user_error(format!("Project ref {} needs a matching destination binding or explicit --source", name.as_symbol())));
+        }
+    } else if binding.is_some_and(|(_, binding)| matches!(binding.target, BindingTarget::Project(_))) {
+        return Err(user_error(format!("Unscoped ref {} cannot be published through a project binding", name.as_symbol())));
+    }
+    Ok(())
 }

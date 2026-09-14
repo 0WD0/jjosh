@@ -78,6 +78,8 @@ pub mod operation;
 pub mod protos;
 pub use jj_core::ref_name;
 pub mod refs;
+pub mod project;
+mod project_store;
 pub mod repo;
 pub use jj_core::repo_path;
 pub mod revset;

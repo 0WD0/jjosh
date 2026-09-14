@@ -2568,6 +2568,7 @@ dependencies = [
  "rustix",
  "rustversion",
  "serde",
+ "serde_json",
  "smallvec",
  "strsim",
  "tempfile",

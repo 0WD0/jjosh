@@ -170,6 +170,8 @@ pub struct View {
     /// Desired sparse selections keyed by workspace, including unresolved merges.
     #[prost(message, repeated, tag = "14")]
     pub wc_sparse_patterns: ::prost::alloc::vec::Vec<WcSparsePatterns>,
+    #[prost(message, optional, tag = "15")]
+    pub project_metadata: ::core::option::Option<ProjectMetadata>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RemoteView {
@@ -232,6 +234,132 @@ pub struct CommitPredecessors {
     #[prost(bytes = "vec", repeated, tag = "2")]
     pub predecessor_ids: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
 }
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ProjectMetadata {
+    #[prost(uint32, tag = "1")]
+    pub version: u32,
+    #[prost(message, repeated, tag = "2")]
+    pub projects: ::prost::alloc::vec::Vec<ProjectEntry>,
+    #[prost(message, repeated, tag = "3")]
+    pub bindings: ::prost::alloc::vec::Vec<BindingEntry>,
+    #[prost(message, repeated, tag = "4")]
+    pub labels: ::prost::alloc::vec::Vec<LabelEntry>,
+    #[prost(message, repeated, tag = "5")]
+    pub connections: ::prost::alloc::vec::Vec<ConnectionEntry>,
+    #[prost(message, repeated, tag = "6")]
+    pub observations: ::prost::alloc::vec::Vec<ObservationEntry>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ProjectRecord {
+    #[prost(string, tag = "1")]
+    pub name: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub canonical_root: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct BindingRecord {
+    #[prost(bytes = "vec", optional, tag = "1")]
+    pub project_id: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
+    #[prost(bool, tag = "2")]
+    pub repository_view: bool,
+    #[prost(bytes = "vec", tag = "3")]
+    pub connection_id: ::prost::alloc::vec::Vec<u8>,
+    #[prost(string, tag = "4")]
+    pub provider: ::prost::alloc::string::String,
+    #[prost(uint32, tag = "5")]
+    pub version: u32,
+    #[prost(uint32, tag = "6")]
+    pub representation: u32,
+    #[prost(string, tag = "7")]
+    pub expression: ::prost::alloc::string::String,
+    #[prost(string, optional, tag = "8")]
+    pub base: ::core::option::Option<::prost::alloc::string::String>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ProjectTerm {
+    #[prost(message, optional, tag = "1")]
+    pub value: ::core::option::Option<ProjectRecord>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct BindingTerm {
+    #[prost(message, optional, tag = "1")]
+    pub value: ::core::option::Option<BindingRecord>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct IdTerm {
+    #[prost(bytes = "vec", optional, tag = "1")]
+    pub value: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ProjectEntry {
+    #[prost(bytes = "vec", tag = "1")]
+    pub id: ::prost::alloc::vec::Vec<u8>,
+    #[prost(message, repeated, tag = "2")]
+    pub terms: ::prost::alloc::vec::Vec<ProjectTerm>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct BindingEntry {
+    #[prost(bytes = "vec", tag = "1")]
+    pub id: ::prost::alloc::vec::Vec<u8>,
+    #[prost(message, repeated, tag = "2")]
+    pub terms: ::prost::alloc::vec::Vec<BindingTerm>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct LabelEntry {
+    #[prost(string, tag = "1")]
+    pub label: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag = "2")]
+    pub terms: ::prost::alloc::vec::Vec<IdTerm>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ConnectionEntry {
+    #[prost(string, tag = "1")]
+    pub remote: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag = "2")]
+    pub terms: ::prost::alloc::vec::Vec<IdTerm>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ConversionTerm {
+    #[prost(bytes = "vec", optional, tag = "1")]
+    pub canonical: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
+    #[prost(string, optional, tag = "2")]
+    pub raw: ::core::option::Option<::prost::alloc::string::String>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ConversionObservation {
+    #[prost(bytes = "vec", tag = "1")]
+    pub binding_id: ::prost::alloc::vec::Vec<u8>,
+    #[prost(message, optional, tag = "2")]
+    pub binding: ::core::option::Option<BindingRecord>,
+    #[prost(bytes = "vec", tag = "3")]
+    pub connection_id: ::prost::alloc::vec::Vec<u8>,
+    #[prost(string, tag = "4")]
+    pub endpoint: ::prost::alloc::string::String,
+    #[prost(string, tag = "5")]
+    pub raw_ref: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag = "6")]
+    pub terms: ::prost::alloc::vec::Vec<ConversionTerm>,
+    #[prost(string, optional, tag = "7")]
+    pub base: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(string, optional, tag = "8")]
+    pub generation: ::core::option::Option<::prost::alloc::string::String>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ObservationTerm {
+    #[prost(message, optional, tag = "1")]
+    pub value: ::core::option::Option<ConversionObservation>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ObservationEntry {
+    #[prost(string, tag = "1")]
+    pub remote: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub name: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag = "4")]
+    pub terms: ::prost::alloc::vec::Vec<ObservationTerm>,
+    #[prost(enumeration = "ObservationKind", tag = "5")]
+    pub kind: i32,
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum RemoteRefState {
@@ -254,6 +382,38 @@ impl RemoteRefState {
         match value {
             "New" => Some(Self::New),
             "Tracked" => Some(Self::Tracked),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum ObservationKind {
+    Unknown = 0,
+    Bookmark = 1,
+    Tag = 2,
+    Revision = 3,
+}
+impl ObservationKind {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Unknown => "OBSERVATION_KIND_UNKNOWN",
+            Self::Bookmark => "OBSERVATION_KIND_BOOKMARK",
+            Self::Tag => "OBSERVATION_KIND_TAG",
+            Self::Revision => "OBSERVATION_KIND_REVISION",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "OBSERVATION_KIND_UNKNOWN" => Some(Self::Unknown),
+            "OBSERVATION_KIND_BOOKMARK" => Some(Self::Bookmark),
+            "OBSERVATION_KIND_TAG" => Some(Self::Tag),
+            "OBSERVATION_KIND_REVISION" => Some(Self::Revision),
             _ => None,
         }
     }

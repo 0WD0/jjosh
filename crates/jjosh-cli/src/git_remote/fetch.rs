@@ -13,6 +13,8 @@ use jj_lib::backend::CommitId;
 use jj_lib::git::{GitFetchRefExpression, GitRefKind, GitRemoteObservation};
 use jj_lib::object_id::ObjectId as _;
 use jj_lib::op_store::{RefTarget, View};
+use jj_lib::project::{ConversionTerm, ObservationKey, ObservationKind};
+use jj_lib::merge::Merge;
 use jj_lib::ref_name::{RefName, RemoteRefSymbolBuf};
 use jj_lib::repo::{MutableRepo, Repo as _};
 
@@ -150,7 +152,7 @@ pub(super) async fn run(
         super::remote_endpoint(
             &git.remote_at(url.as_str()).map_err(user_error)?,
             gix::remote::Direction::Fetch,
-            session.project.as_ref().is_some_and(|project| project.native),
+            session.whole(),
         ).map_err(user_error)?
     } else {
         configured_endpoint.clone()
@@ -167,9 +169,9 @@ pub(super) async fn run(
     if changes_depth && session.filter().is_none() {
         return Err(user_error("Shallow source history requires a Git projection remote, not an ordinary or native JJ source"));
     }
-    // Ordinary identity remotes remain hash-agnostic and never open Josh's
-    // SHA-1-only object/cache transaction or its projection lease ledger.
-    let transaction = if session.project.is_some() || session.josh.is_some() {
+    // Ordinary SHA-1 observations can authorize a later explicit --source push.
+    // Other hash formats remain raw and never enter the SHA-1 conversion store.
+    let transaction = if git.object_hash() == gix::hash::Kind::Sha1 {
         Some(crate::interop::open_josh_transaction(
             &session.git_path,
             false,
@@ -183,9 +185,47 @@ pub(super) async fn run(
         GitRefKind::Bookmark => bookmark_matcher.is_match(name),
         GitRefKind::Tag => tag_matcher.is_match(name),
     };
+    if session.binding.is_none() {
+        for (key, values) in &repo.view().store_view().project_observations {
+            if key.remote != session.name { continue; }
+            for evidence in values.iter().flatten() {
+                let wire_selected = source_ref(&evidence.raw_ref).is_some_and(|(kind, name)| selected(kind, name));
+                // Also fence literal wire names that would occupy a protected
+                // logical mirror. Unrelated raw selections never touch these names.
+                let local_selected = match key.kind {
+                    ObservationKind::Bookmark => selected(GitRefKind::Bookmark, key.name.as_str()),
+                    ObservationKind::Tag => selected(GitRefKind::Tag, key.name.as_str()),
+                    ObservationKind::Revision => revisions.iter().any(|id| id.to_string() == key.name.as_str()),
+                };
+                if wire_selected || local_selected {
+                    return Err(user_error(format!(
+                        "Remote {} retains converted publication evidence for {}; raw fetch would replace that observation. Explicitly configure the matching binding or forget the converted observations before fetching this selection",
+                        session.name.as_str(), key.name.as_str(),
+                    )));
+                }
+            }
+        }
+    }
     // Keyed by full source names, never logical/project-scoped names. Start with
     // absence so selected refs missing from the advertisement also get observed.
     let mut converted = BTreeMap::<String, Converted>::new();
+    // A previous absent observation has neither a physical mirror nor a RemoteRef,
+    // but a selected fetch must still refresh its exact endpoint evidence.
+    if session.binding.is_some() {
+        for (key, values) in &repo.view().store_view().project_observations {
+            if key.remote != session.name || key.kind == ObservationKind::Revision { continue; }
+            for evidence in values.iter().flatten() {
+                let Some((kind, source)) = source_ref(&evidence.raw_ref) else {
+                    return Err(user_error("Stored conversion observation has an invalid wire reference"));
+                };
+                if !selected(kind, source) { continue; }
+                if session.local_name(source) != key.name {
+                    return Err(user_error("Stored conversion observation does not match this binding's reference label"));
+                }
+                converted.entry(evidence.raw_ref.clone()).or_insert_with(Converted::absent);
+            }
+        }
+    }
     let mut old_canonical = BTreeMap::new();
     for (kind, prefix) in [
         (GitRefKind::Bookmark, "refs/remotes/"),
@@ -261,10 +301,7 @@ pub(super) async fn run(
     }
 
     let url = gix::url::parse(endpoint.as_str()).map_err(user_error)?;
-    let native_path = if session
-        .project
-        .as_ref()
-        .is_some_and(|project| project.native)
+    let native_path = if session.whole() && session.project.is_some()
         && url.scheme == gix::url::Scheme::File
     {
         let path = gix::path::from_bstr(url.path.as_bstr()).into_owned();
@@ -273,6 +310,9 @@ pub(super) async fn run(
         None
     };
     let mut annotations = BTreeMap::new();
+    let mut raw_terms = BTreeMap::<String, Vec<ConversionTerm>>::new();
+    let mut raw_oids = BTreeMap::<String, gix::ObjectId>::new();
+    let mut generations = BTreeMap::<String, String>::new();
     if let Some(path) = native_path {
         if !revisions.is_empty() {
             return Err(user_error("Literal Git revisions require a Git endpoint, not a native JJ workspace"));
@@ -317,6 +357,7 @@ pub(super) async fn run(
                 .peel_tags_to_end()
                 .map_err(user_error)?;
             if peeled.kind == gix::objs::Kind::Commit && peeled.id.as_bytes() == commit.as_bytes() {
+                raw_oids.insert(reference_name.clone(), id.detach());
                 annotations.insert(
                     format!("refs/tags/{}", name.as_str()),
                     crate::remote_refs::CommitTag::read(&source_objects, id.detach())
@@ -328,9 +369,7 @@ pub(super) async fn run(
             .project
             .as_ref()
             .expect("native project checked above");
-        let known = crate::native_project::anchors(repo, transaction, &project.name)
-            .await
-            .map_err(user_error)?;
+        let known = session.anchors(repo, transaction).await?;
         let imported = crate::native_import::import_source(
             &source,
             repo,
@@ -345,6 +384,10 @@ pub(super) async fn run(
             ("refs/tags/", &source.view.local_tags),
         ] {
             for (name, target) in refs {
+                raw_terms.insert(format!("{prefix}{}", name.as_str()), target.as_merge().iter().map(|term| ConversionTerm {
+                    canonical: term.as_ref().map(|id| imported.ids[id].clone()),
+                    raw: term.as_ref().map(|id| id.hex()),
+                }).collect());
                 let target = RefTarget::from_merge(
                     target
                         .as_merge()
@@ -356,11 +399,9 @@ pub(super) async fn run(
                 );
             }
         }
-        crate::native_project::record_mount(transaction, &project.name, &project.mount)
-            .map_err(user_error)?;
         crate::native_project::record_imported_boundaries(
             transaction,
-            &project.name,
+            session.binding_id(),
             &imported,
             source
                 .view
@@ -373,7 +414,7 @@ pub(super) async fn run(
         transaction.flush_mem_odb().map_err(user_error)?;
     } else {
         let source_repo = session.filter().is_some()
-            .then(|| crate::source_repo::SourceRepo::open(&git, &configured_endpoint))
+            .then(|| crate::source_repo::SourceRepo::open(&git, &endpoint))
             .transpose().map_err(user_error)?;
         let raw_git = source_repo.as_ref().map_or(&git, |source| source.git());
         if (options.deepen.is_some() || options.unshallow)
@@ -392,7 +433,7 @@ pub(super) async fn run(
         };
         let raw_prefix = session.raw_prefix(&git, &endpoint).map_err(user_error)?;
         if let Some(source) = &source_repo {
-            let prefix = session.raw_prefix(&git, &configured_endpoint).map_err(user_error)?;
+            let prefix = session.raw_prefix(&git, &endpoint).map_err(user_error)?;
             source.migrate_context(&git, &prefix).map_err(user_error)?;
         }
         let mut old_raw = BTreeMap::new();
@@ -464,7 +505,7 @@ pub(super) async fn run(
                 .peel_tags_to_end()
                 .map_err(user_error)?;
             if object.kind == gix::objs::Kind::Commit {
-                if transaction.is_some() && name.starts_with("refs/tags/") {
+                if session.binding.is_some() && name.starts_with("refs/tags/") {
                     // Preflight the entire selected batch before installing refs
                     // or granting endpoint leases. Keep received immutable objects,
                     // but never manufacture an unsigned mirror of a signed tag.
@@ -478,19 +519,18 @@ pub(super) async fn run(
                 return Err(user_error(format!("Revision {direct} does not peel to a commit")));
             }
         }
+        raw_oids.extend(received.iter().map(|(name, id)| (name.clone(), *id)));
         // No keep file is removed if raw publication fails. Even noncommit tag
         // objects retain their exact direct IDs in this private namespace.
         install_refs(raw_git, &old_raw, &new_raw)?;
         for path in outcome.keep_paths {
             std::fs::remove_file(path).map_err(user_error)?;
         }
-        if let Some(project) = session.project.as_ref().filter(|project| project.native) {
+        if let Some(project) = session.project.as_ref().filter(|_| session.whole()) {
             let transaction = transaction
                 .as_ref()
                 .expect("native project has a Josh transaction");
-            let known = crate::native_project::anchors(repo, transaction, &project.name)
-                .await
-                .map_err(user_error)?;
+            let known = session.anchors(repo, transaction).await?;
             let ids: Vec<_> = commits
                 .values()
                 .map(|id| CommitId::from_bytes(id.as_bytes()))
@@ -522,11 +562,9 @@ pub(super) async fn run(
                     Converted::native(RefTarget::normal(id.clone()))?,
                 );
             }
-            crate::native_project::record_mount(transaction, &project.name, &project.mount)
-                .map_err(user_error)?;
             crate::native_project::record_imported_boundaries(
                 transaction,
-                &project.name,
+                session.binding_id(),
                 &imported,
                 &ids,
             )
@@ -536,6 +574,9 @@ pub(super) async fn run(
             let source_tx = crate::interop::open_josh_transaction(source.path(), false)?;
             let tips: Vec<_> = commits.values().copied().collect();
             let normalized = source.normalize(&source_tx, &tips).map_err(user_error)?;
+            for (name, raw) in &commits {
+                generations.insert(name.clone(), crate::source_repo::generation(&endpoint, normalized.tips[raw]));
+            }
             crate::interop::check_raw_projectable_history(&source_tx, normalized.tips.values().copied())?;
             let filter = crate::projection_history::map_source_ids(filter, &normalized.pairs);
             let mut matches = crate::projection_history::ProjectedMatches::new();
@@ -569,22 +610,7 @@ pub(super) async fn run(
             let canonical: Vec<_> = converted.values().filter_map(|value| value.mirror).collect();
             source.copy_complete_to(&git, &canonical).map_err(user_error)?;
             source.record_normalized(&source_tx, &normalized).map_err(user_error)?;
-            // A one-shot mirror seeds source context, never the configured
-            // endpoint's publication lease. Later real observations take priority.
-            if let Some(project) = &session.project {
-                let prefix = session.raw_prefix(&git, &configured_endpoint).map_err(user_error)?;
-                if let [raw] = tips.as_slice() {
-                    let initial = format!("{prefix}bases/{}", project.name);
-                    if source_tx.resolve_ref(&initial).map_err(user_error)?.is_none() {
-                        source_tx.update_ref(&initial, josh_core::cache::Expected::Absent, *raw, "retain initial project context").map_err(user_error)?;
-                    }
-                }
-                for id in &revisions {
-                    let reference = format!("{prefix}pins/{id}");
-                    let old = source_tx.resolve_ref(&reference).map_err(user_error)?;
-                    source_tx.update_ref(&reference, old.map_or(josh_core::cache::Expected::Absent, josh_core::cache::Expected::At), *id, "retain explicitly fetched revision").map_err(user_error)?;
-                }
-            }
+            source.retain_observations(&source_tx, &received.values().copied().collect::<Vec<_>>()).map_err(user_error)?;
             source_tx.flush_mem_odb().map_err(user_error)?;
         } else {
             for (name, commit) in &commits {
@@ -608,6 +634,7 @@ pub(super) async fn run(
         }
     }
     for (source, tag) in annotations {
+        if session.whole() { tag.copy_annotations_to(&git).map_err(user_error)?; }
         if let Some(converted) = converted.get_mut(&source)
             && let Some(commit) = converted.mirror
         {
@@ -634,13 +661,47 @@ pub(super) async fn run(
         jj_lib::git::get_git_backend(repo.store())?.import_head_commits([id])?;
         let commit = repo.store().get_commit_async(id).await?;
         repo.add_head(&commit).await?;
+        if session.binding.is_some() {
+            let raw = raw_oids.get(&pin).expect("received literal revision");
+            let connection = session.connection.as_ref().expect("binding connection");
+            let evidence = session.evidence(
+                connection,
+                &endpoint,
+                String::new(),
+                vec![ConversionTerm { canonical: Some(id.clone()), raw: Some(raw.to_string()) }],
+                None,
+                generations.remove(&pin),
+            );
+            let view = repo.view_mut().store_view_mut();
+            view.remote_connections.insert(session.name.clone(), Merge::resolved(Some(connection.clone())));
+            view.project_observations.insert(
+                ObservationKey { remote: session.name.clone(), name: raw.to_string().into(), kind: ObservationKind::Revision },
+                Merge::resolved(Some(evidence)),
+            );
+        }
         writeln!(ui.status(), "Fetched revision {} as {}", &pin[5..], id.hex())?;
     }
     let mut mirrors = BTreeMap::new();
+    if session.whole() && let Some(transaction) = &transaction {
+        for raw in raw_oids.values() {
+            let name = format!("{}observed/{raw}", crate::native_project::binding_ref_prefix(session.binding_id()));
+            let old = transaction.resolve_ref(&name).map_err(user_error)?;
+            transaction.update_ref(&name, old.map_or(josh_core::cache::Expected::Absent, josh_core::cache::Expected::At), *raw, "retain direct native observation").map_err(user_error)?;
+        }
+        transaction.flush_mem_odb().map_err(user_error)?;
+    }
     let mut observations = Vec::with_capacity(converted.len());
     for (source, converted) in converted {
         let (kind, name) = source_ref(&source).expect("source names classified above");
         if let Some(id) = converted.mirror {
+            if session.whole() && !raw_oids.contains_key(&source) {
+                if let Some(terms) = raw_terms.get(&source)
+                    && terms.len() == 1
+                    && let Some(raw) = &terms[0].raw
+                {
+                    raw_oids.insert(source.clone(), gix::ObjectId::from_hex(raw.as_bytes()).map_err(user_error)?);
+                }
+            }
             mirrors.insert(canonical_ref(session, kind, name), id);
         }
         let canonical_git_oid = converted
@@ -649,6 +710,16 @@ pub(super) async fn run(
             .map(|id| gix::ObjectId::try_from(id.as_bytes()))
             .transpose()
             .map_err(user_error)?;
+        let evidence = session.binding.as_ref().map(|_| {
+            let mut terms = raw_terms.remove(&source).unwrap_or_else(|| vec![ConversionTerm {
+                canonical: converted.target.as_normal().cloned(),
+                raw: raw_oids.get(&source).map(ToString::to_string),
+            }]);
+            if kind == GitRefKind::Tag && terms.len() == 1 && let Some(raw) = raw_oids.get(&source) {
+                terms[0].raw = Some(raw.to_string());
+            }
+            session.evidence(session.connection.as_ref().expect("binding connection"), &endpoint, source.clone(), terms, None, generations.remove(&source))
+        });
         observations.push(GitRemoteObservation {
             kind,
             symbol: RemoteRefSymbolBuf {
@@ -657,6 +728,7 @@ pub(super) async fn run(
             },
             target: converted.target,
             canonical_git_oid,
+            evidence,
         });
     }
     install_refs(&git, &old_canonical, &mirrors)?;

@@ -566,6 +566,7 @@ jj currently does not support partial clones. To use jj with this repository, tr
                 GitImportError::RevsetEvaluation(_) => None,
                 GitImportError::Git(_) => None,
                 GitImportError::UnexpectedBackend(_) => None,
+                GitImportError::ManagedState(_) => None,
             };
             let mut cmd_err =
                 user_error_with_message("Failed to import refs from underlying Git repo", err);
@@ -587,7 +588,9 @@ jj currently does not support partial clones. To use jj with this repository, tr
                 GitFetchError::RemoteName(_) => {
                     user_error(err).hinted("Run `jj git remote rename` to give a different name.")
                 }
-                GitFetchError::RejectedUpdates(_) | GitFetchError::Subprocess(_) => user_error(err),
+                GitFetchError::RejectedUpdates(_)
+                | GitFetchError::Subprocess(_)
+                | GitFetchError::ManagedState(_) => user_error(err),
             }
         }
     }

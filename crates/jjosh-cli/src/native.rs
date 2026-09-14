@@ -27,17 +27,6 @@ enum Command {
     Export(BundleArgs),
     /// Validate a native bundle without needing its source repository.
     Inspect(BundleArgs),
-    /// Import recorded jj repositories into an existing or new monorepo.
-    ///
-    /// Each source retains its native graph and references under NAME. Trees are
-    /// mounted at NAME/ by default, or at --mount NAME=DEST for a nested path.
-    /// Sources are read without snapshotting; record working files in the source first.
-    /// Bundles remain accepted as an optional offline source. Import records
-    /// ancestry correspondences for subsequent git fetch/push. It does not
-    /// merge or check out the imported heads: use normal jj new/rebase commands.
-    Import(ImportArgs),
-    /// Move legacy native correspondence bookmarks into private Git refs.
-    Migrate,
     /// Relocate a native change graph with explicit path and parent mappings.
     Transplant(crate::transplant::Args),
 }
@@ -49,7 +38,7 @@ struct BundleArgs {
 }
 
 #[derive(clap::Args, Clone, Debug)]
-struct ImportArgs {
+pub(crate) struct ImportArgs {
     /// Native jj workspace or bundle and its identity (repeatable).
     #[arg(long, value_name = "NAME=PATH", required = true)]
     source: Vec<String>,
@@ -74,7 +63,6 @@ pub(crate) async fn run(
 ) -> Result<(), CommandError> {
     match args.command {
         Command::Transplant(args) => crate::transplant::run(ui, command, args).await,
-        Command::Migrate => run_migrate(ui, command).await,
         Command::Inspect(args) => {
             let source =
                 crate::native_bundle::load(&command.cwd().join(args.file), command.settings())
@@ -82,10 +70,13 @@ pub(crate) async fn run(
                     .map_err(|err| user_error_with_message("Cannot inspect native bundle", err))?;
             writeln!(
                 ui.stdout(),
-                "Valid native bundle: {} commits, {} heads, source operation {}",
+                "Valid native bundle: {} commits, {} heads, source operation {}; {} project definitions, {} binding definitions, {} conversion observations (inert source metadata)",
                 source.commits.len() - 1,
                 source.view.head_ids.len(),
-                source.source_operation
+                source.source_operation,
+                source.view.project_state.projects.len(),
+                source.view.project_state.bindings.len(),
+                source.view.project_observations.len(),
             )?;
             Ok(())
         }
@@ -109,11 +100,10 @@ pub(crate) async fn run(
             )?;
             Ok(())
         }
-        Command::Import(args) => run_import(ui, command, args).await,
     }
 }
 
-async fn run_import(
+pub(crate) async fn run_import(
     ui: &mut Ui,
     command: &CommandHelper,
     args: ImportArgs,
@@ -167,31 +157,23 @@ async fn run_import(
             .map(|(name, _, mount)| (name.as_str(), mount.as_ref())),
     )
     .map_err(user_error)?;
-    let mut workspace = command.workspace_helper(ui).await?;
+    let mut workspace = crate::project::recorded_workspace(ui, command).await?;
     let git_lock = workspace.lock_git_import_export()?;
     let git_path = crate::interop::sha1_git_repo_path(&workspace)?;
     let transaction = crate::interop::open_josh_transaction(&git_path, false)?;
     let mut sources = Vec::with_capacity(resolved.len());
+    let mut planned_view = workspace.repo().view().store_view().clone();
     for (name, path, mount) in resolved {
+        workspace.repo().view().check_project_label_available(&name).map_err(user_error)?;
+        let project_id = crate::project_config::register(&mut planned_view, &name, &mount).map_err(user_error)?;
+        let binding_id = jj_lib::project::BindingId::generate();
+        planned_view.project_state.bindings.insert(binding_id.clone(), jj_lib::merge::Merge::resolved(Some(jj_lib::project::BindingRecord {
+            target: jj_lib::project::BindingTarget::Project(project_id),
+            connection_id: jj_lib::project::ConnectionId::generate(),
+            representation: jj_lib::project::Representation::Whole,
+            base: None,
+        })));
         let view = workspace.repo().view().store_view();
-        let mut has_history = false;
-        transaction
-            .for_each_ref_prefixed(&crate::native_project::project_ref_prefix(&name), |_, _| {
-                has_history = true;
-                Ok(())
-            })
-            .map_err(user_error)?;
-        if view
-            .local_bookmarks
-            .keys()
-            .chain(view.local_tags.keys())
-            .any(|key| crate::ref_names::belongs_to_project(&name, key.as_str()))
-            || has_history
-        {
-            return Err(user_error(format!(
-                "Project namespace {name:?} already exists; receive updates with git fetch"
-            )));
-        }
         for head in &view.head_ids {
             let commit = workspace.repo().store().get_commit_async(head).await?;
             if crate::native_project::commit_path_occupied(&commit, &mount)
@@ -218,14 +200,14 @@ async fn run_import(
             crate::native_bundle::load(&path, workspace.settings()).await
         }
         .map_err(|err| user_error_with_message(format!("Cannot read native source {name}"), err))?;
-        sources.push((name, source, mount));
+        sources.push((name, source, mount, binding_id));
     }
     let mut tx = workspace.start_transaction();
-    let mut view = tx.repo().view().store_view().clone();
+    let mut view = planned_view;
     let mut summaries = Vec::new();
     let mut roots = Vec::new();
     let mut remotes = HashSet::new();
-    for (name, source, mount) in &sources {
+    for (name, source, mount, binding_id) in &sources {
         let imported =
             crate::native_import::import_source(source, tx.repo_mut(), name, mount, HashMap::new())
                 .await
@@ -247,7 +229,7 @@ async fn run_import(
             .flat_map(|commit| commit.parents.iter())
             .collect();
         for raw in source.commits.keys().filter(|id| !parents.contains(id)) {
-            roots.push((name.clone(), raw.clone(), imported.ids[raw].clone()));
+            roots.push((binding_id.clone(), raw.clone(), imported.ids[raw].clone()));
         }
         view.head_ids.extend(imported.view.head_ids);
         view.local_bookmarks.extend(imported.view.local_bookmarks);
@@ -267,15 +249,15 @@ async fn run_import(
         }
     }
     tx.repo_mut().set_view(view);
-    for (name, raw, mapped) in roots {
-        crate::native_project::record_anchor(&transaction, &name, "origin", &raw, &mapped)
+    for (_, _, _, binding_id) in &sources {
+        crate::native_project::record_offline_binding(&transaction, binding_id)
+            .map_err(|err| user_error_with_message("Cannot retain offline native binding provenance", err))?;
+    }
+    for (binding_id, raw, mapped) in roots {
+        crate::native_project::record_anchor(&transaction, &binding_id, "origin", &raw, &mapped)
             .map_err(|err| {
                 user_error_with_message("Cannot record native source correspondence", err)
             })?;
-    }
-    for (name, _, mount) in &sources {
-        crate::native_project::record_mount(&transaction, name, mount)
-            .map_err(|err| user_error_with_message("Cannot record native project mount", err))?;
     }
     transaction
         .flush_mem_odb()
@@ -297,111 +279,6 @@ async fn run_import(
         ui.status(),
         "Native states imported in one transaction; working copy unchanged. Compose source \
          workspace bookmarks with jjosh new."
-    )?;
-    Ok(())
-}
-
-async fn run_migrate(ui: &mut Ui, command: &CommandHelper) -> Result<(), CommandError> {
-    require_current_operation(command)?;
-    let mut workspace = command.workspace_helper(ui).await?;
-    let _git_lock = workspace.lock_git_import_export()?;
-    let transaction = crate::interop::open_josh_transaction(
-        &crate::interop::sha1_git_repo_path(&workspace)?,
-        false,
-    )?;
-    let mut view = workspace.repo().view().store_view().clone();
-    let legacy: Vec<_> = view
-        .remote_views
-        .keys()
-        .filter(|name| name.as_str().starts_with("jjosh-native-"))
-        .cloned()
-        .collect();
-    let mut changed = HashSet::new();
-    for remote in &legacy {
-        let project = remote.as_str().strip_prefix("jjosh-native-").unwrap();
-        crate::native_project::validate_project(project).map_err(user_error)?;
-        let git = jj_lib::git::get_git_repo(workspace.repo().store())?;
-        if git
-            .remote_names()
-            .iter()
-            .any(|name| &name[..] == remote.as_str().as_bytes())
-        {
-            return Err(user_error(
-                "Legacy correspondence name is a configured Git remote; rename that remote first",
-            ));
-        }
-        let refs = &view.remote_views[remote];
-        if !refs.tags.is_empty() {
-            return Err(user_error(
-                "Legacy correspondence remote contains tags; resolve it before migration",
-            ));
-        }
-        for (name, reference) in &refs.bookmarks {
-            if reference.state == jj_lib::op_store::RemoteRefState::Tracked {
-                return Err(user_error(
-                    "Untrack legacy correspondence bookmarks before migration",
-                ));
-            }
-            let canonical = reference.target.as_normal().ok_or_else(|| {
-                user_error("Resolve conflicted legacy correspondences before migration")
-            })?;
-            let (kind, raw) = name
-                .as_str()
-                .split_once('/')
-                .ok_or_else(|| user_error("Invalid legacy native correspondence"))?;
-            if !matches!(kind, "origin" | "published") {
-                return Err(user_error("Invalid legacy native correspondence kind"));
-            }
-            let raw = jj_lib::backend::CommitId::try_from_hex(raw)
-                .filter(|id| jj_lib::object_id::ObjectId::as_bytes(id).len() == 20)
-                .ok_or_else(|| user_error("Invalid legacy native commit ID"))?;
-            crate::native_project::record_anchor(&transaction, project, kind, &raw, canonical)
-                .map_err(user_error)?;
-        }
-        let git_remote: jj_lib::ref_name::RemoteNameBuf = format!("{project}-git").into();
-        if let Some(git) = view.remote_views.get_mut(&git_remote) {
-            git.bookmarks.retain(|name, reference| {
-                view.local_bookmarks.get(name) != Some(&reference.target)
-            });
-            git.tags
-                .retain(|name, reference| view.local_tags.get(name) != Some(&reference.target));
-            if git.bookmarks.is_empty() && git.tags.is_empty() {
-                view.remote_views.remove(&git_remote);
-            }
-            changed.insert(git_remote);
-        }
-        view.remote_views.remove(remote);
-        changed.insert(remote.clone());
-    }
-    if legacy.is_empty() {
-        writeln!(
-            ui.status(),
-            "No legacy native correspondence bookmarks to migrate."
-        )?;
-        return Ok(());
-    }
-    let mut tx = workspace.start_transaction();
-    tx.repo_mut().set_view(view);
-    for remote in &legacy {
-        crate::native_project::anchors(
-            tx.repo(),
-            &transaction,
-            remote.as_str().strip_prefix("jjosh-native-").unwrap(),
-        )
-        .await
-        .map_err(user_error)?;
-    }
-    transaction.flush_mem_odb().map_err(user_error)?;
-    let stats =
-        jj_lib::git::export_some_refs(tx.repo_mut(), |_, symbol| changed.contains(symbol.remote))?;
-    jj_cli::git_util::print_git_export_stats(ui, &stats)?;
-    tx.into_inner()
-        .commit("migrate native correspondence bookmarks to private refs")
-        .await?;
-    writeln!(
-        ui.status(),
-        "Migrated {} native projects; history and working files unchanged.",
-        legacy.len()
     )?;
     Ok(())
 }

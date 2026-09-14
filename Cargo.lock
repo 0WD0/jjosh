@@ -3333,6 +3333,7 @@ dependencies = [
  "regex",
  "rustix",
  "serde",
+ "serde_json",
  "smallvec",
  "strsim 0.11.1",
  "tempfile",

@@ -46,7 +46,6 @@ fn jjosh_unchecked(cwd: &Path, args: &[&str]) -> Output {
     Command::new(program)
         .args(&full_args)
         .current_dir(cwd)
-        .env("JOSH_EXPERIMENTAL_FEATURES", "1")
         .output()
         .unwrap_or_else(|err| panic!("failed to run {program:?} {full_args:?}: {err}"))
 }
@@ -88,7 +87,7 @@ fn operation_id(cwd: &Path) -> String {
     String::from_utf8(
         jjosh(
             cwd,
-            &["op", "log", "--limit", "1", "--no-graph", "-T", "id"],
+            &["--ignore-working-copy", "op", "log", "--limit", "1", "--no-graph", "-T", "id"],
         )
         .stdout,
     )
@@ -163,17 +162,17 @@ fn import_project(
     writable: bool,
 ) {
     let remote = format!("{project}-upstream");
+    jjosh(client, &["project", "add", project, "--path", mount]);
     let mut args = vec![
-        "projection",
+        "git",
         "remote",
         "add",
         &remote,
         source.to_str().unwrap(),
+        "--filter",
         filter,
         "--project",
         project,
-        "--mount",
-        mount,
         "--base",
         "main",
     ];
@@ -193,39 +192,195 @@ fn file_at_revision(client: &Path, revision: &str, path: &str) -> Vec<u8> {
 }
 
 #[test]
-fn rejected_projection_reconfiguration_preserves_effective_source_and_layout() {
+fn project_registration_restores_without_snapshotting_or_claiming_literal_refs() {
+    let temp = tempfile::tempdir().unwrap();
+    let client = create_client(temp.path(), false);
+    jjosh(&client, &["bookmark", "create", "topic#api"]);
+    let before = operation_id(&client);
+    let rejected = jjosh_unchecked(&client, &["project", "add", "api", "--path", "packages/api"]);
+    assert!(!rejected.status.success());
+    assert_eq!(operation_id(&client), before);
+    jjosh(&client, &["bookmark", "delete", "topic#api"]);
+    let original_commit = commit_id(&client, "@");
+    let before_registration = operation_id(&client);
+    fs::write(client.join("unrecorded.txt"), "pending local work\n").unwrap();
+    jjosh(&client, &["project", "add", "api", "--path", "packages/api"]);
+    assert_ne!(operation_id(&client), before_registration);
+    assert_eq!(
+        String::from_utf8(jjosh(&client, &["--ignore-working-copy", "log", "-r", "@",
+            "--no-graph", "-T", "commit_id"]).stdout).unwrap().trim(),
+        original_commit,
+    );
+    jjosh(&client, &["project", "show", "api"]);
+    jjosh(&client, &["--ignore-working-copy", "op", "restore", before_registration.trim(), "--what", "repo"]);
+    assert!(!jjosh_unchecked(&client, &["project", "show", "api"]).status.success());
+    assert_eq!(fs::read_to_string(client.join("unrecorded.txt")).unwrap(), "pending local work\n");
+}
+
+#[test]
+fn display_rename_preserves_project_publication_label() {
+    let temp = tempfile::tempdir().unwrap();
+    let (_, source, _) = create_remote(temp.path(), "source");
+    let client = create_client(temp.path(), false);
+    import_project(&client, "api", "packages/api", &source, ":/src", true);
+    jjosh(&client, &["project", "rename", "api", "service"]);
+    jjosh(&client, &["project", "show", "service"]);
+    assert!(!jjosh_unchecked(&client, &["project", "show", "api"]).status.success());
+    fs::write(client.join("packages/api/value.txt"), "renamed project edit\n").unwrap();
+    jjosh(&client, &["describe", "-m", "edit renamed project"]);
+    jjosh(&client, &["git", "push", "--remote", "api-upstream",
+        "--named", "topic#api=@", "--allow-empty-description"]);
+    assert_eq!(git(&source, &["show", "topic:src/value.txt"]), "renamed project edit\n");
+    assert_eq!(git(&source, &["show", "topic:outside.txt"]), "source-outside\n");
+}
+
+#[test]
+fn recreated_remote_rejects_restored_observations_from_its_previous_instance() {
+    let temp = tempfile::tempdir().unwrap();
+    let (_, source, _) = create_remote(temp.path(), "source");
+    let client = create_client(temp.path(), false);
+    import_project(&client, "api", "packages/api", &source, ":/src", false);
+    jjosh(&client, &["bookmark", "create", "local#api"]);
+    let local = commit_id(&client, "local#api");
+    let historical = operation_id(&client);
+    jjosh(&client, &["git", "remote", "remove", "api-upstream"]);
+    jjosh(&client, &["git", "remote", "add", "api-upstream", source.to_str().unwrap(),
+        "--project", "api", "--whole"]);
+    jjosh(&client, &["op", "restore", historical.trim(), "--what", "remote-tracking"]);
+    let restored = operation_id(&client);
+    assert!(!jjosh_unchecked(&client, &["git", "fetch", "--remote", "api-upstream",
+        "--branch", "main"]).status.success());
+    assert_eq!(operation_id(&client), restored);
+    jjosh(&client, &["git", "remote", "forget-observations", "api-upstream"]);
+    assert_eq!(commit_id(&client, "local#api"), local);
+    jjosh(&client, &["git", "fetch", "--remote", "api-upstream", "--branch", "main"]);
+    assert_eq!(file_at_revision(&client, "main#api@api-upstream", "packages/api/src/value.txt"), b"source-v1\n");
+    jjosh(&client, &["op", "restore", historical.trim(), "--what", "repo"]);
+    assert!(!jjosh_unchecked(&client, &["git", "fetch", "--remote", "api-upstream",
+        "--branch", "main"]).status.success());
+}
+
+#[test]
+fn base_free_publication_uses_unique_ancestry_evidence_and_rejects_ambiguous_raw_contexts() {
+    let temp = tempfile::tempdir().unwrap();
+    let (work, source, original) = create_remote(temp.path(), "source");
+    let client = create_client(temp.path(), false);
+    jjosh(&client, &["project", "add", "api", "--path", "api"]);
+    jjosh(&client, &["git", "remote", "add", "source", source.to_str().unwrap(),
+        "--project", "api", "--filter", ":/src", "--writable"]);
+    jjosh(&client, &["git", "fetch", "--remote", "source", "--branch", "main"]);
+    jjosh(&client, &["new", "main#api@source", "-m", "new topic"]);
+    fs::write(client.join("api/value.txt"), "topic edit\n").unwrap();
+    jjosh(&client, &["describe", "-m", "new topic"]);
+    jjosh(&client, &["git", "push", "--remote", "source", "--named", "topic#api=@"]);
+    assert_eq!(git(&source, &["rev-parse", "topic^"]).trim(), original);
+    assert_eq!(git(&source, &["show", "topic:outside.txt"]), "source-outside\n");
+
+    fs::write(work.join("outside.txt"), "different raw context\n").unwrap();
+    git(&work, &["commit", "-am", "outside-only branch"]);
+    git(&work, &["push", source.to_str().unwrap(), "HEAD:variant"]);
+    jjosh(&client, &["git", "fetch", "--remote", "source", "--branch", "variant"]);
+    assert_eq!(commit_id(&client, "main#api@source"), commit_id(&client, "variant#api@source"));
+    jjosh(&client, &["new", "main#api@source", "-m", "ambiguous sibling"]);
+    fs::write(client.join("api/value.txt"), "sibling edit\n").unwrap();
+    jjosh(&client, &["describe", "-m", "ambiguous sibling"]);
+    assert!(!jjosh_unchecked(&client, &["git", "push", "--remote", "source",
+        "--named", "sibling#api=@"]).status.success());
+    assert_eq!(git(&source, &["for-each-ref", "--format=%(refname)", "refs/heads/sibling"]), "");
+    jjosh(&client, &["git", "push", "--remote", "source",
+        "--named", "sibling#api=@", "--base", "main"]);
+    assert_eq!(git(&source, &["show", "sibling:outside.txt"]), "source-outside\n");
+    assert_eq!(git(&source, &["show", "variant:outside.txt"]), "different raw context\n");
+}
+
+#[test]
+fn fetch_records_raw_advances_even_when_the_projected_target_is_unchanged() {
+    let temp = tempfile::tempdir().unwrap();
+    let (work, source, _) = create_remote(temp.path(), "source");
+    let client = create_client(temp.path(), false);
+    import_project(&client, "api", "api", &source, ":/src", false);
+    let canonical = commit_id(&client, "main#api@api-upstream");
+    let observed = operation_id(&client);
+    fs::write(work.join("outside.txt"), "new outside content\n").unwrap();
+    git(&work, &["commit", "-am", "outside-only update"]);
+    git(&work, &["push", source.to_str().unwrap(), "main"]);
+    jjosh(&client, &["git", "fetch", "--remote", "api-upstream", "--branch", "main"]);
+    assert_eq!(commit_id(&client, "main#api@api-upstream"), canonical);
+    assert_ne!(operation_id(&client), observed);
+    jjosh(&client, &["op", "restore", observed.trim(), "--what", "remote-tracking"]);
+    assert_eq!(commit_id(&client, "main#api@api-upstream"), canonical);
+    jjosh(&client, &["git", "fetch", "--remote", "api-upstream", "--branch", "main"]);
+    assert_eq!(commit_id(&client, "main#api@api-upstream"), canonical);
+    assert_eq!(git(&source, &["show", "main:outside.txt"]), "new outside content\n");
+}
+
+#[test]
+fn literal_source_base_retains_shallow_generation_after_deepening_and_restore() {
+    let temp = tempfile::tempdir().unwrap();
+    let (work, source, _) = create_remote(temp.path(), "source");
+    fs::write(work.join("src/value.txt"), "source-v2\n").unwrap();
+    git(&work, &["commit", "-am", "source-v2"]);
+    git(&work, &["push", source.to_str().unwrap(), "main"]);
+    let raw_tip = git(&source, &["rev-parse", "main"]).trim().to_owned();
+    let client = create_client(temp.path(), false);
+    jjosh(&client, &["project", "add", "api", "--path", "api"]);
+    jjosh(&client, &["git", "remote", "add", "source", source.to_str().unwrap(),
+        "--project", "api", "--filter", ":/src", "--writable"]);
+    let fetched = jjosh(&client, &["git", "fetch", "--remote", "source", "--revision", &raw_tip, "--depth", "1"]);
+    let stderr = String::from_utf8(fetched.stderr).unwrap();
+    let prefix = format!("Fetched revision {raw_tip} as ");
+    let canonical = stderr.lines().find_map(|line| line.strip_prefix(&prefix)).unwrap();
+    jjosh(&client, &["new", canonical, "-m", "continue shallow source"]);
+    fs::write(client.join("api/value.txt"), "local continuation\n").unwrap();
+    jjosh(&client, &["describe", "-m", "continue shallow source"]);
+    jjosh(&client, &["bookmark", "create", "topic#api"]);
+    let original = commit_id(&client, "topic#api");
+    let shallow_operation = operation_id(&client);
+    jjosh(&client, &["--config", "git.abandon-unreachable-commits=false",
+        "git", "fetch", "--remote", "source", "--revision", &raw_tip, "--unshallow"]);
+    jjosh(&client, &["op", "restore", shallow_operation.trim()]);
+    assert_eq!(commit_id(&client, "topic#api"), original);
+    jjosh(&client, &["git", "push", "--remote", "source",
+        "--bookmark", "topic#api", "--base", &raw_tip]);
+    assert_eq!(git(&source, &["rev-parse", "topic^"]).trim(), raw_tip);
+    assert_eq!(git(&source, &["rev-list", "--count", "topic"]).trim(), "3");
+    assert_eq!(git(&source, &["show", "topic:src/value.txt"]), "local continuation\n");
+    assert_eq!(git(&source, &["show", "topic:outside.txt"]), "source-outside\n");
+}
+
+#[test]
+fn duplicate_remote_add_preserves_effective_source_and_layout() {
     let temp = tempfile::tempdir().unwrap();
     let (_, original, _) = create_remote(temp.path(), "original");
     let (_, replacement, _) = create_remote(temp.path(), "replacement");
     let client = create_client(temp.path(), false);
+    jjosh(&client, &["project", "add", "pkg", "--path", "vendor/pkg"]);
     jjosh(
         &client,
         &[
-            "projection",
+            "git",
             "remote",
             "add",
             "source",
             original.to_str().unwrap(),
+            "--filter",
             ":/src",
             "--project",
             "pkg",
-            "--mount",
-            "vendor/pkg",
         ],
     );
     let rejected = jjosh_unchecked(
         &client,
         &[
-            "projection",
+            "git",
             "remote",
             "add",
             "source",
             replacement.to_str().unwrap(),
+            "--filter",
             ":/",
             "--project",
             "pkg",
-            "--mount",
-            "wrong",
         ],
     );
     assert!(!rejected.status.success());
@@ -240,79 +395,46 @@ fn rejected_projection_reconfiguration_preserves_effective_source_and_layout() {
 }
 
 #[test]
-fn project_peers_cannot_register_conflicting_mounts_or_source_filters() {
+fn project_peers_use_their_own_external_layout_in_both_directions() {
     let temp = tempfile::tempdir().unwrap();
-    let (_, original, _) = create_remote(temp.path(), "original");
+    let (_, upstream, _) = create_remote(temp.path(), "upstream");
+    let flat_work = temp.path().join("flat-work");
+    fs::create_dir(&flat_work).unwrap();
+    git(&flat_work, &["init", "-b", "main"]);
+    git(&flat_work, &["config", "user.name", "Smoke Test"]);
+    git(&flat_work, &["config", "user.email", "smoke@example.com"]);
+    fs::write(flat_work.join("value.txt"), "flat source\n").unwrap();
+    git(&flat_work, &["add", "."]);
+    git(&flat_work, &["commit", "-m", "standalone source"]);
+    let flat = temp.path().join("flat.git");
+    git(temp.path(), &["clone", "--bare", flat_work.to_str().unwrap(), flat.to_str().unwrap()]);
     let client = create_client(temp.path(), false);
-    jjosh(
-        &client,
-        &[
-            "projection",
-            "remote",
-            "add",
-            "source",
-            original.to_str().unwrap(),
-            ":/src",
-            "--project",
-            "pkg",
-            "--mount",
-            "vendor/pkg",
-        ],
-    );
-    jjosh(
-        &client,
-        &["git", "remote", "add", "peer", original.to_str().unwrap()],
-    );
-    let rejected = jjosh_unchecked(
-        &client,
-        &[
-            "projection",
-            "remote",
-            "attach",
-            "peer",
-            "pkg",
-            "--mount",
-            "other/pkg",
-        ],
-    );
-    assert!(!rejected.status.success());
-    let rejected = jjosh_unchecked(
-        &client,
-        &[
-            "projection",
-            "remote",
-            "add",
-            "peer",
-            original.to_str().unwrap(),
-            ":/",
-            "--project",
-            "pkg",
-            "--mount",
-            "vendor/pkg",
-        ],
-    );
-    assert!(!rejected.status.success());
-    jjosh(
-        &client,
-        &[
-            "projection",
-            "remote",
-            "add",
-            "peer",
-            original.to_str().unwrap(),
-            ":/src",
-            "--project",
-            "pkg",
-        ],
-    );
-    jjosh(
-        &client,
-        &["git", "fetch", "--remote", "peer", "--branch", "main"],
-    );
-    assert_eq!(
-        file_at_revision(&client, "main#pkg@peer", "vendor/pkg/value.txt"),
-        b"original-v1\n",
-    );
+    jjosh(&client, &["project", "add", "pkg", "--path", "vendor/pkg"]);
+    jjosh(&client, &["git", "remote", "add", "upstream", upstream.to_str().unwrap(),
+        "--project", "pkg", "--filter", ":/src", "--base", "main"]);
+    jjosh(&client, &["git", "remote", "add", "flat", flat.to_str().unwrap(),
+        "--project", "pkg", "--whole", "--writable"]);
+    jjosh(&client, &["git", "fetch", "--remote", "upstream", "--branch", "main"]);
+    jjosh(&client, &["git", "fetch", "--remote", "flat", "--branch", "main"]);
+    assert_eq!(file_at_revision(&client, "main#pkg@upstream", "vendor/pkg/value.txt"), b"upstream-v1\n");
+    assert_eq!(file_at_revision(&client, "main#pkg@flat", "vendor/pkg/value.txt"), b"flat source\n");
+    jjosh(&client, &["new", "main#pkg@flat", "-m", "edit standalone project"]);
+    fs::write(client.join("vendor/pkg/value.txt"), "edited flat\n").unwrap();
+    jjosh(&client, &["describe", "-m", "edit standalone project"]);
+    jjosh(&client, &["bookmark", "create", "topic#pkg"]);
+    jjosh(&client, &["git", "push", "--remote", "flat", "--bookmark", "topic#pkg"]);
+    assert_eq!(git(&flat, &["ls-tree", "-r", "--name-only", "topic"]), "value.txt\n");
+    assert_eq!(git(&flat, &["show", "topic:value.txt"]), "edited flat\n");
+    assert_eq!(git(&upstream, &["show", "main:outside.txt"]), "upstream-outside\n");
+
+    jjosh(&client, &["git", "remote", "remove", "upstream"]);
+    jjosh(&client, &["new", "-m", "continue standalone project"]);
+    fs::write(client.join("vendor/pkg/value.txt"), "continued flat\n").unwrap();
+    jjosh(&client, &["describe", "-m", "continue standalone project"]);
+    jjosh(&client, &["bookmark", "set", "topic#pkg"]);
+    jjosh(&client, &["git", "push", "--remote", "flat", "--bookmark", "topic#pkg"]);
+    assert_eq!(git(&flat, &["ls-tree", "-r", "--name-only", "topic"]), "value.txt\n");
+    assert_eq!(git(&flat, &["show", "topic:value.txt"]), "continued flat\n");
 }
 
 #[test]
@@ -320,13 +442,14 @@ fn reattachment_does_not_turn_an_invalid_read_only_policy_into_write_access() {
     let temp = tempfile::tempdir().unwrap();
     let (_, original, _) = create_remote(temp.path(), "original");
     let client = create_client(temp.path(), false);
+    jjosh(&client, &["project", "add", "pkg", "--path", "pkg"]);
     jjosh(
         &client,
         &["git", "remote", "add", "source", original.to_str().unwrap()],
     );
     jjosh(
         &client,
-        &["projection", "remote", "attach", "source", "pkg"],
+        &["git", "remote", "attach", "source", "--project", "pkg", "--whole"],
     );
     let git_path = String::from_utf8(jjosh(&client, &["git", "root"]).stdout).unwrap();
     let git_path = Path::new(git_path.trim());
@@ -336,17 +459,15 @@ fn reattachment_does_not_turn_an_invalid_read_only_policy_into_write_access() {
     );
     let rejected = jjosh_unchecked(
         &client,
-        &["projection", "remote", "attach", "source", "pkg"],
+        &["git", "remote", "attach", "source", "--project", "pkg", "--whole"],
     );
     assert!(!rejected.status.success());
-    assert_eq!(
-        git(
-            git_path,
-            &["config", "--get", "remote.source.jjosh-readOnly"]
-        )
-        .trim(),
-        "invalid",
+    let rejected_push = jjosh_unchecked(
+        &client,
+        &["git", "push", "--remote", "source", "--named", "topic#pkg=@"],
     );
+    assert!(!rejected_push.status.success());
+    assert_eq!(git(&original, &["for-each-ref", "--format=%(refname)", "refs/heads/topic"]), "");
 }
 
 #[test]
@@ -376,11 +497,10 @@ fn marker_free_reattachment_preserves_edited_tree_and_full_history() {
     jjosh(
         &client,
         &[
-            "projection", "remote", "add", "deps-peer", bare.to_str().unwrap(),
-            ":/src", "--project", "deps", "--base", "main",
+            "git", "remote", "add", "deps-peer", bare.to_str().unwrap(),
+            "--filter", ":/src", "--project", "deps", "--base", "main",
         ],
     );
-    jjosh(&client, &["projection", "remote", "attach", "deps-peer", "deps"]);
     jjosh(&client, &["git", "fetch", "--remote", "deps-peer", "--branch", "main"]);
 
     assert_eq!(commit_id(&client, "@"), local);
@@ -406,14 +526,14 @@ fn unrelated_malformed_historical_marker_does_not_block_remote_configuration() {
     jjosh(&client, &["describe", "-m", "historical malformed marker"]);
     jjosh(&client, &["new"]);
     let local = commit_id(&client, "@");
+    jjosh(&client, &["project", "add", "deps", "--path", "vendor/deps"]);
     jjosh(
         &client,
         &[
-            "projection", "remote", "add", "deps-source", bare.to_str().unwrap(),
-            ":/src", "--project", "deps", "--mount", "vendor/deps", "--base", "main",
+            "git", "remote", "add", "deps-source", bare.to_str().unwrap(),
+            "--filter", ":/src", "--project", "deps", "--base", "main",
         ],
     );
-    jjosh(&client, &["projection", "remote", "attach", "deps-source", "deps"]);
     jjosh(&client, &["git", "fetch", "--remote", "deps-source", "--branch", "main"]);
     assert_eq!(commit_id(&client, "@"), local);
     jjosh(&client, &["new", "@", "main#deps@deps-source"]);
@@ -1076,7 +1196,7 @@ fn link_push_rejects_external_advances_without_refreshing_its_lease() {
 }
 
 #[test]
-fn link_commands_reject_sha256_git_repositories() {
+fn project_registration_supports_sha256_but_josh_conversion_rejects_it() {
     let temp = tempfile::tempdir().unwrap();
     let client = temp.path().join("sha256-client");
     let (_remote_work, remote_bare, _) = create_remote(temp.path(), "sha1-source");
@@ -1088,19 +1208,19 @@ fn link_commands_reject_sha256_git_repositories() {
     git(&client, &["add", "."]);
     git(&client, &["commit", "-m", "sha256 root"]);
     jjosh(&client, &["git", "init", "--colocate"]);
+    jjosh(&client, &["project", "add", "deps", "--path", "deps"]);
 
     let rejected = jjosh_unchecked(
         &client,
         &[
-            "projection",
+            "git",
             "remote",
             "add",
             "deps-upstream",
             remote_bare.to_str().unwrap(),
+            "--filter",
             ":/src",
             "--project",
-            "deps",
-            "--mount",
             "deps",
             "--base",
             "main",
@@ -1580,12 +1700,8 @@ fn imported_soft_fork_attaches_upstream_without_reimporting_local_history() {
     git(&upstream, &["push", "origin", "refs/tags/v1"]);
     jjosh(
         &client,
-        &[
-            "native",
-            "import",
-            "--source",
-            &format!("app={}", work.display()),
-        ],
+        &["project", "import", "--source",
+        &format!("app={}", work.display()),],
     );
     jjosh(&client, &["new", "@", "workspace/default#app"]);
     let fork = commit_id(&client, "main#app");
@@ -1609,11 +1725,13 @@ fn imported_soft_fork_attaches_upstream_without_reimporting_local_history() {
     jjosh(
         &client,
         &[
-            "projection",
+            "git",
             "remote",
             "attach",
             "app-upstream",
+            "--project",
             "app",
+            "--whole",
             "--base",
             "main",
             "--read-only",
@@ -1854,7 +1972,7 @@ fn link_push_then_fetches_descendant_without_duplicate_published_change() {
 }
 
 #[test]
-fn push_selects_each_scope_independently_of_publication_remote() {
+fn arbitrary_publication_requires_explicit_source_without_reinterpreting_literal_names() {
     let temp = tempfile::tempdir().unwrap();
     let (_, alpha, _) = create_remote(temp.path(), "alpha");
     let (_, beta, _) = create_remote(temp.path(), "beta");
@@ -1889,20 +2007,16 @@ fn push_selects_each_scope_independently_of_publication_remote() {
             publication.to_str().unwrap(),
         ],
     );
-    jjosh(
-        &client,
-        &[
-            "git",
-            "push",
-            "--remote",
-            "review+origin",
-            "--bookmark",
-            "alpha-topic#alpha",
-            "--bookmark",
-            "beta-topic#beta",
-            "--allow-empty-description",
-        ],
-    );
+    let before = git(&publication, &["show-ref"]);
+    assert!(!jjosh_unchecked(&client, &["git", "push", "--remote", "review+origin",
+        "--bookmark", "alpha-topic#alpha", "--allow-empty-description"]).status.success());
+    assert_eq!(git(&publication, &["show-ref"]), before);
+    for project in ["alpha", "beta"] {
+        jjosh(&client, &["git", "push", "--remote", "review+origin",
+            "--source", &format!("{project}-upstream"),
+            "--bookmark", &format!("{project}-topic#{project}"),
+            "--allow-empty-description"]);
+    }
     assert_eq!(
         git(&publication, &["show", "alpha-topic:src/value.txt"]),
         "alpha edit\n"
@@ -1934,7 +2048,16 @@ fn push_selects_each_scope_independently_of_publication_remote() {
         commit_id(&client, "beta-topic#beta"),
     );
 
-    // Stripping scopes must not let two logical refs overwrite one wire ref.
+    // One-shot conversion evidence cannot be reinterpreted by a later raw fetch.
+    let projected = commit_id(&client, "alpha-topic#alpha@review+origin");
+    assert!(!jjosh_unchecked(&client, &["git", "fetch", "--remote", "review+origin"]).status.success());
+    assert_eq!(commit_id(&client, "alpha-topic#alpha@review+origin"), projected);
+    assert_eq!(commit_id(&client, "alpha-topic#alpha"), projected);
+    // An unrelated selected wire ref is still a valid ordinary fetch.
+    jjosh(&client, &["git", "fetch", "--remote", "review+origin", "--branch", "main"]);
+    assert_eq!(commit_id(&client, "alpha-topic#alpha@review+origin"), projected);
+
+    // One explicitly chosen source cannot silently interpret another project.
     jjosh(
         &client,
         &[
@@ -1955,6 +2078,7 @@ fn push_selects_each_scope_independently_of_publication_remote() {
             "push",
             "--remote",
             "review+origin",
+            "--source", "alpha-upstream",
             "--bookmark",
             "collision#alpha",
             "--bookmark",
@@ -1966,12 +2090,12 @@ fn push_selects_each_scope_independently_of_publication_remote() {
     assert_eq!(git(&publication, &["show-ref"]), refs);
     assert_eq!(operation_id(&client), operation);
 
-    // An unknown scope must never degrade to publishing the monorepo unchanged.
+    // An unregistered suffix remains a literal ordinary ref, including on wire.
     jjosh(
         &client,
         &["bookmark", "create", "unknown#missing", "-r", "@"],
     );
-    let rejected = jjosh_unchecked(
+    jjosh(
         &client,
         &[
             "git",
@@ -1983,8 +2107,8 @@ fn push_selects_each_scope_independently_of_publication_remote() {
             "--allow-empty-description",
         ],
     );
-    assert!(!rejected.status.success());
-    assert_eq!(git(&publication, &["show-ref"]), refs);
+    assert_eq!(git(&publication, &["show", "unknown#missing:root.txt"]), "never publish the root\n");
+    assert_eq!(git(&publication, &["show", "unknown#missing:alpha/value.txt"]), "alpha edit\n");
 }
 
 fn add_routed_link(client: &Path, scope: &str, source: &Path, writable: bool) {
@@ -2016,15 +2140,14 @@ fn automatic_push_routes_a_wildcard_without_leaking_other_projects() {
         jjosh(
             &client,
             &[
-                "projection",
+                "git",
                 "remote",
                 "add",
                 remote,
                 source.to_str().unwrap(),
+                "--filter",
                 ":/src",
                 "--project",
-                scope,
-                "--mount",
                 scope,
                 "--push-url",
                 source.to_str().unwrap(),
@@ -2206,7 +2329,8 @@ fn automatic_push_rejects_selected_ambiguous_and_missing_routes_only() {
     );
     jjosh(
         &client,
-        &["projection", "remote", "attach", "second-writer", "beta"],
+        &["git", "remote", "attach", "second-writer", "--project", "beta",
+            "--like", "beta-upstream", "--writable"],
     );
     fs::write(client.join("alpha/value.txt"), "alpha edit\n").unwrap();
     fs::write(client.join("beta/value.txt"), "beta edit\n").unwrap();
@@ -2235,6 +2359,7 @@ fn automatic_push_rejects_selected_ambiguous_and_missing_routes_only() {
     assert_eq!(git(&fork, &["show-ref"]), fork_refs);
     assert_eq!(operation_id(&client), operation);
 
+    jjosh(&client, &["project", "add", "missing", "--path", "missing"]);
     jjosh(&client, &["bookmark", "create", "main#missing", "-r", "@"]);
     let operation = operation_id(&client);
     let missing = jjosh_unchecked(
@@ -2427,6 +2552,7 @@ fn configured_push_overrides_scope_routes_and_unscoped_refs_use_origin() {
             "git.push=origin",
             "git",
             "push",
+            "--source", "alpha-upstream",
             "--bookmark",
             "review#alpha",
             "--allow-empty-description",
@@ -2529,19 +2655,16 @@ fn add_tag_project(client: &Path, scope: &str, work: &Path, bare: &Path, native:
         jjosh(work, &["git", "init", "--colocate"]);
         jjosh(
             client,
-            &[
-                "native",
-                "import",
-                "--source",
-                &format!("{scope}={}", work.display()),
-            ],
+            &["project", "import", "--source",
+            &format!("{scope}={}", work.display()),],
         );
         let remote = format!("{scope}-upstream");
         jjosh(
             client,
             &["git", "remote", "add", &remote, bare.to_str().unwrap()],
         );
-        jjosh(client, &["projection", "remote", "attach", &remote, scope]);
+        jjosh(client, &["git", "remote", "attach", &remote, "--project", scope,
+            "--whole", "--writable"]);
         jjosh(
             client,
             &["git", "fetch", "--remote", &remote, "--branch", "main"],
@@ -2818,10 +2941,6 @@ fn fetched_unsigned_nested_tags_republish_annotations_and_exported_targets() {
                 destination.to_str().unwrap(),
             ],
         );
-        jjosh(
-            &client,
-            &["projection", "remote", "attach", "release", "alpha"],
-        );
         // --all explicitly permits publishing a tag already tracked elsewhere.
         jjosh(
             &client,
@@ -2830,6 +2949,7 @@ fn fetched_unsigned_nested_tags_republish_annotations_and_exported_targets() {
                 "push",
                 "--remote",
                 "release",
+                "--source", "alpha-upstream",
                 "--all",
                 "--allow-empty-description",
             ],
@@ -2893,7 +3013,7 @@ fn fetched_unsigned_nested_tags_republish_annotations_and_exported_targets() {
             );
             jjosh(
                 &client,
-                &["projection", "remote", "attach", "native-source", "alpha"],
+                &["git", "remote", "attach", "native-source", "--project", "alpha", "--whole"],
             );
             jjosh(
                 &client,

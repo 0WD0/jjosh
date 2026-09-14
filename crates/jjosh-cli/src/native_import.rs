@@ -262,5 +262,11 @@ fn map_view(mut view: View, scope: &str, ids: &HashMap<CommitId, CommitId>) -> V
     view.git_heads.clear();
     // Source workspaces become bookmark roles, not mounted target workspaces.
     view.wc_sparse_patterns.clear();
+    // This import wraps the complete source in one new outer project. Foreign
+    // identities and observation ownership are preserved by bundles, but cannot
+    // become active nested projects or local connection authority here.
+    view.project_state = Default::default();
+    view.remote_connections.clear();
+    view.project_observations.clear();
     view
 }

@@ -2,41 +2,44 @@ mod fetch;
 mod lifecycle;
 mod push;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, ensure};
 use gix::remote::Direction;
 use jj_cli::cli_util::{CommandHelper, WorkspaceCommandHelper};
 use jj_cli::command_error::{CommandError, user_error};
-use jj_cli::git_remote::{
-    GitPreparedPush, GitPushRoute, GitPushRouter, GitRemoteExtension, GitRemoteFetchOptions,
-    GitRemotePushOptions, GitRemoteSession, RemoteFuture,
-};
+use jj_cli::git_remote::{GitPreparedPush, GitPushRoute, GitPushRouter, GitRemoteExtension, GitRemoteFetchOptions, GitRemotePushOptions, GitRemoteSession, RemoteFuture};
 use jj_cli::ui::Ui;
-use jj_lib::git::{
-    GitFetchRefExpression, GitPushOptions, GitPushRefTargets, GitRemoteObservation, IgnoredRefspecs,
-};
+use jj_lib::backend::CommitId;
+use jj_lib::git::{GitFetchRefExpression, GitPushOptions, GitPushRefTargets, GitRemoteObservation, IgnoredRefspecs};
+use jj_lib::object_id::ObjectId as _;
+use jj_lib::project::{BindingId, BindingRecord, BindingTarget, ConnectionId, ConversionObservation, ProjectId, ProjectState, Representation};
 use jj_lib::ref_name::{RefName, RefNameBuf, RemoteName, RemoteNameBuf};
-use jj_lib::repo::{MutableRepo, Repo as _};
+use jj_lib::repo::{MutableRepo, Repo};
 use jj_lib::repo_path::RepoPathBuf;
 use jj_lib::str_util::StringExpression;
-use josh_changes::remote_config::RemoteConfig;
 use josh_core::filter::Filter;
 
 pub(crate) struct Extension;
 
+#[derive(Clone)]
 pub(crate) struct Project {
+    pub id: ProjectId,
     pub name: String,
     pub mount: RepoPathBuf,
-    pub native: bool,
+    pub label: String,
 }
 
+#[derive(Clone)]
 pub(crate) struct Session {
     pub name: RemoteNameBuf,
     pub git_path: PathBuf,
     pub project: Option<Project>,
-    pub josh: Option<RemoteConfig>,
+    pub binding: Option<(BindingId, BindingRecord)>,
+    pub connection: Option<ConnectionId>,
+    pub state: ProjectState,
+    filter: Option<Filter>,
 }
 
 struct PushCandidate {
@@ -45,597 +48,196 @@ struct PushCandidate {
 }
 
 struct DefaultPushRouter {
-    candidates: BTreeMap<String, Vec<PushCandidate>>,
+    state: ProjectState,
+    candidates: BTreeMap<ProjectId, Vec<PushCandidate>>,
 }
 
 impl GitPushRouter for DefaultPushRouter {
     fn route(&self, name: &RefName) -> Result<Option<GitPushRoute>, CommandError> {
-        let Some((destination, scope)) = name.as_str().rsplit_once('#') else {
-            return Ok(None);
+        let Some((destination, label)) = name.as_str().rsplit_once('#') else { return Ok(None); };
+        let Some(project) = self.state.resolve_label(label).map_err(user_error)? else { return Ok(None); };
+        self.state.validate_project(&project).map_err(user_error)?;
+        let candidates = self.candidates.get(&project).ok_or_else(|| user_error(format!("No default push remote for project label {label}; create a binding or use --remote with --source")))?;
+        let writable: Vec<_> = candidates.iter().filter_map(|candidate| match &candidate.read_only {
+            Ok(false) => Some(Ok(&candidate.name)),
+            Ok(true) => None,
+            Err(error) => Some(Err(user_error(format!("Remote {}: {error}", candidate.name.as_str())))),
+        }).collect::<Result<_, _>>()?;
+        let remote = match writable.as_slice() {
+            [remote] => *remote,
+            [] if candidates.len() == 1 => &candidates[0].name,
+            _ => return Err(user_error(format!("Ambiguous default push remote for project label {label}; use --remote"))),
         };
-        crate::native_project::validate_project(scope).map_err(user_error)?;
-        let candidates = self.candidates.get(scope).ok_or_else(|| {
-            user_error(format!(
-                "No default push remote for scope {scope}; attach a remote to this project or use --remote"
-            ))
-        })?;
-        let mut writable = None;
-        let mut writable_count = 0;
-        for candidate in candidates {
-            let read_only = candidate.read_only.as_ref().map_err(|error| {
-                user_error(format!("Remote {}: {error}", candidate.name.as_str()))
-            })?;
-            if !read_only {
-                writable = Some(&candidate.name);
-                writable_count += 1;
-            }
-        }
-        let remote = match writable_count {
-            1 => writable.unwrap(),
-            0 if candidates.len() == 1 => &candidates[0].name,
-            _ => {
-                let names = candidates
-                    .iter()
-                    .filter(|candidate| writable_count == 0 || candidate.read_only == Ok(false))
-                    .map(|candidate| candidate.name.as_str())
-                    .collect::<Vec<_>>();
-                return Err(user_error(format!(
-                    "Ambiguous default push remote for scope {scope}: {}; use --remote",
-                    names.join(", ")
-                )));
-            }
-        };
-        Ok(Some(GitPushRoute {
-            remote: remote.clone(),
-            name: destination.into(),
-        }))
+        Ok(Some(GitPushRoute { remote: remote.clone(), name: destination.into() }))
     }
 }
 
 pub(crate) fn remote_read_only(repo: &gix::Repository, remote: &RemoteName) -> Result<bool> {
-    repo.config_snapshot()
-        .try_boolean(format!("remote.{}.jjosh-readOnly", remote.as_str()).as_str())
+    repo.config_snapshot().try_boolean(format!("remote.{}.jjosh-readOnly", remote.as_str()).as_str())
         .with_context(|| format!("Invalid read-only policy for remote {}", remote.as_str()))
         .map(|value| value.unwrap_or(false))
 }
 
 pub(crate) fn config_string(repo: &gix::Repository, key: &str) -> Result<Option<String>> {
-    repo.config_snapshot()
-        .string(key)
-        .map(|value| {
-            std::str::from_utf8(&value)
-                .map(str::to_owned)
-                .map_err(Into::into)
-        })
-        .transpose()
-}
-
-/// Resolve one project layout from native state and its configured named peers.
-pub(crate) fn project_mount(
-    git_path: &std::path::Path,
-    project: &str,
-) -> Result<RepoPathBuf, CommandError> {
-    recorded_project_mount(git_path, project)?
-        .map(Ok)
-        .unwrap_or_else(|| crate::native_project::default_mount(project).map_err(user_error))
-}
-
-pub(crate) fn recorded_project_mount(
-    git_path: &std::path::Path,
-    project: &str,
-) -> Result<Option<RepoPathBuf>, CommandError> {
-    let transaction = crate::interop::open_josh_transaction(git_path, true)?;
-    let mut recorded = false;
-    transaction
-        .for_each_ref_prefixed(
-            &crate::native_project::project_ref_prefix(project),
-            |_, _| {
-                recorded = true;
-                Ok(())
-            },
-        )
-        .map_err(user_error)?;
-    let mut mount = if recorded {
-        Some(crate::native_project::load_mount(&transaction, project).map_err(user_error)?)
-    } else {
-        None
-    };
-    let git = gix::open(git_path).map_err(user_error)?;
-    for remote in git.remote_names() {
-        let Ok(name) = std::str::from_utf8(&remote) else {
-            continue;
-        };
-        if config_string(&git, &format!("remote.{name}.jjosh-project"))
-            .map_err(user_error)?
-            .as_deref()
-            != Some(project)
-        {
-            continue;
-        }
-        if let Some(path) =
-            config_string(&git, &format!("remote.{name}.jjosh-mount")).map_err(user_error)?
-        {
-            let path = crate::native_project::parse_mount(&path).map_err(user_error)?;
-            if mount.as_ref().is_some_and(|existing| existing != &path) {
-                return Err(user_error(format!(
-                    "Project {project} has inconsistent mounts in its named remotes"
-                )));
-            }
-            mount = Some(path);
-        }
-    }
-    Ok(mount)
-}
-
-/// Validate a complete proposed attachment before changing any configuration.
-pub(crate) fn validate_attachment(
-    repo_path: &std::path::Path,
-    remote: &str,
-    project: &str,
-    mount: &jj_lib::repo_path::RepoPath,
-    filter: Option<Filter>,
-) -> Result<()> {
-    crate::native_project::validate_project(project)?;
-    let repo = gix::open(repo_path)?;
-    ensure!(
-        repo.object_hash() == gix::hash::Kind::Sha1,
-        "Project attachment requires SHA-1"
-    );
-    let project_key = format!("remote.{remote}.jjosh-project");
-    let mount_key = format!("remote.{remote}.jjosh-mount");
-    if let Some(existing) = config_string(&repo, &project_key)? {
-        ensure!(
-            existing == project,
-            "Remote {remote} is already attached to project {existing}"
-        );
-    }
-    if let Some(existing) = config_string(&repo, &mount_key)? {
-        ensure!(
-            existing == mount.as_internal_file_string(),
-            "Remote {remote} is already mounted at {existing}"
-        );
-    }
-    if let Some(recorded) =
-        recorded_project_mount(repo_path, project).map_err(|error| anyhow::anyhow!(error.error))?
-    {
-        ensure!(
-            recorded.as_ref() == mount,
-            "Project {project} is already mounted at {}",
-            recorded.as_internal_file_string()
-        );
-    }
-    let transaction = crate::interop::open_josh_transaction(repo_path, true)
-        .map_err(|error| anyhow::anyhow!(error.error))?;
-    if let Some(owner) = crate::native_project::project_for_mount(&transaction, mount)? {
-        ensure!(
-            owner == project,
-            "Mount belongs to project {owner}, not {project}"
-        );
-    }
-    if crate::native_project::native_project_for_mount(&transaction, mount)?.is_some() {
-        ensure!(
-            filter.is_none_or(|filter| {
-                filter == Filter::new().prefix(mount.as_internal_file_string())
-            }),
-            "A native whole-project remote cannot apply a source-changing Josh filter"
-        );
-    }
-    if let Some(filter) = filter {
-        for name in repo.remote_names() {
-            let Ok(name) = std::str::from_utf8(&name) else {
-                continue;
-            };
-            if name == remote
-                || config_string(&repo, &format!("remote.{name}.jjosh-project"))?.as_deref()
-                    != Some(project)
-            {
-                continue;
-            }
-            if let Some(peer) =
-                josh_changes::remote_config::try_read_remote_config(repo_path, name)?
-            {
-                ensure!(
-                    peer.semantic_filter() == filter,
-                    "Project {project} has a different source filter in remote {name}"
-                );
-            }
-        }
-    }
-    Ok(())
-}
-
-pub(crate) fn attachment_settings<'a>(
-    project: &'a str,
-    mount: &'a jj_lib::repo_path::RepoPath,
-    read_only: bool,
-    base: Option<&'a str>,
-) -> Vec<(&'static str, &'a str)> {
-    let mut settings = vec![
-        ("jjosh-project", project),
-        ("jjosh-mount", mount.as_internal_file_string()),
-        ("jjosh-readOnly", if read_only { "true" } else { "false" }),
-    ];
-    if let Some(base) = base {
-        settings.push(("jjosh-base", base));
-    }
-    settings
-}
-
-/// Bind layout identity to an existing named remote.
-pub(crate) fn configure_attachment(
-    repo_path: &std::path::Path,
-    remote: &str,
-    project: &str,
-    mount: &jj_lib::repo_path::RepoPath,
-    read_only: bool,
-    base: Option<&str>,
-) -> Result<()> {
-    let repo = gix::open(repo_path)?;
-    repo.find_remote(remote)?;
-    let filter = josh_changes::remote_config::try_read_remote_config(repo_path, remote)?
-        .map(|config| config.semantic_filter());
-    validate_attachment(repo_path, remote, project, mount, filter)?;
-    let mut config = repo.config_file_mut(repo.config_path(gix::config::Source::Local)?)?;
-    for (key, value) in attachment_settings(project, mount, read_only, base) {
-        config.set_raw_value(format!("remote.{remote}.{key}").as_str(), value)?;
-    }
-    config.commit()?;
-    Ok(())
+    repo.config_snapshot().string(key).map(|value| std::str::from_utf8(&value).map(str::to_owned).map_err(Into::into)).transpose()
 }
 
 pub(crate) fn raw_ref_prefix(repo: &gix::Repository, endpoint: &str) -> Result<String> {
-    let key = gix_object::compute_hash(
-        repo.object_hash(),
-        gix_object::Kind::Blob,
-        endpoint.as_bytes(),
-    )?;
+    let key = gix_object::compute_hash(repo.object_hash(), gix_object::Kind::Blob, endpoint.as_bytes())?;
     Ok(format!("refs/jjosh/remote/{key}/"))
 }
 
-/// Use one endpoint identity for initial context, later observations, and leases.
-pub(crate) fn remote_endpoint(
-    remote: &gix::Remote<'_>,
-    direction: Direction,
-    native: bool,
-) -> Result<String> {
+/// Endpoint identity is independent of aliases and conversion identity.
+pub(crate) fn remote_endpoint(remote: &gix::Remote<'_>, direction: Direction, native: bool) -> Result<String> {
     let repo = remote.repo();
-    let mut url = remote
-        .url(direction)
-        .context("Remote has no selected endpoint")?
-        .clone();
+    let mut url = remote.url(direction).context("Remote has no selected endpoint")?.clone();
     url.canonicalize(repo.workdir().unwrap_or_else(|| repo.common_dir()))?;
-    let native_workspace = native
-        && url.scheme == gix::url::Scheme::File
-        && gix::path::from_bstr(&url.path).join(".jj").is_dir();
+    let native_workspace = native && url.scheme == gix::url::Scheme::File && gix::path::from_bstr(&url.path).join(".jj").is_dir();
     if !native_workspace {
-        // Git transport resolves worktrees to their Git directory. A native jj
-        // workspace is instead opened by jj and need not contain a .git entry.
         url = remote.sanitized_url_and_version(direction)?.0;
         url.canonicalize(repo.workdir().unwrap_or_else(|| repo.common_dir()))?;
     }
-    if url.scheme == gix::url::Scheme::File {
-        url.serialize_alternative_form = false;
-    }
+    if url.scheme == gix::url::Scheme::File { url.serialize_alternative_form = false; }
     String::from_utf8(url.to_bstring().into()).context("Remote endpoint is not UTF-8")
 }
 
 impl GitRemoteExtension for Extension {
-    fn prepare_remote_management(
-        &self,
-        workspace: &WorkspaceCommandHelper,
-        old: &RemoteName,
-        new: Option<&RemoteName>,
-    ) -> Result<jj_lib::git::GitRemoteManagementOptions, CommandError> {
-        lifecycle::prepare(workspace, old, new)
+    fn capabilities(&self) -> &'static [&'static str] { &["jjosh-v1"] }
+
+    fn prepare_binding(&self, workspace: &WorkspaceCommandHelper, remote: &RemoteName, connection_id: &ConnectionId, args: &jj_cli::git_remote::GitRemoteBindingArgs) -> Result<BindingRecord, CommandError> {
+        lifecycle::prepare_binding(workspace, remote, connection_id, args)
     }
 
-    fn open(
-        &self,
-        command: &CommandHelper,
-        workspace: &WorkspaceCommandHelper,
-        remote: &RemoteName,
-    ) -> Result<Box<dyn GitRemoteSession>, CommandError> {
+    fn open(&self, _command: &CommandHelper, workspace: &WorkspaceCommandHelper, remote: &RemoteName) -> Result<Box<dyn GitRemoteSession>, CommandError> {
+        let backend = jj_lib::git::get_git_backend(workspace.repo().store())?;
+        Ok(Box::new(Session::open(&backend.git_repo(), backend.git_repo_path().to_owned(), workspace.repo().view().project_state(), remote)?))
+    }
+
+    fn default_push_router(&self, workspace: &WorkspaceCommandHelper) -> Result<Option<Box<dyn GitPushRouter>>, CommandError> {
         let backend = jj_lib::git::get_git_backend(workspace.repo().store())?;
         let git = backend.git_repo();
-        let git_path = backend.git_repo_path().to_owned();
-        let josh = josh_changes::remote_config::try_read_remote_config(&git_path, remote.as_str())
-            .map_err(user_error)?;
-        let project_name =
-            config_string(&git, &format!("remote.{}.jjosh-project", remote.as_str()))
-                .map_err(user_error)?;
-        if (josh.is_some() || project_name.is_some()) && git.object_hash() != gix::hash::Kind::Sha1
-        {
-            return Err(user_error(
-                "Josh and native project conversion require a SHA-1 repository",
-            ));
-        }
-        let project = if let Some(name) = project_name {
-            crate::native_project::validate_project(&name).map_err(user_error)?;
-            let transaction = crate::interop::open_josh_transaction(&git_path, true)?;
-            let mount = project_mount(&git_path, &name)?;
-            if let Some(owner) = crate::native_project::project_for_mount(&transaction, &mount)
-                .map_err(user_error)?
-                && owner != name {
-                    return Err(user_error(format!(
-                        "Mount {} belongs to project {owner}, not {name}",
-                        mount.as_internal_file_string(),
-                    )));
-                }
-            let mut native = crate::native_project::native_project_for_mount(&transaction, &mount)
-                .map_err(user_error)?
-                .is_some();
-            if !native {
-                let url = git
-                    .find_remote(remote.as_str())
-                    .map_err(user_error)?
-                    .url(Direction::Fetch)
-                    .cloned()
-                    .ok_or_else(|| user_error("Project remote has no fetch URL"))?;
-                if url.scheme == gix::url::Scheme::File {
-                    let path = gix::path::from_bstr(&url.path);
-                    native = command.cwd().join(path).join(".jj").is_dir();
-                }
-            }
-            if native && let Some(config) = &josh {
-                let filter = config.semantic_filter();
-                if filter != Filter::new()
-                    && filter != Filter::new().prefix(mount.as_internal_file_string())
-                {
-                    return Err(user_error(
-                        "A native whole-project remote cannot apply a source-changing Josh filter",
-                    ));
-                }
-            }
-            Some(Project {
-                name,
-                mount,
-                native,
-            })
-        } else {
-            None
-        };
-        Ok(Box::new(Session {
-            name: remote.to_owned(),
-            git_path,
-            project,
-            josh,
-        }))
-    }
-
-    fn default_push_router(
-        &self,
-        workspace: &WorkspaceCommandHelper,
-    ) -> Result<Option<Box<dyn GitPushRouter>>, CommandError> {
-        let git = jj_lib::git::get_git_backend(workspace.repo().store())?.git_repo();
-        let mut candidates: BTreeMap<String, Vec<PushCandidate>> = BTreeMap::new();
+        let state = workspace.repo().view().project_state();
+        let mut candidates: BTreeMap<ProjectId, Vec<PushCandidate>> = BTreeMap::new();
         for name in jj_lib::git::get_all_remote_names(workspace.repo().store())? {
-            let Some(project) =
-                config_string(&git, &format!("remote.{}.jjosh-project", name.as_str()))
-                    .map_err(user_error)?
-            else {
-                continue;
-            };
-            let read_only = remote_read_only(&git, &name).map_err(|error| format!("{error:#}"));
-            candidates
-                .entry(project)
-                .or_default()
-                .push(PushCandidate { name, read_only });
+            let Some(connection) = config_string(&git, &format!("remote.{}.jjosh-connectionId", name.as_str())).map_err(user_error)?
+                .and_then(|id| ConnectionId::try_from_hex(&id)) else { continue; };
+            let projects: std::collections::BTreeSet<_> = state.bindings.values().flat_map(|value| value.adds().flatten())
+                .filter(|record| record.connection_id == connection)
+                .filter_map(|record| match &record.target { BindingTarget::Project(id) => Some(id.clone()), BindingTarget::RepositoryView => None }).collect();
+            for project in projects {
+                let read_only = Session::open(&git, backend.git_repo_path().to_owned(), state, &name)
+                    .map_err(|error| error.error.to_string())
+                    .and_then(|_| remote_read_only(&git, &name).map_err(|error| format!("{error:#}")));
+                candidates.entry(project).or_default().push(PushCandidate { read_only, name: name.clone() });
+            }
         }
-        Ok(Some(Box::new(DefaultPushRouter { candidates })))
+        Ok(Some(Box::new(DefaultPushRouter { state: state.clone(), candidates })))
     }
 }
 
 impl Session {
-    /// Resolve project conversion from the selected reference, not the destination.
-    fn push_scope(&self, git: &gix::Repository, name: &str) -> Result<Session, CommandError> {
-        crate::native_project::validate_project(name).map_err(user_error)?;
-        if git.object_hash() != gix::hash::Kind::Sha1 {
-            return Err(user_error("Scoped project conversion requires SHA-1"));
-        }
-        let mount = project_mount(&self.git_path, name)?;
-        let transaction = crate::interop::open_josh_transaction(&self.git_path, true)?;
-        let native = crate::native_project::native_project_for_mount(&transaction, &mount)
-            .map_err(user_error)?;
-        if let Some(native) = native {
-            if native != name {
-                return Err(user_error(format!(
-                    "Mount belongs to project {native}, not {name}"
-                )));
-            }
-            return Ok(Session {
-                name: self.name.clone(),
-                git_path: self.git_path.clone(),
-                project: Some(Project {
-                    name: name.to_owned(),
-                    mount,
-                    native: true,
-                }),
-                josh: None,
-            });
-        }
-        let mut candidates = Vec::new();
-        let mut semantic_filter = None;
-        for remote in git.remote_names() {
-            let Ok(remote) = std::str::from_utf8(&remote) else {
-                continue;
-            };
-            if config_string(git, &format!("remote.{remote}.jjosh-project"))
-                .map_err(user_error)?
-                .as_deref()
-                != Some(name)
-            {
-                continue;
-            }
-            let config =
-                josh_changes::remote_config::try_read_remote_config(&self.git_path, remote)
-                    .map_err(user_error)?;
-            if let Some(config) = &config {
-                let filter = config.semantic_filter();
-                if semantic_filter.is_some_and(|known| known != filter) {
-                    return Err(user_error(format!(
-                        "Project {name} has inconsistent source filters"
-                    )));
+    fn open(git: &gix::Repository, git_path: PathBuf, state: &ProjectState, name: &RemoteName) -> Result<Self, CommandError> {
+        git.find_remote(name.as_str()).map_err(user_error)?;
+        let connection = config_string(git, &format!("remote.{}.jjosh-connectionId", name.as_str())).map_err(user_error)?
+            .map(|id| ConnectionId::try_from_hex(&id).ok_or_else(|| user_error("Invalid remote connection identity"))).transpose()?;
+        if let Some(id) = &connection {
+            for other in git.remote_names() {
+                let other = std::str::from_utf8(&other).map_err(user_error)?;
+                if other != name.as_str() && config_string(git, &format!("remote.{other}.jjosh-connectionId")).map_err(user_error)?.as_deref() == Some(id.hex().as_str()) {
+                    return Err(user_error("Multiple remote aliases claim the same connection identity"));
                 }
-                semantic_filter = Some(filter);
             }
-            let has_base = config_string(git, &format!("remote.{remote}.jjosh-base"))
-                .map_err(user_error)?
-                .is_some();
-            candidates.push((remote.to_owned(), config, has_base));
         }
-        if candidates.is_empty() {
-            if crate::native_project::is_registered(&transaction, name).map_err(user_error)? {
-                return Ok(Session {
-                    name: self.name.clone(),
-                    git_path: self.git_path.clone(),
-                    project: Some(Project {
-                        name: name.to_owned(),
-                        mount,
-                        native: false,
-                    }),
-                    josh: None,
-                });
+        let binding = connection.as_ref().map(|id| state.binding_for_connection(id).map_err(user_error)).transpose()?.flatten().map(|(id, record)| (id, record.clone()));
+        let required = config_string(git, &format!("remote.{}.jjosh-requiredCapability", name.as_str())).map_err(user_error)?;
+        if required.as_deref().is_some_and(|capability| capability != "jjosh-v1") { return Err(user_error("Unknown required remote capability")); }
+        if required.is_some() && binding.is_none() { return Err(user_error("Managed connection has no active binding in this operation")); }
+        if binding.is_none() && (config_string(git, &format!("remote.{}.jjosh-project", name.as_str())).map_err(user_error)?.is_some() || git_path.join("josh/remotes").join(format!("{}.josh", name.as_str())).exists()) {
+            return Err(user_error("Legacy remote conversion requires explicit `project migrate`"));
+        }
+        let mut project = None;
+        let mut filter = None;
+        if let Some((_, record)) = &binding {
+            if git.object_hash() != gix::hash::Kind::Sha1 { return Err(user_error("Project conversion requires SHA-1")); }
+            if let BindingTarget::Project(id) = &record.target {
+                state.validate_project(id).map_err(user_error)?;
+                let definition = state.projects.get(id).and_then(|value| value.as_resolved()).and_then(Option::as_ref).ok_or_else(|| user_error("Project definition is unavailable"))?;
+                let labels: Vec<_> = state.labels.iter().filter_map(|(label, value)| (value.as_resolved().and_then(Option::as_ref) == Some(id)).then_some(label)).collect();
+                let [label] = labels.as_slice() else { return Err(user_error("Project transport requires one unambiguous registered reference label")); };
+                project = Some(Project { id: id.clone(), name: definition.name.clone(), mount: definition.canonical_root.clone(), label: (*label).clone() });
             }
-            return Err(user_error(format!(
-                "Unknown reference scope {name}: no recorded project conversion"
-            )));
+            filter = if record.representation == Representation::Whole { None } else {
+                Some(crate::binding_config::filter(&record.representation).map_err(user_error)?)
+            };
+            if let (Some(value), Some(project)) = (filter, &project) { filter = Some(value.prefix(project.mount.as_internal_file_string())); }
         }
-        // Explicit source configurations carry reverse-filter context. A plain
-        // publication endpoint does not override that context with its own layout.
-        if semantic_filter.is_some() {
-            candidates.retain(|(_, config, _)| config.is_some());
-        }
-        let selected = candidates
-            .iter()
-            .position(|(remote, _, _)| remote == self.name.as_str())
-            .or_else(|| {
-                let mut bases = candidates
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, (_, _, base))| *base);
-                let (index, _) = bases.next()?;
-                bases.next().is_none().then_some(index)
-            })
-            .or_else(|| (candidates.len() == 1).then_some(0))
-            .ok_or_else(|| user_error(format!("Project {name} has ambiguous source contexts")))?;
-        let (source, josh, _) = candidates.swap_remove(selected);
-        Ok(Session {
-            name: source.into(),
-            git_path: self.git_path.clone(),
-            project: Some(Project {
-                name: name.to_owned(),
-                mount,
-                native: false,
-            }),
-            josh,
-        })
+        Ok(Self { name: name.to_owned(), git_path, project, binding, connection, state: state.clone(), filter })
     }
 
-    /// Resolve endpoints and transport settings exclusively from the named Git remote.
-    pub fn remote<'repo>(
-        &self,
-        repo: &'repo gix::Repository,
-        direction: Direction,
-    ) -> Result<gix::Remote<'repo>> {
-        if matches!(direction, Direction::Push) {
-            ensure!(
-                !remote_read_only(repo, &self.name)?,
-                "Remote {} has no publication endpoint; configure a writable named remote",
-                self.name.as_str(),
-            );
+    fn push_scope(&self, git: &gix::Repository, project: Option<&ProjectId>, source: Option<&str>) -> Result<Self, CommandError> {
+        let selected = if let Some(source) = source {
+            let selected = Self::open(git, self.git_path.clone(), &self.state, RemoteName::new(source))?;
+            if selected.binding.is_none() { return Err(user_error("--source must select an active conversion binding")); }
+            if self.binding.is_some() && self.binding.as_ref().map(|(id, _)| id) != selected.binding.as_ref().map(|(id, _)| id) {
+                return Err(user_error("Destination has its own immutable binding; --source cannot replace its representation"));
+            }
+            selected
+        } else { self.clone() };
+        if selected.project.as_ref().map(|value| &value.id) != project {
+            return Err(user_error("Selected reference project does not match the destination/source binding"));
         }
+        if project.is_some() && selected.binding.is_none() { return Err(user_error("Project publication requires a destination binding or explicit --source")); }
+        Ok(selected)
+    }
+
+    pub fn whole(&self) -> bool { self.binding.as_ref().is_some_and(|(_, record)| record.representation == Representation::Whole) }
+    pub fn binding_id(&self) -> &BindingId { &self.binding.as_ref().expect("converted operation has binding").0 }
+
+    /// Offline native imports carry reusable lossless evidence, not a project mode.
+    async fn anchors(&self, repo: &dyn Repo, transaction: &josh_core::cache::Transaction) -> Result<HashMap<CommitId, CommitId>, CommandError> {
+        let mut known = crate::native_project::anchors(repo, transaction, self.binding_id()).await.map_err(user_error)?;
+        if let Some(project) = &self.project {
+            for (id, value) in &self.state.bindings {
+                let Some(record) = value.as_resolved().and_then(Option::as_ref) else { continue; };
+                if id == self.binding_id() || record.target != BindingTarget::Project(project.id.clone()) || record.representation != Representation::Whole { continue; }
+                if !crate::native_project::is_offline_binding(transaction, id).map_err(user_error)? { continue; }
+                for (raw, canonical) in crate::native_project::anchors(repo, transaction, id).await.map_err(user_error)? {
+                    if known.get(&raw).is_some_and(|previous| previous != &canonical) { return Err(user_error("Ambiguous offline native correspondence")); }
+                    known.insert(raw, canonical);
+                }
+            }
+        }
+        Ok(known)
+    }
+
+    fn evidence(&self, connection: &ConnectionId, endpoint: &str, raw_ref: String, terms: Vec<jj_lib::project::ConversionTerm>, base: Option<String>, generation: Option<String>) -> ConversionObservation {
+        let (id, binding) = self.binding.as_ref().expect("converted observation has a binding");
+        ConversionObservation { binding_id: id.clone(), binding: binding.clone(), connection_id: connection.clone(), endpoint: endpoint.to_owned(), raw_ref, terms, base, generation }
+    }
+
+    pub fn remote<'repo>(&self, repo: &'repo gix::Repository, direction: Direction) -> Result<gix::Remote<'repo>> {
+        if matches!(direction, Direction::Push) { ensure!(!remote_read_only(repo, &self.name)?, "Remote {} has no publication endpoint; configure a writable named remote", self.name.as_str()); }
         let remote = repo.find_remote(self.name.as_str())?;
-        ensure!(
-            remote.urls(direction).count() == 1,
-            "Remote {} must have exactly one selected endpoint",
-            self.name.as_str()
-        );
+        ensure!(remote.urls(direction).count() == 1, "Remote {} must have exactly one selected endpoint", self.name.as_str());
         Ok(remote)
     }
-
-    pub fn endpoint_url(&self, repo: &gix::Repository, direction: Direction) -> Result<String> {
-        let remote = self.remote(repo, direction)?;
-        remote_endpoint(
-            &remote,
-            direction,
-            self.project.as_ref().is_some_and(|project| project.native),
-        )
-    }
-
-    /// The complete source-to-canonical Git filter. Native conversion is separate.
-    pub fn filter(&self) -> Option<Filter> {
-        if self.project.as_ref().is_some_and(|project| project.native) {
-            None
-        } else if let Some(config) = &self.josh {
-            Some(config.semantic_filter())
-        } else {
-            self.project
-                .as_ref()
-                .map(|project| Filter::new().prefix(project.mount.as_internal_file_string()))
-        }
-    }
-
-    /// Endpoint provenance is independent of both remote aliases and canonical IDs.
-    pub fn raw_prefix(&self, repo: &gix::Repository, endpoint: &str) -> Result<String> {
-        raw_ref_prefix(repo, endpoint)
-    }
+    pub fn endpoint_url(&self, repo: &gix::Repository, direction: Direction) -> Result<String> { remote_endpoint(&self.remote(repo, direction)?, direction, self.whole()) }
+    pub fn filter(&self) -> Option<Filter> { self.filter }
+    pub fn raw_prefix(&self, repo: &gix::Repository, endpoint: &str) -> Result<String> { raw_ref_prefix(repo, endpoint) }
 }
 
 impl GitRemoteSession for Session {
-    fn local_name(&self, source: &str) -> RefNameBuf {
-        self.project.as_ref().map_or_else(
-            || source.into(),
-            |project| crate::ref_names::local_name(&project.name, source).into(),
-        )
-    }
-
+    fn local_name(&self, source: &str) -> RefNameBuf { self.project.as_ref().map_or_else(|| source.into(), |project| crate::ref_names::local_name(&project.label, source).into()) }
     fn source_name<'a>(&self, local: &'a RefName) -> Option<&'a str> {
-        match &self.project {
-            Some(project) => crate::ref_names::unscoped_name(&project.name, local.as_str()),
-            None => Some(local.as_str()),
-        }
+        match &self.project { Some(project) => crate::ref_names::unscoped_name(&project.label, local.as_str()), None => Some(local.as_str()) }
     }
-
     fn push_name<'a>(&self, local: &'a RefName) -> &'a str {
-        local
-            .as_str()
-            .rsplit_once('#')
-            .map_or(local.as_str(), |(name, _)| name)
+        local.as_str().rsplit_once('#').filter(|(_, label)| self.state.resolve_label(label).ok().flatten().is_some()).map_or(local.as_str(), |(name, _)| name)
     }
-
     fn default_fetch_bookmarks(&self) -> Result<(IgnoredRefspecs, StringExpression), CommandError> {
         let repo = gix::open(&self.git_path).map_err(user_error)?;
         jj_lib::git::load_default_fetch_bookmarks(&self.name, &repo).map_err(Into::into)
     }
-
-    fn fetch<'a>(
-        &'a self,
-        ui: &'a mut Ui,
-        command: &'a CommandHelper,
-        repo: &'a mut MutableRepo,
-        selection: GitFetchRefExpression,
-        options: &'a GitRemoteFetchOptions,
-    ) -> RemoteFuture<'a, Vec<GitRemoteObservation>> {
-        Box::pin(fetch::run(self, ui, command, repo, selection, options))
-    }
-
-    fn prepare_push<'a>(
-        &'a self,
-        _ui: &'a mut Ui,
-        _command: &'a CommandHelper,
-        repo: &'a mut MutableRepo,
-        targets: &'a GitPushRefTargets,
-        options: &'a GitPushOptions,
-        preparation: &'a GitRemotePushOptions,
-        dry_run: bool,
-    ) -> RemoteFuture<'a, Box<dyn GitPreparedPush>> {
-        Box::pin(push::prepare(
-            self,
-            repo,
-            targets,
-            options,
-            preparation,
-            dry_run,
-        ))
-    }
+    fn fetch<'a>(&'a self, ui: &'a mut Ui, command: &'a CommandHelper, repo: &'a mut MutableRepo, selection: GitFetchRefExpression, options: &'a GitRemoteFetchOptions) -> RemoteFuture<'a, Vec<GitRemoteObservation>> { Box::pin(fetch::run(self, ui, command, repo, selection, options)) }
+    fn prepare_push<'a>(&'a self, _ui: &'a mut Ui, _command: &'a CommandHelper, repo: &'a mut MutableRepo, targets: &'a GitPushRefTargets, options: &'a GitPushOptions, preparation: &'a GitRemotePushOptions, dry_run: bool) -> RemoteFuture<'a, Box<dyn GitPreparedPush>> { Box::pin(push::prepare(self, repo, targets, options, preparation, dry_run)) }
 }

@@ -14,6 +14,7 @@
 
 use jj_lib::git;
 use jj_lib::git::GitSettings;
+use jj_lib::repo::Repo as _;
 
 use crate::cli_util::CommandHelper;
 use crate::command_error::CommandError;
@@ -49,6 +50,9 @@ pub async fn cmd_git_import(
         return Ok(());
     }
 
+    for remote in git::get_all_remote_names(workspace_command.repo().store())? {
+        crate::git_remote::check_remote(command, &workspace_command, &remote)?;
+    }
     let git_settings = GitSettings::from_settings(workspace_command.settings())?;
     let remote_settings = workspace_command.settings().remote_settings()?;
     let import_options = load_git_import_options(ui, &git_settings, &remote_settings)?;

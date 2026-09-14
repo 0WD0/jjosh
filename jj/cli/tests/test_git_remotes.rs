@@ -14,7 +14,6 @@
 
 use std::fs;
 use std::io::Write as _;
-use std::path::Path;
 use std::path::PathBuf;
 
 use indoc::indoc;
@@ -23,25 +22,6 @@ use testutils::git;
 
 use crate::common::TestEnvironment;
 
-fn read_git_config(repo_path: &Path) -> String {
-    let git_config = fs::read_to_string(repo_path.join(".jj/repo/store/git/config"))
-        .or_else(|_| fs::read_to_string(repo_path.join(".git/config")))
-        .unwrap();
-    git_config
-        .split_inclusive('\n')
-        .filter(|line| {
-            // Filter out non‐portable values.
-            [
-                "\tfilemode =",
-                "\tsymlinks =",
-                "\tignorecase =",
-                "\tprecomposeunicode =",
-            ]
-            .iter()
-            .all(|prefix| !line.to_ascii_lowercase().starts_with(prefix))
-        })
-        .collect()
-}
 
 #[test]
 fn test_git_remotes() {
@@ -88,19 +68,6 @@ fn test_git_remotes() {
     [EOF]
     [exit status: 1]
     ");
-    insta::assert_snapshot!(read_git_config(work_dir.root()), @r#"
-    [core]
-    	bare = true
-    	logallrefupdates = false
-    	repositoryformatversion = 0
-    [remote "bar"]
-    	url = http://example.com/repo/bar
-    	fetch = +refs/heads/*:refs/remotes/bar/*
-    [remote "baz"]
-    	url = http://example.com/repo/baz
-    	pushurl = git@example.com:repo/baz
-    	fetch = +refs/heads/*:refs/remotes/baz/*
-    "#);
 
     // named remote that cannot be parsed
     work_dir.write_file(
@@ -355,15 +322,6 @@ fn test_git_remote_set_url() {
     foo http://example.com/repo/bar
     [EOF]
     ");
-    insta::assert_snapshot!(read_git_config(work_dir.root()), @r#"
-    [core]
-    	bare = true
-    	logallrefupdates = false
-    	repositoryformatversion = 0
-    [remote "foo"]
-    	url = http://example.com/repo/bar
-    	fetch = +refs/heads/*:refs/remotes/foo/*
-    "#);
     // explicitly set the push url to the same value as fetch works.
     let output = work_dir.run_jj([
         "git",
@@ -374,16 +332,10 @@ fn test_git_remote_set_url() {
         "https://example.com/repo/bar",
     ]);
     insta::assert_snapshot!(output, @"");
-    insta::assert_snapshot!(read_git_config(work_dir.root()), @r#"
-    [core]
-    	bare = true
-    	logallrefupdates = false
-    	repositoryformatversion = 0
-    [remote "foo"]
-    	url = http://example.com/repo/bar
-    	pushurl = https://example.com/repo/bar
-    	fetch = +refs/heads/*:refs/remotes/foo/*
-    "#);
+    insta::assert_snapshot!(work_dir.run_jj(["git", "remote", "list"]), @"
+    foo http://example.com/repo/bar (push: https://example.com/repo/bar)
+    [EOF]
+    ");
     let output = work_dir.run_jj([
         "git",
         "remote",
@@ -393,16 +345,10 @@ fn test_git_remote_set_url() {
         "git@example.com:repo/bar",
     ]);
     insta::assert_snapshot!(output, @"");
-    insta::assert_snapshot!(read_git_config(work_dir.root()), @r#"
-    [core]
-    	bare = true
-    	logallrefupdates = false
-    	repositoryformatversion = 0
-    [remote "foo"]
-    	url = http://example.com/repo/bar
-    	pushurl = git@example.com:repo/bar
-    	fetch = +refs/heads/*:refs/remotes/foo/*
-    "#);
+    insta::assert_snapshot!(work_dir.run_jj(["git", "remote", "list"]), @"
+    foo http://example.com/repo/bar (push: git@example.com:repo/bar)
+    [EOF]
+    ");
     let output = work_dir.run_jj([
         "git",
         "remote",
@@ -412,16 +358,10 @@ fn test_git_remote_set_url() {
         "http://example.com/repo/bar2",
     ]);
     insta::assert_snapshot!(output, @"");
-    insta::assert_snapshot!(read_git_config(work_dir.root()), @r#"
-    [core]
-    	bare = true
-    	logallrefupdates = false
-    	repositoryformatversion = 0
-    [remote "foo"]
-    	url = http://example.com/repo/bar2
-    	pushurl = git@example.com:repo/bar
-    	fetch = +refs/heads/*:refs/remotes/foo/*
-    "#);
+    insta::assert_snapshot!(work_dir.run_jj(["git", "remote", "list"]), @"
+    foo http://example.com/repo/bar2 (push: git@example.com:repo/bar)
+    [EOF]
+    ");
     let output = work_dir.run_jj([
         "git",
         "remote",
@@ -430,16 +370,10 @@ fn test_git_remote_set_url() {
         "http://example.com/repo/bar",
     ]);
     insta::assert_snapshot!(output, @"");
-    insta::assert_snapshot!(read_git_config(work_dir.root()), @r#"
-    [core]
-    	bare = true
-    	logallrefupdates = false
-    	repositoryformatversion = 0
-    [remote "foo"]
-    	url = http://example.com/repo/bar
-    	pushurl = git@example.com:repo/bar
-    	fetch = +refs/heads/*:refs/remotes/foo/*
-    "#);
+    insta::assert_snapshot!(work_dir.run_jj(["git", "remote", "list"]), @"
+    foo http://example.com/repo/bar (push: git@example.com:repo/bar)
+    [EOF]
+    ");
     let output = work_dir.run_jj([
         "git",
         "remote",
@@ -469,16 +403,10 @@ fn test_git_remote_set_url() {
         "git@example.com:/repo/baz",
     ]);
     insta::assert_snapshot!(output, @"");
-    insta::assert_snapshot!(read_git_config(work_dir.root()), @r#"
-    [core]
-    	bare = true
-    	logallrefupdates = false
-    	repositoryformatversion = 0
-    [remote "foo"]
-    	url = https://example.com/repo/baz
-    	pushurl = git@example.com:/repo/baz
-    	fetch = +refs/heads/*:refs/remotes/foo/*
-    "#);
+    insta::assert_snapshot!(work_dir.run_jj(["git", "remote", "list"]), @"
+    foo https://example.com/repo/baz (push: git@example.com:/repo/baz)
+    [EOF]
+    ");
     let output = work_dir.run_jj([
         "git",
         "remote",
@@ -490,16 +418,10 @@ fn test_git_remote_set_url() {
         "git@example.com:/repo/bar",
     ]);
     insta::assert_snapshot!(output, @"");
-    insta::assert_snapshot!(read_git_config(work_dir.root()), @r#"
-    [core]
-    	bare = true
-    	logallrefupdates = false
-    	repositoryformatversion = 0
-    [remote "foo"]
-    	url = https://example.com/repo/bar
-    	pushurl = git@example.com:/repo/bar
-    	fetch = +refs/heads/*:refs/remotes/foo/*
-    "#);
+    insta::assert_snapshot!(work_dir.run_jj(["git", "remote", "list"]), @"
+    foo https://example.com/repo/bar (push: git@example.com:/repo/bar)
+    [EOF]
+    ");
 }
 
 #[test]
@@ -574,18 +496,6 @@ fn test_git_remote_rename() {
     baz http://example.com/repo/baz
     [EOF]
     ");
-    insta::assert_snapshot!(read_git_config(work_dir.root()), @r#"
-    [core]
-    	bare = true
-    	logallrefupdates = false
-    	repositoryformatversion = 0
-    [remote "baz"]
-    	url = http://example.com/repo/baz
-    	fetch = +refs/heads/*:refs/remotes/baz/*
-    [remote "bar"]
-    	url = http://example.com/repo/foo
-    	fetch = +refs/heads/*:refs/remotes/bar/*
-    "#);
 }
 
 #[test]
@@ -795,15 +705,6 @@ fn test_git_remote_named_git() {
     Done importing changes from the underlying Git repo.
     [EOF]
     ");
-    insta::assert_snapshot!(read_git_config(work_dir.root()), @r#"
-    [core]
-    	bare = false
-    	logallrefupdates = true
-    	repositoryformatversion = 0
-    [remote "bar"]
-    	url = http://example.com/repo/repo
-    	fetch = +refs/heads/*:refs/remotes/bar/*
-    "#);
     // @git bookmark shouldn't be renamed.
     let output = work_dir.run_jj(["log", "-rmain@git", "-Tbookmarks"]);
     insta::assert_snapshot!(output, @"
@@ -826,27 +727,12 @@ fn test_git_remote_named_git() {
     work_dir.remove_dir_all(".jj");
     git::rename_remote(work_dir.root(), "bar", "git");
     work_dir.run_jj(["git", "init", "--git-repo=."]).success();
-    insta::assert_snapshot!(read_git_config(work_dir.root()), @r#"
-    [core]
-    	bare = false
-    	logallrefupdates = true
-    	repositoryformatversion = 0
-    [remote "git"]
-    	url = http://example.com/repo/repo
-    	fetch = +refs/heads/*:refs/remotes/git/*
-    "#);
 
     // The remote can also be removed.
     let output = work_dir.run_jj(["git", "remote", "remove", "git"]);
     insta::assert_snapshot!(output, @"");
     let output = work_dir.run_jj(["git", "remote", "list"]);
     insta::assert_snapshot!(output, @"");
-    insta::assert_snapshot!(read_git_config(work_dir.root()), @"
-    [core]
-    	bare = false
-    	logallrefupdates = true
-    	repositoryformatversion = 0
-    ");
     // @git bookmark shouldn't be removed.
     let output = work_dir.run_jj(["log", "-rmain@git", "-Tbookmarks"]);
     insta::assert_snapshot!(output, @"
@@ -955,18 +841,10 @@ fn test_git_remote_with_branch_config() -> TestResult {
     let output = work_dir.run_jj(["git", "remote", "rename", "foo", "bar"]);
     insta::assert_snapshot!(output, @"");
 
-    insta::assert_snapshot!(read_git_config(work_dir.root()), @r#"
-    [core]
-    	bare = true
-    	logallrefupdates = false
-    	repositoryformatversion = 0
-    [branch "test"]
-    	remote = bar
-    	merge = refs/heads/test
-    [remote "bar"]
-    	url = http://example.com/repo
-    	fetch = +refs/heads/*:refs/remotes/bar/*
-    "#);
+    let git_repo = gix::open(work_dir.root().join(".jj/repo/store/git"))?;
+    let config = git_repo.config_snapshot();
+    assert_eq!(config.string("branch.test.remote").unwrap().to_string(), "bar");
+    assert_eq!(config.string("branch.test.merge").unwrap().to_string(), "refs/heads/test");
     Ok(())
 }
 
@@ -1000,72 +878,30 @@ fn test_git_remote_with_global_git_remote_config() {
     [EOF]
     ");
 
+    // Local lifecycle commands must not pretend they renamed an included/global remote.
     let output = work_dir.run_jj(["git", "remote", "rename", "foo", "bar"]);
-    // Divergence from Git: we read the remote from the global
-    // configuration and write it back out. Git will use the global
-    // configuration for commands like `git remote -v`, `git fetch`,
-    // and `git push`, but `git remote rename`, `git remote remove`,
-    // `git remote set-url`, etc., will ignore it.
-    //
-    // This behavior applies to `jj git remote remove` and
-    // `jj git remote set-url` as well. It would be hard to change due
-    // to gitoxide’s model, but hopefully it’s relatively harmless.
-    insta::assert_snapshot!(output, @"");
-    insta::assert_snapshot!(read_git_config(work_dir.root()), @r#"
-    [core]
-    	bare = true
-    	logallrefupdates = false
-    	repositoryformatversion = 0
-    [remote "bar"]
-    	url = htps://example.com/repo/foo
-    	fetch = +refs/heads/*:refs/remotes/bar/*
-    "#);
-    // This has the unfortunate consequence that the original remote
-    // still exists after renaming.
+    assert!(!output.status.success());
     let output = work_dir.run_jj(["git", "remote", "list"]);
     insta::assert_snapshot!(output, @"
-    bar htps://example.com/repo/foo
     foo htps://example.com/repo/foo
     [EOF]
     ");
 
-    let output = work_dir.run_jj([
-        "git",
-        "remote",
-        "add",
-        "origin",
-        "http://example.com/repo/origin/1",
-    ]);
-    insta::assert_snapshot!(output, @"");
+    let output = work_dir.run_jj(["git", "remote", "remove", "foo"]);
+    assert!(!output.status.success());
+    let output = work_dir.run_jj(["git", "remote", "set-url", "foo", "https://example.com/replacement"]);
+    assert!(!output.status.success());
 
-    let output = work_dir.run_jj([
-        "git",
-        "remote",
-        "set-url",
-        "origin",
-        "https://example.com/repo/origin/2",
-    ]);
-    insta::assert_snapshot!(output, @"");
+    // A new connection with no global section remains independently editable.
+    work_dir.run_jj(["git", "remote", "add", "local", "http://example.com/local/1"]).success();
+    work_dir.run_jj(["git", "remote", "set-url", "local", "https://example.com/local/2"]).success();
 
     let output = work_dir.run_jj(["git", "remote", "list"]);
     insta::assert_snapshot!(output, @"
-    bar htps://example.com/repo/foo
     foo htps://example.com/repo/foo
-    origin https://example.com/repo/origin/2
+    local https://example.com/local/2
     [EOF]
     ");
-    insta::assert_snapshot!(read_git_config(work_dir.root()), @r#"
-    [core]
-    	bare = true
-    	logallrefupdates = false
-    	repositoryformatversion = 0
-    [remote "bar"]
-    	url = htps://example.com/repo/foo
-    	fetch = +refs/heads/*:refs/remotes/bar/*
-    [remote "origin"]
-    	url = https://example.com/repo/origin/2
-    	fetch = +refs/heads/*:refs/remotes/origin/*
-    "#);
 }
 
 #[test]
