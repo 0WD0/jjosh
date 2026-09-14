@@ -1,22 +1,22 @@
 #+title: 把项目归属变成引用身份
-#+subtitle: 结构化 scope 提案；尚未实现
+#+subtitle: 从已实现的 remote 命名空间到 typed 本地引用
 #+options: toc:2 num:nil
 
-本提案讨论 jjosh 是否需要超出普通引用名约定的能力，不是当前命令手册。
-当前可执行流程见 [[file:workflows.org][操作指南]]。下文的 typed scope、组件引用语法和 =--scope= 都是拟议接口。
+本提案讨论把本地引用表示为 typed identity，不是当前命令手册。
+remote 的根／项目命名空间、稳定 ConnectionId 和批量传输已经实现；当前可执行流程见 [[file:workflows.org][操作指南]]。下文新增的 typed 本地引用、组件引用语法和 =--scope= 是拟议接口。
 
 子项目作为仓库开发单元的定义、目录归属、来源关系和本地身份，先由 [[file:subprojects-design.org][子项目模型]] 讨论。
 本文只讨论引用 namespace；项目与 scope 可以关联，但不是同一个概念，也不要求项目模型与全部结构化引用改造同时落地。
 
 * 要解决的歧义
 
-当前 =main#engine@engine-upstream= 足以表达常见工作流，但底层仍是普通名字和全局 remote：
+当前 =main#engine@upstream= 已在 engine 项目内选择 upstream。根和其他项目都能各自配置同名连接，不需要人为添加全局前缀。剩余歧义主要在本地引用仍使用普通名字和已登记 label：
 
 - 字面根名字 =main#engine= 与“engine 项目的 main”无法同时表达。
-- 两个项目不能各自配置同名的 =upstream=，必须人为区分全局名字。
-- parser、显示和同步边界对一个字符串承担不同解释，不能靠继续约定前缀获得可靠隔离。
+- 引用解析、显示和选择仍需根据登记状态解释字符串，而非直接操作 typed 本地引用组件。
+- 完整引用表示需要让名字中的字面分隔符与 scope 语法无损往返。
 
-结构化 scope 只解决这些身份与选择问题。
+结构化本地引用解决这些剩余身份与选择问题，并保留已实现的连接范围隔离。
 它不把 monorepo 拆成多个仓库，不按文件内容判定提交所有权，也不替用户隐藏 divergent change。
 如果普通名字没有造成实际障碍，现有使用方式不需要先等待这项重构。
 
@@ -59,7 +59,7 @@ View 按 scope 保存本地引用、远端观察和 tracking；引用目标继�
 显式 scope 的引用解析失败就报错，不退回全局 commit/change ID。
 =@= 仍是工作副本，不新增按项目的工作副本 ID。
 
-命令选择遵守以下契约：
+拟议的 typed 本地引用命令选择遵守以下契约：
 
 - 精确名字省略 scope 时属于根；显式 =--scope engine= 才把该命令的未限定名字放入 engine。
 - 命令 scope 与参数中的显式 scope 冲突时拒绝，不让任一方静默覆盖另一方。
@@ -67,10 +67,11 @@ View 按 scope 保存本地引用、远端观察和 tracking；引用目标继�
 - 浏览集合默认保持全局。=bookmarks()=、tag 集合、日志、不可变历史和维护遍历不能漏掉子项目；组件过滤可显式缩小范围。
 - 模板、排序、去重、补全和 operation diff 使用完整身份。全局 trunk 策略不从多个项目的 main 中猜一个。
 
-拟议的单项目传输以 =git fetch/push --scope engine --remote origin= 选择范围。
-=--remote= 和 =--all-remotes= 只在该 scope 内匹配；没有 =--scope= 时操作根。
-默认选择依次使用显式参数、scope 配置和该范围内的 jj 默认规则，命名 scope 不隐式继承根发布路由。
-当前按 =#PROJECT= 自动分发的批量发布若迁入新模型，必须显式定义跨 scope 选择，不能按提交修改了哪些目录分发。
+已实现的传输边界是：=git fetch --project engine --project app= 选择指定项目，=--all-projects= 选择所有未删除的登记项目，二者互斥且排除根；没有项目选择时只获取根。重复项目去重，=--all-remotes= 只展开所选范围。
+每个项目分别解析 =--remote=、=git.projects.LABEL.fetch= 和唯一连接／origin 回退，不继承根配置。=--all-projects= 包含冲突候选，未解决定义、错误默认值或没有连接都会在网络请求前报错，不跳过离线项目。=--revision=／=--fetch-url= 要求整批只有一个物理 remote。
+发布通过 =git push --bookmark 'glob:topic#*'= 按每个引用的 label 选择项目默认值；=--remote fork= 在每个项目内解释同一别名，缺少任何一个便预检失败。=--remote origin#= 明确选择根连接。项目引用不继承根的 =git.push=。
+
+未来若用 =--scope= 选择 typed 引用范围，需要保留上述显式批量选择、根边界和默认值隔离，不能按提交修改了哪些目录分发。新增接口不应把已有多项目获取退回为单项目传输。
 
 * 版本不是名字的附属品
 
@@ -102,6 +103,7 @@ Josh 过滤可以裁剪提交、调整父关系，历史中的 workspace/stored 
 ** 获取
 
 传输先接收明确选择的 raw refs 和对象，转换具体版本，再把结构化引用更新交给 jj tracking 合并。
+已实现的批量获取在首个网络请求前预检全部目标；预检不能保证服务器可达，网络阶段仍可能部分失败。typed 引用改造不能把未完成获取当作完整观察。
 删除推断只覆盖本次完整观察的 scope、remote、kind 和名字范围；未请求或获取失败不等于远端删除。
 
 转换产生同 change ID 的新版本，并不能直接授权 synthetic rewrite 替换旧整合版本。
@@ -119,19 +121,19 @@ Josh 过滤可以裁剪提交、调整父关系，历史中的 workspace/stored 
 lease 按实际 endpoint 和完整 ref 记录 raw 身份。upstream 的 base、另一个 fork 的观察、刚收到的 advertisement 都不能授权覆盖当前目标。
 annotated tag 同时需要直接对象 ID 和 peeled commit；只比较后者会漏掉 annotation-only 更新。改变签名对象的目标不能继续宣称签名有效。
 
-每个更新只有在收到明确成功结果后才能推进观察。多个逻辑 remote 指向同一个实际 ref 时，在准备阶段拒绝重复目的地。
+整批选择、转换与 endpoint/ref 碰撞检查在网络写入前完成；每个更新只有在收到明确成功结果后才能推进观察。多个逻辑 remote 指向同一个实际 ref 时，在准备阶段拒绝重复目的地。
 一个 remote 的多个 push URL 若不能逐 endpoint 转换、检查和记账，就必须明确拒绝，不能只处理第一个。
 这不提供跨 remote 的原子发布，也不允许 operation restore 撤销外部结果。
 
 * 配置与对象各归其位
 
-Git config 是 URL、push URL、认证相关设置与 per-remote 选项的权威来源；转换文件只保存转换语义。
+Git config 是 URL、push URL、认证相关设置与 per-remote 选项的权威来源；转换语义由 operation-owned 绑定保存，不由 Git 配置里的命名前缀推导。
 连接仍通过 named remote 配置解析，保留 include/global 来源边界和未知配置项，不把它们展平写回本地。
 独立 projection 继续连接真实来源 endpoint，不引入本地 transport façade，也不因为配置了 filter 就自动获得项目 scope。
 
-Git 的 remote section 是扁平的。建议用稳定的内部 handle 对应 =(scope, remote)=，以显式 metadata 声明所有权：
-逻辑改名保持 handle 不变，创建前检查有效配置中是否碰撞，不能通过名字前缀接管用户 section。
-这是局部存储键，不是项目身份；代价是原生 Git 的 remote list 会看到内部 handle。
+Git 的 remote section 是扁平的，已实现的项目连接使用内部 handle 与 operation-owned scoped 名字对应，并以显式 metadata 声明所有权。
+逻辑改名保持 ConnectionId、BindingId 和 handle 不变，创建前检查有效配置中的碰撞，不通过名字前缀接管用户 section。
+handle 是局部存储键，不是项目身份；原生 Git 的 remote list 会看到它。typed 本地引用提案应复用这些边界，而非建立第二套连接身份。
 
 来源对象、浅边界和不可重建的转换对应关系由 backend/转换层保管。
 当前按 endpoint 隔离来源的做法应继续成立：完整和浅获取走同一流程，canonical 图保持闭合，不能把来源浅状态变成 monorepo 的全局 shallow。
@@ -140,16 +142,19 @@ Git 的 remote section 是扁平的。建议用稳定的内部 handle 对应 =(s
 
 * 如何迁移而不重新解释历史
 
-这不是给 View 加字段后就能完成的改动。切换需要覆盖：
+remote 命名空间的显式迁移由 =project migrate= 执行：旧逻辑别名逐字保留，物理配置键和 refs 重定位到独立 handle，不自动剥掉项目前缀。简化别名使用显式 remote rename；稳定 ID、有效引用、tracking 和转换依据保持身份。
+恢复旧操作不会把被删除后重建的同名连接视为旧实例。必要时清理断开的旧观察，并用 =project resolve --connection ID --name NAME= 明确修复当前连接的名字，而不是按名字猜测。项目 operation-store 使用 =simple_op_store_projects_v2=，native bundle 使用 v3 保存 scoped remote 元数据；导入不会激活来源连接或认证。
+
+未来 typed 本地引用迁移还需要覆盖：
 
 1. typed symbols、View 编码、全局遍历和引用合并；所有冲突项与 tracking 状态保持完整。
 2. parser/formatter、revset、模板、补全、命令范围和默认策略。
-3. Git 配置所有权、物理 refs 隔离、转换更新接口、逐 endpoint 发布记账。
+3. 已有 scoped remote 和物理 refs 与 typed 本地引用的对应关系、转换更新接口、逐 endpoint 发布记账。
 4. operation restore、native bundle 编码、能力标记与旧 writer 排除。
-5. 显式归属迁移和中断恢复；确认新状态成立后移除旧物理映射路径。
+5. 显式本地引用归属迁移和中断恢复；确认新状态成立后移除退役路径。
 
-旧 operation 的名字按字面根名字解码，不拿当前项目目录或配置重新解释旧历史。
-迁移计划要明确每个旧引用、观察、remote、默认项和 private ref 去向；有歧义时要求映射。
+旧 operation 按各自格式记录的身份解码，不拿当前项目目录或配置重新解释旧历史，也不把已记录的项目引用一概降为根字面名字。
+未来迁移计划要明确每个旧本地引用到 typed identity 的映射，以及观察和 tracking 如何接续；有歧义时要求映射。
 迁移不重写提交图、不合并 divergence、不激活导入的连接，也不刷新发布 lease。
 
 Git config、物理 refs 和 jj operation 不是一个原子存储。
@@ -158,7 +163,7 @@ Git config、物理 refs 和 jj operation 不是一个原子存储。
 
 * 实现是否成立，看这些结果
 
-- 根字面 =main#engine= 与 scoped main 共存，显示再解析无损；两个项目各自的 origin 可独立改名和删除。
+- 根字面 =main#engine= 与 scoped main 共存，显示再解析无损；已有的各项目 origin 独立改名和删除能力保持不变。
 - 全局日志、不可变历史、rebase、索引和 GC 不漏掉任何 scope；同 change 多版本与引用冲突各自保留。
 - 获取部分 refs 不删除未选择观察，根 Git import/export 不复活或清空 scoped 私有状态。
 - 部分项目往返保留其他项目的未发布工作；相同 change ID 不触发未经证明的整体替换。
@@ -167,5 +172,5 @@ Git config、物理 refs 和 jj operation 不是一个原子存储。
 - 浅边界变化不导致 canonical 图缺父，也不丢失旧本地版本需要的逆转换依据。
 - 迁移在歧义、中断和旧 writer 面前明确停下，恢复后旧物理 refs 不再作为根引用出现。
 
-这些是未来实现的验收条件，不是已通过的测试报告。
+这些是 typed 本地引用改造的验收条件，包含必须保持的既有行为，不是该未来改造已通过的测试报告。
 实现入口见 [[file:../jj/core/src/ref_name.rs][引用名字]]、[[file:../jj/lib/src/op_store.rs][operation View]]、[[file:../jj/lib/src/git.rs][Git 引用同步]]，以及 [[file:../crates/jjosh-cli/src/git_remote/][jjosh 远端扩展]]、[[file:../crates/jjosh-cli/src/source_repo.rs][来源对象库]]。

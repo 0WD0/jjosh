@@ -357,6 +357,7 @@ pub async fn cmd_git_fetch(
 
     let git_settings = GitSettings::from_settings(workspace_command.settings())?;
     let import_options = load_git_import_options(ui, &git_settings, &remote_settings)?;
+    let base_repo = workspace_command.repo().clone();
     let mut tx = workspace_command.start_transaction();
     let import_stats = if remote_sessions.is_empty() {
         let mut git_fetch = GitFetch::new(
@@ -367,7 +368,7 @@ pub async fn cmd_git_fetch(
         for (completed, (remote, expanded)) in expansions.into_iter().enumerate() {
             let mut callback = GitSubprocessUi::new(ui);
             git_fetch.fetch(remote, expanded, &mut callback, fetch_options.depth)
-                .map_err(|error| fetch_failure_context(error.into(), workspace_command.repo().view(), &matching_remotes, completed))?;
+                .map_err(|error| fetch_failure_context(error.into(), base_repo.view(), &matching_remotes, completed))?;
         }
         git_fetch.import_refs().await?
     } else {
@@ -382,7 +383,7 @@ pub async fn cmd_git_fetch(
                 session
                     .fetch(ui, command, tx.repo_mut(), expr, &fetch_options)
                     .await
-                    .map_err(|error| fetch_failure_context(error, workspace_command.repo().view(), &matching_remotes, completed))?,
+                    .map_err(|error| fetch_failure_context(error, base_repo.view(), &matching_remotes, completed))?,
             );
             // An empty selected result still observes a configured peer. Keep
             // it addressable for explicit tracking and first publication.

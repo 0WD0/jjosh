@@ -108,7 +108,7 @@ jjosh git push --bookmark 'glob:topic#*' --dry-run
 jjosh git push --remote fork --bookmark 'glob:topic#*' --dry-run
 #+end_src
 
-第一条为每个引用分别选择所在项目的默认目的地；第二条要求每个项目都有自己的 fork。根的 origin 必须明确写成 =--remote origin#=，不会因同名而被项目选中。整批转换和目标检查通过后才开始发布；不同远端之间不提供原子提交，后续传输失败可能留下部分成功结果。确认计划后去掉 =--dry-run=。
+第一条为每个引用分别选择所在项目的默认目的地；第二条要求每个项目都有自己的 fork。在项目发布中指定根的 origin，要明确写成 =--remote origin#=，不会因同名而被项目选中。整批转换和目标检查通过后才开始发布；不同远端之间不提供原子提交，后续传输失败可能留下部分成功结果。确认计划后去掉 =--dry-run=。
 
 * 继续使用
 
