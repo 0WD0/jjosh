@@ -501,8 +501,10 @@ fn local_import_preserves_root_and_nested_scoped_aliases_without_activating_endp
                 .unwrap()
         })
         .collect();
-    assert!(aliases.contains("origin"));
-    assert!(aliases.contains("origin@inner"));
+    assert_eq!(
+        aliases,
+        std::collections::BTreeSet::from(["origin", "origin@inner"])
+    );
     assert!(target.jj(&["git", "remote", "list"]).is_empty());
     assert!(
         !target
@@ -522,6 +524,209 @@ fn local_import_preserves_root_and_nested_scoped_aliases_without_activating_endp
         ]),
         "portable source\n"
     );
+}
+
+#[test]
+fn nested_import_excludes_divergent_source_git_observations() {
+    assert_import_excludes_divergent_source_git_observations("--nested");
+}
+
+#[test]
+fn preserved_import_excludes_divergent_source_git_observations() {
+    assert_import_excludes_divergent_source_git_observations("--preserve");
+}
+
+fn assert_import_excludes_divergent_source_git_observations(mode: &str) {
+    let seed = NativeRepo::new();
+    seed.write("value.txt", "upstream\n");
+    seed.jj(&["describe", "-m", "upstream"]);
+    seed.bookmark("main");
+    seed.jj(&["tag", "set", "v1"]);
+    seed.jj(&["git", "export"]);
+    let endpoint = seed.path.join(".jj/repo/store/git");
+
+    for source_colocated in [false, true] {
+        let source = NativeRepo::with_colocation(source_colocated);
+        source.jj(&["project", "add", "alpha", "--path", "lib"]);
+        // This is a genuine connection: suffix-based deletion must not remove it.
+        source.add_project_remote("upstream-git", &endpoint, "alpha");
+        source.jj(&[
+            "git",
+            "fetch",
+            "--remote",
+            "upstream-git#alpha",
+            "--branch",
+            "main",
+            "--tag",
+            "v1",
+        ]);
+        source.jj(&["bookmark", "track", "main#alpha@upstream-git"]);
+        source.jj(&["bookmark", "set", "root-main", "-r", "main#alpha"]);
+        source.jj(&[
+            "tag",
+            "set",
+            "--allow-move",
+            "v1#alpha",
+            "root-release",
+            "-r",
+            "main#alpha",
+        ]);
+        source.jj(&["git", "export"]);
+        let upstream_change = source.change_id("main#alpha");
+        assert_eq!(source.change_id("v1#alpha@upstream-git"), upstream_change);
+        let source_project = source.project("alpha");
+        let source_git = PathBuf::from(source.jj(&["--ignore-working-copy", "git", "root"]).trim());
+        let configured_remotes = native_git(&source_git, &["remote"]);
+
+        source.jj(&["new", "main#alpha", "-m", "local continuation"]);
+        source.write("lib/value.txt", "local development\n");
+        source.jj(&["describe", "-m", "local continuation"]);
+        let local_change = source.change_id("@");
+        // Model a local ref update whose colocated Git export could not acquire
+        // the ref locks. The recorded @git targets remain at the ancestor.
+        let locks = [
+            "refs/heads/main#alpha.lock",
+            "refs/heads/root-main.lock",
+            "refs/tags/v1#alpha.lock",
+            "refs/tags/root-release.lock",
+        ]
+        .map(|name| source_git.join(name));
+        for lock in &locks {
+            fs::write(lock, "held by another writer\n").unwrap();
+        }
+        source.jj(&[
+            "--ignore-working-copy",
+            "bookmark",
+            "set",
+            "main#alpha",
+            "root-main",
+        ]);
+        source.jj(&[
+            "--ignore-working-copy",
+            "tag",
+            "set",
+            "--allow-move",
+            "v1#alpha",
+            "root-release",
+        ]);
+        for lock in locks {
+            fs::remove_file(lock).unwrap();
+        }
+        assert_ne!(local_change, upstream_change);
+        for name in ["main#alpha", "root-main", "v1#alpha", "root-release"] {
+            assert_eq!(source.change_id(name), local_change);
+            assert_eq!(source.change_id(&format!("{name}@git")), upstream_change);
+        }
+        let source_before = source.state();
+        let source_graph = source.graph("all() ~ root()");
+
+        for target_colocated in [false, true] {
+            let target = NativeRepo::with_colocation(target_colocated);
+            let checkout = target.log("@", "commit_id");
+            target.jj(&[
+                "project",
+                "import",
+                mode,
+                &format!("bundle={}", source.path.display()),
+            ]);
+            let (project, alias, bookmarks, tags) = if mode == "--nested" {
+                (
+                    "bundle",
+                    "upstream-git@alpha",
+                    ["main#alpha#bundle", "root-main#bundle"],
+                    ["v1#alpha#bundle", "root-release#bundle"],
+                )
+            } else {
+                (
+                    "alpha",
+                    "upstream-git",
+                    ["main#alpha", "bundle/root-main"],
+                    ["v1#alpha", "bundle/root-release"],
+                )
+            };
+            let imported = target.project(project);
+            let aliases: Vec<_> = imported["remotes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|remote| {
+                    remote["candidates"][0]["definition"]["name"]
+                        .as_str()
+                        .unwrap()
+                })
+                .collect();
+            assert_eq!(aliases, [alias]);
+            if mode == "--preserve" {
+                assert_eq!(imported["id"], source_project["id"]);
+                assert_eq!(imported["remotes"], source_project["remotes"]);
+                let target_git =
+                    PathBuf::from(target.jj(&["--ignore-working-copy", "git", "root"]).trim());
+                assert_eq!(native_git(&target_git, &["remote"]), configured_remotes);
+            } else {
+                assert!(target.jj(&["git", "remote", "list"]).is_empty());
+            }
+            assert_eq!(target.log("@", "commit_id"), checkout);
+            assert_eq!(target.graph("all() ~ root() ~ @"), source_graph);
+            for name in bookmarks.into_iter().chain(tags) {
+                assert_eq!(target.change_id(name), local_change);
+            }
+            for (kind, expected_names) in [("bookmark", bookmarks), ("tag", tags)] {
+                let mut expected_names = expected_names.to_vec();
+                expected_names.sort();
+                let names = target.jj(&[
+                    "--ignore-working-copy",
+                    kind,
+                    "list",
+                    "-T",
+                    r#"if(!remote, name ++ "\n")"#,
+                ]);
+                assert_eq!(names.lines().collect::<Vec<_>>(), expected_names);
+            }
+            assert_eq!(
+                target.jj(&["file", "show", "-r", bookmarks[0], "bundle/lib/value.txt"]),
+                "local development\n"
+            );
+            // Exact observable inventories reject fabricated git@source/NAME-git
+            // rows while keeping the real remote, including its tag observation.
+            let observations = || {
+                ["bookmark", "tag"].map(|kind| {
+                    target.jj(&[
+                        "--ignore-working-copy",
+                        kind,
+                        "list",
+                        "--all-remotes",
+                        "-T",
+                        r#"if(remote && remote != "git", "[" ++ name.escape_json() ++ "," ++ remote.escape_json() ++ "]\n")"#,
+                    ])
+                    .lines()
+                    .map(|row| serde_json::from_str::<(String, String)>(row).unwrap())
+                    .collect::<Vec<_>>()
+                })
+            };
+            let expected = [
+                vec![(bookmarks[0].to_owned(), alias.to_owned())],
+                vec![(tags[0].to_owned(), alias.to_owned())],
+            ];
+            assert_eq!(observations(), expected);
+            for name in [bookmarks[0], tags[0]] {
+                assert_eq!(
+                    target.change_id(&format!("{name}@\"{alias}\"")),
+                    upstream_change
+                );
+            }
+            target.jj(&["git", "export"]);
+            target.jj(&["git", "import"]);
+            assert_eq!(observations(), expected);
+            for name in bookmarks.into_iter().chain(tags) {
+                assert_eq!(target.change_id(name), local_change);
+                assert_eq!(
+                    target.log(&format!("{name}@git"), "commit_id"),
+                    target.log(name, "commit_id")
+                );
+            }
+            assert_eq!(source.state(), source_before);
+        }
+    }
 }
 
 #[test]
@@ -603,6 +808,7 @@ fn imports_local_graphs_without_checkout_or_source_snapshot() {
             ])
         };
         let before_sync = remote_names();
+        assert!(before_sync.is_empty());
         target.jj(&["git", "export"]);
         target.jj(&["git", "import"]);
         assert_eq!(remote_names(), before_sync);

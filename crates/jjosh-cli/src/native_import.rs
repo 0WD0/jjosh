@@ -6,6 +6,7 @@ use anyhow::Result;
 use anyhow::ensure;
 use jj_lib::backend::CommitId;
 use jj_lib::commit::Commit;
+use jj_lib::git::REMOTE_NAME_FOR_LOCAL_GIT_REPO;
 use jj_lib::merge::Merge;
 use jj_lib::object_id::ObjectId as _;
 use jj_lib::op_store::RefTarget;
@@ -45,11 +46,20 @@ pub(crate) struct RemoteImport {
 }
 
 pub(crate) fn plan_remotes(view: &View, project: &ProjectId) -> Result<Vec<RemoteImport>> {
+    for (key, target) in &view.project_observations {
+        ensure!(
+            key.remote != REMOTE_NAME_FOR_LOCAL_GIT_REPO || target.iter().all(Option::is_none),
+            "Source local Git observation {}@{} cannot own project conversion evidence",
+            key.name.as_str(),
+            key.remote.as_str()
+        );
+    }
     for (connection, names) in &view.project_state.remote_names {
         if names.iter().flatten().next().is_some() {
             ensure!(
-                view.remote_connections.values().any(|owner| {
-                    owner.as_resolved().and_then(Option::as_ref) == Some(connection)
+                view.remote_connections.iter().any(|(remote, owner)| {
+                    remote.as_str() != REMOTE_NAME_FOR_LOCAL_GIT_REPO.as_str()
+                        && owner.as_resolved().and_then(Option::as_ref) == Some(connection)
                 }),
                 "Source scoped remote has no resolved physical connection mapping"
             );
@@ -59,6 +69,7 @@ pub(crate) fn plan_remotes(view: &View, project: &ProjectId) -> Result<Vec<Remot
         .remote_views
         .keys()
         .chain(view.remote_connections.keys())
+        .filter(|remote| remote.as_str() != REMOTE_NAME_FOR_LOCAL_GIT_REPO.as_str())
         .collect();
     let mut aliases = std::collections::BTreeMap::new();
     let mut result = Vec::new();
@@ -74,19 +85,6 @@ pub(crate) fn plan_remotes(view: &View, project: &ProjectId) -> Result<Vec<Remot
             .transpose()?
             .and_then(Option::as_ref);
         if owner.is_none() && !view.remote_views.contains_key(remote) {
-            continue;
-        }
-        if remote.as_str() == jj_lib::git::REMOTE_NAME_FOR_LOCAL_GIT_REPO.as_str()
-            && let Some(observations) = view.remote_views.get(remote)
-            && observations
-                .bookmarks
-                .iter()
-                .all(|(name, reference)| view.local_bookmarks.get(name) == Some(&reference.target))
-            && observations
-                .tags
-                .iter()
-                .all(|(name, reference)| view.local_tags.get(name) == Some(&reference.target))
-        {
             continue;
         }
         let alias = owner
@@ -118,11 +116,6 @@ pub(crate) fn plan_remotes(view: &View, project: &ProjectId) -> Result<Vec<Remot
         };
         let local: &jj_lib::ref_name::RemoteName =
             alias.map_or(remote.as_ref(), |alias| alias.name.as_ref());
-        let local = if local == jj_lib::git::REMOTE_NAME_FOR_LOCAL_GIT_REPO {
-            jj_lib::ref_name::RemoteName::new("git@source")
-        } else {
-            local
-        };
         let source_project = alias.map(|alias| &alias.project).or(legacy_project);
         let name: RemoteNameBuf = if let Some(source_project) = source_project {
             view.project_state
@@ -344,16 +337,8 @@ pub(crate) fn map_outer_view(
     ids: &HashMap<CommitId, CommitId>,
 ) -> View {
     // @git observes the source's local Git backend, not a second upstream.
-    // Preserve only observations that carry information absent from local refs.
-    if let Some(git) = view
-        .remote_views
-        .get_mut(jj_lib::git::REMOTE_NAME_FOR_LOCAL_GIT_REPO)
-    {
-        git.bookmarks
-            .retain(|name, reference| view.local_bookmarks.get(name) != Some(&reference.target));
-        git.tags
-            .retain(|name, reference| view.local_tags.get(name) != Some(&reference.target));
-    }
+    // Destination @git is generated from the destination's own Git export.
+    view.remote_views.remove(REMOTE_NAME_FOR_LOCAL_GIT_REPO);
     view.remote_views
         .retain(|_, remote| !remote.bookmarks.is_empty() || !remote.tags.is_empty());
     view.head_ids = view.head_ids.iter().map(|id| ids[id].clone()).collect();
@@ -389,7 +374,7 @@ pub(crate) fn map_outer_view(
         .collect();
     view.wc_commit_ids.clear();
     // These are observations of the foreign backend, not destination Git refs
-    // or real destination workspaces. Source @git refs above remain namespaced.
+    // or real destination workspaces.
     view.git_refs.clear();
     view.git_heads.clear();
     // Do not activate source workspace roles in the destination.
