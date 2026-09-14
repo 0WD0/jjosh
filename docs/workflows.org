@@ -63,7 +63,7 @@ jjosh git remote add upstream /path/to/parser-work --project parser --whole
 #+end_src
 
 无法直接读取来源目录时，可通过 bundle 运输。在来源运行 =jjosh native export /path/to/parser.bundle=；在目标运行 =native inspect= 检查，然后将 project import 的来源地址换成 bundle 路径。
-bundle 还可携带来源的项目元数据，project import 以一个外层项目接入开发图；备份整个仓库时还需保存仓库元数据和来源对象库。
+native bundle v3 还可携带来源的项目、scoped remote 名字及转换观察元数据，project import 以一个外层项目接入开发图；备份整个仓库时还需保存仓库元数据和来源对象库。
 
 来源 remote 的名字保存在新外层项目中，连接地址由你另行配置。内部项目的 =origin#inner= 导入为外层项目内的 =origin@inner=，来源 Git 工作树记录使用 =git@source=；命令会列出这些明确映射并拒绝重名。引用中的 remote 含 =@= 时加引号，例如 =main#inner#parser@"origin@inner"=。
 
@@ -104,13 +104,15 @@ attach 要求该根 remote 没有绑定、获取记录或 tracking。它把连�
 jjosh git remote list --project parser
 jjosh git remote rename --project parser fork publish
 jjosh git remote set-url publish#parser /path/to/new-fork.git
+jjosh git remote rename --project parser publish fork
 #+end_src
 
 =--project= 使用项目显示名，=#LABEL= 使用稳定引用 label。省略范围时选择根；=origin#= 明确选择根的 origin。给出两个不同范围时拒绝执行。
+上述例子最后把名字改回 fork，后续命令继续使用它。remote 改名保留 ConnectionId 和 BindingId，也不改变实际 Git handle；项目显示名变化保留 ProjectId 和引用 label。
 
 ** 项目的默认 remote
 
-只有一个 remote 时，fetch 和 push 都用它，无需设置默认值。有多个 remote 时，默认选择该项目的 origin。
+未设置默认值时，只有一个 remote 就使用它；有多个 remote 则选择该项目的 origin，没有 origin 就报告歧义。
 例如，保留从 origin 获取，只把发布改到 fork：
 
 #+begin_src sh
@@ -130,7 +132,7 @@ push = "fork"
 配置段中的 parser 是引用 label；值中的 remote 名只在该项目内解析。模式同样限制在项目内，例如 =fetch = "glob:up*"=。
 选择顺序是显式 =--remote=、项目对应的 fetch/push 配置、项目唯一 remote、项目内的 origin。仍无法确定时报告歧义；错误配置不会回退到其他连接。
 
-根操作使用 =git.fetch=／=git.push= 和根的 remotes。项目操作独立选择自己的配置。=git fetch --project parser --all-remotes= 收取该项目的全部连接；普通 =--all-remotes= 只选择根。
+根操作使用 =git.fetch=／=git.push= 和根的 remotes。项目操作独立选择自己的配置，不继承根默认值。=git fetch --project parser --all-remotes= 收取该项目的全部连接；不带项目选择的 =--all-remotes= 只选择根。
 push 根据所选书签或 tag 的 =#LABEL= 选择项目。URL、push URL、tracking、创建顺序和名字前缀都不决定默认目的地。
 
 每个连接的自动跟踪和默认获取引用设置使用限定名，例如：
@@ -161,6 +163,23 @@ jjosh new @ main#parser@origin
 #+end_src
 
 整合后在同一个工作目录中解决冲突、构建和测试应用及其依赖。
+
+** 一次接收多个项目
+
+为 app 也登记项目并配置连接后，可以选择指定项目，或全部未删除的登记项目：
+
+#+begin_src sh
+jjosh git fetch --project parser --project app --branch main
+jjosh git fetch --all-projects --branch main
+jjosh git fetch --all-projects --all-remotes
+#+end_src
+
+=--project= 可重复，重复项目会去重；它与 =--all-projects= 互斥。这两种选择都不包含根。没有项目选择时只操作根；根的 origin 可以显式写成 =--remote origin#=。
+每个项目分别解析 =--remote= 名字或模式、=git.projects.LABEL.fetch=，再采用唯一连接／origin 规则。=--all-remotes= 则展开每个选中项目的全部连接。
+例如 =--project parser --project app --remote origin= 要求两个项目各自有 origin，不能从根借用。任何一个项目缺少显式别名，都会在第一个网络请求之前报错。
+
+整批项目、配置和连接先完成预检。=--all-projects= 包含未删除项目的冲突候选，遇到未解决定义会报错；没有活动连接的离线项目也不会被悄悄跳过。
+预检不保证服务器可达。后续网络失败仍可能留下部分获取结果，也不会替你整合工作头；按命令报告处理各连接的结果。
 
 ** 用书签选定交付版本
 
@@ -225,16 +244,17 @@ filtered 绑定需要可用的来源上下文；若空目标无法提供配置�
 为各项目创建交付书签后，可以一次选择它们：
 
 #+begin_src sh
-jjosh git push --bookmark 'topic#*' --dry-run
+jjosh git push --bookmark 'glob:topic#*' --dry-run
 #+end_src
 
 每个项目分别解析自己的默认发布 remote，也可以用同一个本地名字选择它们的目的地：
 
 #+begin_src sh
-jjosh git push --remote fork --bookmark 'topic#*' --dry-run
+jjosh git push --remote fork --bookmark 'glob:topic#*' --dry-run
 #+end_src
 
-这里的 fork 分别指 parser 的 fork、app 的 fork，依此类推。任何被选项目缺少 fork 时，整批操作在发布前报错。引用模式加引号，交给 jjosh 而不是 shell 展开。
+这里的 fork 分别指 parser 的 fork、app 的 fork，依此类推。任何被选项目缺少 fork 时，整批操作在发布前报错。=glob:= 显式启用模式，外层引号防止 shell 展开。
+选择依据是每个引用的 label，而不是提交修改的目录；普通根引用使用根默认值，项目引用不继承它。需要显式选择根连接时写 =--remote origin#=，而不是依赖项目中找不到 origin 时回退。
 
 所有目标先完成预检，再开始发布。不同服务器之间无法原子提交；若发生部分失败，以命令报告的各目标结果为准。
 
@@ -317,7 +337,7 @@ jjosh git fetch --project parser --remote origin --revision OID
 jjosh git fetch --project parser --remote origin --branch main --fetch-url /path/to/parser-mirror.git
 #+end_src
 
-=--revision= 和 =--fetch-url= 都要求恰好选中一个 named remote。镜像地址仅用于本次获取，发布仍依据目标自己的状态。
+=--revision= 和 =--fetch-url= 都要求整批解析、去重后恰好选中一个物理 named remote，即使多个项目中的连接都叫 origin，也不能合并视为一个。镜像地址仅用于本次获取，发布仍依据目标自己的状态。
 
 ** 建立整个仓库的过滤视图
 

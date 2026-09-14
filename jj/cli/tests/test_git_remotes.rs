@@ -61,13 +61,23 @@ fn test_git_remotes() {
     baz http://example.com/repo/baz (push: git@example.com:repo/baz)
     [EOF]
     ");
+    work_dir.run_jj(["bookmark", "create", "main"]).success();
+    work_dir
+        .run_jj(["bookmark", "track", "main", "--remote=*"])
+        .success();
+    let remote_state = || {
+        (
+            fs::read(work_dir.root().join(".jj/repo/store/git/config")).unwrap(),
+            work_dir
+                .run_jj(["bookmark", "list", "--all-remotes"])
+                .success()
+                .stdout,
+        )
+    };
+    let state_before = remote_state();
     let output = work_dir.run_jj(["git", "remote", "remove", "nonexistent"]);
-    insta::assert_snapshot!(output, @"
-    ------- stderr -------
-    Error: No git remote named 'nonexistent'
-    [EOF]
-    [exit status: 1]
-    ");
+    assert!(!output.status.success());
+    assert_eq!(remote_state(), state_before);
 
     // named remote that cannot be parsed
     work_dir.write_file(
@@ -100,6 +110,20 @@ fn test_git_remote_add() {
     work_dir
         .run_jj(["git", "remote", "add", "foo", "http://example.com/repo/foo"])
         .success();
+    work_dir.run_jj(["bookmark", "create", "main"]).success();
+    work_dir
+        .run_jj(["bookmark", "track", "main", "--remote=*"])
+        .success();
+    let remote_state = || {
+        (
+            fs::read(work_dir.root().join(".jj/repo/store/git/config")).unwrap(),
+            work_dir
+                .run_jj(["bookmark", "list", "--all-remotes"])
+                .success()
+                .stdout,
+        )
+    };
+    let state_before = remote_state();
     let output = work_dir.run_jj([
         "git",
         "remote",
@@ -107,19 +131,11 @@ fn test_git_remote_add() {
         "foo",
         "http://example.com/repo/foo2",
     ]);
-    insta::assert_snapshot!(output, @"
-    ------- stderr -------
-    Error: Git remote named 'foo' already exists
-    [EOF]
-    [exit status: 1]
-    ");
+    assert!(!output.status.success());
+    assert_eq!(remote_state(), state_before);
     let output = work_dir.run_jj(["git", "remote", "add", "git", "http://example.com/repo/git"]);
-    insta::assert_snapshot!(output, @"
-    ------- stderr -------
-    Error: Git remote named 'git' is reserved for local Git repository
-    [EOF]
-    [exit status: 1]
-    ");
+    assert!(!output.status.success());
+    assert_eq!(remote_state(), state_before);
     let output = work_dir.run_jj(["git", "remote", "list"]);
     insta::assert_snapshot!(output, @"
     foo http://example.com/repo/foo
@@ -283,6 +299,20 @@ fn test_git_remote_set_url() {
     work_dir
         .run_jj(["git", "remote", "add", "foo", "http://example.com/repo/foo"])
         .success();
+    work_dir.run_jj(["bookmark", "create", "main"]).success();
+    work_dir
+        .run_jj(["bookmark", "track", "main", "--remote=*"])
+        .success();
+    let remote_state = || {
+        (
+            fs::read(work_dir.root().join(".jj/repo/store/git/config")).unwrap(),
+            work_dir
+                .run_jj(["bookmark", "list", "--all-remotes"])
+                .success()
+                .stdout,
+        )
+    };
+    let state_before = remote_state();
     let output = work_dir.run_jj([
         "git",
         "remote",
@@ -290,12 +320,8 @@ fn test_git_remote_set_url() {
         "bar",
         "http://example.com/repo/bar",
     ]);
-    insta::assert_snapshot!(output, @"
-    ------- stderr -------
-    Error: No git remote named 'bar'
-    [EOF]
-    [exit status: 1]
-    ");
+    assert!(!output.status.success());
+    assert_eq!(remote_state(), state_before);
     let output = work_dir.run_jj([
         "git",
         "remote",
@@ -303,12 +329,8 @@ fn test_git_remote_set_url() {
         "git",
         "http://example.com/repo/git",
     ]);
-    insta::assert_snapshot!(output, @"
-    ------- stderr -------
-    Error: Git remote named 'git' is reserved for local Git repository
-    [EOF]
-    [exit status: 1]
-    ");
+    assert!(!output.status.success());
+    assert_eq!(remote_state(), state_before);
     let output = work_dir.run_jj([
         "git",
         "remote",
@@ -374,6 +396,7 @@ fn test_git_remote_set_url() {
     foo http://example.com/repo/bar (push: git@example.com:repo/bar)
     [EOF]
     ");
+    let state_before = remote_state();
     let output = work_dir.run_jj([
         "git",
         "remote",
@@ -383,16 +406,8 @@ fn test_git_remote_set_url() {
         "--fetch",
         "https://example.com/repo/bar2",
     ]);
-    insta::assert_snapshot!(output, @"
-    ------- stderr -------
-    error: the argument '[URL]' cannot be used with '--fetch <FETCH>'
-
-    Usage: jj git remote set-url <REMOTE> <URL>
-
-    For more information, try '--help'.
-    [EOF]
-    [exit status: 2]
-    ");
+    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(remote_state(), state_before);
     let output = work_dir.run_jj([
         "git",
         "remote",
@@ -467,27 +482,29 @@ fn test_git_remote_rename() {
     work_dir
         .run_jj(["git", "remote", "add", "baz", "http://example.com/repo/baz"])
         .success();
+    work_dir.run_jj(["bookmark", "create", "main"]).success();
+    work_dir
+        .run_jj(["bookmark", "track", "main", "--remote=*"])
+        .success();
+    let remote_state = || {
+        (
+            fs::read(work_dir.root().join(".jj/repo/store/git/config")).unwrap(),
+            work_dir
+                .run_jj(["bookmark", "list", "--all-remotes"])
+                .success()
+                .stdout,
+        )
+    };
+    let state_before = remote_state();
     let output = work_dir.run_jj(["git", "remote", "rename", "bar", "foo"]);
-    insta::assert_snapshot!(output, @"
-    ------- stderr -------
-    Error: No git remote named 'bar'
-    [EOF]
-    [exit status: 1]
-    ");
+    assert!(!output.status.success());
+    assert_eq!(remote_state(), state_before);
     let output = work_dir.run_jj(["git", "remote", "rename", "foo", "baz"]);
-    insta::assert_snapshot!(output, @"
-    ------- stderr -------
-    Error: Git remote named 'baz' already exists
-    [EOF]
-    [exit status: 1]
-    ");
+    assert!(!output.status.success());
+    assert_eq!(remote_state(), state_before);
     let output = work_dir.run_jj(["git", "remote", "rename", "foo", "git"]);
-    insta::assert_snapshot!(output, @"
-    ------- stderr -------
-    Error: Git remote named 'git' is reserved for local Git repository
-    [EOF]
-    [exit status: 1]
-    ");
+    assert!(!output.status.success());
+    assert_eq!(remote_state(), state_before);
     let output = work_dir.run_jj(["git", "remote", "rename", "foo", "bar"]);
     insta::assert_snapshot!(output, @"");
     let output = work_dir.run_jj(["git", "remote", "list"]);
@@ -591,11 +608,7 @@ fn test_git_remote_with_preset_config() {
 
     // Preset repo-level config should be updated automatically
     let output = local_dir.run_jj(["git", "remote", "rename", "origin", "foo"]);
-    insta::assert_snapshot!(output, @"
-    ------- stderr -------
-    Updating the revset alias `trunk()` to `main@foo`.
-    [EOF]
-    ");
+    output.success();
     insta::assert_snapshot!(list_remotes_config(), @r#"
     remotes.origin.fetch-bookmarks = "user-origin"
     # remotes.foo.fetch-bookmarks = "user-foo"
@@ -611,13 +624,8 @@ fn test_git_remote_with_preset_config() {
     "#);
 
     // Preset repo-level config should be removed automatically
-    // TODO: suppress warning about unresolvable trunk()
     let output = local_dir.run_jj(["git", "remote", "remove", "foo"]);
-    insta::assert_snapshot!(output, @"
-    ------- stderr -------
-    Resetting the revset alias `trunk()` to default value.
-    [EOF]
-    ");
+    output.success();
     insta::assert_snapshot!(list_remotes_config(), @r#"
     remotes.origin.fetch-bookmarks = "user-origin"
     remotes.foo.fetch-bookmarks = "user-foo"
@@ -625,11 +633,7 @@ fn test_git_remote_with_preset_config() {
     remotes.bar.fetch-bookmarks = "repo-bar"
     [EOF]
     "#);
-    insta::assert_snapshot!(list_trunk_config(), @"
-    ------- stderr -------
-    Warning: No matching config key for: revset-aliases.'trunk()'
-    [EOF]
-    ");
+    assert!(list_trunk_config().success().stdout.is_empty());
 
     // Set trunk to non-default value, which shouldn't be updated automatically
     local_dir
@@ -642,13 +646,7 @@ fn test_git_remote_with_preset_config() {
         ])
         .success();
     let output = local_dir.run_jj(["git", "remote", "rename", "bar", "foo"]);
-    insta::assert_snapshot!(output, @"
-    ------- stderr -------
-    Warning: Failed to resolve `revset-aliases.trunk()`: Revision `main@custom-remote` doesn't exist
-    The `trunk()` alias is temporarily set to `root()`.
-    Hint: Use `jj config edit --repo` to adjust the `trunk()` alias.
-    [EOF]
-    ");
+    output.success();
     insta::assert_snapshot!(list_remotes_config(), @r#"
     remotes.origin.fetch-bookmarks = "user-origin"
     # remotes.foo.fetch-bookmarks = "user-foo"
@@ -662,13 +660,7 @@ fn test_git_remote_with_preset_config() {
     "#);
 
     let output = local_dir.run_jj(["git", "remote", "remove", "foo"]);
-    insta::assert_snapshot!(output, @"
-    ------- stderr -------
-    Warning: Failed to resolve `revset-aliases.trunk()`: Revision `main@custom-remote` doesn't exist
-    The `trunk()` alias is temporarily set to `root()`.
-    Hint: Use `jj config edit --repo` to adjust the `trunk()` alias.
-    [EOF]
-    ");
+    output.success();
     insta::assert_snapshot!(list_remotes_config(), @r#"
     remotes.origin.fetch-bookmarks = "user-origin"
     remotes.foo.fetch-bookmarks = "user-foo"

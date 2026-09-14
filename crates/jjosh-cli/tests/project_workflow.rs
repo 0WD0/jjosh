@@ -314,6 +314,109 @@ fn shared_remote_aliases_isolate_defaults_fetch_patterns_and_reference_tracking(
 }
 
 #[test]
+fn shared_remote_aliases_fetch_multiple_projects_without_scope_leakage_or_partial_updates() {
+    let (temp, client, remotes) = shared_alias_repositories();
+    jjosh(&client, &[
+        "--config", "git.fetch=missing-root",
+        "--config", "git.projects.alpha.fetch=upstream",
+        "--config", "git.projects.beta.fetch=fork",
+        "git", "fetch", "--all-projects", "--branch", "listed",
+    ]);
+    for (project, selected) in [("alpha", "upstream"), ("beta", "fork")] {
+        for alias in ["origin", "upstream", "fork"] {
+            let revision = format!("listed#{project}@{alias}");
+            if alias == selected {
+                assert_eq!(
+                    file_at_revision(&client, &revision, &format!("{project}/value.txt")),
+                    format!("{project}-v1\n").as_bytes(),
+                );
+            } else {
+                assert!(!jjosh_unchecked(&client, &["log", "-r", &revision]).status.success());
+            }
+        }
+    }
+    for alias in ["origin", "upstream", "fork"] {
+        assert!(!jjosh_unchecked(&client, &["log", "-r", &format!("listed@{alias}")]).status.success());
+    }
+
+    // Repeating one selector still selects only that project, not its sibling or root.
+    jjosh(&client, &[
+        "git", "fetch", "--project", "alpha", "--project", "alpha",
+        "--remote", "origin", "--branch", "pattern",
+    ]);
+    assert_eq!(file_at_revision(&client, "pattern#alpha@origin", "alpha/value.txt"), b"alpha-v1\n");
+    for scope in ["", "#beta"] {
+        for alias in ["origin", "upstream", "fork"] {
+            assert!(!jjosh_unchecked(&client, &["log", "-r", &format!("pattern{scope}@{alias}")]).status.success());
+        }
+    }
+    for alias in ["upstream", "fork"] {
+        assert!(!jjosh_unchecked(&client, &["log", "-r", &format!("pattern#alpha@{alias}")]).status.success());
+    }
+
+    // The same explicit alias resolves separately in each selected project.
+    jjosh(&client, &[
+        "--config", "git.projects.alpha.fetch=missing-alpha",
+        "--config", "git.projects.beta.fetch=missing-beta",
+        "git", "fetch", "--project", "alpha", "--project", "beta", "--project", "alpha",
+        "--remote", "origin", "--branch", "listed",
+    ]);
+    for project in ["alpha", "beta"] {
+        assert_eq!(
+            file_at_revision(&client, &format!("listed#{project}@origin"), &format!("{project}/value.txt")),
+            format!("{project}-v1\n").as_bytes(),
+        );
+    }
+    assert!(!jjosh_unchecked(&client, &["log", "-r", "listed@origin"]).status.success());
+
+    jjosh(&client, &[
+        "--config", "git.projects.alpha.fetch=missing-alpha",
+        "--config", "git.projects.beta.fetch=missing-beta",
+        "git", "fetch", "--all-projects", "--all-remotes", "--branch", "all-scoped",
+    ]);
+    for alias in ["origin", "upstream", "fork"] {
+        for project in ["alpha", "beta"] {
+            assert_eq!(
+                file_at_revision(&client, &format!("all-scoped#{project}@{alias}"), &format!("{project}/value.txt")),
+                format!("{project}-v1\n").as_bytes(),
+            );
+        }
+        assert!(!jjosh_unchecked(&client, &["log", "-r", &format!("all-scoped@{alias}")]).status.success());
+    }
+
+    // A later project's missing alias must prevent even raw Git refs changing in
+    // the earlier project, although the alias still exists in root and alpha.
+    jjosh(&client, &["git", "remote", "remove", "upstream", "--project", "beta"]);
+    let alpha_work = temp.path().join("alpha-work");
+    let (_, _, alpha_upstream) = remotes.iter()
+        .find(|(project, alias, _)| project == "alpha" && alias == "upstream")
+        .unwrap();
+    fs::write(alpha_work.join("src/value.txt"), "alpha-v2\n").unwrap();
+    git(&alpha_work, &["commit", "-am", "advance alpha upstream"]);
+    git(&alpha_work, &["push", alpha_upstream.to_str().unwrap(), "HEAD:listed"]);
+    let previous = commit_id(&client, "listed#alpha@upstream");
+    let git_dir = client.join(".jj/repo/store/git");
+    let refs = git(&git_dir, &["for-each-ref"]);
+    let operation = operation_id(&client);
+    for selection in [
+        vec!["--all-projects"],
+        vec!["--project", "alpha", "--project", "beta"],
+    ] {
+        let mut args = vec!["git", "fetch", "--remote", "upstream", "--branch", "listed"];
+        args.extend(selection);
+        assert!(!jjosh_unchecked(&client, &args).status.success());
+        assert_eq!(git(&git_dir, &["for-each-ref"]), refs);
+        assert_eq!(operation_id(&client), operation);
+        assert_eq!(commit_id(&client, "listed#alpha@upstream"), previous);
+    }
+    jjosh(&client, &[
+        "git", "fetch", "--project", "alpha", "--remote", "upstream", "--branch", "listed",
+    ]);
+    assert_eq!(file_at_revision(&client, "listed#alpha@upstream", "alpha/value.txt"), b"alpha-v2\n");
+    assert_ne!(commit_id(&client, "listed#alpha@upstream"), previous);
+}
+
+#[test]
 fn shared_remote_aliases_route_default_and_explicit_wildcard_pushes_without_partial_publication() {
     let (_temp, client, remotes) = shared_alias_repositories();
     fs::write(client.join("alpha/value.txt"), "alpha published\n").unwrap();

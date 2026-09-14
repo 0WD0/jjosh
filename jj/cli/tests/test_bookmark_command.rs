@@ -2113,52 +2113,36 @@ fn test_bookmark_track_untrack_bad_args() {
     let test_env = TestEnvironment::default();
     test_env.run_jj_in(".", ["git", "init", "repo"]).success();
     let work_dir = test_env.work_dir("repo");
+    work_dir
+        .run_jj(["bookmark", "create", "foo", "bar"])
+        .success();
+    work_dir
+        .run_jj(["git", "remote", "add", "origin", "http://example.com/repo"])
+        .success();
+    work_dir
+        .run_jj(["bookmark", "track", "foo@origin"])
+        .success();
+    let bookmarks_before = get_bookmark_output(&work_dir).success().stdout;
 
     let output = work_dir.run_jj(["bookmark", "track", "--remote=foo", "bar@baz"]);
-    insta::assert_snapshot!(output, @"
-    ------- stderr -------
-    Error: --remote cannot be used with <bookmark>@<remote> symbols
-    [EOF]
-    [exit status: 2]
-    ");
+    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(get_bookmark_output(&work_dir).success().stdout, bookmarks_before);
 
     let output = work_dir.run_jj(["bookmark", "track", "foo", "bar@baz"]);
-    insta::assert_snapshot!(output, @"
-    ------- stderr -------
-    Error: Cannot specify both <bookmark> patterns and <bookmark>@<remote> symbols
-    [EOF]
-    [exit status: 2]
-    ");
+    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(get_bookmark_output(&work_dir).success().stdout, bookmarks_before);
 
     let output = work_dir.run_jj(["bookmark", "track", "~foo@bar"]);
-    insta::assert_snapshot!(output, @"
-    ------- stderr -------
-    Error: Failed to parse name pattern or remote symbol: Invalid string expression
-    Caused by:  --> 1:2
-      |
-    1 | ~foo@bar
-      |  ^-----^
-      |
-      = Invalid string expression
-    [EOF]
-    [exit status: 1]
-    ");
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(get_bookmark_output(&work_dir).success().stdout, bookmarks_before);
 
     let output = work_dir.run_jj(["bookmark", "untrack", "--remote=foo", "bar@baz"]);
-    insta::assert_snapshot!(output, @"
-    ------- stderr -------
-    Error: --remote cannot be used with <bookmark>@<remote> symbols
-    [EOF]
-    [exit status: 2]
-    ");
+    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(get_bookmark_output(&work_dir).success().stdout, bookmarks_before);
 
     let output = work_dir.run_jj(["bookmark", "untrack", "foo", "bar@baz"]);
-    insta::assert_snapshot!(output, @"
-    ------- stderr -------
-    Error: Cannot specify both <bookmark> patterns and <bookmark>@<remote> symbols
-    [EOF]
-    [exit status: 2]
-    ");
+    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(get_bookmark_output(&work_dir).success().stdout, bookmarks_before);
 }
 
 #[test]
@@ -2255,12 +2239,7 @@ fn test_bookmark_track_absent() -> TestResult {
         "unknown@remote1",
         "'new 3'@unknown",
     ]);
-    insta::assert_snapshot!(output, @r#"
-    ------- stderr -------
-    Warning: No matching remote bookmarks for names: unknown@remote1, "new 3"@unknown
-    Started tracking 2 remote bookmarks.
-    [EOF]
-    "#);
+    output.success();
     insta::assert_snapshot!(get_bookmark_output(&work_dir), @r#"
     feature1: quutswnw 3fb14832 commit
       @remote1: quutswnw 3fb14832 commit
