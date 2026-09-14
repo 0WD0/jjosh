@@ -14,12 +14,13 @@
 
 use clap_complete::ArgValueCandidates;
 use jj_lib::git;
+use jj_lib::object_id::ObjectId as _;
 use jj_lib::ref_name::RemoteNameBuf;
 use jj_lib::repo::Repo as _;
-use jj_lib::object_id::ObjectId as _;
 
 use crate::cli_util::CommandHelper;
 use crate::command_error::CommandError;
+use crate::command_error::user_error;
 use crate::complete;
 use crate::git_util::absolute_git_url;
 use crate::ui::Ui;
@@ -62,10 +63,37 @@ pub async fn cmd_git_remote_set_url(
     args: &GitRemoteSetUrlArgs,
 ) -> Result<(), CommandError> {
     let workspace_command = command.workspace_helper_no_snapshot(ui).await?;
-    let remote = crate::git_remote::resolve_remote_selector(
-        &workspace_command,
+    let view = workspace_command.repo().view();
+    let project = args
+        .project
+        .as_deref()
+        .map(|name| view.project_state().project_by_name(name).map(|(id, _)| id))
+        .transpose()
+        .map_err(user_error)?;
+    // Management may explicitly reconnect an identity without making disconnected
+    // remotes eligible for ordinary fetch or push selection.
+    let git_repo = git::get_git_repo(workspace_command.repo().store())?;
+    let mut candidates: Vec<RemoteNameBuf> = git_repo
+        .remote_names()
+        .into_iter()
+        .filter_map(|name| String::from_utf8(name.into()).ok())
+        .map(RemoteNameBuf::from)
+        .collect();
+    candidates.extend(view.store_view().remote_connections.keys().cloned());
+    candidates.extend(view.store_view().remote_views.keys().cloned());
+    candidates.extend(
+        view.store_view()
+            .project_observations
+            .keys()
+            .map(|key| key.remote.clone()),
+    );
+    candidates.sort();
+    candidates.dedup();
+    let remote = crate::git_remote::resolve_remote_selector_in_view(
+        view,
+        &candidates,
         args.remote.as_str(),
-        args.project.as_deref(),
+        project.as_ref(),
     )?;
     crate::git_remote::check_remote(command, &workspace_command, &remote)?;
 
@@ -77,7 +105,11 @@ pub async fn cmd_git_remote_set_url(
     let fetch_url = process_url(args.url.as_ref().or(args.fetch.as_ref()))?;
     let push_url = process_url(args.push.as_ref())?;
     let _git_lock = workspace_command.lock_git_import_export()?;
-    let journal = git::begin_remote_management(workspace_command.repo().store(), &workspace_command.repo().operation().id().hex(), &[])?;
+    let journal = git::begin_remote_management(
+        workspace_command.repo().store(),
+        &workspace_command.repo().operation().id().hex(),
+        &[],
+    )?;
 
     git::set_remote_urls(
         workspace_command.repo().store(),

@@ -246,23 +246,25 @@ pub(crate) fn inspect(git_path: &Path) -> Result<Inventory> {
             .map(|config| josh_core::filter::spec(config.semantic_filter()));
         let relevant =
             has_sidecar || project.is_some() || configured_mount.is_some() || base.is_some();
-        if relevant && configured.contains(&name)
+        if relevant
+            && configured.contains(&name)
             && let Some(remote) = collect(
                 &mut issues,
                 &name,
                 git.find_remote(name.as_str()).map_err(Into::into),
-            ) {
-                for (direction, label) in [(Direction::Fetch, "fetch"), (Direction::Push, "push")] {
-                    if remote.urls(direction).count() != 1 {
-                        diagnose(
-                            &mut issues,
-                            &name,
-                            Severity::Error,
-                            format!("Remote must have exactly one selected {label} endpoint"),
-                        );
-                    }
+            )
+        {
+            for (direction, label) in [(Direction::Fetch, "fetch"), (Direction::Push, "push")] {
+                if remote.urls(direction).count() != 1 {
+                    diagnose(
+                        &mut issues,
+                        &name,
+                        Severity::Error,
+                        format!("Remote must have exactly one selected {label} endpoint"),
+                    );
                 }
             }
+        }
         if project.is_none() && configured_mount.is_some() {
             diagnose(
                 &mut issues,
@@ -451,9 +453,17 @@ pub(crate) struct Args {
 fn mappings(values: &[String]) -> Result<BTreeMap<String, String>> {
     let mut result = BTreeMap::new();
     for value in values {
-        let (name, value) = value.split_once('=').context("Mapping must be NAME=VALUE")?;
-        ensure!(!name.is_empty() && !value.is_empty(), "Mapping name and value cannot be empty");
-        ensure!(result.insert(name.to_owned(), value.to_owned()).is_none(), "Duplicate mapping for {name}");
+        let (name, value) = value
+            .split_once('=')
+            .context("Mapping must be NAME=VALUE")?;
+        ensure!(
+            !name.is_empty() && !value.is_empty(),
+            "Mapping name and value cannot be empty"
+        );
+        ensure!(
+            result.insert(name.to_owned(), value.to_owned()).is_none(),
+            "Duplicate mapping for {name}"
+        );
     }
     Ok(result)
 }
@@ -463,7 +473,9 @@ fn mappings(values: &[String]) -> Result<BTreeMap<String, String>> {
 /// journal before the operation commit makes the new semantic state authoritative.
 pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result<(), CommandError> {
     if !command.is_at_head_operation() || command.global_args().no_integrate_operation {
-        return Err(user_error("Project migration requires the current integrated operation"));
+        return Err(user_error(
+            "Project migration requires the current integrated operation",
+        ));
     }
     let mut workspace = crate::project::recorded_workspace(ui, command).await?;
     let git_path = crate::interop::sha1_git_repo_path(&workspace)?;
@@ -474,10 +486,18 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
     let mut native_sources = mappings(&args.native_source).map_err(user_error)?;
     let mut clear: BTreeSet<_> = args.clear_observations.iter().cloned().collect();
     let mut view = workspace.repo().view().store_view().clone();
-    let store_upgrade = workspace.repo().op_store().downcast_ref::<jj_lib::simple_op_store::SimpleOpStore>()
-        .map(|store| store.requires_project_store_upgrade()).transpose()?.unwrap_or(false);
+    let store_upgrade = workspace
+        .repo()
+        .op_store()
+        .downcast_ref::<jj_lib::simple_op_store::SimpleOpStore>()
+        .map(|store| store.requires_project_store_upgrade())
+        .transpose()?
+        .unwrap_or(false);
     if store_upgrade {
-        writeln!(ui.status(), "Storage requires an exclusive project-aware format upgrade; stop incompatible writers before --apply --exclusive")?;
+        writeln!(
+            ui.status(),
+            "Storage requires an exclusive project-aware format upgrade; stop incompatible writers before --apply --exclusive"
+        )?;
     }
     let mut blockers = Vec::new();
     // Explicit adoption frees the root namespace by assigning an opaque Git
@@ -573,7 +593,8 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
     for issue in &inventory.issues {
         if issue.severity == Severity::Error
             && issue.message != "Project has conflicting source filters"
-            && !(issue.message == "Native project has a source-changing Josh filter" && explicit.contains_key(&issue.subject))
+            && !(issue.message == "Native project has a source-changing Josh filter"
+                && explicit.contains_key(&issue.subject))
         {
             blockers.push(format!("{}: {}", issue.subject, issue.message));
         }
@@ -588,19 +609,43 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
         let mount = native_project::parse_mount(mount).map_err(user_error)?;
         let id = match view.project_state.project_by_name(&project.name) {
             Ok((id, record)) if record.canonical_root == mount => id,
-            Ok(_) => return Err(user_error(format!("Project {} already has a different canonical root", project.name))),
-            Err(_) if view.project_state.projects.values().any(|value| value.adds().flatten().any(|record| record.name == project.name)) => {
-                return Err(user_error(format!("Resolve existing project {} before migration", project.name)));
+            Ok(_) => {
+                return Err(user_error(format!(
+                    "Project {} already has a different canonical root",
+                    project.name
+                )));
+            }
+            Err(_)
+                if view.project_state.projects.values().any(|value| {
+                    value
+                        .adds()
+                        .flatten()
+                        .any(|record| record.name == project.name)
+                }) =>
+            {
+                return Err(user_error(format!(
+                    "Resolve existing project {} before migration",
+                    project.name
+                )));
             }
             Err(_) => {
                 let id = ProjectId::generate();
-                view.project_state.projects.insert(id.clone(), Merge::resolved(Some(ProjectRecord {
-                    name: project.name.clone(), canonical_root: mount.clone(),
-                })));
+                view.project_state.projects.insert(
+                    id.clone(),
+                    Merge::resolved(Some(ProjectRecord {
+                        name: project.name.clone(),
+                        canonical_root: mount.clone(),
+                    })),
+                );
                 id
             }
         };
-        writeln!(ui.status(), "Project {} -> {} (materialized canonical root)", project.name, mount.as_internal_file_string())?;
+        writeln!(
+            ui.status(),
+            "Project {} -> {} (materialized canonical root)",
+            project.name,
+            mount.as_internal_file_string()
+        )?;
         projects.insert(project.name.clone(), id);
     }
     // Older native imports used remote-view records as explicit raw/canonical
@@ -610,39 +655,69 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
     // These reserved refs may not have been imported into a View yet. Read their
     // explicit correspondence records directly rather than routing them through
     // ordinary Git import, which correctly rejects unproven project mirrors.
-    for reference in git.references().map_err(user_error)?
-        .prefixed("refs/remotes/jjosh-native-").map_err(user_error)?
+    for reference in git
+        .references()
+        .map_err(user_error)?
+        .prefixed("refs/remotes/jjosh-native-")
+        .map_err(user_error)?
     {
         let reference = reference.map_err(user_error)?;
         let full_name = std::str::from_utf8(reference.name().as_bstr()).map_err(user_error)?;
-        let (project, name) = full_name.strip_prefix("refs/remotes/jjosh-native-").unwrap()
-            .split_once('/').ok_or_else(|| user_error("Invalid legacy native correspondence ref"))?;
+        let (project, name) = full_name
+            .strip_prefix("refs/remotes/jjosh-native-")
+            .unwrap()
+            .split_once('/')
+            .ok_or_else(|| user_error("Invalid legacy native correspondence ref"))?;
         native_project::validate_project(project).map_err(user_error)?;
         let remote: RemoteNameBuf = format!("jjosh-native-{project}").into();
         let raw_target = reference.target();
-        let id = raw_target.try_id().ok_or_else(|| user_error("Legacy native correspondence refs must be direct"))?;
-        let target = jj_lib::op_store::RefTarget::normal(jj_lib::backend::CommitId::from_bytes(id.as_bytes()));
+        let id = raw_target
+            .try_id()
+            .ok_or_else(|| user_error("Legacy native correspondence refs must be direct"))?;
+        let target = jj_lib::op_store::RefTarget::normal(jj_lib::backend::CommitId::from_bytes(
+            id.as_bytes(),
+        ));
         let refs = view.remote_views.entry(remote).or_default();
         if let Some(existing) = refs.bookmarks.get(jj_lib::ref_name::RefName::new(name)) {
             if existing.target != target {
-                return Err(user_error(format!("Legacy native ref {full_name} disagrees with its recorded observation")));
+                return Err(user_error(format!(
+                    "Legacy native ref {full_name} disagrees with its recorded observation"
+                )));
             }
         } else {
-            refs.bookmarks.insert(name.into(), jj_lib::op_store::RemoteRef {
-                target, state: jj_lib::op_store::RemoteRefState::New,
-            });
+            refs.bookmarks.insert(
+                name.into(),
+                jj_lib::op_store::RemoteRef {
+                    target,
+                    state: jj_lib::op_store::RemoteRefState::New,
+                },
+            );
         }
     }
-    let legacy_remotes: Vec<_> = view.remote_views.keys().filter(|name| name.as_str().starts_with("jjosh-native-")).cloned().collect();
+    let legacy_remotes: Vec<_> = view
+        .remote_views
+        .keys()
+        .filter(|name| name.as_str().starts_with("jjosh-native-"))
+        .cloned()
+        .collect();
     for remote in &legacy_remotes {
         let project = remote.as_str().strip_prefix("jjosh-native-").unwrap();
         native_project::validate_project(project).map_err(user_error)?;
         if git.find_remote(remote.as_str()).is_ok() {
-            blockers.push(format!("{} is a configured remote; rename it before migrating legacy native evidence", remote.as_str()));
+            blockers.push(format!(
+                "{} is a configured remote; rename it before migrating legacy native evidence",
+                remote.as_str()
+            ));
             continue;
         }
-        if view.remote_connections.get(remote).is_some_and(|owner| owner.iter().flatten().next().is_some())
-            || view.project_observations.keys().any(|key| key.remote == *remote)
+        if view
+            .remote_connections
+            .get(remote)
+            .is_some_and(|owner| owner.iter().flatten().next().is_some())
+            || view
+                .project_observations
+                .keys()
+                .any(|key| key.remote == *remote)
         {
             blockers.push(format!("{} has new-format connection ownership; do not reinterpret it as a legacy correspondence namespace", remote.as_str()));
             continue;
@@ -653,8 +728,17 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
             } else {
                 let id = ProjectId::generate();
                 let mount = native_project::default_mount(project).map_err(user_error)?;
-                view.project_state.projects.insert(id.clone(), Merge::resolved(Some(ProjectRecord { name: project.to_owned(), canonical_root: mount })));
-                writeln!(ui.status(), "Project {project} -> {project} (legacy native default)")?;
+                view.project_state.projects.insert(
+                    id.clone(),
+                    Merge::resolved(Some(ProjectRecord {
+                        name: project.to_owned(),
+                        canonical_root: mount,
+                    })),
+                );
+                writeln!(
+                    ui.status(),
+                    "Project {project} -> {project} (legacy native default)"
+                )?;
                 id
             };
             projects.insert(project.to_owned(), id);
@@ -662,19 +746,39 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
         native_projects.insert(project.to_owned());
         let refs = &view.remote_views[remote];
         if !refs.tags.is_empty() {
-            blockers.push(format!("{} has tags; resolve these non-correspondence records first", remote.as_str()));
+            blockers.push(format!(
+                "{} has tags; resolve these non-correspondence records first",
+                remote.as_str()
+            ));
         }
         for (name, reference) in &refs.bookmarks {
-            let (kind, raw) = name.as_str().split_once('/').ok_or_else(|| user_error("Invalid legacy native correspondence name"))?;
-            if !matches!(kind, "origin" | "published") || reference.state == jj_lib::op_store::RemoteRefState::Tracked {
-                return Err(user_error(format!("Invalid or tracked native correspondence {}@{}; untrack it first", name.as_str(), remote.as_str())));
+            let (kind, raw) = name
+                .as_str()
+                .split_once('/')
+                .ok_or_else(|| user_error("Invalid legacy native correspondence name"))?;
+            if !matches!(kind, "origin" | "published")
+                || reference.state == jj_lib::op_store::RemoteRefState::Tracked
+            {
+                return Err(user_error(format!(
+                    "Invalid or tracked native correspondence {}@{}; untrack it first",
+                    name.as_str(),
+                    remote.as_str()
+                )));
             }
-            let raw = jj_lib::backend::CommitId::try_from_hex(raw).filter(|id| id.as_bytes().len() == 20)
+            let raw = jj_lib::backend::CommitId::try_from_hex(raw)
+                .filter(|id| id.as_bytes().len() == 20)
                 .ok_or_else(|| user_error("Invalid legacy native source commit ID"))?;
-            let canonical = reference.target.as_normal().ok_or_else(|| user_error("Resolve conflicted native correspondences before migrating"))?;
+            let canonical = reference.target.as_normal().ok_or_else(|| {
+                user_error("Resolve conflicted native correspondences before migrating")
+            })?;
             workspace.repo().store().get_commit(&raw)?;
             workspace.repo().store().get_commit(canonical)?;
-            writeln!(ui.status(), "Adopt native {project}/{kind}: {} -> {}", raw.hex(), canonical.hex())?;
+            writeln!(
+                ui.status(),
+                "Adopt native {project}/{kind}: {} -> {}",
+                raw.hex(),
+                canonical.hex()
+            )?;
             legacy_pairs.push((project.to_owned(), kind.to_owned(), raw, canonical.clone()));
         }
         view.remote_views.remove(remote);
@@ -682,19 +786,44 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
         // The retired native importer made this unconfigured synthetic mirror.
         // Only exact local-target duplicates are its disposable bookkeeping.
         if git.find_remote(mirror.as_str()).is_err()
-            && !view.remote_connections.get(&mirror).is_some_and(|owner| owner.iter().flatten().next().is_some())
-            && !view.project_observations.keys().any(|key| key.remote == mirror)
+            && !view
+                .remote_connections
+                .get(&mirror)
+                .is_some_and(|owner| owner.iter().flatten().next().is_some())
+            && !view
+                .project_observations
+                .keys()
+                .any(|key| key.remote == mirror)
         {
             for (prefix, local) in [
-                (format!("refs/remotes/{}/", mirror.as_str()), &view.local_bookmarks),
-                (format!("{}{}/", jj_lib::git::REMOTE_TAG_REF_NAMESPACE, mirror.as_str()), &view.local_tags),
+                (
+                    format!("refs/remotes/{}/", mirror.as_str()),
+                    &view.local_bookmarks,
+                ),
+                (
+                    format!(
+                        "{}{}/",
+                        jj_lib::git::REMOTE_TAG_REF_NAMESPACE,
+                        mirror.as_str()
+                    ),
+                    &view.local_tags,
+                ),
             ] {
-                for reference in git.references().map_err(user_error)?.prefixed(prefix.as_str()).map_err(user_error)? {
+                for reference in git
+                    .references()
+                    .map_err(user_error)?
+                    .prefixed(prefix.as_str())
+                    .map_err(user_error)?
+                {
                     let reference = reference.map_err(user_error)?;
-                    let full_name = std::str::from_utf8(reference.name().as_bstr()).map_err(user_error)?;
-                    let name = jj_lib::ref_name::RefName::new(full_name.strip_prefix(&prefix).unwrap());
+                    let full_name =
+                        std::str::from_utf8(reference.name().as_bstr()).map_err(user_error)?;
+                    let name =
+                        jj_lib::ref_name::RefName::new(full_name.strip_prefix(&prefix).unwrap());
                     if let Some(id) = reference.target().try_id()
-                        && local.get(name).and_then(jj_lib::op_store::RefTarget::as_normal)
+                        && local
+                            .get(name)
+                            .and_then(jj_lib::op_store::RefTarget::as_normal)
                             .is_some_and(|canonical| canonical.as_bytes() == id.as_bytes())
                     {
                         legacy_mirrors.push(full_name.to_owned());
@@ -723,24 +852,53 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
     }
     for (name, id) in &projects {
         match view.project_state.resolve_label(name).map_err(user_error)? {
-            Some(existing) if existing != *id => return Err(user_error(format!("Label {name} belongs to another project"))),
+            Some(existing) if existing != *id => {
+                return Err(user_error(format!(
+                    "Label {name} belongs to another project"
+                )));
+            }
             Some(_) => {}
             None => {
                 let suffix = format!("#{name}");
-                for reference in view.local_bookmarks.keys().chain(view.local_tags.keys()).filter(|reference| reference.as_str().ends_with(&suffix)) {
-                    writeln!(ui.status(), "Adopt local reference {} as project label {name}", reference.as_str())?;
+                for reference in view
+                    .local_bookmarks
+                    .keys()
+                    .chain(view.local_tags.keys())
+                    .filter(|reference| reference.as_str().ends_with(&suffix))
+                {
+                    writeln!(
+                        ui.status(),
+                        "Adopt local reference {} as project label {name}",
+                        reference.as_str()
+                    )?;
                 }
                 for (remote, refs) in &view.remote_views {
-                    for (reference, target) in refs.bookmarks.iter().chain(refs.tags.iter()).filter(|(reference, _)| reference.as_str().ends_with(&suffix)) {
-                        writeln!(ui.status(), "Adopt remote reference {}@{} ({:?}) as project label {name}", reference.as_str(), remote.as_str(), target.state)?;
+                    for (reference, target) in refs
+                        .bookmarks
+                        .iter()
+                        .chain(refs.tags.iter())
+                        .filter(|(reference, _)| reference.as_str().ends_with(&suffix))
+                    {
+                        writeln!(
+                            ui.status(),
+                            "Adopt remote reference {}@{} ({:?}) as project label {name}",
+                            reference.as_str(),
+                            remote.as_str(),
+                            target.state
+                        )?;
                     }
                 }
-                view.project_state.labels.insert(name.clone(), Merge::resolved(Some(id.clone())));
+                view.project_state
+                    .labels
+                    .insert(name.clone(), Merge::resolved(Some(id.clone())));
             }
         }
     }
     for reference in &legacy_mirrors {
-        writeln!(ui.status(), "Retire legacy native mirror {reference}; identical local target retained")?;
+        writeln!(
+            ui.status(),
+            "Retire legacy native mirror {reference}; identical local target retained"
+        )?;
     }
     let mut updates = Vec::new();
     let config = git.config_snapshot();
@@ -775,8 +933,12 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
         let representation = if let Some(filter) = &remote.filter {
             // Older native peers explicitly accepted the identity sidecar as
             // whole-project, as well as the already-prefixed identity filter.
-            if remote.project.as_ref().is_some_and(|project| native_projects.contains(project))
-                && josh_core::filter::parse(filter).map_err(user_error)? == josh_core::filter::Filter::new()
+            if remote
+                .project
+                .as_ref()
+                .is_some_and(|project| native_projects.contains(project))
+                && josh_core::filter::parse(filter).map_err(user_error)?
+                    == josh_core::filter::Filter::new()
             {
                 Ok(Representation::Whole)
             } else if let Some(mount) = &remote.mount {
@@ -787,40 +949,72 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
         } else {
             Ok(Representation::Whole)
         };
-        if representation.as_ref().is_ok_and(|value| value != &Representation::Whole)
-            && let Some(project) = &remote.project {
-                filtered_projects.insert(project.clone());
-            }
+        if representation
+            .as_ref()
+            .is_ok_and(|value| value != &Representation::Whole)
+            && let Some(project) = &remote.project
+        {
+            filtered_projects.insert(project.clone());
+        }
         legacy_representations.insert(remote.name.clone(), representation);
     }
     for remote in &inventory.remotes {
-        if remote.project.is_none() && remote.filter.is_none() && !explicit.contains_key(&remote.name) {
+        if remote.project.is_none()
+            && remote.filter.is_none()
+            && !explicit.contains_key(&remote.name)
+        {
             continue;
         }
         let name: RemoteNameBuf = remote.name.clone().into();
         if git.find_remote(name.as_str()).is_err() {
-            blockers.push(format!("Orphan sidecar {}: explicitly remove or configure its remote before migration", remote.name));
+            blockers.push(format!(
+                "Orphan sidecar {}: explicitly remove or configure its remote before migration",
+                remote.name
+            ));
             continue;
         }
         let specified = explicit.remove(&remote.name);
         let representation = if let Some(value) = &specified {
             crate::binding_config::parse_mapping(value).map_err(user_error)?
         } else {
-            match legacy_representations.remove(&remote.name).expect("inventory representation was prepared") {
+            match legacy_representations
+                .remove(&remote.name)
+                .expect("inventory representation was prepared")
+            {
                 Ok(value) => value,
-                Err(error) => { blockers.push(format!("{}: {error:#}", remote.name)); continue; }
+                Err(error) => {
+                    blockers.push(format!("{}: {error:#}", remote.name));
+                    continue;
+                }
             }
         };
-        if specified.is_none() && remote.filter.is_none()
-            && remote.project.as_ref().is_some_and(|project| filtered_projects.contains(project))
+        if specified.is_none()
+            && remote.filter.is_none()
+            && remote
+                .project
+                .as_ref()
+                .is_some_and(|project| filtered_projects.contains(project))
         {
             blockers.push(format!("Remote {} fetched whole-project but could publish using a filtered peer; choose --representation {}=whole or {}=filter:SOURCE explicitly", remote.name, remote.name, remote.name));
         }
-        let target = remote.project.as_ref().map(|project| BindingTarget::Project(projects[project].clone())).unwrap_or(BindingTarget::RepositoryView);
-        let connection = jj_lib::git::remote_connection_id(&git, &name).map_err(user_error)?
+        let target = remote
+            .project
+            .as_ref()
+            .map(|project| BindingTarget::Project(projects[project].clone()))
+            .unwrap_or(BindingTarget::RepositoryView);
+        let connection = jj_lib::git::remote_connection_id(&git, &name)
+            .map_err(user_error)?
             .unwrap_or_else(ConnectionId::generate);
-        if view.project_state.binding_for_connection(&connection).map_err(user_error)?.is_some() {
-            return Err(user_error(format!("Remote {} is already bound; do not reinterpret it through legacy migration", remote.name)));
+        if view
+            .project_state
+            .binding_for_connection(&connection)
+            .map_err(user_error)?
+            .is_some()
+        {
+            return Err(user_error(format!(
+                "Remote {} is already bound; do not reinterpret it through legacy migration",
+                remote.name
+            )));
         }
         let base =
             crate::git_remote::config_string(&git, &format!("remote.{}.jjosh-base", remote.name))
@@ -872,36 +1066,72 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
                 name.as_str()
             )?;
         }
-        view.remote_connections.insert(name.clone(), Merge::resolved(Some(connection.clone())));
+        view.remote_connections
+            .insert(name.clone(), Merge::resolved(Some(connection.clone())));
         if let BindingTarget::Project(project) = &binding.target {
-            view.project_state.remote_names.insert(connection.clone(), Merge::resolved(Some(ScopedRemoteName {
-                project: project.clone(), name: name.clone(),
-            })));
+            view.project_state.remote_names.insert(
+                connection.clone(),
+                Merge::resolved(Some(ScopedRemoteName {
+                    project: project.clone(),
+                    name: name.clone(),
+                })),
+            );
             alias_remotes.insert(name.clone(), connection.clone());
-            writeln!(ui.status(), "Adopt scoped remote {}#{}; existing name preserved verbatim", name.as_str(), remote.project.as_deref().expect("project binding"))?;
+            writeln!(
+                ui.status(),
+                "Adopt scoped remote {}#{}; existing name preserved verbatim",
+                name.as_str(),
+                remote.project.as_deref().expect("project binding")
+            )?;
         }
-        view.project_state.bindings.insert(id.clone(), Merge::resolved(Some(binding.clone())));
+        view.project_state
+            .bindings
+            .insert(id.clone(), Merge::resolved(Some(binding.clone())));
         remote_bindings.insert(remote.name.clone(), (id, binding));
-        updates.push((name.clone(), "jjosh-connectionId".to_owned(), Some(connection.hex())));
-        updates.push((name.clone(), "jjosh-requiredCapability".to_owned(), Some("jjosh-v1".to_owned())));
+        updates.push((
+            name.clone(),
+            "jjosh-connectionId".to_owned(),
+            Some(connection.hex()),
+        ));
+        updates.push((
+            name.clone(),
+            "jjosh-requiredCapability".to_owned(),
+            Some("jjosh-v1".to_owned()),
+        ));
         for key in ["jjosh-project", "jjosh-mount", "jjosh-base"] {
             updates.push((name.clone(), key.to_owned(), None));
         }
         if remote.filter.is_some() {
-            sidecars.push(git.common_dir().join("josh/remotes").join(format!("{}.josh", remote.name)));
+            sidecars.push(
+                git.common_dir()
+                    .join("josh/remotes")
+                    .join(format!("{}.josh", remote.name)),
+            );
         }
     }
     if !explicit.is_empty() || !clear.is_empty() {
-        return Err(user_error(format!("Unknown or non-legacy remote mappings: representations={:?}, clear-observations={clear:?}", explicit.keys())));
+        return Err(user_error(format!(
+            "Unknown or non-legacy remote mappings: representations={:?}, clear-observations={clear:?}",
+            explicit.keys()
+        )));
     }
     let mut native_bindings = BTreeMap::new();
     let mut offline_bindings = Vec::new();
     for name in &native_projects {
-        let source = native_sources.remove(name).unwrap_or_else(|| "detached".to_owned());
+        let source = native_sources
+            .remove(name)
+            .unwrap_or_else(|| "detached".to_owned());
         let id = if source == "detached" {
             let id = BindingId::generate();
-            let binding = BindingRecord { target: BindingTarget::Project(projects[name].clone()), connection_id: ConnectionId::generate(), representation: Representation::Whole, base: None };
-            view.project_state.bindings.insert(id.clone(), Merge::resolved(Some(binding)));
+            let binding = BindingRecord {
+                target: BindingTarget::Project(projects[name].clone()),
+                connection_id: ConnectionId::generate(),
+                representation: Representation::Whole,
+                base: None,
+            };
+            view.project_state
+                .bindings
+                .insert(id.clone(), Merge::resolved(Some(binding)));
             offline_bindings.push(id.clone());
             id
         } else {
@@ -909,21 +1139,41 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
                 (id.clone(), binding)
             } else {
                 git.find_remote(source.as_str()).map_err(user_error)?;
-                let connection = jj_lib::git::remote_connection_id(&git, jj_lib::ref_name::RemoteName::new(&source))
-                    .map_err(user_error)?.ok_or_else(|| user_error(format!("Native source {source} has no connection identity")))?;
-                view.project_state.binding_for_connection(&connection).map_err(user_error)?
-                    .ok_or_else(|| user_error(format!("Native source {source} has no active binding")))?
+                let connection = jj_lib::git::remote_connection_id(
+                    &git,
+                    jj_lib::ref_name::RemoteName::new(&source),
+                )
+                .map_err(user_error)?
+                .ok_or_else(|| {
+                    user_error(format!("Native source {source} has no connection identity"))
+                })?;
+                view.project_state
+                    .binding_for_connection(&connection)
+                    .map_err(user_error)?
+                    .ok_or_else(|| {
+                        user_error(format!("Native source {source} has no active binding"))
+                    })?
             };
-            if binding.target != BindingTarget::Project(projects[name].clone()) || binding.representation != Representation::Whole {
-                return Err(user_error(format!("Native evidence for {name} requires a whole-project binding for that project")));
+            if binding.target != BindingTarget::Project(projects[name].clone())
+                || binding.representation != Representation::Whole
+            {
+                return Err(user_error(format!(
+                    "Native evidence for {name} requires a whole-project binding for that project"
+                )));
             }
             id
         };
-        writeln!(ui.status(), "Preserve native correspondence {name} -> {source} (no inferred endpoint or lease)")?;
+        writeln!(
+            ui.status(),
+            "Preserve native correspondence {name} -> {source} (no inferred endpoint or lease)"
+        )?;
         native_bindings.insert(name.clone(), id);
     }
     if !native_sources.is_empty() {
-        return Err(user_error(format!("Unknown native projects in --native-source: {:?}", native_sources.keys())));
+        return Err(user_error(format!(
+            "Unknown native projects in --native-source: {:?}",
+            native_sources.keys()
+        )));
     }
     for diagnostic in view.project_state.diagnostics() {
         if diagnostic
@@ -979,32 +1229,51 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
     let mut retire_refs = Vec::new();
     for name in projects.keys() {
         let prefix = native_project::project_ref_prefix(name);
-        legacy_transaction.for_each_ref_prefixed(&prefix, |reference, _| {
-            let suffix = reference.strip_prefix(&prefix).unwrap();
-            let correspondence = suffix.split_once('/').is_some_and(|(kind, _)| matches!(kind, "origin" | "published" | "graft"));
-            if suffix == "mount" || (native_bindings.contains_key(name) && correspondence) {
-                retire_refs.push(reference.to_owned());
-            }
-            Ok(())
-        }).map_err(user_error)?;
+        legacy_transaction
+            .for_each_ref_prefixed(&prefix, |reference, _| {
+                let suffix = reference.strip_prefix(&prefix).unwrap();
+                let correspondence = suffix
+                    .split_once('/')
+                    .is_some_and(|(kind, _)| matches!(kind, "origin" | "published" | "graft"));
+                if suffix == "mount" || (native_bindings.contains_key(name) && correspondence) {
+                    retire_refs.push(reference.to_owned());
+                }
+                Ok(())
+            })
+            .map_err(user_error)?;
     }
     // Logical retirement belongs to the new operation. Physical mirrors remain
     // intact until its semantic witness commits, then retire through the same
     // CAS-checked journal as the obsolete private authority.
     for remote in cleared.iter().chain(legacy_remotes.iter()) {
-        for prefix in [format!("refs/remotes/{}/", remote.as_str()), format!("{}{}/", jj_lib::git::REMOTE_TAG_REF_NAMESPACE, remote.as_str())] {
-            legacy_transaction.for_each_ref_prefixed(&prefix, |name, _| {
-                retire_refs.push(name.to_owned());
-                Ok(())
-            }).map_err(user_error)?;
-            view.git_refs.retain(|name, _| !name.as_str().starts_with(&prefix));
+        for prefix in [
+            format!("refs/remotes/{}/", remote.as_str()),
+            format!(
+                "{}{}/",
+                jj_lib::git::REMOTE_TAG_REF_NAMESPACE,
+                remote.as_str()
+            ),
+        ] {
+            legacy_transaction
+                .for_each_ref_prefixed(&prefix, |name, _| {
+                    retire_refs.push(name.to_owned());
+                    Ok(())
+                })
+                .map_err(user_error)?;
+            view.git_refs
+                .retain(|name, _| !name.as_str().starts_with(&prefix));
         }
     }
     for reference in &legacy_mirrors {
-        if legacy_transaction.resolve_ref(reference).map_err(user_error)?.is_some() {
+        if legacy_transaction
+            .resolve_ref(reference)
+            .map_err(user_error)?
+            .is_some()
+        {
             retire_refs.push(reference.clone());
         }
-        view.git_refs.remove(jj_lib::ref_name::GitRefName::new(reference));
+        view.git_refs
+            .remove(jj_lib::ref_name::GitRefName::new(reference));
     }
     retire_refs.sort();
     retire_refs.dedup();
@@ -1211,14 +1480,21 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
         writeln!(ui.status(), "Blocked: {blocker}")?;
     }
     if !blockers.is_empty() {
-        return Err(user_error("Migration is blocked; resolve the listed issues and rerun project migrate --dry-run"));
+        return Err(user_error(
+            "Migration is blocked; resolve the listed issues and rerun project migrate --dry-run",
+        ));
     }
     if args.dry_run || !args.apply {
-        writeln!(ui.status(), "Dry run: no changes written. Use --apply with the same explicit mappings to commit this plan.")?;
+        writeln!(
+            ui.status(),
+            "Dry run: no changes written. Use --apply with the same explicit mappings to commit this plan."
+        )?;
         return Ok(());
     }
     if store_upgrade && !args.exclusive {
-        return Err(user_error("Stop incompatible writers, then rerun project migrate --apply --exclusive"));
+        return Err(user_error(
+            "Stop incompatible writers, then rerun project migrate --apply --exclusive",
+        ));
     }
     let _git_lock = workspace.lock_git_import_export()?;
     let mut journal_paths = sidecars.clone();
@@ -1244,18 +1520,30 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
         journal.expect_remote(new, *exists, exists.then_some(connection), *exists)?;
     }
     if store_upgrade {
-        workspace.repo().op_store().downcast_ref::<jj_lib::simple_op_store::SimpleOpStore>()
-            .expect("store requiring upgrade is SimpleOpStore").upgrade_project_store_type()?;
+        workspace
+            .repo()
+            .op_store()
+            .downcast_ref::<jj_lib::simple_op_store::SimpleOpStore>()
+            .expect("store requiring upgrade is SimpleOpStore")
+            .upgrade_project_store_type()?;
     }
     let transaction = crate::interop::open_josh_transaction(&git_path, false)?;
     for binding in &offline_bindings {
         native_project::record_offline_binding(&transaction, binding).map_err(user_error)?;
     }
     for (project, binding) in &native_bindings {
-        native_project::migrate_binding_anchors(&transaction, project, binding).map_err(user_error)?;
+        native_project::migrate_binding_anchors(&transaction, project, binding)
+            .map_err(user_error)?;
     }
     for (project, kind, raw, canonical) in &legacy_pairs {
-        native_project::record_anchor(&transaction, &native_bindings[project], kind, raw, canonical).map_err(user_error)?;
+        native_project::record_anchor(
+            &transaction,
+            &native_bindings[project],
+            kind,
+            raw,
+            canonical,
+        )
+        .map_err(user_error)?;
     }
     transaction.flush_mem_odb().map_err(user_error)?;
     if !updates.is_empty() {

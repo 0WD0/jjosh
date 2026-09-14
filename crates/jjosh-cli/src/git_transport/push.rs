@@ -345,9 +345,10 @@ impl PreparedPush {
         }
         outcome.error = report.error.map(anyhow::Error::new);
         if outcome.error.is_none()
-            && let Some(Err(reason)) = report.unpack {
-                outcome.error = Some(anyhow::anyhow!("receive-pack unpack failed: {reason}"));
-            }
+            && let Some(Err(reason)) = report.unpack
+        {
+            outcome.error = Some(anyhow::anyhow!("receive-pack unpack failed: {reason}"));
+        }
         outcome
     }
 }

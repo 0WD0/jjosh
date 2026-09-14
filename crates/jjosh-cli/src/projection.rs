@@ -96,7 +96,11 @@ struct PreviewArgs {
     output: OutputArgs,
 }
 
-pub(crate) async fn run(ui: &mut Ui, command: &CommandHelper, args: Args) -> Result<(), CommandError> {
+pub(crate) async fn run(
+    ui: &mut Ui,
+    command: &CommandHelper,
+    args: Args,
+) -> Result<(), CommandError> {
     match args.command {
         Command::Preview(args) => run_preview(ui, command, args).await,
     }
@@ -219,7 +223,11 @@ async fn run_preview(
     check_projectable_repo_history(workspace_command.repo().as_ref(), &commit).await?;
 
     let git_repo_path = sha1_git_repo_path(&workspace_command)?;
-    let filter = FilterArgs { filter: args.filter, view: args.view }.resolve()?;
+    let filter = FilterArgs {
+        filter: args.filter,
+        view: args.view,
+    }
+    .resolve()?;
     let source_oid = commit_as_josh_oid(&commit)?;
 
     // Filtering transforms history; the displayed change ID belongs to the source,
@@ -285,7 +293,6 @@ async fn run_preview(
                 )?;
             }
         }
-
     }
     Ok(())
 }

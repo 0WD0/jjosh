@@ -33,7 +33,11 @@ pub(crate) fn map_source_ids(
     if pairs.iter().all(|(raw, normalized)| raw == normalized) {
         return filter;
     }
-    let ids: HashMap<_, _> = pairs.iter().copied().filter(|(raw, input)| raw != input).collect();
+    let ids: HashMap<_, _> = pairs
+        .iter()
+        .copied()
+        .filter(|(raw, input)| raw != input)
+        .collect();
     fn map_node(
         filter: Filter,
         ids: &HashMap<gix::ObjectId, gix::ObjectId>,
@@ -50,25 +54,35 @@ pub(crate) fn map_source_ids(
         };
         let mut op = to_op(filter);
         match &mut op {
-            Op::Rev(arms) => for (matcher, child) in arms {
-                match matcher {
-                    RevMatch::AncestorStrict(id) | RevMatch::AncestorInclusive(id) | RevMatch::Equal(id) => map_id(id),
-                    RevMatch::Default => {}
+            Op::Rev(arms) => {
+                for (matcher, child) in arms {
+                    match matcher {
+                        RevMatch::AncestorStrict(id)
+                        | RevMatch::AncestorInclusive(id)
+                        | RevMatch::Equal(id) => map_id(id),
+                        RevMatch::Default => {}
+                    }
+                    *child = map_node(*child, ids, memo);
                 }
-                *child = map_node(*child, ids, memo);
-            },
+            }
             Op::Unapply(id, child) => {
                 map_id(id);
                 *child = map_node(*child, ids, memo);
             }
             Op::Downstack(id) => map_id(id),
-            Op::Meta(_, child) | Op::Starlark(_, child) | Op::TreeId(_, child)
-            | Op::Exclude(child) | Op::Select(child) | Op::Pin(child) => {
+            Op::Meta(_, child)
+            | Op::Starlark(_, child)
+            | Op::TreeId(_, child)
+            | Op::Exclude(child)
+            | Op::Select(child)
+            | Op::Pin(child) => {
                 *child = map_node(*child, ids, memo);
             }
-            Op::Compose(children) | Op::Chain(children) => for child in children {
-                *child = map_node(*child, ids, memo);
-            },
+            Op::Compose(children) | Op::Chain(children) => {
+                for child in children {
+                    *child = map_node(*child, ids, memo);
+                }
+            }
             Op::Subtract(left, right) => {
                 *left = map_node(*left, ids, memo);
                 *right = map_node(*right, ids, memo);
@@ -202,8 +216,10 @@ pub(crate) async fn canonicalize_filtered_graph(
     reuse_existing: bool,
 ) -> Result<CommitId, CommandError> {
     let mount = crate::native_project::parse_mount(
-        path.to_str().ok_or_else(|| user_error("Project mount must be UTF-8"))?,
-    ).map_err(user_error)?;
+        path.to_str()
+            .ok_or_else(|| user_error("Project mount must be UTF-8"))?,
+    )
+    .map_err(user_error)?;
     let mut mapped: HashMap<gix_hash::ObjectId, CommitId> = HashMap::new();
     let mut pending = vec![ProjectedVisit::Read(filtered)];
     while let Some(visit) = pending.pop() {
@@ -255,11 +271,15 @@ pub(crate) async fn canonicalize_filtered_graph(
                         let original_id = crate::interop::commit_id_from_josh_oid(id);
                         let original = repo.store().get_commit_async(&original_id).await?;
                         let mut intended = original.store_commit().as_ref().clone();
-                        intended.parents = canonical_parents.into_iter()
-                            .map(crate::interop::commit_id_from_josh_oid).collect();
+                        intended.parents = canonical_parents
+                            .into_iter()
+                            .map(crate::interop::commit_id_from_josh_oid)
+                            .collect();
                         intended.secure_sig = None;
-                        let tree = crate::native_project::inherit_other_projects(repo, &mount, &intended)
-                            .await.map_err(user_error)?;
+                        let tree =
+                            crate::native_project::inherit_other_projects(repo, &mount, &intended)
+                                .await
+                                .map_err(user_error)?;
                         intended.root_tree = tree.tree_ids().clone();
                         intended.conflict_labels = tree.labels().as_merge().clone();
                         let rewritten = repo.store().write_commit(intended, None).await?;

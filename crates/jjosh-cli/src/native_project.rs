@@ -23,6 +23,9 @@ use jj_lib::repo_path::RepoPathBuf;
 use jj_lib::store::Store;
 use josh_core::cache::Expected;
 use josh_core::cache::Transaction;
+
+const OFFLINE_IMPORT_MARKER: &[u8] = b"offline-native-import-v1\n";
+
 pub(crate) fn parse_project(name: &str) -> Result<String> {
     let name = jj_lib::revset::parse_symbol(name)
         .map_err(|err| anyhow::anyhow!("Invalid project name: {}", err.kind()))?;
@@ -55,10 +58,60 @@ pub(crate) fn binding_ref_prefix(binding: &BindingId) -> String {
 /// Direct imports are explicit reusable evidence, not disconnected named peers.
 pub(crate) fn record_offline_binding(transaction: &Transaction, binding: &BindingId) -> Result<()> {
     let name = format!("{}offline", binding_ref_prefix(binding));
-    let marker = josh_core::objects::write_blob(transaction.odb(), b"offline-native-import-v1\n")?;
+    let marker = josh_core::objects::write_blob(transaction.odb(), OFFLINE_IMPORT_MARKER)?;
     let old = transaction.resolve_ref(&name)?;
-    ensure!(old.is_none_or(|old| old == marker), "Offline native relation marker was modified");
-    transaction.update_ref(&name, old.map_or(Expected::Absent, Expected::At), marker, "record offline native relation")
+    ensure!(
+        old.is_none_or(|old| old == marker),
+        "Offline native relation marker was modified"
+    );
+    transaction.update_ref(
+        &name,
+        old.map_or(Expected::Absent, Expected::At),
+        marker,
+        "record offline native relation",
+    )
+}
+
+/// Materialize only immutable objects; the importer journals and publishes the refs.
+pub(crate) fn prepare_offline_import(
+    git: &gix::Repository,
+    binding: &BindingId,
+    source: &crate::native_source::NativeSource,
+    ids: &HashMap<CommitId, CommitId>,
+) -> Result<Vec<gix::refs::transaction::RefEdit>> {
+    use gix::refs::transaction::{PreviousValue, RefEdit};
+
+    let prefix = binding_ref_prefix(binding);
+    let marker = git.write_blob(OFFLINE_IMPORT_MARKER)?.detach();
+    let mut refs = vec![(format!("{prefix}offline"), marker)];
+    let parents: HashSet<_> = source
+        .commits
+        .values()
+        .flat_map(|commit| &commit.parents)
+        .collect();
+    for raw in source.commits.keys().filter(|id| !parents.contains(id)) {
+        if raw.as_bytes().iter().all(|byte| *byte == 0) {
+            continue;
+        }
+        refs.push((format!("{prefix}{}", raw.hex()), oid(raw)?));
+        refs.push((format!("{prefix}origin/{}", raw.hex()), oid(&ids[raw])?));
+    }
+    refs.into_iter()
+        .map(|(name, id)| {
+            // This binding was allocated by the import plan, not adopted from
+            // any existing destination relation.
+            ensure!(
+                git.try_find_reference(&name)?.is_none(),
+                "Imported native binding already has provenance: {name}"
+            );
+            Ok(RefEdit::update(
+                name.try_into()?,
+                id,
+                PreviousValue::MustNotExist,
+                "import offline native relation",
+            ))
+        })
+        .collect()
 }
 
 pub(crate) fn is_offline_binding(transaction: &Transaction, binding: &BindingId) -> Result<bool> {
@@ -81,8 +134,16 @@ pub(crate) fn migrate_binding_anchors(
         }
         let name = format!("{new}{suffix}");
         let previous = transaction.resolve_ref(&name)?;
-        ensure!(previous.is_none_or(|id| id == target), "Conflicting migrated native correspondence");
-        transaction.update_ref(&name, previous.map_or(Expected::Absent, Expected::At), target, "migrate native binding provenance")?;
+        ensure!(
+            previous.is_none_or(|id| id == target),
+            "Conflicting migrated native correspondence"
+        );
+        transaction.update_ref(
+            &name,
+            previous.map_or(Expected::Absent, Expected::At),
+            target,
+            "migrate native binding provenance",
+        )?;
         Ok(())
     })
 }
@@ -166,7 +227,6 @@ fn project_names_matching(
     Ok(names.into_iter().collect())
 }
 
-
 pub(crate) fn load_mount(transaction: &Transaction, project: &str) -> Result<RepoPathBuf> {
     let Some(oid) = transaction.resolve_ref(&mount_ref_name(project))? else {
         return default_mount(project);
@@ -177,7 +237,6 @@ pub(crate) fn load_mount(transaction: &Transaction, project: &str) -> Result<Rep
         .map_err(|err| anyhow::anyhow!("Native mount ref for {project} is not UTF-8: {err}"))?;
     parse_mount(text)
 }
-
 
 async fn value_at_path(
     store: &Store,
@@ -306,9 +365,10 @@ async fn without_path(store: &Store, tree_id: &TreeId, path: &RepoPath) -> Resul
                 continue;
             }
             if let Some(child) = &rewritten
-                && child != empty {
-                    entries.push((entry.name().to_owned(), TreeValue::Tree(child.clone())));
-                }
+                && child != empty
+            {
+                entries.push((entry.name().to_owned(), TreeValue::Tree(child.clone())));
+            }
         }
         rewritten = Some(if entries.is_empty() {
             empty.clone()
@@ -421,7 +481,9 @@ pub(crate) async fn anchors(
             raw.as_bytes().len() == 20,
             "Invalid native correspondence commit ID"
         );
-        if kind == "observed" { return Ok(()); }
+        if kind == "observed" {
+            return Ok(());
+        }
         let canonical = CommitId::from_bytes(canonical.as_bytes());
         match kind {
             "origin" => pending.push((raw, canonical.clone())),

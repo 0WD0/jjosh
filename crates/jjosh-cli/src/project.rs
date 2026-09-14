@@ -35,8 +35,9 @@ enum Command {
     Remove(NameArgs),
     /// Explicitly choose or delete unresolved metadata, or retire a disconnected binding.
     Resolve(ResolveArgs),
-    /// Import recorded local JJ repositories as new outer projects in one operation.
-    /// Nested project metadata is not activated; source URLs and permissions are never imported.
+    /// Import recorded local JJ repositories in one operation.
+    /// Choose --nested or --preserve for each source; both may be combined.
+    /// Preserved project connections retain their settings. No remote is contacted.
     Import(crate::project_import::ImportArgs),
     /// Inspect or explicitly apply migration of legacy project configuration.
     Migrate(crate::project_migration::Args),
@@ -111,20 +112,31 @@ struct ResolveArgs {
 
 pub(crate) fn require_current_operation(command: &CommandHelper) -> Result<(), CommandError> {
     if !command.is_at_head_operation() || command.global_args().no_integrate_operation {
-        return Err(user_error("Project changes require the current integrated operation"));
+        return Err(user_error(
+            "Project changes require the current integrated operation",
+        ));
     }
     Ok(())
 }
 
-pub(crate) async fn recorded_workspace(ui: &Ui, command: &CommandHelper) -> Result<WorkspaceCommandHelper, CommandError> {
+pub(crate) async fn recorded_workspace(
+    ui: &Ui,
+    command: &CommandHelper,
+) -> Result<WorkspaceCommandHelper, CommandError> {
     let workspace = command.load_workspace()?;
     let loader = workspace.repo_loader();
     let operation = if let Some(op) = &command.global_args().at_operation {
         jj_lib::op_walk::resolve_op_for_load(loader, op).await?
     } else {
-        let heads = jj_lib::op_walk::get_current_head_ops(loader.op_store(), loader.op_heads_store().as_ref()).await?;
+        let heads = jj_lib::op_walk::get_current_head_ops(
+            loader.op_store(),
+            loader.op_heads_store().as_ref(),
+        )
+        .await?;
         let [operation] = heads.as_slice() else {
-            return Err(user_error("Project commands require one recorded operation head; reconcile operations first, or select --at-operation for inspection"));
+            return Err(user_error(
+                "Project commands require one recorded operation head; reconcile operations first, or select --at-operation for inspection",
+            ));
         };
         operation.clone()
     };
@@ -132,12 +144,18 @@ pub(crate) async fn recorded_workspace(ui: &Ui, command: &CommandHelper) -> Resu
     command.for_workable_repo(ui, workspace, repo)
 }
 
-pub(crate) async fn run(ui: &mut Ui, command: &CommandHelper, args: Args) -> Result<(), CommandError> {
+pub(crate) async fn run(
+    ui: &mut Ui,
+    command: &CommandHelper,
+    args: Args,
+) -> Result<(), CommandError> {
     match args.command {
         Command::Import(args) => crate::project_import::run_import(ui, command, args).await,
         Command::Migrate(args) => crate::project_migration::run(ui, command, &args).await,
         Command::List(args) => inspect(ui, command, None, args.json, false).await,
-        Command::Show(args) => inspect(ui, command, Some(args.project), args.output.json, false).await,
+        Command::Show(args) => {
+            inspect(ui, command, Some(args.project), args.output.json, false).await
+        }
         Command::Check(args) => inspect(ui, command, args.project, args.output.json, true).await,
         mutation => {
             require_current_operation(command)?;
@@ -145,25 +163,44 @@ pub(crate) async fn run(ui: &mut Ui, command: &CommandHelper, args: Args) -> Res
             let mut view = workspace.repo().view().store_view().clone();
             let description = match mutation {
                 Command::Add(args) => {
-                    let name = crate::native_project::parse_project(&args.name).map_err(user_error)?;
-                    workspace.repo().view().check_project_label_available(&name).map_err(user_error)?;
+                    let name =
+                        crate::native_project::parse_project(&args.name).map_err(user_error)?;
+                    workspace
+                        .repo()
+                        .view()
+                        .check_project_label_available(&name)
+                        .map_err(user_error)?;
                     let root = workspace.parse_file_path(&args.path)?;
-                    crate::project_config::validate_registration(&view, &name, &root).map_err(user_error)?;
+                    crate::project_config::validate_registration(&view, &name, &root)
+                        .map_err(user_error)?;
                     let commit = workspace.resolve_single_rev(ui, &RevisionArg::AT).await?;
-                    crate::native_project::project_tree(&commit, &root).await.map_err(user_error)?;
+                    crate::native_project::project_tree(&commit, &root)
+                        .await
+                        .map_err(user_error)?;
                     crate::project_config::register(&mut view, &name, &root).map_err(user_error)?;
                     format!("register project {name}")
                 }
                 Command::Rename(args) => {
-                    let (id, record) = view.project_state.project_by_name(&args.old).map_err(user_error)?;
+                    let (id, record) = view
+                        .project_state
+                        .project_by_name(&args.old)
+                        .map_err(user_error)?;
                     let mut record = record.clone();
-                    record.name = crate::native_project::parse_project(&args.new).map_err(user_error)?;
-                    view.project_state.projects.insert(id.clone(), Merge::resolved(Some(record)));
-                    view.project_state.validate_project(&id).map_err(user_error)?;
+                    record.name =
+                        crate::native_project::parse_project(&args.new).map_err(user_error)?;
+                    view.project_state
+                        .projects
+                        .insert(id.clone(), Merge::resolved(Some(record)));
+                    view.project_state
+                        .validate_project(&id)
+                        .map_err(user_error)?;
                     format!("rename project {} to {}", args.old, args.new)
                 }
                 Command::Remove(args) => {
-                    let (id, _) = view.project_state.project_by_name(&args.name).map_err(user_error)?;
+                    let (id, _) = view
+                        .project_state
+                        .project_by_name(&args.name)
+                        .map_err(user_error)?;
                     remove_project(&mut view, &id)?;
                     format!("remove project {}", args.name)
                 }
@@ -185,7 +222,9 @@ pub(crate) async fn run(ui: &mut Ui, command: &CommandHelper, args: Args) -> Res
 fn remove_project(view: &mut jj_lib::op_store::View, id: &ProjectId) -> Result<(), CommandError> {
     let labels = crate::project_config::validate_removal(view, id).map_err(user_error)?;
     view.project_state.projects.remove(id);
-    for label in labels { view.project_state.labels.remove(&label); }
+    for label in labels {
+        view.project_state.labels.remove(&label);
+    }
     Ok(())
 }
 
@@ -194,8 +233,15 @@ fn candidate<T: Clone>(
     index: Option<usize>,
 ) -> Result<Option<T>, CommandError> {
     let index = index.ok_or_else(|| user_error("Specify --candidate or --delete"))?;
-    target.adds().nth(index.checked_sub(1).ok_or_else(|| user_error("Candidate indices start at 1"))?)
-        .cloned().ok_or_else(|| user_error("Candidate index is outside the displayed positive candidates"))
+    target
+        .adds()
+        .nth(
+            index
+                .checked_sub(1)
+                .ok_or_else(|| user_error("Candidate indices start at 1"))?,
+        )
+        .cloned()
+        .ok_or_else(|| user_error("Candidate index is outside the displayed positive candidates"))
 }
 
 fn resolve(
@@ -345,61 +391,136 @@ fn resolve(
         return Ok(());
     }
     if let Some(value) = args.id {
-        let id = ProjectId::try_from_hex(&value).filter(|id| id.as_bytes().len() == 16).ok_or_else(|| user_error("Expected a 32-digit ProjectId"))?;
-        let target = view.project_state.projects.get(&id).ok_or_else(|| user_error("Unknown ProjectId"))?;
+        let id = ProjectId::try_from_hex(&value)
+            .filter(|id| id.as_bytes().len() == 16)
+            .ok_or_else(|| user_error("Expected a 32-digit ProjectId"))?;
+        let target = view
+            .project_state
+            .projects
+            .get(&id)
+            .ok_or_else(|| user_error("Unknown ProjectId"))?;
         let mut roots = target.iter().flatten().map(|record| &record.canonical_root);
         if let Some(first) = roots.next()
-            && roots.any(|root| root != first) {
-                return Err(user_error("ProjectId has inconsistent immutable roots; repair the corrupt input instead of choosing a layout"));
-            }
-        let selected = if args.delete { None } else if let Some(name) = args.name {
-            let mut record = target.adds().flatten().next().cloned().ok_or_else(|| user_error("Project has no positive definition"))?;
+            && roots.any(|root| root != first)
+        {
+            return Err(user_error(
+                "ProjectId has inconsistent immutable roots; repair the corrupt input instead of choosing a layout",
+            ));
+        }
+        let selected = if args.delete {
+            None
+        } else if let Some(name) = args.name {
+            let mut record = target
+                .adds()
+                .flatten()
+                .next()
+                .cloned()
+                .ok_or_else(|| user_error("Project has no positive definition"))?;
             record.name = crate::native_project::parse_project(&name).map_err(user_error)?;
             Some(record)
-        } else { candidate(target, args.candidate)? };
+        } else {
+            candidate(target, args.candidate)?
+        };
         if let Some(record) = selected {
-            view.project_state.projects.insert(id.clone(), Merge::resolved(Some(record)));
-        } else { remove_project(view, &id)?; }
+            view.project_state
+                .projects
+                .insert(id.clone(), Merge::resolved(Some(record)));
+        } else {
+            remove_project(view, &id)?;
+        }
     } else if let Some(value) = args.binding {
-        let id = BindingId::try_from_hex(&value).filter(|id| id.as_bytes().len() == 16).ok_or_else(|| user_error("Expected a 32-digit BindingId"))?;
-        let target = view.project_state.bindings.get(&id).ok_or_else(|| user_error("Unknown BindingId"))?;
+        let id = BindingId::try_from_hex(&value)
+            .filter(|id| id.as_bytes().len() == 16)
+            .ok_or_else(|| user_error("Expected a 32-digit BindingId"))?;
+        let target = view
+            .project_state
+            .bindings
+            .get(&id)
+            .ok_or_else(|| user_error("Unknown BindingId"))?;
         let definitions: Vec<_> = target.iter().flatten().collect();
         if definitions.windows(2).any(|pair| pair[0] != pair[1]) {
-            return Err(user_error("BindingId has inconsistent immutable definitions; repair the corrupt input instead of choosing one"));
+            return Err(user_error(
+                "BindingId has inconsistent immutable definitions; repair the corrupt input instead of choosing one",
+            ));
         }
         if args.delete {
             if let Ok(git) = jj_lib::git::get_git_repo(store) {
                 for name in git.remote_names() {
-                    let Ok(name) = std::str::from_utf8(&name) else { continue; };
-                    let connection = git.config_snapshot().string(&format!("remote.{name}.jjosh-connectionId"))
+                    let Ok(name) = std::str::from_utf8(&name) else {
+                        continue;
+                    };
+                    let connection = git
+                        .config_snapshot()
+                        .string(&format!("remote.{name}.jjosh-connectionId"))
                         .and_then(|value| jj_lib::project::ConnectionId::try_from_hex(&value));
-                    if definitions.iter().any(|record| connection.as_ref() == Some(&record.connection_id)) {
-                        return Err(user_error(format!("Binding is connected to remote {name}; use git remote remove to retire it atomically")));
+                    if definitions
+                        .iter()
+                        .any(|record| connection.as_ref() == Some(&record.connection_id))
+                    {
+                        return Err(user_error(format!(
+                            "Binding is connected to remote {name}; use git remote remove to retire it atomically"
+                        )));
                     }
                 }
             }
-            if view.project_observations.values().any(|value| value.adds().flatten().any(|observation| observation.binding_id == id && observation.terms.iter().any(|term| term.canonical.is_some()))) {
-                return Err(user_error("Binding still owns observations; explicitly clear its remote references/tracking before retiring it"));
+            if view.project_observations.values().any(|value| {
+                value.adds().flatten().any(|observation| {
+                    observation.binding_id == id
+                        && observation
+                            .terms
+                            .iter()
+                            .any(|term| term.canonical.is_some())
+                })
+            }) {
+                return Err(user_error(
+                    "Binding still owns observations; explicitly clear its remote references/tracking before retiring it",
+                ));
             }
             view.project_state.bindings.remove(&id);
         } else {
             let selected = candidate(target, args.candidate)?;
-            if selected.is_none() { return Err(user_error("Use --delete to retire a binding explicitly")); }
-            view.project_state.bindings.insert(id, Merge::resolved(selected));
+            if selected.is_none() {
+                return Err(user_error("Use --delete to retire a binding explicitly"));
+            }
+            view.project_state
+                .bindings
+                .insert(id, Merge::resolved(selected));
         }
     } else if let Some(label) = args.label {
-        let target = view.project_state.labels.get(&label).ok_or_else(|| user_error("Unknown reference label"))?;
-        let selected = if args.delete { None } else { candidate(target, args.candidate)? };
+        let target = view
+            .project_state
+            .labels
+            .get(&label)
+            .ok_or_else(|| user_error("Unknown reference label"))?;
+        let selected = if args.delete {
+            None
+        } else {
+            candidate(target, args.candidate)?
+        };
         let references = crate::project_config::label_references(view, &label);
         if selected.is_none() && !references.is_empty() {
-            return Err(user_error(format!("Label {label:?} still has references: {}", references.join(", "))));
+            return Err(user_error(format!(
+                "Label {label:?} still has references: {}",
+                references.join(", ")
+            )));
         }
         if let Some(id) = selected {
-            if !view.project_state.projects.get(&id).is_some_and(|target| target.adds().flatten().next().is_some()) {
-                return Err(user_error("Selected label candidate refers to an absent project; restore or resolve that project first"));
+            if !view
+                .project_state
+                .projects
+                .get(&id)
+                .is_some_and(|target| target.adds().flatten().next().is_some())
+            {
+                return Err(user_error(
+                    "Selected label candidate refers to an absent project; restore or resolve that project first",
+                ));
             }
-            view.project_state.labels.insert(label, Merge::resolved(Some(id)));
-        } else { view.project_state.labels.remove(&label); }
+            view.project_state
+                .labels
+                .insert(label, Merge::resolved(Some(id)));
+        } else {
+            view.project_state.labels.remove(&label);
+        }
     }
     Ok(())
 }
@@ -423,10 +544,19 @@ async fn inspect(
         })
         .map(|(id, _)| id.clone())
         .collect();
-    if selected.is_some() && selected_ids.is_empty() { return Err(user_error("Unknown project name or ProjectId")); }
+    if selected.is_some() && selected_ids.is_empty() {
+        return Err(user_error("Unknown project name or ProjectId"));
+    }
     let mut diagnostics = workspace.repo().view().project_diagnostics();
-    let (connections, offline_bindings) = local_diagnostics(workspace.repo().as_ref(), &mut diagnostics);
-    diagnostics.retain(|diagnostic| selected.is_none() || diagnostic.projects.iter().any(|id| selected_ids.contains(id)));
+    let (connections, offline_bindings) =
+        local_diagnostics(workspace.repo().as_ref(), &mut diagnostics);
+    diagnostics.retain(|diagnostic| {
+        selected.is_none()
+            || diagnostic
+                .projects
+                .iter()
+                .any(|id| selected_ids.contains(id))
+    });
     let projects: Vec<_> = selected_ids.iter().map(|id| {
         let target = &state.projects[id];
         let records: Vec<_> = target.adds().enumerate().map(|(index, record)| serde_json::json!({"candidate":index+1, "definition":record.as_ref().map(|record| serde_json::json!({"name":record.name,"path":record.canonical_root.as_internal_file_string()}))})).collect();
@@ -448,17 +578,41 @@ async fn inspect(
     }).collect();
     let diagnostic_values: Vec<_> = diagnostics.iter().map(|diagnostic| serde_json::json!({"message":diagnostic.message,"projects":diagnostic.projects.iter().map(|id|id.hex()).collect::<Vec<_>>(),"bindings":diagnostic.bindings.iter().map(|id|id.hex()).collect::<Vec<_>>(),"labels":diagnostic.labels})).collect();
     if json {
-        serde_json::to_writer_pretty(ui.stdout(), &serde_json::json!({"projects":projects,"diagnostics":diagnostic_values})).map_err(user_error)?;
+        serde_json::to_writer_pretty(
+            ui.stdout(),
+            &serde_json::json!({"projects":projects,"diagnostics":diagnostic_values}),
+        )
+        .map_err(user_error)?;
         writeln!(ui.stdout())?;
     } else {
         for project in &projects {
-            writeln!(ui.stdout(), "Project {}{}", project["id"].as_str().unwrap(), if project["resolved"].as_bool() == Some(true) { "" } else { " (unresolved)" })?;
+            writeln!(
+                ui.stdout(),
+                "Project {}{}",
+                project["id"].as_str().unwrap(),
+                if project["resolved"].as_bool() == Some(true) {
+                    ""
+                } else {
+                    " (unresolved)"
+                }
+            )?;
             for record in project["candidates"].as_array().unwrap() {
-                writeln!(ui.stdout(), "  candidate {}: {}", record["candidate"], record["definition"])?;
+                writeln!(
+                    ui.stdout(),
+                    "  candidate {}: {}",
+                    record["candidate"],
+                    record["definition"]
+                )?;
             }
-            for label in project["labels"].as_array().unwrap() { writeln!(ui.stdout(), "  label: {label}")?; }
-            for binding in project["bindings"].as_array().unwrap() { writeln!(ui.stdout(), "  binding: {binding}")?; }
-            for remote in project["remotes"].as_array().unwrap() { writeln!(ui.stdout(), "  remote: {remote}")?; }
+            for label in project["labels"].as_array().unwrap() {
+                writeln!(ui.stdout(), "  label: {label}")?;
+            }
+            for binding in project["bindings"].as_array().unwrap() {
+                writeln!(ui.stdout(), "  binding: {binding}")?;
+            }
+            for remote in project["remotes"].as_array().unwrap() {
+                writeln!(ui.stdout(), "  remote: {remote}")?;
+            }
         }
         for diagnostic in &diagnostics {
             writeln!(ui.stdout(), "Problem: {diagnostic}")?;
@@ -489,26 +643,68 @@ fn local_diagnostics(
     if let Ok(git) = jj_lib::git::get_git_repo(repo.store()) {
         for name in git.remote_names() {
             let Ok(name) = std::str::from_utf8(&name) else {
-                diagnostics.push(ProjectDiagnostic { message: "Local remote name is not UTF-8".to_owned(), projects: vec![], bindings: vec![], labels: vec![] });
+                diagnostics.push(ProjectDiagnostic {
+                    message: "Local remote name is not UTF-8".to_owned(),
+                    projects: vec![],
+                    bindings: vec![],
+                    labels: vec![],
+                });
                 continue;
             };
             let remote = jj_lib::ref_name::RemoteName::new(name);
             // Read identity without selecting a binding so conflicts themselves
             // remain inspectable and diagnostics can attach every dependent ID.
-            let identity = crate::git_remote::config_string(&git, &format!("remote.{name}.jjosh-connectionId"))
-                .ok().flatten().and_then(jj_lib::project::ConnectionId::try_from_hex);
+            let identity = crate::git_remote::config_string(
+                &git,
+                &format!("remote.{name}.jjosh-connectionId"),
+            )
+            .ok()
+            .flatten()
+            .and_then(jj_lib::project::ConnectionId::try_from_hex);
             if let Some(id) = &identity {
-                connections.entry(id.clone()).or_default().push(repo.view().remote_qualified_name(remote));
+                connections
+                    .entry(id.clone())
+                    .or_default()
+                    .push(repo.view().remote_qualified_name(remote));
             }
-            let binding_ids: Vec<_> = state.bindings.iter().filter(|(_, target)| target.adds().flatten().any(|record| identity.as_ref() == Some(&record.connection_id))).map(|(id, _)| id.clone()).collect();
-            let project_ids: Vec<_> = binding_ids.iter().flat_map(|id| state.bindings[id].adds().flatten()).filter_map(|record| match &record.target { BindingTarget::Project(id) => Some(id.clone()), BindingTarget::RepositoryView => None }).collect();
+            let binding_ids: Vec<_> = state
+                .bindings
+                .iter()
+                .filter(|(_, target)| {
+                    target
+                        .adds()
+                        .flatten()
+                        .any(|record| identity.as_ref() == Some(&record.connection_id))
+                })
+                .map(|(id, _)| id.clone())
+                .collect();
+            let project_ids: Vec<_> = binding_ids
+                .iter()
+                .flat_map(|id| state.bindings[id].adds().flatten())
+                .filter_map(|record| match &record.target {
+                    BindingTarget::Project(id) => Some(id.clone()),
+                    BindingTarget::RepositoryView => None,
+                })
+                .collect();
             let mut problems = Vec::new();
-            if let Err(error) = jj_lib::git::check_obsolete_remote_config(&git, remote) { problems.push(error); }
-            if let Err(error) = jj_lib::git::remote_connection_id(&git, remote) { problems.push(error); }
-            if let Err(error) = jj_lib::git::check_remote_owner(repo.view(), remote, identity.as_ref()) { problems.push(error); }
-            if let Err(error) = repo.view().remote_identity(remote) { problems.push(error); }
+            if let Err(error) = jj_lib::git::check_obsolete_remote_config(&git, remote) {
+                problems.push(error);
+            }
+            if let Err(error) = jj_lib::git::remote_connection_id(&git, remote) {
+                problems.push(error);
+            }
+            if let Err(error) =
+                jj_lib::git::check_remote_owner(repo.view(), remote, identity.as_ref())
+            {
+                problems.push(error);
+            }
+            if let Err(error) = repo.view().remote_identity(remote) {
+                problems.push(error);
+            }
             if !binding_ids.is_empty() {
-                if jj_lib::git::remote_required_capability(&git, remote).as_deref() != Some("jjosh-v1") {
+                if jj_lib::git::remote_required_capability(&git, remote).as_deref()
+                    != Some("jjosh-v1")
+                {
                     problems.push(format!("Remote {name} has a binding but lacks the required jjosh-v1 capability marker"));
                 }
                 match git.find_remote(name) {
@@ -517,30 +713,43 @@ fn local_diagnostics(
                     Err(error) => problems.push(format!("Cannot read remote {name}: {error}")),
                 }
             } else if jj_lib::git::remote_required_capability(&git, remote).is_some() {
-                problems.push(format!("Managed remote {name} has no active operation binding"));
+                problems.push(format!(
+                    "Managed remote {name} has no active operation binding"
+                ));
             }
             for message in problems {
-                diagnostics.push(ProjectDiagnostic { message, projects: project_ids.clone(), bindings: binding_ids.clone(), labels: vec![] });
+                diagnostics.push(ProjectDiagnostic {
+                    message,
+                    projects: project_ids.clone(),
+                    bindings: binding_ids.clone(),
+                    labels: vec![],
+                });
             }
         }
     }
     let mut offline_bindings = std::collections::BTreeSet::new();
-    let needs_provenance = state.bindings.values().any(|target| target.adds().flatten().any(|record| {
-        record.representation == jj_lib::project::Representation::Whole
-            && !connections.contains_key(&record.connection_id)
-    }));
-    let provenance = needs_provenance.then(|| {
-        jj_lib::git::get_git_backend(repo.store()).ok().map(|backend| {
-            crate::interop::open_josh_transaction(backend.git_repo_path(), true)
+    let needs_provenance = state.bindings.values().any(|target| {
+        target.adds().flatten().any(|record| {
+            record.representation == jj_lib::project::Representation::Whole
+                && !connections.contains_key(&record.connection_id)
         })
-    }).flatten();
+    });
+    let provenance = needs_provenance
+        .then(|| {
+            jj_lib::git::get_git_backend(repo.store())
+                .ok()
+                .map(|backend| crate::interop::open_josh_transaction(backend.git_repo_path(), true))
+        })
+        .flatten();
     for (id, target) in &state.bindings {
         for record in target.adds().flatten() {
             if !connections.contains_key(&record.connection_id) {
                 if record.representation == jj_lib::project::Representation::Whole {
                     let offline = match &provenance {
-                        Some(Ok(transaction)) => crate::native_project::is_offline_binding(transaction, id)
-                            .map_err(|error| error.to_string()),
+                        Some(Ok(transaction)) => {
+                            crate::native_project::is_offline_binding(transaction, id)
+                                .map_err(|error| error.to_string())
+                        }
                         Some(Err(error)) => Err(error.error.to_string()),
                         None => Ok(false),
                     };
@@ -551,9 +760,15 @@ fn local_diagnostics(
                         }
                         Ok(false) => {}
                         Err(error) => diagnostics.push(ProjectDiagnostic {
-                            message: format!("Cannot read offline provenance for binding {id}: {error}"),
-                            projects: match &record.target { BindingTarget::Project(id) => vec![id.clone()], BindingTarget::RepositoryView => vec![] },
-                            bindings: vec![id.clone()], labels: vec![],
+                            message: format!(
+                                "Cannot read offline provenance for binding {id}: {error}"
+                            ),
+                            projects: match &record.target {
+                                BindingTarget::Project(id) => vec![id.clone()],
+                                BindingTarget::RepositoryView => vec![],
+                            },
+                            bindings: vec![id.clone()],
+                            labels: vec![],
                         }),
                     }
                 }

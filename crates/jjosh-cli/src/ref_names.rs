@@ -15,4 +15,3 @@ pub(crate) fn unscoped_name<'a>(project: &str, name: &'a str) -> Option<&'a str>
 pub(crate) fn belongs_to_project(project: &str, name: &str) -> bool {
     unscoped_name(project, name).is_some()
 }
-

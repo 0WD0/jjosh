@@ -257,11 +257,14 @@ GC 将保留 View 中转换观察引用的 canonical commits 纳入根集合。
 仓库备份因此包括操作元数据及来源对象库，而不仅是可见工作文件。
 
 =project import= 直接读取本地 jj 仓库已记录的开发图，不经过独立 bundle 格式。
-它将来源开发图放进一个新外层项目，建立这个项目的定义和离线原生对应关系。
-来源的内部项目定义不会在目标激活；目标仓库的活动连接、URL 和认证通过本地 remote 单独配置。
+=--nested NAME=PATH= 将该来源开发图放进一个新外层项目，建立这个项目的定义和离线原生对应关系，不激活来源内部项目定义。
+=--preserve NAME=PATH= 保留该来源项目、绑定、连接身份和稳定 label，只给 canonical 路径增加来源挂载前缀；项目引用保持原名，根引用加入来源名字前缀，不创建外层项目。
+两种输入选项均可重复、混用，至少指定一个；来源名字跨模式唯一。=--mount NAME=DEST= 覆盖默认的 =NAME/= 挂载目录。所有来源参与同一次规划和发布事务，不使用全局模式开关。
 仅导入真实书签，不将工作副本或 Git HEAD 状态改造成书签；未命名的导入版本通过保留的 change ID 选择。
 
-将一个多项目来源按内部项目逐个重映射，涉及源/目标身份、目录、label 和绑定的对应关系，是独立的导入契约。
+保留模式同时迁入私有原生锚点、raw 对象、normalization generations 和 publication ledger；canonical ID 随提交映射，raw ID、endpoint 和 generation 不重新解释。ledger 独立于转换观察捕获，不能遗漏未跟踪分支或旧格式 lease。已有项目绑定的连接保留 URL、pushURL 和 remote 设置，fetch 目标引用由语义规划明确给出；配置层不根据物理名字推断作用域。不复制全局凭据配置，不自动 fetch 或 push。
+项目身份复用、命名/目录冲突和不一致的转换依据均拒绝，不自动覆盖或更换身份。当前模型没有非项目的子目录作用范围，因此来源的 =RepositoryView= 绑定及其保留观察，以及有地址但未绑定项目的连接，在该模式下拒绝，不扩展存储格式。
+两种模式共享来源捕获和发布生命周期，只保留不同的项目/引用/连接规划。图改写仅返回提交映射和统计，不生成模式专属 View；隐藏 canonical roots 显式传入而不伪装成可见 heads。完整 generation 的闭包批量验证，raw 对象仍使用独立的 shallow 边界。新 cache 完整填充后原子安装；主仓库配置、私有 refs 和本次导入的本地/remote mirrors 统一经过 remote-management journal，再提交目标操作。不可变对象和已完整安装的 cache 可在后续失败后留存，它们不代替发布操作。
 普通 Git clone 运输 Git 历史，完整 jj 仓库备份则承担 operation history 等状态的保存。
 
 * 实现入口

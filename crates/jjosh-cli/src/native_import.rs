@@ -22,7 +22,6 @@ use jj_lib::repo_path::RepoPath;
 use crate::native_source::NativeSource;
 
 pub(crate) struct Imported {
-    pub view: View,
     /// The complete parent closure, parent-first, not just visible commits.
     pub commits: Vec<Commit>,
     pub stripped_signatures: usize,
@@ -99,7 +98,7 @@ pub(crate) fn plan_remotes(view: &View, project: &ProjectId) -> Result<Vec<Remot
             })
             .transpose()?
             .and_then(Option::as_ref);
-        // Version 1/2 bundles did not have aliases. Their explicit binding
+        // Older recorded states may lack aliases. Their explicit binding
         // scope and verbatim physical name are the only adoption evidence.
         let legacy_project = if alias.is_none() {
             owner
@@ -182,9 +181,9 @@ pub(crate) fn install_remote_names(view: &mut View, remotes: Vec<RemoteImport>) 
     }
 }
 
-/// Copy a recorded native view without publishing it or selecting a workspace.
-/// The caller owns destination validation and the single publishing transaction.
-pub(crate) async fn import_source(
+/// Rewrite captured native history without selecting or publishing a view.
+/// The caller owns destination policy and the single publishing transaction.
+pub(crate) async fn rewrite_graph(
     source: &NativeSource,
     dest: &mut MutableRepo,
     scope: &str,
@@ -211,15 +210,11 @@ pub(crate) async fn import_source(
         "Source contains unsupported legacy native correspondence bookmarks"
     );
     source.copy_objects_to(jj_lib::git::get_git_backend(&dest_store)?)?;
-    let source_view = &source.view;
 
-    let source_native_view = jj_lib::view::View::new(source_view.clone(), false);
-    let mut roots: Vec<_> = source_native_view
-        .all_referenced_commit_ids()
-        .cloned()
-        .collect();
+    // A captured source may also retain hidden canonical versions referenced
+    // only by private conversion anchors. Rewrite those without exposing heads.
+    let mut roots: Vec<_> = source.commits.keys().cloned().collect();
     roots.sort_unstable();
-    roots.dedup();
     let mut pending: Vec<_> = roots.into_iter().rev().map(CommitVisit::Read).collect();
     let mut active = HashSet::new();
     let lift = !ids.is_empty();
@@ -328,7 +323,6 @@ pub(crate) async fn import_source(
     }
 
     Ok(Imported {
-        view: map_view(source_view.clone(), scope, &ids),
         commits,
         stripped_signatures,
         ids,
@@ -344,7 +338,11 @@ fn map_reference(target: &RefTarget, ids: &HashMap<CommitId, CommitId>) -> RefTa
     )
 }
 
-fn map_view(mut view: View, scope: &str, ids: &HashMap<CommitId, CommitId>) -> View {
+pub(crate) fn map_outer_view(
+    mut view: View,
+    scope: &str,
+    ids: &HashMap<CommitId, CommitId>,
+) -> View {
     // @git observes the source's local Git backend, not a second upstream.
     // Preserve only observations that carry information absent from local refs.
     if let Some(git) = view

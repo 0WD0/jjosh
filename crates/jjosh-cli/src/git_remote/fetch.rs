@@ -397,7 +397,7 @@ pub(super) async fn run(
             .as_ref()
             .expect("native project checked above");
         let known = session.anchors(repo, transaction).await?;
-        let imported = crate::native_import::import_source(
+        let imported = crate::native_import::rewrite_graph(
             &source,
             repo,
             &project.name,
@@ -607,12 +607,12 @@ pub(super) async fn run(
                 .map(|id| CommitId::from_bytes(id.as_bytes()))
                 .collect();
             jj_lib::git::get_git_backend(repo.store())?.import_head_commits(ids.iter())?;
-            let mut view = View::make_root(repo.store().root_commit_id().clone());
-            view.head_ids.extend(ids.iter().cloned());
-            let source = crate::native_source::NativeSource::read_view(repo.store().clone(), view)
-                .await
-                .map_err(user_error)?;
-            let imported = crate::native_import::import_source(
+            let view = View::make_root(repo.store().root_commit_id().clone());
+            let source =
+                crate::native_source::NativeSource::read_view(repo.store().clone(), view, &ids)
+                    .await
+                    .map_err(user_error)?;
+            let imported = crate::native_import::rewrite_graph(
                 &source,
                 repo,
                 &project.name,

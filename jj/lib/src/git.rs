@@ -498,10 +498,13 @@ pub fn remote_connection_id(git_repo: &gix::Repository, remote: &RemoteName) -> 
         return Err(format!("Invalid connection identity for remote {}", remote.as_symbol()));
     }
     let id = ConnectionId::try_from_hex(&value).ok_or_else(|| format!("Invalid connection identity for remote {}", remote.as_symbol()))?;
-    for other in iter_remote_names(git_repo).filter(|other| other != remote) {
-        if config.string(&format!("remote.{}.jjosh-connectionId", other.as_str()))
-            .is_some_and(|other_id| other_id.to_string().eq_ignore_ascii_case(&value)) {
-            return Err(format!("Remotes {} and {} declare the same connection identity", remote.as_symbol(), other.as_symbol()));
+    for section in config.sections_by_name("remote").into_iter().flatten() {
+        let Some(other) = section.header().subsection_name() else { continue; };
+        if other != remote.as_str()
+            && section.values("jjosh-connectionId").iter()
+                .any(|other_id| other_id.eq_ignore_ascii_case(value.as_bytes()))
+        {
+            return Err(format!("Remotes {} and {} declare the same connection identity", remote.as_symbol(), other));
         }
     }
     Ok(Some(id))
@@ -2621,6 +2624,28 @@ fn find_git_tag_oid_to_copy(
         .find_map(|git_ref| git_ref.inner.target.try_into_id().ok())
 }
 
+fn edit_exported_git_ref(
+    git_repo: &gix::Repository,
+    edit: gix::refs::transaction::RefEdit,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    if !remote_journal_path(git_repo).try_exists()? {
+        git_repo.edit_reference(edit)?;
+        return Ok(());
+    }
+    let committer = git_repo.committer().transpose()?;
+    // Prepare the CAS before recording it: an annotated-tag retry or an already
+    // matching ref must not leave a witness for an edit that never took place.
+    // Keep the ref lock through journaling so the before-value cannot race.
+    let transaction = git_repo.refs.transaction().prepare(
+        [edit.clone()],
+        gix::lock::acquire::Fail::Immediately,
+        gix::lock::acquire::Fail::Immediately,
+    )?;
+    record_remote_management_mutation(git_repo, std::slice::from_ref(&edit), &[])?;
+    transaction.commit(committer)?;
+    Ok(())
+}
+
 fn delete_git_ref(
     git_repo: &gix::Repository,
     git_ref_name: &GitRefName,
@@ -2635,9 +2660,8 @@ fn delete_git_ref(
     };
     if resolve_git_ref_to_commit_id(&git_ref, Some(old_oid)).as_deref() == Some(old_oid) {
         // The ref has not been updated by git, so go ahead and delete it
-        git_ref
-            .delete()
-            .map_err(|err| FailedRefExportReason::FailedToDelete(err.into()))
+        edit_exported_git_ref(git_repo, remove_ref(git_ref))
+            .map_err(FailedRefExportReason::FailedToDelete)
     } else {
         // The ref was updated by git
         Err(FailedRefExportReason::DeletedInJjModifiedInGit)
@@ -2653,9 +2677,14 @@ fn create_git_ref(
 ) -> Result<(), FailedRefExportReason> {
     let new_oid = new_ref_oid.unwrap_or(new_commit_oid);
     let constraint = gix::refs::transaction::PreviousValue::MustNotExist;
-    let Err(set_err) =
-        git_repo.reference(git_ref_name.as_str(), new_oid, constraint, "export from jj")
-    else {
+    let edit = gix::refs::transaction::RefEdit::update(
+        git_ref_name.as_str().try_into()
+            .map_err(|err| FailedRefExportReason::FailedToSet(Box::new(err)))?,
+        new_oid,
+        constraint,
+        "export from jj",
+    );
+    let Err(set_err) = edit_exported_git_ref(git_repo, edit) else {
         // The ref was added in jj but still doesn't exist in git
         return Ok(());
     };
@@ -2685,9 +2714,14 @@ fn move_git_ref(
     let new_oid = new_ref_oid.unwrap_or(new_commit_oid);
     let constraint =
         gix::refs::transaction::PreviousValue::MustExistAndMatch(old_commit_oid.into());
-    let Err(set_err) =
-        git_repo.reference(git_ref_name.as_str(), new_oid, constraint, "export from jj")
-    else {
+    let edit = gix::refs::transaction::RefEdit::update(
+        git_ref_name.as_str().try_into()
+            .map_err(|err| FailedRefExportReason::FailedToSet(Box::new(err)))?,
+        new_oid,
+        constraint,
+        "export from jj",
+    );
+    let Err(set_err) = edit_exported_git_ref(git_repo, edit) else {
         // Successfully updated from old_oid to new_oid (unchanged in git)
         return Ok(());
     };
@@ -2707,9 +2741,14 @@ fn move_git_ref(
         // The reference would point to annotated tag, try again
         let constraint =
             gix::refs::transaction::PreviousValue::MustExistAndMatch(git_ref.inner.target);
-        git_repo
-            .reference(git_ref_name.as_str(), new_oid, constraint, "export from jj")
-            .map_err(|err| FailedRefExportReason::FailedToSet(err.into()))?;
+        let edit = gix::refs::transaction::RefEdit::update(
+            git_ref.inner.name,
+            new_oid,
+            constraint,
+            "export from jj",
+        );
+        edit_exported_git_ref(git_repo, edit)
+            .map_err(FailedRefExportReason::FailedToSet)?;
         Ok(())
     } else {
         Err(FailedRefExportReason::FailedToSet(set_err.into()))
@@ -3807,6 +3846,325 @@ fn try_find_active_remote_inner<'a>(
         })
 }
 
+/// Semantic import policy for one source remote. Ref destinations are complete
+/// prefixes, including their trailing slash; configuration copying never infers
+/// project ownership from a physical remote name.
+#[derive(Debug)]
+pub struct ImportedRemoteMapping {
+    pub destination: RemoteNameBuf,
+    pub connection: Option<ConnectionId>,
+    pub required_capability: bool,
+    pub bookmark_destination: String,
+    pub tag_destination: String,
+}
+
+/// A remote-only snapshot prepared for a preserved project import.
+///
+/// Source sections retain their order, repeated values, implicit booleans, and
+/// custom keys. Identity and local fetch destinations follow the semantic plan.
+#[derive(Debug)]
+pub struct ImportedRemoteConfig {
+    name: RemoteNameBuf,
+    connection: Option<ConnectionId>,
+    config: gix::config::File,
+    urls: Vec<ImportedRemoteUrl>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct ImportedRemoteUrl {
+    raw: BString,
+    push_fallback: bool,
+    fetch: Option<BString>,
+    push: Option<BString>,
+    rewrite_failed: bool,
+}
+
+impl ImportedRemoteUrl {
+    fn capture(
+        repo: &gix::Repository,
+        name: &RemoteName,
+        raw: BString,
+        push_fallback: bool,
+    ) -> Result<Self, GitRemoteManagementError> {
+        let mut result = Self {
+            raw,
+            push_fallback,
+            fetch: None,
+            push: None,
+            rewrite_failed: false,
+        };
+        // A malformed URL stays malformed; importing is not a transport probe.
+        let Ok(mut remote) = repo.remote_at_without_url_rewrite(BStr::new(&result.raw)) else {
+            return Ok(result);
+        };
+        if !push_fallback {
+            // Explicit push URLs use insteadOf, never pushInsteadOf. Suppress
+            // fallback rewriting in this temporary, repository-local witness.
+            remote = remote.with_push_url_without_url_rewrite(BStr::new(&result.raw))
+                .map_err(GitRemoteManagementError::from_git)?;
+        }
+        result.rewrite_failed = remote.rewrite_urls().is_err();
+        for direction in [gix::remote::Direction::Fetch, gix::remote::Direction::Push] {
+            if direction == gix::remote::Direction::Push && !push_fallback {
+                continue;
+            }
+            if let Some(url) = remote.url(direction) {
+                if url.scheme == gix::url::Scheme::File
+                    && !gix::path::from_bstr(BStr::new(&url.path)).is_absolute()
+                {
+                    return Err(GitRemoteManagementError::ManagedState(format!(
+                        "Remote {} has a relative local URL whose endpoint cannot be preserved \
+                         after import; configure an absolute URL in the source",
+                        name.as_symbol(),
+                    )));
+                }
+                match direction {
+                    gix::remote::Direction::Fetch => result.fetch = Some(url.to_bstring()),
+                    gix::remote::Direction::Push => result.push = Some(url.to_bstring()),
+                }
+            }
+        }
+        Ok(result)
+    }
+}
+
+/// Captures only selected effective remote sections, without modifying the source.
+///
+/// The caller supplies destination ownership and exact local ref prefixes after
+/// checking that each configured endpoint can continue its imported history.
+pub fn capture_import_remote_configs(
+    source: &gix::Repository,
+    remotes: &BTreeMap<RemoteNameBuf, ImportedRemoteMapping>,
+) -> Result<Vec<ImportedRemoteConfig>, GitRemoteManagementError> {
+    let mut destinations = HashSet::with_capacity(remotes.len());
+    let mut imports: BTreeMap<&RemoteName, ImportedRemoteConfig> = BTreeMap::new();
+    let mut fetch_prefixes = Vec::with_capacity(remotes.len() * 2);
+    for (name, mapping) in remotes {
+        validate_remote_name(&mapping.destination)?;
+        if !destinations.insert(&mapping.destination) {
+            return Err(GitRemoteManagementError::RemoteAlreadyExists(mapping.destination.clone()));
+        }
+        imports.insert(name.as_ref(), ImportedRemoteConfig {
+            name: mapping.destination.clone(),
+            connection: mapping.connection.clone(),
+            config: gix::config::File::default(),
+            urls: Vec::new(),
+        });
+        for (namespace, destination) in [
+            (REMOTE_BOOKMARK_REF_NAMESPACE, &mapping.bookmark_destination),
+            (REMOTE_TAG_REF_NAMESPACE, &mapping.tag_destination),
+        ] {
+            fetch_prefixes.push((
+                format!("{namespace}{}/", name.as_str()).into_bytes(),
+                destination.as_bytes().to_vec(),
+            ));
+        }
+    }
+    // A source physical name may contain '/'; prefer its longest matching name.
+    fetch_prefixes.sort_by_key(|(prefix, _)| std::cmp::Reverse(prefix.len()));
+    let config = source.config_snapshot();
+    for section in config.sections_by_name("remote").into_iter().flatten() {
+        let Some(name) = section.header().subsection_name()
+            .and_then(|name| std::str::from_utf8(name).ok())
+        else {
+            continue;
+        };
+        let Some(import) = imports.get_mut(RemoteName::new(name)) else {
+            continue;
+        };
+        let identity_values = section.values("jjosh-connectionId");
+        if section.value_names().filter(|key| key.eq_ignore_ascii_case("jjosh-connectionId")).count()
+            != identity_values.len()
+            || identity_values.iter().any(|value| {
+                !std::str::from_utf8(value).ok().and_then(ConnectionId::try_from_hex)
+                    .is_some_and(|connection| import.connection.as_ref() == Some(&connection))
+            })
+        {
+            return Err(GitRemoteManagementError::ManagedState(format!(
+                "Source remote {} has a connection identity incompatible with its preserved owner",
+                RemoteName::new(name).as_symbol(),
+            )));
+        }
+        // Copy complete bodies rather than round-tripping through gix::Remote:
+        // that would discard unknown keys, implicit values, and malformed URLs.
+        let mut copied = section.to_owned();
+        {
+            let mut copied = copied.to_mut();
+            copied.rename("remote", import.name.as_str()).map_err(GitRemoteManagementError::from_git)?;
+            for key in MANAGED_REMOTE_KEYS {
+                while copied.contains_value_name(key) {
+                    copied.remove(key);
+                }
+            }
+        }
+        import.config.push_section(copied).map_err(GitRemoteManagementError::from_git)?;
+    }
+    let mut captured = Vec::with_capacity(imports.len());
+    for (source_name, mut import) in imports {
+        if import.config.sections_by_name("remote").is_none() && import.connection.is_none() {
+            continue;
+        }
+        import.rewrite_fetch_destinations(&fetch_prefixes)?;
+        import.capture_urls(source)?;
+        // Retained owners with no endpoint remain disconnected. Identity alone
+        // reserves ownership; it never manufactures a URL.
+        if let Some(connection) = &import.connection {
+            let mut section = import.config.new_section("remote", import.name.as_str()).map_err(GitRemoteManagementError::from_git)?;
+            section.push("jjosh-connectionId", connection.hex().as_str()).map_err(GitRemoteManagementError::from_git)?;
+            if remotes[source_name].required_capability {
+                section.push("jjosh-requiredCapability", "jjosh-v1").map_err(GitRemoteManagementError::from_git)?;
+            }
+        }
+        captured.push(import);
+    }
+    Ok(captured)
+}
+
+impl ImportedRemoteConfig {
+    fn rewrite_fetch_destinations(
+        &mut self,
+        prefixes: &[(Vec<u8>, Vec<u8>)],
+    ) -> Result<(), GitRemoteManagementError> {
+        let fetches = self.config.raw_values_by("remote", self.name.as_str(), "fetch").unwrap_or_default();
+        let mut rewritten = Vec::new();
+        for (index, value) in fetches.into_iter().enumerate() {
+            let Some(colon) = value.iter().position(|byte| *byte == b':') else { continue; };
+            if value.starts_with(b"^") { continue; }
+            let target = &value[colon + 1..];
+            if target.starts_with(b"refs/namespaces/") {
+                return Err(GitRemoteManagementError::ManagedState(format!(
+                    "Remote {} has an explicitly namespaced fetch destination that cannot be \
+                     mapped to the imported canonical references",
+                    self.name.as_symbol(),
+                )));
+            }
+            for (prefix, replacement) in prefixes {
+                if let Some(suffix) = target.strip_prefix(prefix.as_slice()) {
+                    if prefix == replacement { break; }
+                    let mut updated = Vec::with_capacity(colon + 1 + replacement.len() + suffix.len());
+                    updated.extend_from_slice(&value[..=colon]);
+                    updated.extend_from_slice(replacement);
+                    updated.extend_from_slice(suffix);
+                    rewritten.push((index, updated));
+                    break;
+                }
+            }
+        }
+        if !rewritten.is_empty() {
+            let mut values = self.config.raw_values_mut_by("remote", self.name.as_str(), "fetch")
+                .map_err(GitRemoteManagementError::from_git)?;
+            for (index, value) in rewritten {
+                values.set_at(index, value.as_slice()).map_err(GitRemoteManagementError::from_git)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn capture_urls(&mut self, source: &gix::Repository) -> Result<(), GitRemoteManagementError> {
+        let fetch_urls = self.config.raw_values_by("remote", self.name.as_str(), "url").unwrap_or_default();
+        let push_urls = self.config.raw_values_by("remote", self.name.as_str(), "pushurl").unwrap_or_default();
+        let push_fallback = push_urls.is_empty();
+        for (values, fallback) in [(fetch_urls, push_fallback), (push_urls, false)] {
+            for value in values {
+                self.urls.push(ImportedRemoteUrl::capture(source, &self.name, value, fallback)?);
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Checks imported names, owners, and URL interpretation against effective
+/// destination configuration, including included sections and shadowed values.
+pub fn check_import_remote_configs(
+    store: &Store,
+    imports: &[ImportedRemoteConfig],
+) -> Result<(), GitRemoteManagementError> {
+    let mut git_repo = get_git_repo(store)?;
+    git_repo.reload().map_err(GitRemoteManagementError::from_git)?;
+    check_import_remote_configs_inner(&git_repo, imports)
+}
+
+fn check_import_remote_configs_inner(
+    git_repo: &gix::Repository,
+    imports: &[ImportedRemoteConfig],
+) -> Result<(), GitRemoteManagementError> {
+    let mut names = HashSet::with_capacity(imports.len());
+    let mut connections = HashSet::with_capacity(imports.len());
+    for import in imports {
+        validate_remote_name(&import.name)?;
+        if !names.insert(import.name.as_str()) {
+            return Err(GitRemoteManagementError::RemoteAlreadyExists(import.name.clone()));
+        }
+        if let Some(connection) = &import.connection
+            && !connections.insert(connection)
+        {
+            return Err(GitRemoteManagementError::ManagedState(format!(
+                "Imported remotes declare the same connection identity {}", connection.hex(),
+            )));
+        }
+        for url in &import.urls {
+            if &ImportedRemoteUrl::capture(git_repo, &import.name, url.raw.clone(), url.push_fallback)? != url {
+                return Err(GitRemoteManagementError::ManagedState(format!(
+                    "Remote {} URL rewrite configuration changes its endpoint in the destination; \
+                     reconcile url.*.insteadOf/pushInsteadOf before importing",
+                    import.name.as_symbol(),
+                )));
+            }
+        }
+    }
+    let config = git_repo.config_snapshot();
+    for section in config.sections_by_name("remote").into_iter().flatten() {
+        if let Some(name) = section.header().subsection_name()
+            && let Ok(name) = std::str::from_utf8(name)
+            && names.contains(name)
+        {
+            return Err(GitRemoteManagementError::RemoteAlreadyExists(name.into()));
+        }
+        for value in section.values("jjosh-connectionId") {
+            if let Some(connection) = std::str::from_utf8(&value).ok().and_then(ConnectionId::try_from_hex)
+                && connections.contains(&connection)
+            {
+                return Err(GitRemoteManagementError::ManagedState(format!(
+                    "Connection identity {} already has a configured owner", connection.hex(),
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Installs the complete captured import in one journaled config replacement.
+///
+/// The caller prepares remote management and publishes the corresponding
+/// semantic operation. Preflight repeats under the existing config writer lock.
+pub fn import_remote_configs(
+    store: &Store,
+    imports: &[ImportedRemoteConfig],
+) -> Result<(), GitRemoteManagementError> {
+    if imports.is_empty() { return Ok(()); }
+    let mut git_repo = get_git_repo(store)?;
+    let _config_lock = lock_remote_config(&git_repo)?;
+    git_repo.reload().map_err(GitRemoteManagementError::from_git)?;
+    if !remote_journal_path(&git_repo).try_exists().map_err(GitRemoteManagementError::from_git)? {
+        return Err(GitRemoteManagementError::ManagedState(
+            "Importing remote configuration requires a prepared remote management journal".into(),
+        ));
+    }
+    check_import_remote_configs_inner(&git_repo, imports)?;
+    let mut config = git_repo.config_snapshot().clone();
+    for import in imports {
+        // Flatten only the captured remote sections into the destination's local
+        // metadata. Never retain source include directives or global sections.
+        let mut bytes = Vec::new();
+        import.config.write_to(&mut bytes).map_err(GitRemoteManagementError::from_git)?;
+        let local = gix::config::File::from_bytes_no_includes(
+            &bytes, config.meta().clone(), Default::default(),
+        ).map_err(GitRemoteManagementError::from_git)?;
+        config.append(local).map_err(GitRemoteManagementError::from_git)?;
+    }
+    commit_remote_management(&git_repo, &config, Vec::new(), &GitRemoteManagementOptions::default())
+}
+
 pub fn add_remote(
     mut_repo: &mut MutableRepo,
     remote_name: &RemoteName,
@@ -4110,6 +4468,23 @@ pub fn set_remote_urls(
         ));
     };
     let mut remote = result.map_err(GitRemoteManagementError::from_git)?;
+    if new_url.is_some()
+        && remote.url(gix::remote::Direction::Fetch).is_none()
+        && remote.url(gix::remote::Direction::Push).is_none()
+        && remote.refspecs(gix::remote::Direction::Fetch).is_empty()
+        && remote_connection_id(&git_repo, remote_name)
+            .map_err(GitRemoteManagementError::ManagedState)?
+            .is_some()
+    {
+        // Reconnecting an imported identity establishes our local fetch mapping,
+        // never any source endpoint's refspec or publication configuration.
+        remote = remote
+            .with_refspecs(
+                [default_fetch_refspec(remote_name).as_bytes()],
+                gix::remote::Direction::Fetch,
+            )
+            .expect("default refspec to be valid");
+    }
 
     if let Some(url) = new_url {
         remote = remote
