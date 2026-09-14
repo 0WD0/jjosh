@@ -218,6 +218,82 @@ fn project_registration_restores_without_snapshotting_or_claiming_literal_refs()
 }
 
 #[test]
+fn raw_fetch_cannot_claim_registered_project_labels() {
+    let temp = tempfile::tempdir().unwrap();
+    let (_, source, _) = create_remote(temp.path(), "source");
+    git(
+        &source,
+        &["update-ref", "refs/heads/topic#api", "refs/heads/main"],
+    );
+    git(
+        &source,
+        &["update-ref", "refs/tags/v1#api", "refs/heads/main"],
+    );
+    git(
+        &source,
+        &["update-ref", "refs/heads/topic#literal", "refs/heads/main"],
+    );
+    let client = create_client(temp.path(), false);
+    jjosh(
+        &client,
+        &["project", "add", "api", "--path", "packages/api"],
+    );
+    jjosh(
+        &client,
+        &["git", "remote", "add", "raw", source.to_str().unwrap()],
+    );
+    // A repository-wide filtered view also lacks this project's mapping.
+    jjosh(
+        &client,
+        &[
+            "git",
+            "remote",
+            "add",
+            "view",
+            source.to_str().unwrap(),
+            "--filter",
+            ":/src",
+        ],
+    );
+    let git_dir = client.join(".jj/repo/store/git");
+    for remote in ["raw", "view"] {
+        let refs = git(&git_dir, &["for-each-ref"]);
+        let operation = operation_id(&client);
+        for selection in [
+            vec!["--branch", "main", "--branch", "topic#api"],
+            vec!["--tag", "v1#api"],
+        ] {
+            let mut args = vec!["git", "fetch", "--remote", remote];
+            args.extend(selection);
+            let result = jjosh_unchecked(&client, &args);
+            assert!(
+                !result.status.success(),
+                "raw input claimed a project label"
+            );
+            assert_eq!(git(&git_dir, &["for-each-ref"]), refs);
+            assert_eq!(operation_id(&client), operation);
+        }
+    }
+    // Unselected collisions do not block ordinary names; unregistered suffixes
+    // remain literal on both the wire and the local observation.
+    jjosh(
+        &client,
+        &[
+            "git",
+            "fetch",
+            "--remote",
+            "raw",
+            "--branch",
+            "topic#literal",
+        ],
+    );
+    assert_eq!(
+        file_at_revision(&client, "topic#literal@raw", "outside.txt"),
+        b"source-outside\n"
+    );
+}
+
+#[test]
 fn display_rename_preserves_project_publication_label() {
     let temp = tempfile::tempdir().unwrap();
     let (_, source, _) = create_remote(temp.path(), "source");

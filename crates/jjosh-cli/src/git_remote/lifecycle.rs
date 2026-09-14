@@ -52,11 +52,10 @@ pub(super) fn prepare_binding(
             .ok_or_else(|| user_error(format!("Remote {source} has no adopted connection; use project migrate for legacy configuration")))?;
         let (_, source_binding) = state.binding_for_connection(&id).map_err(user_error)?
             .ok_or_else(|| user_error(format!("Remote {source} has no active binding")))?;
-        if let Some(project) = &project {
-            if source_binding.target != BindingTarget::Project(project.clone()) {
+        if let Some(project) = &project
+            && source_binding.target != BindingTarget::Project(project.clone()) {
                 return Err(user_error("--project must agree with the target copied by --like"));
             }
-        }
         if args.base.is_some() {
             return Err(user_error("--like copies the base selection rule; do not combine it with --base"));
         }

@@ -91,11 +91,10 @@ fn source_observation(
             return Err(user_error("Source observation belongs to another binding or connection"));
         }
         if observation.terms.len() != 1 { return Err(user_error("Source reference is conflicted; select an explicit unambiguous base")); }
-        if let Some(revision) = revision {
-            if observation.terms[0].raw.as_deref() != Some(revision.to_string().as_str()) || observation.generation.is_none() {
+        if let Some(revision) = revision
+            && (observation.terms[0].raw.as_deref() != Some(revision.to_string().as_str()) || observation.generation.is_none()) {
                 return Err(user_error("Literal source base lacks its exact raw revision and normalization generation"));
             }
-        }
     }
     Ok(observation.cloned())
 }
@@ -322,13 +321,13 @@ pub(super) async fn prepare(
             }
         }
     }
-    let prepared: Vec<_> = prepared.into_iter().map(Option::unwrap).collect();
+    let mut prepared: Vec<_> = prepared.into_iter().map(Option::unwrap).collect();
     if let Some(transaction) = &transaction {
         // Persist only objects for the independent transport ODB. The ephemeral
         // conversion transaction discards filter refs and correspondence writes.
         transaction.flush_mem_odb().map_err(user_error)?;
     }
-    let updates: Vec<_> = prepared
+    let mut updates: Vec<_> = prepared
         .iter()
         .map(|prepared| prepared.update.clone())
         .collect();
@@ -345,7 +344,7 @@ pub(super) async fn prepare(
         &git,
         remote,
         objects,
-        &updates,
+        &mut updates,
         &transport::Options {
             atomic: false,
             push_options: options
@@ -356,6 +355,9 @@ pub(super) async fn prepare(
         },
     )
     .map_err(user_error)?;
+    for (prepared, update) in prepared.iter_mut().zip(&updates) {
+        prepared.update.expected = update.expected;
+    }
     // Success records use a fresh transaction, never the conversion transaction's
     // queued refs. Opening it now also keeps local preparation failures pre-send.
     drop(transaction);
@@ -392,6 +394,74 @@ pub(super) async fn prepare(
 impl GitPreparedPush for PreparedPush {
     fn destinations(&self) -> (&str, &[GitRefNameBuf]) {
         (&self.endpoint, &self.destinations)
+    }
+
+    fn describe(&self, ui: &mut jj_cli::ui::Ui) -> Result<(), CommandError> {
+        // Display URLs through their password-redacting formatter, never the
+        // credential-bearing serialization used for endpoint identity.
+        let endpoint = gix::url::parse(self.endpoint.as_bytes().as_bstr())
+            .map_err(|_| user_error("Prepared publication endpoint is not a valid URL"))?;
+        writeln!(ui.status(), "  Endpoint: {endpoint}")?;
+        for (canonical, prepared) in self.canonical.iter().zip(&self.prepared) {
+            let name = canonical.qualified_name.as_str();
+            let name = name
+                .strip_prefix("refs/heads/")
+                .or_else(|| name.strip_prefix("refs/tags/"))
+                .expect("prepared bookmark or tag");
+            let action = if prepared.update.new.is_none() {
+                "delete"
+            } else if matches!(prepared.update.expected, Expected::Absent) {
+                "create"
+            } else {
+                "update"
+            };
+            writeln!(
+                ui.status(),
+                "  {name:?} -> {} -> {} ({action})",
+                self.remote.as_symbol(),
+                prepared.update.name
+            )?;
+            if let Some(index) = prepared.scope {
+                let scope = &self.scopes[index].0;
+                if let Some(project) = &scope.project {
+                    writeln!(
+                        ui.status(),
+                        "    Project: {} (#{}), path: {}",
+                        project.name,
+                        project.label,
+                        project.mount.as_internal_file_string()
+                    )?;
+                }
+                let (id, binding) = scope.binding.as_ref().expect("prepared conversion binding");
+                writeln!(
+                    ui.status(),
+                    "    Source: {} (binding {})",
+                    scope.name.as_symbol(),
+                    id.hex()
+                )?;
+                writeln!(
+                    ui.status(),
+                    "    Representation: {:?}",
+                    binding.representation
+                )?;
+                if let Some(base) = prepared
+                    .evidence
+                    .as_ref()
+                    .and_then(|evidence| evidence.base.as_ref())
+                {
+                    writeln!(ui.status(), "    Resolved base: {base}")?;
+                }
+            }
+            match prepared.update.expected {
+                Expected::Unknown => writeln!(ui.status(), "    Expected old: unknown")?,
+                Expected::Absent => writeln!(ui.status(), "    Expected old: absent")?,
+                Expected::At(id) => writeln!(ui.status(), "    Expected old: {id}")?,
+            }
+            if let Some(id) = prepared.update.new {
+                writeln!(ui.status(), "    New raw target: {id}")?;
+            }
+        }
+        Ok(())
     }
 
     fn publish<'a>(

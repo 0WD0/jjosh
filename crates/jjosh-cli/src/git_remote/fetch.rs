@@ -195,7 +195,7 @@ pub(super) async fn run(
                 let local_selected = match key.kind {
                     ObservationKind::Bookmark => selected(GitRefKind::Bookmark, key.name.as_str()),
                     ObservationKind::Tag => selected(GitRefKind::Tag, key.name.as_str()),
-                    ObservationKind::Revision => revisions.iter().any(|id| id.to_string() == key.name.as_str()),
+                    ObservationKind::Revision => revisions.iter().any(|id| id == key.name.as_str()),
                 };
                 if wire_selected || local_selected {
                     return Err(user_error(format!(
@@ -481,6 +481,21 @@ pub(super) async fn run(
                     .or_insert_with(Converted::absent);
             }
         }
+        // Repository-wide inputs have no project mapping. A source ref that
+        // happens to spell a registered label must not claim canonical scope.
+        // Check the whole selection before raw refs, mirrors, or leases change.
+        if session.project.is_none() {
+            for source in converted.keys() {
+                if let Some((_, name)) = source_ref(source)
+                    && let Some((_, label)) = name.rsplit_once('#')
+                    && session.state.resolve_label(label).map_err(user_error)?.is_some()
+                {
+                    return Err(user_error(format!(
+                        "Raw Git ref {source} occupies a registered project label"
+                    )));
+                }
+            }
+        }
         let mut new_raw = BTreeMap::new();
         let mut received = BTreeMap::new();
         for reference in &outcome.received {
@@ -694,13 +709,16 @@ pub(super) async fn run(
     for (source, converted) in converted {
         let (kind, name) = source_ref(&source).expect("source names classified above");
         if let Some(id) = converted.mirror {
-            if session.whole() && !raw_oids.contains_key(&source) {
-                if let Some(terms) = raw_terms.get(&source)
-                    && terms.len() == 1
-                    && let Some(raw) = &terms[0].raw
-                {
-                    raw_oids.insert(source.clone(), gix::ObjectId::from_hex(raw.as_bytes()).map_err(user_error)?);
-                }
+            if session.whole()
+                && !raw_oids.contains_key(&source)
+                && let Some(terms) = raw_terms.get(&source)
+                && terms.len() == 1
+                && let Some(raw) = &terms[0].raw
+            {
+                raw_oids.insert(
+                    source.clone(),
+                    gix::ObjectId::from_hex(raw.as_bytes()).map_err(user_error)?,
+                );
             }
             mirrors.insert(canonical_ref(session, kind, name), id);
         }

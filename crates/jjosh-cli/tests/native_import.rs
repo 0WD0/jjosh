@@ -1207,6 +1207,40 @@ fn native_boundary_migration_preserves_rewrites_and_old_version_intake() {
 }
 
 #[test]
+fn native_migration_preserves_external_update_to_observed_mirror() {
+    let mono = NativeRepo::new();
+    mono.write("app/value.txt", "before\n");
+    mono.jj(&["describe", "-m", "before"]);
+    let external = mono.log("@", "commit_id");
+    mono.jj(&["new"]);
+    mono.write("app/value.txt", "canonical\n");
+    mono.jj(&["describe", "-m", "canonical"]);
+    mono.bookmark("main");
+    mono.jj(&["git", "export"]);
+    let canonical = mono.log("main", "commit_id");
+    let git_dir = mono.path.join(".jj/repo/store/git");
+    let git = |args: &[&str]| {
+        let mut command = vec!["--git-dir", git_dir.to_str().unwrap()];
+        command.extend_from_slice(args);
+        native_git(&mono.path, &command)
+    };
+    let mirror = "refs/remotes/app-git/main";
+    git(&["update-ref", mirror, &canonical]);
+    mono.jj(&["git", "import"]);
+    // The operation still records an exact local-target duplicate, but another
+    // writer has since replaced the physical mirror with a different commit.
+    git(&["update-ref", mirror, &external]);
+    git(&[
+        "update-ref",
+        &format!("refs/remotes/jjosh-native-app/origin/{external}"),
+        &canonical,
+    ]);
+    mono.jj(&["project", "migrate", "--apply"]);
+    assert_eq!(git(&["rev-parse", mirror]).trim(), external);
+    assert_eq!(mono.log("main", "commit_id"), canonical);
+}
+
+#[test]
 fn native_fetch_grafts_by_change_id_onto_linked_suffix_history() {
     let source = NativeRepo::new();
     source.write("value.txt", "base\n");

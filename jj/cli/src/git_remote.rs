@@ -117,6 +117,9 @@ pub trait GitPreparedPush {
     /// Normalized endpoint and wire names, for collisions across remote aliases.
     fn destinations(&self) -> (&str, &[GitRefNameBuf]);
 
+    /// Describes the resolved conversion, endpoint, and exact publication lease.
+    fn describe(&self, ui: &mut Ui) -> Result<(), CommandError>;
+
     /// Records only independently confirmed publication results.
     fn publish<'a>(
         self: Box<Self>,

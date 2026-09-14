@@ -64,16 +64,17 @@ struct Transfer {
 
 /// Prepare raw objects and refs without changing remote refs, leases, or JJ state.
 /// Every known rejection aborts the complete batch before a mutation request.
+/// Resolves each authorization policy to the advertised expected-old used on wire.
 pub(crate) fn prepare(
     repo: &gix::Repository,
     remote: gix::Remote<'_>,
     objects: &gix::OdbHandle,
-    updates: &[Update],
+    updates: &mut [Update],
     options: &Options,
 ) -> Result<PreparedPush> {
     let hash = repo.object_hash();
     let mut names = HashSet::with_capacity(updates.len());
-    for update in updates {
+    for update in updates.iter() {
         ensure!(
             update.name.starts_with(b"refs/"),
             "push destination must be fully qualified: {:?}",
@@ -199,7 +200,7 @@ pub(crate) fn prepare(
     };
     let mut commands = Vec::new();
     let mut command_indices = Vec::new();
-    for (index, update) in updates.iter().enumerate() {
+    for (index, update) in updates.iter_mut().enumerate() {
         let old = advertised.get(update.name.as_bstr()).copied().flatten();
         let rejection = match update.expected {
             Expected::Absent if old.is_some() => Some(BString::from(
@@ -241,6 +242,7 @@ pub(crate) fn prepare(
             RefStatus::Planned
         };
         outcome.refs.push((update.name.clone(), status));
+        update.expected = old.map_or(Expected::Absent, Expected::At);
     }
     let rejected: Vec<_> = outcome
         .refs

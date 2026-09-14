@@ -2582,8 +2582,16 @@ fn test_remote_recovery_rejects_uncommitted_offline_retirement() -> TestResult {
 fn test_remote_recovery_preserves_unrelated_git_refs() -> TestResult {
     let test_repo = TestRepo::init_with_backend(TestRepoBackend::Git);
     let mut tx = test_repo.repo.start_transaction();
-    git::add_remote(tx.repo_mut(), "origin".as_ref(), "https://example.invalid/repo", None)?;
-    let repo = tx.commit("add remote").block_on()?;
+    git::add_remote(
+        tx.repo_mut(),
+        "origin".as_ref(),
+        "https://example.invalid/repo",
+        None,
+    )?;
+    tx.commit("add remote").block_on()?;
+    let repo = test_repo
+        .env
+        .load_repo_at_head(&testutils::user_settings(), test_repo.repo_path());
     let git_repo = get_git_repo(&repo);
     let before = empty_git_commit(&git_repo, "refs/remotes/origin/main", &[]);
     let journal = git::begin_remote_management(repo.store(), &repo.operation().id().hex(), &[])?;
@@ -2614,8 +2622,121 @@ fn test_remote_recovery_refuses_changed_retirement_ref() -> TestResult {
 }
 
 #[test]
+fn test_remote_recovery_rolls_back_interrupted_second_ref_step() -> TestResult {
+    let test_repo = TestRepo::init_with_backend(TestRepoBackend::Git);
+    let mut tx = test_repo.repo.start_transaction();
+    git::add_remote(
+        tx.repo_mut(),
+        "origin".as_ref(),
+        "https://example.invalid/repo",
+        None,
+    )?;
+    tx.commit("add remote").block_on()?;
+    let repo = test_repo
+        .env
+        .load_repo_at_head(&testutils::user_settings(), test_repo.repo_path());
+    let git_repo = get_git_repo(&repo);
+    let name = "refs/remotes/origin/main";
+    let before = empty_git_commit(&git_repo, name, &[]);
+    let journal = git::begin_remote_management(repo.store(), &repo.operation().id().hex(), &[])?;
+    let mut tx = repo.start_transaction();
+    git::remove_remote(tx.repo_mut(), "origin".as_ref())?;
+    let edit = gix::refs::transaction::RefEdit {
+        name: name.try_into()?,
+        deref: false,
+        change: gix::refs::transaction::Change::Update {
+            expected: gix::refs::transaction::PreviousValue::MustNotExist,
+            new: gix::refs::Target::Object(before),
+            log: gix::refs::transaction::LogChange {
+                mode: gix::refs::transaction::RefLog::AndReference,
+                force_create_reflog: false,
+                message: "second remote step".into(),
+            },
+        },
+    };
+    // The second step is durable but interrupted before the ref update.
+    journal.record_ref_edits(&git_repo, &[edit])?;
+    drop(journal);
+    git::recover_remote_management(
+        repo.store(),
+        repo.view(),
+        &repo.operation().id().hex(),
+        false,
+        &[],
+    )?;
+    assert_eq!(
+        git_repo.find_reference(name)?.target().try_id(),
+        Some(before.as_ref())
+    );
+    assert!(gix::open(git_repo.path())?.find_remote("origin").is_ok());
+    Ok(())
+}
+
+#[test]
+fn test_remote_recovery_honors_auxiliary_file_writer_lock() -> TestResult {
+    let test_repo = TestRepo::init_with_backend(TestRepoBackend::Git);
+    let mut tx = test_repo.repo.start_transaction();
+    git::add_remote(
+        tx.repo_mut(),
+        "origin".as_ref(),
+        "https://example.invalid/repo",
+        None,
+    )?;
+    tx.commit("add remote").block_on()?;
+    let repo = test_repo
+        .env
+        .load_repo_at_head(&testutils::user_settings(), test_repo.repo_path());
+    let git_repo = get_git_repo(&repo);
+    let auxiliary = git_repo.path().join("repo-config.toml");
+    std::fs::write(&auxiliary, b"original")?;
+    let journal = git::begin_remote_management(
+        repo.store(),
+        &repo.operation().id().hex(),
+        std::slice::from_ref(&auxiliary),
+    )?;
+    let mut tx = repo.start_transaction();
+    git::remove_remote(tx.repo_mut(), "origin".as_ref())?;
+    drop(journal);
+    let writer = gix::lock::Marker::acquire_to_hold_resource(
+        &auxiliary,
+        gix::lock::acquire::Fail::Immediately,
+        None,
+    )?;
+    assert!(
+        git::recover_remote_management(
+            repo.store(),
+            repo.view(),
+            &repo.operation().id().hex(),
+            false,
+            &[]
+        )
+        .is_err()
+    );
+    assert!(gix::open(git_repo.path())?.find_remote("origin").is_err());
+    assert_eq!(std::fs::read(&auxiliary)?, b"original");
+    drop(writer);
+    git::recover_remote_management(
+        repo.store(),
+        repo.view(),
+        &repo.operation().id().hex(),
+        false,
+        &[],
+    )?;
+    assert!(gix::open(git_repo.path())?.find_remote("origin").is_ok());
+    Ok(())
+}
+
+#[test]
 fn test_remote_observation_updates_evidence_with_unchanged_canonical_target() -> TestResult {
-    use jj_lib::project::{BindingId, BindingRecord, BindingTarget, ConnectionId, ConversionObservation, ConversionTerm, ObservationKey, ObservationKind, Representation};
+    use jj_lib::project::BindingId;
+    use jj_lib::project::BindingRecord;
+    use jj_lib::project::BindingTarget;
+    use jj_lib::project::ConnectionId;
+    use jj_lib::project::ConversionObservation;
+    use jj_lib::project::ConversionTerm;
+    use jj_lib::project::ObservationKey;
+    use jj_lib::project::ObservationKind;
+    use jj_lib::project::Representation;
     let test_repo = TestRepo::init_with_backend(TestRepoBackend::Git);
     let repo = &test_repo.repo;
     let git_repo = get_git_repo(repo);
@@ -2630,7 +2751,19 @@ fn test_remote_observation_updates_evidence_with_unchanged_canonical_target() ->
         ("origin".into(), "jjosh-connectionId".into(), Some(connection.hex())),
         ("origin".into(), "jjosh-requiredCapability".into(), Some("jjosh-v1".into())),
     ])?;
-    tx.repo_mut().view_mut().project_state_mut().bindings.insert(binding_id.clone(), jj_lib::merge::Merge::resolved(Some(binding.clone())));
+    tx.repo_mut()
+        .view_mut()
+        .project_state_mut()
+        .bindings
+        .insert(
+            binding_id.clone(),
+            jj_lib::merge::Merge::resolved(Some(binding.clone())),
+        );
+    tx.commit("configure conversion source").block_on()?;
+    let repo = test_repo
+        .env
+        .load_repo_at_head(&testutils::user_settings(), test_repo.repo_path());
+    let mut tx = repo.start_transaction();
     let evidence = ConversionObservation {
         binding_id, binding, connection_id: connection,
         endpoint: "https://example.invalid/first".into(), raw_ref: "refs/heads/main".into(),

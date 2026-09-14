@@ -605,16 +605,16 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
                 }
             }
             if let Some(refs) = view.remote_views.get_mut(&mirror) {
-                for (is_tag, references, local) in [
-                    (false, &mut refs.bookmarks, &view.local_bookmarks),
-                    (true, &mut refs.tags, &view.local_tags),
+                for (references, local) in [
+                    (&mut refs.bookmarks, &view.local_bookmarks),
+                    (&mut refs.tags, &view.local_tags),
                 ] {
                     references.retain(|name, reference| {
                         if local.get(name) != Some(&reference.target) {
                             return true;
                         }
-                        let prefix = if is_tag { jj_lib::git::REMOTE_TAG_REF_NAMESPACE } else { "refs/remotes/" };
-                        legacy_mirrors.push(format!("{prefix}{}/{}", mirror.as_str(), name.as_str()));
+                        // Physical retirement was selected above from its current
+                        // target, not this potentially stale observation.
                         false
                     });
                 }
@@ -667,11 +667,10 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
         } else {
             Ok(Representation::Whole)
         };
-        if representation.as_ref().is_ok_and(|value| value != &Representation::Whole) {
-            if let Some(project) = &remote.project {
+        if representation.as_ref().is_ok_and(|value| value != &Representation::Whole)
+            && let Some(project) = &remote.project {
                 filtered_projects.insert(project.clone());
             }
-        }
         legacy_representations.insert(remote.name.clone(), representation);
     }
     for remote in &inventory.remotes {
@@ -703,26 +702,61 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
         if view.project_state.binding_for_connection(&connection).map_err(user_error)?.is_some() {
             return Err(user_error(format!("Remote {} is already bound; do not reinterpret it through legacy migration", remote.name)));
         }
-        let base = crate::git_remote::config_string(&git, &format!("remote.{}.jjosh-base", remote.name)).map_err(user_error)?
-            .as_deref().map(crate::binding_config::parse_base).transpose().map_err(user_error)?;
-        let binding = BindingRecord { target, connection_id: connection.clone(), representation, base };
+        let base =
+            crate::git_remote::config_string(&git, &format!("remote.{}.jjosh-base", remote.name))
+                .map_err(user_error)?
+                .as_deref()
+                .map(crate::binding_config::parse_base)
+                .transpose()
+                .map_err(user_error)?;
+        let binding = BindingRecord {
+            target,
+            connection_id: connection.clone(),
+            representation,
+            base,
+        };
         let id = BindingId::generate();
-        writeln!(ui.status(), "Bind {}: {:?}; base={:?}; read-only={:?}; endpoints/refspec/auth unchanged", remote.name, binding.representation, binding.base, remote.read_only)?;
-        if let Some(refs) = view.remote_views.get(&name) {
-            if !refs.bookmarks.is_empty() || !refs.tags.is_empty() {
-                for (reference, target) in refs.bookmarks.iter().chain(refs.tags.iter()) {
-                    writeln!(ui.status(), "Legacy observation {}@{} ({:?}) has no immutable source evidence", reference.as_str(), name.as_str(), target.state)?;
-                }
-                if !clear.contains(&remote.name) {
-                    blockers.push(format!("Remote {remote_name}: legacy observations cannot prove endpoint/raw/generation. Pass --clear-observations {remote_name} to explicitly forget its remote observations/tracking, retain local refs and leases, then fetch again", remote_name = name.as_str()));
-                }
+        writeln!(
+            ui.status(),
+            "Bind {}: {:?}; base={:?}; read-only={:?}; endpoints/refspec/auth unchanged",
+            remote.name,
+            binding.representation,
+            binding.base,
+            remote.read_only
+        )?;
+        if let Some(refs) = view.remote_views.get(&name)
+            && (!refs.bookmarks.is_empty() || !refs.tags.is_empty())
+        {
+            for (reference, target) in refs.bookmarks.iter().chain(refs.tags.iter()) {
+                writeln!(
+                    ui.status(),
+                    "Legacy observation {}@{} ({:?}) has no immutable source evidence",
+                    reference.as_str(),
+                    name.as_str(),
+                    target.state
+                )?;
+            }
+            if !clear.contains(&remote.name) {
+                blockers.push(format!(
+                    "Remote {remote_name}: legacy observations cannot prove \
+                     endpoint/raw/generation. Pass --clear-observations {remote_name} to \
+                     explicitly forget its remote observations/tracking, retain local refs and \
+                     leases, then fetch again",
+                    remote_name = name.as_str()
+                ));
             }
         }
         if clear.remove(&remote.name) {
             view.remote_views.remove(&name);
-            view.project_observations.retain(|key, _| key.remote != name);
+            view.project_observations
+                .retain(|key, _| key.remote != name);
             cleared.push(name.clone());
-            writeln!(ui.status(), "Clear {} remote observations, tracking and canonical mirrors; retain all local references and source/lease state", name.as_str())?;
+            writeln!(
+                ui.status(),
+                "Clear {} remote observations, tracking and canonical mirrors; retain all local \
+                 references and source/lease state",
+                name.as_str()
+            )?;
         }
         view.remote_connections.insert(name.clone(), Merge::resolved(Some(connection.clone())));
         view.project_state.bindings.insert(id.clone(), Merge::resolved(Some(binding.clone())));
@@ -831,12 +865,15 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
         }
     }
     if !projects.is_empty() {
-        let commit = workspace.resolve_single_rev(ui, &jj_cli::cli_util::RevisionArg::AT).await?;
+        let commit = workspace
+            .resolve_single_rev(ui, &jj_cli::cli_util::RevisionArg::AT)
+            .await?;
         for name in projects.keys() {
-            if let Ok((_, record)) = view.project_state.project_by_name(name) {
-                if let Err(error) = native_project::project_tree(&commit, &record.canonical_root).await {
-                    blockers.push(format!("Project {name}: {error:#}"));
-                }
+            if let Ok((_, record)) = view.project_state.project_by_name(name)
+                && let Err(error) =
+                    native_project::project_tree(&commit, &record.canonical_root).await
+            {
+                blockers.push(format!("Project {name}: {error:#}"));
             }
         }
     }

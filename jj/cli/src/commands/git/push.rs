@@ -733,40 +733,8 @@ pub async fn cmd_git_push(
             )?;
             print_commits_ready_to_push(formatter.as_mut(), tx.repo(), ref_updates).await?;
         }
-        if args.dry_run && !remote_sessions.is_empty() {
-            for (namespace, name, update) in ref_updates
-                .bookmarks
-                .iter()
-                .map(|(name, update)| ("heads", name, update))
-                .chain(
-                    ref_updates
-                        .tags
-                        .iter()
-                        .map(|(name, update)| ("tags", name, update)),
-                )
-            {
-                let destination =
-                    if let Some(route) = routes.as_ref().and_then(|routes| routes.get(name)) {
-                        route.name.as_str()
-                    } else if let Some(session) = remote_sessions.get(remote) {
-                        session.push_name(name)
-                    } else {
-                        name.as_str()
-                    };
-                let action = if update.after.is_none() {
-                    "delete"
-                } else if update.before.is_none() {
-                    "create"
-                } else {
-                    "update"
-                };
-                writeln!(
-                    ui.status(),
-                    "  {} -> {} -> refs/{namespace}/{destination} ({action})",
-                    name.as_symbol(),
-                    remote.as_symbol()
-                )?;
-            }
+        if args.dry_run && let Some(prepared) = prepared_pushes.get(remote) {
+            prepared.describe(ui)?;
         }
     }
     if args.dry_run {

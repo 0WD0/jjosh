@@ -176,22 +176,28 @@ fn remove_project(view: &mut jj_lib::op_store::View, id: &ProjectId) -> Result<(
     Ok(())
 }
 
-fn candidate<T: Clone>(target: &Merge<Option<T>>, index: Option<usize>) -> Result<Option<T>, CommandError> {
+fn candidate<T: Clone>(
+    target: &Merge<Option<T>>,
+    index: Option<usize>,
+) -> Result<Option<T>, CommandError> {
     let index = index.ok_or_else(|| user_error("Specify --candidate or --delete"))?;
     target.adds().nth(index.checked_sub(1).ok_or_else(|| user_error("Candidate indices start at 1"))?)
         .cloned().ok_or_else(|| user_error("Candidate index is outside the displayed positive candidates"))
 }
 
-fn resolve(view: &mut jj_lib::op_store::View, args: ResolveArgs, store: &jj_lib::store::Store) -> Result<(), CommandError> {
+fn resolve(
+    view: &mut jj_lib::op_store::View,
+    args: ResolveArgs,
+    store: &jj_lib::store::Store,
+) -> Result<(), CommandError> {
     if let Some(value) = args.id {
         let id = ProjectId::try_from_hex(&value).filter(|id| id.as_bytes().len() == 16).ok_or_else(|| user_error("Expected a 32-digit ProjectId"))?;
         let target = view.project_state.projects.get(&id).ok_or_else(|| user_error("Unknown ProjectId"))?;
         let mut roots = target.iter().flatten().map(|record| &record.canonical_root);
-        if let Some(first) = roots.next() {
-            if roots.any(|root| root != first) {
+        if let Some(first) = roots.next()
+            && roots.any(|root| root != first) {
                 return Err(user_error("ProjectId has inconsistent immutable roots; repair the corrupt input instead of choosing a layout"));
             }
-        }
         let selected = if args.delete { None } else if let Some(name) = args.name {
             let mut record = target.adds().flatten().next().cloned().ok_or_else(|| user_error("Project has no positive definition"))?;
             record.name = crate::native_project::parse_project(&name).map_err(user_error)?;
@@ -300,7 +306,7 @@ fn local_diagnostics(
             // Read identity without selecting a binding so conflicts themselves
             // remain inspectable and diagnostics can attach every dependent ID.
             let identity = crate::git_remote::config_string(&git, &format!("remote.{name}.jjosh-connectionId"))
-                .ok().flatten().and_then(|value| jj_lib::project::ConnectionId::try_from_hex(value));
+                .ok().flatten().and_then(jj_lib::project::ConnectionId::try_from_hex);
             if let Some(id) = &identity { connections.entry(id.clone()).or_default().push(name.to_owned()); }
             let binding_ids: Vec<_> = state.bindings.iter().filter(|(_, target)| target.adds().flatten().any(|record| identity.as_ref() == Some(&record.connection_id))).map(|(id, _)| id.clone()).collect();
             let project_ids: Vec<_> = binding_ids.iter().flat_map(|id| state.bindings[id].adds().flatten()).filter_map(|record| match &record.target { BindingTarget::Project(id) => Some(id.clone()), BindingTarget::RepositoryView => None }).collect();
