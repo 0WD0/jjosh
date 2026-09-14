@@ -142,14 +142,16 @@ pub async fn cmd_workspace_add(
     sparsity.validate().map_err(user_error)?;
     let desired = match source_desired {
         Some(source) if args.sparse_patterns == SparseInheritance::Copy => Some(source.clone()),
-        Some(_) => Some(Merge::resolved(Some(
+        // Deferred initialization cannot leave the initial selection only in
+        // memory: the new working copy still has its default physical layout.
+        None if command.is_working_copy_writable() => None,
+        _ => Some(Merge::resolved(Some(
             old_workspace_command
                 .repo()
                 .op_store()
                 .write_working_copy_patterns(&sparsity)
                 .await?,
         ))),
-        None => None,
     };
 
     #[cfg(feature = "git")]

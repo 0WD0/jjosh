@@ -714,7 +714,8 @@ pub async fn cmd_gerrit_upload(
         // It'd be nice if we could distinguish this. We should ideally succeed,
         // but give the user a warning.
         .map_err(|err| match err {
-            git::GitPushError::NoSuchRemote(_)
+            git::GitPushError::ManagedState(_)
+            | git::GitPushError::NoSuchRemote(_)
             | git::GitPushError::RemoteName(_)
             | git::GitPushError::UnexpectedBackend(_) => user_error(err),
             git::GitPushError::Subprocess(_) => {

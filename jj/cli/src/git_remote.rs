@@ -54,6 +54,19 @@ pub fn prepare_remote_settings_scope(
     crate::commands::git::prepare_remote_settings_scope(config, aliases)
 }
 
+/// Reject stale loaded repo-local settings before installing a prepared rewrite.
+/// Call while holding the local-state journal lease.
+pub fn check_repo_config_unchanged(config: &crate::config::RawConfig) -> Result<(), CommandError> {
+    if let Some(file) = crate::config::existing_repo_config_file(config)
+        && std::fs::read_to_string(file.path())? != file.layer().data.to_string()
+    {
+        return Err(user_error(
+            "Repository configuration changed while preparing a local-state change; retry",
+        ));
+    }
+    Ok(())
+}
+
 /// One destination in a logical reference's preflighted publication route set.
 #[derive(Clone, Debug)]
 pub struct GitPushRoute {

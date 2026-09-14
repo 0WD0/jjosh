@@ -474,6 +474,48 @@ fn mappings(values: &[String]) -> Result<BTreeMap<String, String>> {
     Ok(result)
 }
 
+/// Capture only the mutable Git inputs interpreted by migration: remote
+/// configuration, legacy project evidence, remote mirrors, and Josh sidecars.
+/// Ordinary branches, tags, operation heads, and unrelated Git configuration
+/// are not prerequisites for applying this plan.
+fn migration_inputs(
+    git: &gix::Repository,
+) -> Result<(
+    Vec<u8>,
+    BTreeMap<gix::refs::FullName, gix::refs::Target>,
+    BTreeMap<std::ffi::OsString, Vec<u8>>,
+)> {
+    let mut config = Vec::new();
+    git.config_snapshot().write_to_filter(&mut config, |section| {
+        section.header().name().eq_ignore_ascii_case(b"remote")
+    })?;
+    let mut refs = BTreeMap::new();
+    for prefix in [
+        "refs/jjosh/native/",
+        "refs/remotes/",
+        jj_lib::git::REMOTE_TAG_REF_NAMESPACE,
+    ] {
+        for reference in git.references()?.prefixed(prefix)? {
+            let reference = reference.map_err(anyhow::Error::from_boxed)?;
+            refs.insert(reference.name().to_owned(), reference.target().into_owned());
+        }
+    }
+    let mut sidecars = BTreeMap::new();
+    match std::fs::read_dir(git.common_dir().join("josh/remotes")) {
+        Ok(entries) => {
+            for entry in entries {
+                let entry = entry?;
+                if entry.path().extension().is_some_and(|extension| extension == "josh") {
+                    sidecars.insert(entry.file_name(), std::fs::read(entry.path())?);
+                }
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    Ok((config, refs, sidecars))
+}
+
 /// Explicit migration is the only reader of the previous configuration model.
 /// Preparation is read-only; all physical mutations are covered by the core
 /// journal before the operation commit makes the new semantic state authoritative.
@@ -489,6 +531,7 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
     let git_path = crate::interop::sha1_git_repo_path(&workspace)?;
     let git = jj_lib::git::get_git_backend(workspace.repo().store())?.git_repo();
     jj_lib::local_state::ensure_no_pending(&git)?;
+    let planned_inputs = migration_inputs(&git).map_err(user_error)?;
     let inventory = inspect(&git_path).map_err(user_error)?;
     let mut explicit = mappings(&args.representation).map_err(user_error)?;
     let mut native_sources = mappings(&args.native_source).map_err(user_error)?;
@@ -1528,6 +1571,14 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
     let mut journal_paths = sidecars.clone();
     journal_paths.extend(repo_config.iter().map(|file| file.path().to_owned()));
     let journal = jj_lib::local_state::begin(workspace.repo(), &journal_paths).await?;
+    jj_cli::git_remote::check_repo_config_unchanged(command.raw_config())?;
+    let mut current_git = jj_lib::git::get_git_repo(workspace.repo().store())?;
+    current_git.reload().map_err(user_error)?;
+    if migration_inputs(&current_git).map_err(user_error)? != planned_inputs {
+        return Err(user_error(
+            "Migration's Git inputs changed while planning; retry",
+        ));
+    }
     journal.register_retirements(&sidecars, &retire_refs)?;
     if store_upgrade {
         workspace
@@ -1557,7 +1608,7 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
     }
     transaction.flush_mem_odb().map_err(user_error)?;
     if !updates.is_empty() {
-        jj_lib::git::set_remote_config_keys(workspace.repo().store(), &updates)?;
+        jj_lib::git::set_remote_config_keys(workspace.repo().store(), &updates, Some(&journal))?;
     }
     let mut tx = workspace.start_transaction();
     tx.bind_local_state(&journal)?;
@@ -1611,7 +1662,12 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
             .ok_or_else(|| {
                 user_error("Cannot journal scoped settings without a configured adopted remote")
             })?;
-        jj_lib::git::commit_remote_management_config(tx.repo().store(), remote, Some(config))?;
+        jj_lib::git::commit_remote_management_config(
+            tx.repo().store(),
+            remote,
+            Some(config),
+            Some(&journal),
+        )?;
     }
     tx.into_inner()
         .commit("migrate projects, immutable source bindings and scoped remote names")

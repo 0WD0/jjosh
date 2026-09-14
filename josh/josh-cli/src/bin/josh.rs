@@ -277,6 +277,7 @@ fn run_repo(cmd: &RepoCommand, distributed_cache: bool) -> anyhow::Result<()> {
             let remote = args.remote.clone();
             let updates =
                 josh_cli::commands::fetch::handle_fetch(args, &transaction, distributed_cache)?;
+            transaction.flush_mem_odb()?;
             for line in josh_cli::commands::pull::render_fetch_summary(
                 &updates,
                 &remote,
@@ -326,7 +327,11 @@ fn run_repo(cmd: &RepoCommand, distributed_cache: bool) -> anyhow::Result<()> {
         RepoCommand::Link(args) => josh_cli::commands::link::handle_link(args, &transaction),
         RepoCommand::Compose(args) => josh_cli::commands::run::handle_compose(args, &transaction),
         RepoCommand::Cache(args) => josh_cli::commands::cache::handle_cache(args, &transaction),
+    }?;
+    if !ephemeral_compose {
+        transaction.flush_mem_odb()?;
     }
+    Ok(())
 }
 
 /// Initialize a clone and configure its remote.
@@ -486,6 +491,7 @@ fn handle_filter(
         &args.remote,
         Some(&default_branch),
     )?;
+    transaction.flush_mem_odb()?;
 
     println!(
         "Applied filter '{}' to remote '{}'",

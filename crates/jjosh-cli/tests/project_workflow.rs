@@ -1179,6 +1179,119 @@ fn file_at_revision(client: &Path, revision: &str, path: &str) -> Vec<u8> {
 }
 
 #[test]
+fn conflicted_project_metadata_can_be_restored_and_repaired_by_repo_only_restore() {
+    let temp = tempfile::tempdir().unwrap();
+    let (_, source, _) = create_remote(temp.path(), "source");
+    let client = create_client(temp.path(), false);
+    import_project(&client, "api", "api", &source, ":/src");
+    let healthy = operation_id(&client);
+    let canonical = commit_id(&client, "main#api@api-upstream");
+    jjosh(&client, &["--at-op", healthy.trim(), "project", "rename", "api", "left"]);
+    jjosh(&client, &["--at-op", healthy.trim(), "project", "rename", "api", "right"]);
+    // Loading the current repository merges both operation heads and retains
+    // their signed project-definition conflict.
+    let conflict: serde_json::Value = serde_json::from_slice(
+        &jjosh(&client, &["project", "list", "--json"]).stdout,
+    ).unwrap();
+    assert!(!conflict["diagnostics"].as_array().unwrap().is_empty());
+    let conflicted = operation_id(&client);
+    jjosh(&client, &["op", "restore", healthy.trim(), "--what", "repo"]);
+    jjosh(&client, &["project", "check", "api"]);
+    assert_eq!(commit_id(&client, "main#api@api-upstream"), canonical);
+
+    jjosh(&client, &["op", "restore", conflicted.trim()]);
+    let restored: serde_json::Value = serde_json::from_slice(
+        &jjosh(&client, &["project", "list", "--json"]).stdout,
+    ).unwrap();
+    assert_eq!(restored["projects"], conflict["projects"]);
+    assert!(!restored["diagnostics"].as_array().unwrap().is_empty());
+    jjosh(&client, &["op", "restore", healthy.trim(), "--what", "repo"]);
+    jjosh(&client, &["project", "check", "api"]);
+    assert_eq!(commit_id(&client, "main#api@api-upstream"), canonical);
+}
+
+#[test]
+fn repo_only_rewind_keeps_historical_project_refs_listed_and_resolvable() {
+    let temp = tempfile::tempdir().unwrap();
+    let (_, source, tip) = create_remote(temp.path(), "source");
+    git(&source, &["update-ref", "refs/tags/v1", &tip]);
+    let client = create_client(temp.path(), false);
+    let before_project = operation_id(&client);
+    import_project(&client, "api", "api", &source, ":/src");
+    jjosh(&client, &["git", "fetch", "--remote", "api-upstream#api", "--tag", "v1"]);
+    let physical = physical_remote(&client, "api", "api-upstream");
+    let canonical = commit_id(&client, "main#api@api-upstream");
+    let tag = commit_id(&client, "v1#api@api-upstream");
+    jjosh(&client, &["op", "restore", before_project.trim(), "--what", "repo"]);
+    let state: serde_json::Value = serde_json::from_slice(
+        &jjosh(&client, &["project", "list", "--json"]).stdout,
+    ).unwrap();
+    assert!(state["projects"].as_array().unwrap().is_empty());
+
+    for (kind, name, expected) in [
+        ("bookmark", "main#api", canonical.as_str()),
+        ("tag", "v1#api", tag.as_str()),
+    ] {
+        let symbol = format!("{name}@{physical}");
+        let names = String::from_utf8(jjosh(&client, &[
+            kind, "list", "--all-remotes", "-T",
+            r#"if(remote && remote != "git", name ++ "@" ++ remote ++ "\n")"#,
+        ]).stdout).unwrap();
+        assert!(names.lines().any(|line| line == symbol), "{names}");
+        assert_eq!(commit_id(&client, &symbol), expected);
+    }
+    let template_refs = String::from_utf8(jjosh(&client, &[
+        "log", "--no-graph", "-r", &format!("main#api@{physical}"),
+        "-T", r#"remote_bookmarks.map(|ref| ref.name() ++ "@" ++ ref.remote()).join("\n")"#,
+    ]).stdout).unwrap();
+    assert!(template_refs.lines().any(|line| line == format!("main#api@{physical}")));
+    // No active alias or project scope is invented to expose retained history.
+    assert!(!jjosh_unchecked(&client, &["log", "-r", "main#api@api-upstream"]).status.success());
+}
+
+#[test]
+fn forgetting_converted_remote_bookmarks_preserves_history_and_publication_leases() {
+    for include_remotes in [false, true] {
+        let temp = tempfile::tempdir().unwrap();
+        let (work, source, original) = create_remote(temp.path(), "source");
+        let client = create_client(temp.path(), false);
+        import_project(&client, "api", "api", &source, ":/src");
+        jjosh(&client, &["bookmark", "track", "main#api@api-upstream"]);
+        let canonical = commit_id(&client, "main#api@api-upstream");
+        let observed = operation_id(&client);
+        if include_remotes {
+            jjosh(&client, &["bookmark", "forget", "main#api", "--include-remotes"]);
+        } else {
+            jjosh(&client, &["bookmark", "forget", "main#api@api-upstream"]);
+            assert_eq!(commit_id(&client, "main#api"), canonical);
+        }
+        jjosh(&client, &["project", "check", "api"]);
+        assert!(!jjosh_unchecked(&client, &["log", "-r", "main#api@api-upstream"]).status.success());
+        let historical = String::from_utf8(jjosh(&client, &[
+            "--at-op", observed.trim(), "log", "--no-graph", "-r",
+            "main#api@api-upstream", "-T", "commit_id",
+        ]).stdout).unwrap();
+        assert_eq!(historical.trim(), canonical);
+
+        jjosh(&client, &["new", &canonical, "-m", "publish after forgetting"]);
+        fs::write(client.join("api/value.txt"), "republished\n").unwrap();
+        jjosh(&client, &["bookmark", "set", "main#api"]);
+        // A forget must not reset the independently remembered raw endpoint.
+        fs::write(work.join("src/value.txt"), "external advance\n").unwrap();
+        git(&work, &["commit", "-am", "external advance"]);
+        git(&work, &["push", source.to_str().unwrap(), "HEAD:main"]);
+        let advanced = git(&source, &["rev-parse", "main"]);
+        let push = ["git", "push", "--remote", "api-upstream", "--bookmark", "main#api", "--allow-new"];
+        assert!(!jjosh_unchecked(&client, &push).status.success());
+        assert_eq!(git(&source, &["rev-parse", "main"]), advanced);
+        git(&source, &["update-ref", "refs/heads/main", &original, advanced.trim()]);
+        jjosh(&client, &push);
+        assert_eq!(git(&source, &["show", "main:src/value.txt"]), "republished\n");
+        assert_eq!(git(&source, &["show", "main:outside.txt"]), "source-outside\n");
+    }
+}
+
+#[test]
 fn project_registration_restores_without_snapshotting_or_claiming_literal_refs() {
     let temp = tempfile::tempdir().unwrap();
     let client = create_client(temp.path(), false);

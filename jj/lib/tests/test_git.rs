@@ -2413,7 +2413,6 @@ fn test_import_remote_observations_selected_deletion() -> TestResult {
         kind,
         symbol: remote_symbol(name, "origin").to_owned(),
         target: RefTarget::normal(jj_id(oid)),
-        canonical_git_oid: Some(oid),
         evidence: None,
     });
     let mut tx = repo.start_transaction();
@@ -2485,7 +2484,6 @@ fn test_import_remote_observations_tracked_native_conflict() -> TestResult {
             kind: GitRefKind::Bookmark,
             symbol: symbol.to_owned(),
             target: RefTarget::normal(jj_id(base)),
-            canonical_git_oid: Some(base),
             evidence: None,
         }],
         |_, candidate| candidate == symbol,
@@ -2503,7 +2501,6 @@ fn test_import_remote_observations_tracked_native_conflict() -> TestResult {
             kind: GitRefKind::Bookmark,
             symbol: symbol.to_owned(),
             target: conflict.clone(),
-            canonical_git_oid: None,
             evidence: None,
         }],
         |_, candidate| candidate == symbol,
@@ -2587,7 +2584,7 @@ fn test_remote_recovery_rejects_uncommitted_offline_retirement() -> TestResult {
 }
 
 #[test]
-fn test_recovery_does_not_accept_an_unrelated_operation_with_matching_remote_state() -> TestResult {
+fn test_unrelated_publication_does_not_commit_pending_retirements() -> TestResult {
     let test_repo = TestRepo::init_with_backend(TestRepoBackend::Git);
     let repo = &test_repo.repo;
     let git_repo = get_git_repo(repo);
@@ -2601,16 +2598,16 @@ fn test_recovery_does_not_accept_an_unrelated_operation_with_matching_remote_sta
         RefTarget::normal(repo.store().root_commit_id().clone()),
     );
     journal.bind_transaction(&mut intended)?;
-    drop(intended);
-    drop(journal);
-    let result = repo
+    let unrelated = repo
         .start_transaction()
         .commit("unrelated operation")
-        .block_on();
-    assert!(
-        result.is_err(),
-        "an unrelated operation cannot publish while local state is pending"
+        .block_on()?;
+    assert_eq!(
+        repo.op_heads_store().get_op_heads().block_on()?,
+        vec![unrelated.operation().id().clone()]
     );
+    drop(intended);
+    drop(journal);
     assert_eq!(std::fs::read(&sidecar)?, b"still required");
     assert_eq!(
         jj_lib::local_state::recover(repo.loader(), &[]).block_on()?,
@@ -2637,10 +2634,17 @@ fn test_remote_recovery_preserves_unrelated_git_refs() -> TestResult {
     let git_repo = get_git_repo(&repo);
     let before = empty_git_commit(&git_repo, "refs/remotes/origin/main", &[]);
     let journal = jj_lib::local_state::begin(&repo, &[]).block_on()?;
+    let mut other = repo.start_transaction();
+    assert!(git::remove_remote(other.repo_mut(), "origin".as_ref()).is_err());
+    assert!(gix::open(git_repo.path())?.find_remote("origin").is_ok());
+    other
+        .commit("unrelated operation while pending")
+        .block_on()?;
     let mut tx = repo.start_transaction();
     journal.bind_transaction(&mut tx)?;
     git::remove_remote(tx.repo_mut(), "origin".as_ref())?;
     let unrelated = empty_git_commit(&git_repo, "refs/heads/new-during-recovery", &[before]);
+    drop(tx);
     drop(journal);
     assert_eq!(
         jj_lib::local_state::recover(repo.loader(), &[]).block_on()?,
@@ -2722,6 +2726,7 @@ fn test_remote_recovery_rolls_back_interrupted_second_ref_step() -> TestResult {
     };
     // The second step is durable but interrupted before the ref update.
     journal.record_ref_edits(&git_repo, &[edit])?;
+    drop(tx);
     drop(journal);
     assert_eq!(
         jj_lib::local_state::recover(repo.loader(), &[]).block_on()?,
@@ -2756,6 +2761,7 @@ fn test_remote_recovery_honors_auxiliary_file_writer_lock() -> TestResult {
     let mut tx = repo.start_transaction();
     journal.bind_transaction(&mut tx)?;
     git::remove_remote(tx.repo_mut(), "origin".as_ref())?;
+    drop(tx);
     drop(journal);
     let writer = gix::lock::Marker::acquire_to_hold_resource(
         &auxiliary,
@@ -2823,6 +2829,7 @@ fn test_remote_observation_updates_evidence_with_unchanged_canonical_target() ->
                 Some("jjosh-v1".into()),
             ),
         ],
+        None,
     )?;
     tx.repo_mut()
         .view_mut()
@@ -2854,7 +2861,6 @@ fn test_remote_observation_updates_evidence_with_unchanged_canonical_target() ->
         kind: GitRefKind::Bookmark,
         symbol: remote_symbol("main", "origin").to_owned(),
         target: RefTarget::normal(jj_id(canonical)),
-        canonical_git_oid: Some(canonical),
         evidence: Some(evidence),
     };
     let options = auto_track_import_options();
@@ -2893,7 +2899,6 @@ fn test_import_remote_observations_unchanged_after_restore() -> TestResult {
         kind: GitRefKind::Bookmark,
         symbol: symbol.to_owned(),
         target: RefTarget::normal(jj_id(after)),
-        canonical_git_oid: Some(after),
         evidence: None,
     };
     let mut tx = repo.start_transaction();
@@ -4283,6 +4288,17 @@ fn test_local_state_completion_keeps_postpublication_index_updates() -> TestResu
     let mut tx = repo.start_transaction();
     journal.bind_transaction(&mut tx)?;
     let published = tx.commit("publish before finishing index").block_on()?;
+    let mut unrelated = published.start_transaction();
+    assert!(
+        git::add_remote(
+            unrelated.repo_mut(),
+            "unrelated".as_ref(),
+            "https://example.invalid/unrelated",
+            None,
+        )
+        .is_err()
+    );
+    unrelated.commit("ordinary descendant").block_on()?;
     git::update_intent_to_add(published.as_ref(), workspace_root, &old_tree, &new_tree)
         .block_on()?;
     let updated = get_index_state(workspace_root);
@@ -7666,6 +7682,7 @@ fn test_set_remote_urls() -> TestResult {
         remote_name.as_ref(),
         None,
         Some("git@example.com:repo/path"),
+        None,
     )?;
     let repo = &test_repo
         .env
@@ -7683,6 +7700,7 @@ fn test_set_remote_urls() -> TestResult {
         repo.store(),
         remote_name.as_ref(),
         Some("https://example.com/repo/path2"),
+        None,
         None,
     )?;
     let repo = &test_repo
@@ -7702,6 +7720,7 @@ fn test_set_remote_urls() -> TestResult {
         remote_name.as_ref(),
         Some("https://example.com/repo/path3"),
         Some("git@example.com:repo/path3"),
+        None,
     )?;
     let repo = &test_repo
         .env

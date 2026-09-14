@@ -84,6 +84,8 @@ pub async fn cmd_git_remote_add(
                 .clone(),
         );
     }
+    let git_lock = workspace_command.lock_git_import_export()?;
+    let journal = local_state::begin(workspace_command.repo(), &[]).await?;
     let binding = super::prepare_binding(
         command,
         &workspace_command,
@@ -98,12 +100,11 @@ pub async fn cmd_git_remote_add(
     } else {
         local_name.clone()
     };
-    let git_repo = git::get_git_repo(workspace_command.repo().store())?;
+    let mut git_repo = git::get_git_repo(workspace_command.repo().store())?;
+    git_repo.reload().map_err(crate::command_error::user_error)?;
     if git::try_find_active_remote(&git_repo, &remote)?.is_some() {
         return Err(git::GitRemoteManagementError::RemoteAlreadyExists(local_name.clone()).into());
     }
-    let git_lock = workspace_command.lock_git_import_export()?;
-    let journal = local_state::begin(workspace_command.repo(), &[]).await?;
     let mut tx = workspace_command.start_transaction();
     tx.bind_local_state(&journal)?;
     tx.repo_mut()
@@ -146,7 +147,7 @@ pub async fn cmd_git_remote_add(
         .store_view_mut()
         .remote_connections
         .insert(remote.clone(), Merge::resolved(Some(connection.clone())));
-    git::set_remote_config_keys(tx.repo().store(), &keys)?;
+    git::set_remote_config_keys(tx.repo().store(), &keys, Some(&journal))?;
     warn_if_remote_url_matches(ui, tx.repo(), &remote, &url, push_url.as_deref())?;
     let display_name = tx.repo().view().remote_qualified_name(&remote);
     tx.finish_with_git_import_export_lock(ui, format!("add git remote {display_name}"), &git_lock)

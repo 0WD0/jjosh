@@ -2651,6 +2651,11 @@ pub fn resolve_remote_ref_symbol(
     view: &crate::view::View,
     symbol: RemoteRefSymbol<'_>,
 ) -> Result<RemoteRefSymbolBuf, String> {
+    // Historical physical keys carry their own recorded ownership, even after
+    // rewinding repository state to before that project's registration.
+    if view.is_historical_remote_ref(symbol)? {
+        return Ok(symbol.to_owned());
+    }
     let reference_project = remote_ref_project(view, symbol.name)?;
     let (remote_name, project) = match symbol.remote.as_str().rsplit_once('#') {
         Some((name, "")) => (RemoteName::new(name), None),
@@ -2729,6 +2734,9 @@ pub fn remote_ref_is_visible(
     view: &crate::view::View,
     symbol: RemoteRefSymbol<'_>,
 ) -> Result<bool, String> {
+    if view.is_historical_remote_ref(symbol)? {
+        return Ok(true);
+    }
     if remote_ref_matches_scope(view, symbol)? {
         return Ok(true);
     }

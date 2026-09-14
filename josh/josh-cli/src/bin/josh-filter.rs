@@ -634,6 +634,7 @@ fn run_filter(args: Vec<String>) -> anyhow::Result<i32> {
             println!("Roundtrip failed");
             Ok(1)
         } else {
+            transaction.flush_mem_odb()?;
             println!("{}", ret);
             Ok(0)
         };
@@ -650,11 +651,10 @@ fn run_filter(args: Vec<String>) -> anyhow::Result<i32> {
         );
     }
 
-    println!("{}", updated_refs[0].1);
-
-    // The queries below run in separate transactions whose stores only see on-disk objects, so
-    // flush the filtered objects out of this transaction first.
+    // Publish before reporting success. The queries below also require these
+    // objects on disk because they run in separate transactions.
     transaction.flush_mem_odb()?;
+    println!("{}", updated_refs[0].1);
 
     if let Some(gql_query) = args.get_one::<String>("graphql") {
         let context = josh_graphql::context(transaction.try_clone()?, transaction.try_clone()?);

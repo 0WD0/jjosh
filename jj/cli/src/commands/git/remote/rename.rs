@@ -47,12 +47,16 @@ pub async fn cmd_git_remote_rename(
     super::require_integrated_local_state(command)?;
     let mut workspace_command = command.workspace_helper_no_snapshot(ui).await?;
     let git_lock = workspace_command.lock_git_import_export()?;
+    let extra_paths: Vec<_> = command.config_env().maybe_repo_config_path(ui)?.into_iter().collect();
+    let journal = local_state::begin(workspace_command.repo(), &extra_paths).await?;
+    crate::git_remote::check_repo_config_unchanged(command.raw_config())?;
     let old = super::resolve_management_remote(
         &workspace_command,
         args.old.as_str(),
         args.project.as_deref(),
     )?;
-    let git_repo = git::get_git_repo(workspace_command.repo().store())?;
+    let mut git_repo = git::get_git_repo(workspace_command.repo().store())?;
+    git_repo.reload().map_err(crate::command_error::user_error)?;
     let inspection =
         git::inspect_remote_management(workspace_command.repo().view(), &git_repo, &old)?;
     let connection = inspection.connection();
@@ -99,12 +103,6 @@ pub async fn cmd_git_remote_rename(
         &new,
         labels.as_deref(),
     )?;
-    let extra_paths = options
-        .repo_config
-        .iter()
-        .map(|file| file.path().to_owned())
-        .collect::<Vec<_>>();
-    let journal = local_state::begin(workspace_command.repo(), &extra_paths).await?;
     let mut tx = workspace_command.start_transaction();
     tx.bind_local_state(&journal)?;
     if let Some(mut identity) = identity {
@@ -119,6 +117,7 @@ pub async fn cmd_git_remote_rename(
             tx.repo().store(),
             &old,
             options.repo_config.as_ref(),
+            Some(&journal),
         )?;
         identity.name = new.clone();
         tx.repo_mut()

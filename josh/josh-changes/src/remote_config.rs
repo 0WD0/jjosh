@@ -104,13 +104,43 @@ pub fn try_read_remote_config(
     remote_name: &str,
 ) -> anyhow::Result<Option<RemoteConfig>> {
     validate_remote_name(remote_name)?;
-    let repo = gix::open(repo_path)
+    let mut repo = gix::open(repo_path)
         .with_context(|| format!("Failed to open repository at {}", repo_path.display()))?;
+    try_read_remote_config_from_repo(&mut repo, remote_name)
+}
+
+fn try_read_remote_config_from_repo(
+    repo: &mut gix::Repository,
+    remote_name: &str,
+) -> anyhow::Result<Option<RemoteConfig>> {
     let remote_file = repo
         .common_dir()
         .join("josh")
         .join("remotes")
         .join(format!("{remote_name}.josh"));
+    // Readers take only the per-remote publication lock. In particular, never
+    // acquire the Git config writer lock after this one: writers take it first.
+    let _sidecar_lock = match gix::lock::Marker::acquire_to_hold_resource(
+        &remote_file,
+        gix::lock::acquire::Fail::Immediately,
+        None,
+    ) {
+        Ok(lock) => lock,
+        // No remotes directory means there cannot yet be a published sidecar.
+        Err(gix::lock::acquire::Error::Io(error))
+            if error.kind() == std::io::ErrorKind::NotFound =>
+        {
+            return Ok(None);
+        }
+        Err(error) => {
+            return Err(error).with_context(|| {
+                format!("Failed to lock remote config file: {}", remote_file.display())
+            });
+        }
+    };
+    // Opening the repository to locate its common directory took a config
+    // snapshot before the lock. A writer may have completed since then.
+    repo.reload().context("Failed to refresh Git remote configuration")?;
 
     let content = match std::fs::read_to_string(&remote_file) {
         Ok(content) => content,
@@ -138,7 +168,7 @@ pub fn try_read_remote_config(
             remote_name
         );
     }
-    let url = config_string(&repo, &format!("remote.{remote_name}.url"))?
+    let url = config_string(repo, &format!("remote.{remote_name}.url"))?
         .with_context(|| format!("Missing Git remote.{remote_name}.url"))?;
     gix::url::parse(url.as_str()).context("Invalid Git remote URL")?;
 
@@ -151,7 +181,7 @@ pub fn try_read_remote_config(
         .transpose()
         .map_err(|f| anyhow!("Unknown forge: {f}"))?;
 
-    let push_url = config_string(&repo, &format!("remote.{remote_name}.pushurl"))?;
+    let push_url = config_string(repo, &format!("remote.{remote_name}.pushurl"))?;
     if let Some(push_url) = &push_url {
         gix::url::parse(push_url.as_str()).context("Invalid Git remote push URL")?;
     }
@@ -386,4 +416,71 @@ pub fn write_remote_config(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reader_refreshes_endpoints_after_reconfiguration() {
+        let dir = tempfile::tempdir().unwrap();
+        gix::init_bare(dir.path()).unwrap();
+        write_remote_config(
+            dir.path(), "origin", "https://example.com/old", ":/old",
+            None, Some("https://example.com/old-push"), None, &[],
+        ).unwrap();
+        let mut reader = gix::open(dir.path()).unwrap();
+        write_remote_config(
+            dir.path(), "origin", "https://example.com/new", ":/new",
+            Some(Forge::Gerrit), Some("https://example.com/new-push"),
+            Some(GerritMode::Stack), &[],
+        ).unwrap();
+
+        // This is a real stale gix snapshot, not a simulated config reader.
+        assert_eq!(
+            config_string(&reader, "remote.origin.url").unwrap().as_deref(),
+            Some("https://example.com/old"),
+        );
+        let config = try_read_remote_config_from_repo(&mut reader, "origin")
+            .unwrap().unwrap();
+        assert_eq!(config.url, "https://example.com/new");
+        assert_eq!(config.push_url.as_deref(), Some("https://example.com/new-push"));
+        assert_eq!(josh_core::filter::spec(config.semantic_filter()), ":/new");
+        assert_eq!(config.forge, Some(Forge::Gerrit));
+        assert_eq!(config.gerrit_mode, GerritMode::Stack);
+    }
+
+    #[test]
+    fn reader_does_not_observe_uncommitted_sidecar() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = gix::init_bare(dir.path()).unwrap();
+        write_remote_config(
+            dir.path(), "origin", "https://example.com/old", ":/old",
+            None, None, None, &[],
+        ).unwrap();
+        // Pause the real publication protocol between its two file commits.
+        let mut config = repo.config_file_mut(repo.config_path(gix::config::Source::Local).unwrap())
+            .unwrap();
+        config.set_raw_value("remote.origin.url", "https://example.com/new").unwrap();
+        let remote_file = repo.common_dir().join("josh/remotes/origin.josh");
+        let sidecar_lock = gix::lock::Marker::acquire_to_hold_resource(
+            &remote_file, gix::lock::acquire::Fail::Immediately, None,
+        ).unwrap();
+        std::fs::write(&remote_file, ":/new").unwrap();
+
+        assert!(try_read_remote_config(dir.path(), "origin").is_err());
+        config.commit().unwrap();
+        drop(sidecar_lock);
+        let config = read_remote_config(dir.path(), "origin").unwrap();
+        assert_eq!(config.url, "https://example.com/new");
+        assert_eq!(josh_core::filter::spec(config.semantic_filter()), ":/new");
+    }
+
+    #[test]
+    fn ordinary_git_repository_has_no_josh_remote() {
+        let dir = tempfile::tempdir().unwrap();
+        gix::init_bare(dir.path()).unwrap();
+        assert!(try_read_remote_config(dir.path(), "origin").unwrap().is_none());
+    }
 }

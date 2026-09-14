@@ -1043,18 +1043,20 @@ impl WorkspaceCommandEnvironment {
         &self.workspace_name
     }
 
-    /// Acquires the shared Git writer lock, including non-colocated workspaces.
+    /// Acquires the repository-local lock for colocated Git import/export.
     fn lock_git_import_export(
         &self,
         workspace: &Workspace,
     ) -> Result<GitImportExportLock, CommandError> {
-        #[cfg(feature = "git")]
-        if let Ok(git_repo) = jj_lib::git::get_git_repo(workspace.repo_loader().store()) {
-            return GitImportExportLock::acquire(&git_repo);
-        }
-        #[cfg(not(feature = "git"))]
-        let _ = workspace;
-        Ok(GitImportExportLock { _lock: None })
+        let lock = if self.working_copy_shared_with_git {
+            let path = workspace.repo_path().join("git_import_export.lock");
+            Some(FileLock::lock(path).map_err(|err| {
+                user_error_with_message("Failed to take lock for Git import/export", err)
+            })?)
+        } else {
+            None
+        };
+        Ok(GitImportExportLock { _lock: lock })
     }
 
     /// Parsing context for fileset expressions specified by command arguments.
@@ -1252,23 +1254,13 @@ impl WorkspaceCommandEnvironment {
     }
 }
 
-/// Holds the shared Git import/export lock until dropped. Git worktrees and
-/// separate JJ repositories sharing a Git store use the same coordination point.
-/// Non-Git repositories use an empty token.
+/// A token that holds a lock for Git import/export in colocated repositories.
+/// For non-colocated repositories this is an empty token. The lock is released
+/// when the token is dropped.
 pub struct GitImportExportLock {
     _lock: Option<FileLock>,
 }
 
-impl GitImportExportLock {
-    #[cfg(feature = "git")]
-    pub(crate) fn acquire(git_repo: &gix::Repository) -> Result<Self, CommandError> {
-        let path = git_repo.common_dir().join("jj-import-export.lock");
-        let lock = FileLock::lock(path).map_err(|err| {
-            user_error_with_message("Failed to take lock for Git import/export", err)
-        })?;
-        Ok(Self { _lock: Some(lock) })
-    }
-}
 
 /// Provides utilities for writing a command that works on a [`Workspace`]
 /// (which most commands do).
@@ -3211,26 +3203,28 @@ async fn recover_local_state_before_dispatch(
     if !jj_lib::local_state::has_pending(&git_repo)? {
         return Ok(false);
     }
-    // Match normal writer ordering: Git import/export, journal, operation heads.
-    let _lock = GitImportExportLock::acquire(&git_repo)?;
+    // Recovery tries the journal lease without waiting. A live local-state
+    // transaction must not stall unrelated JJ commands.
     let workspace = loader
         .load(settings, store_factories, working_copy_factories)
         .map_err(|err| map_workspace_load_error(err, None))?;
     let extra_paths: Vec<_> = config_env.maybe_repo_config_path(ui)?.into_iter().collect();
-    match jj_lib::local_state::recover(workspace.repo_loader(), &extra_paths).await? {
-        jj_lib::local_state::RecoveryOutcome::NoPending => {}
-        jj_lib::local_state::RecoveryOutcome::RolledBack => {
+    match jj_lib::local_state::recover(workspace.repo_loader(), &extra_paths).await {
+        Err(jj_lib::local_state::LocalStateError::Busy) => return Ok(false),
+        Err(err) => return Err(err.into()),
+        Ok(jj_lib::local_state::RecoveryOutcome::NoPending) => {}
+        Ok(jj_lib::local_state::RecoveryOutcome::RolledBack) => {
             writeln!(
                 ui.status(),
                 "Rolled back an interrupted local-state change."
             )?;
         }
-        jj_lib::local_state::RecoveryOutcome::Completed => {
+        Ok(jj_lib::local_state::RecoveryOutcome::Completed) => {
             writeln!(ui.status(), "Completed an interrupted local-state change.")?;
         }
     }
-    // Another process may have finished while we waited. Reload in that case
-    // too: the original settings could have observed an intermediate config.
+    // Another process may have finished after the initial check. Reload even
+    // then: the original settings could have observed intermediate config.
     Ok(true)
 }
 
