@@ -786,15 +786,14 @@ impl GitPreparedPush for PreparedPush {
                         remote.clone(),
                         Merge::resolved(Some(evidence.connection_id.clone())),
                     );
-                    view.project_observations.insert(
+                    jj_lib::view::remote_observations::RemoteObservations::new(view).record(
                         ObservationKey {
                             remote: remote.clone(),
                             name: name.into(),
                             kind,
                         },
-                        Merge::resolved(Some(evidence.clone())),
+                        evidence.clone(),
                     );
-                    repo.view_mut().capture_remote_observation_identity(&remote);
                 }
             }
             if let Some(transaction) = &transaction {

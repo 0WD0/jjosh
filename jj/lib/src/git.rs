@@ -727,6 +727,7 @@ impl GitRemoteJournal {
         self.save_record(&record)
     }
 
+    /// Expect local configuration section presence, independently of URLs.
     pub fn expect_remote(
         &self,
         remote: &RemoteName,
@@ -1220,8 +1221,8 @@ pub fn recover_remote_management(
         }
         for (name, exists, expected_connection, managed) in &record.expected_remotes {
             let remote = RemoteName::new(name);
-            let active = try_find_active_remote(&git_repo, remote)?.is_some();
-            if active != *exists {
+            let configured = remote_has_config(&git_repo, remote);
+            if configured != *exists {
                 return Err(GitRemoteManagementError::ManagedState(format!(
                     "Remote {} local configuration and operation have not both reached the prepared state; roll back instead",
                     remote.as_symbol()
@@ -1745,16 +1746,7 @@ pub async fn import_remote_observations(
     let stats = import_refs_inner(mut_repo, refs_to_import, options).await?;
     for (key, evidence) in evidence_updates {
         let view = mut_repo.view_mut().store_view_mut();
-        view.observed_remote_connections.insert(
-            key.remote.clone(),
-            Merge::resolved(Some(evidence.connection_id.clone())),
-        );
-        if let Some(name) = view.project_state.remote_names.get(&evidence.connection_id) {
-            view.observed_remote_names
-                .insert(evidence.connection_id.clone(), name.clone());
-        }
-        view.project_observations
-            .insert(key, Merge::resolved(Some(evidence)));
+        crate::view::remote_observations::RemoteObservations::new(view).record(key, evidence);
     }
     Ok(stats)
 }
@@ -4635,18 +4627,20 @@ pub fn import_remote_configs(
     )
 }
 
-pub fn add_remote(
-    mut_repo: &mut MutableRepo,
+/// Creates only local Git configuration, without changing semantic remote state.
+pub fn create_remote_config(
+    store: &Store,
     remote_name: &RemoteName,
     url: &str,
     push_url: Option<&str>,
 ) -> Result<(), GitRemoteManagementError> {
-    let git_repo = get_git_repo(mut_repo.store())?;
+    let mut git_repo = get_git_repo(store)?;
     let _config_lock = lock_remote_config(&git_repo)?;
-    let git_repo = get_git_repo(mut_repo.store())?;
+    git_repo
+        .reload()
+        .map_err(GitRemoteManagementError::from_git)?;
 
     validate_remote_name(remote_name)?;
-
     if try_find_active_remote_inner(&git_repo, remote_name).is_some() {
         return Err(GitRemoteManagementError::RemoteAlreadyExists(
             remote_name.to_owned(),
@@ -4661,13 +4655,11 @@ pub fn add_remote(
             gix::remote::Direction::Fetch,
         )
         .expect("default refspec to be valid");
-
     if let Some(push_url) = push_url {
         remote = remote
             .with_push_url(push_url)
             .map_err(GitRemoteManagementError::from_git)?;
     }
-
     let mut config = git_repo.config_snapshot().clone();
     save_remote(&mut config, remote_name, &mut remote)?;
     commit_remote_management(
@@ -4675,34 +4667,84 @@ pub fn add_remote(
         &config,
         Vec::new(),
         &GitRemoteManagementOptions::default(),
-    )?;
+    )
+}
+
+pub fn add_remote(
+    mut_repo: &mut MutableRepo,
+    remote_name: &RemoteName,
+    url: &str,
+    push_url: Option<&str>,
+) -> Result<(), GitRemoteManagementError> {
+    create_remote_config(mut_repo.store(), remote_name, url, push_url)?;
 
     mut_repo.ensure_remote(remote_name);
 
     Ok(())
 }
 
-/// Physical configuration is local capability, never proof that a restored
-/// logical owner owns that alias's configuration or Git refs.
-fn logical_remote_is_disconnected(
+/// Independent local configuration and logical ownership facts for lifecycle
+/// management. An unavailable endpoint does not make owned configuration foreign.
+#[derive(Debug)]
+pub struct RemoteManagementInspection {
+    pub has_config: bool,
+    pub configured_connection: Option<ConnectionId>,
+    /// `None` means no logical ownership entry; `Some(None)` is explicit absence.
+    pub logical_owner: Option<Option<ConnectionId>>,
+    pub has_endpoint: bool,
+    pub managed: bool,
+}
+
+impl RemoteManagementInspection {
+    /// Prefer explicit logical state, falling back to configuration for ordinary
+    /// remotes which have not acquired a logical ownership entry.
+    pub fn connection(&self) -> Option<&ConnectionId> {
+        self.logical_owner
+            .as_ref()
+            .unwrap_or(&self.configured_connection)
+            .as_ref()
+    }
+
+    pub fn owns_config(&self) -> bool {
+        self.has_config && self.configured_connection.as_ref() == self.connection()
+    }
+}
+
+fn remote_has_config(git_repo: &gix::Repository, remote: &RemoteName) -> bool {
+    git_repo
+        .config_snapshot()
+        .sections_by_name("remote")
+        .into_iter()
+        .flatten()
+        .any(|section| section.header().subsection_name() == Some(BStr::new(remote.as_str())))
+}
+
+pub fn inspect_remote_management(
     view: &View,
     git_repo: &gix::Repository,
     remote: &RemoteName,
-) -> Result<bool, GitRemoteManagementError> {
-    let Some(owner) = view.store_view().remote_connections.get(remote) else {
-        return Ok(false);
-    };
-    let owner = owner
-        .as_resolved()
-        .and_then(Option::as_ref)
-        .ok_or_else(|| {
-            GitRemoteManagementError::ManagedState(format!(
-                "Remote {remote:?} has unresolved logical ownership"
-            ))
-        })?;
-    let actual =
-        remote_connection_id(git_repo, remote).map_err(GitRemoteManagementError::ManagedState)?;
-    Ok(actual.as_ref() != Some(owner) || try_find_active_remote_inner(git_repo, remote).is_none())
+) -> Result<RemoteManagementInspection, GitRemoteManagementError> {
+    let logical_owner = view
+        .store_view()
+        .remote_connections
+        .get(remote)
+        .map(|owner| {
+            owner.as_resolved().cloned().ok_or_else(|| {
+                GitRemoteManagementError::ManagedState(format!(
+                    "Remote {} has conflicting logical owners",
+                    remote.as_symbol()
+                ))
+            })
+        })
+        .transpose()?;
+    Ok(RemoteManagementInspection {
+        has_config: remote_has_config(git_repo, remote),
+        configured_connection: remote_connection_id(git_repo, remote)
+            .map_err(GitRemoteManagementError::ManagedState)?,
+        logical_owner,
+        has_endpoint: try_find_active_remote(git_repo, remote)?.is_some(),
+        managed: remote_required_capability(git_repo, remote).is_some(),
+    })
 }
 
 pub fn remove_remote(
@@ -4721,19 +4763,21 @@ pub fn remove_remote_with_options(
     remote_name: &RemoteName,
     options: &GitRemoteManagementOptions,
 ) -> Result<(), GitRemoteManagementError> {
-    let git_repo = get_git_repo(mut_repo.store())?;
+    let mut git_repo = get_git_repo(mut_repo.store())?;
     let _config_lock = lock_remote_config(&git_repo)?;
-    let git_repo = get_git_repo(mut_repo.store())?;
-
-    if logical_remote_is_disconnected(mut_repo.view(), &git_repo, remote_name)? {
-        commit_remote_management(&git_repo, &git_repo.config_snapshot(), Vec::new(), options)?;
-        mut_repo.remove_remote(remote_name);
-        return Ok(());
-    }
-    if try_find_active_remote_inner(&git_repo, remote_name).is_none() {
+    git_repo
+        .reload()
+        .map_err(GitRemoteManagementError::from_git)?;
+    let inspection = inspect_remote_management(mut_repo.view(), &git_repo, remote_name)?;
+    if !inspection.has_endpoint && inspection.connection().is_none() {
         return Err(GitRemoteManagementError::NoSuchRemote(
             remote_name.to_owned(),
         ));
+    }
+    if !inspection.owns_config() {
+        commit_remote_management(&git_repo, &git_repo.config_snapshot(), Vec::new(), options)?;
+        mut_repo.remove_remote(remote_name);
+        return Ok(());
     }
 
     let mut config = git_repo.config_snapshot().clone();
@@ -4822,25 +4866,33 @@ pub fn rename_remote_with_options(
         .map_err(GitRemoteManagementError::from_git)?;
 
     validate_remote_name(new_remote_name)?;
-    if logical_remote_is_disconnected(mut_repo.view(), &git_repo, old_remote_name)? {
-        if try_find_active_remote_inner(&git_repo, new_remote_name).is_some() {
-            return Err(GitRemoteManagementError::RemoteAlreadyExists(
-                new_remote_name.to_owned(),
-            ));
-        }
-        commit_remote_management(&git_repo, &git_repo.config_snapshot(), Vec::new(), options)?;
-        mut_repo.rename_remote(old_remote_name, new_remote_name);
-        return Ok(());
+    let inspection = inspect_remote_management(mut_repo.view(), &git_repo, old_remote_name)?;
+    if !inspection.has_endpoint && inspection.connection().is_none() {
+        return Err(GitRemoteManagementError::NoSuchRemote(
+            old_remote_name.to_owned(),
+        ));
     }
-
-    let mut remote = try_find_active_remote(&git_repo, old_remote_name)?
-        .ok_or_else(|| GitRemoteManagementError::NoSuchRemote(old_remote_name.to_owned()))?;
-
-    if try_find_active_remote_inner(&git_repo, new_remote_name).is_some() {
+    if remote_has_config(&git_repo, new_remote_name) {
         return Err(GitRemoteManagementError::RemoteAlreadyExists(
             new_remote_name.to_owned(),
         ));
     }
+    mut_repo
+        .view()
+        .check_rename_remote(old_remote_name, new_remote_name)
+        .map_err(GitRemoteManagementError::ManagedState)?;
+    if !inspection.owns_config() {
+        commit_remote_management(&git_repo, &git_repo.config_snapshot(), Vec::new(), options)?;
+        mut_repo
+            .rename_remote(old_remote_name, new_remote_name)
+            .map_err(GitRemoteManagementError::ManagedState)?;
+        return Ok(());
+    }
+
+    let mut remote = git_repo
+        .try_find_remote(old_remote_name.as_str())
+        .ok_or_else(|| GitRemoteManagementError::NoSuchRemote(old_remote_name.to_owned()))?
+        .map_err(GitRemoteManagementError::from_git)?;
 
     match (
         remote.refspecs(gix::remote::Direction::Fetch),
@@ -4849,6 +4901,7 @@ pub fn rename_remote_with_options(
         ([refspec], [])
             if refspec.to_ref().to_bstring()
                 == default_fetch_refspec(old_remote_name).as_bytes() => {}
+        ([], []) if !inspection.has_endpoint => {}
         _ => {
             return Err(GitRemoteManagementError::NonstandardConfiguration(
                 old_remote_name.to_owned(),
@@ -4856,12 +4909,14 @@ pub fn rename_remote_with_options(
         }
     }
 
-    remote
-        .replace_refspecs(
-            [default_fetch_refspec(new_remote_name).as_bytes()],
-            gix::remote::Direction::Fetch,
-        )
-        .expect("default refspec to be valid");
+    if !remote.refspecs(gix::remote::Direction::Fetch).is_empty() {
+        remote
+            .replace_refspecs(
+                [default_fetch_refspec(new_remote_name).as_bytes()],
+                gix::remote::Direction::Fetch,
+            )
+            .expect("default refspec to be valid");
+    }
 
     let mut config = git_repo.config_snapshot().clone();
     let extra_values: Vec<_> = options
@@ -4892,7 +4947,7 @@ pub fn rename_remote_with_options(
     commit_remote_management(&git_repo, &config, edits, options)?;
 
     if old_remote_name != REMOTE_NAME_FOR_LOCAL_GIT_REPO {
-        rename_remote_refs(mut_repo, old_remote_name, new_remote_name);
+        rename_remote_refs(mut_repo, old_remote_name, new_remote_name)?;
     }
 
     Ok(())
@@ -5037,8 +5092,10 @@ fn rename_remote_refs(
     mut_repo: &mut MutableRepo,
     old_remote_name: &RemoteName,
     new_remote_name: &RemoteName,
-) {
-    mut_repo.rename_remote(old_remote_name.as_ref(), new_remote_name.as_ref());
+) -> Result<(), GitRemoteManagementError> {
+    mut_repo
+        .rename_remote(old_remote_name, new_remote_name)
+        .map_err(GitRemoteManagementError::ManagedState)?;
     let prefix = format!(
         "{REMOTE_BOOKMARK_REF_NAMESPACE}{remote}/",
         remote = old_remote_name.as_str()
@@ -5062,6 +5119,7 @@ fn rename_remote_refs(
         mut_repo.set_git_ref_target(&old, RefTarget::absent());
         mut_repo.set_git_ref_target(&new, target);
     }
+    Ok(())
 }
 
 const INVALID_REFSPEC_CHARS: [char; 5] = [':', '^', '?', '[', ']'];

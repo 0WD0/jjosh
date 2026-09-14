@@ -74,34 +74,13 @@ pub(crate) fn plan_remotes(view: &View, project: &ProjectId) -> Result<Vec<Remot
         .collect();
     let mut result = Vec::new();
     for remote in remotes {
-        let owner = view
-            .remote_connections
-            .get(remote)
-            .or_else(|| view.observed_remote_connections.get(remote))
-            .map(|owner| {
-                owner
-                    .as_resolved()
-                    .context("Resolve source remote connection ownership before importing")
-            })
-            .transpose()?
-            .and_then(Option::as_ref);
+        let identity =
+            jj_lib::view::remote_identity::resolve(view, remote).map_err(anyhow::Error::msg)?;
+        let owner = identity.map(|identity| identity.connection);
         if owner.is_none() && !view.remote_views.contains_key(remote) {
             continue;
         }
-        let alias = owner
-            .and_then(|connection| {
-                view.project_state
-                    .remote_names
-                    .get(connection)
-                    .or_else(|| view.observed_remote_names.get(connection))
-            })
-            .map(|alias| {
-                alias
-                    .as_resolved()
-                    .context("Resolve source scoped remote names before importing")
-            })
-            .transpose()?
-            .and_then(Option::as_ref);
+        let alias = identity.and_then(|identity| identity.scoped_name);
         // Older recorded states may lack aliases. Their explicit binding
         // scope and verbatim physical name are the only adoption evidence.
         let legacy_project = if alias.is_none() {

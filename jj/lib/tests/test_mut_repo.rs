@@ -647,7 +647,9 @@ fn test_rename_remote() {
         state: RemoteRefState::Tracked, // doesn't matter
     };
     mut_repo.set_remote_bookmark(remote_symbol("main", "origin"), remote_ref.clone());
-    mut_repo.rename_remote("origin".as_ref(), "upstream".as_ref());
+    mut_repo
+        .rename_remote("origin".as_ref(), "upstream".as_ref())
+        .unwrap();
     assert_eq!(
         mut_repo.get_remote_bookmark(remote_symbol("main", "upstream")),
         &remote_ref

@@ -395,26 +395,27 @@ fn rekey_view(
     view: &mut jj_lib::op_store::View,
     old: &jj_lib::ref_name::RemoteName,
     new: &jj_lib::ref_name::RemoteName,
-) {
-    if let Some(observations) = view.remote_views.remove(old) {
-        view.remote_views.insert(new.to_owned(), observations);
+) -> std::result::Result<(), String> {
+    if old == new {
+        return Ok(());
     }
+    if view.remote_connections.contains_key(new) {
+        return Err(format!("Remote {new:?} already has a logical connection"));
+    }
+    for namespace in ["refs/remotes/", jj_lib::git::REMOTE_TAG_REF_NAMESPACE] {
+        let prefix = format!("{namespace}{}/", new.as_str());
+        if view
+            .git_refs
+            .keys()
+            .any(|name| name.as_str().starts_with(&prefix))
+        {
+            return Err(format!("Remote {new:?} already has Git reference mirrors"));
+        }
+    }
+    jj_lib::view::remote_observations::RemoteObservations::new(view).relocate(old, new)?;
     if let Some(owner) = view.remote_connections.remove(old) {
         view.remote_connections.insert(new.to_owned(), owner);
     }
-    if let Some(owner) = view.observed_remote_connections.remove(old) {
-        view.observed_remote_connections
-            .insert(new.to_owned(), owner);
-    }
-    view.project_observations = std::mem::take(&mut view.project_observations)
-        .into_iter()
-        .map(|(mut key, evidence)| {
-            if key.remote.as_str() == old.as_str() {
-                key.remote = new.to_owned();
-            }
-            (key, evidence)
-        })
-        .collect();
     for namespace in ["refs/remotes/", jj_lib::git::REMOTE_TAG_REF_NAMESPACE] {
         let old_prefix = format!("{namespace}{}/", old.as_str());
         let new_prefix = format!("{namespace}{}/", new.as_str());
@@ -429,6 +430,7 @@ fn rekey_view(
             })
             .collect();
     }
+    Ok(())
 }
 
 #[derive(clap::Args, Clone, Debug)]
@@ -1306,21 +1308,34 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
     }
     let mut rekeys = Vec::new();
     let mut settings_aliases = Vec::new();
-    let named_view = jj_lib::view::View::new(view.clone(), false);
+    let has_config = |remote: &str| {
+        config
+            .sections_by_name("remote")
+            .into_iter()
+            .flatten()
+            .any(|section| {
+                section
+                    .header()
+                    .subsection_name()
+                    .is_some_and(|name| name == remote)
+            })
+    };
     for (old, connection) in &alias_remotes {
         let new: RemoteNameBuf = format!("jjosh-{}", connection.hex()).into();
-        settings_aliases.push((old.clone(), Some(named_view.remote_qualified_name(old))));
+        let qualified_name = jj_lib::view::remote_identity::resolve(&view, old)
+            .ok()
+            .flatten()
+            .map_or_else(
+                || old.as_str().to_owned(),
+                |identity| identity.qualified_name(&view.project_state, old),
+            );
+        settings_aliases.push((old.clone(), Some(qualified_name.clone())));
         if old == &new {
             continue;
         }
-        if git.find_remote(new.as_str()).is_ok()
-            || view.remote_views.contains_key(&new)
+        if has_config(new.as_str())
             || view.remote_connections.contains_key(&new)
-            || view.observed_remote_connections.contains_key(&new)
-            || view
-                .project_observations
-                .keys()
-                .any(|key| key.remote == new)
+            || jj_lib::view::remote_observations::RemoteObservations::new(&mut view).contains(&new)
         {
             blockers.push(format!(
                 "Opaque remote handle {} is already occupied",
@@ -1350,9 +1365,12 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
                 ));
             }
         }
-        let exists = git.find_remote(old.as_str()).is_ok();
+        let exists = has_config(old.as_str());
         if exists {
-            let remote = git.find_remote(old.as_str()).map_err(user_error)?;
+            let remote = git
+                .try_find_remote(old.as_str())
+                .expect("configured remote has a section")
+                .map_err(user_error)?;
             match (
                 remote.refspecs(Direction::Fetch),
                 remote.refspecs(Direction::Push),
@@ -1360,6 +1378,9 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
                 ([fetch], [])
                     if fetch.to_ref().to_bstring().as_slice()
                         == format!("+refs/heads/*:refs/remotes/{}/*", old.as_str()).as_bytes() => {}
+                ([], [])
+                    if remote.url(Direction::Fetch).is_none()
+                        && remote.url(Direction::Push).is_none() => {}
                 _ => blockers.push(format!(
                     "Remote {} has nonstandard refspecs; normalize them before explicit scoped \
                      migration",
@@ -1401,7 +1422,7 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
             "Rekey {} -> {} for scoped identity {}; preserve IDs, refs, observations and tracking",
             old.as_str(),
             new.as_str(),
-            named_view.remote_qualified_name(old)
+            qualified_name
         )?;
         rekeys.push((old.clone(), new, connection.clone(), exists));
     }
@@ -1456,7 +1477,7 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
         }
         if !alias_remotes
             .keys()
-            .any(|remote| git.find_remote(remote.as_str()).is_ok())
+            .any(|remote| has_config(remote.as_str()))
         {
             blockers.push(
                 "Disconnected adopted remotes have repo-local settings; scope those settings \
@@ -1466,7 +1487,7 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
         }
     }
     for (old, new, _, _) in &rekeys {
-        rekey_view(&mut view, old, new);
+        rekey_view(&mut view, old, new).map_err(user_error)?;
     }
     if !projects.is_empty() {
         let commit = workspace
@@ -1570,6 +1591,14 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
             .commit(git.committer().transpose().map_err(user_error)?)
             .map_err(user_error)?;
     }
+    // Planning and journaling use the final namespace. Stage configured remotes
+    // back at their old keys so the Git lifecycle performs the same complete
+    // forward rename, including ownership, without colliding with our plan.
+    for (old, new, _, exists) in &rekeys {
+        if *exists {
+            rekey_view(&mut view, new, old).map_err(user_error)?;
+        }
+    }
     tx.repo_mut().set_view(view);
     for (old, new, _, exists) in &rekeys {
         if *exists {
@@ -1592,7 +1621,7 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
             .or_else(|| {
                 alias_remotes
                     .keys()
-                    .find(|remote| git.find_remote(remote.as_str()).is_ok())
+                    .find(|remote| has_config(remote.as_str()))
             })
             .ok_or_else(|| {
                 user_error("Cannot journal scoped settings without a configured adopted remote")

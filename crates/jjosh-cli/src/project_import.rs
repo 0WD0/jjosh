@@ -229,12 +229,21 @@ pub(crate) async fn run_import(
                 plan.remotes.iter().map(|remote| &remote.physical),
                 &mut remotes,
             )?;
-            let source_symbols = jj_lib::view::View::new(source_view.clone(), false);
             for remote in &plan.remotes {
+                let source_name =
+                    jj_lib::view::remote_identity::resolve(&source_view, &remote.source)
+                        .ok()
+                        .flatten()
+                        .map_or_else(
+                            || remote.source.as_str().to_owned(),
+                            |identity| {
+                                identity.qualified_name(&source_view.project_state, &remote.source)
+                            },
+                        );
                 writeln!(
                     ui.status(),
                     "Import remote {} -> {}#{} (disconnected)",
-                    source_symbols.remote_qualified_name(&remote.source),
+                    source_name,
                     remote.alias.name.as_str(),
                     name
                 )?;

@@ -14,6 +14,10 @@
 
 #![expect(missing_docs)]
 
+pub mod remote_identity;
+pub mod remote_observations;
+pub mod restore;
+
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::collections::HashSet;
@@ -34,7 +38,6 @@ use crate::op_store::RemoteView;
 use crate::op_store::WorkingCopyPatternsId;
 use crate::project::BindingTarget;
 use crate::project::ProjectId;
-use crate::project::ScopedRemoteName;
 use crate::ref_name::GitRefName;
 use crate::ref_name::GitRefNameBuf;
 use crate::ref_name::RefName;
@@ -108,34 +111,14 @@ impl View {
     pub fn remote_identity(
         &self,
         remote: &RemoteName,
-    ) -> Result<Option<&ScopedRemoteName>, String> {
-        let logical = self.data.remote_connections.contains_key(remote);
-        let Some(owners) = self
-            .data
-            .remote_connections
-            .get(remote)
-            .or_else(|| self.data.observed_remote_connections.get(remote))
-        else {
+    ) -> Result<Option<remote_identity::RemoteIdentity<'_>>, String> {
+        let Some(identity) = remote_identity::resolve(&self.data, remote)? else {
             return Ok(None);
         };
-        let owner = owners.as_resolved().ok_or_else(|| {
-            format!(
-                "Remote {} has unresolved connection ownership",
-                remote.as_str()
-            )
-        })?;
-        let Some(connection) = owner else {
-            return Err(format!(
-                "Remote {} has deleted connection ownership",
-                remote.as_str()
-            ));
-        };
-        if !logical {
-            return self.data.observed_remote_names.get(connection)
-                .map(|target| target.as_resolved().and_then(Option::as_ref)
-                    .ok_or_else(|| format!("Connection {connection} has an unresolved or deleted historical name")))
-                .transpose();
+        if identity.source == remote_identity::IdentitySource::Historical {
+            return Ok(Some(identity));
         }
+        let connection = identity.connection;
         if self.data.remote_connections.iter().any(|(other, owners)| {
             other.as_str() != remote.as_str()
                 && owners.adds().flatten().any(|owner| owner == connection)
@@ -145,43 +128,29 @@ impl View {
             ));
         }
         let binding = self.data.project_state.binding_for_connection(connection)?;
-        let identity = match self.data.project_state.remote_names.get(connection) {
-            Some(target) => Some(target.as_resolved().and_then(Option::as_ref).ok_or_else(
-                || {
-                    format!(
-                        "Connection {connection} has an unresolved or deleted scoped remote name"
-                    )
-                },
-            )?),
-            None => None,
-        };
-        match (identity, binding) {
-            (Some(identity), binding) => {
-                // Imported observations retain explicit identities without
-                // importing active conversion bindings or network capability.
+        match (identity.scoped_name, binding) {
+            (Some(name), binding) => {
                 if binding.is_some_and(|(_, binding)| {
                     !matches!(&binding.target,
-                    BindingTarget::Project(project) if project == &identity.project)
+                        BindingTarget::Project(project) if project == &name.project)
                 }) {
                     return Err(format!(
                         "Connection {connection} has a scoped identity incompatible with its \
                          active binding"
                     ));
                 }
-                self.data
-                    .project_state
-                    .validate_project(&identity.project)?;
-                Ok(Some(identity))
+                self.data.project_state.validate_project(&name.project)?;
             }
             (None, Some((_, binding))) if matches!(binding.target, BindingTarget::Project(_)) => {
-                Err(format!(
+                return Err(format!(
                     "Remote {} requires scoped identity migration; run `jjosh project migrate \
                      --apply --exclusive`",
                     remote.as_str()
-                ))
+                ));
             }
-            (None, _) => Ok(None),
+            (None, _) => {}
         }
+        Ok(Some(identity))
     }
 
     /// Display-only alias lookup. Operations must validate `remote_identity`.
@@ -189,55 +158,8 @@ impl View {
         self.remote_identity(remote)
             .ok()
             .flatten()
+            .and_then(|identity| identity.scoped_name)
             .map_or(remote, |identity| identity.name.as_ref())
-    }
-
-    /// Whether explicit metadata can place a remote in this scope. This inspects
-    /// candidates, not global diagnostics, so a broken other scope is isolated.
-    fn remote_may_be_in_scope(&self, remote: &RemoteName, project: Option<&ProjectId>) -> bool {
-        let logical = self.data.remote_connections.contains_key(remote);
-        let Some(owners) = self
-            .data
-            .remote_connections
-            .get(remote)
-            .or_else(|| self.data.observed_remote_connections.get(remote))
-        else {
-            return project.is_none();
-        };
-        let mut scoped = false;
-        let mut matching = false;
-        for owner in owners.adds().flatten() {
-            let names = if logical {
-                &self.data.project_state.remote_names
-            } else {
-                &self.data.observed_remote_names
-            };
-            if let Some(names) = names.get(owner) {
-                scoped = true;
-                matching |= names
-                    .iter()
-                    .flatten()
-                    .any(|identity| Some(&identity.project) == project);
-                matching |= logical && names.iter().flatten().next().is_none();
-            }
-            if !logical {
-                continue;
-            }
-            for binding in self
-                .data
-                .project_state
-                .bindings
-                .values()
-                .flat_map(|target| target.adds().flatten())
-                .filter(|binding| &binding.connection_id == owner)
-            {
-                if let BindingTarget::Project(id) = &binding.target {
-                    scoped = true;
-                    matching |= Some(id) == project;
-                }
-            }
-        }
-        matching || (!scoped && project.is_none())
     }
 
     /// Match explicit scope; invalid metadata in unrelated scopes is ignored.
@@ -246,35 +168,40 @@ impl View {
         remote: &RemoteName,
         project: Option<&ProjectId>,
     ) -> Result<bool, String> {
-        if !self.remote_may_be_in_scope(remote, project) {
+        if !remote_identity::may_be_in_scope(&self.data, remote, project) {
             return Ok(false);
         }
         Ok(self
             .remote_identity(remote)?
+            .and_then(|identity| identity.scoped_name)
             .map(|identity| &identity.project)
             == project)
     }
 
     /// Resolve an exact local name among physical candidates in one scope.
     /// No global alias fallback and no physical-handle alias are accepted.
-    pub fn resolve_remote_name(
-        &self,
-        remotes: &[RemoteNameBuf],
+    pub fn resolve_remote_name<'a>(
+        &'a self,
+        remotes: impl IntoIterator<Item = &'a RemoteNameBuf, IntoIter: Clone>,
         project: Option<&ProjectId>,
         name: &RemoteName,
     ) -> Result<RemoteNameBuf, String> {
         // Current logical membership wins even before its first fetch. Historical
         // identities need no currently registered project merely to be read.
+        let remotes = remotes.into_iter();
         let mut found = None;
         let mut invalid = None;
         for logical in [true, false] {
-            for remote in remotes.iter().chain(self.data.remote_connections.keys()) {
+            for remote in remotes.clone().chain(self.data.remote_connections.keys()) {
                 if self.data.remote_connections.contains_key(remote) != logical
-                    || !self.remote_may_be_in_scope(remote, project)
+                    || !remote_identity::may_be_in_scope(&self.data, remote, project)
                 {
                     continue;
                 }
-                match self.remote_identity(remote) {
+                match self
+                    .remote_identity(remote)
+                    .map(|identity| identity.and_then(|identity| identity.scoped_name))
+                {
                     Ok(identity) if identity.map(|identity| &identity.project) == project => {
                         let local: &RemoteName =
                             identity.map_or(remote.as_ref(), |identity| identity.name.as_ref());
@@ -323,35 +250,38 @@ impl View {
     /// connection carrying a project reference must use an explicit empty scope
     /// (`origin#`), otherwise reparsing would select that project's own origin.
     pub fn remote_ref_remote_name<'a>(&'a self, symbol: RemoteRefSymbol<'a>) -> Cow<'a, str> {
-        // The backing Git view is a native pseudo-remote, not a selectable root
-        // connection. Preserve its reserved identity for templates and revsets.
+        // The native pseudo-remote is not a selectable logical connection.
         #[cfg(feature = "git")]
         if symbol.remote == crate::git::REMOTE_NAME_FOR_LOCAL_GIT_REPO {
             return Cow::Borrowed(symbol.remote.as_str());
         }
-        if !self.data.remote_connections.contains_key(symbol.remote)
-            && self
-                .data
-                .observed_remote_connections
-                .contains_key(symbol.remote)
+        let identity = self.remote_identity(symbol.remote);
+        let scoped_name = identity
+            .as_ref()
+            .ok()
+            .and_then(|identity| identity.and_then(|identity| identity.scoped_name));
+        let local_name = scoped_name.map_or(symbol.remote, |name| name.name.as_ref());
+        if matches!(
+            &identity,
+            Ok(Some(remote_identity::RemoteIdentity {
+                source: remote_identity::IdentitySource::Historical,
+                ..
+            }))
+        ) && self
+            .resolve_remote_name(
+                self.data.remote_views.keys(),
+                scoped_name.map(|name| &name.project),
+                local_name,
+            )
+            .as_ref()
+            .ok()
+            .map(|remote| remote.as_ref())
+            != Some(symbol.remote)
         {
-            let identity = self.remote_identity(symbol.remote).ok().flatten();
-            let candidates: Vec<_> = self.data.remote_views.keys().cloned().collect();
-            if self
-                .resolve_remote_name(
-                    &candidates,
-                    identity.map(|identity| &identity.project),
-                    self.remote_local_name(symbol.remote),
-                )
-                .as_ref()
-                .ok()
-                .map(|remote| remote.as_ref())
-                != Some(symbol.remote)
-            {
-                return Cow::Borrowed(symbol.remote.as_str());
-            }
+            return Cow::Borrowed(symbol.remote.as_str());
         }
-        if matches!(self.remote_identity(symbol.remote), Ok(None))
+        if identity.is_ok()
+            && scoped_name.is_none()
             && symbol
                 .name
                 .as_str()
@@ -366,7 +296,7 @@ impl View {
         {
             return Cow::Owned(format!("{}#", symbol.remote.as_str()));
         }
-        Cow::Borrowed(self.remote_local_name(symbol.remote).as_str())
+        Cow::Borrowed(local_name.as_str())
     }
 
     /// Display the same reference name with its unambiguous logical selector.
@@ -383,14 +313,10 @@ impl View {
     /// Human selector, using a registered stable label rather than a display name.
     /// Invalid identities retain the physical key for diagnostics only.
     pub fn remote_qualified_name(&self, remote: &RemoteName) -> String {
-        if let Ok(Some(identity)) = self.remote_identity(remote)
-            && let Some((label, _)) = self.data.project_state.labels.iter().find(|(_, target)| {
-                target.as_resolved().and_then(Option::as_ref) == Some(&identity.project)
-            })
-        {
-            return format!("{}#{label}", identity.name.as_str());
-        }
-        self.remote_local_name(remote).as_str().to_owned()
+        self.remote_identity(remote).ok().flatten().map_or_else(
+            || remote.as_str().to_owned(),
+            |identity| identity.qualified_name(&self.data.project_state, remote),
+        )
     }
 
     /// Reject adopting a pre-existing literal suffix as a project label.
@@ -968,156 +894,49 @@ impl View {
     }
 
     pub fn remove_remote(&mut self, remote_name: &RemoteName) {
-        self.data.remote_views.remove(remote_name);
-        self.data
-            .project_observations
-            .retain(|key, _| key.remote != remote_name);
-        if let Some(owners) = self.data.observed_remote_connections.remove(remote_name) {
-            for owner in owners.iter().flatten() {
-                if !self
-                    .data
-                    .observed_remote_connections
-                    .values()
-                    .any(|target| target.iter().flatten().any(|other| other == owner))
-                {
-                    self.data.observed_remote_names.remove(owner);
-                }
-            }
-        }
+        remote_observations::RemoteObservations::new(&mut self.data).remove(remote_name);
     }
 
-    pub fn rename_remote(&mut self, old: &RemoteName, new: &RemoteName) {
-        if let Some(remote_view) = self.data.remote_views.remove(old) {
-            self.data.remote_views.insert(new.to_owned(), remote_view);
+    /// Preflight a complete root rename before changing backing Git state.
+    pub fn check_rename_remote(&self, old: &RemoteName, new: &RemoteName) -> Result<(), String> {
+        if old != new && self.data.remote_connections.contains_key(new) {
+            return Err(format!("Remote {new:?} already has a logical connection"));
         }
+        remote_observations::check_relocation(&self.data, old, new)
+    }
+
+    /// Rename root ownership and its complete observation snapshot, without
+    /// changing the backing Git configuration or reference mirrors.
+    pub fn rename_remote(&mut self, old: &RemoteName, new: &RemoteName) -> Result<(), String> {
+        self.check_rename_remote(old, new)?;
+        if old == new {
+            return Ok(());
+        }
+        self.relocate_remote_observations(old, new)?;
+        if let Some(owner) = self.data.remote_connections.remove(old) {
+            self.data.remote_connections.insert(new.to_owned(), owner);
+        }
+        Ok(())
     }
 
     /// Capture identity alongside new remote tracking state, without changing
     /// legacy view hashes merely by reading them.
     pub fn capture_remote_observation_identity(&mut self, remote: &RemoteName) {
-        if let Some(owner) = self.data.remote_connections.get(remote) {
-            self.data
-                .observed_remote_connections
-                .insert(remote.to_owned(), owner.clone());
-            for connection in owner.iter().flatten() {
-                if let Some(name) = self.data.project_state.remote_names.get(connection) {
-                    self.data
-                        .observed_remote_names
-                        .insert(connection.clone(), name.clone());
-                }
-            }
-        }
+        remote_observations::RemoteObservations::new(&mut self.data).capture_identity(remote);
     }
 
-    /// Preserve tracking refs and evidence under an identity-backed historical
-    /// key before reusing a root alias. Never changes Git config or leases.
+    /// Archive historical observations without changing logical membership.
     pub fn archive_remote_observations(&mut self, remote: &RemoteName) -> Result<(), String> {
-        #[cfg(feature = "git")]
-        if remote == crate::git::REMOTE_NAME_FOR_LOCAL_GIT_REPO {
-            return Ok(());
-        }
-        if !self.data.remote_views.contains_key(remote)
-            && !self
-                .data
-                .project_observations
-                .keys()
-                .any(|key| key.remote == remote)
-            && !self.data.observed_remote_connections.contains_key(remote)
-        {
-            return Ok(());
-        }
-        if !self.data.observed_remote_connections.contains_key(remote)
-            && !self.data.remote_connections.contains_key(remote)
-        {
-            // Ordinary legacy Git refs had no identity. Give the retained
-            // snapshot its own identity, never infer one from an endpoint URL.
-            self.data.observed_remote_connections.insert(
-                remote.to_owned(),
-                Merge::normal(crate::project::ConnectionId::generate()),
-            );
-        }
-        if !self.data.observed_remote_connections.contains_key(remote) {
-            self.capture_remote_observation_identity(remote);
-        }
-        let owner = self
-            .data
-            .observed_remote_connections
-            .get(remote)
-            .or_else(|| self.data.remote_connections.get(remote));
-        let Some(owner) = owner else {
-            return Err(format!(
-                "Remote {remote:?} has historical refs without connection identity; migrate before reusing it"
-            ));
-        };
-        let connection = owner
-            .as_resolved()
-            .and_then(Option::as_ref)
-            .ok_or_else(|| format!("Remote {remote:?} has unresolved historical ownership"))?;
-        if self.data.observed_remote_names.contains_key(connection)
-            && remote.as_str() == format!("jjosh-{connection}")
-        {
-            return Ok(());
-        }
-        let archived: RemoteNameBuf = format!("jjosh-observed-{connection}").into();
-        if archived.as_str() == remote.as_str() {
-            return Ok(());
-        }
-        if self.data.remote_connections.contains_key(&archived) {
-            return Err(format!(
-                "Historical remote {archived:?} already exists; refusing to overwrite observations"
-            ));
-        }
-        self.relocate_remote_observations(remote, &archived)
+        remote_observations::RemoteObservations::new(&mut self.data).archive(remote)
     }
 
-    /// Move a complete observation snapshot without changing logical membership
-    /// or the backing Git mirrors. A destination snapshot is never overwritten.
+    /// Relocate observations only; logical ownership and Git mirrors stay put.
     pub fn relocate_remote_observations(
         &mut self,
         old: &RemoteName,
         new: &RemoteName,
     ) -> Result<(), String> {
-        if old == new {
-            return Ok(());
-        }
-        if self.data.remote_views.contains_key(new)
-            || self.data.observed_remote_connections.contains_key(new)
-            || self
-                .data
-                .project_observations
-                .keys()
-                .any(|key| key.remote == new)
-        {
-            return Err(format!(
-                "Historical remote {new:?} already exists; refusing to overwrite observations"
-            ));
-        }
-        if let Some(view) = self.data.remote_views.remove(old) {
-            self.data.remote_views.insert(new.to_owned(), view);
-        }
-        if let Some(owner) = self.data.observed_remote_connections.remove(old) {
-            self.data
-                .observed_remote_connections
-                .insert(new.to_owned(), owner);
-        }
-        let keys: Vec<_> = self
-            .data
-            .project_observations
-            .keys()
-            .filter(|key| key.remote == old)
-            .cloned()
-            .collect();
-        for key in keys {
-            let evidence = self.data.project_observations.remove(&key).unwrap();
-            self.data.project_observations.insert(
-                crate::project::ObservationKey {
-                    remote: new.to_owned(),
-                    ..key
-                },
-                evidence,
-            );
-        }
-        Ok(())
+        remote_observations::RemoteObservations::new(&mut self.data).relocate(old, new)
     }
 
     /// Iterates local tag `(name, target)`s in lexicographical order.
@@ -1419,6 +1238,7 @@ pub enum RenameWorkspaceError {
 mod tests {
     use super::*;
     use crate::op_store::RemoteRefState;
+    use crate::project::ScopedRemoteName;
 
     fn remote_symbol<'a, N, M>(name: &'a N, remote: &'a M) -> RemoteRefSymbol<'a>
     where

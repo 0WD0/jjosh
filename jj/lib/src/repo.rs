@@ -1866,8 +1866,8 @@ impl MutableRepo {
         self.view.remove_remote(remote_name);
     }
 
-    pub fn rename_remote(&mut self, old: &RemoteName, new: &RemoteName) {
-        self.view.rename_remote(old, new);
+    pub fn rename_remote(&mut self, old: &RemoteName, new: &RemoteName) -> Result<(), String> {
+        self.view.rename_remote(old, new)
     }
 
     pub fn get_local_tag(&self, name: &RefName) -> &RefTarget {

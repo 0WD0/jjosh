@@ -183,6 +183,8 @@ main@jjosh-observed-OLD_ID
 
 =git remote remove= 支持离线移除当前逻辑连接及其当前引用／元数据，不要求先能传输；旧 operation 仍保留过去的历史，不删除他人所有的配置。=git remote set-url NAME URL= 可显式接通没有本地配置的当前连接，保留 ConnectionId 和 binding，不产生 fetch 观察或修改 tracking。若同一根物理键由另一个连接拥有，本地配置冲突会拒绝，必须先明确处理该配置。
 
+配置 section 是否存在、是否属于当前连接、是否有可用 endpoint 是三个独立事实。属于当前连接但暂时没有 URL 的 section 仍随 remove／根 rename 删除或改名；别的连接的 section 即使没有 URL 也不能被接管。管理预检、实际修改与恢复日志共用 Git 层的所有权检查。重连直接创建本地配置，不通过启动并丢弃语义事务来筛选副作用。
+
 set-url 只改变传输地址，不改变 Whole/filter/view。想采用不同表示，应有意建立新的绑定／remote，而不是让旧观察随当前 URL 重新解释。纯历史观察不是可由 set-url 隐式激活的当前连接。
 
 * 传输的规划与提交边界
@@ -256,8 +258,10 @@ remote 管理、迁移和导入跨越 Git config、refs 与 jj operation。持�
 | 合同 | 源码 |
 |------+------|
 | 定义、不变量、signed merge | [[file:../jj/lib/src/project.rs][project.rs]] |
-| View 字段、历史身份解析与归档 | [[file:../jj/lib/src/op_store.rs][op_store.rs]]、[[file:../jj/lib/src/view.rs][view.rs]] |
-| operation 合并及部分恢复 | [[file:../jj/lib/src/repo.rs][repo.rs]]、[[file:../jj/cli/src/commands/operation/mod.rs][operation]] |
+| View 字段与当前拓扑验证 | [[file:../jj/lib/src/op_store.rs][op_store.rs]]、[[file:../jj/lib/src/view.rs][view.rs]] |
+| 带来源的身份查询与 signed 候选范围 | [[file:../jj/lib/src/view/remote_identity.rs][remote_identity.rs]] |
+| 完整观察状态的记录、删除、归档与重映射 | [[file:../jj/lib/src/view/remote_observations.rs][remote_observations.rs]] |
+| operation 合并及部分恢复 | [[file:../jj/lib/src/repo.rs][repo.rs]]、[[file:../jj/lib/src/view/restore.rs][restore.rs]]；[[file:../jj/cli/src/commands/operation/mod.rs][CLI]]只选择恢复来源 |
 | 编码、散列和 writer gate | [[file:../jj/lib/src/project_store.rs][project_store.rs]]、[[file:../jj/lib/src/simple_op_store.rs][simple_op_store.rs]] |
 | 项目命令与迁移 | [[file:../crates/jjosh-cli/src/project.rs][project CLI]]、[[file:../crates/jjosh-cli/src/project_migration.rs][migration]] |
 | 连接管理与本地日志 | [[file:../jj/cli/src/commands/git/remote/][remote CLI]]、[[file:../jj/lib/src/git.rs][git.rs]] |
@@ -265,5 +269,7 @@ remote 管理、迁移和导入跨越 Git config、refs 与 jj operation。持�
 | 来源材料与原生映射 | [[file:../crates/jjosh-cli/src/source_repo.rs][source_repo.rs]]、[[file:../crates/jjosh-cli/src/native_source.rs][native_source.rs]] |
 | 导入规划 | [[file:../crates/jjosh-cli/src/project_import.rs][project_import.rs]]、[[file:../crates/jjosh-cli/src/native_import.rs][native_import.rs]]、[[file:../crates/jjosh-cli/src/project_preserve.rs][project_preserve.rs]] |
 | projection 与保留根 | [[file:../crates/jjosh-cli/src/projection.rs][projection.rs]]、[[file:../jj/cli/src/commands/util/gc.rs][GC]] |
+
+这些边界不改变 v3 编码。身份查询保留 Logical／Historical 来源，不要求历史项目处于活动状态；View 在需要当前拓扑时另做验证。导入层决定挂载与命名策略，库层统一搬运引用、历史 owner、历史名字和转换依据。恢复只复制所选状态，不为提取观察而复制整份历史 View；显示历史名字也不需要先复制 View。
 
 本文是状态合同，不是测试结果公告；具体构建及场景验证应随实现变更单独记录。

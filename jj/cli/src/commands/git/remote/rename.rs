@@ -52,14 +52,11 @@ pub async fn cmd_git_remote_rename(
         args.project.as_deref(),
     )?;
     let git_repo = git::get_git_repo(workspace_command.repo().store())?;
-    let connection =
-        super::management_connection(workspace_command.repo().view(), &git_repo, &old)?;
-    super::check_management_binding(command, &workspace_command, &old, connection.as_ref())?;
-    let configured_connection =
-        git::remote_connection_id(&git_repo, &old).map_err(crate::command_error::user_error)?;
-    let configured = git::try_find_active_remote(&git_repo, &old)?.is_some();
-    let owns_config = configured_connection == connection;
-    if configured && owns_config {
+    let inspection =
+        git::inspect_remote_management(workspace_command.repo().view(), &git_repo, &old)?;
+    let connection = inspection.connection();
+    super::check_management_binding(command, &workspace_command, &old, connection)?;
+    if inspection.owns_config() {
         crate::git_remote::check_remote(command, &workspace_command, &old)?;
     }
     let identity = workspace_command
@@ -67,6 +64,7 @@ pub async fn cmd_git_remote_rename(
         .view()
         .remote_identity(&old)
         .map_err(crate::command_error::user_error)?
+        .and_then(|identity| identity.scoped_name)
         .cloned();
     let (new, specified_scope) =
         super::new_remote_name(&workspace_command, &args.new, args.project.as_deref())?;
@@ -110,17 +108,21 @@ pub async fn cmd_git_remote_rename(
         &workspace_command.repo().operation().id().hex(),
         &extra_paths,
     )?;
-    let managed = git::remote_required_capability(&git_repo, &old).is_some();
     let mut tx = workspace_command.start_transaction();
     if let Some(mut identity) = identity {
-        let connection = connection.as_ref().ok_or_else(|| {
+        let connection = connection.ok_or_else(|| {
             crate::command_error::user_error("Scoped remote has no logical connection")
         })?;
         tx.repo_mut()
             .view_mut()
             .archive_remote_observations(&old)
             .map_err(crate::command_error::user_error)?;
-        journal.expect_remote(&old, configured, configured_connection.as_ref(), managed)?;
+        journal.expect_remote(
+            &old,
+            inspection.has_config,
+            inspection.configured_connection.as_ref(),
+            inspection.managed,
+        )?;
         git::commit_remote_management_config(
             tx.repo().store(),
             &old,
@@ -142,40 +144,17 @@ pub async fn cmd_git_remote_rename(
             .map_err(crate::command_error::user_error)?;
         journal.expect_remote(
             &old,
-            configured && !owns_config,
-            configured_connection.as_ref(),
-            managed && !owns_config,
+            inspection.has_config && !inspection.owns_config(),
+            inspection.configured_connection.as_ref(),
+            inspection.managed && !inspection.owns_config(),
         )?;
         journal.expect_remote(
             &new,
-            configured && owns_config,
-            connection.as_ref(),
-            managed && owns_config,
+            inspection.owns_config(),
+            connection,
+            inspection.managed && inspection.owns_config(),
         )?;
         git::rename_remote_with_options(tx.repo_mut(), &old, &new, &options)?;
-        let view = tx.repo_mut().view_mut().store_view_mut();
-        if let Some(owner) = view.remote_connections.remove(&old) {
-            view.remote_connections.insert(new.clone(), owner);
-        }
-        if let Some(owner) = view.observed_remote_connections.remove(&old) {
-            view.observed_remote_connections.insert(new.clone(), owner);
-        }
-        let old_keys: Vec<_> = view
-            .project_observations
-            .keys()
-            .filter(|key| key.remote == old)
-            .cloned()
-            .collect();
-        for key in old_keys {
-            let value = view.project_observations.remove(&key).unwrap();
-            view.project_observations.insert(
-                jj_lib::project::ObservationKey {
-                    remote: new.clone(),
-                    ..key
-                },
-                value,
-            );
-        }
     }
     journal.expect_operation(tx.repo().view())?;
     if tx.repo().has_changes() {
