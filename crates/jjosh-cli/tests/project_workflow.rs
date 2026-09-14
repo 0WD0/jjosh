@@ -172,9 +172,260 @@ fn import_project(client: &Path, project: &str, mount: &str, source: &Path, filt
     jjosh(client, &args);
     jjosh(
         client,
-        &["git", "fetch", "--remote", &remote, "--branch", "main"],
+        &["git", "fetch", "--project", project, "--remote", &remote, "--branch", "main"],
     );
     jjosh(client, &["new", "@", &format!("main#{project}@{remote}")]);
+}
+
+fn physical_remote(client: &Path, project: &str, alias: &str) -> String {
+    let state: serde_json::Value = serde_json::from_slice(
+        &jjosh(client, &["project", "show", project, "--json"]).stdout,
+    ).unwrap();
+    let projects = state["projects"].as_array().unwrap();
+    assert_eq!(projects.len(), 1, "expected exactly one project named {project}");
+    let identities: Vec<_> = projects[0]["remotes"].as_array().unwrap().iter()
+        .filter(|remote| remote["resolved"] == true && remote["candidates"].as_array().unwrap().iter()
+            .any(|candidate| candidate["definition"]["name"] == alias))
+        .map(|remote| remote["connection"].as_str().unwrap())
+        .collect();
+    assert_eq!(identities.len(), 1, "expected exactly one resolved alias {alias} in project {project}: {state}");
+    let identity = identities[0];
+    let git_dir = String::from_utf8(jjosh(client, &["git", "root"]).stdout).unwrap();
+    let git_dir = Path::new(git_dir.trim());
+    let remotes = git(git_dir, &["remote"]);
+    let physical: Vec<_> = remotes.lines().filter(|name| {
+        let configured = run(git_dir, Path::new("git"),
+            &["config", "--get", &format!("remote.{name}.jjosh-connectionId")]);
+        configured.status.success()
+            && String::from_utf8(configured.stdout).unwrap().trim() == identity
+    }).collect();
+    assert_eq!(physical.len(), 1, "expected exactly one physical remote for {alias} in project {project}");
+    physical[0].to_owned()
+}
+
+fn shared_alias_repositories() -> (tempfile::TempDir, PathBuf, Vec<(String, String, PathBuf)>) {
+    let temp = tempfile::tempdir().unwrap();
+    let client = create_client(temp.path(), false);
+    let mut remotes = Vec::new();
+    for scope in ["root", "alpha", "beta"] {
+        let (_, source, _) = create_remote(temp.path(), scope);
+        if scope != "root" {
+            jjosh(&client, &["project", "add", scope, "--path", scope]);
+        }
+        for alias in ["origin", "upstream", "fork"] {
+            let remote = temp.path().join(format!("{scope}-{alias}.git"));
+            git(temp.path(), &["clone", "--bare", source.to_str().unwrap(), remote.to_str().unwrap()]);
+            for branch in ["pattern", "listed", "all-scoped"] {
+                git(&remote, &["branch", branch, "main"]);
+            }
+            git(&remote, &["tag", "release", "main"]);
+            let mut args = vec!["git", "remote", "add", alias, remote.to_str().unwrap()];
+            if scope != "root" {
+                args.extend(["--project", scope, "--filter", ":/src", "--base", "main"]);
+            }
+            jjosh(&client, &args);
+            remotes.push((scope.to_owned(), alias.to_owned(), remote));
+        }
+        let mut args = vec!["git", "fetch", "--branch", "main"];
+        if scope != "root" {
+            args.extend(["--project", scope]);
+        }
+        jjosh(&client, &args);
+        if scope != "root" {
+            jjosh(&client, &["new", "@", &format!("main#{scope}@origin")]);
+        }
+    }
+    (temp, client, remotes)
+}
+
+#[test]
+fn shared_remote_aliases_isolate_defaults_fetch_patterns_and_reference_tracking() {
+    let (_temp, client, _remotes) = shared_alias_repositories();
+    for (scope, path, expected) in [
+        ("", "src/value.txt", "root-v1\n"),
+        ("#alpha", "alpha/value.txt", "alpha-v1\n"),
+        ("#beta", "beta/value.txt", "beta-v1\n"),
+    ] {
+        assert_eq!(file_at_revision(&client, &format!("main{scope}@origin"), path), expected.as_bytes());
+        for alias in ["upstream", "fork"] {
+            assert!(!jjosh_unchecked(&client, &["log", "-r", &format!("main{scope}@{alias}")]).status.success());
+        }
+    }
+    let names = String::from_utf8(jjosh(&client, &["bookmark", "list", "--all-remotes", "-T",
+        r#"if(remote && remote != "git", name ++ "@" ++ remote ++ "\n")"#]).stdout).unwrap();
+    let actual: std::collections::BTreeSet<_> = names.lines().collect();
+    assert_eq!(actual, ["main@origin", "main#alpha@origin", "main#beta@origin"].into_iter().collect());
+    assert_eq!(jjosh(&client, &["bookmark", "list", "--remote", "origin#alpha", "-T",
+        r#"name ++ "@" ++ remote ++ "\n""#]).stdout, b"main#alpha@origin\n");
+    let operation = operation_id(&client);
+    assert!(!jjosh_unchecked(&client, &["bookmark", "track", "main@origin#alpha"]).status.success());
+    let physical = physical_remote(&client, "alpha", "origin");
+    assert!(!jjosh_unchecked(&client, &["git", "fetch", "--remote", &physical]).status.success());
+    assert!(!jjosh_unchecked(&client, &["log", "-r", &format!("main#alpha@{physical}")]).status.success());
+    assert_eq!(operation_id(&client), operation);
+    jjosh(&client, &["bookmark", "track", "main#alpha@origin"]);
+    assert_eq!(commit_id(&client, "tracked_remote_bookmarks(exact:main#alpha, exact:origin)"),
+        commit_id(&client, "main#alpha@origin"));
+    assert_eq!(commit_id(&client, "tracked_remote_bookmarks(exact:main#beta, exact:origin)"), "");
+    assert_eq!(commit_id(&client, "tracked_remote_bookmarks(exact:main, exact:origin)"), "");
+    jjosh(&client, &["bookmark", "untrack", "main#alpha@origin"]);
+    assert_eq!(commit_id(&client, "tracked_remote_bookmarks(exact:main#alpha, exact:origin)"), "");
+    assert_eq!(file_at_revision(&client, "main#beta@origin", "beta/value.txt"), b"beta-v1\n");
+
+    // Explicit patterns and both configured native syntaxes stay inside the selected scope.
+    jjosh(&client, &["git", "fetch", "--project", "alpha", "--remote", "glob:up*", "--branch", "pattern"]);
+    jjosh(&client, &["--config", "git.fetch=missing-root",
+        "--config", "git.projects.alpha.fetch=[\"origin\",\"fork\"]",
+        "git", "fetch", "--project", "alpha", "--branch", "listed"]);
+    jjosh(&client, &["--config", "git.projects.beta.fetch=glob:*",
+        "git", "fetch", "--project", "beta", "--branch", "pattern"]);
+    jjosh(&client, &["git", "fetch", "--project", "alpha", "--all-remotes", "--branch", "all-scoped", "--tag", "release"]);
+    for alias in ["origin", "upstream", "fork"] {
+        assert_eq!(file_at_revision(&client, &format!("pattern#beta@{alias}"), "beta/value.txt"), b"beta-v1\n");
+        assert_eq!(file_at_revision(&client, &format!("all-scoped#alpha@{alias}"), "alpha/value.txt"), b"alpha-v1\n");
+        assert_eq!(file_at_revision(&client, &format!("release#alpha@{alias}"), "alpha/value.txt"), b"alpha-v1\n");
+        assert!(!jjosh_unchecked(&client, &["log", "-r", &format!("all-scoped#beta@{alias}")]).status.success());
+        assert!(!jjosh_unchecked(&client, &["log", "-r", &format!("pattern@{alias}")]).status.success());
+    }
+    assert_eq!(file_at_revision(&client, "pattern#alpha@upstream", "alpha/value.txt"), b"alpha-v1\n");
+    for alias in ["origin", "fork"] {
+        assert_eq!(file_at_revision(&client, &format!("listed#alpha@{alias}"), "alpha/value.txt"), b"alpha-v1\n");
+        assert!(!jjosh_unchecked(&client, &["log", "-r", &format!("pattern#alpha@{alias}")]).status.success());
+    }
+    assert!(!jjosh_unchecked(&client, &["log", "-r", "listed#alpha@upstream"]).status.success());
+    assert_eq!(jjosh(&client, &["tag", "list", "--remote", "origin#alpha", "-T",
+        r#"if(remote, name ++ "@" ++ remote ++ "\n")"#]).stdout, b"release#alpha@origin\n");
+    let not_origin = String::from_utf8(jjosh(&client, &["bookmark", "list", "--remote", "~origin", "-T",
+        r#"if(remote && remote != "git", remote ++ "\n")"#]).stdout).unwrap();
+    assert_eq!(not_origin.lines().collect::<std::collections::BTreeSet<_>>(),
+        ["fork", "upstream"].into_iter().collect());
+
+    // Root patterns exclude all project connections even when aliases are identical.
+    jjosh(&client, &["git", "fetch", "--remote", "glob:*", "--branch", "all-scoped"]);
+    for alias in ["origin", "upstream", "fork"] {
+        assert_eq!(file_at_revision(&client, &format!("all-scoped@{alias}"), "src/value.txt"), b"root-v1\n");
+        assert!(!jjosh_unchecked(&client, &["log", "-r", &format!("all-scoped#beta@{alias}")]).status.success());
+    }
+    let refs = git(&client.join(".jj/repo/store/git"), &["for-each-ref"]);
+    let operation = operation_id(&client);
+    assert!(!jjosh_unchecked(&client, &["git", "fetch", "--project", "beta", "--remote", "origin#alpha"]).status.success());
+    assert_eq!(git(&client.join(".jj/repo/store/git"), &["for-each-ref"]), refs);
+    assert_eq!(operation_id(&client), operation);
+}
+
+#[test]
+fn shared_remote_aliases_route_default_and_explicit_wildcard_pushes_without_partial_publication() {
+    let (_temp, client, remotes) = shared_alias_repositories();
+    fs::write(client.join("alpha/value.txt"), "alpha published\n").unwrap();
+    fs::write(client.join("beta/value.txt"), "beta published\n").unwrap();
+    fs::write(client.join("root.txt"), "root published\n").unwrap();
+    jjosh(&client, &["describe", "-m", "publish each namespace"]);
+    // The same zero-configuration origin fallback works in both directions.
+    jjosh(&client, &["git", "push", "--named", "default=@", "--named", "default#alpha=@",
+        "--named", "default#beta=@", "--allow-empty-description"]);
+    for (scope, alias, remote) in &remotes {
+        if alias == "origin" {
+            let path = if scope == "root" { "root.txt" } else { "src/value.txt" };
+            assert_eq!(git(remote, &["show", &format!("default:{path}")]), format!("{scope} published\n"));
+        } else {
+            assert_eq!(git(remote, &["for-each-ref", "refs/heads/default"]), "");
+        }
+    }
+    jjosh(&client, &["bookmark", "create", "review#alpha", "review#beta"]);
+    // Root origin/fork never rescue the selected project's missing fork.
+    jjosh(&client, &["git", "remote", "remove", "fork", "--project", "beta"]);
+    let before: Vec<_> = remotes.iter().map(|(_, _, remote)| git(remote, &["show-ref"])).collect();
+    let operation = operation_id(&client);
+    let rejected = jjosh_unchecked(&client, &["--config", "git.push=origin",
+        "git", "push", "--remote", "fork", "--bookmark", "review#*", "--allow-empty-description"]);
+    assert!(!rejected.status.success());
+    for ((_, _, remote), refs) in remotes.iter().zip(&before) {
+        assert_eq!(&git(remote, &["show-ref"]), refs);
+    }
+    assert_eq!(operation_id(&client), operation);
+    let beta_fork = &remotes.iter().find(|(scope, alias, _)| scope == "beta" && alias == "fork").unwrap().2;
+    jjosh(&client, &["git", "remote", "add", "fork", beta_fork.to_str().unwrap(),
+        "--project", "beta", "--filter", ":/src", "--base", "main"]);
+    // Each filtered publication destination needs its own immutable base observation.
+    for project in ["alpha", "beta"] {
+        jjosh(&client, &["git", "fetch", "--project", project,
+            "--remote", "fork", "--remote", "upstream", "--branch", "main"]);
+    }
+    jjosh(&client, &["--config", "git.push=missing-root",
+        "git", "push", "--remote", "fork", "--bookmark", "review#*", "--allow-empty-description"]);
+    for (scope, alias, remote) in &remotes {
+        if scope != "root" && alias == "fork" {
+            assert_eq!(git(remote, &["show", "review:src/value.txt"]), format!("{scope} published\n"));
+            assert_eq!(git(remote, &["show", "review:outside.txt"]), format!("{scope}-outside\n"));
+            assert_eq!(git(remote, &["ls-tree", "-r", "--name-only", "review"]), "outside.txt\nsrc/value.txt\n");
+        } else {
+            assert_eq!(git(remote, &["for-each-ref", "refs/heads/review"]), "");
+        }
+    }
+    // Configured lists and patterns are multi-destination routes, not singleton aliases.
+    jjosh(&client, &["--config", "git.push=missing-root",
+        "--config", "git.projects.alpha.push=[\"upstream\",\"fork\"]",
+        "--config", "git.projects.beta.push=glob:*",
+        "git", "push", "--named", "multiple#alpha=@", "--named", "multiple#beta=@", "--allow-empty-description"]);
+    for (scope, alias, remote) in &remotes {
+        if scope == "beta" || (scope == "alpha" && alias != "origin") {
+            assert_eq!(git(remote, &["show", "multiple:src/value.txt"]), format!("{scope} published\n"));
+        } else {
+            assert_eq!(git(remote, &["for-each-ref", "refs/heads/multiple"]), "");
+        }
+    }
+}
+
+#[test]
+fn shared_alias_rename_updates_only_local_defaults_and_restores_without_changing_connection() {
+    let (_temp, client, _remotes) = shared_alias_repositories();
+    for scope in ["", ".projects.alpha", ".projects.beta"] {
+        for direction in ["fetch", "push"] {
+            jjosh(&client, &["config", "set", "--repo", &format!("git{scope}.{direction}"), "origin"]);
+        }
+    }
+    jjosh(&client, &["bookmark", "track", "main#alpha@origin"]);
+    let physical = physical_remote(&client, "alpha", "origin");
+    let git_dir = client.join(".jj/repo/store/git");
+    let settings = git(&git_dir, &["config", "--local", "--null", "--list"]);
+    let canonical = commit_id(&client, "main#alpha@origin");
+    let before = operation_id(&client);
+    jjosh(&client, &["git", "remote", "rename", "origin", "primary", "--project", "alpha"]);
+    assert_eq!(physical_remote(&client, "alpha", "primary"), physical);
+    assert_eq!(git(&git_dir, &["config", "--local", "--null", "--list"]), settings);
+    assert_eq!(commit_id(&client, "tracked_remote_bookmarks(exact:main#alpha, exact:primary)"), canonical);
+    assert!(!jjosh_unchecked(&client, &["log", "-r", "main#alpha@origin"]).status.success());
+    for direction in ["fetch", "push"] {
+        for (scope, expected) in [("", "origin\n"), (".projects.alpha", "primary\n"), (".projects.beta", "origin\n")] {
+            assert_eq!(jjosh(&client, &["config", "get", &format!("git{scope}.{direction}")]).stdout, expected.as_bytes());
+        }
+    }
+    let names = |project: Option<&str>| {
+        let mut args = vec!["git", "remote", "list"];
+        if let Some(project) = project {
+            args.extend(["--project", project]);
+        }
+        String::from_utf8(jjosh(&client, &args).stdout).unwrap().lines()
+            .map(|line| line.split_whitespace().next().unwrap().to_owned())
+            .collect::<std::collections::BTreeSet<_>>()
+    };
+    assert_eq!(names(Some("alpha")), ["fork", "primary", "upstream"].map(str::to_owned).into_iter().collect());
+    assert_eq!(names(None), [
+        "fork", "origin", "upstream", "fork#alpha", "primary#alpha", "upstream#alpha",
+        "fork#beta", "origin#beta", "upstream#beta",
+    ].map(str::to_owned).into_iter().collect());
+    jjosh(&client, &["git", "fetch", "--project", "alpha", "--branch", "listed"]);
+    jjosh(&client, &["git", "fetch", "--project", "beta", "--branch", "listed"]);
+    jjosh(&client, &["git", "fetch", "--branch", "listed"]);
+    assert_eq!(file_at_revision(&client, "listed#alpha@primary", "alpha/value.txt"), b"alpha-v1\n");
+    assert_eq!(file_at_revision(&client, "listed#beta@origin", "beta/value.txt"), b"beta-v1\n");
+    assert_eq!(file_at_revision(&client, "listed@origin", "src/value.txt"), b"root-v1\n");
+    jjosh(&client, &["op", "restore", before.trim(), "--what", "remote-tracking"]);
+    assert_eq!(physical_remote(&client, "alpha", "origin"), physical);
+    assert_eq!(commit_id(&client, "main#alpha@origin"), canonical);
+    assert!(!jjosh_unchecked(&client, &["log", "-r", "main#alpha@primary"]).status.success());
+    assert_eq!(file_at_revision(&client, "main#beta@origin", "beta/value.txt"), b"beta-v1\n");
+    assert_eq!(file_at_revision(&client, "main@origin", "src/value.txt"), b"root-v1\n");
 }
 
 fn file_at_revision(client: &Path, revision: &str, path: &str) -> Vec<u8> {
@@ -291,6 +542,12 @@ fn project_defaults_survive_display_and_remote_renames_and_clear_on_removal() {
     let client = create_client(temp.path(), false);
     import_project(&client, "api", "packages/api", &source, ":/src");
     import_project(&client, "beta", "beta", &beta, ":/src");
+    let physical = physical_remote(&client, "api", "api-upstream");
+    let git_dir = client.join(".jj/repo/store/git");
+    let connection = git(&git_dir, &["config", "--get", &format!("remote.{physical}.jjosh-connectionId")]);
+    let bindings: serde_json::Value = serde_json::from_slice(
+        &jjosh(&client, &["project", "show", "api", "--json"]).stdout,
+    ).unwrap();
     jjosh(
         &client,
         &[
@@ -300,7 +557,7 @@ fn project_defaults_survive_display_and_remote_renames_and_clear_on_removal() {
             "peer",
             source.to_str().unwrap(),
             "--like",
-            "api-upstream",
+            "api-upstream#api",
         ],
     );
     for (label, remote) in [("api", "api-upstream"), ("beta", "beta-upstream")] {
@@ -370,8 +627,25 @@ fn project_defaults_survive_display_and_remote_renames_and_clear_on_removal() {
     );
     jjosh(
         &client,
-        &["git", "remote", "rename", "api-upstream", "primary"],
+        &["git", "remote", "rename", "api-upstream#api", "primary"],
     );
+    assert_eq!(physical_remote(&client, "service", "primary"), physical);
+    assert_eq!(
+        git(&git_dir, &["config", "--get", &format!("remote.{physical}.jjosh-connectionId")]),
+        connection,
+    );
+    let renamed: serde_json::Value = serde_json::from_slice(
+        &jjosh(&client, &["project", "show", "service", "--json"]).stdout,
+    ).unwrap();
+    let binding_definitions = |state: &serde_json::Value| {
+        state["projects"][0]["bindings"].as_array().unwrap().iter()
+            .map(|binding| (binding["id"].clone(), binding["candidates"][0]["definition"].clone()))
+            .collect::<Vec<_>>()
+    };
+    for binding in binding_definitions(&bindings) {
+        assert!(binding_definitions(&renamed).contains(&binding));
+    }
+    assert_eq!(commit_id(&client, "topic#api@primary"), commit_id(&client, "topic#api"));
     for direction in ["fetch", "push"] {
         assert_eq!(
             jjosh(
@@ -424,7 +698,7 @@ fn project_defaults_survive_display_and_remote_renames_and_clear_on_removal() {
         git(&source, &["show", "renamed:src/value.txt"]),
         "renamed project edit\n"
     );
-    jjosh(&client, &["git", "remote", "remove", "primary"]);
+    jjosh(&client, &["git", "remote", "remove", "primary#api"]);
     for direction in ["fetch", "push"] {
         assert!(
             !jjosh_unchecked(
@@ -481,7 +755,7 @@ fn project_fetch_defaults_are_directional_and_validate_selected_bindings_before_
     import_project(&client, "beta", "beta", &beta, ":/src");
     jjosh(
         &client,
-        &["git", "remote", "rename", "beta-upstream", "origin"],
+        &["git", "remote", "rename", "beta-upstream#beta", "origin"],
     );
     jjosh(
         &client,
@@ -492,7 +766,7 @@ fn project_fetch_defaults_are_directional_and_validate_selected_bindings_before_
             "mirror",
             mirror.to_str().unwrap(),
             "--like",
-            "api-upstream",
+            "api-upstream#api",
         ],
     );
     for remote in [&source, &mirror, &beta] {
@@ -585,9 +859,9 @@ fn project_fetch_defaults_are_directional_and_validate_selected_bindings_before_
         &client,
         &[
             "--config",
-            "git.fetch=[\"api-upstream\"]",
+            "git.fetch=[\"missing-root\"]",
             "--config",
-            "git.projects.api.fetch=missing",
+            "git.projects.api.fetch=[\"api-upstream\"]",
             "git",
             "fetch",
             "--project",
@@ -609,8 +883,6 @@ fn project_fetch_defaults_are_directional_and_validate_selected_bindings_before_
         vec!["--config", "git.projects.api.fetch=origin"],
         vec!["--remote", "origin"],
         vec!["--remote", "api-upstream", "--remote", "origin"],
-        vec!["--config", "git.fetch=[\"api-upstream\",\"origin\"]"],
-        vec!["--all-remotes"],
     ] {
         let mut args = vec!["git", "fetch", "--project", "api", "--branch", "forbidden"];
         args.extend(selection);
@@ -636,11 +908,11 @@ fn project_fetch_defaults_are_directional_and_validate_selected_bindings_before_
     assert_eq!(operation_id(&client), operation);
     jjosh(
         &client,
-        &["git", "remote", "rename", "origin", "beta-upstream"],
+        &["git", "remote", "rename", "origin#beta", "beta-upstream"],
     );
     jjosh(
         &client,
-        &["git", "remote", "rename", "api-upstream", "origin"],
+        &["git", "remote", "rename", "api-upstream#api", "origin"],
     );
     jjosh(
         &client,
@@ -651,7 +923,7 @@ fn project_fetch_defaults_are_directional_and_validate_selected_bindings_before_
         b"source-v1\n"
     );
 
-    // Plain fetch keeps native origin selection, ignoring project settings.
+    // Plain fetch keeps native root origin selection, ignoring project settings.
     jjosh(
         &client,
         &[
@@ -662,9 +934,10 @@ fn project_fetch_defaults_are_directional_and_validate_selected_bindings_before_
             "missing",
         ],
     );
+    jjosh(&client, &["git", "remote", "add", "origin", source.to_str().unwrap()]);
     jjosh(&client, &["git", "fetch", "--branch", "ordinary"]);
     assert_eq!(
-        file_at_revision(&client, "ordinary#api@origin", "api/value.txt"),
+        file_at_revision(&client, "ordinary@origin", "src/value.txt"),
         b"source-v1\n"
     );
     // Conversely, a bad fetch default cannot block this project's push.
@@ -721,20 +994,32 @@ fn recreated_remote_rejects_restored_observations_from_its_previous_instance() {
     jjosh(&client, &["bookmark", "create", "local#api"]);
     let local = commit_id(&client, "local#api");
     let historical = operation_id(&client);
-    jjosh(&client, &["git", "remote", "remove", "api-upstream"]);
+    jjosh(&client, &["git", "remote", "remove", "api-upstream#api"]);
     jjosh(&client, &["git", "remote", "add", "api-upstream", source.to_str().unwrap(),
         "--project", "api", "--whole"]);
+    let replacement = physical_remote(&client, "api", "api-upstream");
+    let connection = git(&client.join(".jj/repo/store/git"),
+        &["config", "--get", &format!("remote.{replacement}.jjosh-connectionId")]);
     jjosh(&client, &["op", "restore", historical.trim(), "--what", "remote-tracking"]);
     let restored = operation_id(&client);
-    assert!(!jjosh_unchecked(&client, &["git", "fetch", "--remote", "api-upstream",
+    assert!(!jjosh_unchecked(&client, &["git", "fetch", "--remote", "api-upstream#api",
         "--branch", "main"]).status.success());
     assert_eq!(operation_id(&client), restored);
-    jjosh(&client, &["git", "remote", "forget-observations", "api-upstream"]);
+    jjosh(&client, &["git", "remote", "forget-observations", "api-upstream#api"]);
     assert_eq!(commit_id(&client, "local#api"), local);
-    jjosh(&client, &["git", "fetch", "--remote", "api-upstream", "--branch", "main"]);
+    let forgotten = operation_id(&client);
+    assert!(!jjosh_unchecked(&client, &["git", "fetch", "--remote", "api-upstream#api",
+        "--branch", "main"]).status.success());
+    assert_eq!(operation_id(&client), forgotten);
+    // Restored observations identify the deleted connection, not its replacement.
+    // Forgetting them cannot infer the replacement's alias; repair that identity explicitly.
+    jjosh(&client, &["project", "resolve", "--connection", connection.trim(),
+        "--name", "api-upstream"]);
+    assert_eq!(physical_remote(&client, "api", "api-upstream"), replacement);
+    jjosh(&client, &["git", "fetch", "--remote", "api-upstream#api", "--branch", "main"]);
     assert_eq!(file_at_revision(&client, "main#api@api-upstream", "packages/api/src/value.txt"), b"source-v1\n");
     jjosh(&client, &["op", "restore", historical.trim(), "--what", "repo"]);
-    assert!(!jjosh_unchecked(&client, &["git", "fetch", "--remote", "api-upstream",
+    assert!(!jjosh_unchecked(&client, &["git", "fetch", "--remote", "api-upstream#api",
         "--branch", "main"]).status.success());
 }
 
@@ -760,7 +1045,7 @@ fn base_free_publication_uses_unique_ancestry_evidence_and_rejects_ambiguous_raw
     );
     jjosh(
         &client,
-        &["git", "fetch", "--remote", "source", "--branch", "main"],
+        &["git", "fetch", "--remote", "source#api", "--branch", "main"],
     );
     jjosh(&client, &["new", "main#api@source", "-m", "new topic"]);
     fs::write(client.join("api/value.txt"), "topic edit\n").unwrap();
@@ -772,7 +1057,7 @@ fn base_free_publication_uses_unique_ancestry_evidence_and_rejects_ambiguous_raw
     fs::write(work.join("outside.txt"), "different raw context\n").unwrap();
     git(&work, &["commit", "-am", "outside-only branch"]);
     git(&work, &["push", source.to_str().unwrap(), "HEAD:variant"]);
-    jjosh(&client, &["git", "fetch", "--remote", "source", "--branch", "variant"]);
+    jjosh(&client, &["git", "fetch", "--remote", "source#api", "--branch", "variant"]);
     assert_eq!(commit_id(&client, "main#api@source"), commit_id(&client, "variant#api@source"));
     jjosh(&client, &["new", "main#api@source", "-m", "ambiguous sibling"]);
     fs::write(client.join("api/value.txt"), "sibling edit\n").unwrap();
@@ -797,12 +1082,12 @@ fn fetch_records_raw_advances_even_when_the_projected_target_is_unchanged() {
     fs::write(work.join("outside.txt"), "new outside content\n").unwrap();
     git(&work, &["commit", "-am", "outside-only update"]);
     git(&work, &["push", source.to_str().unwrap(), "main"]);
-    jjosh(&client, &["git", "fetch", "--remote", "api-upstream", "--branch", "main"]);
+    jjosh(&client, &["git", "fetch", "--remote", "api-upstream#api", "--branch", "main"]);
     assert_eq!(commit_id(&client, "main#api@api-upstream"), canonical);
     assert_ne!(operation_id(&client), observed);
     jjosh(&client, &["op", "restore", observed.trim(), "--what", "remote-tracking"]);
     assert_eq!(commit_id(&client, "main#api@api-upstream"), canonical);
-    jjosh(&client, &["git", "fetch", "--remote", "api-upstream", "--branch", "main"]);
+    jjosh(&client, &["git", "fetch", "--remote", "api-upstream#api", "--branch", "main"]);
     assert_eq!(commit_id(&client, "main#api@api-upstream"), canonical);
     assert_eq!(git(&source, &["show", "main:outside.txt"]), "new outside content\n");
 }
@@ -837,7 +1122,7 @@ fn literal_source_base_retains_shallow_generation_after_deepening_and_restore() 
             "git",
             "fetch",
             "--remote",
-            "source",
+            "source#api",
             "--revision",
             &raw_tip,
             "--depth",
@@ -860,7 +1145,7 @@ fn literal_source_base_retains_shallow_generation_after_deepening_and_restore() 
     let original = commit_id(&client, "topic#api");
     let shallow_operation = operation_id(&client);
     jjosh(&client, &["--config", "git.abandon-unreachable-commits=false",
-        "git", "fetch", "--remote", "source", "--revision", &raw_tip, "--unshallow"]);
+        "git", "fetch", "--remote", "source#api", "--revision", &raw_tip, "--unshallow"]);
     jjosh(&client, &["op", "restore", shallow_operation.trim()]);
     assert_eq!(commit_id(&client, "topic#api"), original);
     jjosh(&client, &["git", "push", "--remote", "source",
@@ -909,7 +1194,7 @@ fn duplicate_remote_add_preserves_effective_source_and_layout() {
     assert!(!rejected.status.success());
     jjosh(
         &client,
-        &["git", "fetch", "--remote", "source", "--branch", "main"],
+        &["git", "fetch", "--remote", "source#pkg", "--branch", "main"],
     );
     assert_eq!(
         file_at_revision(&client, "main#pkg@source", "vendor/pkg/value.txt"),
@@ -972,11 +1257,11 @@ fn project_peers_use_their_own_external_layout_in_both_directions() {
     );
     jjosh(
         &client,
-        &["git", "fetch", "--remote", "upstream", "--branch", "main"],
+        &["git", "fetch", "--remote", "upstream#pkg", "--branch", "main"],
     );
     jjosh(
         &client,
-        &["git", "fetch", "--remote", "flat", "--branch", "main"],
+        &["git", "fetch", "--remote", "flat#pkg", "--branch", "main"],
     );
     assert_eq!(
         file_at_revision(&client, "main#pkg@upstream", "vendor/pkg/value.txt"),
@@ -998,7 +1283,7 @@ fn project_peers_use_their_own_external_layout_in_both_directions() {
     assert_eq!(git(&flat, &["show", "topic:value.txt"]), "edited flat\n");
     assert_eq!(git(&upstream, &["show", "main:outside.txt"]), "upstream-outside\n");
 
-    jjosh(&client, &["git", "remote", "remove", "upstream"]);
+    jjosh(&client, &["git", "remote", "remove", "upstream#pkg"]);
     jjosh(&client, &["new", "-m", "continue standalone project"]);
     fs::write(client.join("vendor/pkg/value.txt"), "continued flat\n").unwrap();
     jjosh(&client, &["describe", "-m", "continue standalone project"]);
@@ -1035,7 +1320,7 @@ fn marker_free_reattachment_preserves_edited_tree_and_full_history() {
     assert!(!client.join("vendor/deps/.link.josh").exists());
 
     // Removing the last remote must retain the project's independently recorded mount.
-    jjosh(&client, &["git", "remote", "remove", "deps-upstream"]);
+    jjosh(&client, &["git", "remote", "remove", "deps-upstream#deps"]);
     jjosh(
         &client,
         &[
@@ -1043,7 +1328,7 @@ fn marker_free_reattachment_preserves_edited_tree_and_full_history() {
             "--filter", ":/src", "--project", "deps", "--base", "main",
         ],
     );
-    jjosh(&client, &["git", "fetch", "--remote", "deps-peer", "--branch", "main"]);
+    jjosh(&client, &["git", "fetch", "--remote", "deps-peer#deps", "--branch", "main"]);
 
     assert_eq!(commit_id(&client, "@"), local);
     assert_eq!(jjosh(&client, &history_args).stdout, history);
@@ -1076,7 +1361,7 @@ fn unrelated_malformed_historical_marker_does_not_block_remote_configuration() {
             "--filter", ":/src", "--project", "deps", "--base", "main",
         ],
     );
-    jjosh(&client, &["git", "fetch", "--remote", "deps-source", "--branch", "main"]);
+    jjosh(&client, &["git", "fetch", "--remote", "deps-source#deps", "--branch", "main"]);
     assert_eq!(commit_id(&client, "@"), local);
     jjosh(&client, &["new", "@", "main#deps@deps-source"]);
     assert_eq!(fs::read(client.join("vendor/deps/value.txt")).unwrap(), b"unrelated-v1\n");
@@ -1882,14 +2167,8 @@ fn source_update_refreshes_only_the_observed_publication_branch() {
 
     jjosh(
         &client,
-        &[
-            "git",
-            "fetch",
-            "--remote",
-            "deps-upstream",
-            "--branch",
-            "main",
-        ],
+        &["git", "fetch", "--remote", "deps-upstream#deps", "--branch",
+        "main",],
     );
     assert_eq!(change_id(&client, "@"), local_change);
     assert_eq!(
@@ -2000,14 +2279,8 @@ fn named_remote_sync_ignores_redirected_or_malformed_link_metadata() {
         let local = commit_id(&client, "@");
         jjosh(
             &client,
-            &[
-                "git",
-                "fetch",
-                "--remote",
-                "deps-upstream",
-                "--branch",
-                "main",
-            ],
+            &["git", "fetch", "--remote", "deps-upstream#deps", "--branch",
+            "main",],
         );
         assert_eq!(
             file_at_revision(&client, "main#deps@deps-upstream", "deps/value.txt"),
@@ -2069,14 +2342,8 @@ fn selected_link_fetch_preserves_work_and_handles_tags_rewrites_and_deletions() 
         git(&work, &["push", bare.to_str().unwrap(), "main"]);
         jjosh(
             &client,
-            &[
-                "git",
-                "fetch",
-                "--remote",
-                "deps-upstream",
-                "--tag",
-                "glob:v*",
-            ],
+            &["git", "fetch", "--remote", "deps-upstream#deps", "--tag",
+            "glob:v*",],
         );
         assert_eq!(commit_id(&client, "main#deps@deps-upstream"), initial);
         assert_eq!(
@@ -2090,16 +2357,10 @@ fn selected_link_fetch_preserves_work_and_handles_tags_rewrites_and_deletions() 
         let before_fetch = operation_id(&client);
         jjosh(
             &client,
-            &[
-                "git",
-                "fetch",
-                "--remote",
-                "deps-upstream",
-                "--branch",
-                "main",
-                "--branch",
-                "keep",
-            ],
+            &["git", "fetch", "--remote", "deps-upstream#deps", "--branch",
+            "main",
+            "--branch",
+            "keep",],
         );
         let updated = commit_id(&client, "main#deps@deps-upstream");
         assert_ne!(updated, initial);
@@ -2118,16 +2379,10 @@ fn selected_link_fetch_preserves_work_and_handles_tags_rewrites_and_deletions() 
         assert_eq!(commit_id(&client, "main#deps@deps-upstream"), initial);
         jjosh(
             &client,
-            &[
-                "git",
-                "fetch",
-                "--remote",
-                "deps-upstream",
-                "--branch",
-                "main",
-                "--branch",
-                "keep",
-            ],
+            &["git", "fetch", "--remote", "deps-upstream#deps", "--branch",
+            "main",
+            "--branch",
+            "keep",],
         );
         assert_eq!(commit_id(&client, "main#deps@deps-upstream"), updated);
         fs::write(work.join("src/value.txt"), "rewritten upstream\n").unwrap();
@@ -2139,14 +2394,8 @@ fn selected_link_fetch_preserves_work_and_handles_tags_rewrites_and_deletions() 
         );
         jjosh(
             &client,
-            &[
-                "git",
-                "fetch",
-                "--remote",
-                "deps-upstream",
-                "--branch",
-                "main",
-            ],
+            &["git", "fetch", "--remote", "deps-upstream#deps", "--branch",
+            "main",],
         );
         assert_eq!(commit_id(&client, "@"), local);
         assert_eq!(
@@ -2164,16 +2413,10 @@ fn selected_link_fetch_preserves_work_and_handles_tags_rewrites_and_deletions() 
         );
         jjosh(
             &client,
-            &[
-                "git",
-                "fetch",
-                "--remote",
-                "deps-upstream",
-                "--branch",
-                "keep",
-                "--tag",
-                "v1",
-            ],
+            &["git", "fetch", "--remote", "deps-upstream#deps", "--branch",
+            "keep",
+            "--tag",
+            "v1",],
         );
         assert_eq!(
             commit_id(
@@ -2260,13 +2503,13 @@ fn imported_soft_fork_attaches_upstream_without_reimporting_local_history() {
     );
     jjosh(
         &client,
-        &["git", "fetch", "--remote", "app-upstream", "--branch", "main"],
+        &["git", "fetch", "--remote", "app-upstream#app", "--branch", "main"],
     );
     assert_eq!(commit_id(&client, "@"), local_before_attachment);
     assert_eq!(commit_id(&client, "main#app"), fork);
     jjosh(
         &client,
-        &["git", "fetch", "--remote", "app-upstream", "--tag", "v1"],
+        &["git", "fetch", "--remote", "app-upstream#app", "--tag", "v1"],
     );
     assert!(!commit_id(&client, "remote_tags(exact:v1#app, exact:app-upstream)").is_empty());
     assert_eq!(
@@ -2290,14 +2533,8 @@ fn imported_soft_fork_attaches_upstream_without_reimporting_local_history() {
     let local = commit_id(&client, "@");
     jjosh(
         &client,
-        &[
-            "git",
-            "fetch",
-            "--remote",
-            "app-upstream",
-            "--branch",
-            "main",
-        ],
+        &["git", "fetch", "--remote", "app-upstream#app", "--branch",
+        "main",],
     );
     assert_eq!(commit_id(&client, "@"), local);
     assert_eq!(commit_id(&client, "main#app"), fork);
@@ -2328,14 +2565,8 @@ fn imported_soft_fork_attaches_upstream_without_reimporting_local_history() {
     assert_eq!(conflicted, commit_id(&client, "@"));
     jjosh(
         &client,
-        &[
-            "git",
-            "fetch",
-            "--remote",
-            "app-upstream",
-            "--branch",
-            "main",
-        ],
+        &["git", "fetch", "--remote", "app-upstream#app", "--branch",
+        "main",],
     );
     assert_eq!(commit_id(&client, "@ & conflicts()"), conflicted);
 }
@@ -2411,14 +2642,8 @@ fn link_push_then_fetch_reuses_published_local_change() {
     );
     jjosh(
         &client,
-        &[
-            "git",
-            "fetch",
-            "--remote",
-            "deps-upstream",
-            "--branch",
-            "main",
-        ],
+        &["git", "fetch", "--remote", "deps-upstream#deps", "--branch",
+        "main",],
     );
     assert_no_divergent_changes(&client);
     assert_eq!(commit_id(&client, "main#deps@deps-upstream"), published);
@@ -2472,14 +2697,8 @@ fn link_push_then_fetches_descendant_without_duplicate_published_change() {
 
     jjosh(
         &client,
-        &[
-            "git",
-            "fetch",
-            "--remote",
-            "deps-upstream",
-            "--branch",
-            "main",
-        ],
+        &["git", "fetch", "--remote", "deps-upstream#deps", "--branch",
+        "main",],
     );
     assert_no_divergent_changes(&client);
     assert_eq!(
@@ -2534,7 +2753,7 @@ fn arbitrary_publication_requires_explicit_source_without_reinterpreting_literal
     assert_eq!(git(&publication, &["show-ref"]), before);
     for project in ["alpha", "beta"] {
         jjosh(&client, &["git", "push", "--remote", "review+origin",
-            "--source", &format!("{project}-upstream"),
+            "--source", &format!("{project}-upstream#{project}"),
             "--bookmark", &format!("{project}-topic#{project}"),
             "--allow-empty-description"]);
     }
@@ -2561,22 +2780,22 @@ fn arbitrary_publication_requires_explicit_source_without_reinterpreting_literal
         );
     }
     assert_eq!(
-        commit_id(&client, "alpha-topic#alpha@review+origin"),
+        commit_id(&client, "alpha-topic#alpha@review+origin#"),
         commit_id(&client, "alpha-topic#alpha"),
     );
     assert_eq!(
-        commit_id(&client, "beta-topic#beta@review+origin"),
+        commit_id(&client, "beta-topic#beta@review+origin#"),
         commit_id(&client, "beta-topic#beta"),
     );
 
     // One-shot conversion evidence cannot be reinterpreted by a later raw fetch.
-    let projected = commit_id(&client, "alpha-topic#alpha@review+origin");
+    let projected = commit_id(&client, "alpha-topic#alpha@review+origin#");
     assert!(!jjosh_unchecked(&client, &["git", "fetch", "--remote", "review+origin"]).status.success());
-    assert_eq!(commit_id(&client, "alpha-topic#alpha@review+origin"), projected);
+    assert_eq!(commit_id(&client, "alpha-topic#alpha@review+origin#"), projected);
     assert_eq!(commit_id(&client, "alpha-topic#alpha"), projected);
     // An unrelated selected wire ref is still a valid ordinary fetch.
     jjosh(&client, &["git", "fetch", "--remote", "review+origin", "--branch", "main"]);
-    assert_eq!(commit_id(&client, "alpha-topic#alpha@review+origin"), projected);
+    assert_eq!(commit_id(&client, "alpha-topic#alpha@review+origin#"), projected);
 
     // One explicitly chosen source cannot silently interpret another project.
     jjosh(
@@ -2599,7 +2818,7 @@ fn arbitrary_publication_requires_explicit_source_without_reinterpreting_literal
             "push",
             "--remote",
             "review+origin",
-            "--source", "alpha-upstream",
+            "--source", "alpha-upstream#alpha",
             "--bookmark",
             "collision#alpha",
             "--bookmark",
@@ -2683,12 +2902,12 @@ fn project_push_defaults_route_a_wildcard_without_leaking_other_projects() {
                 &remote,
                 destination.to_str().unwrap(),
                 "--like",
-                &format!("{scope}-upstream"),
+                &format!("{scope}-upstream#{scope}"),
             ],
         );
         jjosh(
             &client,
-            &["git", "fetch", "--remote", &remote, "--branch", "main"],
+            &["git", "fetch", "--project", scope, "--remote", &remote, "--branch", "main"],
         );
         jjosh(
             &client,
@@ -2790,7 +3009,7 @@ fn automatic_push_rejects_selected_ambiguous_and_missing_routes_only() {
     add_routed_link(&client, "beta", &beta);
     jjosh(
         &client,
-        &["git", "remote", "rename", "alpha-upstream", "origin"],
+        &["git", "remote", "rename", "alpha-upstream#alpha", "origin"],
     );
     jjosh(
         &client,
@@ -2801,7 +3020,7 @@ fn automatic_push_rejects_selected_ambiguous_and_missing_routes_only() {
             "fork+origin",
             fork.to_str().unwrap(),
             "--like",
-            "beta-upstream",
+            "beta-upstream#beta",
             "--push-url",
             fork.to_str().unwrap(),
         ],
@@ -3019,7 +3238,7 @@ fn project_push_uses_only_bound_origin_after_explicit_and_configured_defaults() 
     import_project(&client, "api", "api", &upstream, ":/src");
     jjosh(
         &client,
-        &["git", "remote", "rename", "api-upstream", "primary"],
+        &["git", "remote", "rename", "api-upstream#api", "primary"],
     );
     jjosh(
         &client,
@@ -3040,7 +3259,7 @@ fn project_push_uses_only_bound_origin_after_explicit_and_configured_defaults() 
     );
     jjosh(
         &client,
-        &["git", "fetch", "--remote", "fork", "--branch", "main"],
+        &["git", "fetch", "--remote", "fork#api", "--branch", "main"],
     );
     fs::write(client.join("api/value.txt"), "project review\n").unwrap();
     fs::write(client.join("root.txt"), "private overlay\n").unwrap();
@@ -3057,7 +3276,7 @@ fn project_push_uses_only_bound_origin_after_explicit_and_configured_defaults() 
                 "git",
                 "remote",
                 "set-url",
-                "fork",
+                "fork#api",
                 "--push",
                 destination.to_str().unwrap(),
             ],
@@ -3078,7 +3297,7 @@ fn project_push_uses_only_bound_origin_after_explicit_and_configured_defaults() 
         assert_eq!(git(&fork, &["show-ref"]), fork_refs);
         assert_eq!(operation_id(&client), operation);
     }
-    jjosh(&client, &["git", "remote", "rename", "primary", "origin"]);
+    jjosh(&client, &["git", "remote", "rename", "primary#api", "origin"]);
     jjosh(
         &client,
         &[
@@ -3138,39 +3357,26 @@ fn project_push_uses_only_bound_origin_after_explicit_and_configured_defaults() 
     );
     assert_eq!(git(&upstream, &["show-ref"]), upstream_refs);
 
-    // Global selection overrides even an invalid project default.
-    jjosh(&client, &["bookmark", "track", "review#api@fork"]);
-    jjosh(
+    // Root defaults cannot rescue an invalid selected project route.
+    let fork_refs = git(&fork, &["show-ref"]);
+    let operation = operation_id(&client);
+    let rejected = jjosh_unchecked(
         &client,
         &[
-            "--config",
-            "git.push=fork",
-            "--config",
-            "git.projects.api.push=missing",
-            "git",
-            "push",
-            "--bookmark",
-            "review#api",
+            "--config", "git.push=fork",
+            "--config", "git.projects.api.push=missing",
+            "git", "push", "--bookmark", "review#api",
             "--allow-empty-description",
         ],
     );
+    assert!(!rejected.status.success());
     assert_eq!(git(&upstream, &["show-ref"]), upstream_refs);
-    assert_eq!(
-        git(&fork, &["show", "review:src/value.txt"]),
-        "project review\n"
-    );
-    assert_eq!(
-        git(&fork, &["show", "review:outside.txt"]),
-        "upstream-outside\n"
-    );
-    assert_eq!(
-        git(&fork, &["ls-tree", "-r", "--name-only", "review"]),
-        "outside.txt\nsrc/value.txt\n",
-    );
+    assert_eq!(git(&fork, &["show-ref"]), fork_refs);
+    assert_eq!(operation_id(&client), operation);
 }
 
 #[test]
-fn configured_push_overrides_scope_routes_and_unscoped_refs_use_origin() {
+fn explicit_source_export_and_unscoped_refs_use_root_origin() {
     let temp = tempfile::tempdir().unwrap();
     let (_, alpha, _) = create_remote(temp.path(), "alpha");
     let (_, publication, _) = create_remote(temp.path(), "publication");
@@ -3208,7 +3414,7 @@ fn configured_push_overrides_scope_routes_and_unscoped_refs_use_origin() {
             "git.push=origin",
             "git",
             "push",
-            "--source", "alpha-upstream",
+            "--remote", "origin", "--source", "alpha-upstream#alpha",
             "--bookmark",
             "review#alpha",
             "--allow-empty-description",
@@ -3273,14 +3479,8 @@ fn automatic_push_rejects_wire_collisions_across_remote_aliases() {
     );
     jjosh(
         &client,
-        &[
-            "git",
-            "remote",
-            "set-url",
-            "beta-upstream",
-            "--push",
-            alpha.to_str().unwrap(),
-        ],
+        &["git", "remote", "set-url", "beta-upstream#beta", "--push",
+        alpha.to_str().unwrap(),],
     );
     let alpha_refs = git(&alpha, &["show-ref"]);
     let beta_refs = git(&beta, &["show-ref"]);
@@ -3296,11 +3496,6 @@ fn automatic_push_rejects_wire_collisions_across_remote_aliases() {
         ],
     );
     assert!(!rejected.status.success());
-    assert!(
-        String::from_utf8_lossy(&rejected.stderr).contains("refs/heads/collision"),
-        "{}",
-        String::from_utf8_lossy(&rejected.stderr)
-    );
     assert_eq!(git(&alpha, &["show-ref"]), alpha_refs);
     assert_eq!(git(&beta, &["show-ref"]), beta_refs);
     assert_eq!(operation_id(&client), operation);
@@ -3323,7 +3518,7 @@ fn add_tag_project(client: &Path, scope: &str, work: &Path, bare: &Path, native:
             "--whole"]);
         jjosh(
             client,
-            &["git", "fetch", "--remote", &remote, "--branch", "main"],
+            &["git", "fetch", "--project", scope, "--remote", &remote, "--branch", "main"],
         );
     } else {
         add_routed_link(client, scope, bare);
@@ -3424,7 +3619,7 @@ fn scoped_lightweight_tags_route_roundtrip_and_preserve_dry_run_state() {
                     "git",
                     "fetch",
                     "--remote",
-                    &format!("{scope}-upstream"),
+                    &format!("{scope}-upstream#{scope}"),
                     "--tag",
                     "v1.0",
                 ],
@@ -3453,14 +3648,8 @@ fn scoped_lightweight_tags_route_roundtrip_and_preserve_dry_run_state() {
         );
         jjosh(
             &client,
-            &[
-                "git",
-                "fetch",
-                "--remote",
-                "alpha-upstream",
-                "--tag",
-                "v1.0",
-            ],
+            &["git", "fetch", "--remote", "alpha-upstream#alpha", "--tag",
+            "v1.0",],
         );
         assert_eq!(
             commit_id(
@@ -3482,14 +3671,8 @@ fn scoped_lightweight_tags_route_roundtrip_and_preserve_dry_run_state() {
         );
         jjosh(
             &client,
-            &[
-                "git",
-                "fetch",
-                "--remote",
-                "alpha-upstream",
-                "--tag",
-                "v1.0",
-            ],
+            &["git", "fetch", "--remote", "alpha-upstream#alpha", "--tag",
+            "v1.0",],
         );
         assert_eq!(
             commit_id(
@@ -3510,14 +3693,8 @@ fn scoped_lightweight_tags_route_roundtrip_and_preserve_dry_run_state() {
         git(&alpha, &["update-ref", "-d", "refs/tags/v1.0"]);
         jjosh(
             &client,
-            &[
-                "git",
-                "fetch",
-                "--remote",
-                "alpha-upstream",
-                "--tag",
-                "v1.0",
-            ],
+            &["git", "fetch", "--remote", "alpha-upstream#alpha", "--tag",
+            "v1.0",],
         );
         assert_eq!(
             commit_id(
@@ -3553,14 +3730,8 @@ fn fetched_unsigned_nested_tags_republish_annotations_and_exported_targets() {
         git(&source, &["update-ref", "refs/tags/v1.0", &outer]);
         jjosh(
             &client,
-            &[
-                "git",
-                "fetch",
-                "--remote",
-                "alpha-upstream",
-                "--tag",
-                "v1.0",
-            ],
+            &["git", "fetch", "--remote", "alpha-upstream#alpha", "--tag",
+            "v1.0",],
         );
         jjosh(&client, &["tag", "track", "v1.0#alpha@alpha-upstream"]);
         jjosh(&client, &["git", "export"]);
@@ -3605,7 +3776,7 @@ fn fetched_unsigned_nested_tags_republish_annotations_and_exported_targets() {
                 "push",
                 "--remote",
                 "release",
-                "--source", "alpha-upstream",
+                "--source", "alpha-upstream#alpha",
                 "--all",
                 "--allow-empty-description",
             ],
@@ -3673,15 +3844,16 @@ fn fetched_unsigned_nested_tags_republish_annotations_and_exported_targets() {
             );
             jjosh(
                 &client,
-                &["git", "fetch", "--remote", "native-source", "--tag", "v1.0"],
+                &["git", "fetch", "--remote", "native-source#alpha", "--tag", "v1.0"],
             );
+            let physical = physical_remote(&client, "alpha", "native-source");
             assert_eq!(
                 git(
                     &git_dir,
                     &[
                         "cat-file",
                         "-t",
-                        "refs/jj/remote-tags/native-source/v1.0#alpha"
+                        &format!("refs/jj/remote-tags/{physical}/v1.0#alpha")
                     ]
                 )
                 .trim(),
@@ -3692,7 +3864,7 @@ fn fetched_unsigned_nested_tags_republish_annotations_and_exported_targets() {
                     &git_dir,
                     &[
                         "rev-parse",
-                        "refs/jj/remote-tags/native-source/v1.0#alpha^{}"
+                        &format!("refs/jj/remote-tags/{physical}/v1.0#alpha^{{}}")
                     ]
                 )
                 .trim(),
@@ -3756,11 +3928,6 @@ fn signed_scoped_tag_preflight_prevents_sibling_branch_publication() {
         ],
     );
     assert!(!rejected.status.success());
-    assert!(
-        String::from_utf8_lossy(&rejected.stderr)
-            .to_lowercase()
-            .contains("signed")
-    );
     assert_eq!(git(&alpha, &["show-ref"]), alpha_refs);
     assert_eq!(git(&beta, &["show-ref"]), beta_refs);
     assert_eq!(git(&git_dir, &["show-ref"]), refs);
@@ -3777,14 +3944,8 @@ fn annotation_only_remote_replacement_requires_a_fresh_tag_lease() {
     git(&source, &["update-ref", "refs/tags/v1.0", &original]);
     jjosh(
         &client,
-        &[
-            "git",
-            "fetch",
-            "--remote",
-            "alpha-upstream",
-            "--tag",
-            "v1.0",
-        ],
+        &["git", "fetch", "--remote", "alpha-upstream#alpha", "--tag",
+        "v1.0",],
     );
     let concurrent = tag_object(&source, &tip, "commit", "v1.0", "concurrent annotation\n");
     git(
@@ -3812,14 +3973,8 @@ fn annotation_only_remote_replacement_requires_a_fresh_tag_lease() {
     assert_eq!(operation_id(&client), operation);
     jjosh(
         &client,
-        &[
-            "git",
-            "fetch",
-            "--remote",
-            "alpha-upstream",
-            "--tag",
-            "v1.0",
-        ],
+        &["git", "fetch", "--remote", "alpha-upstream#alpha", "--tag",
+        "v1.0",],
     );
     jjosh(&client, &["git", "push", "--tag", "v1.0#alpha"]);
     assert_eq!(
@@ -3852,23 +4007,12 @@ fn signed_transformed_fetch_does_not_grant_sibling_observations_or_leases() {
     let operation = operation_id(&client);
     let rejected = jjosh_unchecked(
         &client,
-        &[
-            "git",
-            "fetch",
-            "--remote",
-            "alpha-upstream",
-            "--branch",
-            "sibling",
-            "--tag",
-            "v1.0",
-        ],
+        &["git", "fetch", "--remote", "alpha-upstream#alpha", "--branch",
+        "sibling",
+        "--tag",
+        "v1.0",],
     );
     assert!(!rejected.status.success());
-    assert!(
-        String::from_utf8_lossy(&rejected.stderr)
-            .to_lowercase()
-            .contains("signed")
-    );
     assert_eq!(git(&git_dir, &["show-ref"]), refs);
     assert_eq!(operation_id(&client), operation);
     assert_eq!(

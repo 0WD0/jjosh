@@ -93,7 +93,7 @@ fn observation_from_proto(value: proto::ConversionObservation) -> Result<Convers
 pub(crate) fn encode(view: &View) -> Option<proto::ProjectMetadata> {
     if view.project_state.is_empty() && view.remote_connections.is_empty() && view.project_observations.is_empty() { return None; }
     Some(proto::ProjectMetadata {
-        version: 1,
+        version: if view.project_state.remote_names.is_empty() { 1 } else { 2 },
         projects: view.project_state.projects.iter().map(|(id, target)| proto::ProjectEntry {
             id: id.to_bytes(), terms: target.iter().map(|value| proto::ProjectTerm { value: value.as_ref().map(project_to_proto) }).collect(),
         }).collect(),
@@ -111,11 +111,27 @@ pub(crate) fn encode(view: &View) -> Option<proto::ProjectMetadata> {
             kind: match key.kind { ObservationKind::Bookmark => 1, ObservationKind::Tag => 2, ObservationKind::Revision => 3 },
             terms: target.iter().map(|value| proto::ObservationTerm { value: value.as_ref().map(observation_to_proto) }).collect(),
         }).collect(),
+        remote_names: view.project_state.remote_names.iter().map(|(connection, target)| proto::ScopedRemoteNameEntry {
+            connection_id: connection.to_bytes(),
+            terms: target.iter().map(|value| proto::ScopedRemoteNameTerm {
+                value: value.as_ref().map(|identity| proto::ScopedRemoteName {
+                    project_id: identity.project.to_bytes(), name: identity.name.as_str().to_owned(),
+                }),
+            }).collect(),
+        }).collect(),
     })
 }
 
 pub(crate) fn decode(value: proto::ProjectMetadata, view: &mut View) -> Result<(), String> {
-    if value.version != 1 { return Err(format!("Unsupported project metadata version {}", value.version)); }
+    if !matches!(value.version, 1 | 2) { return Err(format!("Unsupported project metadata version {}", value.version)); }
+    if value.version == 1 && !value.remote_names.is_empty() { return Err("Scoped remote names require project metadata version 2".into()); }
+    for entry in value.remote_names {
+        let target = terms(entry.terms.into_iter().map(|term| term.value.map(|identity| {
+            if identity.name.is_empty() { return Err("Empty scoped remote name".into()); }
+            Ok(ScopedRemoteName { project: ProjectId::new(id(identity.project_id)?), name: identity.name.into() })
+        }).transpose()))?;
+        insert(&mut view.project_state.remote_names, ConnectionId::new(id(entry.connection_id)?), target)?;
+    }
     for entry in value.projects {
         let target = terms(entry.terms.into_iter().map(|term| term.value.map(project_from_proto).transpose()))?;
         let mut roots = target.iter().flatten().map(|r| &r.canonical_root);
@@ -171,6 +187,13 @@ pub(crate) fn validate(view: &View) -> Result<(), String> {
     for (label, target) in &view.project_state.labels {
         if !valid_label(label) { return Err("Invalid project label".into()); }
         for id in target.iter().flatten() { check_id(id)?; }
+    }
+    for (connection, target) in &view.project_state.remote_names {
+        check_id(connection)?;
+        for identity in target.iter().flatten() {
+            check_id(&identity.project)?;
+            if identity.name.as_str().is_empty() { return Err("Empty scoped remote name".into()); }
+        }
     }
     for (remote, target) in &view.remote_connections {
         if remote.as_str().is_empty() { return Err("Empty connection remote name".into()); }
@@ -275,7 +298,7 @@ mod tests {
     fn rejects_unknown_versions_duplicate_keys_and_even_terms() {
         let source = view();
         let mut encoded = encode(&source).unwrap();
-        encoded.version = 2;
+        encoded.version = 3;
         assert!(decode(encoded, &mut View::make_root(CommitId::from_hex("00"))).is_err());
         let mut encoded = encode(&source).unwrap();
         encoded.projects.push(encoded.projects[0].clone());
@@ -320,5 +343,62 @@ mod tests {
         let evidence = source.project_observations.remove(&key).unwrap();
         source.project_observations.insert(ObservationKey { name: "bb".into(), ..key }, evidence);
         assert!(validate(&source).is_err());
+    }
+
+    #[test]
+    fn scoped_names_roundtrip_conflicts_and_reject_version_downgrade() {
+        let mut source = view();
+        let connection = source.remote_connections.values().next().unwrap().as_resolved().unwrap().as_ref().unwrap().clone();
+        let project = source.project_state.projects.keys().next().unwrap().clone();
+        let old_hash = crate::content_hash::blake2b_hash(&source);
+        // The v1 hash stream has exactly these three labeled maps; adding even
+        // an empty extension would change every historical operation identity.
+        let legacy_state = (
+            ("projects".to_owned(), source.project_state.projects.clone()),
+            ("bindings".to_owned(), source.project_state.bindings.clone()),
+            ("labels".to_owned(), source.project_state.labels.clone()),
+        );
+        assert_eq!(crate::content_hash::blake2b_hash(&source.project_state), crate::content_hash::blake2b_hash(&legacy_state));
+        let old = encode(&source).unwrap();
+        assert_eq!(old.version, 1);
+        let mut restored = View::make_root(CommitId::from_hex("00"));
+        decode(old, &mut restored).unwrap();
+        assert_eq!(crate::content_hash::blake2b_hash(&restored), old_hash);
+        source.project_state.remote_names.insert(connection, Merge::from_vec(vec![
+            None, Some(ScopedRemoteName { project: project.clone(), name: "origin".into() }),
+            Some(ScopedRemoteName { project, name: "upstream".into() }),
+        ]));
+        let encoded = encode(&source).unwrap();
+        assert_eq!(encoded.version, 2);
+        let mut restored = View::make_root(CommitId::from_hex("00"));
+        decode(encoded.clone(), &mut restored).unwrap();
+        assert_eq!(restored, source);
+        assert_ne!(crate::content_hash::blake2b_hash(&restored), old_hash);
+        let mut downgraded = encoded.clone();
+        downgraded.version = 1;
+        assert!(decode(downgraded, &mut View::make_root(CommitId::from_hex("00"))).is_err());
+        let mut duplicate = encoded.clone();
+        duplicate.remote_names.push(duplicate.remote_names[0].clone());
+        assert!(decode(duplicate, &mut View::make_root(CommitId::from_hex("00"))).is_err());
+        let mut malformed = encoded;
+        malformed.remote_names[0].terms.pop();
+        assert!(decode(malformed, &mut View::make_root(CommitId::from_hex("00"))).is_err());
+    }
+
+    #[test]
+    fn disconnected_restored_evidence_does_not_reactivate_connections() {
+        let mut source = view();
+        source.remote_connections.clear();
+        source.project_state.bindings.clear();
+        source.project_state.projects.clear();
+        source.project_state.labels.clear();
+        let mut restored = View::make_root(CommitId::from_hex("00"));
+        decode(encode(&source).unwrap(), &mut restored).unwrap();
+        let wrapped = crate::view::View::new(restored, true);
+        for key in source.project_observations.keys() {
+            assert!(wrapped.validate_project_observation(key).is_ok());
+        }
+        assert!(wrapped.store_view().remote_connections.is_empty());
+        assert!(wrapped.project_state().bindings.is_empty());
     }
 }

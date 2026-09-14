@@ -424,7 +424,7 @@ impl RefStatus {
         };
 
         Self {
-            symbol: update.symbol.to_string(),
+            symbol: repo.view().remote_ref_symbol(update.symbol.as_ref()).to_string(),
             remote_ref_state: new_remote_ref.state,
             import_status,
             ref_kind,
@@ -464,13 +464,13 @@ enum ImportStatus {
     Updated,
 }
 
-pub fn print_git_export_stats(ui: &Ui, stats: &GitExportStats) -> Result<(), std::io::Error> {
+pub fn print_git_export_stats(ui: &Ui, view: &jj_lib::view::View, stats: &GitExportStats) -> Result<(), std::io::Error> {
     if !stats.failed_bookmarks.is_empty() {
         writeln!(ui.warning_default(), "Failed to export some bookmarks:")?;
         let mut formatter = ui.stderr_formatter();
         for (symbol, reason) in &stats.failed_bookmarks {
             write!(formatter, "  ")?;
-            write!(formatter.labeled("bookmark"), "{symbol}")?;
+            write!(formatter.labeled("bookmark"), "{}", view.remote_ref_symbol(symbol.as_ref()))?;
             for err in iter::successors(Some(reason as &dyn error::Error), |err| err.source()) {
                 write!(formatter, ": {err}")?;
             }
@@ -482,7 +482,7 @@ pub fn print_git_export_stats(ui: &Ui, stats: &GitExportStats) -> Result<(), std
         let mut formatter = ui.stderr_formatter();
         for (symbol, reason) in &stats.failed_tags {
             write!(formatter, "  ")?;
-            write!(formatter.labeled("tag"), "{symbol}")?;
+            write!(formatter.labeled("tag"), "{}", view.remote_ref_symbol(symbol.as_ref()))?;
             for err in iter::successors(Some(reason as &dyn error::Error), |err| err.source()) {
                 write!(formatter, ": {err}")?;
             }
@@ -504,7 +504,7 @@ pub fn print_git_export_stats(ui: &Ui, stats: &GitExportStats) -> Result<(), std
     Ok(())
 }
 
-pub fn print_push_stats(ui: &Ui, stats: &GitPushStats) -> io::Result<()> {
+pub fn print_push_stats(ui: &Ui, view: &jj_lib::view::View, stats: &GitPushStats) -> io::Result<()> {
     if !stats.rejected.is_empty() {
         writeln!(
             ui.warning_default(),
@@ -554,7 +554,7 @@ pub fn print_push_stats(ui: &Ui, stats: &GitPushStats) -> io::Result<()> {
         let mut formatter = ui.stderr_formatter();
         for (symbol, reason) in &stats.unexported_bookmarks {
             write!(formatter, "  ")?;
-            write!(formatter.labeled("bookmark"), "{symbol}")?;
+            write!(formatter.labeled("bookmark"), "{}", view.remote_ref_symbol(symbol.as_ref()))?;
             for err in iter::successors(Some(reason as &dyn error::Error), |err| err.source()) {
                 write!(formatter, ": {err}")?;
             }

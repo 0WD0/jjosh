@@ -30,7 +30,7 @@ use jj_lib::op_store::RemoteRefState;
 use jj_lib::op_store::RemoteView;
 use jj_lib::op_store::View;
 use jj_lib::op_store::WorkingCopyPatternsId;
-use jj_lib::project::{BindingId, BindingRecord, BindingTarget, ConnectionId, ConversionObservation, ConversionTerm, ObservationKey, ObservationKind, ProjectId, ProjectRecord, ProjectState, Representation};
+use jj_lib::project::{BindingId, BindingRecord, BindingTarget, ConnectionId, ConversionObservation, ConversionTerm, ObservationKey, ObservationKind, ProjectId, ProjectRecord, ProjectState, Representation, ScopedRemoteName};
 use jj_lib::ref_name::RefNameBuf;
 use jj_lib::repo::ReadonlyRepo;
 use jj_lib::repo::Repo as _;
@@ -47,7 +47,7 @@ use tempfile::NamedTempFile;
 use crate::native_source::NativeSource;
 
 const FORMAT: &str = "jjosh-native";
-const VERSION: u32 = 2;
+const VERSION: u32 = 3;
 const ROOT: &str = "0000000000000000000000000000000000000000";
 
 #[derive(Serialize, Deserialize)]
@@ -137,6 +137,8 @@ struct ProjectMetadataData {
     bindings: BTreeMap<String, Vec<Option<BindingData>>>,
     #[serde(default, deserialize_with = "unique_map")]
     labels: BTreeMap<String, Vec<Option<String>>>,
+    #[serde(default, deserialize_with = "optional_unique_map")]
+    remote_names: Option<BTreeMap<String, Vec<Option<ScopedRemoteNameData>>>>,
     #[serde(default, deserialize_with = "unique_map")]
     remote_connections: BTreeMap<String, Vec<Option<String>>>,
     #[serde(default)]
@@ -148,6 +150,13 @@ struct ProjectMetadataData {
 struct ProjectData {
     name: String,
     canonical_root: String,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ScopedRemoteNameData {
+    project: String,
+    name: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -326,6 +335,11 @@ impl ProjectMetadataData {
             labels: view.project_state.labels.iter().map(|(label, target)| (
                 label.clone(), target.iter().map(|term| term.as_ref().map(|id| id.hex())).collect(),
             )).collect(),
+            remote_names: Some(view.project_state.remote_names.iter().map(|(id, target)| (
+                id.hex(), target.iter().map(|term| term.as_ref().map(|alias| ScopedRemoteNameData {
+                    project: alias.project.hex(), name: alias.name.as_str().to_owned(),
+                })).collect(),
+            )).collect()),
             remote_connections: view.remote_connections.iter().map(|(name, target)| (
                 name.as_str().to_owned(), target.iter().map(|term| term.as_ref().map(|id| id.hex())).collect(),
             )).collect(),
@@ -366,6 +380,13 @@ impl ProjectMetadataData {
             let terms = terms.into_iter().map(|term| term.map(|id| project_id(&id)).transpose()).collect::<Result<_>>()?;
             Ok((label, merge(terms, "project label")?))
         }).collect::<Result<_>>()?;
+        let remote_names = self.remote_names.unwrap_or_default().into_iter().map(|(id, terms)| {
+            let terms = terms.into_iter().map(|term| term.map(|alias| {
+                ensure!(!alias.name.is_empty() && !alias.name.contains('\0'), "invalid scoped remote name");
+                Ok(ScopedRemoteName { project: project_id(&alias.project)?, name: alias.name.into() })
+            }).transpose()).collect::<Result<Vec<_>>>()?;
+            Ok((connection_id(&id)?, merge(terms, "scoped remote name")?))
+        }).collect::<Result<_>>()?;
         let connections = self.remote_connections.into_iter().map(|(name, terms)| {
             let terms = terms.into_iter().map(|term| term.map(|id| connection_id(&id)).transpose()).collect::<Result<_>>()?;
             Ok((name.into(), merge(terms, "remote connection owner")?))
@@ -393,7 +414,7 @@ impl ProjectMetadataData {
             ensure!(observations.insert(key, merge(terms, "conversion observation")?).is_none(),
                 "duplicate conversion observation key");
         }
-        Ok((ProjectState { projects, bindings, labels }, connections, observations))
+        Ok((ProjectState { projects, bindings, labels, remote_names }, connections, observations))
     }
 }
 
@@ -446,6 +467,14 @@ where
         }
     }
     deserializer.deserialize_map(Visitor(std::marker::PhantomData))
+}
+
+fn optional_unique_map<'de, D, T>(deserializer: D) -> std::result::Result<Option<BTreeMap<String, T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    unique_map(deserializer).map(Some)
 }
 
 fn validate_hex(value: &str, bytes: usize, kind: &str) -> Result<()> {
@@ -1037,12 +1066,15 @@ pub(crate) async fn load(path: &Path, settings: &UserSettings) -> Result<NativeS
     ensure!(have_pack, "native bundle is missing objects.pack");
     ensure!(manifest.format == FORMAT, "not a jjosh native bundle");
     ensure!(
-        matches!(manifest.version, 1 | VERSION),
-        "unsupported native bundle version {} (supported: 1 and {VERSION})",
+        matches!(manifest.version, 1 | 2 | VERSION),
+        "unsupported native bundle version {} (supported: 1, 2 and {VERSION})",
         manifest.version
     );
     ensure!(manifest.version == 1 || manifest.view.project_metadata.is_some(),
-        "native bundle version {VERSION} requires an explicit project_metadata section");
+        "native bundle version {} requires an explicit project_metadata section", manifest.version);
+    let aliases_present = manifest.view.project_metadata.as_ref().is_some_and(|metadata| metadata.remote_names.is_some());
+    ensure!(aliases_present == (manifest.version == VERSION),
+        "scoped remote names require native bundle version {VERSION}, with an explicit remote_names section");
     ensure!(
         manifest.root_commit == ROOT,
         "invalid synthetic root ID in native bundle"

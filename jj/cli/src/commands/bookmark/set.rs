@@ -20,6 +20,7 @@ use itertools::Itertools as _;
 use jj_lib::object_id::ObjectId as _;
 use jj_lib::op_store::RefTarget;
 use jj_lib::ref_name::RefNameBuf;
+use jj_lib::repo::Repo as _;
 
 use super::is_fast_forward;
 use crate::cli_util::CommandHelper;
@@ -93,7 +94,7 @@ pub async fn cmd_bookmark_set(
     }
 
     let mut tx = workspace_command.start_transaction();
-    let remote_settings = tx.settings().remote_settings()?;
+    let remote_settings = revset_util::resolve_remote_settings(tx.repo().view(), tx.settings().remote_settings()?)?;
     let remote_auto_track_matchers =
         revset_util::parse_remote_auto_track_bookmarks_map_for_new_bookmarks(ui, &remote_settings)?;
     let readonly_repo = tx.base_repo().clone();
@@ -101,18 +102,20 @@ pub async fn cmd_bookmark_set(
         tx.repo_mut()
             .set_local_bookmark_target(name, RefTarget::normal(target_commit.id().clone()));
         if new_bookmarks.contains(name) {
-            for (remote_name, matcher) in &remote_auto_track_matchers {
-                if !matcher.is_match(name.as_str()) {
-                    continue;
-                }
-                let Some(view) = readonly_repo.view().get_remote_view(remote_name) else {
+            for (remote_name, remote_view) in readonly_repo.view().remote_views() {
+                let Some(matcher) = remote_auto_track_matchers.get(remote_name) else {
                     continue;
                 };
                 let symbol = name.to_remote_symbol(remote_name);
-                if view.bookmarks.contains_key(name) {
+                if !matcher.is_match(name.as_str())
+                    || !jj_lib::revset::remote_ref_matches_scope(readonly_repo.view(), symbol).map_err(user_error)?
+                {
+                    continue;
+                }
+                if remote_view.bookmarks.contains_key(name) {
                     writeln!(
                         ui.warning_default(),
-                        "Auto-tracking bookmark that exists on the remote: {symbol}"
+                        "Auto-tracking bookmark that exists on the remote: {}", readonly_repo.view().remote_ref_symbol(symbol)
                     )?;
                 }
                 tx.repo_mut().track_remote_bookmark(symbol).await?;

@@ -50,11 +50,11 @@ pub(super) fn prepare_binding(
         Ok::<_, CommandError>(id)
     }).transpose()?;
     let (target, representation, base) = if let Some(source) = &args.like_remote {
-        git.find_remote(source.as_str()).map_err(user_error)?;
-        let source_name = RemoteName::new(source);
-        jj_lib::git::check_remote_capability(workspace.repo().store(), workspace.repo().view(), source_name, &["jjosh-v1"])
+        let source_name = jj_cli::git_remote::resolve_remote_selector(workspace, source, args.project.as_deref())?;
+        git.find_remote(source_name.as_str()).map_err(user_error)?;
+        jj_lib::git::check_remote_capability(workspace.repo().store(), workspace.repo().view(), &source_name, &["jjosh-v1"])
             .map_err(user_error)?;
-        let id = jj_lib::git::remote_connection_id(&git, source_name).map_err(user_error)?
+        let id = jj_lib::git::remote_connection_id(&git, &source_name).map_err(user_error)?
             .ok_or_else(|| user_error(format!("Remote {source} has no adopted connection; use project migrate for legacy configuration")))?;
         let (_, source_binding) = state.binding_for_connection(&id).map_err(user_error)?
             .ok_or_else(|| user_error(format!("Remote {source} has no active binding")))?;

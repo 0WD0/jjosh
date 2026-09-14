@@ -208,7 +208,7 @@ pub(crate) async fn cmd_status(
         .view()
         .all_remote_bookmarks()
         .filter(|(_, remote_ref)| remote_ref.target.has_conflict())
-        .map(|(symbol, _)| symbol)
+        .map(|(symbol, _)| repo.view().remote_ref_symbol(symbol))
         .collect_vec();
     if !conflicted_local_bookmarks.is_empty() {
         writeln!(

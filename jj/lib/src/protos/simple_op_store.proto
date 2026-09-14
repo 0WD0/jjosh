@@ -178,6 +178,21 @@ message ProjectMetadata {
   repeated LabelEntry labels = 4;
   repeated ConnectionEntry connections = 5;
   repeated ObservationEntry observations = 6;
+  repeated ScopedRemoteNameEntry remote_names = 7;
+}
+
+message ScopedRemoteName {
+  bytes project_id = 1;
+  string name = 2;
+}
+
+message ScopedRemoteNameTerm {
+  ScopedRemoteName value = 1;
+}
+
+message ScopedRemoteNameEntry {
+  bytes connection_id = 1;
+  repeated ScopedRemoteNameTerm terms = 2;
 }
 
 message ProjectRecord {

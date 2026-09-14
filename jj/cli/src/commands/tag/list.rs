@@ -180,14 +180,14 @@ pub async fn cmd_tag_list(
 
     let predicates = RefFilterPredicates {
         name_matcher: name_expr.to_matcher(),
-        remote_matcher: remote_expr.to_matcher(),
+        remote_matcher: jj_lib::revset::remote_name_expression_to_matcher(view, &remote_expr),
         matched_local_targets,
         conflicted: args.conflicted,
         include_local_only: !args.tracked && args.remotes.is_none(),
         include_synced_remotes: args.tracked || args.all_remotes || args.remotes.is_some(),
         include_untracked_remotes: !args.tracked && (args.all_remotes || args.remotes.is_some()),
     };
-    let mut list_items = commit_ref_list::collect_items(view.tags(), &predicates);
+    let mut list_items = commit_ref_list::collect_items(view, view.tags(), &predicates).map_err(crate::command_error::user_error)?;
     commit_ref_list::sort(repo.store(), &mut list_items, &sort_keys)?;
 
     ui.request_pager();

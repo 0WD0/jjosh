@@ -26,15 +26,24 @@ use crate::ui::Ui;
 
 /// List Git remotes
 #[derive(clap::Args, Clone, Debug)]
-pub struct GitRemoteListArgs {}
+pub struct GitRemoteListArgs {
+    /// List local aliases in this project
+    #[arg(long)]
+    project: Option<String>,
+}
 
 pub async fn cmd_git_remote_list(
     ui: &mut Ui,
     command: &CommandHelper,
-    _args: &GitRemoteListArgs,
+    args: &GitRemoteListArgs,
 ) -> Result<(), CommandError> {
     let workspace_command = command.workspace_helper(ui).await?;
     let git_repo = git::get_git_repo(workspace_command.repo().store())?;
+    let view = workspace_command.repo().view();
+    let project = args.project.as_deref()
+        .map(|name| view.project_state().project_by_name(name).map(|(id, _)| id))
+        .transpose().map_err(crate::command_error::user_error)?;
+    let mut entries = Vec::new();
     for remote_name in git_repo.remote_names() {
         let Ok(remote_name) = str::from_utf8(&remote_name).map(RemoteName::new) else {
             continue; // ignore non-UTF-8 remote names which we don't support
@@ -42,19 +51,35 @@ pub async fn cmd_git_remote_list(
         let Some(remote) = git::try_find_active_remote(&git_repo, remote_name)? else {
             continue; // ignore empty [remote "<name>"] section
         };
+        if let Some(project) = &project {
+            if !view.remote_in_scope(remote_name, Some(project)).map_err(crate::command_error::user_error)? {
+                continue;
+            }
+        } else {
+            view.remote_identity(remote_name).map_err(crate::command_error::user_error)?;
+        }
+        let display_name = if project.is_some() {
+            view.remote_local_name(remote_name).as_str().to_owned()
+        } else {
+            view.remote_qualified_name(remote_name)
+        };
         let fetch_url = get_url(&remote, gix::remote::Direction::Fetch);
         let push_url = get_url(&remote, gix::remote::Direction::Push);
+        entries.push((display_name, fetch_url, push_url));
+    }
+    entries.sort_by(|left, right| left.0.cmp(&right.0));
+    for (display_name, fetch_url, push_url) in entries {
         if fetch_url == push_url {
             writeln!(
                 ui.stdout(),
                 "{remote_name} {fetch_url}",
-                remote_name = remote_name.as_symbol()
+                remote_name = display_name
             )?;
         } else {
             writeln!(
                 ui.stdout(),
                 "{remote_name} {fetch_url} (push: {push_url})",
-                remote_name = remote_name.as_symbol()
+                remote_name = display_name
             )?;
         }
     }

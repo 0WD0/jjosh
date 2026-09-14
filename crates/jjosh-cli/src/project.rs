@@ -5,7 +5,7 @@ use jj_cli::command_error::{CommandError, user_error};
 use jj_cli::ui::Ui;
 use jj_lib::merge::Merge;
 use jj_lib::object_id::ObjectId as _;
-use jj_lib::project::{BindingId, ProjectId};
+use jj_lib::project::{BindingId, ConnectionId, ProjectId};
 use jj_lib::repo::Repo as _;
 
 #[derive(clap::Args, Clone, Debug)]
@@ -73,7 +73,7 @@ struct NameArgs { name: String }
 struct RenameArgs { old: String, new: String }
 
 #[derive(clap::Args, Clone, Debug)]
-#[command(group(clap::ArgGroup::new("record").required(true).args(["id", "binding", "label"])))]
+#[command(group(clap::ArgGroup::new("record").required(true).args(["id", "binding", "label", "connection"])))]
 #[command(group(clap::ArgGroup::new("action").required(true).args(["candidate", "delete", "name"])))]
 struct ResolveArgs {
     /// Exact ProjectId from project list/show.
@@ -82,6 +82,9 @@ struct ResolveArgs {
     /// Exact BindingId; definitions cannot be rewritten.
     #[arg(long)]
     binding: Option<String>,
+    /// Exact ConnectionId whose project-local remote name needs resolution.
+    #[arg(long)]
+    connection: Option<String>,
     /// Stable reference label to resolve.
     #[arg(long)]
     label: Option<String>,
@@ -91,8 +94,8 @@ struct ResolveArgs {
     /// Explicitly delete a definition; dependencies must already be removed.
     #[arg(long)]
     delete: bool,
-    /// Resolve a project's display name, retaining its unique immutable root.
-    #[arg(long, requires = "id")]
+    /// Resolve a project's display name or a connection's project-local remote name.
+    #[arg(long, conflicts_with_all = ["binding", "label"])]
     name: Option<String>,
 }
 
@@ -190,6 +193,87 @@ fn resolve(
     args: ResolveArgs,
     store: &jj_lib::store::Store,
 ) -> Result<(), CommandError> {
+    if let Some(value) = args.connection {
+        let connection = ConnectionId::try_from_hex(&value)
+            .filter(|id| id.as_bytes().len() == 16)
+            .ok_or_else(|| user_error("Expected a 32-digit ConnectionId"))?;
+        let target = view.project_state.remote_names.get(&connection);
+        let missing_identity = target.is_none_or(Merge::is_absent);
+        let mut restored_bridge = None;
+        let selected = if args.delete {
+            target.ok_or_else(|| user_error("Unknown scoped remote connection"))?;
+            None
+        } else if let Some(name) = args.name {
+            jj_lib::git::validate_remote_name(jj_lib::ref_name::RemoteName::new(&name)).map_err(user_error)?;
+            if name.contains('#') {
+                return Err(user_error("A project-local remote name cannot contain #"));
+            }
+            let mut definitions = target.into_iter().flat_map(|target| target.adds().flatten());
+            let project = if let Some(first) = definitions.next() {
+                if definitions.any(|other| other.project != first.project) {
+                    return Err(user_error("Remote scope is unresolved; choose a candidate before renaming"));
+                }
+                first.project.clone()
+            } else {
+                let (_, binding) = view.project_state.binding_for_connection(&connection)
+                    .map_err(user_error)?.ok_or_else(|| user_error("A missing remote name requires an active project binding"))?;
+                let jj_lib::project::BindingTarget::Project(project) = &binding.target else {
+                    return Err(user_error("A root connection has no project-local remote name"));
+                };
+                let git = jj_lib::git::get_git_repo(store)?;
+                let connection_hex = connection.hex();
+                let candidates = jj_lib::git::get_all_remote_names(store)?;
+                let mut matching = candidates.into_iter().filter(|remote| {
+                    git.config_snapshot().string(&format!("remote.{}.jjosh-connectionId", remote.as_str()))
+                        .is_some_and(|value| value.eq_ignore_ascii_case(connection_hex.as_bytes()))
+                });
+                let remote = matching.next().ok_or_else(|| user_error("The selected connection is not configured locally"))?;
+                if matching.next().is_some() {
+                    return Err(user_error("The connection identity is claimed by multiple local remotes"));
+                }
+                jj_lib::git::remote_connection_id(&git, &remote).map_err(user_error)?;
+                if view.remote_connections.get(&remote).is_some_and(|owners| {
+                    owners.as_resolved().and_then(Option::as_ref) != Some(&connection)
+                }) || view.project_observations.iter().any(|(key, observations)| {
+                    key.remote == remote && observations.iter().flatten().any(|observation| observation.connection_id != connection)
+                }) {
+                    return Err(user_error("The configured connection still has incompatible observations; forget them before restoring its name"));
+                }
+                restored_bridge = Some(remote);
+                project.clone()
+            };
+            Some(jj_lib::project::ScopedRemoteName { project, name: name.into() })
+        } else {
+            candidate(target.ok_or_else(|| user_error("Unknown scoped remote connection"))?, args.candidate)?
+        };
+        if let Some(selected) = &selected {
+            if !view.project_state.projects.get(&selected.project)
+                .is_some_and(|target| target.adds().flatten().next().is_some()) {
+                return Err(user_error("Remote name refers to an absent project; restore or resolve the project first"));
+            }
+            if view.project_state.remote_names.iter().any(|(other, target)| {
+                other != &connection && target.adds().flatten().any(|name| name == selected)
+            }) {
+                return Err(user_error("Another connection already claims this project-local remote name"));
+            }
+        } else {
+            if view.project_state.bindings.values().any(|target| target.adds().flatten().any(|binding| binding.connection_id == connection)) {
+                return Err(user_error("Remote name still belongs to an active binding; remove the remote or retire the disconnected binding first"));
+            }
+            for (remote, owners) in &view.remote_connections {
+                if owners.adds().flatten().any(|owner| owner == &connection)
+                    && (view.remote_views.contains_key(remote)
+                        || view.project_observations.keys().any(|key| &key.remote == remote)) {
+                    return Err(user_error("Remote name still owns reference records; forget its observations first"));
+                }
+            }
+        }
+        if missing_identity && let Some(remote) = restored_bridge {
+            view.remote_connections.insert(remote, Merge::resolved(Some(connection.clone())));
+        }
+        view.project_state.remote_names.insert(connection, Merge::resolved(selected));
+        return Ok(());
+    }
     if let Some(value) = args.id {
         let id = ProjectId::try_from_hex(&value).filter(|id| id.as_bytes().len() == 16).ok_or_else(|| user_error("Expected a 32-digit ProjectId"))?;
         let target = view.project_state.projects.get(&id).ok_or_else(|| user_error("Unknown ProjectId"))?;
@@ -263,7 +347,19 @@ async fn inspect(ui: &mut Ui, command: &CommandHelper, selected: Option<String>,
         let records: Vec<_> = target.adds().enumerate().map(|(index, record)| serde_json::json!({"candidate":index+1, "definition":record.as_ref().map(|record| serde_json::json!({"name":record.name,"path":record.canonical_root.as_internal_file_string()}))})).collect();
         let labels: Vec<_> = state.labels.iter().filter(|(_, target)| target.adds().flatten().any(|candidate| candidate == id)).map(|(label, target)| serde_json::json!({"label":label,"resolved":target.as_resolved().is_some(),"candidates":target.adds().enumerate().map(|(index, id)| serde_json::json!({"candidate":index+1,"project":id.as_ref().map(|id| id.hex())})).collect::<Vec<_>>()})).collect();
         let bindings: Vec<_> = state.bindings.iter().filter(|(_, target)| target.adds().flatten().any(|record| record.target == jj_lib::project::BindingTarget::Project(id.clone()))).map(|(id, target)| serde_json::json!({"id":id.hex(),"resolved":target.as_resolved().is_some(),"offline_provenance":offline_bindings.contains(id),"candidates":target.adds().enumerate().map(|(index, record)| serde_json::json!({"candidate":index+1,"definition":record,"connections":record.as_ref().and_then(|record| connections.get(&record.connection_id)).cloned().unwrap_or_default()})).collect::<Vec<_>>()})).collect();
-        serde_json::json!({"id":id.hex(),"resolved":target.as_resolved().is_some(),"candidates":records,"labels":labels,"bindings":bindings})
+        let remotes: Vec<_> = state.remote_names.iter()
+            .filter(|(_, target)| target.adds().flatten().any(|remote| &remote.project == id))
+            .map(|(connection, target)| serde_json::json!({
+                "connection": connection.hex(),
+                "resolved": target.as_resolved().is_some(),
+                "candidates": target.adds().enumerate().map(|(index, remote)| serde_json::json!({
+                    "candidate": index + 1,
+                    "definition": remote.as_ref().map(|remote| serde_json::json!({
+                        "project": remote.project.hex(), "name": remote.name.as_str()
+                    }))
+                })).collect::<Vec<_>>()
+            })).collect();
+        serde_json::json!({"id":id.hex(),"resolved":target.as_resolved().is_some(),"candidates":records,"labels":labels,"bindings":bindings,"remotes":remotes})
     }).collect();
     let diagnostic_values: Vec<_> = diagnostics.iter().map(|diagnostic| serde_json::json!({"message":diagnostic.message,"projects":diagnostic.projects.iter().map(|id|id.hex()).collect::<Vec<_>>(),"bindings":diagnostic.bindings.iter().map(|id|id.hex()).collect::<Vec<_>>(),"labels":diagnostic.labels})).collect();
     if json {
@@ -277,6 +373,7 @@ async fn inspect(ui: &mut Ui, command: &CommandHelper, selected: Option<String>,
             }
             for label in project["labels"].as_array().unwrap() { writeln!(ui.stdout(), "  label: {label}")?; }
             for binding in project["bindings"].as_array().unwrap() { writeln!(ui.stdout(), "  binding: {binding}")?; }
+            for remote in project["remotes"].as_array().unwrap() { writeln!(ui.stdout(), "  remote: {remote}")?; }
         }
         for diagnostic in &diagnostics { writeln!(ui.stdout(), "Problem: {diagnostic}")?; }
         if projects.is_empty() && diagnostics.is_empty() { writeln!(ui.stdout(), "No projects registered.")?; }
@@ -307,13 +404,16 @@ fn local_diagnostics(
             // remain inspectable and diagnostics can attach every dependent ID.
             let identity = crate::git_remote::config_string(&git, &format!("remote.{name}.jjosh-connectionId"))
                 .ok().flatten().and_then(jj_lib::project::ConnectionId::try_from_hex);
-            if let Some(id) = &identity { connections.entry(id.clone()).or_default().push(name.to_owned()); }
+            if let Some(id) = &identity {
+                connections.entry(id.clone()).or_default().push(repo.view().remote_qualified_name(remote));
+            }
             let binding_ids: Vec<_> = state.bindings.iter().filter(|(_, target)| target.adds().flatten().any(|record| identity.as_ref() == Some(&record.connection_id))).map(|(id, _)| id.clone()).collect();
             let project_ids: Vec<_> = binding_ids.iter().flat_map(|id| state.bindings[id].adds().flatten()).filter_map(|record| match &record.target { BindingTarget::Project(id) => Some(id.clone()), BindingTarget::RepositoryView => None }).collect();
             let mut problems = Vec::new();
             if let Err(error) = jj_lib::git::check_obsolete_remote_config(&git, remote) { problems.push(error); }
             if let Err(error) = jj_lib::git::remote_connection_id(&git, remote) { problems.push(error); }
             if let Err(error) = jj_lib::git::check_remote_owner(repo.view(), remote, identity.as_ref()) { problems.push(error); }
+            if let Err(error) = repo.view().remote_identity(remote) { problems.push(error); }
             if !binding_ids.is_empty() {
                 if jj_lib::git::remote_required_capability(&git, remote).as_deref() != Some("jjosh-v1") {
                     problems.push(format!("Remote {name} has a binding but lacks the required jjosh-v1 capability marker"));

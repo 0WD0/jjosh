@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::BTreeMap;
 use std::collections::HashSet;
 use std::io::BufRead as _;
 use std::path::Path;
@@ -122,6 +123,16 @@ pub fn tracked_bookmarks() -> Vec<CompletionCandidate> {
 
 pub fn untracked_bookmarks() -> Vec<CompletionCandidate> {
     with_jj(|jj, _settings| {
+        let labels = jj
+            .build()
+            .args(["debug", "object", "view", "--op", "@", "--project-labels"])
+            .output()
+            .map_err(user_error)?;
+        if !labels.status.success() {
+            return Err(user_error(String::from_utf8_lossy(&labels.stderr).into_owned()));
+        }
+        let labels: BTreeMap<String, Option<String>> =
+            serde_json::from_slice(&labels.stdout).map_err(user_error)?;
         let remotes = jj
             .build()
             .arg("git")
@@ -129,10 +140,14 @@ pub fn untracked_bookmarks() -> Vec<CompletionCandidate> {
             .arg("list")
             .output()
             .map_err(user_error)?;
+        if !remotes.status.success() {
+            return Err(user_error(String::from_utf8_lossy(&remotes.stderr).into_owned()));
+        }
         let remotes = String::from_utf8_lossy(&remotes.stdout);
         let remotes = remotes
             .lines()
             .filter_map(|l| l.split_whitespace().next())
+            .map(|remote| split_registered_scope(remote, &labels))
             .collect_vec();
 
         let bookmark_table = jj
@@ -154,6 +169,9 @@ pub fn untracked_bookmarks() -> Vec<CompletionCandidate> {
             )
             .output()
             .map_err(user_error)?;
+        if !bookmark_table.status.success() {
+            return Err(user_error(String::from_utf8_lossy(&bookmark_table.stderr).into_owned()));
+        }
         let bookmark_table = String::from_utf8_lossy(&bookmark_table.stdout);
 
         let mut possible_bookmarks_to_track = Vec::new();
@@ -164,10 +182,12 @@ pub fn untracked_bookmarks() -> Vec<CompletionCandidate> {
                 line.split('\t').collect_array().unwrap_or_default();
 
             if !local.is_empty() {
+                let (_, scope) = split_registered_scope(local, &labels);
                 possible_bookmarks_to_track.extend(
                     remotes
                         .iter()
-                        .map(|remote| (format!("{local}@{remote}"), help)),
+                        .filter(|(_, remote_scope)| *remote_scope == scope)
+                        .map(|(remote, _)| (format!("{local}@{remote}"), help)),
                 );
             } else if tracked.is_empty() {
                 possible_bookmarks_to_track.push((remote.to_owned(), help));
@@ -189,6 +209,20 @@ pub fn untracked_bookmarks() -> Vec<CompletionCandidate> {
             })
             .collect())
     })
+}
+
+/// A suffix denotes a scope only when it resolves to a registered project.
+fn split_registered_scope<'a>(
+    name: &'a str,
+    labels: &'a BTreeMap<String, Option<String>>,
+) -> (&'a str, Option<&'a str>) {
+    if let Some((local, label)) = name.rsplit_once('#')
+        && let Some(Some(project)) = labels.get(label)
+    {
+        (local, Some(project.as_str()))
+    } else {
+        (name, None)
+    }
 }
 
 fn bookmark_completions(hide_remote_part: bool) -> Vec<CompletionCandidate> {

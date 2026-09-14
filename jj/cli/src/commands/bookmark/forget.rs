@@ -80,7 +80,7 @@ pub async fn cmd_bookmark_forget(
 ) -> Result<(), CommandError> {
     let mut workspace_command = command.workspace_helper(ui).await?;
     let repo = workspace_command.repo().clone();
-    let (bookmark_exprs, remote_symbols) = parse_name_patterns_or_remote_symbols(ui, &args.names)?;
+    let (bookmark_exprs, remote_symbols) = parse_name_patterns_or_remote_symbols(ui, repo.view(), &args.names)?;
     let bookmark_expr = StringExpression::union_all(bookmark_exprs);
     let matched_bookmarks = find_forgettable_bookmarks(ui, repo.view(), &bookmark_expr)?;
     let matched_remote_bookmarks = find_remote_bookmarks(ui, repo.view(), &remote_symbols)?;
@@ -114,6 +114,9 @@ pub async fn cmd_bookmark_forget(
             .set_local_bookmark_target(name, RefTarget::absent());
         for (remote, _) in &bookmark_target.remote_refs {
             let symbol = name.to_remote_symbol(remote);
+            if !jj_lib::revset::remote_ref_is_visible(repo.view(), symbol).map_err(crate::command_error::user_error)? {
+                continue;
+            }
             // If the remote bookmark was already deleted explicitly, skip it.
             if tx.repo().get_remote_bookmark(symbol).is_absent() {
                 continue;
@@ -148,7 +151,7 @@ pub async fn cmd_bookmark_forget(
         .chain(
             matched_remote_bookmarks
                 .iter()
-                .map(|(symbol, _)| symbol.to_string()),
+                .map(|(symbol, _)| repo.view().remote_ref_symbol(*symbol).to_string()),
         )
         .join(", ");
     tx.finish(ui, format!("forget bookmark {forgotten_bookmarks}"))
@@ -195,7 +198,7 @@ fn find_remote_bookmarks<'a>(
         writeln!(
             ui.warning_default(),
             "No matching remote bookmarks for names: {}",
-            unmatched.iter().join(", ")
+            unmatched.iter().map(|symbol| view.remote_ref_symbol(*symbol)).join(", ")
         )?;
     }
     Ok(matched)

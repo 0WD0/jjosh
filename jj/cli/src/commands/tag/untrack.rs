@@ -76,7 +76,7 @@ pub async fn cmd_tag_untrack(
         // suppress unmatched remotes warning for default-ignored remote
         .filter(|name| view.get_remote_view(name).is_some());
 
-    let (tag_exprs, remote_symbols) = parse_name_patterns_or_remote_symbols(ui, &args.names)?;
+    let (tag_exprs, remote_symbols) = parse_name_patterns_or_remote_symbols(ui, repo.view(), &args.names)?;
     // Reject mixed syntax. It is confusing if the default @<remote> or
     // user-specified --remote flag applies only to <tag> patterns.
     if !tag_exprs.is_empty() && !remote_symbols.is_empty() {
@@ -98,9 +98,9 @@ pub async fn cmd_tag_untrack(
             (None, None) => StringExpression::all(),
         };
         let tag_matcher = tag_expr.to_matcher();
-        let remote_matcher = remote_expr.to_matcher();
+        let remote_matcher = jj_lib::revset::remote_name_expression_to_matcher(view, &remote_expr);
         let matched_refs =
-            trackable_remote_tags_matching(view, &tag_matcher, &remote_matcher).collect();
+            trackable_remote_tags_matching(view, &tag_matcher, &remote_matcher)?;
         warn_unmatched_local_or_remote_tags(ui, view, &tag_expr)?;
         warn_unmatched_remotes(ui, view, &remote_expr)?;
         matched_refs
@@ -113,10 +113,10 @@ pub async fn cmd_tag_untrack(
             // @git tags.
             writeln!(
                 ui.warning_default(),
-                "Git-tracking tag cannot be untracked: {symbol}"
+                "Git-tracking tag cannot be untracked: {}", view.remote_ref_symbol(symbol)
             )?;
         } else if !remote_ref.is_tracked() {
-            writeln!(ui.warning_default(), "Remote tag not tracked yet: {symbol}")?;
+            writeln!(ui.warning_default(), "Remote tag not tracked yet: {}", view.remote_ref_symbol(symbol))?;
         } else {
             symbols.push(symbol);
         }
@@ -134,7 +134,7 @@ pub async fn cmd_tag_untrack(
     }
     tx.finish(
         ui,
-        format!("untrack remote tag {}", symbols.iter().join(", ")),
+        format!("untrack remote tag {}", symbols.iter().map(|symbol| view.remote_ref_symbol(*symbol)).join(", ")),
     )
     .await?;
     Ok(())

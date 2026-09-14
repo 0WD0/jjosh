@@ -176,14 +176,14 @@ pub async fn cmd_bookmark_list(
 
     let predicates = RefFilterPredicates {
         name_matcher: name_expr.to_matcher(),
-        remote_matcher: remote_expr.to_matcher(),
+        remote_matcher: jj_lib::revset::remote_name_expression_to_matcher(view, &remote_expr),
         matched_local_targets,
         conflicted: args.conflicted,
         include_local_only: !args.tracked && args.remotes.is_none(),
         include_synced_remotes: args.tracked || args.all_remotes || args.remotes.is_some(),
         include_untracked_remotes: !args.tracked && (args.all_remotes || args.remotes.is_some()),
     };
-    let mut bookmark_list_items = commit_ref_list::collect_items(view.bookmarks(), &predicates);
+    let mut bookmark_list_items = commit_ref_list::collect_items(view, view.bookmarks(), &predicates).map_err(crate::command_error::user_error)?;
     let sort_keys = if args.sort.is_empty() {
         workspace_command.settings().get_value_with(
             "ui.bookmark-list-sort-keys",

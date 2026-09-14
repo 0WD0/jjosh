@@ -64,6 +64,7 @@ use jj_lib::op_store::OperationId;
 use jj_lib::op_store::RefTarget;
 use jj_lib::op_store::RemoteRef;
 use jj_lib::ref_name::RefName;
+use jj_lib::ref_name::RemoteRefSymbol;
 use jj_lib::ref_name::WorkspaceName;
 use jj_lib::ref_name::WorkspaceNameBuf;
 use jj_lib::repo::Repo;
@@ -86,6 +87,7 @@ use jj_lib::store::Store;
 use jj_lib::trailer;
 use jj_lib::trailer::Trailer;
 use jj_lib::ui_path::RepoPathUiConverter;
+use jj_lib::view::View;
 use jj_lib::workspace::DefaultWorkspaceLoaderFactory;
 use jj_lib::workspace::WorkspaceLoaderFactory as _;
 use jj_lib::workspace_store::WorkspaceStore as _;
@@ -1034,14 +1036,16 @@ pub struct CommitKeywordCache<'repo> {
 }
 
 impl<'repo> CommitKeywordCache<'repo> {
-    pub fn bookmarks_index(&self, repo: &dyn Repo) -> &Rc<CommitRefsIndex> {
-        self.bookmarks_index
-            .get_or_init(|| Rc::new(build_local_remote_refs_index(repo.view().bookmarks())))
+    pub fn bookmarks_index(&self, repo: &dyn Repo) -> Result<&Rc<CommitRefsIndex>, String> {
+        self.bookmarks_index.get_or_try_init(|| {
+            build_local_remote_refs_index(repo.view(), repo.view().bookmarks()).map(Rc::new)
+        })
     }
 
-    pub fn tags_index(&self, repo: &dyn Repo) -> &Rc<CommitRefsIndex> {
-        self.tags_index
-            .get_or_init(|| Rc::new(build_local_remote_refs_index(repo.view().tags())))
+    pub fn tags_index(&self, repo: &dyn Repo) -> Result<&Rc<CommitRefsIndex>, String> {
+        self.tags_index.get_or_try_init(|| {
+            build_local_remote_refs_index(repo.view(), repo.view().tags()).map(Rc::new)
+        })
     }
 
     pub fn git_refs_index(&self, repo: &dyn Repo) -> &Rc<CommitRefsIndex> {
@@ -1080,9 +1084,33 @@ fn builtin_commit_template_functions<'repo>()
             #[cfg(feature = "git")]
             let out_property = {
                 let repo = language.repo;
-                remote_property.map(move |remote_name| {
-                    crate::git_util::get_remote_web_url(repo.base_repo(), &remote_name)
-                        .unwrap_or_default()
+                let remotes = jj_lib::git::get_all_remote_names(repo.store()).unwrap_or_default();
+                remote_property.and_then(move |selector| {
+                    let view = repo.view();
+                    let (name, project) = crate::git_remote::parse_remote_selector_scope(
+                        view,
+                        &selector,
+                        None,
+                    )
+                    .map_err(|err| err.error)?;
+                    let name = jj_lib::ref_name::RemoteName::new(name);
+                    // A missing remote retains the best-effort empty result. Let the
+                    // model resolver diagnose ambiguous names or invalid metadata.
+                    let missing = remotes.iter().all(|remote| {
+                        match view.remote_in_scope(remote, project.as_ref()) {
+                            Ok(true) => view.remote_local_name(remote) != name,
+                            Ok(false) => true,
+                            Err(_) => false,
+                        }
+                    });
+                    if missing {
+                        return Ok(String::new());
+                    }
+                    let remote = view
+                        .resolve_remote_name(&remotes, project.as_ref(), name)
+                        .map_err(|err| TemplatePropertyError(err.into()))?;
+                    Ok(crate::git_util::get_remote_web_url(repo.base_repo(), remote.as_str())
+                        .unwrap_or_default())
                 })
             };
             #[cfg(not(feature = "git"))]
@@ -1204,6 +1232,7 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
             let index = language
                 .keyword_cache
                 .bookmarks_index(language.repo)
+                .map_err(|err| TemplateParseError::expression(err, function.name_span))?
                 .clone();
             let out_property =
                 self_property.map(move |commit| collect_distinct_refs(index.get(commit.id())));
@@ -1217,6 +1246,7 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
             let index = language
                 .keyword_cache
                 .bookmarks_index(language.repo)
+                .map_err(|err| TemplateParseError::expression(err, function.name_span))?
                 .clone();
             let out_property =
                 self_property.map(move |commit| collect_local_refs(index.get(commit.id())));
@@ -1230,6 +1260,7 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
             let index = language
                 .keyword_cache
                 .bookmarks_index(language.repo)
+                .map_err(|err| TemplateParseError::expression(err, function.name_span))?
                 .clone();
             let out_property =
                 self_property.map(move |commit| collect_remote_refs(index.get(commit.id())));
@@ -1240,7 +1271,11 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
         "tags",
         |language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
-            let index = language.keyword_cache.tags_index(language.repo).clone();
+            let index = language
+                .keyword_cache
+                .tags_index(language.repo)
+                .map_err(|err| TemplateParseError::expression(err, function.name_span))?
+                .clone();
             let out_property =
                 self_property.map(move |commit| collect_distinct_refs(index.get(commit.id())));
             Ok(out_property.into_dyn_wrapped())
@@ -1250,7 +1285,11 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
         "local_tags",
         |language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
-            let index = language.keyword_cache.tags_index(language.repo).clone();
+            let index = language
+                .keyword_cache
+                .tags_index(language.repo)
+                .map_err(|err| TemplateParseError::expression(err, function.name_span))?
+                .clone();
             let out_property =
                 self_property.map(move |commit| collect_local_refs(index.get(commit.id())));
             Ok(out_property.into_dyn_wrapped())
@@ -1260,7 +1299,11 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
         "remote_tags",
         |language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
-            let index = language.keyword_cache.tags_index(language.repo).clone();
+            let index = language
+                .keyword_cache
+                .tags_index(language.repo)
+                .map_err(|err| TemplateParseError::expression(err, function.name_span))?
+                .clone();
             let out_property =
                 self_property.map(move |commit| collect_remote_refs(index.get(commit.id())));
             Ok(out_property.into_dyn_wrapped())
@@ -2016,12 +2059,22 @@ impl CommitRefsIndex {
 }
 
 fn build_local_remote_refs_index<'a>(
+    view: &View,
     local_remote_refs: impl IntoIterator<Item = (&'a RefName, LocalRemoteRefTarget<'a>)>,
-) -> CommitRefsIndex {
+) -> Result<CommitRefsIndex, String> {
     let mut index = CommitRefsIndex::default();
     for (name, target) in local_remote_refs {
         let local_target = target.local_target;
-        let remote_refs = target.remote_refs;
+        let mut remote_refs = Vec::with_capacity(target.remote_refs.len());
+        for (remote, remote_ref) in target.remote_refs {
+            if revset::remote_ref_is_visible(view, RemoteRefSymbol { name, remote })? {
+                remote_refs.push((
+                    view.remote_ref_remote_name(RemoteRefSymbol { name, remote }),
+                    remote_ref,
+                ));
+            }
+        }
+        remote_refs.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
         if local_target.is_present() {
             let commit_ref = CommitRef::local(
                 name,
@@ -2030,12 +2083,12 @@ fn build_local_remote_refs_index<'a>(
             );
             index.insert(local_target.added_ids(), commit_ref);
         }
-        for &(remote_name, remote_ref) in &remote_refs {
+        for (remote_name, remote_ref) in remote_refs {
             let commit_ref = CommitRef::remote(name, remote_name, remote_ref.clone(), local_target);
             index.insert(remote_ref.target.added_ids(), commit_ref);
         }
     }
-    index
+    Ok(index)
 }
 
 fn build_commit_refs_index<'a, K: Into<String>>(

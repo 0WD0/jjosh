@@ -430,8 +430,32 @@ pub async fn show_op_diff(
         write_metadata_map_diff(formatter, "projects", &from.project_state.projects, &to.project_state.projects)?;
         write_metadata_map_diff(formatter, "project bindings", &from.project_state.bindings, &to.project_state.bindings)?;
         write_metadata_map_diff(formatter, "project labels", &from.project_state.labels, &to.project_state.labels)?;
-        write_metadata_map_diff(formatter, "remote connection owners", &from.remote_connections, &to.remote_connections)?;
-        write_metadata_map_diff(formatter, "conversion observations", &from.project_observations, &to.project_observations)?;
+        write_metadata_map_diff(formatter, "remote names", &from.project_state.remote_names, &to.project_state.remote_names)?;
+        write_metadata_map_diff_with_names(
+            formatter,
+            "remote connection owners",
+            &from.remote_connections,
+            &to.remote_connections,
+            |remote, added| {
+                let view = if added { to_repo.view() } else { from_repo.view() };
+                format!("{:?}", view.remote_qualified_name(remote))
+            },
+        )?;
+        write_metadata_map_diff_with_names(
+            formatter,
+            "conversion observations",
+            &from.project_observations,
+            &to.project_observations,
+            |key, added| {
+                let view = if added { to_repo.view() } else { from_repo.view() };
+                format!(
+                    "ObservationKey {{ remote: {:?}, name: {:?}, kind: {:?} }}",
+                    view.remote_qualified_name(&key.remote),
+                    key.name,
+                    key.kind,
+                )
+            },
+        )?;
         if from.project_state != to.project_state || from.remote_connections != to.remote_connections || from.project_observations != to.project_observations {
             for diagnostic in to_repo.view().project_diagnostics() {
                 writeln!(formatter, "Project state conflict: {diagnostic}")?;
@@ -540,7 +564,14 @@ pub async fn show_op_diff(
         for (symbol, (from_ref, to_ref)) in changed_remote_bookmarks {
             with_content_format
                 .write(formatter, async |formatter| {
-                    writeln!(formatter, "{symbol}:")?;
+                    write_remote_ref_heading(
+                        formatter,
+                        from_repo.view(),
+                        to_repo.view(),
+                        symbol,
+                        from_ref,
+                        to_ref,
+                    )?;
                     write_ref_target_summary(
                         formatter,
                         current_repo,
@@ -582,7 +613,14 @@ pub async fn show_op_diff(
         for (symbol, (from_ref, to_ref)) in changed_remote_tags {
             with_content_format
                 .write(formatter, async |formatter| {
-                    writeln!(formatter, "{symbol}:")?;
+                    write_remote_ref_heading(
+                        formatter,
+                        from_repo.view(),
+                        to_repo.view(),
+                        symbol,
+                        from_ref,
+                        to_ref,
+                    )?;
                     write_ref_target_summary(
                         formatter,
                         current_repo,
@@ -615,6 +653,16 @@ fn write_metadata_map_diff<K: Ord + std::fmt::Debug, V: Eq + std::fmt::Debug>(
     from: &std::collections::BTreeMap<K, V>,
     to: &std::collections::BTreeMap<K, V>,
 ) -> std::io::Result<()> {
+    write_metadata_map_diff_with_names(formatter, heading, from, to, |key, _| format!("{key:?}"))
+}
+
+fn write_metadata_map_diff_with_names<K: Ord, V: Eq + std::fmt::Debug>(
+    formatter: &mut dyn Formatter,
+    heading: &str,
+    from: &std::collections::BTreeMap<K, V>,
+    to: &std::collections::BTreeMap<K, V>,
+    name: impl Fn(&K, bool) -> String,
+) -> std::io::Result<()> {
     let mut written_heading = false;
     for key in from.keys().chain(to.keys()).collect::<std::collections::BTreeSet<_>>() {
         if from.get(key) == to.get(key) { continue; }
@@ -622,11 +670,42 @@ fn write_metadata_map_diff<K: Ord + std::fmt::Debug, V: Eq + std::fmt::Debug>(
             writeln!(formatter, "\nChanged {heading}:")?;
             written_heading = true;
         }
-        writeln!(formatter, "{key:?}:")?;
+        match (from.contains_key(key), to.contains_key(key)) {
+            (true, true) => {
+                let from_name = name(key, false);
+                let to_name = name(key, true);
+                if from_name == to_name {
+                    writeln!(formatter, "{to_name}:")?;
+                } else {
+                    writeln!(formatter, "{from_name} -> {to_name}:")?;
+                }
+            }
+            (true, false) => writeln!(formatter, "{}:", name(key, false))?,
+            _ => writeln!(formatter, "{}:", name(key, true))?,
+        }
         if let Some(value) = from.get(key) { writeln!(formatter, "  - {value:?}")?; }
         if let Some(value) = to.get(key) { writeln!(formatter, "  + {value:?}")?; }
     }
     Ok(())
+}
+
+fn write_remote_ref_heading(
+    formatter: &mut dyn Formatter,
+    from_view: &jj_lib::view::View,
+    to_view: &jj_lib::view::View,
+    symbol: jj_lib::ref_name::RemoteRefSymbol<'_>,
+    from_ref: &RemoteRef,
+    to_ref: &RemoteRef,
+) -> std::io::Result<()> {
+    let from_symbol = from_view.remote_ref_symbol(symbol);
+    let to_symbol = to_view.remote_ref_symbol(symbol);
+    if from_ref.target.is_absent() {
+        writeln!(formatter, "{to_symbol}:")
+    } else if to_ref.target.is_absent() || from_symbol == to_symbol {
+        writeln!(formatter, "{from_symbol}:")
+    } else {
+        writeln!(formatter, "{from_symbol} -> {to_symbol}:")
+    }
 }
 
 async fn write_elided_commit_counts(

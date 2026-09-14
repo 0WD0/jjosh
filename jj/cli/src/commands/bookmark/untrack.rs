@@ -80,7 +80,7 @@ pub async fn cmd_bookmark_untrack(
         // suppress unmatched remotes warning for default-ignored remote
         .filter(|name| view.get_remote_view(name).is_some());
 
-    let (bookmark_exprs, remote_symbols) = parse_name_patterns_or_remote_symbols(ui, &args.names)?;
+    let (bookmark_exprs, remote_symbols) = parse_name_patterns_or_remote_symbols(ui, repo.view(), &args.names)?;
     // Reject mixed syntax. It is confusing if the default @<remote> or
     // user-specified --remote flag applies only to <bookmark> patterns.
     if !bookmark_exprs.is_empty() && !remote_symbols.is_empty() {
@@ -102,9 +102,9 @@ pub async fn cmd_bookmark_untrack(
             (None, None) => StringExpression::all(),
         };
         let bookmark_matcher = bookmark_expr.to_matcher();
-        let remote_matcher = remote_expr.to_matcher();
+        let remote_matcher = jj_lib::revset::remote_name_expression_to_matcher(view, &remote_expr);
         let matched_refs =
-            trackable_remote_bookmarks_matching(view, &bookmark_matcher, &remote_matcher).collect();
+            trackable_remote_bookmarks_matching(view, &bookmark_matcher, &remote_matcher)?;
         warn_unmatched_local_or_remote_bookmarks(ui, view, &bookmark_expr)?;
         warn_unmatched_remotes(ui, view, &remote_expr)?;
         matched_refs
@@ -117,12 +117,12 @@ pub async fn cmd_bookmark_untrack(
             // bookmarks.
             writeln!(
                 ui.warning_default(),
-                "Git-tracking bookmark cannot be untracked: {symbol}"
+                "Git-tracking bookmark cannot be untracked: {}", view.remote_ref_symbol(symbol)
             )?;
         } else if !remote_ref.is_tracked() {
             writeln!(
                 ui.warning_default(),
-                "Remote bookmark not tracked yet: {symbol}"
+                "Remote bookmark not tracked yet: {}", view.remote_ref_symbol(symbol)
             )?;
         } else {
             symbols.push(symbol);
@@ -141,7 +141,7 @@ pub async fn cmd_bookmark_untrack(
     }
     tx.finish(
         ui,
-        format!("untrack remote bookmark {}", symbols.iter().join(", ")),
+        format!("untrack remote bookmark {}", symbols.iter().map(|symbol| view.remote_ref_symbol(*symbol)).join(", ")),
     )
     .await?;
     Ok(())
