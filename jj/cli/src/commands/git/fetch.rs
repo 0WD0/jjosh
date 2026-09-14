@@ -27,8 +27,10 @@ use jj_lib::git::IgnoredRefspecs;
 use jj_lib::git::expand_fetch_refspecs;
 use jj_lib::git::get_git_backend;
 use jj_lib::git::load_default_fetch_bookmarks;
+use jj_lib::project::BindingTarget;
 use jj_lib::ref_name::RefName;
 use jj_lib::ref_name::RemoteName;
+use jj_lib::ref_name::RemoteNameBuf;
 use jj_lib::repo::Repo as _;
 use jj_lib::str_util::StringExpression;
 
@@ -41,6 +43,7 @@ use crate::command_error::user_error;
 use crate::commands::git::get_single_remote;
 use crate::complete;
 use crate::git_remote::GitRemoteFetchOptions;
+use crate::git_remote::select_project_remote;
 use crate::git_util::GitSubprocessUi;
 use crate::git_util::load_git_import_options;
 use crate::git_util::print_git_import_stats;
@@ -51,9 +54,13 @@ use crate::ui::Ui;
 
 /// Fetch from a Git remote
 ///
-/// If no remotes are specified, fetches the remotes specified by the
-/// `git.fetch` setting. If that is not configured and there are multiple
-/// remotes, the remote named "origin" will be used.
+/// Explicit remotes take precedence over `git.fetch`. With `--project`, these
+/// selections must be bound to that project. Without either selection,
+/// `git.projects.<label>.fetch` supplies the project's default remote.
+///
+/// If no default is configured, uses the only candidate or the remote named
+/// "origin". Project fetches consider only that project's bound remotes;
+/// ordinary fetches consider all remotes.
 ///
 /// If no branches, tags, or revisions are specified, fetches bookmarks and tags
 /// specified by the `remotes.<name>.fetch-bookmarks`/`fetch-tags` settings. If
@@ -144,8 +151,15 @@ pub struct GitFetchArgs {
     #[arg(add = ArgValueCandidates::new(complete::git_remotes))]
     remotes: Option<Vec<String>>,
 
+    /// Fetch only from remotes bound to this project's display name
+    ///
+    /// Uses git.projects.<label>.fetch after --remote and git.fetch. The label
+    /// remains stable when the project's display name changes.
+    #[arg(long, value_name = "NAME")]
+    project: Option<String>,
+
     /// Fetch from all remotes
-    #[arg(long, conflicts_with = "remotes")]
+    #[arg(long, conflicts_with_all = ["remotes", "project"])]
     all_remotes: bool,
 }
 
@@ -164,10 +178,11 @@ pub async fn cmd_git_fetch(
         && (!args.revisions.is_empty()
             || args.deepen.is_some()
             || args.unshallow
+            || args.project.is_some()
             || args.fetch_url.is_some())
     {
         return Err(user_error(
-            "--revision, --deepen, --unshallow, and --fetch-url require capability jjosh-v1",
+            "--revision, --deepen, --unshallow, --fetch-url, and --project require capability jjosh-v1",
         ));
     }
     for revision in &args.revisions {
@@ -182,16 +197,21 @@ pub async fn cmd_git_fetch(
         fetch_url: args.fetch_url.clone(),
     };
     let mut workspace_command = command.workspace_helper(ui).await?;
+    let all_remotes = git::get_all_remote_names(workspace_command.repo().store())?;
+    let project_remotes = args
+        .project
+        .as_deref()
+        .map(|name| get_project_fetch_remotes(&workspace_command, name, &all_remotes))
+        .transpose()?;
     let remote_expr = if args.all_remotes {
         StringExpression::all()
     } else if let Some(remotes) = &args.remotes {
         parse_union_name_patterns(ui, remotes)?
     } else {
-        get_default_fetch_remotes(ui, &workspace_command)?
+        get_default_fetch_remotes(ui, &workspace_command, project_remotes.as_ref())?
     };
     let remote_matcher = remote_expr.to_matcher();
 
-    let all_remotes = git::get_all_remote_names(workspace_command.repo().store())?;
     let matching_remotes: Vec<&RemoteName> = all_remotes
         .iter()
         .filter(|r| remote_matcher.is_match(r.as_str()))
@@ -212,6 +232,18 @@ pub async fn cmd_git_fetch(
     }
     if matching_remotes.is_empty() {
         return Err(user_error("No git remotes to fetch from"));
+    }
+    if let Some((label, candidates)) = &project_remotes {
+        for remote in &matching_remotes {
+            if !candidates
+                .iter()
+                .any(|candidate| candidate.as_str() == remote.as_str())
+            {
+                return Err(user_error(format!(
+                    "Remote {remote:?} is not bound to project label {label:?}"
+                )));
+            }
+        }
     }
     if (!args.revisions.is_empty() || args.fetch_url.is_some()) && matching_remotes.len() != 1 {
         return Err(user_error(
@@ -391,6 +423,7 @@ const DEFAULT_REMOTE: &RemoteName = RemoteName::new("origin");
 fn get_default_fetch_remotes(
     ui: &Ui,
     workspace_command: &WorkspaceCommandHelper,
+    project_remotes: Option<&(String, Vec<RemoteNameBuf>)>,
 ) -> Result<StringExpression, CommandError> {
     const KEY: &str = "git.fetch";
     let settings = workspace_command.settings();
@@ -398,6 +431,14 @@ fn get_default_fetch_remotes(
         parse_union_name_patterns(ui, &remotes)
     } else if let Some(remote) = settings.get_string(KEY).optional()? {
         parse_union_name_patterns(ui, [&remote])
+    } else if let Some((label, candidates)) = project_remotes {
+        let remote = select_project_remote(
+            settings,
+            label,
+            candidates,
+            gix::remote::Direction::Fetch,
+        )?;
+        Ok(StringExpression::exact(remote))
     } else if let Some(remote) = get_single_remote(workspace_command.repo().store())? {
         // if nothing was explicitly configured, try to guess
         if remote != DEFAULT_REMOTE {
@@ -411,6 +452,52 @@ fn get_default_fetch_remotes(
     } else {
         Ok(StringExpression::exact(DEFAULT_REMOTE))
     }
+}
+
+fn get_project_fetch_remotes(
+    workspace_command: &WorkspaceCommandHelper,
+    name: &str,
+    all_remotes: &[RemoteNameBuf],
+) -> Result<(String, Vec<RemoteNameBuf>), CommandError> {
+    let state = workspace_command.repo().view().project_state();
+    let (project, _) = state.project_by_name(name).map_err(user_error)?;
+    let labels: Vec<_> = state
+        .labels
+        .iter()
+        .filter_map(|(label, value)| {
+            (value.as_resolved().and_then(Option::as_ref) == Some(&project)).then_some(label)
+        })
+        .collect();
+    let [label] = labels.as_slice() else {
+        return Err(user_error(
+            "Project transport requires one unambiguous registered reference label",
+        ));
+    };
+    // project_by_name validates this project's bindings, without requiring other
+    // projects to be healthy.
+    let connections: std::collections::BTreeSet<_> = state
+        .bindings
+        .values()
+        .filter_map(|value| value.as_resolved().and_then(Option::as_ref))
+        .filter(|record| matches!(&record.target, BindingTarget::Project(id) if id == &project))
+        .map(|record| &record.connection_id)
+        .collect();
+    let git_repo = git::get_git_repo(workspace_command.repo().store())?;
+    let config = git_repo.config_snapshot();
+    let mut candidates = Vec::new();
+    for remote in all_remotes {
+        // Only selected connections undergo ownership validation before transport.
+        let key = format!("remote.{}.jjosh-connectionId", remote.as_str());
+        if let Some(value) = config.string(&key)
+            && let Some(connection) = std::str::from_utf8(&value)
+                .ok()
+                .and_then(jj_lib::project::ConnectionId::try_from_hex)
+            && connections.contains(&connection)
+        {
+            candidates.push(remote.clone());
+        }
+    }
+    Ok(((*label).clone(), candidates))
 }
 
 fn warn_if_branches_not_found(

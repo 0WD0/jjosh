@@ -153,17 +153,10 @@ fn create_client(root: &Path, colocated: bool) -> PathBuf {
     client
 }
 
-fn import_project(
-    client: &Path,
-    project: &str,
-    mount: &str,
-    source: &Path,
-    filter: &str,
-    writable: bool,
-) {
+fn import_project(client: &Path, project: &str, mount: &str, source: &Path, filter: &str) {
     let remote = format!("{project}-upstream");
     jjosh(client, &["project", "add", project, "--path", mount]);
-    let mut args = vec![
+    let args = [
         "git",
         "remote",
         "add",
@@ -176,9 +169,6 @@ fn import_project(
         "--base",
         "main",
     ];
-    if writable {
-        args.push("--writable");
-    }
     jjosh(client, &args);
     jjosh(
         client,
@@ -294,20 +284,432 @@ fn raw_fetch_cannot_claim_registered_project_labels() {
 }
 
 #[test]
-fn display_rename_preserves_project_publication_label() {
+fn project_defaults_survive_display_and_remote_renames_and_clear_on_removal() {
     let temp = tempfile::tempdir().unwrap();
     let (_, source, _) = create_remote(temp.path(), "source");
+    let (_, beta, _) = create_remote(temp.path(), "beta");
     let client = create_client(temp.path(), false);
-    import_project(&client, "api", "packages/api", &source, ":/src", true);
+    import_project(&client, "api", "packages/api", &source, ":/src");
+    import_project(&client, "beta", "beta", &beta, ":/src");
+    jjosh(
+        &client,
+        &[
+            "git",
+            "remote",
+            "add",
+            "peer",
+            source.to_str().unwrap(),
+            "--like",
+            "api-upstream",
+        ],
+    );
+    for (label, remote) in [("api", "api-upstream"), ("beta", "beta-upstream")] {
+        for direction in ["fetch", "push"] {
+            jjosh(
+                &client,
+                &[
+                    "config",
+                    "set",
+                    "--repo",
+                    &format!("git.projects.{label}.{direction}"),
+                    remote,
+                ],
+            );
+        }
+    }
     jjosh(&client, &["project", "rename", "api", "service"]);
     jjosh(&client, &["project", "show", "service"]);
-    assert!(!jjosh_unchecked(&client, &["project", "show", "api"]).status.success());
-    fs::write(client.join("packages/api/value.txt"), "renamed project edit\n").unwrap();
+    assert!(
+        !jjosh_unchecked(&client, &["project", "show", "api"])
+            .status
+            .success()
+    );
+    git(&source, &["branch", "incoming", "main"]);
+    jjosh(
+        &client,
+        &[
+            "git",
+            "fetch",
+            "--project",
+            "service",
+            "--branch",
+            "incoming",
+        ],
+    );
+    assert_eq!(
+        file_at_revision(
+            &client,
+            "incoming#api@api-upstream",
+            "packages/api/value.txt"
+        ),
+        b"source-v1\n"
+    );
+    fs::write(
+        client.join("packages/api/value.txt"),
+        "renamed project edit\n",
+    )
+    .unwrap();
     jjosh(&client, &["describe", "-m", "edit renamed project"]);
-    jjosh(&client, &["git", "push", "--remote", "api-upstream",
-        "--named", "topic#api=@", "--allow-empty-description"]);
-    assert_eq!(git(&source, &["show", "topic:src/value.txt"]), "renamed project edit\n");
-    assert_eq!(git(&source, &["show", "topic:outside.txt"]), "source-outside\n");
+    jjosh(
+        &client,
+        &[
+            "git",
+            "push",
+            "--named",
+            "topic#api=@",
+            "--allow-empty-description",
+        ],
+    );
+    assert_eq!(
+        git(&source, &["show", "topic:src/value.txt"]),
+        "renamed project edit\n"
+    );
+    assert_eq!(
+        git(&source, &["show", "topic:outside.txt"]),
+        "source-outside\n"
+    );
+    jjosh(
+        &client,
+        &["git", "remote", "rename", "api-upstream", "primary"],
+    );
+    for direction in ["fetch", "push"] {
+        assert_eq!(
+            jjosh(
+                &client,
+                &["config", "get", &format!("git.projects.api.{direction}")]
+            )
+            .stdout,
+            b"primary\n"
+        );
+        assert_eq!(
+            jjosh(
+                &client,
+                &["config", "get", &format!("git.projects.beta.{direction}")]
+            )
+            .stdout,
+            b"beta-upstream\n"
+        );
+    }
+    git(&source, &["branch", "after-rename", "main"]);
+    jjosh(
+        &client,
+        &[
+            "git",
+            "fetch",
+            "--project",
+            "service",
+            "--branch",
+            "after-rename",
+        ],
+    );
+    assert_eq!(
+        file_at_revision(
+            &client,
+            "after-rename#api@primary",
+            "packages/api/value.txt"
+        ),
+        b"source-v1\n"
+    );
+    jjosh(
+        &client,
+        &[
+            "git",
+            "push",
+            "--named",
+            "renamed#api=@",
+            "--allow-empty-description",
+        ],
+    );
+    assert_eq!(
+        git(&source, &["show", "renamed:src/value.txt"]),
+        "renamed project edit\n"
+    );
+    jjosh(&client, &["git", "remote", "remove", "primary"]);
+    for direction in ["fetch", "push"] {
+        assert!(
+            !jjosh_unchecked(
+                &client,
+                &["config", "get", &format!("git.projects.api.{direction}")]
+            )
+            .status
+            .success()
+        );
+        assert_eq!(
+            jjosh(
+                &client,
+                &["config", "get", &format!("git.projects.beta.{direction}")]
+            )
+            .stdout,
+            b"beta-upstream\n"
+        );
+    }
+    // Removing the default leaves a usable sole peer, not a dangling pointer.
+    jjosh(
+        &client,
+        &[
+            "git",
+            "fetch",
+            "--project",
+            "service",
+            "--branch",
+            "incoming",
+        ],
+    );
+    assert_eq!(
+        file_at_revision(&client, "incoming#api@peer", "packages/api/value.txt"),
+        b"source-v1\n"
+    );
+    git(&beta, &["branch", "untouched", "main"]);
+    jjosh(
+        &client,
+        &["git", "fetch", "--project", "beta", "--branch", "untouched"],
+    );
+    assert_eq!(
+        file_at_revision(&client, "untouched#beta@beta-upstream", "beta/value.txt"),
+        b"beta-v1\n"
+    );
+}
+
+#[test]
+fn project_fetch_defaults_are_directional_and_validate_selected_bindings_before_transfer() {
+    let temp = tempfile::tempdir().unwrap();
+    let (_, source, _) = create_remote(temp.path(), "source");
+    let (_, mirror, _) = create_remote(temp.path(), "mirror");
+    let (_, beta, _) = create_remote(temp.path(), "beta");
+    let client = create_client(temp.path(), false);
+    import_project(&client, "api", "api", &source, ":/src");
+    import_project(&client, "beta", "beta", &beta, ":/src");
+    jjosh(
+        &client,
+        &["git", "remote", "rename", "beta-upstream", "origin"],
+    );
+    jjosh(
+        &client,
+        &[
+            "git",
+            "remote",
+            "add",
+            "mirror",
+            mirror.to_str().unwrap(),
+            "--like",
+            "api-upstream",
+        ],
+    );
+    for remote in [&source, &mirror, &beta] {
+        for branch in [
+            "incoming",
+            "explicit",
+            "global",
+            "forbidden",
+            "fallback",
+            "ordinary",
+        ] {
+            git(remote, &["branch", branch, "main"]);
+        }
+    }
+    jjosh(
+        &client,
+        &[
+            "config",
+            "set",
+            "--repo",
+            "git.projects.api.fetch",
+            "mirror",
+        ],
+    );
+    jjosh(
+        &client,
+        &[
+            "config",
+            "set",
+            "--repo",
+            "git.projects.api.push",
+            "missing",
+        ],
+    );
+    jjosh(
+        &client,
+        &[
+            "config",
+            "set",
+            "--repo",
+            "git.projects.beta.fetch",
+            "missing",
+        ],
+    );
+
+    // Neither the selected project's push setting nor another project's
+    // invalid fetch setting participates in this fetch.
+    jjosh(
+        &client,
+        &["git", "fetch", "--project", "api", "--branch", "incoming"],
+    );
+    assert_eq!(
+        file_at_revision(&client, "incoming#api@mirror", "api/value.txt"),
+        b"mirror-v1\n"
+    );
+    assert!(
+        !jjosh_unchecked(&client, &["log", "-r", "incoming#api@api-upstream"])
+            .status
+            .success()
+    );
+    assert!(
+        !jjosh_unchecked(&client, &["log", "-r", "incoming#beta@origin"])
+            .status
+            .success()
+    );
+
+    // Explicit selection wins even over a global setting outside the project.
+    jjosh(
+        &client,
+        &[
+            "--config",
+            "git.fetch=origin",
+            "--config",
+            "git.projects.api.fetch=missing",
+            "git",
+            "fetch",
+            "--project",
+            "api",
+            "--remote",
+            "api-upstream",
+            "--branch",
+            "explicit",
+        ],
+    );
+    assert_eq!(
+        file_at_revision(&client, "explicit#api@api-upstream", "api/value.txt"),
+        b"source-v1\n"
+    );
+    jjosh(
+        &client,
+        &[
+            "--config",
+            "git.fetch=[\"api-upstream\"]",
+            "--config",
+            "git.projects.api.fetch=missing",
+            "git",
+            "fetch",
+            "--project",
+            "api",
+            "--branch",
+            "global",
+        ],
+    );
+    assert_eq!(
+        file_at_revision(&client, "global#api@api-upstream", "api/value.txt"),
+        b"source-v1\n"
+    );
+
+    let git_dir = client.join(".jj/repo/store/git");
+    let refs = git(&git_dir, &["for-each-ref"]);
+    let operation = operation_id(&client);
+    for selection in [
+        vec!["--config", "git.projects.api.fetch=missing"],
+        vec!["--config", "git.projects.api.fetch=origin"],
+        vec!["--remote", "origin"],
+        vec!["--remote", "api-upstream", "--remote", "origin"],
+        vec!["--config", "git.fetch=[\"api-upstream\",\"origin\"]"],
+        vec!["--all-remotes"],
+    ] {
+        let mut args = vec!["git", "fetch", "--project", "api", "--branch", "forbidden"];
+        args.extend(selection);
+        assert!(!jjosh_unchecked(&client, &args).status.success());
+        assert_eq!(git(&git_dir, &["for-each-ref"]), refs);
+        assert_eq!(operation_id(&client), operation);
+    }
+
+    // Unconfigured project selection cannot borrow another project's origin.
+    jjosh(
+        &client,
+        &["config", "unset", "--repo", "git.projects.api.fetch"],
+    );
+    assert!(
+        !jjosh_unchecked(
+            &client,
+            &["git", "fetch", "--project", "api", "--branch", "fallback"]
+        )
+        .status
+        .success()
+    );
+    assert_eq!(git(&git_dir, &["for-each-ref"]), refs);
+    assert_eq!(operation_id(&client), operation);
+    jjosh(
+        &client,
+        &["git", "remote", "rename", "origin", "beta-upstream"],
+    );
+    jjosh(
+        &client,
+        &["git", "remote", "rename", "api-upstream", "origin"],
+    );
+    jjosh(
+        &client,
+        &["git", "fetch", "--project", "api", "--branch", "fallback"],
+    );
+    assert_eq!(
+        file_at_revision(&client, "fallback#api@origin", "api/value.txt"),
+        b"source-v1\n"
+    );
+
+    // Plain fetch keeps native origin selection, ignoring project settings.
+    jjosh(
+        &client,
+        &[
+            "config",
+            "set",
+            "--repo",
+            "git.projects.api.fetch",
+            "missing",
+        ],
+    );
+    jjosh(&client, &["git", "fetch", "--branch", "ordinary"]);
+    assert_eq!(
+        file_at_revision(&client, "ordinary#api@origin", "api/value.txt"),
+        b"source-v1\n"
+    );
+    // Conversely, a bad fetch default cannot block this project's push.
+    jjosh(
+        &client,
+        &["config", "set", "--repo", "git.projects.api.push", "origin"],
+    );
+    fs::write(client.join("api/value.txt"), "push independent of fetch\n").unwrap();
+    jjosh(&client, &["describe", "-m", "directional default"]);
+    jjosh(
+        &client,
+        &[
+            "git",
+            "push",
+            "--named",
+            "directional#api=@",
+            "--allow-empty-description",
+        ],
+    );
+    assert_eq!(
+        git(&source, &["show", "directional:src/value.txt"]),
+        "push independent of fetch\n"
+    );
+    assert_eq!(
+        git(
+            &mirror,
+            &[
+                "for-each-ref",
+                "--format=%(refname)",
+                "refs/heads/directional"
+            ]
+        ),
+        ""
+    );
+    assert_eq!(
+        git(
+            &beta,
+            &[
+                "for-each-ref",
+                "--format=%(refname)",
+                "refs/heads/directional"
+            ]
+        ),
+        ""
+    );
 }
 
 #[test]
@@ -315,7 +717,7 @@ fn recreated_remote_rejects_restored_observations_from_its_previous_instance() {
     let temp = tempfile::tempdir().unwrap();
     let (_, source, _) = create_remote(temp.path(), "source");
     let client = create_client(temp.path(), false);
-    import_project(&client, "api", "packages/api", &source, ":/src", false);
+    import_project(&client, "api", "packages/api", &source, ":/src");
     jjosh(&client, &["bookmark", "create", "local#api"]);
     let local = commit_id(&client, "local#api");
     let historical = operation_id(&client);
@@ -342,9 +744,24 @@ fn base_free_publication_uses_unique_ancestry_evidence_and_rejects_ambiguous_raw
     let (work, source, original) = create_remote(temp.path(), "source");
     let client = create_client(temp.path(), false);
     jjosh(&client, &["project", "add", "api", "--path", "api"]);
-    jjosh(&client, &["git", "remote", "add", "source", source.to_str().unwrap(),
-        "--project", "api", "--filter", ":/src", "--writable"]);
-    jjosh(&client, &["git", "fetch", "--remote", "source", "--branch", "main"]);
+    jjosh(
+        &client,
+        &[
+            "git",
+            "remote",
+            "add",
+            "source",
+            source.to_str().unwrap(),
+            "--project",
+            "api",
+            "--filter",
+            ":/src",
+        ],
+    );
+    jjosh(
+        &client,
+        &["git", "fetch", "--remote", "source", "--branch", "main"],
+    );
     jjosh(&client, &["new", "main#api@source", "-m", "new topic"]);
     fs::write(client.join("api/value.txt"), "topic edit\n").unwrap();
     jjosh(&client, &["describe", "-m", "new topic"]);
@@ -374,7 +791,7 @@ fn fetch_records_raw_advances_even_when_the_projected_target_is_unchanged() {
     let temp = tempfile::tempdir().unwrap();
     let (work, source, _) = create_remote(temp.path(), "source");
     let client = create_client(temp.path(), false);
-    import_project(&client, "api", "api", &source, ":/src", false);
+    import_project(&client, "api", "api", &source, ":/src");
     let canonical = commit_id(&client, "main#api@api-upstream");
     let observed = operation_id(&client);
     fs::write(work.join("outside.txt"), "new outside content\n").unwrap();
@@ -400,13 +817,43 @@ fn literal_source_base_retains_shallow_generation_after_deepening_and_restore() 
     let raw_tip = git(&source, &["rev-parse", "main"]).trim().to_owned();
     let client = create_client(temp.path(), false);
     jjosh(&client, &["project", "add", "api", "--path", "api"]);
-    jjosh(&client, &["git", "remote", "add", "source", source.to_str().unwrap(),
-        "--project", "api", "--filter", ":/src", "--writable"]);
-    let fetched = jjosh(&client, &["git", "fetch", "--remote", "source", "--revision", &raw_tip, "--depth", "1"]);
+    jjosh(
+        &client,
+        &[
+            "git",
+            "remote",
+            "add",
+            "source",
+            source.to_str().unwrap(),
+            "--project",
+            "api",
+            "--filter",
+            ":/src",
+        ],
+    );
+    let fetched = jjosh(
+        &client,
+        &[
+            "git",
+            "fetch",
+            "--remote",
+            "source",
+            "--revision",
+            &raw_tip,
+            "--depth",
+            "1",
+        ],
+    );
     let stderr = String::from_utf8(fetched.stderr).unwrap();
     let prefix = format!("Fetched revision {raw_tip} as ");
-    let canonical = stderr.lines().find_map(|line| line.strip_prefix(&prefix)).unwrap();
-    jjosh(&client, &["new", canonical, "-m", "continue shallow source"]);
+    let canonical = stderr
+        .lines()
+        .find_map(|line| line.strip_prefix(&prefix))
+        .unwrap();
+    jjosh(
+        &client,
+        &["new", canonical, "-m", "continue shallow source"],
+    );
     fs::write(client.join("api/value.txt"), "local continuation\n").unwrap();
     jjosh(&client, &["describe", "-m", "continue shallow source"]);
     jjosh(&client, &["bookmark", "create", "topic#api"]);
@@ -483,18 +930,66 @@ fn project_peers_use_their_own_external_layout_in_both_directions() {
     git(&flat_work, &["add", "."]);
     git(&flat_work, &["commit", "-m", "standalone source"]);
     let flat = temp.path().join("flat.git");
-    git(temp.path(), &["clone", "--bare", flat_work.to_str().unwrap(), flat.to_str().unwrap()]);
+    git(
+        temp.path(),
+        &[
+            "clone",
+            "--bare",
+            flat_work.to_str().unwrap(),
+            flat.to_str().unwrap(),
+        ],
+    );
     let client = create_client(temp.path(), false);
     jjosh(&client, &["project", "add", "pkg", "--path", "vendor/pkg"]);
-    jjosh(&client, &["git", "remote", "add", "upstream", upstream.to_str().unwrap(),
-        "--project", "pkg", "--filter", ":/src", "--base", "main"]);
-    jjosh(&client, &["git", "remote", "add", "flat", flat.to_str().unwrap(),
-        "--project", "pkg", "--whole", "--writable"]);
-    jjosh(&client, &["git", "fetch", "--remote", "upstream", "--branch", "main"]);
-    jjosh(&client, &["git", "fetch", "--remote", "flat", "--branch", "main"]);
-    assert_eq!(file_at_revision(&client, "main#pkg@upstream", "vendor/pkg/value.txt"), b"upstream-v1\n");
-    assert_eq!(file_at_revision(&client, "main#pkg@flat", "vendor/pkg/value.txt"), b"flat source\n");
-    jjosh(&client, &["new", "main#pkg@flat", "-m", "edit standalone project"]);
+    jjosh(
+        &client,
+        &[
+            "git",
+            "remote",
+            "add",
+            "upstream",
+            upstream.to_str().unwrap(),
+            "--project",
+            "pkg",
+            "--filter",
+            ":/src",
+            "--base",
+            "main",
+        ],
+    );
+    jjosh(
+        &client,
+        &[
+            "git",
+            "remote",
+            "add",
+            "flat",
+            flat.to_str().unwrap(),
+            "--project",
+            "pkg",
+            "--whole",
+        ],
+    );
+    jjosh(
+        &client,
+        &["git", "fetch", "--remote", "upstream", "--branch", "main"],
+    );
+    jjosh(
+        &client,
+        &["git", "fetch", "--remote", "flat", "--branch", "main"],
+    );
+    assert_eq!(
+        file_at_revision(&client, "main#pkg@upstream", "vendor/pkg/value.txt"),
+        b"upstream-v1\n"
+    );
+    assert_eq!(
+        file_at_revision(&client, "main#pkg@flat", "vendor/pkg/value.txt"),
+        b"flat source\n"
+    );
+    jjosh(
+        &client,
+        &["new", "main#pkg@flat", "-m", "edit standalone project"],
+    );
     fs::write(client.join("vendor/pkg/value.txt"), "edited flat\n").unwrap();
     jjosh(&client, &["describe", "-m", "edit standalone project"]);
     jjosh(&client, &["bookmark", "create", "topic#pkg"]);
@@ -514,39 +1009,6 @@ fn project_peers_use_their_own_external_layout_in_both_directions() {
 }
 
 #[test]
-fn reattachment_does_not_turn_an_invalid_read_only_policy_into_write_access() {
-    let temp = tempfile::tempdir().unwrap();
-    let (_, original, _) = create_remote(temp.path(), "original");
-    let client = create_client(temp.path(), false);
-    jjosh(&client, &["project", "add", "pkg", "--path", "pkg"]);
-    jjosh(
-        &client,
-        &["git", "remote", "add", "source", original.to_str().unwrap()],
-    );
-    jjosh(
-        &client,
-        &["git", "remote", "attach", "source", "--project", "pkg", "--whole"],
-    );
-    let git_path = String::from_utf8(jjosh(&client, &["git", "root"]).stdout).unwrap();
-    let git_path = Path::new(git_path.trim());
-    git(
-        git_path,
-        &["config", "remote.source.jjosh-readOnly", "invalid"],
-    );
-    let rejected = jjosh_unchecked(
-        &client,
-        &["git", "remote", "attach", "source", "--project", "pkg", "--whole"],
-    );
-    assert!(!rejected.status.success());
-    let rejected_push = jjosh_unchecked(
-        &client,
-        &["git", "push", "--remote", "source", "--named", "topic#pkg=@"],
-    );
-    assert!(!rejected_push.status.success());
-    assert_eq!(git(&original, &["for-each-ref", "--format=%(refname)", "refs/heads/topic"]), "");
-}
-
-#[test]
 fn marker_free_reattachment_preserves_edited_tree_and_full_history() {
     let temp = tempfile::tempdir().unwrap();
     let (work, bare, _) = create_remote(temp.path(), "reattach");
@@ -554,9 +1016,13 @@ fn marker_free_reattachment_preserves_edited_tree_and_full_history() {
     git(&work, &["commit", "-am", "upstream-v2"]);
     git(&work, &["push", bare.to_str().unwrap(), "main"]);
     let client = create_client(temp.path(), false);
-    import_project(&client, "deps", "vendor/deps", &bare, ":/src", true);
+    import_project(&client, "deps", "vendor/deps", &bare, ":/src");
     assert_eq!(
-        file_at_revision(&client, "parents(main#deps@deps-upstream)", "vendor/deps/value.txt"),
+        file_at_revision(
+            &client,
+            "parents(main#deps@deps-upstream)",
+            "vendor/deps/value.txt"
+        ),
         b"reattach-v1\n",
     );
     fs::write(client.join("vendor/deps/value.txt"), "maintained edit\n").unwrap();
@@ -636,7 +1102,7 @@ fn link_push_prunes_empty_exported_commits_regardless_of_revision_or_description
         &client,
         &["git", "init", "--no-colocate", "--object-hash", "sha1"],
     );
-    import_project(&client, "deps", "deps", &remote_bare, ":/src", true);
+    import_project(&client, "deps", "deps", &remote_bare, ":/src");
     // Prune only new publication history, never rewrite the pinned upstream.
     jjosh(
         &client,
@@ -816,7 +1282,7 @@ fn link_push_prunes_empty_branches_without_losing_meaningful_merges() {
         &client,
         &["git", "init", "--no-colocate", "--object-hash", "sha1"],
     );
-    import_project(&client, "deps", "deps", &remote_bare, ":/src", true);
+    import_project(&client, "deps", "deps", &remote_bare, ":/src");
     fs::write(client.join("deps/left.txt"), "left\n").unwrap();
     jjosh(
         &client,
@@ -905,7 +1371,7 @@ fn link_push_rewrites_published_changes_with_independent_destination_leases() {
     git(&client, &["add", "."]);
     git(&client, &["commit", "-m", "root"]);
     jjosh(&client, &["git", "init", "--colocate"]);
-    import_project(&client, "deps", "deps", &remote_bare, ":/src", true);
+    import_project(&client, "deps", "deps", &remote_bare, ":/src");
     jjosh(&client, &["new"]);
     fs::write(client.join("deps/value.txt"), "published-v1\n").unwrap();
     jjosh(&client, &["status"]);
@@ -1110,7 +1576,7 @@ fn link_push_rejects_external_advances_without_refreshing_its_lease() {
     git(&client, &["add", "."]);
     git(&client, &["commit", "-m", "root"]);
     jjosh(&client, &["git", "init", "--colocate"]);
-    import_project(&client, "deps", "deps", &remote_bare, ":/src", true);
+    import_project(&client, "deps", "deps", &remote_bare, ":/src");
     jjosh(&client, &["new"]);
     fs::write(client.join("deps/value.txt"), "published\n").unwrap();
     jjosh(&client, &["status"]);
@@ -1318,7 +1784,7 @@ fn source_update_refreshes_only_the_observed_publication_branch() {
     git(&client, &["add", "."]);
     git(&client, &["commit", "-m", "scaffold"]);
     jjosh(&client, &["git", "init", "--colocate"]);
-    import_project(&client, "deps", "deps", &remote_bare, ":/src", true);
+    import_project(&client, "deps", "deps", &remote_bare, ":/src");
     fs::write(client.join("deps/value.txt"), "published local change\n").unwrap();
     jjosh(&client, &["describe", "-m", "local change"]);
     jjosh(&client, &["bookmark", "track", "main#deps@deps-upstream"]);
@@ -1501,7 +1967,7 @@ fn named_remote_sync_ignores_redirected_or_malformed_link_metadata() {
     let (remote_work, remote_bare, _) = create_remote(temp.path(), "malformed");
     let (_other_work, other_bare, _) = create_remote(temp.path(), "other");
     let client = create_client(temp.path(), true);
-    import_project(&client, "deps", "deps", &remote_bare, ":/src", true);
+    import_project(&client, "deps", "deps", &remote_bare, ":/src");
     // Historical markers are ordinary tracked files, never remote configuration.
     let redirected_metadata = josh_core::filter::as_file(
         josh_core::filter::parse(":/src:prefix=deps")
@@ -1594,30 +2060,10 @@ fn selected_link_fetch_preserves_work_and_handles_tags_rewrites_and_deletions() 
             &["push", bare.to_str().unwrap(), "keep", "refs/tags/v1"],
         );
         let client = create_client(temp.path(), colocated);
-        import_project(&client, "deps", "deps", &bare, ":/src", false);
+        import_project(&client, "deps", "deps", &bare, ":/src");
         fs::write(client.join("deps/local.txt"), "local work\n").unwrap();
         let local = commit_id(&client, "@");
         let initial = commit_id(&client, "main#deps@deps-upstream");
-        // A project without an explicit write policy remains read-only, even though
-        // its fetch endpoint happens to be a writable local repository.
-        let readonly_refs = git(&bare, &["show-ref"]);
-        let readonly_operation = operation_id(&client);
-        let rejected = jjosh_unchecked(
-            &client,
-            &[
-                "git",
-                "push",
-                "--remote",
-                "deps-upstream",
-                "--named",
-                "readonly#deps=@",
-                "--allow-empty-description",
-            ],
-        );
-        assert!(!rejected.status.success());
-        assert_eq!(git(&bare, &["show-ref"]), readonly_refs);
-        assert_eq!(operation_id(&client), readonly_operation);
-        assert_eq!(commit_id(&client, "@"), local);
         fs::write(work.join("src/value.txt"), "upstream v2\n").unwrap();
         git(&work, &["commit", "-am", "v2"]);
         git(&work, &["push", bare.to_str().unwrap(), "main"]);
@@ -1810,7 +2256,6 @@ fn imported_soft_fork_attaches_upstream_without_reimporting_local_history() {
             "--whole",
             "--base",
             "main",
-            "--read-only",
         ],
     );
     jjosh(
@@ -1900,7 +2345,7 @@ fn link_add_names_observations_by_project_not_mount_path() {
     let temp = tempfile::tempdir().unwrap();
     let (_work, bare, _) = create_remote(temp.path(), "nested");
     let client = create_client(temp.path(), false);
-    import_project(&client, "deps", "vendor/deps", &bare, ":/src", false);
+    import_project(&client, "deps", "vendor/deps", &bare, ":/src");
     let names = String::from_utf8(
         jjosh(
             &client,
@@ -1934,7 +2379,7 @@ fn link_push_then_fetch_reuses_published_local_change() {
     let temp = tempfile::tempdir().unwrap();
     let (_work, remote_bare, _) = create_remote(temp.path(), "roundtrip");
     let client = create_client(temp.path(), false);
-    import_project(&client, "deps", "deps", &remote_bare, ":/src", true);
+    import_project(&client, "deps", "deps", &remote_bare, ":/src");
     jjosh(&client, &["new"]);
     fs::write(client.join("deps/value.txt"), "published\n").unwrap();
     jjosh(&client, &["describe", "-m", "published local change"]);
@@ -1988,7 +2433,7 @@ fn link_push_then_fetches_descendant_without_duplicate_published_change() {
     let temp = tempfile::tempdir().unwrap();
     let (work, remote_bare, _) = create_remote(temp.path(), "descendant");
     let client = create_client(temp.path(), false);
-    import_project(&client, "deps", "deps", &remote_bare, ":/src", true);
+    import_project(&client, "deps", "deps", &remote_bare, ":/src");
     jjosh(&client, &["new"]);
     fs::write(client.join("deps/value.txt"), "published\n").unwrap();
     jjosh(&client, &["describe", "-m", "published local change"]);
@@ -2055,7 +2500,7 @@ fn arbitrary_publication_requires_explicit_source_without_reinterpreting_literal
     let (_, publication, _) = create_remote(temp.path(), "publication");
     let client = create_client(temp.path(), false);
     for (name, source) in [("alpha", &alpha), ("beta", &beta)] {
-        import_project(&client, name, name, source, ":/src", false);
+        import_project(&client, name, name, source, ":/src");
     }
     fs::write(client.join("alpha/value.txt"), "alpha edit\n").unwrap();
     fs::write(client.join("beta/value.txt"), "beta edit\n").unwrap();
@@ -2183,12 +2628,18 @@ fn arbitrary_publication_requires_explicit_source_without_reinterpreting_literal
             "--allow-empty-description",
         ],
     );
-    assert_eq!(git(&publication, &["show", "unknown#missing:root.txt"]), "never publish the root\n");
-    assert_eq!(git(&publication, &["show", "unknown#missing:alpha/value.txt"]), "alpha edit\n");
+    assert_eq!(
+        git(&publication, &["show", "unknown#missing:root.txt"]),
+        "never publish the root\n"
+    );
+    assert_eq!(
+        git(&publication, &["show", "unknown#missing:alpha/value.txt"]),
+        "alpha edit\n"
+    );
 }
 
-fn add_routed_link(client: &Path, scope: &str, source: &Path, writable: bool) {
-    import_project(client, scope, scope, source, ":/src", writable);
+fn add_routed_link(client: &Path, scope: &str, source: &Path) {
+    import_project(client, scope, scope, source, ":/src");
     jjosh(
         client,
         &[
@@ -2200,42 +2651,68 @@ fn add_routed_link(client: &Path, scope: &str, source: &Path, writable: bool) {
 }
 
 #[test]
-fn automatic_push_routes_a_wildcard_without_leaking_other_projects() {
+fn project_push_defaults_route_a_wildcard_without_leaking_other_projects() {
     let temp = tempfile::tempdir().unwrap();
     let (_, alpha, _) = create_remote(temp.path(), "alpha");
     let (_, beta, _) = create_remote(temp.path(), "beta");
     let client = create_client(temp.path(), false);
-    add_routed_link(&client, "alpha", &alpha, false);
-    add_routed_link(&client, "beta", &beta, false);
-    // Keep the read-only source filters and bases intact. The independently
-    // attached writers have arbitrary names and win over the read-only sources.
-    for (scope, remote, source) in [
-        ("alpha", "source-one", &alpha),
-        ("beta", "source-two", &beta),
+    add_routed_link(&client, "alpha", &alpha);
+    add_routed_link(&client, "beta", &beta);
+    let alpha_publication = temp.path().join("alpha-publication.git");
+    let beta_publication = temp.path().join("beta-publication.git");
+    for (scope, source, destination) in [
+        ("alpha", &alpha, &alpha_publication),
+        ("beta", &beta, &beta_publication),
     ] {
+        git(
+            temp.path(),
+            &[
+                "clone",
+                "--bare",
+                source.to_str().unwrap(),
+                destination.to_str().unwrap(),
+            ],
+        );
+        let remote = format!("{scope}-publication");
         jjosh(
             &client,
             &[
                 "git",
                 "remote",
                 "add",
-                remote,
-                source.to_str().unwrap(),
-                "--filter",
-                ":/src",
-                "--project",
-                scope,
-                "--push-url",
-                source.to_str().unwrap(),
+                &remote,
+                destination.to_str().unwrap(),
+                "--like",
+                &format!("{scope}-upstream"),
             ],
         );
         jjosh(
             &client,
-            &["git", "fetch", "--remote", remote, "--branch", "main"],
+            &["git", "fetch", "--remote", &remote, "--branch", "main"],
         );
         jjosh(
             &client,
             &["bookmark", "track", &format!("main#{scope}@{remote}")],
+        );
+        jjosh(
+            &client,
+            &[
+                "config",
+                "set",
+                "--repo",
+                &format!("git.projects.{scope}.push"),
+                &remote,
+            ],
+        );
+        jjosh(
+            &client,
+            &[
+                "config",
+                "set",
+                "--repo",
+                &format!("git.projects.{scope}.fetch"),
+                "missing",
+            ],
         );
     }
     fs::write(client.join("alpha/value.txt"), "alpha edit\n").unwrap();
@@ -2250,7 +2727,7 @@ fn automatic_push_routes_a_wildcard_without_leaking_other_projects() {
     let alpha_refs = git(&alpha, &["show-ref"]);
     let beta_refs = git(&beta, &["show-ref"]);
     let operation = operation_id(&client);
-    let preview = jjosh(
+    jjosh(
         &client,
         &[
             "git",
@@ -2261,19 +2738,10 @@ fn automatic_push_routes_a_wildcard_without_leaking_other_projects() {
             "--dry-run",
         ],
     );
-    let preview = String::from_utf8_lossy(&preview.stderr);
-    for (scope, remote) in [("alpha", "source-one"), ("beta", "source-two")] {
-        assert!(
-            preview.lines().any(|line| {
-                line.contains(&format!("main#{scope}"))
-                    && line.contains(remote)
-                    && line.contains("refs/heads/main")
-            }),
-            "missing routing for {scope} in:\n{preview}"
-        );
-    }
     assert_eq!(git(&alpha, &["show-ref"]), alpha_refs);
     assert_eq!(git(&beta, &["show-ref"]), beta_refs);
+    assert_eq!(git(&alpha_publication, &["show-ref"]), alpha_refs);
+    assert_eq!(git(&beta_publication, &["show-ref"]), beta_refs);
     assert_eq!(operation_id(&client), operation);
 
     jjosh(
@@ -2287,8 +2755,8 @@ fn automatic_push_routes_a_wildcard_without_leaking_other_projects() {
         ],
     );
     for (scope, remote, source) in [
-        ("alpha", "source-one", &alpha),
-        ("beta", "source-two", &beta),
+        ("alpha", "alpha-publication", &alpha_publication),
+        ("beta", "beta-publication", &beta_publication),
     ] {
         assert_eq!(
             git(source, &["show", "main:src/value.txt"]),
@@ -2307,81 +2775,8 @@ fn automatic_push_routes_a_wildcard_without_leaking_other_projects() {
             commit_id(&client, &format!("main#{scope}"))
         );
     }
-}
-
-#[test]
-fn automatic_push_allows_unchanged_readonly_refs_but_preflights_updates() {
-    let temp = tempfile::tempdir().unwrap();
-    let (_, alpha, _) = create_remote(temp.path(), "alpha");
-    let (_, beta, _) = create_remote(temp.path(), "beta");
-    let client = create_client(temp.path(), false);
-    add_routed_link(&client, "alpha", &alpha, true);
-    add_routed_link(&client, "beta", &beta, false);
-    fs::write(client.join("alpha/value.txt"), "alpha published\n").unwrap();
-    jjosh(&client, &["describe", "-m", "edit writable project"]);
-    jjosh(&client, &["bookmark", "set", "main#alpha", "-r", "@"]);
-    let beta_refs = git(&beta, &["show-ref"]);
-    let operation = operation_id(&client);
-    let preview = jjosh(
-        &client,
-        &[
-            "git",
-            "push",
-            "--bookmark",
-            "main#*",
-            "--dry-run",
-            "--allow-empty-description",
-        ],
-    );
-    let preview = String::from_utf8_lossy(&preview.stderr);
-    assert!(
-        preview.lines().any(|line| {
-            line.contains("main#beta")
-                && line.contains("beta-upstream")
-                && line.contains("refs/heads/main")
-        }),
-        "unchanged read-only destination missing:\n{preview}"
-    );
-    assert_eq!(operation_id(&client), operation);
-    jjosh(
-        &client,
-        &[
-            "git",
-            "push",
-            "--bookmark",
-            "main#*",
-            "--allow-empty-description",
-        ],
-    );
-    assert_eq!(git(&beta, &["show-ref"]), beta_refs);
-    assert_eq!(
-        git(&alpha, &["show", "main:src/value.txt"]),
-        "alpha published\n"
-    );
-
-    jjosh(&client, &["new", "-m", "edit both projects"]);
-    fs::write(client.join("alpha/value.txt"), "alpha blocked\n").unwrap();
-    fs::write(client.join("beta/value.txt"), "beta blocked\n").unwrap();
-    jjosh(
-        &client,
-        &["bookmark", "set", "main#alpha", "main#beta", "-r", "@"],
-    );
-    let alpha_refs = git(&alpha, &["show-ref"]);
-    let operation = operation_id(&client);
-    let rejected = jjosh_unchecked(
-        &client,
-        &[
-            "git",
-            "push",
-            "--bookmark",
-            "main#*",
-            "--allow-empty-description",
-        ],
-    );
-    assert!(!rejected.status.success());
     assert_eq!(git(&alpha, &["show-ref"]), alpha_refs);
     assert_eq!(git(&beta, &["show-ref"]), beta_refs);
-    assert_eq!(operation_id(&client), operation);
 }
 
 #[test]
@@ -2391,22 +2786,25 @@ fn automatic_push_rejects_selected_ambiguous_and_missing_routes_only() {
     let (_, beta, _) = create_remote(temp.path(), "beta");
     let (_, fork, _) = create_remote(temp.path(), "fork");
     let client = create_client(temp.path(), false);
-    add_routed_link(&client, "alpha", &alpha, true);
-    add_routed_link(&client, "beta", &beta, true);
+    add_routed_link(&client, "alpha", &alpha);
+    add_routed_link(&client, "beta", &beta);
+    jjosh(
+        &client,
+        &["git", "remote", "rename", "alpha-upstream", "origin"],
+    );
     jjosh(
         &client,
         &[
             "git",
             "remote",
             "add",
-            "second-writer",
+            "fork+origin",
+            fork.to_str().unwrap(),
+            "--like",
+            "beta-upstream",
+            "--push-url",
             fork.to_str().unwrap(),
         ],
-    );
-    jjosh(
-        &client,
-        &["git", "remote", "attach", "second-writer", "--project", "beta",
-            "--like", "beta-upstream", "--writable"],
     );
     fs::write(client.join("alpha/value.txt"), "alpha edit\n").unwrap();
     fs::write(client.join("beta/value.txt"), "beta edit\n").unwrap();
@@ -2434,6 +2832,27 @@ fn automatic_push_rejects_selected_ambiguous_and_missing_routes_only() {
     assert_eq!(git(&beta, &["show-ref"]), beta_refs);
     assert_eq!(git(&fork, &["show-ref"]), fork_refs);
     assert_eq!(operation_id(&client), operation);
+    // A missing alias and another project's origin must both reject before
+    // the healthy alpha route publishes anything.
+    for default in ["missing", "origin"] {
+        let rejected = jjosh_unchecked(
+            &client,
+            &[
+                "--config",
+                &format!("git.projects.beta.push={default}"),
+                "git",
+                "push",
+                "--bookmark",
+                "main#*",
+                "--allow-empty-description",
+            ],
+        );
+        assert!(!rejected.status.success());
+        assert_eq!(git(&alpha, &["show-ref"]), alpha_refs);
+        assert_eq!(git(&beta, &["show-ref"]), beta_refs);
+        assert_eq!(git(&fork, &["show-ref"]), fork_refs);
+        assert_eq!(operation_id(&client), operation);
+    }
 
     jjosh(&client, &["project", "add", "missing", "--path", "missing"]);
     jjosh(&client, &["bookmark", "create", "main#missing", "-r", "@"]);
@@ -2456,10 +2875,12 @@ fn automatic_push_rejects_selected_ambiguous_and_missing_routes_only() {
     assert_eq!(git(&fork, &["show-ref"]), fork_refs);
     assert_eq!(operation_id(&client), operation);
 
-    // Neither an ambiguous nor an unknown unselected scope blocks this batch.
+    // Invalid defaults and unknown unselected scopes do not block this batch.
     jjosh(
         &client,
         &[
+            "--config",
+            "git.projects.beta.push=missing",
             "git",
             "push",
             "--bookmark",
@@ -2478,8 +2899,8 @@ fn automatic_push_prepares_later_remote_leases_before_publishing_first() {
     let (_, alpha, _) = create_remote(temp.path(), "alpha");
     let (beta_work, beta, _) = create_remote(temp.path(), "beta");
     let client = create_client(temp.path(), false);
-    add_routed_link(&client, "alpha", &alpha, true);
-    add_routed_link(&client, "beta", &beta, true);
+    add_routed_link(&client, "alpha", &alpha);
+    add_routed_link(&client, "beta", &beta);
     fs::write(client.join("alpha/value.txt"), "alpha published\n").unwrap();
     fs::write(client.join("beta/value.txt"), "beta published\n").unwrap();
     jjosh(&client, &["describe", "-m", "publish both projects"]);
@@ -2534,8 +2955,8 @@ fn automatic_push_preserves_all_tracked_and_deleted_selection_boundaries() {
     let (_, alpha, _) = create_remote(temp.path(), "alpha");
     let (_, beta, _) = create_remote(temp.path(), "beta");
     let client = create_client(temp.path(), false);
-    add_routed_link(&client, "alpha", &alpha, true);
-    add_routed_link(&client, "beta", &beta, true);
+    add_routed_link(&client, "alpha", &alpha);
+    add_routed_link(&client, "beta", &beta);
     fs::write(client.join("alpha/value.txt"), "alpha topic\n").unwrap();
     fs::write(client.join("beta/value.txt"), "beta topic\n").unwrap();
     jjosh(&client, &["describe", "-m", "new topics"]);
@@ -2590,12 +3011,171 @@ fn automatic_push_preserves_all_tracked_and_deleted_selection_boundaries() {
 }
 
 #[test]
+fn project_push_uses_only_bound_origin_after_explicit_and_configured_defaults() {
+    let temp = tempfile::tempdir().unwrap();
+    let (_, upstream, _) = create_remote(temp.path(), "upstream");
+    let (_, fork, _) = create_remote(temp.path(), "fork");
+    let client = create_client(temp.path(), false);
+    import_project(&client, "api", "api", &upstream, ":/src");
+    jjosh(
+        &client,
+        &["git", "remote", "rename", "api-upstream", "primary"],
+    );
+    jjosh(
+        &client,
+        &["git", "remote", "add", "fork", upstream.to_str().unwrap()],
+    );
+    jjosh(
+        &client,
+        &[
+            "git",
+            "remote",
+            "attach",
+            "fork",
+            "--project",
+            "api",
+            "--like",
+            "primary",
+        ],
+    );
+    jjosh(
+        &client,
+        &["git", "fetch", "--remote", "fork", "--branch", "main"],
+    );
+    fs::write(client.join("api/value.txt"), "project review\n").unwrap();
+    fs::write(client.join("root.txt"), "private overlay\n").unwrap();
+    jjosh(&client, &["describe", "-m", "project review"]);
+    jjosh(&client, &["bookmark", "create", "review#api"]);
+    let upstream_refs = git(&upstream, &["show-ref"]);
+    let fork_refs = git(&fork, &["show-ref"]);
+
+    // Identical endpoints do not disambiguate aliases without a bound origin.
+    for destination in [&upstream, &fork] {
+        jjosh(
+            &client,
+            &[
+                "git",
+                "remote",
+                "set-url",
+                "fork",
+                "--push",
+                destination.to_str().unwrap(),
+            ],
+        );
+        let operation = operation_id(&client);
+        let rejected = jjosh_unchecked(
+            &client,
+            &[
+                "git",
+                "push",
+                "--bookmark",
+                "review#api",
+                "--allow-empty-description",
+            ],
+        );
+        assert!(!rejected.status.success());
+        assert_eq!(git(&upstream, &["show-ref"]), upstream_refs);
+        assert_eq!(git(&fork, &["show-ref"]), fork_refs);
+        assert_eq!(operation_id(&client), operation);
+    }
+    jjosh(&client, &["git", "remote", "rename", "primary", "origin"]);
+    jjosh(
+        &client,
+        &[
+            "git",
+            "push",
+            "--bookmark",
+            "review#api",
+            "--allow-empty-description",
+        ],
+    );
+    assert_eq!(
+        git(&upstream, &["show", "review:src/value.txt"]),
+        "project review\n"
+    );
+    assert_eq!(git(&fork, &["show-ref"]), fork_refs);
+    jjosh(&client, &["bookmark", "create", "explicit#api"]);
+
+    // Explicit remote selection overrides both global and project defaults.
+    jjosh(
+        &client,
+        &[
+            "--config",
+            "git.push=fork",
+            "--config",
+            "git.projects.api.push=fork",
+            "git",
+            "push",
+            "--remote",
+            "origin",
+            "--bookmark",
+            "explicit#api",
+            "--allow-empty-description",
+        ],
+    );
+    assert_eq!(git(&fork, &["show-ref"]), fork_refs);
+    assert_eq!(
+        git(&upstream, &["show", "explicit:src/value.txt"]),
+        "project review\n"
+    );
+    let upstream_refs = git(&upstream, &["show-ref"]);
+    // A project default also wins over its own bound origin.
+    jjosh(
+        &client,
+        &[
+            "--config",
+            "git.projects.api.push=fork",
+            "git",
+            "push",
+            "--named",
+            "default#api=@",
+            "--allow-empty-description",
+        ],
+    );
+    assert_eq!(
+        git(&fork, &["show", "default:src/value.txt"]),
+        "project review\n"
+    );
+    assert_eq!(git(&upstream, &["show-ref"]), upstream_refs);
+
+    // Global selection overrides even an invalid project default.
+    jjosh(&client, &["bookmark", "track", "review#api@fork"]);
+    jjosh(
+        &client,
+        &[
+            "--config",
+            "git.push=fork",
+            "--config",
+            "git.projects.api.push=missing",
+            "git",
+            "push",
+            "--bookmark",
+            "review#api",
+            "--allow-empty-description",
+        ],
+    );
+    assert_eq!(git(&upstream, &["show-ref"]), upstream_refs);
+    assert_eq!(
+        git(&fork, &["show", "review:src/value.txt"]),
+        "project review\n"
+    );
+    assert_eq!(
+        git(&fork, &["show", "review:outside.txt"]),
+        "upstream-outside\n"
+    );
+    assert_eq!(
+        git(&fork, &["ls-tree", "-r", "--name-only", "review"]),
+        "outside.txt\nsrc/value.txt\n",
+    );
+}
+
+#[test]
 fn configured_push_overrides_scope_routes_and_unscoped_refs_use_origin() {
     let temp = tempfile::tempdir().unwrap();
     let (_, alpha, _) = create_remote(temp.path(), "alpha");
     let (_, publication, _) = create_remote(temp.path(), "publication");
     let client = create_client(temp.path(), false);
-    add_routed_link(&client, "alpha", &alpha, true);
+    add_routed_link(&client, "alpha", &alpha);
     jjosh(
         &client,
         &[
@@ -2672,8 +3252,8 @@ fn automatic_push_rejects_wire_collisions_across_remote_aliases() {
     let (_, alpha, _) = create_remote(temp.path(), "alpha");
     let (_, beta, _) = create_remote(temp.path(), "beta");
     let client = create_client(temp.path(), false);
-    add_routed_link(&client, "alpha", &alpha, true);
-    add_routed_link(&client, "beta", &beta, true);
+    add_routed_link(&client, "alpha", &alpha);
+    add_routed_link(&client, "beta", &beta);
     fs::write(client.join("alpha/value.txt"), "alpha publication\n").unwrap();
     fs::write(client.join("beta/value.txt"), "beta publication\n").unwrap();
     jjosh(
@@ -2740,13 +3320,13 @@ fn add_tag_project(client: &Path, scope: &str, work: &Path, bare: &Path, native:
             &["git", "remote", "add", &remote, bare.to_str().unwrap()],
         );
         jjosh(client, &["git", "remote", "attach", &remote, "--project", scope,
-            "--whole", "--writable"]);
+            "--whole"]);
         jjosh(
             client,
             &["git", "fetch", "--remote", &remote, "--branch", "main"],
         );
     } else {
-        add_routed_link(client, scope, bare, true);
+        add_routed_link(client, scope, bare);
     }
 }
 
@@ -3131,8 +3711,8 @@ fn signed_scoped_tag_preflight_prevents_sibling_branch_publication() {
     let (_, alpha, _) = create_remote(temp.path(), "alpha");
     let (_, beta, _) = create_remote(temp.path(), "beta");
     let client = create_client(temp.path(), false);
-    add_routed_link(&client, "alpha", &alpha, true);
-    add_routed_link(&client, "beta", &beta, true);
+    add_routed_link(&client, "alpha", &alpha);
+    add_routed_link(&client, "beta", &beta);
     fs::write(client.join("alpha/value.txt"), "must not publish\n").unwrap();
     jjosh(&client, &["describe", "-m", "signed release"]);
     jjosh(&client, &["bookmark", "set", "main#alpha"]);
@@ -3192,7 +3772,7 @@ fn annotation_only_remote_replacement_requires_a_fresh_tag_lease() {
     let temp = tempfile::tempdir().unwrap();
     let (_, source, tip) = create_remote(temp.path(), "alpha");
     let client = create_client(temp.path(), false);
-    add_routed_link(&client, "alpha", &source, true);
+    add_routed_link(&client, "alpha", &source);
     let original = tag_object(&source, &tip, "commit", "v1.0", "original annotation\n");
     git(&source, &["update-ref", "refs/tags/v1.0", &original]);
     jjosh(
@@ -3253,7 +3833,7 @@ fn signed_transformed_fetch_does_not_grant_sibling_observations_or_leases() {
     let temp = tempfile::tempdir().unwrap();
     let (_, source, tip) = create_remote(temp.path(), "alpha");
     let client = create_client(temp.path(), false);
-    add_routed_link(&client, "alpha", &source, true);
+    add_routed_link(&client, "alpha", &source);
     let git_dir = PathBuf::from(
         String::from_utf8(jjosh(&client, &["git", "root"]).stdout)
             .unwrap()

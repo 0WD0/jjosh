@@ -132,13 +132,16 @@ label 在 operation 状态中保存，项目显示名可以独立修改。因此
 
 这些 ID 的作用域是当前仓库。相同名字或 URL 不会自动建立跨仓库身份对应。
 
-remote 的 URL、push URL、认证和写权限属于本地连接配置。一个连接实例最多关联一个活动绑定；多个项目使用同一外部仓库时，通过不同 remote 别名配置。
+remote 的 URL、push URL 和认证属于本地连接配置。一个连接实例最多关联一个活动绑定；多个项目使用同一外部仓库时，通过不同 remote 别名配置。
 set-url 调整连接地址，绑定仍保留原来的项目和表示。
 
 ConnectionId 使操作恢复能够区分“原来的 origin”和“删除后重新创建的 origin”。
 恢复出的绑定仍关联原连接实例；连接已不存在时显示为未连接，开发者可显式处理旧绑定和远端记录。
 
 地址也有自己的身份。来源对象、浅边界和发布 lease 按实际 endpoint 定位；同一个连接可以先后访问不同地址，不同连接也可能访问同一个地址。
+
+默认目的地是本地连接选择的一部分：=git.projects.LABEL.fetch= 与 =git.projects.LABEL.push= 分别保存一个 remote 别名。
+配置按稳定的引用 label 定位项目，项目改显示名时仍然有效。仓库内的配置随 remote rename/remove 更新，用户级配置独立维护。
 
 * 一次获取留下什么
 
@@ -185,7 +188,8 @@ ConnectionId 使操作恢复能够区分“原来的 origin”和“删除后重
 - *写入目标*：实际发布地址、完整 wire ref 和预期旧对象 ID。
 
 目的 remote 有匹配绑定时，使用它自己的表示。向未绑定目的地导出时，用 =--source= 明确选择来源关系。
-自动路由则根据项目的可写绑定选出目的 remote；存在多个候选时由用户指定。
+发布目的地优先采用 =--remote=，其次采用 =git.push=。两者均未指定时，按项目 label 读取 =git.projects.LABEL.push=；没有配置则选择项目唯一的绑定连接，或绑定到该项目的 =origin=，否则报告歧义。
+指定的项目默认值必须属于本项目；未知或跨项目的值报错。获取通过 =git fetch --project NAME= 选择项目，采用相同顺序及独立的 =fetch= 配置；普通 fetch 和普通引用保留仓库级选择规则。
 
 转换和传输预检完成后，计划中的 expected-old 就是提交给目标服务器的精确旧 Git 对象 ID。
 已知目标状态保存在 endpoint/ref 的 lease 中。这个状态独立于本地 canonical commit：即使两个 fork 转换出相同版本，它们仍有各自的更新依据。
@@ -194,7 +198,7 @@ annotated tag 的 lease 使用 tag 对象本身的 ID，从而覆盖只改变注
 所有选中项先完成转换、可发布性检查和 endpoint/ref 碰撞检查，再开始写入远端。
 dry-run 展示这一份已准备计划，包括新 raw target。网络发布可能部分成功，系统只为独立确认的结果更新本地发布记录。
 
-转换 remote 的本地写权限控制 jjosh 是否允许发起发布。服务器负责实际访问授权；原生 Git 直接访问外部仓库时不会经过项目转换。
+项目绑定只描述转换。push 使用配置的 push URL，未配置时使用普通 URL；服务器负责访问授权。原生 Git 直接访问外部仓库时不会经过项目转换。
 
 * 操作历史与恢复
 
@@ -204,7 +208,8 @@ dry-run 展示这一份已准备计划，包括新 raw target。网络发布可�
 |------+----------+----------|
 | 项目、绑定、label、本地引用 | operation View | op restore 的 repo 部分 |
 | 远端引用、tracking、连接归属、转换观察 | operation View | op restore 的 remote-tracking 部分 |
-| 地址、认证、写权限、连接实例配置 | 本地 Git config | 本地连接管理 |
+| 地址、认证、连接实例配置 | 本地 Git config | 本地连接管理 |
+| 项目默认获取／发布 remote | 本地 jj 配置 | config 与 remote 生命周期管理 |
 | 来源对象、normalization、转换对应关系、发布 lease | backend 与来源存储 | 按历史和外部结果保留 |
 
 op restore 重建选定的本地历史状态，已经发生的外部发布仍然有效。
@@ -245,7 +250,7 @@ GC 将保留 View 中转换观察引用的 canonical commits 纳入根集合。
 
 native bundle v2 携带原生开发图及项目、绑定、label、连接归属和观察元数据。
 project import 将来源开发图放进一个新外层项目，建立这个项目的定义和离线原生对应关系。
-bundle 中的内部项目元数据描述来源的组织方式；目标仓库的活动连接、URL、认证和发布权限通过本地 remote 单独配置。
+bundle 中的内部项目元数据描述来源的组织方式；目标仓库的活动连接、URL 和认证通过本地 remote 单独配置。
 
 将一个多项目来源按内部项目逐个重映射，涉及源/目标身份、目录、label 和绑定的对应关系，是独立的导入契约。
 普通 Git clone 运输 Git 历史，完整 jj 仓库备份则承担 operation history 等状态的保存。

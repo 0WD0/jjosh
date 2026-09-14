@@ -220,8 +220,8 @@ pub(super) async fn prepare(
 ) -> Result<Box<dyn GitPreparedPush>, CommandError> {
     let canonical = jj_lib::git::prepare_push_refs(repo, &session.name, targets)?;
     let git = jj_lib::git::get_git_backend(repo.store())?.git_repo();
-    // Resolve the actual selected receive-pack endpoint, including writability,
-    // before conversion. Native source workspaces are not publication endpoints.
+    // Resolve the actual selected receive-pack endpoint before conversion.
+    // Native source workspaces are not publication endpoints.
     let remote = session.remote(&git, Direction::Push).map_err(user_error)?;
     let push_endpoint =
         super::remote_endpoint(&remote, Direction::Push, false).map_err(user_error)?;

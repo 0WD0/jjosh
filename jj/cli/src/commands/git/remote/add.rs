@@ -74,12 +74,30 @@ pub async fn cmd_git_remote_add(
     journal.expect_remote(&args.remote, true, Some(&connection), binding.is_some())?;
     let mut tx = workspace_command.start_transaction();
     git::add_remote(tx.repo_mut(), &args.remote, &url, push_url.as_deref())?;
-    let mut keys = vec![(args.remote.clone(), "jjosh-connectionId".into(), Some(connection.hex()))];
+    let mut keys = vec![(
+        args.remote.clone(),
+        "jjosh-connectionId".into(),
+        Some(connection.hex()),
+    )];
     if let Some(binding) = binding {
-        keys.push((args.remote.clone(), "jjosh-requiredCapability".into(), Some("jjosh-v1".into())));
-        keys.push((args.remote.clone(), "jjosh-readOnly".into(), Some((args.binding.read_only || (!args.binding.writable && push_url.is_none())).to_string())));
-        tx.repo_mut().view_mut().project_state_mut().bindings.insert(BindingId::generate(), Merge::resolved(Some(binding)));
-        tx.repo_mut().view_mut().store_view_mut().remote_connections.insert(args.remote.clone(), Merge::resolved(Some(connection.clone())));
+        keys.push((
+            args.remote.clone(),
+            "jjosh-requiredCapability".into(),
+            Some("jjosh-v1".into()),
+        ));
+        tx.repo_mut()
+            .view_mut()
+            .project_state_mut()
+            .bindings
+            .insert(BindingId::generate(), Merge::resolved(Some(binding)));
+        tx.repo_mut()
+            .view_mut()
+            .store_view_mut()
+            .remote_connections
+            .insert(
+                args.remote.clone(),
+                Merge::resolved(Some(connection.clone())),
+            );
     }
     git::set_remote_config_keys(tx.repo().store(), &keys)?;
     warn_if_remote_url_matches(ui, tx.repo(), &args.remote, &url, push_url.as_deref())?;

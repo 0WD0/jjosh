@@ -119,7 +119,6 @@ fn fetch_projects_refs_and_imports_only_visible_changes() {
             upstream_bare.to_str().unwrap(),
             "--filter",
             ":/app",
-            "--writable",
         ],
     );
 

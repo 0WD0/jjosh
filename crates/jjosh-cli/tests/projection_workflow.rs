@@ -158,7 +158,6 @@ impl Fixture {
                 remote.to_str().unwrap(),
                 "--view",
                 view,
-                "--writable",
             ],
         );
         self.jj(&client, &["git", "fetch", "--remote", "origin"]);
@@ -176,7 +175,6 @@ impl Fixture {
                 remote.to_str().unwrap(),
                 "--filter",
                 filter,
-                "--writable",
             ],
         );
         self.jj(client, &["git", "fetch", "--remote", name]);
@@ -227,7 +225,7 @@ fn offline_project_registration_survives_remote_removal_and_exports_only_its_dir
             "add",
             "publication",
             bare.to_str().unwrap(),
-            "--project", "api", "--whole", "--writable",
+            "--project", "api", "--whole",
         ],
     );
     f.jj(&client, &["bookmark", "create", "main#api", "-r", "@"]);
@@ -309,7 +307,6 @@ fn registering_a_filtered_project_preserves_its_reverse_source_layout() {
             ":/src",
             "--project",
             "api",
-            "--writable",
         ],
     );
     f.jj(
@@ -404,16 +401,50 @@ fn project_check_isolates_unrelated_connection_failures() {
     }
     let git_path = f.jj(&client, &["git", "root"]);
     let git_path = Path::new(git_path.trim());
-    f.git(git_path, &["config", "remote.publication.jjosh-readOnly", "invalid"]);
+    f.git(
+        git_path,
+        &[
+            "config",
+            "remote.publication.jjosh-requiredCapability",
+            "missing-provider",
+        ],
+    );
     // A native Git edit cannot retire the operation-owned binding.
     f.git(git_path, &["remote", "remove", "secondary"]);
-    assert!(!f.jj_unchecked(&client, &["project", "check"]).status.success());
-    assert!(!f.jj_unchecked(&client, &["project", "check", "api"]).status.success());
-    assert!(!f.jj_unchecked(&client, &["project", "check", "other"]).status.success());
-    f.git(git_path, &["config", "remote.publication.jjosh-readOnly", "false"]);
+    assert!(
+        !f.jj_unchecked(&client, &["project", "check"])
+            .status
+            .success()
+    );
+    assert!(
+        !f.jj_unchecked(&client, &["project", "check", "api"])
+            .status
+            .success()
+    );
+    assert!(
+        !f.jj_unchecked(&client, &["project", "check", "other"])
+            .status
+            .success()
+    );
+    f.git(
+        git_path,
+        &[
+            "config",
+            "remote.publication.jjosh-requiredCapability",
+            "jjosh-v1",
+        ],
+    );
     f.jj(&client, &["project", "check", "api"]);
-    assert!(!f.jj_unchecked(&client, &["project", "check"]).status.success());
-    assert!(!f.jj_unchecked(&client, &["project", "check", "other"]).status.success());
+    assert!(
+        !f.jj_unchecked(&client, &["project", "check"])
+            .status
+            .success()
+    );
+    assert!(
+        !f.jj_unchecked(&client, &["project", "check", "other"])
+            .status
+            .success()
+    );
 }
 
 #[test]
@@ -1520,7 +1551,7 @@ fn projected_remote_rename_retains_filter_and_remove_readd_is_unfiltered() {
 }
 
 #[test]
-fn attached_remote_lifecycle_preserves_mount_policy_push_endpoint_and_peer() {
+fn attached_remote_lifecycle_preserves_mount_push_endpoint_and_peer() {
     let f = Fixture::new();
     let source = f.git_init("source");
     f.write(&source, "file.txt", "project\n");
@@ -1557,10 +1588,6 @@ fn attached_remote_lifecycle_preserves_mount_policy_push_endpoint_and_peer() {
             destination.to_str().unwrap(),
         ],
     );
-    f.git(
-        &git_dir,
-        &["config", "remote.origin.jjosh-readOnly", "true"],
-    );
     let before = f.log(&client, "main#project@origin", "commit_id");
     f.jj(&client, &["git", "remote", "rename", "origin", "renamed"]);
     assert_eq!(f.log(&client, "main#project@renamed", "commit_id"), before);
@@ -1583,27 +1610,6 @@ fn attached_remote_lifecycle_preserves_mount_policy_push_endpoint_and_peer() {
     f.write(&client, "vendor/file.txt", "published\n");
     f.jj(&client, &["describe", "-m", "publish"]);
     f.jj(&client, &["bookmark", "set", "main#project", "-r", "@"]);
-    let before_destination = f.refs(&destination);
-    assert!(
-        !f.jj_unchecked(
-            &client,
-            &[
-                "git",
-                "push",
-                "--remote",
-                "renamed",
-                "--bookmark",
-                "main#project"
-            ],
-        )
-        .status
-        .success()
-    );
-    assert_eq!(f.refs(&destination), before_destination);
-    f.git(
-        &git_dir,
-        &["config", "remote.renamed.jjosh-readOnly", "false"],
-    );
     f.jj(
         &client,
         &[

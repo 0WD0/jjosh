@@ -520,6 +520,24 @@
                     "description": "Revset of commits to refuse to push to remotes",
                     "default": "none()"
                 },
+                "projects": {
+                    "type": "object",
+                    "description": "Project remote defaults keyed by stable registered reference label",
+                    "additionalProperties": {
+                        "type": "object",
+                        "properties": {
+                            "fetch": {
+                                "type": "string",
+                                "description": "Literal alias of the default fetch remote bound to this project"
+                            },
+                            "push": {
+                                "type": "string",
+                                "description": "Literal alias of the default push remote bound to this project"
+                            }
+                        },
+                        "additionalProperties": false
+                    }
+                },
                 "push": {
                     "description": "The remote(s) to which commits are pushed",
                     "default": "origin",

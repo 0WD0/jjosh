@@ -77,26 +77,51 @@ bundle 还可携带来源的项目元数据，project import 以一个外层项�
 | 布局由版本化 workspace.josh 描述 | =--project parser --view PATH= |
 
 =--view PATH= 使用来源各版本中 PATH 目录下的 =workspace.josh=。
-=--like= 复用项目归属、布局表示和 base 选择规则；新 remote 使用自己的地址、远端记录和写权限。需要不同 base 时，直接指定 filter/view 和 base。
+=--like= 复用项目归属、布局表示和 base 选择规则；新 remote 使用自己的地址和远端记录。需要不同 base 时，直接指定 filter/view 和 base。
 
-接收更新的转换 remote 默认只读。发布地址加 =--writable=：
+配置自己的 fork，例如：
 
 #+begin_src sh
 jjosh git remote add parser-origin /path/to/parser-fork.git \
-  --like parser-upstream --writable
+  --like parser-upstream
 #+end_src
 
-读取与发布使用不同地址时，add 还可指定 =--push-url URL=，这也会启用发布；显式 =--read-only= 优先。
-普通 Git remote 沿用普通传输行为。
+fetch 和 push 默认使用同一个 URL。读取与发布使用不同地址时，add 可指定 =--push-url URL=；后续也可以通过 =git remote set-url --push= 修改发布地址。
 
 已经创建、尚未使用的普通 remote 可以补上项目映射：
 
 #+begin_src sh
-jjosh git remote attach parser-origin --project parser --whole --writable
+jjosh git remote attach parser-origin --project parser --whole
 #+end_src
 
 attach 要求该 remote 没有绑定、获取记录或 tracking。来源映射在绑定创建时确定；另一种布局使用另一个 remote。
 日后改地址用 =git remote set-url=，改别名用 =git remote rename=，停用连接用 =git remote remove=。
+
+** 项目的默认 remote
+
+可以分别设置项目日常获取和发布的目的地：
+
+#+begin_src sh
+jjosh config set --repo git.projects.parser.fetch parser-upstream
+jjosh config set --repo git.projects.parser.push parser-origin
+#+end_src
+
+它们写入本地 jj 配置，等价于：
+
+#+begin_src toml
+[git.projects.parser]
+fetch = "parser-upstream"
+push = "parser-origin"
+#+end_src
+
+配置中的 parser 是引用 label，值是一个绑定到该项目的 remote 名字。项目改显示名后配置键保持不变。
+使用 =git fetch --project parser= 选择项目；push 根据所选书签或 tag 的 =#parser= 选择它的默认目的地。
+
+选择顺序是：命令中的 =--remote=、仓库级 =git.fetch=／=git.push=、项目的对应配置、项目唯一的 remote，最后是绑定到该项目的 =origin=。
+仍无法确定时报告歧义；设置 push URL 不改变选择顺序。项目配置只接受一个具体 remote 名，仓库级配置继续支持模式和列表。
+=fetch --project= 使用项目显示名，并要求所选 remote 属于该项目；普通 fetch 保持 jj 的仓库级默认行为。
+
+remote 改名会更新仓库配置中对应的默认值，remove 会清除它们；用户级配置由用户维护。默认 remote 是本地偏好，不随 op restore 恢复。
 
 * 在同一张修改图上开发
 
@@ -149,7 +174,7 @@ fetch 默认将新远端书签保留为 untracked，工作头由你通过 new �
 
 ** 发布分支
 
-先准备目标 Git 仓库，并配置好可写的 parser-origin。
+先准备目标 Git 仓库，并配置好 parser-origin。
 目标已有相应分支时，获取它的状态；例如：
 
 #+begin_src sh
@@ -184,8 +209,8 @@ filtered 绑定需要可用的来源上下文；若空目标无法提供配置�
 jjosh git push --bookmark 'topic#*' --dry-run
 #+end_src
 
-在没有显式 =--remote= 或 =git.push= 配置时，命令为每个项目选择唯一可写的绑定。
-有多个可写地址时，用 =--remote= 明确选择。引用模式加引号，交给 jjosh 而不是 shell 展开。
+未指定整次 push 的 =--remote= 或 =git.push= 时，每个项目分别使用自己的默认发布 remote。
+例如 parser 和 app 可以各自配置 =git.projects.parser.push=、=git.projects.app.push=，同一次 push 将选中的交付书签发送到各自目的地。引用模式加引号，交给 jjosh 而不是 shell 展开。
 
 所有目标先完成预检，再开始发布。不同服务器之间无法原子提交；若发生部分失败，以命令报告的各目标结果为准。
 
@@ -281,7 +306,7 @@ jjosh new main@upstream
 #+end_src
 
 这里没有 =--project=，过滤结果直接成为仓库根内容，引用使用 =main@upstream=。
-可用 =--view PATH= 选择版本化布局；需要发布时配置可写绑定。
+可用 =--view PATH= 选择版本化布局；发布仍使用 git push。
 
 临时查看当前仓库某个 filter 的结果，使用：
 
@@ -308,7 +333,7 @@ preview 对已记录的版本求值，可加 =--json= 或改用 =--view PATH=。
 ** 恢复操作
 
 op restore 按所选部分恢复状态：repo 包含项目定义、绑定和本地引用，remote-tracking 包含远端记录及转换依据。
-本地连接地址、写权限和已经发生的外部发布独立保存。
+本地连接地址、认证配置和已经发生的外部发布独立保存。
 
 删除 remote 后再同名创建，会得到一个新连接。若恢复出来的旧远端记录占用了这个名字，可以明确清理它们：
 
@@ -339,6 +364,7 @@ jjosh project migrate --dry-run
 #+end_src
 
 计划列出项目目录、来源表示、引用处理及将退役的旧元数据。省略 =--dry-run= 也只显示计划。
+已有项目格式的仓库若仍保存 =remote.NAME.jjosh-readOnly=，也通过这份计划清理。确认后加 =--apply=，只删除废弃字段，保留已有绑定、引用和转换记录；字段值不再参与发布或路由判断。
 根据诊断补充选择：
 
 | 选项 | 用途 |
@@ -368,4 +394,4 @@ include/global 中的 remote 设置需要先整理到本地；孤立 sidecar 和
 项目状态使用 =simple_op_store_projects_v1= 格式，旧程序无法写入；迁移中断按上面的 remote recover 步骤处理。
 
 备份应覆盖仓库元数据和来源对象库。历史转换目前要求 SHA-1 Git backend；gitlink 保留为引用，不递归展开。
-原生 Git 直接操作外部仓库，因此过滤和本地只读配置都不能充当访问控制。
+原生 Git 直接操作外部仓库，过滤不能充当访问控制；访问权限由服务器管理。

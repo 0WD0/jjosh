@@ -42,44 +42,49 @@ pub(crate) struct Session {
     filter: Option<Filter>,
 }
 
-struct PushCandidate {
-    name: RemoteNameBuf,
-    read_only: Result<bool, String>,
-}
-
 struct DefaultPushRouter {
     state: ProjectState,
-    candidates: BTreeMap<ProjectId, Vec<PushCandidate>>,
+    settings: jj_lib::settings::UserSettings,
+    candidates: BTreeMap<ProjectId, Vec<RemoteNameBuf>>,
 }
 
 impl GitPushRouter for DefaultPushRouter {
     fn route(&self, name: &RefName) -> Result<Option<GitPushRoute>, CommandError> {
-        let Some((destination, label)) = name.as_str().rsplit_once('#') else { return Ok(None); };
-        let Some(project) = self.state.resolve_label(label).map_err(user_error)? else { return Ok(None); };
-        self.state.validate_project(&project).map_err(user_error)?;
-        let candidates = self.candidates.get(&project).ok_or_else(|| user_error(format!("No default push remote for project label {label}; create a binding or use --remote with --source")))?;
-        let writable: Vec<_> = candidates.iter().filter_map(|candidate| match &candidate.read_only {
-            Ok(false) => Some(Ok(&candidate.name)),
-            Ok(true) => None,
-            Err(error) => Some(Err(user_error(format!("Remote {}: {error}", candidate.name.as_str())))),
-        }).collect::<Result<_, _>>()?;
-        let remote = match writable.as_slice() {
-            [remote] => *remote,
-            [] if candidates.len() == 1 => &candidates[0].name,
-            _ => return Err(user_error(format!("Ambiguous default push remote for project label {label}; use --remote"))),
+        let Some((destination, label)) = name.as_str().rsplit_once('#') else {
+            return Ok(None);
         };
-        Ok(Some(GitPushRoute { remote: remote.clone(), name: destination.into() }))
+        let Some(project) = self.state.resolve_label(label).map_err(user_error)? else {
+            return Ok(None);
+        };
+        self.state.validate_project(&project).map_err(user_error)?;
+        let candidates = self.candidates.get(&project).ok_or_else(|| {
+            user_error(format!(
+                "No default push remote for project label {label}; create a binding or use \
+                 --remote with --source"
+            ))
+        })?;
+        let remote = jj_cli::git_remote::select_project_remote(
+            &self.settings,
+            label,
+            candidates,
+            Direction::Push,
+        )?;
+        Ok(Some(GitPushRoute {
+            remote,
+            name: destination.into(),
+        }))
     }
 }
 
-pub(crate) fn remote_read_only(repo: &gix::Repository, remote: &RemoteName) -> Result<bool> {
-    repo.config_snapshot().try_boolean(format!("remote.{}.jjosh-readOnly", remote.as_str()).as_str())
-        .with_context(|| format!("Invalid read-only policy for remote {}", remote.as_str()))
-        .map(|value| value.unwrap_or(false))
-}
-
 pub(crate) fn config_string(repo: &gix::Repository, key: &str) -> Result<Option<String>> {
-    repo.config_snapshot().string(key).map(|value| std::str::from_utf8(&value).map(str::to_owned).map_err(Into::into)).transpose()
+    repo.config_snapshot()
+        .string(key)
+        .map(|value| {
+            std::str::from_utf8(&value)
+                .map(str::to_owned)
+                .map_err(Into::into)
+        })
+        .transpose()
 }
 
 pub(crate) fn raw_ref_prefix(repo: &gix::Repository, endpoint: &str) -> Result<String> {
@@ -104,42 +109,87 @@ pub(crate) fn remote_endpoint(remote: &gix::Remote<'_>, direction: Direction, na
 impl GitRemoteExtension for Extension {
     fn capabilities(&self) -> &'static [&'static str] { &["jjosh-v1"] }
 
-    fn prepare_binding(&self, workspace: &WorkspaceCommandHelper, remote: &RemoteName, connection_id: &ConnectionId, args: &jj_cli::git_remote::GitRemoteBindingArgs) -> Result<BindingRecord, CommandError> {
+    fn prepare_binding(
+        &self,
+        workspace: &WorkspaceCommandHelper,
+        remote: &RemoteName,
+        connection_id: &ConnectionId,
+        args: &jj_cli::git_remote::GitRemoteBindingArgs,
+    ) -> Result<BindingRecord, CommandError> {
         lifecycle::prepare_binding(workspace, remote, connection_id, args)
     }
 
-    fn open(&self, _command: &CommandHelper, workspace: &WorkspaceCommandHelper, remote: &RemoteName) -> Result<Box<dyn GitRemoteSession>, CommandError> {
+    fn open(
+        &self,
+        _command: &CommandHelper,
+        workspace: &WorkspaceCommandHelper,
+        remote: &RemoteName,
+    ) -> Result<Box<dyn GitRemoteSession>, CommandError> {
         let backend = jj_lib::git::get_git_backend(workspace.repo().store())?;
-        Ok(Box::new(Session::open(&backend.git_repo(), backend.git_repo_path().to_owned(), workspace.repo().view().project_state(), remote)?))
+        Ok(Box::new(Session::open(
+            &backend.git_repo(),
+            backend.git_repo_path().to_owned(),
+            workspace.repo().view().project_state(),
+            remote,
+        )?))
     }
 
-    fn default_push_router(&self, workspace: &WorkspaceCommandHelper) -> Result<Option<Box<dyn GitPushRouter>>, CommandError> {
+    fn default_push_router(
+        &self,
+        workspace: &WorkspaceCommandHelper,
+    ) -> Result<Option<Box<dyn GitPushRouter>>, CommandError> {
         let backend = jj_lib::git::get_git_backend(workspace.repo().store())?;
         let git = backend.git_repo();
         let state = workspace.repo().view().project_state();
-        let mut candidates: BTreeMap<ProjectId, Vec<PushCandidate>> = BTreeMap::new();
+        let mut candidates: BTreeMap<ProjectId, Vec<RemoteNameBuf>> = BTreeMap::new();
         for name in jj_lib::git::get_all_remote_names(workspace.repo().store())? {
-            let Some(connection) = config_string(&git, &format!("remote.{}.jjosh-connectionId", name.as_str())).map_err(user_error)?
-                .and_then(|id| ConnectionId::try_from_hex(&id)) else { continue; };
-            let projects: std::collections::BTreeSet<_> = state.bindings.values().flat_map(|value| value.adds().flatten())
+            let Some(connection) = config_string(
+                &git,
+                &format!("remote.{}.jjosh-connectionId", name.as_str()),
+            )
+            .map_err(user_error)?
+            .and_then(|id| ConnectionId::try_from_hex(&id)) else {
+                continue;
+            };
+            let projects: std::collections::BTreeSet<_> = state
+                .bindings
+                .values()
+                .flat_map(|value| value.adds().flatten())
                 .filter(|record| record.connection_id == connection)
-                .filter_map(|record| match &record.target { BindingTarget::Project(id) => Some(id.clone()), BindingTarget::RepositoryView => None }).collect();
+                .filter_map(|record| match &record.target {
+                    BindingTarget::Project(id) => Some(id.clone()),
+                    BindingTarget::RepositoryView => None,
+                })
+                .collect();
             for project in projects {
-                let read_only = Session::open(&git, backend.git_repo_path().to_owned(), state, &name)
-                    .map_err(|error| error.error.to_string())
-                    .and_then(|_| remote_read_only(&git, &name).map_err(|error| format!("{error:#}")));
-                candidates.entry(project).or_default().push(PushCandidate { read_only, name: name.clone() });
+                candidates.entry(project).or_default().push(name.clone());
             }
         }
-        Ok(Some(Box::new(DefaultPushRouter { state: state.clone(), candidates })))
+        Ok(Some(Box::new(DefaultPushRouter {
+            state: state.clone(),
+            settings: workspace.settings().clone(),
+            candidates,
+        })))
     }
 }
 
 impl Session {
-    fn open(git: &gix::Repository, git_path: PathBuf, state: &ProjectState, name: &RemoteName) -> Result<Self, CommandError> {
+    fn open(
+        git: &gix::Repository,
+        git_path: PathBuf,
+        state: &ProjectState,
+        name: &RemoteName,
+    ) -> Result<Self, CommandError> {
+        jj_lib::git::check_obsolete_remote_config(git, name).map_err(user_error)?;
         git.find_remote(name.as_str()).map_err(user_error)?;
-        let connection = config_string(git, &format!("remote.{}.jjosh-connectionId", name.as_str())).map_err(user_error)?
-            .map(|id| ConnectionId::try_from_hex(&id).ok_or_else(|| user_error("Invalid remote connection identity"))).transpose()?;
+        let connection =
+            config_string(git, &format!("remote.{}.jjosh-connectionId", name.as_str()))
+                .map_err(user_error)?
+                .map(|id| {
+                    ConnectionId::try_from_hex(&id)
+                        .ok_or_else(|| user_error("Invalid remote connection identity"))
+                })
+                .transpose()?;
         if let Some(id) = &connection {
             for other in git.remote_names() {
                 let other = std::str::from_utf8(&other).map_err(user_error)?;
@@ -191,11 +241,23 @@ impl Session {
     }
 
     pub fn whole(&self) -> bool { self.binding.as_ref().is_some_and(|(_, record)| record.representation == Representation::Whole) }
-    pub fn binding_id(&self) -> &BindingId { &self.binding.as_ref().expect("converted operation has binding").0 }
+    pub fn binding_id(&self) -> &BindingId {
+        &self
+            .binding
+            .as_ref()
+            .expect("converted operation has binding")
+            .0
+    }
 
     /// Offline native imports carry reusable lossless evidence, not a project mode.
-    async fn anchors(&self, repo: &dyn Repo, transaction: &josh_core::cache::Transaction) -> Result<HashMap<CommitId, CommitId>, CommandError> {
-        let mut known = crate::native_project::anchors(repo, transaction, self.binding_id()).await.map_err(user_error)?;
+    async fn anchors(
+        &self,
+        repo: &dyn Repo,
+        transaction: &josh_core::cache::Transaction,
+    ) -> Result<HashMap<CommitId, CommitId>, CommandError> {
+        let mut known = crate::native_project::anchors(repo, transaction, self.binding_id())
+            .await
+            .map_err(user_error)?;
         if let Some(project) = &self.project {
             for (id, value) in &self.state.bindings {
                 let Some(record) = value.as_resolved().and_then(Option::as_ref) else { continue; };
@@ -210,20 +272,53 @@ impl Session {
         Ok(known)
     }
 
-    fn evidence(&self, connection: &ConnectionId, endpoint: &str, raw_ref: String, terms: Vec<jj_lib::project::ConversionTerm>, base: Option<String>, generation: Option<String>) -> ConversionObservation {
-        let (id, binding) = self.binding.as_ref().expect("converted observation has a binding");
-        ConversionObservation { binding_id: id.clone(), binding: binding.clone(), connection_id: connection.clone(), endpoint: endpoint.to_owned(), raw_ref, terms, base, generation }
+    fn evidence(
+        &self,
+        connection: &ConnectionId,
+        endpoint: &str,
+        raw_ref: String,
+        terms: Vec<jj_lib::project::ConversionTerm>,
+        base: Option<String>,
+        generation: Option<String>,
+    ) -> ConversionObservation {
+        let (id, binding) = self
+            .binding
+            .as_ref()
+            .expect("converted observation has a binding");
+        ConversionObservation {
+            binding_id: id.clone(),
+            binding: binding.clone(),
+            connection_id: connection.clone(),
+            endpoint: endpoint.to_owned(),
+            raw_ref,
+            terms,
+            base,
+            generation,
+        }
     }
 
-    pub fn remote<'repo>(&self, repo: &'repo gix::Repository, direction: Direction) -> Result<gix::Remote<'repo>> {
-        if matches!(direction, Direction::Push) { ensure!(!remote_read_only(repo, &self.name)?, "Remote {} has no publication endpoint; configure a writable named remote", self.name.as_str()); }
+    pub fn remote<'repo>(
+        &self,
+        repo: &'repo gix::Repository,
+        direction: Direction,
+    ) -> Result<gix::Remote<'repo>> {
         let remote = repo.find_remote(self.name.as_str())?;
-        ensure!(remote.urls(direction).count() == 1, "Remote {} must have exactly one selected endpoint", self.name.as_str());
+        ensure!(
+            remote.urls(direction).count() == 1,
+            "Remote {} must have exactly one selected endpoint",
+            self.name.as_str()
+        );
         Ok(remote)
     }
-    pub fn endpoint_url(&self, repo: &gix::Repository, direction: Direction) -> Result<String> { remote_endpoint(&self.remote(repo, direction)?, direction, self.whole()) }
-    pub fn filter(&self) -> Option<Filter> { self.filter }
-    pub fn raw_prefix(&self, repo: &gix::Repository, endpoint: &str) -> Result<String> { raw_ref_prefix(repo, endpoint) }
+    pub fn endpoint_url(&self, repo: &gix::Repository, direction: Direction) -> Result<String> {
+        remote_endpoint(&self.remote(repo, direction)?, direction, self.whole())
+    }
+    pub fn filter(&self) -> Option<Filter> {
+        self.filter
+    }
+    pub fn raw_prefix(&self, repo: &gix::Repository, endpoint: &str) -> Result<String> {
+        raw_ref_prefix(repo, endpoint)
+    }
 }
 
 impl GitRemoteSession for Session {
