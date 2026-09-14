@@ -66,7 +66,7 @@ pub async fn cmd_git_remote_set_url(
     command: &CommandHelper,
     args: &GitRemoteSetUrlArgs,
 ) -> Result<(), CommandError> {
-    let mut workspace_command = command.workspace_helper_no_snapshot(ui).await?;
+    let workspace_command = command.workspace_helper_no_snapshot(ui).await?;
     let _git_lock = workspace_command.lock_git_import_export()?;
     let view = workspace_command.repo().view();
     let remote = super::resolve_management_remote(
@@ -75,30 +75,18 @@ pub async fn cmd_git_remote_set_url(
         args.project.as_deref(),
     )?;
     let git_repo = git::get_git_repo(workspace_command.repo().store())?;
-    let connection = super::management_connection(view, &git_repo, &remote)?;
-    super::check_management_binding(command, &workspace_command, &remote, connection.as_ref())?;
-    git::check_remote_owner(view, &remote, connection.as_ref()).map_err(user_error)?;
-    let configured_connection =
-        git::remote_connection_id(&git_repo, &remote).map_err(user_error)?;
-    let has_config = git_repo
-        .config_snapshot()
-        .sections_by_name("remote")
-        .into_iter()
-        .flatten()
-        .any(|section| {
-            section
-                .header()
-                .subsection_name()
-                .is_some_and(|name| name == remote.as_str())
-        });
-    if has_config && configured_connection != connection {
+    let inspection = git::inspect_remote_management(view, &git_repo, &remote)?;
+    let connection = inspection.connection();
+    super::check_management_binding(command, &workspace_command, &remote, connection)?;
+    git::check_remote_owner(view, &remote, connection).map_err(user_error)?;
+    if inspection.has_config && !inspection.owns_config() {
         return Err(user_error(format!(
             "Remote {} has local configuration owned by another connection; deliberately remove \
              or rename that configuration before reconnecting this logical remote",
             remote.as_symbol(),
         )));
     }
-    if has_config {
+    if inspection.has_config {
         crate::git_remote::check_remote(command, &workspace_command, &remote)?;
     }
     let process_url = |url: Option<&String>| {
@@ -108,7 +96,7 @@ pub async fn cmd_git_remote_set_url(
 
     let fetch_url = process_url(args.url.as_ref().or(args.fetch.as_ref()))?;
     let push_url = process_url(args.push.as_ref())?;
-    if !has_config {
+    if !inspection.has_config {
         if connection.is_none() {
             return Err(git::GitRemoteManagementError::NoSuchRemote(remote.clone()).into());
         }
@@ -126,8 +114,8 @@ pub async fn cmd_git_remote_set_url(
         &workspace_command.repo().operation().id().hex(),
         &[],
     )?;
-    if !has_config {
-        let connection = connection.as_ref().expect("validated logical connection");
+    if !inspection.has_config {
+        let connection = connection.expect("validated logical connection");
         let managed = view
             .project_state()
             .binding_for_connection(connection)
@@ -145,21 +133,25 @@ pub async fn cmd_git_remote_set_url(
                 Some("jjosh-v1".into()),
             ));
         }
+        journal.expect_remote(&remote, true, Some(connection), managed)?;
         // Only reconnect local configuration. Keep the operation's historical
         // tracking state exactly as restored, including an absent remote view.
-        let mut tx = workspace_command.start_transaction();
-        git::add_remote(
-            tx.repo_mut(),
+        git::create_remote_config(
+            workspace_command.repo().store(),
             &remote,
             fetch_url.as_deref().expect("validated fetch URL"),
             push_url.as_deref(),
         )?;
-        drop(tx);
         git::set_remote_config_keys(workspace_command.repo().store(), &keys)?;
-        journal.expect_remote(&remote, true, Some(connection), managed)?;
     }
 
-    if has_config {
+    if inspection.has_config {
+        journal.expect_remote(
+            &remote,
+            inspection.has_config,
+            inspection.configured_connection.as_ref(),
+            inspection.managed,
+        )?;
         git::set_remote_urls(
             workspace_command.repo().store(),
             &remote,

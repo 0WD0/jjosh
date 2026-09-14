@@ -158,11 +158,13 @@ pub(crate) fn prepare(
     let mut remotes = BTreeMap::new();
     let mut physical_names = BTreeSet::new();
     for remote in source_remotes {
-        let active_connection = source
-            .remote_connections
-            .get(remote)
-            .and_then(Merge::as_resolved)
-            .and_then(Option::as_ref);
+        let identity =
+            jj_lib::view::remote_identity::resolve(source, remote).map_err(anyhow::Error::msg)?;
+        let active_connection = identity
+            .filter(|identity| {
+                identity.source == jj_lib::view::remote_identity::IdentitySource::Logical
+            })
+            .map(|identity| identity.connection);
         let required_capability = active_connection
             .map(|connection| source.project_state.binding_for_connection(connection))
             .transpose()
@@ -188,7 +190,7 @@ pub(crate) fn prepare(
             "Source remote {} has incompatible logical and observed owners",
             remote.as_str()
         );
-        let mut connection = active_connection.or(observed_connection);
+        let mut connection = identity.map(|identity| identity.connection);
         // Detached observations still own immutable identity, but do not create
         // an active remote_connections entry in the imported view.
         for observation in source
@@ -204,16 +206,10 @@ pub(crate) fn prepare(
             );
             connection = Some(&observation.connection_id);
         }
-        let project_owned = connection.is_some_and(|connection| {
-            source
-                .project_state
-                .remote_names
-                .get(connection)
-                .or_else(|| source.observed_remote_names.get(connection))
-                .is_some_and(Merge::is_present)
-                || binding_definitions(source)
-                    .any(|(_, binding)| &binding.connection_id == connection)
-        });
+        let project_owned = identity.is_some_and(|identity| identity.scoped_name.is_some())
+            || connection.is_some_and(|connection| {
+                binding_definitions(source).any(|(_, binding)| &binding.connection_id == connection)
+            });
         let physical: RemoteNameBuf = if project_owned {
             format!("jjosh-{}", connection.unwrap().hex()).into()
         } else {
@@ -261,51 +257,39 @@ pub(crate) fn prepare(
             },
         );
     }
-    view.remote_views = source
+    // Naming belongs to the import plan; moving the complete observation
+    // aggregate belongs to the library, including pinned-revision exceptions.
+    let remote_names: BTreeMap<_, _> = remotes
+        .iter()
+        .map(|(old, mapping)| (old.clone(), mapping.destination.clone()))
+        .collect();
+    let reference_names = source
         .remote_views
         .iter()
-        .filter(|(remote, _)| remote.as_str() != REMOTE_NAME_FOR_LOCAL_GIT_REPO.as_str())
-        .map(|(remote, refs)| {
-            let mut refs = refs.clone();
-            refs.bookmarks = refs
-                .bookmarks
-                .into_iter()
-                .map(|(reference, target)| Ok((map_name(&reference)?, target)))
-                .collect::<Result<_>>()?;
-            refs.tags = refs
-                .tags
-                .into_iter()
-                .map(|(reference, target)| Ok((map_name(&reference)?, target)))
-                .collect::<Result<_>>()?;
-            Ok((remotes[remote].destination.clone(), refs))
-        })
-        .collect::<Result<_>>()?;
+        .filter(|(remote, _)| remote_names.contains_key(*remote))
+        .flat_map(|(_, refs)| refs.bookmarks.keys().chain(refs.tags.keys()))
+        .chain(
+            source
+                .project_observations
+                .keys()
+                .filter(|key| {
+                    remote_names.contains_key(&key.remote) && key.kind != ObservationKind::Revision
+                })
+                .map(|key| &key.name),
+        )
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .map(|reference| Ok((reference.clone(), map_name(reference)?)))
+        .collect::<Result<BTreeMap<_, _>>>()?;
+    jj_lib::view::remote_observations::RemoteObservations::new(&mut view)
+        .remap(&remote_names, &reference_names)
+        .map_err(anyhow::Error::msg)?;
     view.remote_connections = source
         .remote_connections
         .iter()
         .filter(|(remote, _)| remote.as_str() != REMOTE_NAME_FOR_LOCAL_GIT_REPO.as_str())
         .map(|(remote, owner)| (remotes[remote].destination.clone(), owner.clone()))
         .collect();
-    view.observed_remote_connections = source
-        .observed_remote_connections
-        .iter()
-        .filter(|(remote, _)| remote.as_str() != REMOTE_NAME_FOR_LOCAL_GIT_REPO.as_str())
-        .map(|(remote, owner)| (remotes[remote].destination.clone(), owner.clone()))
-        .collect();
-    view.project_observations = source
-        .project_observations
-        .iter()
-        .filter(|(key, _)| key.remote != REMOTE_NAME_FOR_LOCAL_GIT_REPO)
-        .map(|(key, target)| {
-            let mut key = key.clone();
-            key.remote = remotes[&key.remote].destination.clone();
-            // Revision observations are keyed by raw OID, not by a reference name.
-            if key.kind != ObservationKind::Revision {
-                key.name = map_name(&key.name)?;
-            }
-            Ok((key, target.clone()))
-        })
-        .collect::<Result<_>>()?;
     Ok(Plan { view, remotes })
 }
 
@@ -377,13 +361,13 @@ fn validate_source(source: &View) -> Result<()> {
                 binding.connection_id
             );
         }
-        if let Some(identity) = source
+        for identity in source
             .project_state
             .remote_names
             .get(&binding.connection_id)
-            .or_else(|| source.observed_remote_names.get(&binding.connection_id))
-            .and_then(Merge::as_resolved)
-            .and_then(Option::as_ref)
+            .into_iter()
+            .chain(source.observed_remote_names.get(&binding.connection_id))
+            .flat_map(|names| names.iter().flatten())
         {
             ensure!(
                 &identity.project == project,

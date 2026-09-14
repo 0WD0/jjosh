@@ -2100,6 +2100,120 @@ fn root_tracking_restore_follows_connection_through_rename_and_alias_swap() {
 }
 
 #[test]
+fn root_remote_without_url_can_be_renamed_reconnected_and_its_alias_reused() {
+    let temp = tempfile::tempdir().unwrap();
+    let (_, source, tip) = create_remote(temp.path(), "source");
+    let client = create_client(temp.path(), false);
+    jjosh(
+        &client,
+        &["git", "remote", "add", "origin", source.to_str().unwrap()],
+    );
+    let git_dir = client.join(".jj/repo/store/git");
+    git(&git_dir, &["config", "--unset", "remote.origin.url"]);
+
+    jjosh(&client, &["git", "remote", "rename", "origin", "upstream"]);
+    jjosh(
+        &client,
+        &[
+            "git",
+            "remote",
+            "set-url",
+            "upstream",
+            source.to_str().unwrap(),
+        ],
+    );
+    jjosh(
+        &client,
+        &["git", "fetch", "--remote", "upstream", "--branch", "main"],
+    );
+    assert_eq!(commit_id(&client, "main@upstream"), tip);
+    // The old section must not keep reserving origin or duplicate the owner.
+    jjosh(
+        &client,
+        &["git", "remote", "add", "origin", source.to_str().unwrap()],
+    );
+    jjosh(
+        &client,
+        &["git", "fetch", "--remote", "origin", "--branch", "main"],
+    );
+    assert_eq!(commit_id(&client, "main@origin"), tip);
+}
+
+#[test]
+fn root_remote_without_url_can_be_removed_and_recreated() {
+    let temp = tempfile::tempdir().unwrap();
+    let (_, source, tip) = create_remote(temp.path(), "source");
+    let client = create_client(temp.path(), false);
+    jjosh(
+        &client,
+        &["git", "remote", "add", "origin", source.to_str().unwrap()],
+    );
+    git(
+        &client.join(".jj/repo/store/git"),
+        &["config", "--unset", "remote.origin.url"],
+    );
+
+    jjosh(&client, &["git", "remote", "remove", "origin"]);
+    jjosh(
+        &client,
+        &["git", "remote", "add", "origin", source.to_str().unwrap()],
+    );
+    jjosh(
+        &client,
+        &["git", "fetch", "--remote", "origin", "--branch", "main"],
+    );
+    assert_eq!(commit_id(&client, "main@origin"), tip);
+}
+
+#[test]
+fn restored_root_remote_leaves_foreign_url_less_configuration_untouched() {
+    let temp = tempfile::tempdir().unwrap();
+    let (_, source, _) = create_remote(temp.path(), "source");
+    let client = create_client(temp.path(), false);
+    jjosh(
+        &client,
+        &["git", "remote", "add", "origin", source.to_str().unwrap()],
+    );
+    let old_operation = operation_id(&client);
+    jjosh(&client, &["git", "remote", "remove", "origin"]);
+    jjosh(
+        &client,
+        &["git", "remote", "add", "origin", source.to_str().unwrap()],
+    );
+    let git_dir = client.join(".jj/repo/store/git");
+    git(&git_dir, &["config", "--unset", "remote.origin.url"]);
+    let foreign_config = fs::read(git_dir.join("config")).unwrap();
+
+    jjosh(
+        &client,
+        &["op", "restore", old_operation.trim(), "--what", "repo"],
+    );
+    assert!(
+        !jjosh_unchecked(
+            &client,
+            &[
+                "git",
+                "remote",
+                "set-url",
+                "origin",
+                source.to_str().unwrap()
+            ],
+        )
+        .status
+        .success()
+    );
+    assert_eq!(fs::read(git_dir.join("config")).unwrap(), foreign_config);
+    jjosh(&client, &["git", "remote", "rename", "origin", "offline"]);
+    assert_eq!(fs::read(git_dir.join("config")).unwrap(), foreign_config);
+    jjosh(
+        &client,
+        &["op", "restore", old_operation.trim(), "--what", "repo"],
+    );
+    jjosh(&client, &["git", "remote", "remove", "origin"]);
+    assert_eq!(fs::read(git_dir.join("config")).unwrap(), foreign_config);
+}
+
+#[test]
 fn base_free_publication_uses_unique_ancestry_evidence_and_rejects_ambiguous_raw_contexts() {
     let temp = tempfile::tempdir().unwrap();
     let (work, source, original) = create_remote(temp.path(), "source");

@@ -776,16 +776,14 @@ pub(super) async fn run(
                 session.name.clone(),
                 Merge::resolved(Some(connection.clone())),
             );
-            view.project_observations.insert(
+            jj_lib::view::remote_observations::RemoteObservations::new(view).record(
                 ObservationKey {
                     remote: session.name.clone(),
                     name: raw.to_string().into(),
                     kind: ObservationKind::Revision,
                 },
-                Merge::resolved(Some(evidence)),
+                evidence,
             );
-            repo.view_mut()
-                .capture_remote_observation_identity(&session.name);
         }
         writeln!(
             ui.status(),

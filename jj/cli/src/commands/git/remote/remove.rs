@@ -54,18 +54,16 @@ pub async fn cmd_git_remote_remove(
     )?;
     let view = workspace_command.repo().view();
     let git_repo = git::get_git_repo(workspace_command.repo().store())?;
-    let connection = super::management_connection(view, &git_repo, &remote)?;
-    super::check_management_binding(command, &workspace_command, &remote, connection.as_ref())?;
-    let configured_connection =
-        git::remote_connection_id(&git_repo, &remote).map_err(crate::command_error::user_error)?;
-    let configured = git::try_find_active_remote(&git_repo, &remote)?.is_some();
-    let owns_config = configured_connection == connection;
-    if configured && owns_config {
+    let inspection = git::inspect_remote_management(view, &git_repo, &remote)?;
+    let connection = inspection.connection();
+    super::check_management_binding(command, &workspace_command, &remote, connection)?;
+    if inspection.owns_config() {
         crate::git_remote::check_remote(command, &workspace_command, &remote)?;
     }
     let identity = view
         .remote_identity(&remote)
-        .map_err(crate::command_error::user_error)?;
+        .map_err(crate::command_error::user_error)?
+        .and_then(|identity| identity.scoped_name);
     let labels = identity.map(|identity| super::project_config_labels(view, &identity.project));
     let local_name = view.remote_local_name(&remote);
     let display_name = view.remote_qualified_name(&remote);
@@ -92,9 +90,9 @@ pub async fn cmd_git_remote_remove(
     )?;
     journal.expect_remote(
         &remote,
-        configured && !owns_config,
-        configured_connection.as_ref(),
-        configured && !owns_config && git::remote_required_capability(&git_repo, &remote).is_some(),
+        inspection.has_config && !inspection.owns_config(),
+        inspection.configured_connection.as_ref(),
+        inspection.managed && !inspection.owns_config(),
     )?;
     let mut tx = workspace_command.start_transaction();
     git::remove_remote_with_options(tx.repo_mut(), &remote, &options)?;
@@ -103,7 +101,7 @@ pub async fn cmd_git_remote_remove(
             .view_mut()
             .project_state_mut()
             .remote_names
-            .remove(&connection);
+            .remove(connection);
         tx.repo_mut()
             .view_mut()
             .project_state_mut()
@@ -112,13 +110,11 @@ pub async fn cmd_git_remote_remove(
                 !value
                     .iter()
                     .flatten()
-                    .any(|binding| binding.connection_id == connection)
+                    .any(|binding| &binding.connection_id == connection)
             });
     }
     let view = tx.repo_mut().view_mut().store_view_mut();
     view.remote_connections.remove(&remote);
-    view.project_observations
-        .retain(|key, _| key.remote != remote);
     journal.expect_operation(tx.repo().view())?;
     if tx.repo().has_changes() {
         tx.finish_with_git_import_export_lock(

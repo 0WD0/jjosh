@@ -156,8 +156,8 @@ fn ensure_available_remote_name(
         )));
     }
     for remote in view.store_view().remote_connections.keys() {
-        match view.remote_in_scope(&remote, project) {
-            Ok(true) if view.remote_local_name(&remote) == name => {
+        match view.remote_in_scope(remote, project) {
+            Ok(true) if view.remote_local_name(remote) == name => {
                 return Err(user_error(format!(
                     "Remote {} already exists in this scope",
                     name.as_symbol()
@@ -214,22 +214,6 @@ fn resolve_management_remote(
         selector,
         project.as_ref(),
     )
-}
-
-fn management_connection(
-    view: &jj_lib::view::View,
-    git_repo: &gix::Repository,
-    remote: &RemoteName,
-) -> Result<Option<ConnectionId>, CommandError> {
-    if let Some(owner) = view.store_view().remote_connections.get(remote) {
-        return owner.as_resolved().cloned().ok_or_else(|| {
-            user_error(format!(
-                "Remote {} has conflicting logical owners",
-                remote.as_symbol()
-            ))
-        });
-    }
-    git::remote_connection_id(git_repo, remote).map_err(user_error)
 }
 
 /// Validate the logical binding without requiring a local endpoint or consulting
@@ -417,11 +401,6 @@ async fn cmd_attach(
         // Scope attachment is an explicit identity transition. Retire the root
         // physical key so the root alias can be reused independently.
         git::rename_remote_with_options(tx.repo_mut(), &old_remote, &remote, &options)?;
-        tx.repo_mut()
-            .view_mut()
-            .store_view_mut()
-            .remote_connections
-            .remove(&old_remote);
     }
     git::set_remote_config_keys(
         tx.repo().store(),
