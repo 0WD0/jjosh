@@ -412,6 +412,7 @@ jjosh project migrate --dry-run
 计划列出项目目录、来源表示、scoped 名字、内部连接重定位、引用处理及将退役的旧元数据。省略 =--dry-run= 也只显示计划。
 已有项目格式也通过显式迁移建立 remote 命名空间：旧别名逐字保留，例如 =parser-upstream= 变为 parser 项目内的 =parser-upstream=，不会自动去掉前缀。内部 Git 键会迁到独立 handle，ConnectionId、BindingId、有效引用和转换记录保持原有身份。需要简化名字时，迁移后运行 =git remote rename --project parser parser-upstream origin=。
 废弃的 =remote.NAME.jjosh-readOnly= 也在计划中清理。仓库内 =remotes.NAME= 设置移到限定名；用户级或 include/global 设置先按诊断整理。项目默认值独立生效，原先用于选择项目连接的 =git.fetch=／=git.push= 应改配到对应项目。
+迁移可以完全离线完成，不要求重新 fetch。默认保留旧远端引用、跟踪状态和 canonical mirror；它们仍是历史缓存，不会因此获得原本缺失的来源转换证据或新的发布 lease。依赖这些证据的发布仍需通过原有检查，不能把保留缓存等同于验证了远端当前状态。
 根据诊断补充选择：
 
 | 选项 | 用途 |
@@ -419,19 +420,18 @@ jjosh project migrate --dry-run
 | =--representation REMOTE=whole= | 指定整个来源作为项目内容 |
 | =--representation REMOTE=filter:EXPR= | 指定项目挂载前的来源 filter |
 | =--representation REMOTE=view:PATH= | 指定来源 view |
-| =--clear-observations REMOTE= | 清除缺少可靠转换依据的旧远端记录，之后重新获取 |
+| =--clear-observations REMOTE= | 可选：显式清除旧远端记录、跟踪和 canonical mirror；不是迁移前提 |
 | =--native-source PROJECT=REMOTE= | 将原生对应关系归给同项目的 whole 绑定 |
 | =--native-source PROJECT=detached= | 保留离线原生对应关系；这是默认选择 |
 
-例如，确认来源布局为 =src/parser/=，并需要重建其远端记录：
+例如，确认来源布局为 =src/parser/=，保留已有远端记录并离线迁移：
 
 #+begin_src sh
 jjosh project migrate --dry-run \
-  --representation 'parser-upstream=filter::/src/parser' --clear-observations parser-upstream
+  --representation 'parser-upstream=filter::/src/parser'
 jjosh project migrate --apply --exclusive \
-  --representation 'parser-upstream=filter::/src/parser' --clear-observations parser-upstream
+  --representation 'parser-upstream=filter::/src/parser'
 jjosh project check
-jjosh git fetch --project parser --remote parser-upstream --branch main
 #+end_src
 
 迁移保留本地引用、工作文件、来源对象、浅边界、发布 lease 及有效连接配置。

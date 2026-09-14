@@ -5102,3 +5102,272 @@ fn signed_transformed_fetch_does_not_grant_sibling_observations_or_leases() {
         signed
     );
 }
+
+fn exported_view(client: &Path) -> serde_json::Value {
+    let temp = tempfile::tempdir().unwrap();
+    let bundle = temp.path().join("state.jjosh");
+    jjosh(client, &["native", "export", bundle.to_str().unwrap()]);
+    let mut archive = tar::Archive::new(fs::File::open(bundle).unwrap());
+    for entry in archive.entries().unwrap() {
+        let mut entry = entry.unwrap();
+        if entry.path().unwrap() == Path::new("manifest.json") {
+            let manifest: serde_json::Value = serde_json::from_reader(&mut entry).unwrap();
+            return manifest["view"].clone();
+        }
+    }
+    panic!("native export did not contain a manifest");
+}
+
+#[test]
+fn legacy_migration_preserves_observations_unless_explicitly_cleared() {
+    for (clear, explicit_base) in [(false, true), (true, true), (false, false), (true, false)] {
+        let temp = tempfile::tempdir().unwrap();
+        let (_, remote, raw_tip) = create_remote(temp.path(), "legacy");
+        let client = create_client(temp.path(), false);
+        fs::create_dir(client.join("app")).unwrap();
+        fs::write(client.join("app/value.txt"), "legacy canonical content\n").unwrap();
+        jjosh(&client, &["describe", "-m", "legacy canonical history"]);
+        jjosh(&client, &["bookmark", "set", "main#app"]);
+        jjosh(&client, &["tag", "set", "v1#app"]);
+        let canonical = commit_id(&client, "@");
+        let git_dir = PathBuf::from(
+            String::from_utf8(jjosh(&client, &["git", "root"]).stdout)
+                .unwrap()
+                .trim(),
+        );
+        git(
+            &git_dir,
+            &["remote", "add", "origin", remote.to_str().unwrap()],
+        );
+        let annotation = tag_object(
+            &git_dir,
+            &canonical,
+            "commit",
+            "v1#app",
+            "legacy annotation\n",
+        );
+        for (name, target) in [
+            ("refs/remotes/origin/main#app", canonical.as_str()),
+            ("refs/remotes/origin/untracked#app", canonical.as_str()),
+            ("refs/jj/remote-tags/origin/v1#app", annotation.as_str()),
+        ] {
+            git(&git_dir, &["update-ref", name, target]);
+        }
+        // Remote tags are imported by fetch, not ordinary `git import`.
+        git(
+            &remote,
+            &["fetch", "--no-tags", git_dir.to_str().unwrap(), &annotation],
+        );
+        git(&remote, &["update-ref", "refs/tags/v1#app", &annotation]);
+        // This lease records the independently observed endpoint object, not
+        // the unrelated canonical target cached above. Migration must preserve
+        // it, but it cannot supply the missing filtered source context.
+        git(&remote, &["update-ref", "refs/heads/topic", &raw_tip]);
+        let key_file = temp.path().join("lease-key");
+        let value_file = temp.path().join("lease-value");
+        fs::write(&key_file, format!("{}\0refs/heads/topic", remote.display())).unwrap();
+        fs::write(&value_file, &raw_tip).unwrap();
+        let key = git(&git_dir, &["hash-object", "-w", key_file.to_str().unwrap()]);
+        let value = git(
+            &git_dir,
+            &["hash-object", "-w", value_file.to_str().unwrap()],
+        );
+        git(
+            &git_dir,
+            &[
+                "update-ref",
+                &format!("refs/jjosh/observations/{}", key.trim()),
+                value.trim(),
+            ],
+        );
+        // Import before installing legacy configuration: this is genuinely
+        // pre-binding remote state, not modern conversion evidence stripped
+        // of its provenance.
+        jjosh(
+            &client,
+            &["--config", "git.auto-local-bookmark=false", "git", "import"],
+        );
+        jjosh(
+            &client,
+            &["git", "fetch", "--remote", "origin", "--tag", "v1#app"],
+        );
+        jjosh(&client, &["bookmark", "track", "main#app@origin"]);
+        jjosh(&client, &["tag", "track", "v1#app@origin"]);
+        let before = exported_view(&client);
+        assert_eq!(
+            before["remote_views"]["origin"]["bookmarks"]["main#app"]["target"],
+            serde_json::json!([canonical])
+        );
+        assert_ne!(
+            before["remote_views"]["origin"]["bookmarks"]["main#app"]["state"],
+            before["remote_views"]["origin"]["bookmarks"]["untracked#app"]["state"]
+        );
+        assert_eq!(
+            before["remote_views"]["origin"]["tags"]["v1#app"]["target"],
+            serde_json::json!([canonical])
+        );
+        assert_eq!(
+            before["project_metadata"]["observations"],
+            serde_json::json!([])
+        );
+        assert_eq!(
+            before["project_metadata"]["bindings"],
+            serde_json::json!({})
+        );
+        for (key, value) in [("jjosh-project", "app"), ("jjosh-mount", "app")] {
+            git(
+                &git_dir,
+                &["config", &format!("remote.origin.{key}"), value],
+            );
+        }
+        if explicit_base {
+            git(&git_dir, &["config", "remote.origin.jjosh-base", "main"]);
+        }
+        let sidecar = git_dir.join("josh/remotes/origin.josh");
+        fs::create_dir_all(sidecar.parent().unwrap()).unwrap();
+        fs::write(&sidecar, ":/src:prefix=app\n").unwrap();
+        let config = fs::read(git_dir.join("config")).unwrap();
+        let refs = git(&git_dir, &["show-ref"]);
+        let endpoint_refs = git(&remote, &["show-ref"]);
+        let operation = operation_id(&client);
+        let mut preview = vec!["project", "migrate", "--dry-run"];
+        if clear {
+            preview.extend(["--clear-observations", "origin"]);
+        }
+        jjosh(&client, &preview);
+        assert_eq!(operation_id(&client), operation);
+        assert_eq!(fs::read(git_dir.join("config")).unwrap(), config);
+        assert_eq!(git(&git_dir, &["show-ref"]), refs);
+        assert_eq!(fs::read_to_string(&sidecar).unwrap(), ":/src:prefix=app\n");
+        let mut apply = vec!["project", "migrate", "--apply"];
+        if clear {
+            apply.extend(["--clear-observations", "origin"]);
+        }
+        jjosh(&client, &apply);
+        let physical = physical_remote(&client, "app", "origin");
+        let after = exported_view(&client);
+        for field in ["local_bookmarks", "local_tags", "wc_commit_ids"] {
+            assert_eq!(after[field], before[field]);
+        }
+        assert_eq!(
+            fs::read_to_string(client.join("app/value.txt")).unwrap(),
+            "legacy canonical content\n"
+        );
+        assert!(after["remote_views"].get("origin").is_none());
+        if clear {
+            assert!(after["remote_views"].get(&physical).is_none());
+        } else {
+            assert_eq!(
+                after["remote_views"][&physical],
+                before["remote_views"]["origin"]
+            );
+            assert_eq!(commit_id(&client, "main#app@origin"), canonical);
+            assert_eq!(
+                commit_id(&client, "remote_tags(exact:\"v1#app\", exact:\"origin\")"),
+                canonical
+            );
+        }
+        let mut expected_git_refs = before["git_refs"].as_object().unwrap().clone();
+        for prefix in ["refs/remotes/origin/", "refs/jj/remote-tags/origin/"] {
+            for (name, target) in before["git_refs"].as_object().unwrap() {
+                if let Some(suffix) = name.strip_prefix(prefix) {
+                    expected_git_refs.remove(name);
+                    if !clear {
+                        let namespace = prefix.strip_suffix("origin/").unwrap();
+                        expected_git_refs
+                            .insert(format!("{namespace}{physical}/{suffix}"), target.clone());
+                    }
+                }
+            }
+        }
+        assert_eq!(
+            after["git_refs"],
+            serde_json::Value::Object(expected_git_refs)
+        );
+        // Compare every physical ref, including exact annotated tag OIDs and
+        // any private anchors. Rekeying may neither invent a publication lease
+        // nor discard a pre-existing one.
+        let expected_refs: String = refs
+            .lines()
+            .filter(|line| {
+                !clear
+                    || (!line.contains(" refs/remotes/origin/")
+                        && !line.contains(" refs/jj/remote-tags/origin/"))
+            })
+            .map(|line| {
+                format!(
+                    "{}\n",
+                    line.replace("refs/remotes/origin/", &format!("refs/remotes/{physical}/"))
+                        .replace(
+                            "refs/jj/remote-tags/origin/",
+                            &format!("refs/jj/remote-tags/{physical}/"),
+                        )
+                )
+            })
+            .collect();
+        assert_eq!(git(&git_dir, &["show-ref"]), expected_refs);
+        let metadata = &after["project_metadata"];
+        assert_eq!(metadata["observations"], serde_json::json!([]));
+        let connection = metadata["remote_connections"][&physical][0]
+            .as_str()
+            .unwrap();
+        assert_eq!(metadata["remote_names"][connection][0]["name"], "origin");
+        let bindings = metadata["bindings"].as_object().unwrap();
+        assert_eq!(bindings.len(), 1);
+        let binding = &bindings.values().next().unwrap()[0];
+        assert_eq!(binding["connection"], connection);
+        assert_eq!(binding["project"], metadata["labels"]["app"][0]);
+        assert_eq!(
+            binding["representation"],
+            serde_json::json!({"josh_filter": ":/src"})
+        );
+        assert_eq!(
+            binding["base"],
+            if explicit_base {
+                serde_json::json!("refs/heads/main")
+            } else {
+                serde_json::Value::Null
+            }
+        );
+        assert!(!sidecar.exists());
+        assert_eq!(git(&remote, &["show-ref"]), endpoint_refs);
+
+        if !clear || !explicit_base {
+            // Neither retaining nor clearing tracking supplies a source witness.
+            // Use a real, reachable local endpoint and a changed bookmark so
+            // this is neither an empty push nor an unreachable-remote failure.
+            jjosh(
+                &client,
+                &["new", "main#app", "-m", "unpublished continuation"],
+            );
+            fs::write(client.join("app/value.txt"), "must not publish\n").unwrap();
+            jjosh(&client, &["bookmark", "set", "main#app"]);
+            let operation = operation_id(&client);
+            let refs = git(&git_dir, &["show-ref"]);
+            // A new topic has no reference-specific conversion observation.
+            // Its ancestry through the retained main cache must still prevent
+            // treating it as a brand-new empty-source filtered publication,
+            // even though the independent lease authorizes replacing topic.
+            for dry_run in [true, false] {
+                let mut args = vec!["git", "push", "--remote", "origin#app"];
+                if explicit_base {
+                    args.extend(["--bookmark", "main#app"]);
+                } else {
+                    args.extend(["--named", "topic#app=@"]);
+                }
+                if dry_run {
+                    args.push("--dry-run");
+                }
+                let rejected = jjosh_unchecked(&client, &args);
+                assert!(!rejected.status.success());
+                assert_eq!(operation_id(&client), operation);
+                assert_eq!(git(&git_dir, &["show-ref"]), refs);
+                assert_eq!(git(&remote, &["show-ref"]), endpoint_refs);
+                assert_eq!(
+                    exported_view(&client)["project_metadata"]["observations"],
+                    serde_json::json!([])
+                );
+            }
+        }
+    }
+}

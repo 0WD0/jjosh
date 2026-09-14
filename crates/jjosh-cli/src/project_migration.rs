@@ -844,26 +844,21 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
             binding.base
         )?;
         if let Some(refs) = view.remote_views.get(&name)
+            && !clear.contains(&remote.name)
             && (!refs.bookmarks.is_empty() || !refs.tags.is_empty())
         {
-            for (reference, target) in refs.bookmarks.iter().chain(refs.tags.iter()) {
-                writeln!(
-                    ui.status(),
-                    "Legacy observation {}@{} ({:?}) has no immutable source evidence",
-                    reference.as_str(),
-                    name.as_str(),
-                    target.state
-                )?;
-            }
-            if !clear.contains(&remote.name) {
-                blockers.push(format!(
-                    "Remote {remote_name}: legacy observations cannot prove \
-                     endpoint/raw/generation. Pass --clear-observations {remote_name} to \
-                     explicitly forget its remote observations/tracking, retain local refs and \
-                     leases, then fetch again",
-                    remote_name = name.as_str()
-                ));
-            }
+            // A recorded reference and its tracking state are historical cache,
+            // not proof of a raw source, endpoint, or conversion generation.
+            // Retain them without fabricating project_observations or leases.
+            // Publication must still satisfy its independent evidence checks.
+            writeln!(
+                ui.status(),
+                "Preserve {} legacy bookmarks and {} tags for {} with their tracking state; \
+                 no conversion evidence or publication lease inferred",
+                refs.bookmarks.len(),
+                refs.tags.len(),
+                name.as_str(),
+            )?;
         }
         if clear.remove(&remote.name) {
             view.remote_views.remove(&name);

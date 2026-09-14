@@ -44,7 +44,10 @@ struct PreparedPush {
     transport: transport::PreparedPush,
 }
 
-fn source_destination(session: &Session, update: &GitRefUpdate) -> Result<(String, Option<ProjectId>)> {
+fn source_destination(
+    session: &Session,
+    update: &GitRefUpdate,
+) -> Result<(String, Option<ProjectId>)> {
     let qualified = update.qualified_name.as_str();
     let (prefix, local) = if let Some(local) = qualified.strip_prefix("refs/heads/") {
         ("refs/heads/", local)
@@ -65,6 +68,47 @@ fn source_destination(session: &Session, update: &GitRefUpdate) -> Result<(Strin
     Ok((destination, scope))
 }
 
+fn cached_source_targets<'a>(
+    view: &'a jj_lib::view::View,
+    remote: &'a RemoteName,
+) -> impl Iterator<
+    Item = (
+        ObservationKind,
+        &'a jj_lib::ref_name::RefName,
+        &'a jj_lib::op_store::RefTarget,
+    ),
+> {
+    let recorded = view.get_remote_view(remote).into_iter().flat_map(|refs| {
+        refs.bookmarks
+            .iter()
+            .map(|(name, value)| (ObservationKind::Bookmark, name.as_ref(), &value.target))
+            .chain(
+                refs.tags
+                    .iter()
+                    .map(|(name, value)| (ObservationKind::Tag, name.as_ref(), &value.target)),
+            )
+    });
+    let mirrors = view.git_refs().iter().filter_map(move |(name, target)| {
+        if let Some((kind, symbol)) = jj_lib::git::parse_git_ref(name) {
+            let kind = match kind {
+                jj_lib::git::GitRefKind::Bookmark => ObservationKind::Bookmark,
+                jj_lib::git::GitRefKind::Tag => ObservationKind::Tag,
+            };
+            return (symbol.remote == remote).then_some((kind, symbol.name, target));
+        }
+        let suffix = name
+            .as_str()
+            .strip_prefix(jj_lib::git::REMOTE_TAG_REF_NAMESPACE)?;
+        let (owner, name) = suffix.split_once('/')?;
+        (owner == remote.as_str()).then_some((
+            ObservationKind::Tag,
+            jj_lib::ref_name::RefName::new(name),
+            target,
+        ))
+    });
+    recorded.chain(mirrors)
+}
+
 fn source_observation(
     scope: &Session,
     repo: &MutableRepo,
@@ -81,37 +125,126 @@ fn source_observation(
         let (kind, name) = if let Some(name) = reference.strip_prefix("refs/tags/") { (ObservationKind::Tag, name) } else { (ObservationKind::Bookmark, reference.strip_prefix("refs/heads/").ok_or_else(|| user_error("Source context must name a bookmark or tag"))?) };
         ObservationKey { remote: scope.name.clone(), name: scope.local_name(name), kind }
     };
-    let Some(value) = repo.view().store_view().project_observations.get(&key) else {
-        if base.is_some() { return Err(user_error("Selected source base has no immutable conversion observation; fetch it first")); }
+    repo.view()
+        .validate_project_observation(&key)
+        .map_err(user_error)?;
+    let observation = repo
+        .view()
+        .store_view()
+        .project_observations
+        .get(&key)
+        .map(|value| {
+            value.as_resolved().ok_or_else(|| {
+                user_error(
+                    "Source conversion observations are conflicted; select an explicit \
+                     unambiguous base",
+                )
+            })
+        })
+        .transpose()?
+        .and_then(Option::as_ref);
+    let Some(observation) = observation else {
+        let cached = cached_source_targets(repo.view(), &scope.name).any(|(kind, name, target)| {
+            kind == key.kind && name == key.name && !target.is_absent()
+        });
+        if base.is_some() || cached {
+            return Err(user_error(
+                "Selected source reference has no immutable conversion observation; historical \
+                 tracking is not source evidence",
+            ));
+        }
         return Ok(None);
     };
-    repo.view().validate_project_observation(&key).map_err(user_error)?;
-    let observation = value.as_resolved().ok_or_else(|| user_error("Source conversion observations are conflicted; select an explicit unambiguous base"))?.as_ref();
-    if let Some(observation) = observation {
-        if &observation.binding_id != scope.binding_id() || Some(&observation.connection_id) != scope.connection.as_ref() {
-            return Err(user_error("Source observation belongs to another binding or connection"));
-        }
-        if observation.terms.len() != 1 { return Err(user_error("Source reference is conflicted; select an explicit unambiguous base")); }
-        if let Some(revision) = revision
-            && (observation.terms[0].raw.as_deref() != Some(revision.to_string().as_str()) || observation.generation.is_none()) {
-                return Err(user_error("Literal source base lacks its exact raw revision and normalization generation"));
-            }
+    if &observation.binding_id != scope.binding_id()
+        || Some(&observation.connection_id) != scope.connection.as_ref()
+    {
+        return Err(user_error(
+            "Source observation belongs to another binding or connection",
+        ));
     }
-    Ok(observation.cloned())
+    if observation.terms.len() != 1 {
+        return Err(user_error(
+            "Source reference is conflicted; select an explicit unambiguous base",
+        ));
+    }
+    if let Some(revision) = revision
+        && (observation.terms[0].raw.as_deref() != Some(revision.to_string().as_str())
+            || observation.generation.is_none())
+    {
+        return Err(user_error(
+            "Literal source base lacks its exact raw revision and normalization generation",
+        ));
+    }
+    Ok(Some(observation.clone()))
 }
 
-fn generation_endpoint(scope: &Session, git: &gix::Repository, observation: Option<&ConversionObservation>) -> Result<String, CommandError> {
+fn generation_endpoint(
+    scope: &Session,
+    git: &gix::Repository,
+    observation: Option<&ConversionObservation>,
+) -> Result<String, CommandError> {
     if let Some(observation) = observation {
         if let Some(generation) = &observation.generation {
             return crate::source_repo::parse_generation(generation).map(|(endpoint, _)| endpoint).map_err(user_error);
         }
         return Ok(observation.endpoint.clone());
     }
-    scope.endpoint_url(git, Direction::Fetch).map_err(user_error)
+    scope
+        .endpoint_url(git, Direction::Fetch)
+        .map_err(user_error)
 }
 
-/// Resolve a new branch's context from the selected relation's actual ancestry,
-/// not from the number of peers, refs, or configured base hints.
+/// Reject unwitnessed cached ancestry before choosing an automatic source base.
+async fn validate_cached_source_ancestry(
+    scope: &Session,
+    repo: &MutableRepo,
+    git: &gix::Repository,
+    head: &CommitId,
+) -> Result<(), CommandError> {
+    for (kind, name, target) in cached_source_targets(repo.view(), &scope.name) {
+        for cached in target.added_ids() {
+            // Recorded Git tag mirrors may point at an annotation, unlike the
+            // peeled commit targets in remote_views.
+            let raw = gix::ObjectId::try_from(cached.as_bytes()).map_err(user_error)?;
+            let canonical = CommitId::from_bytes(peel_commit(git, raw)?.as_bytes());
+            if !repo.index().is_ancestor(&canonical, head).await? {
+                continue;
+            }
+            let key = ObservationKey {
+                remote: scope.name.clone(),
+                name: name.to_owned(),
+                kind,
+            };
+            let witnessed = repo
+                .view()
+                .store_view()
+                .project_observations
+                .get(&key)
+                .and_then(|value| value.as_resolved())
+                .and_then(Option::as_ref)
+                .is_some_and(|evidence| {
+                    &evidence.binding_id == scope.binding_id()
+                        && Some(&evidence.connection_id) == scope.connection.as_ref()
+                        && evidence.terms.iter().any(|term| {
+                            term.canonical.as_ref() == Some(&canonical) && term.raw.is_some()
+                        })
+                });
+            if !witnessed {
+                return Err(user_error(format!(
+                    "Source ancestry includes unverified cached reference {}; select an \
+                     explicitly witnessed --base",
+                    repo.view()
+                        .remote_ref_symbol(name.to_remote_symbol(&scope.name)),
+                )));
+            }
+            repo.view()
+                .validate_project_observation(&key)
+                .map_err(user_error)?;
+        }
+    }
+    Ok(())
+}
+
 async fn ancestral_observation(
     scope: &Session,
     repo: &MutableRepo,
@@ -243,15 +376,32 @@ pub(super) async fn prepare(
     }
     let mut contexts = Vec::with_capacity(scopes.len());
     for (scope, updates) in &scopes {
-        let mut context = if scope.filter().is_some() { source_observation(scope, repo, &updates[0].1, preparation)? } else { None };
+        if canonical[updates[0].0].targets.after.is_none() {
+            // Deletion needs an independently valid wire lease, not conversion.
+            contexts.push(None);
+            continue;
+        }
+        let mut context = if scope.filter().is_some() {
+            source_observation(scope, repo, &updates[0].1, preparation)?
+        } else {
+            None
+        };
         if scope.filter().is_some()
             && preparation.base.is_none()
-            && scope.binding.as_ref().and_then(|(_, record)| record.base.as_ref()).is_none()
-            && context.as_ref().is_none_or(|value| value.terms[0].raw.is_none())
+            && scope
+                .binding
+                .as_ref()
+                .and_then(|(_, record)| record.base.as_ref())
+                .is_none()
             && let Some(head) = canonical[updates[0].0].targets.after
         {
             let head = CommitId::from_bytes(peel_commit(&git, head)?.as_bytes());
-            if let Some(ancestor) = ancestral_observation(scope, repo, &git, &head).await? {
+            validate_cached_source_ancestry(scope, repo, &git, &head).await?;
+            if context
+                .as_ref()
+                .is_none_or(|value| value.terms[0].raw.is_none())
+                && let Some(ancestor) = ancestral_observation(scope, repo, &git, &head).await?
+            {
                 context = Some(ancestor);
             }
         }
@@ -663,6 +813,26 @@ async fn prepare_scope(
                 let source = source_store.expect("filtered publication has a source store");
                 let tips: Vec<_> = destination_raw.into_iter().chain(base).collect();
                 let context = base.or(destination_raw);
+                if context.is_none() {
+                    // Forgetting canonical observations does not make an
+                    // existing source or a populated destination an empty one.
+                    let raw_prefix = scope.raw_prefix(git, &source_endpoint).map_err(user_error)?;
+                    let mut retained = git.references().map_err(user_error)?
+                        .prefixed(raw_prefix.as_str()).map_err(user_error)?
+                        .next().transpose().map_err(user_error)?.is_some();
+                    if !retained {
+                        for reference in source.git().references().map_err(user_error)?.all().map_err(user_error)? {
+                            let reference = reference.map_err(user_error)?;
+                            if reference.name().as_bstr() != crate::source_repo::INITIALIZED_REF.as_bytes() {
+                                retained = true;
+                                break;
+                            }
+                        }
+                    }
+                    if retained || matches!(expected, Expected::At(_)) {
+                        return Err(user_error("Filtered publication has retained source history or a populated destination but no witnessed source context; select an explicitly witnessed --base"));
+                    }
+                }
                 let normalized = match (context, observation.and_then(|value| value.generation.as_ref())) {
                     (Some(raw), Some(input)) => source.witnessed_generation(transaction, raw, crate::source_repo::parse_generation(input).map_err(user_error)?.1).map_err(user_error)?,
                     _ => source.normalize(transaction, &tips).map_err(user_error)?,
