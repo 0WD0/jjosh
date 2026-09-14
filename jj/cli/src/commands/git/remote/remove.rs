@@ -14,9 +14,9 @@
 
 use clap_complete::ArgValueCandidates;
 use jj_lib::git;
+use jj_lib::object_id::ObjectId as _;
 use jj_lib::ref_name::RemoteNameBuf;
 use jj_lib::repo::Repo as _;
-use jj_lib::object_id::ObjectId as _;
 
 use super::super::remove_remote_from_repo_config;
 use crate::cli_util::CommandHelper;
@@ -25,6 +25,10 @@ use crate::complete;
 use crate::ui::Ui;
 
 /// Remove a Git remote and forget its bookmarks
+///
+/// Also removes a restored logical remote that has no local connection
+/// configuration. Local references and historical operations remain; configuration
+/// and mirrors belonging to another connection are not removed.
 #[derive(clap::Args, Clone, Debug)]
 pub struct GitRemoteRemoveArgs {
     /// The remote's name
@@ -43,13 +47,22 @@ pub async fn cmd_git_remote_remove(
 ) -> Result<(), CommandError> {
     let mut workspace_command = command.workspace_helper_no_snapshot(ui).await?;
     let git_lock = workspace_command.lock_git_import_export()?;
-    let remote = crate::git_remote::resolve_remote_selector(
+    let remote = super::resolve_management_remote(
         &workspace_command,
         args.remote.as_str(),
         args.project.as_deref(),
     )?;
-    crate::git_remote::check_remote(command, &workspace_command, &remote)?;
     let view = workspace_command.repo().view();
+    let git_repo = git::get_git_repo(workspace_command.repo().store())?;
+    let connection = super::management_connection(view, &git_repo, &remote)?;
+    super::check_management_binding(command, &workspace_command, &remote, connection.as_ref())?;
+    let configured_connection =
+        git::remote_connection_id(&git_repo, &remote).map_err(crate::command_error::user_error)?;
+    let configured = git::try_find_active_remote(&git_repo, &remote)?.is_some();
+    let owns_config = configured_connection == connection;
+    if configured && owns_config {
+        crate::git_remote::check_remote(command, &workspace_command, &remote)?;
+    }
     let identity = view
         .remote_identity(&remote)
         .map_err(crate::command_error::user_error)?;
@@ -77,10 +90,12 @@ pub async fn cmd_git_remote_remove(
         &workspace_command.repo().operation().id().hex(),
         &extra_paths,
     )?;
-    let git_repo = git::get_git_repo(workspace_command.repo().store())?;
-    let connection =
-        git::remote_connection_id(&git_repo, &remote).map_err(crate::command_error::user_error)?;
-    journal.expect_remote(&remote, false, connection.as_ref(), false)?;
+    journal.expect_remote(
+        &remote,
+        configured && !owns_config,
+        configured_connection.as_ref(),
+        configured && !owns_config && git::remote_required_capability(&git_repo, &remote).is_some(),
+    )?;
     let mut tx = workspace_command.start_transaction();
     git::remove_remote_with_options(tx.repo_mut(), &remote, &options)?;
     if let Some(connection) = connection {

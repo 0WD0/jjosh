@@ -1154,10 +1154,10 @@ fn shared_alias_rename_updates_only_local_defaults_and_restores_without_changing
         &client,
         &["op", "restore", before.trim(), "--what", "remote-tracking"],
     );
-    assert_eq!(physical_remote(&client, "alpha", "origin"), physical);
-    assert_eq!(commit_id(&client, "main#alpha@origin"), canonical);
+    assert_eq!(physical_remote(&client, "alpha", "primary"), physical);
+    assert_eq!(commit_id(&client, "main#alpha@primary"), canonical);
     assert!(
-        !jjosh_unchecked(&client, &["log", "-r", "main#alpha@primary"])
+        !jjosh_unchecked(&client, &["log", "-r", "main#alpha@origin"])
             .status
             .success()
     );
@@ -1169,6 +1169,9 @@ fn shared_alias_rename_updates_only_local_defaults_and_restores_without_changing
         file_at_revision(&client, "main@origin", "src/value.txt"),
         b"root-v1\n"
     );
+    jjosh(&client, &["op", "restore", before.trim(), "--what", "repo"]);
+    assert_eq!(physical_remote(&client, "alpha", "origin"), physical);
+    assert_eq!(commit_id(&client, "main#alpha@origin"), canonical);
 }
 
 fn file_at_revision(client: &Path, revision: &str, path: &str) -> Vec<u8> {
@@ -1795,11 +1798,13 @@ fn project_fetch_defaults_are_directional_and_validate_selected_bindings_before_
 }
 
 #[test]
-fn recreated_remote_rejects_restored_observations_from_its_previous_instance() {
+fn recreated_remote_does_not_inherit_restored_observations() {
     let temp = tempfile::tempdir().unwrap();
     let (_, source, _) = create_remote(temp.path(), "source");
     let client = create_client(temp.path(), false);
     import_project(&client, "api", "packages/api", &source, ":/src");
+    let original = physical_remote(&client, "api", "api-upstream");
+    let original_tip = commit_id(&client, "main#api@api-upstream");
     jjosh(&client, &["bookmark", "create", "local#api"]);
     let local = commit_id(&client, "local#api");
     let historical = operation_id(&client);
@@ -1818,13 +1823,9 @@ fn recreated_remote_rejects_restored_observations_from_its_previous_instance() {
         ],
     );
     let replacement = physical_remote(&client, "api", "api-upstream");
-    let connection = git(
+    let replacement_url = git(
         &client.join(".jj/repo/store/git"),
-        &[
-            "config",
-            "--get",
-            &format!("remote.{replacement}.jjosh-connectionId"),
-        ],
+        &["config", "--get", &format!("remote.{replacement}.url")],
     );
     jjosh(
         &client,
@@ -1836,59 +1837,19 @@ fn recreated_remote_rejects_restored_observations_from_its_previous_instance() {
             "remote-tracking",
         ],
     );
-    let restored = operation_id(&client);
-    assert!(
-        !jjosh_unchecked(
-            &client,
-            &[
-                "git",
-                "fetch",
-                "--remote",
-                "api-upstream#api",
-                "--branch",
-                "main"
-            ]
-        )
-        .status
-        .success()
-    );
-    assert_eq!(operation_id(&client), restored);
-    jjosh(
-        &client,
-        &["git", "remote", "forget-observations", "api-upstream#api"],
-    );
+    // Restoring knowledge must not replace the current connection or lend it
+    // the old instance's filtered target/tracking.
     assert_eq!(commit_id(&client, "local#api"), local);
-    let forgotten = operation_id(&client);
     assert!(
-        !jjosh_unchecked(
-            &client,
-            &[
-                "git",
-                "fetch",
-                "--remote",
-                "api-upstream#api",
-                "--branch",
-                "main"
-            ]
-        )
-        .status
-        .success()
-    );
-    assert_eq!(operation_id(&client), forgotten);
-    // Restored observations identify the deleted connection, not its replacement.
-    // Forgetting them cannot infer the replacement's alias; repair that identity explicitly.
-    jjosh(
-        &client,
-        &[
-            "project",
-            "resolve",
-            "--connection",
-            connection.trim(),
-            "--name",
-            "api-upstream",
-        ],
+        !jjosh_unchecked(&client, &["log", "-r", "main#api@api-upstream"])
+            .status
+            .success()
     );
     assert_eq!(physical_remote(&client, "api", "api-upstream"), replacement);
+    assert_eq!(
+        commit_id(&client, &format!("main#api@{original}")),
+        original_tip
+    );
     jjosh(
         &client,
         &[
@@ -1908,10 +1869,7 @@ fn recreated_remote_rejects_restored_observations_from_its_previous_instance() {
         ),
         b"source-v1\n"
     );
-    jjosh(
-        &client,
-        &["op", "restore", historical.trim(), "--what", "repo"],
-    );
+    jjosh(&client, &["op", "restore", historical.trim()]);
     assert!(
         !jjosh_unchecked(
             &client,
@@ -1927,6 +1885,218 @@ fn recreated_remote_rejects_restored_observations_from_its_previous_instance() {
         .status
         .success()
     );
+    // Full restore revives the old logical remote, not its local configuration.
+    // Ordinary remove handles it offline and must leave B's configuration alone.
+    jjosh(&client, &["git", "remote", "remove", "api-upstream#api"]);
+    assert_eq!(commit_id(&client, "local#api"), local);
+    assert_eq!(
+        git(
+            &client.join(".jj/repo/store/git"),
+            &["config", "--get", &format!("remote.{replacement}.url")],
+        ),
+        replacement_url
+    );
+
+    jjosh(&client, &["op", "restore", historical.trim()]);
+    let (_, alternate, _) = create_remote(temp.path(), "alternate");
+    jjosh(
+        &client,
+        &[
+            "git",
+            "remote",
+            "set-url",
+            "api-upstream#api",
+            alternate.to_str().unwrap(),
+        ],
+    );
+    jjosh(
+        &client,
+        &[
+            "git",
+            "fetch",
+            "--remote",
+            "api-upstream#api",
+            "--branch",
+            "main",
+        ],
+    );
+    assert_eq!(
+        file_at_revision(&client, "main#api@api-upstream", "packages/api/value.txt"),
+        b"alternate-v1\n"
+    );
+    assert_eq!(
+        git(
+            &client.join(".jj/repo/store/git"),
+            &["config", "--get", &format!("remote.{replacement}.url")],
+        ),
+        replacement_url
+    );
+}
+
+#[test]
+fn root_remote_restore_preserves_new_connection_without_inheriting_old_refs() {
+    let temp = tempfile::tempdir().unwrap();
+    let (_, source, old_tip) = create_remote(temp.path(), "source");
+    let (_, replacement, new_tip) = create_remote(temp.path(), "replacement");
+    let client = create_client(temp.path(), false);
+    jjosh(
+        &client,
+        &["git", "remote", "add", "origin", source.to_str().unwrap()],
+    );
+    jjosh(
+        &client,
+        &["git", "fetch", "--remote", "origin", "--branch", "main"],
+    );
+    jjosh(&client, &["bookmark", "track", "main@origin"]);
+    let historical = operation_id(&client);
+    let original_connection = git(
+        &client.join(".jj/repo/store/git"),
+        &["config", "--get", "remote.origin.jjosh-connectionId"],
+    );
+    assert_eq!(commit_id(&client, "main@origin"), old_tip);
+    jjosh(&client, &["git", "remote", "remove", "origin"]);
+    jjosh(
+        &client,
+        &[
+            "git",
+            "remote",
+            "add",
+            "origin",
+            replacement.to_str().unwrap(),
+        ],
+    );
+    jjosh(
+        &client,
+        &[
+            "op",
+            "restore",
+            historical.trim(),
+            "--what",
+            "remote-tracking",
+        ],
+    );
+    assert!(
+        !jjosh_unchecked(&client, &["log", "-r", "main@origin"])
+            .status
+            .success()
+    );
+    jjosh(
+        &client,
+        &["git", "fetch", "--remote", "origin", "--branch", "main"],
+    );
+    assert_eq!(commit_id(&client, "main@origin"), new_tip);
+    // Tracking belongs to the old instance: B's first fetch must not move main.
+    assert_eq!(commit_id(&client, "main"), old_tip);
+    assert_eq!(
+        commit_id(
+            &client,
+            &format!("main@jjosh-observed-{}", original_connection.trim())
+        ),
+        old_tip
+    );
+    assert_eq!(
+        git(
+            &client.join(".jj/repo/store/git"),
+            &["config", "--get", "remote.origin.url"],
+        )
+        .trim(),
+        replacement.to_str().unwrap()
+    );
+    assert_eq!(
+        String::from_utf8(
+            jjosh(
+                &client,
+                &[
+                    "--at-op",
+                    historical.trim(),
+                    "log",
+                    "-r",
+                    "main@origin",
+                    "--no-graph",
+                    "-T",
+                    "commit_id"
+                ],
+            )
+            .stdout
+        )
+        .unwrap()
+        .trim(),
+        old_tip
+    );
+}
+
+#[test]
+fn root_tracking_restore_follows_connection_through_rename_and_alias_swap() {
+    let temp = tempfile::tempdir().unwrap();
+    let (source_work, source, old_tip) = create_remote(temp.path(), "source");
+    let (_, other, other_tip) = create_remote(temp.path(), "other");
+    let client = create_client(temp.path(), false);
+    for (name, path) in [("origin", &source), ("backup", &other)] {
+        jjosh(
+            &client,
+            &["git", "remote", "add", name, path.to_str().unwrap()],
+        );
+        jjosh(
+            &client,
+            &["git", "fetch", "--remote", name, "--branch", "main"],
+        );
+    }
+    jjosh(&client, &["bookmark", "track", "main@origin"]);
+    let historical = operation_id(&client);
+    jjosh(&client, &["git", "remote", "rename", "origin", "temporary"]);
+    jjosh(
+        &client,
+        &[
+            "op",
+            "restore",
+            historical.trim(),
+            "--what",
+            "remote-tracking",
+        ],
+    );
+    assert_eq!(commit_id(&client, "main@temporary"), old_tip);
+    assert!(
+        !jjosh_unchecked(&client, &["log", "-r", "main@origin"])
+            .status
+            .success()
+    );
+
+    jjosh(&client, &["git", "remote", "rename", "backup", "origin"]);
+    jjosh(&client, &["git", "remote", "rename", "temporary", "backup"]);
+    jjosh(
+        &client,
+        &[
+            "op",
+            "restore",
+            historical.trim(),
+            "--what",
+            "remote-tracking",
+        ],
+    );
+    assert_eq!(commit_id(&client, "main@backup"), old_tip);
+    assert_eq!(commit_id(&client, "main@origin"), other_tip);
+    assert_eq!(commit_id(&client, "main"), old_tip);
+    let git_dir = client.join(".jj/repo/store/git");
+    assert_eq!(
+        git(&git_dir, &["config", "--get", "remote.backup.url"]).trim(),
+        source.to_str().unwrap()
+    );
+    assert_eq!(
+        git(&git_dir, &["config", "--get", "remote.origin.url"]).trim(),
+        other.to_str().unwrap()
+    );
+
+    fs::write(source_work.join("src/value.txt"), "updated source\n").unwrap();
+    git(&source_work, &["add", "."]);
+    git(&source_work, &["commit", "-m", "advance tracked source"]);
+    git(&source_work, &["push", source.to_str().unwrap(), "main"]);
+    let new_tip = git(&source_work, &["rev-parse", "HEAD"]);
+    jjosh(
+        &client,
+        &["git", "fetch", "--remote", "backup", "--branch", "main"],
+    );
+    assert_eq!(commit_id(&client, "main"), new_tip.trim());
+    assert_eq!(commit_id(&client, "main@origin"), other_tip);
 }
 
 #[test]

@@ -26,6 +26,10 @@ use crate::git_util::absolute_git_url;
 use crate::ui::Ui;
 
 /// Set the URL of a Git remote
+///
+/// A restored logical remote without local configuration can be reconnected by
+/// supplying a fetch URL. Its connection identity, binding and tracking remain
+/// unchanged. Configuration belonging to a different connection is not reused.
 #[derive(clap::Args, Clone, Debug)]
 pub struct GitRemoteSetUrlArgs {
     /// The remote's name
@@ -62,41 +66,41 @@ pub async fn cmd_git_remote_set_url(
     command: &CommandHelper,
     args: &GitRemoteSetUrlArgs,
 ) -> Result<(), CommandError> {
-    let workspace_command = command.workspace_helper_no_snapshot(ui).await?;
+    let mut workspace_command = command.workspace_helper_no_snapshot(ui).await?;
+    let _git_lock = workspace_command.lock_git_import_export()?;
     let view = workspace_command.repo().view();
-    let project = args
-        .project
-        .as_deref()
-        .map(|name| view.project_state().project_by_name(name).map(|(id, _)| id))
-        .transpose()
-        .map_err(user_error)?;
-    // Management may explicitly reconnect an identity without making disconnected
-    // remotes eligible for ordinary fetch or push selection.
-    let git_repo = git::get_git_repo(workspace_command.repo().store())?;
-    let mut candidates: Vec<RemoteNameBuf> = git_repo
-        .remote_names()
-        .into_iter()
-        .filter_map(|name| String::from_utf8(name.into()).ok())
-        .map(RemoteNameBuf::from)
-        .collect();
-    candidates.extend(view.store_view().remote_connections.keys().cloned());
-    candidates.extend(view.store_view().remote_views.keys().cloned());
-    candidates.extend(
-        view.store_view()
-            .project_observations
-            .keys()
-            .map(|key| key.remote.clone()),
-    );
-    candidates.sort();
-    candidates.dedup();
-    let remote = crate::git_remote::resolve_remote_selector_in_view(
-        view,
-        &candidates,
+    let remote = super::resolve_management_remote(
+        &workspace_command,
         args.remote.as_str(),
-        project.as_ref(),
+        args.project.as_deref(),
     )?;
-    crate::git_remote::check_remote(command, &workspace_command, &remote)?;
-
+    let git_repo = git::get_git_repo(workspace_command.repo().store())?;
+    let connection = super::management_connection(view, &git_repo, &remote)?;
+    super::check_management_binding(command, &workspace_command, &remote, connection.as_ref())?;
+    git::check_remote_owner(view, &remote, connection.as_ref()).map_err(user_error)?;
+    let configured_connection =
+        git::remote_connection_id(&git_repo, &remote).map_err(user_error)?;
+    let has_config = git_repo
+        .config_snapshot()
+        .sections_by_name("remote")
+        .into_iter()
+        .flatten()
+        .any(|section| {
+            section
+                .header()
+                .subsection_name()
+                .is_some_and(|name| name == remote.as_str())
+        });
+    if has_config && configured_connection != connection {
+        return Err(user_error(format!(
+            "Remote {} has local configuration owned by another connection; deliberately remove \
+             or rename that configuration before reconnecting this logical remote",
+            remote.as_symbol(),
+        )));
+    }
+    if has_config {
+        crate::git_remote::check_remote(command, &workspace_command, &remote)?;
+    }
     let process_url = |url: Option<&String>| {
         url.map(|url| absolute_git_url(command.cwd(), url))
             .transpose()
@@ -104,19 +108,65 @@ pub async fn cmd_git_remote_set_url(
 
     let fetch_url = process_url(args.url.as_ref().or(args.fetch.as_ref()))?;
     let push_url = process_url(args.push.as_ref())?;
-    let _git_lock = workspace_command.lock_git_import_export()?;
+    if !has_config {
+        if connection.is_none() {
+            return Err(git::GitRemoteManagementError::NoSuchRemote(remote.clone()).into());
+        }
+        let url = fetch_url
+            .as_deref()
+            .ok_or_else(|| user_error("Reconnecting a disconnected remote requires a fetch URL"))?;
+        // Validate before creating any local configuration or journal.
+        git_repo.remote_at(url).map_err(user_error)?;
+        if let Some(url) = &push_url {
+            git_repo.remote_at(url.as_str()).map_err(user_error)?;
+        }
+    }
     let journal = git::begin_remote_management(
         workspace_command.repo().store(),
         &workspace_command.repo().operation().id().hex(),
         &[],
     )?;
+    if !has_config {
+        let connection = connection.as_ref().expect("validated logical connection");
+        let managed = view
+            .project_state()
+            .binding_for_connection(connection)
+            .map_err(user_error)?
+            .is_some();
+        let mut keys = vec![(
+            remote.clone(),
+            "jjosh-connectionId".into(),
+            Some(connection.hex()),
+        )];
+        if managed {
+            keys.push((
+                remote.clone(),
+                "jjosh-requiredCapability".into(),
+                Some("jjosh-v1".into()),
+            ));
+        }
+        // Only reconnect local configuration. Keep the operation's historical
+        // tracking state exactly as restored, including an absent remote view.
+        let mut tx = workspace_command.start_transaction();
+        git::add_remote(
+            tx.repo_mut(),
+            &remote,
+            fetch_url.as_deref().expect("validated fetch URL"),
+            push_url.as_deref(),
+        )?;
+        drop(tx);
+        git::set_remote_config_keys(workspace_command.repo().store(), &keys)?;
+        journal.expect_remote(&remote, true, Some(connection), managed)?;
+    }
 
-    git::set_remote_urls(
-        workspace_command.repo().store(),
-        &remote,
-        fetch_url.as_deref(),
-        push_url.as_deref(),
-    )?;
+    if has_config {
+        git::set_remote_urls(
+            workspace_command.repo().store(),
+            &remote,
+            fetch_url.as_deref(),
+            push_url.as_deref(),
+        )?;
+    }
     journal.expect_unchanged_operation(workspace_command.repo().view())?;
     journal.complete()?;
     Ok(())

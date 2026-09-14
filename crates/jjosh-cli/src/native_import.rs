@@ -69,14 +69,15 @@ pub(crate) fn plan_remotes(view: &View, project: &ProjectId) -> Result<Vec<Remot
         .remote_views
         .keys()
         .chain(view.remote_connections.keys())
+        .chain(view.observed_remote_connections.keys())
         .filter(|remote| remote.as_str() != REMOTE_NAME_FOR_LOCAL_GIT_REPO.as_str())
         .collect();
-    let mut aliases = std::collections::BTreeMap::new();
     let mut result = Vec::new();
     for remote in remotes {
         let owner = view
             .remote_connections
             .get(remote)
+            .or_else(|| view.observed_remote_connections.get(remote))
             .map(|owner| {
                 owner
                     .as_resolved()
@@ -88,7 +89,12 @@ pub(crate) fn plan_remotes(view: &View, project: &ProjectId) -> Result<Vec<Remot
             continue;
         }
         let alias = owner
-            .and_then(|connection| view.project_state.remote_names.get(connection))
+            .and_then(|connection| {
+                view.project_state
+                    .remote_names
+                    .get(connection)
+                    .or_else(|| view.observed_remote_names.get(connection))
+            })
             .map(|alias| {
                 alias
                     .as_resolved()
@@ -118,31 +124,24 @@ pub(crate) fn plan_remotes(view: &View, project: &ProjectId) -> Result<Vec<Remot
             alias.map_or(remote.as_ref(), |alias| alias.name.as_ref());
         let source_project = alias.map(|alias| &alias.project).or(legacy_project);
         let name: RemoteNameBuf = if let Some(source_project) = source_project {
-            view.project_state
-                .validate_project(source_project)
-                .map_err(anyhow::Error::msg)?;
+            if view.project_state.projects.contains_key(source_project) {
+                view.project_state
+                    .validate_project(source_project)
+                    .map_err(anyhow::Error::msg)?;
+            }
             let label = view
                 .project_state
                 .labels
                 .iter()
                 .find_map(|(label, target)| {
                     (target.as_resolved().and_then(Option::as_ref) == Some(source_project))
-                        .then_some(label)
+                        .then(|| label.clone())
                 })
-                .context("Source scoped remote has no resolved stable project label")?;
+                .unwrap_or_else(|| source_project.hex());
             format!("{}@{label}", local.as_str()).into()
         } else {
             local.to_owned()
         };
-        if let Some(previous) = aliases.insert(name.clone(), remote.clone()) {
-            anyhow::bail!(
-                "Imported remote alias {} collides between source remotes {} and {}; rename a \
-                 source remote before importing",
-                name.as_str(),
-                previous.as_str(),
-                remote.as_str()
-            );
-        }
         let connection = ConnectionId::generate();
         result.push(RemoteImport {
             source: remote.clone(),
@@ -164,12 +163,11 @@ pub(crate) fn install_remote_names(view: &mut View, remotes: Vec<RemoteImport>) 
             view.remote_views
                 .insert(remote.physical.clone(), observations);
         }
-        view.remote_connections.insert(
+        view.observed_remote_connections.insert(
             remote.physical,
             Merge::resolved(Some(remote.connection.clone())),
         );
-        view.project_state
-            .remote_names
+        view.observed_remote_names
             .insert(remote.connection, Merge::resolved(Some(remote.alias)));
     }
 }
@@ -384,6 +382,8 @@ pub(crate) fn map_outer_view(
     // connection authority here.
     view.project_state = Default::default();
     view.remote_connections.clear();
+    view.observed_remote_connections.clear();
+    view.observed_remote_names.clear();
     view.project_observations.clear();
     view
 }

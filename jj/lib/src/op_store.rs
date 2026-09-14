@@ -268,6 +268,10 @@ pub struct View {
     pub wc_sparse_patterns: BTreeMap<WorkspaceNameBuf, Merge<Option<WorkingCopyPatternsId>>>,
     pub project_state: ProjectState,
     pub remote_connections: BTreeMap<RemoteNameBuf, Merge<Option<ConnectionId>>>,
+    /// Identity snapshots belonging to retained remote tracking state, not membership.
+    pub observed_remote_connections: BTreeMap<RemoteNameBuf, Merge<Option<ConnectionId>>>,
+    pub observed_remote_names:
+        BTreeMap<ConnectionId, Merge<Option<crate::project::ScopedRemoteName>>>,
     pub project_observations: BTreeMap<ObservationKey, Merge<Option<ConversionObservation>>>,
 }
 
@@ -284,7 +288,10 @@ impl ContentHash for View {
         if !self.wc_sparse_patterns.is_empty() {
             self.wc_sparse_patterns.hash(state);
         }
-        if !self.project_state.is_empty() || !self.remote_connections.is_empty() || !self.project_observations.is_empty() {
+        if !self.project_state.is_empty()
+            || !self.remote_connections.is_empty()
+            || !self.project_observations.is_empty()
+        {
             "jjosh-project-state-v1".hash(state);
             "definitions".hash(state);
             self.project_state.hash(state);
@@ -292,6 +299,12 @@ impl ContentHash for View {
             self.remote_connections.hash(state);
             "conversion-observations".hash(state);
             self.project_observations.hash(state);
+        }
+        // Keep old object IDs stable until historical state is explicitly captured.
+        if !self.observed_remote_connections.is_empty() || !self.observed_remote_names.is_empty() {
+            "jjosh-remote-observations-v1".hash(state);
+            self.observed_remote_connections.hash(state);
+            self.observed_remote_names.hash(state);
         }
     }
 }
@@ -310,6 +323,8 @@ impl View {
             wc_sparse_patterns: BTreeMap::new(),
             project_state: ProjectState::default(),
             remote_connections: BTreeMap::new(),
+            observed_remote_connections: BTreeMap::new(),
+            observed_remote_names: BTreeMap::new(),
             project_observations: BTreeMap::new(),
         }
     }

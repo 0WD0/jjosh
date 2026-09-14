@@ -1,126 +1,77 @@
 #+title: jjosh
-#+subtitle: 一起开发，分别发布
+#+subtitle: 在一起开发，向各自的仓库发布
 #+options: toc:nil num:nil
 
-jjosh 在 [[file:jj/][Jujutsu]] 中加入子项目管理，用 [[file:josh/][Josh]] 在不同仓库布局之间转换历史。
+jjosh 扩展 [[file:jj/][Jujutsu]]，让一个本地仓库里的多个项目与各自的 Git 仓库交换历史；仓库布局的转换由 [[file:josh/][Josh]] 完成。
+你可以在同一个 change 中修改应用和依赖，一起构建、测试，再只把依赖的修改送回它的上游或 fork。
+日常仍使用 jj 的修改图、书签、冲突处理和 operation history。
 
-例如，你维护一个应用，也需要修改它依赖的 parser。可以把两者放进同一个仓库，在一个 change 中修改接口和调用方，一起构建、测试；交付时，再把 parser 的修改发布到它自己的 Git 仓库。
+项目指定本地哪部分内容独立交付；项目的 remote 指定外部仓库及其布局。
+每个项目和仓库根各有自己的 remote 名字，因此都可以叫 =origin=。
 
-本地用一张 jj 修改图组织工作。项目决定交付哪部分内容，remote 决定与哪个外部仓库交换历史。
+* 安装与准备
 
-* 安装
-
-需要 Rust 1.95+ 和 Git。在本仓库根目录构建：
+需要 Rust 1.95+、Git，以及本仓库中的 =jj/=、=josh/=、=gitoxide/= 本地源码。
+在仓库根目录构建并加入 PATH：
 
 #+begin_src sh
 cargo build --locked --release -p jjosh-cli
 export PATH="$PWD/target/release:$PATH"
 #+end_src
 
-下面以 =jjosh= 调用程序，=new=、=describe=、=rebase=、=squash= 等命令沿用 jj 的用法。
+历史转换目前要求 SHA-1 Git backend。下面新建非 colocated 仓库，便于以后调整检出布局。
+已有 jjosh 仓库升级前，先读[[file:docs/workflows.org][使用指南]]中的迁移与备份说明；不要让不兼容的旧程序继续写入。
+即使尚无子项目，通过 jjosh 管理根 remote 也可能启用带连接身份的 v3 存储；此后不能让旧版或上游原版 jj 写入该存储。
 
-* 把一个依赖带进来
+* 最短工作流：带入、修改、发布
 
-假设 parser 已有一个 Git 仓库，默认分支是 main。我们将它放到本地的 =libs/parser/=。
-把示例地址换成你的仓库地址：
+假设 parser 的 Git 仓库有 =main= 分支，你有创建 =topic= 分支的权限。
+将 =/path/to/parser.git= 换成真实本地路径或 Git URL；=mono= 是尚未存在的目标目录。
 
 #+begin_src sh
 jjosh git init --no-colocate --object-hash sha1 mono
 cd mono
 jjosh describe -m 'Start monorepo'
-
 jjosh project add parser --path libs/parser
-jjosh git remote add origin /path/to/parser.git \
-  --project parser --whole
+jjosh git remote add origin /path/to/parser.git --project parser --whole
 jjosh git fetch --project parser --branch main
 jjosh new @ main#parser@origin
 #+end_src
 
-此时 parser 的文件位于 =libs/parser/=，可以与应用代码一起编辑。
-
-=project add= 建立项目名和目录的关联；=--whole= 表示外部仓库的整个根目录对应这个项目。
-fetch 带入历史，最后的 new 将它与本地工作合在一起。
-
-引用名字可以从左往右读：
-
-| 名字 | 含义 |
-|------+------|
-| =main= | 当前仓库的 main 书签 |
-| =main#parser= | 用于交付 parser 的本地 main 书签 |
-| =main#parser@origin= | 从 parser 的 origin 获取的 main |
-
-每个项目有自己的 remote 名字。parser、app 和仓库根可以各自配置 =origin=，不需要加项目前缀。未设置默认值时，fetch 和 push 选择项目唯一的 remote，否则选择项目内的 origin；仍有歧义就报错。项目不继承根的 =git.fetch=／=git.push=。
-
-如果代码已经在 monorepo 里，只需登记目录：
+现在编辑 =libs/parser/= 中的代码，也可以同时修改应用。
+=--whole= 表示外部仓库根目录对应本地整个 parser 项目；fetch 带入历史，new 将它与本地工作合在一起。
 
 #+begin_src sh
-jjosh project add app --path apps/app
-#+end_src
-
-项目也可以来自正在开发的 jj 仓库，或外部仓库中的某个子目录。这些接入方式见[[file:docs/workflows.org][使用指南]]。
-
-为 app 也配置好 remote 后，可以一次接收多个项目：
-
-#+begin_src sh
-jjosh git fetch --project parser --project app
-jjosh git fetch --all-projects
-#+end_src
-
-两种写法分别选择指定项目和全部未删除的登记项目，不能混用；重复指定同一项目只获取一次。每个项目独立解析 =--remote= 或 =git.projects.LABEL.fetch=，不包含根。省略项目选择时只获取根；=--all-remotes= 也只在选中的范围内展开。
-所有项目和连接先完成预检，缺少连接、错误配置或未解决的项目冲突会阻止整批获取，不会跳过离线项目。网络阶段仍可能部分失败。
-
-* 把修改送回去
-
-编辑完成后，为当前修改写好说明，并选定 parser 的交付版本：
-
-#+begin_src sh
+jjosh status
+jjosh diff
 jjosh describe -m 'Extend parser and update its callers'
 jjosh bookmark create topic#parser -r @
 jjosh git push --bookmark topic#parser --dry-run
 #+end_src
 
-=#parser= 选定项目，默认目的地是该项目的 origin。检查计划中的地址、目录映射和分支，确认后执行：
+完成项目需要的构建、测试并解决冲突，检查计划中的地址、目录和分支，然后发布：
 
 #+begin_src sh
 jjosh git push --bookmark topic#parser
 #+end_src
 
-origin 收到的是名为 =topic= 的分支，=libs/parser/= 中的内容出现在它的根目录。
-同一提交里对应用的修改仍留在本地，可以另选应用的发布地址。
+远端收到 =topic= 分支，内容来自 =libs/parser/=，并放在远端根目录。
+同一提交中的应用修改不会被这个项目的发布带走。
+=#parser= 是稳定的项目引用 label；=main#parser@origin= 读取 parser 的 origin 记录，=topic#parser= 则选定本地交付版本。
+书签指向完整提交，并不是一个只含 parser 文件的提交。
 
-如果要向自己的 fork 发布，为 parser 增加一个 remote，并覆盖发布默认值：
+* 按目标继续
 
-#+begin_src sh
-jjosh git remote add fork /path/to/parser-fork.git --like origin#parser
-jjosh git fetch --project parser --remote fork --branch main
-jjosh config set --repo git.projects.parser.push fork
-jjosh bookmark track topic#parser@fork
-jjosh git push --bookmark topic#parser --dry-run
-#+end_src
+- [[file:docs/workflows.org][使用指南]]：已有目录、Git 和本地 jj 输入；fork 与默认 remote；批量同步、tag、过滤表示、稀疏检出、恢复与迁移。
+- [[file:docs/subprojects-design.org][项目与 remote 模型]]：项目、逻辑连接、本地地址和历史观察各自负责什么。
+- [[file:docs/scoped-references-design.org][类型化本地引用提案]]：未来设计，不是当前可用的命令或语法。
+- [[file:jj/docs/][Jujutsu 文档]]：new、describe、rebase、squash、revset、workspace 等日常用法。
+- [[file:jj/CHANGELOG.md][变更记录]]：版本变化和升级提示。
 
-=--like origin#parser= 采用 parser 的 origin 的目录映射。两个 remote 都能 fetch 和 push；获取仍默认使用 origin。
-配置中的 parser 是稳定的引用 label，项目改显示名后仍然有效。
+* 开发入口
 
-多个项目都准备好交付书签后，用显式模式批量选择：
-
-#+begin_src sh
-jjosh git push --bookmark 'glob:topic#*' --dry-run
-jjosh git push --remote fork --bookmark 'glob:topic#*' --dry-run
-#+end_src
-
-第一条为每个引用分别选择所在项目的默认目的地；第二条要求每个项目都有自己的 fork。在项目发布中指定根的 origin，要明确写成 =--remote origin#=，不会因同名而被项目选中。整批转换和目标检查通过后才开始发布；不同远端之间不提供原子提交，后续传输失败可能留下部分成功结果。确认计划后去掉 =--dry-run=。
-
-* 继续使用
-
-- [[file:docs/workflows.org][使用指南]]：配置项目、日常同步、发布分支与版本、调整检出布局、维护仓库。
-- [[file:docs/subprojects-design.org][项目模型]]：项目、引用、来源映射和操作历史怎样配合。
-- [[file:jj/docs/][Jujutsu 文档]]：修改图、revset、workspace 及日常命令。
-- [[file:jj/CHANGELOG.md][变更记录]]：版本变化。已有 jjosh 仓库升级时，先阅读使用指南末尾的迁移步骤。
-
-* 开发
-
-入口和工作流测试位于 [[file:crates/jjosh-cli/][crates/jjosh-cli/]]。
-=jj/=、=josh/=、=gitoxide/= 各自保留 Cargo workspace，根目录的 =.cargo/config.toml= 将依赖指向这些本地源码。
+CLI 入口与工作流测试在 [[file:crates/jjosh-cli/][crates/jjosh-cli/]]。
+=jj/=、=josh/=、=gitoxide/= 保留各自的 Cargo workspace；根目录的 =.cargo/config.toml= 把依赖指向这些本地源码。
 
 #+begin_src sh
 cargo test --locked -p jjosh-cli

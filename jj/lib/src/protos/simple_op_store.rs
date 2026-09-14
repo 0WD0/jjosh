@@ -250,6 +250,10 @@ pub struct ProjectMetadata {
     pub observations: ::prost::alloc::vec::Vec<ObservationEntry>,
     #[prost(message, repeated, tag = "7")]
     pub remote_names: ::prost::alloc::vec::Vec<ScopedRemoteNameEntry>,
+    #[prost(message, repeated, tag = "8")]
+    pub observed_connections: ::prost::alloc::vec::Vec<ConnectionEntry>,
+    #[prost(message, repeated, tag = "9")]
+    pub observed_remote_names: ::prost::alloc::vec::Vec<ScopedRemoteNameEntry>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ScopedRemoteName {

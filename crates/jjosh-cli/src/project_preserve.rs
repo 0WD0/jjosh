@@ -138,6 +138,7 @@ pub(crate) fn prepare(
         .remote_views
         .keys()
         .chain(source.remote_connections.keys())
+        .chain(source.observed_remote_connections.keys())
         .chain(source.project_observations.keys().map(|key| &key.remote))
         .chain(configured_remotes.keys())
         .filter(|remote| remote.as_str() != REMOTE_NAME_FOR_LOCAL_GIT_REPO.as_str())
@@ -146,6 +147,7 @@ pub(crate) fn prepare(
         .remote_views
         .keys()
         .chain(destination.remote_connections.keys())
+        .chain(destination.observed_remote_connections.keys())
         .chain(
             destination
                 .project_observations
@@ -174,7 +176,19 @@ pub(crate) fn prepare(
              import with --nested, or keep this source in a separate repository",
             remote.as_str()
         );
-        let mut connection = active_connection;
+        let observed_connection = source
+            .observed_remote_connections
+            .get(remote)
+            .and_then(Merge::as_resolved)
+            .and_then(Option::as_ref);
+        ensure!(
+            active_connection.is_none()
+                || observed_connection.is_none()
+                || active_connection == observed_connection,
+            "Source remote {} has incompatible logical and observed owners",
+            remote.as_str()
+        );
+        let mut connection = active_connection.or(observed_connection);
         // Detached observations still own immutable identity, but do not create
         // an active remote_connections entry in the imported view.
         for observation in source
@@ -195,6 +209,7 @@ pub(crate) fn prepare(
                 .project_state
                 .remote_names
                 .get(connection)
+                .or_else(|| source.observed_remote_names.get(connection))
                 .is_some_and(Merge::is_present)
                 || binding_definitions(source)
                     .any(|(_, binding)| &binding.connection_id == connection)
@@ -267,6 +282,12 @@ pub(crate) fn prepare(
         .collect::<Result<_>>()?;
     view.remote_connections = source
         .remote_connections
+        .iter()
+        .filter(|(remote, _)| remote.as_str() != REMOTE_NAME_FOR_LOCAL_GIT_REPO.as_str())
+        .map(|(remote, owner)| (remotes[remote].destination.clone(), owner.clone()))
+        .collect();
+    view.observed_remote_connections = source
+        .observed_remote_connections
         .iter()
         .filter(|(remote, _)| remote.as_str() != REMOTE_NAME_FOR_LOCAL_GIT_REPO.as_str())
         .map(|(remote, owner)| (remotes[remote].destination.clone(), owner.clone()))
@@ -360,6 +381,7 @@ fn validate_source(source: &View) -> Result<()> {
             .project_state
             .remote_names
             .get(&binding.connection_id)
+            .or_else(|| source.observed_remote_names.get(&binding.connection_id))
             .and_then(Merge::as_resolved)
             .and_then(Option::as_ref)
         {
@@ -391,6 +413,7 @@ fn validate_source(source: &View) -> Result<()> {
             if let Some(owner) = source
                 .remote_connections
                 .get(&key.remote)
+                .or_else(|| source.observed_remote_connections.get(&key.remote))
                 .and_then(Merge::as_resolved)
                 .and_then(Option::as_ref)
             {
@@ -434,6 +457,7 @@ fn project_ids(view: &View) -> BTreeSet<&ProjectId> {
             view.project_state
                 .remote_names
                 .values()
+                .chain(view.observed_remote_names.values())
                 .flat_map(|target| target.iter().flatten())
                 .map(|name| &name.project),
         )
@@ -450,10 +474,16 @@ fn connection_ids(view: &View) -> BTreeSet<&ConnectionId> {
     view.project_state
         .remote_names
         .keys()
+        .chain(view.observed_remote_names.keys())
         .chain(
             view.remote_connections
                 .values()
-                .flat_map(|target| target.iter().flatten()),
+                .flat_map(|target| target.iter().flatten())
+                .chain(
+                    view.observed_remote_connections
+                        .values()
+                        .flat_map(|target| target.iter().flatten()),
+                ),
         )
         .chain(binding_definitions(view).map(|(_, binding)| &binding.connection_id))
         .chain(
@@ -608,6 +638,12 @@ impl Plan {
         destination
             .remote_connections
             .extend(self.view.remote_connections.clone());
+        destination
+            .observed_remote_connections
+            .extend(self.view.observed_remote_connections.clone());
+        destination
+            .observed_remote_names
+            .extend(self.view.observed_remote_names.clone());
         destination
             .project_observations
             .extend(self.view.project_observations.iter().map(|(key, target)| {

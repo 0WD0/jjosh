@@ -168,7 +168,8 @@ pub async fn cmd_undo(
         target_op_parent.view().await?.store_view(),
         tx.base_repo().view().store_view(),
         &DEFAULT_REVERT_WHAT,
-    );
+    )
+    .map_err(user_error)?;
     tx.repo_mut().set_view(new_view);
     if let Some(mut formatter) = ui.status_formatter() {
         let template = tx.base_workspace_helper().operation_summary_template();
