@@ -14,9 +14,9 @@
 
 use clap_complete::ArgValueCandidates;
 use jj_lib::git;
+use jj_lib::object_id::ObjectId as _;
 use jj_lib::ref_name::RemoteNameBuf;
 use jj_lib::repo::Repo as _;
-use jj_lib::object_id::ObjectId as _;
 
 use super::super::rename_remote_in_repo_config;
 use crate::cli_util::CommandHelper;
@@ -46,12 +46,22 @@ pub async fn cmd_git_remote_rename(
 ) -> Result<(), CommandError> {
     let mut workspace_command = command.workspace_helper_no_snapshot(ui).await?;
     let git_lock = workspace_command.lock_git_import_export()?;
-    let old = crate::git_remote::resolve_remote_selector(
+    let old = super::resolve_management_remote(
         &workspace_command,
         args.old.as_str(),
         args.project.as_deref(),
     )?;
-    crate::git_remote::check_remote(command, &workspace_command, &old)?;
+    let git_repo = git::get_git_repo(workspace_command.repo().store())?;
+    let connection =
+        super::management_connection(workspace_command.repo().view(), &git_repo, &old)?;
+    super::check_management_binding(command, &workspace_command, &old, connection.as_ref())?;
+    let configured_connection =
+        git::remote_connection_id(&git_repo, &old).map_err(crate::command_error::user_error)?;
+    let configured = git::try_find_active_remote(&git_repo, &old)?.is_some();
+    let owns_config = configured_connection == connection;
+    if configured && owns_config {
+        crate::git_remote::check_remote(command, &workspace_command, &old)?;
+    }
     let identity = workspace_command
         .repo()
         .view()
@@ -100,16 +110,17 @@ pub async fn cmd_git_remote_rename(
         &workspace_command.repo().operation().id().hex(),
         &extra_paths,
     )?;
-    let git_repo = git::get_git_repo(workspace_command.repo().store())?;
-    let connection =
-        git::remote_connection_id(&git_repo, &old).map_err(crate::command_error::user_error)?;
     let managed = git::remote_required_capability(&git_repo, &old).is_some();
     let mut tx = workspace_command.start_transaction();
     if let Some(mut identity) = identity {
         let connection = connection.as_ref().ok_or_else(|| {
-            crate::command_error::user_error("Scoped remote has no configured connection")
+            crate::command_error::user_error("Scoped remote has no logical connection")
         })?;
-        journal.expect_remote(&old, true, Some(connection), managed)?;
+        tx.repo_mut()
+            .view_mut()
+            .archive_remote_observations(&old)
+            .map_err(crate::command_error::user_error)?;
+        journal.expect_remote(&old, configured, configured_connection.as_ref(), managed)?;
         git::commit_remote_management_config(
             tx.repo().store(),
             &old,
@@ -125,12 +136,29 @@ pub async fn cmd_git_remote_rename(
                 jj_lib::merge::Merge::resolved(Some(identity)),
             );
     } else {
-        journal.expect_remote(&old, false, connection.as_ref(), false)?;
-        journal.expect_remote(&new, true, connection.as_ref(), managed)?;
+        tx.repo_mut()
+            .view_mut()
+            .archive_remote_observations(&new)
+            .map_err(crate::command_error::user_error)?;
+        journal.expect_remote(
+            &old,
+            configured && !owns_config,
+            configured_connection.as_ref(),
+            managed && !owns_config,
+        )?;
+        journal.expect_remote(
+            &new,
+            configured && owns_config,
+            connection.as_ref(),
+            managed && owns_config,
+        )?;
         git::rename_remote_with_options(tx.repo_mut(), &old, &new, &options)?;
         let view = tx.repo_mut().view_mut().store_view_mut();
         if let Some(owner) = view.remote_connections.remove(&old) {
             view.remote_connections.insert(new.clone(), owner);
+        }
+        if let Some(owner) = view.observed_remote_connections.remove(&old) {
+            view.observed_remote_connections.insert(new.clone(), owner);
         }
         let old_keys: Vec<_> = view
             .project_observations

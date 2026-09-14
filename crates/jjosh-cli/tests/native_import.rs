@@ -491,7 +491,7 @@ fn local_import_preserves_root_and_nested_scoped_aliases_without_activating_endp
     );
     let state: serde_json::Value =
         serde_json::from_str(&target.jj(&["project", "show", "outer", "--json"])).unwrap();
-    let aliases: std::collections::BTreeSet<_> = state["projects"][0]["remotes"]
+    let aliases: std::collections::BTreeSet<_> = state["projects"][0]["observed_remotes"]
         .as_array()
         .unwrap()
         .iter()
@@ -645,16 +645,20 @@ fn assert_import_excludes_divergent_source_git_observations(mode: &str) {
                 )
             };
             let imported = target.project(project);
-            let aliases: Vec<_> = imported["remotes"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|remote| {
-                    remote["candidates"][0]["definition"]["name"]
-                        .as_str()
-                        .unwrap()
-                })
-                .collect();
+            let aliases: Vec<_> = imported[if mode == "--nested" {
+                "observed_remotes"
+            } else {
+                "remotes"
+            }]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|remote| {
+                remote["candidates"][0]["definition"]["name"]
+                    .as_str()
+                    .unwrap()
+            })
+            .collect();
             assert_eq!(aliases, [alias]);
             if mode == "--preserve" {
                 assert_eq!(imported["id"], source_project["id"]);
@@ -1379,7 +1383,6 @@ fn scope_suffix_convention_uses_native_tracking_and_project_publication() {
     mono.jj(&["new", "@", scoped, "-m", "composition"]);
 
     mono.add_project_remote("upstream", &upstream, "alpha");
-    mono.jj(&["git", "remote", "forget-observations", "origin#alpha"]);
     mono.add_project_remote("origin", &fork, "alpha");
     let publish = |remote: &str| {
         mono.jj(&[

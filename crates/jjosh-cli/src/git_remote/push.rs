@@ -794,6 +794,7 @@ impl GitPreparedPush for PreparedPush {
                         },
                         Merge::resolved(Some(evidence.clone())),
                     );
+                    repo.view_mut().capture_remote_observation_identity(&remote);
                 }
             }
             if let Some(transaction) = &transaction {

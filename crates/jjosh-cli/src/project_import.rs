@@ -307,10 +307,10 @@ pub(crate) async fn run_import(
                 view.local_bookmarks.extend(fragment.local_bookmarks);
                 view.local_tags.extend(fragment.local_tags);
                 view.remote_views.extend(fragment.remote_views);
-                view.remote_connections.extend(fragment.remote_connections);
-                view.project_state
-                    .remote_names
-                    .extend(fragment.project_state.remote_names);
+                view.observed_remote_connections
+                    .extend(fragment.observed_remote_connections);
+                view.observed_remote_names
+                    .extend(fragment.observed_remote_names);
                 1
             }
             ProjectPlan::Preserved(plan) => {
@@ -481,6 +481,7 @@ fn reserve_remotes<'a>(
         if !reserved.insert(name.clone())
             || destination.remote_views.contains_key(name)
             || destination.remote_connections.contains_key(name)
+            || destination.observed_remote_connections.contains_key(name)
             || git
                 .config_snapshot()
                 .sections_by_name("remote")

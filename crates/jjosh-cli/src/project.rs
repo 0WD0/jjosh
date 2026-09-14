@@ -574,7 +574,20 @@ async fn inspect(
                     }))
                 })).collect::<Vec<_>>()
             })).collect();
-        serde_json::json!({"id":id.hex(),"resolved":target.as_resolved().is_some(),"candidates":records,"labels":labels,"bindings":bindings,"remotes":remotes})
+        let observed_remotes: Vec<_> = workspace.repo().view().store_view().observed_remote_names.iter()
+            .filter(|(_, target)| target.adds().flatten().any(|remote| &remote.project == id))
+            .map(|(connection, target)| serde_json::json!({
+                "connection": connection.hex(),
+                "resolved": target.as_resolved().is_some(),
+                "historical_only": !state.remote_names.contains_key(connection),
+                "candidates": target.adds().enumerate().map(|(index, remote)| serde_json::json!({
+                    "candidate": index + 1,
+                    "definition": remote.as_ref().map(|remote| serde_json::json!({
+                        "project": remote.project.hex(), "name": remote.name.as_str()
+                    }))
+                })).collect::<Vec<_>>()
+            })).collect();
+        serde_json::json!({"id":id.hex(),"resolved":target.as_resolved().is_some(),"candidates":records,"labels":labels,"bindings":bindings,"remotes":remotes,"observed_remotes":observed_remotes})
     }).collect();
     let diagnostic_values: Vec<_> = diagnostics.iter().map(|diagnostic| serde_json::json!({"message":diagnostic.message,"projects":diagnostic.projects.iter().map(|id|id.hex()).collect::<Vec<_>>(),"bindings":diagnostic.bindings.iter().map(|id|id.hex()).collect::<Vec<_>>(),"labels":diagnostic.labels})).collect();
     if json {
@@ -612,6 +625,9 @@ async fn inspect(
             }
             for remote in project["remotes"].as_array().unwrap() {
                 writeln!(ui.stdout(), "  remote: {remote}")?;
+            }
+            for remote in project["observed_remotes"].as_array().unwrap() {
+                writeln!(ui.stdout(), "  observed remote: {remote}")?;
             }
         }
         for diagnostic in &diagnostics {

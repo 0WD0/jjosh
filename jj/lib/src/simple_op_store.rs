@@ -104,14 +104,19 @@ impl SimpleOpStore {
     pub fn sparse_name() -> &'static str {
         "simple_op_store_working_copy_patterns"
     }
-    /// Fences out writers that cannot preserve scoped remote identities.
+    /// Fences out writers that cannot preserve historical remote identities.
     pub fn project_name() -> &'static str {
-        "simple_op_store_projects_v2"
+        "simple_op_store_projects_v3"
     }
 
     /// Read-only compatibility format, upgradeable only by exclusive migration.
     pub fn legacy_project_name() -> &'static str {
         "simple_op_store_projects_v1"
+    }
+
+    /// Scoped identities before logical and historical membership were separated.
+    pub fn scoped_project_name() -> &'static str {
+        "simple_op_store_projects_v2"
     }
 
     /// Creates an empty OpStore. Returns error if it already exists.
@@ -136,7 +141,9 @@ impl SimpleOpStore {
             root_operation_id: OperationId::from_bytes(&[0; OPERATION_ID_LENGTH]),
             root_view_id: ViewId::from_bytes(&[0; VIEW_ID_LENGTH]),
             project_format: std::sync::atomic::AtomicBool::new(
-                fs::read(store_path.join("type")).ok().is_some_and(|value| value == Self::project_name().as_bytes()),
+                fs::read(store_path.join("type"))
+                    .ok()
+                    .is_some_and(|value| value == Self::project_name().as_bytes()),
             ),
         }
     }
@@ -171,16 +178,25 @@ impl SimpleOpStore {
         let type_path = self.path.join("type");
         let lock_path = self.path.join("type.lock");
         let _lock = crate::lock::FileLock::lock(lock_path.clone())
-            .map_err(io::Error::other).context(&lock_path)?;
+            .map_err(io::Error::other)
+            .context(&lock_path)?;
         let current = match fs::read(&type_path) {
             Ok(value) => value,
-            Err(err) if err.kind() == ErrorKind::NotFound && !self.project_format.load(std::sync::atomic::Ordering::Relaxed) => return Ok(()),
+            Err(err)
+                if err.kind() == ErrorKind::NotFound
+                    && !self
+                        .project_format
+                        .load(std::sync::atomic::Ordering::Relaxed) =>
+            {
+                return Ok(());
+            }
             Err(err) => return Err(err).context(&type_path),
         };
         if ![
             Self::name(),
             Self::sparse_name(),
             Self::legacy_project_name(),
+            Self::scoped_project_name(),
             Self::project_name(),
         ]
         .iter()
@@ -203,7 +219,11 @@ impl SimpleOpStore {
             ))
             .context(&type_path);
         }
-        if current == Self::legacy_project_name().as_bytes() && !exclusive_upgrade {
+        if [Self::legacy_project_name(), Self::scoped_project_name()]
+            .iter()
+            .any(|name| current == name.as_bytes())
+            && !exclusive_upgrade
+        {
             return Err(io::Error::new(
                 ErrorKind::PermissionDenied,
                 "Legacy project storage is read-only; stop incompatible jj processes and run \
@@ -224,13 +244,18 @@ impl SimpleOpStore {
                     "Project storage upgrade requires exclusive maintenance: stop all incompatible jj processes, then run `jjosh project migrate --apply --exclusive`")).context(&type_path);
             }
             let mut temp_file = NamedTempFile::new_in(&self.path).context(&self.path)?;
-            temp_file.write_all(required.as_bytes()).context(temp_file.path())?;
+            temp_file
+                .write_all(required.as_bytes())
+                .context(temp_file.path())?;
             persist_temp_file(temp_file, &type_path).context(&type_path)?;
             #[cfg(unix)]
-            fs::File::open(&self.path).and_then(|directory| directory.sync_all()).context(&self.path)?;
+            fs::File::open(&self.path)
+                .and_then(|directory| directory.sync_all())
+                .context(&self.path)?;
         }
         if required == Self::project_name() {
-            self.project_format.store(true, std::sync::atomic::Ordering::Relaxed);
+            self.project_format
+                .store(true, std::sync::atomic::Ordering::Relaxed);
         }
         Ok(())
     }
@@ -255,6 +280,7 @@ impl SimpleOpStore {
                     Self::name(),
                     Self::sparse_name(),
                     Self::legacy_project_name(),
+                    Self::scoped_project_name(),
                 ]
                 .iter()
                 .any(|name| value == name.as_bytes()) =>
@@ -273,18 +299,30 @@ impl SimpleOpStore {
 
     /// Witness roots in all retained views, including not-yet-published views.
     /// Call after operation GC so its retention policy determines this set.
-    pub async fn retained_project_commit_ids(&self) -> OpStoreResult<HashSet<crate::backend::CommitId>> {
+    pub async fn retained_project_commit_ids(
+        &self,
+    ) -> OpStoreResult<HashSet<crate::backend::CommitId>> {
         let dir = self.views_dir();
-        let entries = dir.read_dir().context(&dir).map_err(|err| OpStoreError::Other(err.into()))?;
+        let entries = dir
+            .read_dir()
+            .context(&dir)
+            .map_err(|err| OpStoreError::Other(err.into()))?;
         let mut roots = HashSet::new();
         for entry in entries {
-            let entry = entry.context(&dir).map_err(|err| OpStoreError::Other(err.into()))?;
-            let Some(id) = entry.file_name().to_str().and_then(ViewId::try_from_hex) else { continue; };
+            let entry = entry
+                .context(&dir)
+                .map_err(|err| OpStoreError::Other(err.into()))?;
+            let Some(id) = entry.file_name().to_str().and_then(ViewId::try_from_hex) else {
+                continue;
+            };
             let view = self.read_view(&id).await?;
-            roots.extend(view.project_observations.into_values()
-                .flat_map(|target| target.into_iter().flatten())
-                .flat_map(|observation| observation.terms)
-                .filter_map(|term| term.canonical));
+            roots.extend(
+                view.project_observations
+                    .into_values()
+                    .flat_map(|target| target.into_iter().flatten())
+                    .flat_map(|observation| observation.terms)
+                    .filter_map(|term| term.canonical),
+            );
         }
         Ok(roots)
     }
@@ -317,10 +355,16 @@ impl OpStore for SimpleOpStore {
 
     async fn write_view(&self, view: &View) -> OpStoreResult<ViewId> {
         let proto = view_to_proto(view);
-        crate::project_store::validate(view)
-            .map_err(|err| OpStoreError::WriteObject { object_type: "view", source: io::Error::new(ErrorKind::InvalidData, err).into() })?;
-        self.ensure_store_type(proto.project_metadata.is_some(), !view.wc_sparse_patterns.is_empty(), false)
-            .map_err(|err| io_to_write_error(err, "view"))?;
+        crate::project_store::validate(view).map_err(|err| OpStoreError::WriteObject {
+            object_type: "view",
+            source: io::Error::new(ErrorKind::InvalidData, err).into(),
+        })?;
+        self.ensure_store_type(
+            proto.project_metadata.is_some(),
+            !view.wc_sparse_patterns.is_empty(),
+            false,
+        )
+        .map_err(|err| io_to_write_error(err, "view"))?;
         if !view.wc_sparse_patterns.is_empty() {
             // Renew referenced objects before publishing a new view, just as
             // view writes renew the reachability fence used by concurrent GC.
@@ -1059,10 +1103,13 @@ fn view_from_proto(proto: crate::protos::simple_op_store::View) -> Result<View, 
         wc_sparse_patterns,
         project_state: Default::default(),
         remote_connections: BTreeMap::new(),
+        observed_remote_connections: BTreeMap::new(),
+        observed_remote_names: BTreeMap::new(),
         project_observations: BTreeMap::new(),
     };
     if let Some(metadata) = proto.project_metadata {
-        crate::project_store::decode(metadata, &mut view).map_err(PostDecodeError::ProjectMetadata)?;
+        crate::project_store::decode(metadata, &mut view)
+            .map_err(PostDecodeError::ProjectMetadata)?;
     }
     Ok(view)
 }
@@ -1391,6 +1438,8 @@ mod tests {
             wc_sparse_patterns: BTreeMap::new(),
             project_state: Default::default(),
             remote_connections: BTreeMap::new(),
+            observed_remote_connections: BTreeMap::new(),
+            observed_remote_names: BTreeMap::new(),
             project_observations: BTreeMap::new(),
         }
     }
@@ -1509,10 +1558,19 @@ mod tests {
         let empty_id = store.write_view(&empty).block_on()?;
         let mut registered = empty.clone();
         let project = ProjectId::generate();
-        registered.project_state.projects.insert(project.clone(), Merge::normal(ProjectRecord {
-            name: "lib".into(), canonical_root: crate::repo_path::RepoPathBuf::from_internal_string("packages/lib")?,
-        }));
-        registered.project_state.labels.insert("lib".into(), Merge::normal(project));
+        registered.project_state.projects.insert(
+            project.clone(),
+            Merge::normal(ProjectRecord {
+                name: "lib".into(),
+                canonical_root: crate::repo_path::RepoPathBuf::from_internal_string(
+                    "packages/lib",
+                )?,
+            }),
+        );
+        registered
+            .project_state
+            .labels
+            .insert("lib".into(), Merge::normal(project));
         assert!(store.write_view(&registered).block_on().is_err());
         assert!(store.requires_project_store_upgrade()?);
         store.upgrade_project_store_type()?;
@@ -1520,7 +1578,10 @@ mod tests {
         assert_eq!(store.read_view(&registered_id).block_on()?, registered);
         assert_eq!(store.write_view(&empty).block_on()?, empty_id);
         assert!(!store.requires_project_store_upgrade()?);
-        assert_eq!(fs::read(temp_dir.path().join("type"))?, SimpleOpStore::project_name().as_bytes());
+        assert_eq!(
+            fs::read(temp_dir.path().join("type"))?,
+            SimpleOpStore::project_name().as_bytes()
+        );
         fs::write(temp_dir.path().join("type"), "unknown_op_store")?;
         assert!(store.write_view(&empty).block_on().is_err());
         Ok(())

@@ -784,6 +784,8 @@ pub(super) async fn run(
                 },
                 Merge::resolved(Some(evidence)),
             );
+            repo.view_mut()
+                .capture_remote_observation_identity(&session.name);
         }
         writeln!(
             ui.status(),

@@ -402,6 +402,10 @@ fn rekey_view(
     if let Some(owner) = view.remote_connections.remove(old) {
         view.remote_connections.insert(new.to_owned(), owner);
     }
+    if let Some(owner) = view.observed_remote_connections.remove(old) {
+        view.observed_remote_connections
+            .insert(new.to_owned(), owner);
+    }
     view.project_observations = std::mem::take(&mut view.project_observations)
         .into_iter()
         .map(|(mut key, evidence)| {
@@ -1312,6 +1316,7 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
         if git.find_remote(new.as_str()).is_ok()
             || view.remote_views.contains_key(&new)
             || view.remote_connections.contains_key(&new)
+            || view.observed_remote_connections.contains_key(&new)
             || view
                 .project_observations
                 .keys()
@@ -1401,7 +1406,7 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
         rekeys.push((old.clone(), new, connection.clone(), exists));
     }
     // Explicitly cleared mirrors must not be carried to the new physical key.
-    // Use the same before-image journal and CAS deletion as forget-observations.
+    // Journal the before-image and delete each mirror with an expected-value check.
     let mut clear_edits = Vec::new();
     for (old, _, _, exists) in &rekeys {
         if !*exists || !cleared.iter().any(|remote| remote == old) {

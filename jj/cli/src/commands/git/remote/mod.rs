@@ -13,7 +13,6 @@
 // limitations under the License.
 
 mod add;
-mod forget_observations;
 mod list;
 mod remove;
 mod rename;
@@ -35,8 +34,6 @@ use jj_lib::repo::Repo as _;
 
 use self::add::GitRemoteAddArgs;
 use self::add::cmd_git_remote_add;
-use self::forget_observations::GitRemoteForgetObservationsArgs;
-use self::forget_observations::cmd_git_remote_forget_observations;
 use self::list::GitRemoteListArgs;
 use self::list::cmd_git_remote_list;
 use self::remove::GitRemoteRemoveArgs;
@@ -60,7 +57,6 @@ pub enum RemoteCommand {
     Add(GitRemoteAddArgs),
     Attach(GitRemoteAttachArgs),
     Recover(GitRemoteRecoverArgs),
-    ForgetObservations(GitRemoteForgetObservationsArgs),
     List(GitRemoteListArgs),
     Remove(GitRemoteRemoveArgs),
     Rename(GitRemoteRenameArgs),
@@ -76,7 +72,6 @@ pub async fn cmd_git_remote(
         RemoteCommand::Add(args) => cmd_git_remote_add(ui, command, args).await,
         RemoteCommand::Attach(args) => cmd_attach(ui, command, args).await,
         RemoteCommand::Recover(args) => cmd_recover(ui, command, args).await,
-        RemoteCommand::ForgetObservations(args) => cmd_git_remote_forget_observations(ui, command, args).await,
         RemoteCommand::List(args) => cmd_git_remote_list(ui, command, args).await,
         RemoteCommand::Remove(args) => cmd_git_remote_remove(ui, command, args).await,
         RemoteCommand::Rename(args) => cmd_git_remote_rename(ui, command, args).await,
@@ -102,19 +97,6 @@ pub struct GitRemoteRecoverArgs {
     /// Keep local changes after verifying current binding and owner consistency.
     #[arg(long)]
     accept: bool,
-}
-
-fn ensure_empty_remote_name(
-    view: &jj_lib::view::View,
-    remote: &RemoteName,
-) -> Result<(), CommandError> {
-    if view.store_view().remote_connections.contains_key(remote)
-        || view.store_view().project_observations.keys().any(|key| key.remote == remote)
-        || view.all_remote_bookmarks().any(|(symbol, _)| symbol.remote == remote)
-        || view.all_remote_tags().any(|(symbol, _)| symbol.remote == remote) {
-        return Err(user_error(format!("Remote name {remote} still owns observations or tracking; use `git remote forget-observations {remote}` before reusing it", remote = remote.as_str())));
-    }
-    Ok(())
 }
 
 /// Parse a new logical name without accepting physical handles as aliases.
@@ -144,7 +126,6 @@ fn ensure_available_remote_name(
     project: Option<&ProjectId>,
 ) -> Result<(), CommandError> {
     let view = workspace.repo().view();
-    // Include detached observations: deleting Git config alone must not allow reuse.
     if project.is_some() && name.as_str().contains('#') {
         return Err(user_error(
             "Scoped remote names cannot contain the reserved '#' qualifier",
@@ -159,26 +140,26 @@ fn ensure_available_remote_name(
         })
     {
         return Err(user_error(format!(
-            "Remote {} already exists or owns observations in this scope",
+            "Remote {} already exists in this scope",
             name.as_symbol()
         )));
     }
-    let mut remotes = git::get_all_remote_names(workspace.repo().store())?;
-    remotes.extend(view.store_view().remote_connections.keys().cloned());
-    remotes.extend(view.store_view().remote_views.keys().cloned());
-    remotes.extend(
-        view.store_view()
-            .project_observations
-            .keys()
-            .map(|key| key.remote.clone()),
-    );
-    remotes.sort();
-    remotes.dedup();
-    for remote in remotes {
+    if project.is_none()
+        && git::get_git_repo(workspace.repo().store())?
+            .remote_names()
+            .iter()
+            .any(|configured| configured == name.as_str())
+    {
+        return Err(user_error(format!(
+            "Remote {} already has local configuration",
+            name.as_symbol(),
+        )));
+    }
+    for remote in view.store_view().remote_connections.keys() {
         match view.remote_in_scope(&remote, project) {
             Ok(true) if view.remote_local_name(&remote) == name => {
                 return Err(user_error(format!(
-                    "Remote {} already exists or owns observations in this scope",
+                    "Remote {} already exists in this scope",
                     name.as_symbol()
                 )));
             }
@@ -197,8 +178,86 @@ fn ensure_available_remote_name(
             _ => {}
         }
     }
-    if project.is_none() {
-        ensure_empty_remote_name(view, name)?;
+    Ok(())
+}
+
+/// Management selects current logical identities, including disconnected ones,
+/// but never resurrects a historical-only observation as a live remote.
+fn resolve_management_remote(
+    workspace: &WorkspaceCommandHelper,
+    selector: &str,
+    project: Option<&str>,
+) -> Result<RemoteNameBuf, CommandError> {
+    let view = workspace.repo().view();
+    let project = project
+        .map(|name| view.project_state().project_by_name(name).map(|(id, _)| id))
+        .transpose()
+        .map_err(user_error)?;
+    let mut candidates: Vec<RemoteNameBuf> = git::get_git_repo(workspace.repo().store())?
+        .remote_names()
+        .into_iter()
+        .filter_map(|name| String::from_utf8(name.into()).ok())
+        .map(RemoteNameBuf::from)
+        .collect();
+    candidates.extend(
+        view.store_view()
+            .remote_connections
+            .iter()
+            .filter(|(_, owner)| owner.as_resolved() != Some(&None))
+            .map(|(remote, _)| remote.clone()),
+    );
+    candidates.sort();
+    candidates.dedup();
+    crate::git_remote::resolve_remote_selector_in_view(
+        view,
+        &candidates,
+        selector,
+        project.as_ref(),
+    )
+}
+
+fn management_connection(
+    view: &jj_lib::view::View,
+    git_repo: &gix::Repository,
+    remote: &RemoteName,
+) -> Result<Option<ConnectionId>, CommandError> {
+    if let Some(owner) = view.store_view().remote_connections.get(remote) {
+        return owner.as_resolved().cloned().ok_or_else(|| {
+            user_error(format!(
+                "Remote {} has conflicting logical owners",
+                remote.as_symbol()
+            ))
+        });
+    }
+    git::remote_connection_id(git_repo, remote).map_err(user_error)
+}
+
+/// Validate the logical binding without requiring a local endpoint or consulting
+/// another connection's configuration at the same physical alias.
+fn check_management_binding(
+    command: &CommandHelper,
+    workspace: &WorkspaceCommandHelper,
+    remote: &RemoteName,
+    connection: Option<&ConnectionId>,
+) -> Result<(), CommandError> {
+    let view = workspace.repo().view();
+    view.remote_identity(remote).map_err(user_error)?;
+    if let Some(connection) = connection
+        && let Some((_, binding)) = view
+            .project_state()
+            .binding_for_connection(connection)
+            .map_err(user_error)?
+    {
+        if !crate::git_remote::capabilities(command).contains(&"jjosh-v1") {
+            return Err(user_error(
+                "Remote requires unavailable capability jjosh-v1",
+            ));
+        }
+        if let BindingTarget::Project(project) = &binding.target {
+            view.project_state()
+                .validate_project(project)
+                .map_err(user_error)?;
+        }
     }
     Ok(())
 }
@@ -303,8 +362,8 @@ async fn cmd_attach(
             .any(|key| key.remote == remote)
     {
         return Err(user_error(
-            "Attach requires an unused remote; explicitly migrate its existing observations and \
-             tracking",
+            "Attach requires an unused remote; deliberately remove and recreate the remote with \
+             the desired representation, or select the representation matching its observations",
         ));
     }
     let binding = prepare_binding(command, &workspace, &remote, &connection, &binding_args)?
@@ -414,10 +473,20 @@ async fn cmd_attach(
     Ok(())
 }
 
-async fn cmd_recover(ui: &mut Ui, command: &CommandHelper, args: &GitRemoteRecoverArgs) -> Result<(), CommandError> {
+async fn cmd_recover(
+    ui: &mut Ui,
+    command: &CommandHelper,
+    args: &GitRemoteRecoverArgs,
+) -> Result<(), CommandError> {
     let workspace = command.workspace_helper_no_snapshot(ui).await?;
     let _git_lock = workspace.lock_git_import_export()?;
-    git::recover_remote_management(workspace.repo().store(), workspace.repo().view(), &workspace.repo().operation().id().hex(), args.accept, crate::git_remote::capabilities(command))?;
+    git::recover_remote_management(
+        workspace.repo().store(),
+        workspace.repo().view(),
+        &workspace.repo().operation().id().hex(),
+        args.accept,
+        crate::git_remote::capabilities(command),
+    )?;
     writeln!(ui.status(), "Recovered local remote change.")?;
     Ok(())
 }

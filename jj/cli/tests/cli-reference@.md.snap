@@ -70,7 +70,6 @@ This document contains the help content for the `jj` command-line program.
 * [`jj git remote add`↴](#jj-git-remote-add)
 * [`jj git remote attach`↴](#jj-git-remote-attach)
 * [`jj git remote recover`↴](#jj-git-remote-recover)
-* [`jj git remote forget-observations`↴](#jj-git-remote-forget-observations)
 * [`jj git remote list`↴](#jj-git-remote-list)
 * [`jj git remote remove`↴](#jj-git-remote-remove)
 * [`jj git remote rename`↴](#jj-git-remote-rename)
@@ -2007,7 +2006,6 @@ The Git repo will be a bare git repo stored inside the `.jj/` directory.
 * `add` — Add a Git remote
 * `attach` — Explicitly bind an existing, unused ordinary connection
 * `recover` — Recover an interrupted local remote change without network access
-* `forget-observations` — Forget a remote's cached observations and tracking, without removing its connection
 * `list` — List Git remotes
 * `remove` — Remove a Git remote and forget its bookmarks
 * `rename` — Rename a Git remote
@@ -2076,24 +2074,6 @@ Recover an interrupted local remote change without network access
 
 
 
-## `jj git remote forget-observations`
-
-Forget a remote's cached observations and tracking, without removing its connection.
-
-Clears restored ownership and conversion evidence for detached aliases, allowing explicit reuse after a connection was deleted. Active scoped connection names, local bookmarks, tags, projects, bindings, source objects and endpoint leases remain. No network request is made. The alias need not have a configured connection.
-
-**Usage:** `jj git remote forget-observations [OPTIONS] <REMOTE>`
-
-###### **Arguments:**
-
-* `<REMOTE>`
-
-###### **Options:**
-
-* `--project <PROJECT>` — Resolve the remote within this project
-
-
-
 ## `jj git remote list`
 
 List Git remotes
@@ -2109,6 +2089,8 @@ List Git remotes
 ## `jj git remote remove`
 
 Remove a Git remote and forget its bookmarks
+
+Also removes a restored logical remote that has no local connection configuration. Local references and historical operations remain; configuration and mirrors belonging to another connection are not removed.
 
 **Usage:** `jj git remote remove [OPTIONS] <REMOTE>`
 
@@ -2142,6 +2124,8 @@ Rename a Git remote
 ## `jj git remote set-url`
 
 Set the URL of a Git remote
+
+A restored logical remote without local configuration can be reconnected by supplying a fetch URL. Its connection identity, binding and tracking remain unchanged. Configuration belonging to a different connection is not reused.
 
 **Usage:** `jj git remote set-url [OPTIONS] <REMOTE> [URL]`
 
@@ -2671,9 +2655,9 @@ This restores the repo to the state at the specified operation, effectively undo
 
   Possible values:
   - `repo`:
-    The jj repo state and local bookmarks
+    The jj repo state, local references, projects, bindings and logical remotes
   - `remote-tracking`:
-    The remote-tracking bookmarks. Do not restore these if you'd like to push after the undo
+    Observed remote references, tracking and historical identities, not the current logical remote namespace or local connection configuration. Do not restore these if you'd like to push after the undo
 
 
 
@@ -2704,9 +2688,9 @@ This reverts an individual operation by applying the inverse of the operation.
 
   Possible values:
   - `repo`:
-    The jj repo state and local bookmarks
+    The jj repo state, local references, projects, bindings and logical remotes
   - `remote-tracking`:
-    The remote-tracking bookmarks. Do not restore these if you'd like to push after the undo
+    Observed remote references, tracking and historical identities, not the current logical remote namespace or local connection configuration. Do not restore these if you'd like to push after the undo
 
 
 

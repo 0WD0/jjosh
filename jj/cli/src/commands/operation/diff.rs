@@ -424,45 +424,90 @@ pub async fn show_op_diff(
         }
     }
 
-    with_content_format.write(formatter, async |formatter| {
-        let from = from_repo.view().store_view();
-        let to = to_repo.view().store_view();
-        write_metadata_map_diff(formatter, "projects", &from.project_state.projects, &to.project_state.projects)?;
-        write_metadata_map_diff(formatter, "project bindings", &from.project_state.bindings, &to.project_state.bindings)?;
-        write_metadata_map_diff(formatter, "project labels", &from.project_state.labels, &to.project_state.labels)?;
-        write_metadata_map_diff(formatter, "remote names", &from.project_state.remote_names, &to.project_state.remote_names)?;
-        write_metadata_map_diff_with_names(
-            formatter,
-            "remote connection owners",
-            &from.remote_connections,
-            &to.remote_connections,
-            |remote, added| {
-                let view = if added { to_repo.view() } else { from_repo.view() };
-                format!("{:?}", view.remote_qualified_name(remote))
-            },
-        )?;
-        write_metadata_map_diff_with_names(
-            formatter,
-            "conversion observations",
-            &from.project_observations,
-            &to.project_observations,
-            |key, added| {
-                let view = if added { to_repo.view() } else { from_repo.view() };
-                format!(
-                    "ObservationKey {{ remote: {:?}, name: {:?}, kind: {:?} }}",
-                    view.remote_qualified_name(&key.remote),
-                    key.name,
-                    key.kind,
-                )
-            },
-        )?;
-        if from.project_state != to.project_state || from.remote_connections != to.remote_connections || from.project_observations != to.project_observations {
-            for diagnostic in to_repo.view().project_diagnostics() {
-                writeln!(formatter, "Project state conflict: {diagnostic}")?;
+    with_content_format
+        .write(formatter, async |formatter| {
+            let from = from_repo.view().store_view();
+            let to = to_repo.view().store_view();
+            write_metadata_map_diff(
+                formatter,
+                "projects",
+                &from.project_state.projects,
+                &to.project_state.projects,
+            )?;
+            write_metadata_map_diff(
+                formatter,
+                "project bindings",
+                &from.project_state.bindings,
+                &to.project_state.bindings,
+            )?;
+            write_metadata_map_diff(
+                formatter,
+                "project labels",
+                &from.project_state.labels,
+                &to.project_state.labels,
+            )?;
+            write_metadata_map_diff(
+                formatter,
+                "remote names",
+                &from.project_state.remote_names,
+                &to.project_state.remote_names,
+            )?;
+            write_metadata_map_diff(
+                formatter,
+                "historical remote names",
+                &from.observed_remote_names,
+                &to.observed_remote_names,
+            )?;
+            write_metadata_map_diff(
+                formatter,
+                "historical remote connection owners",
+                &from.observed_remote_connections,
+                &to.observed_remote_connections,
+            )?;
+            write_metadata_map_diff_with_names(
+                formatter,
+                "remote connection owners",
+                &from.remote_connections,
+                &to.remote_connections,
+                |remote, added| {
+                    let view = if added {
+                        to_repo.view()
+                    } else {
+                        from_repo.view()
+                    };
+                    format!("{:?}", view.remote_qualified_name(remote))
+                },
+            )?;
+            write_metadata_map_diff_with_names(
+                formatter,
+                "conversion observations",
+                &from.project_observations,
+                &to.project_observations,
+                |key, added| {
+                    let view = if added {
+                        to_repo.view()
+                    } else {
+                        from_repo.view()
+                    };
+                    format!(
+                        "ObservationKey {{ remote: {:?}, name: {:?}, kind: {:?} }}",
+                        view.remote_qualified_name(&key.remote),
+                        key.name,
+                        key.kind,
+                    )
+                },
+            )?;
+            if from.project_state != to.project_state
+                || from.remote_connections != to.remote_connections
+                || from.project_observations != to.project_observations
+            {
+                for diagnostic in to_repo.view().project_diagnostics() {
+                    writeln!(formatter, "Project state conflict: {diagnostic}")?;
+                }
             }
-        }
-        Ok::<(), std::io::Error>(())
-    }).await?;
+            Ok::<(), std::io::Error>(())
+        })
+        .await?;
 
     let changed_local_bookmarks = diff_named_ref_targets(
         from_repo.view().local_bookmarks(),

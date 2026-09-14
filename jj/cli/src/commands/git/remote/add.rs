@@ -108,6 +108,10 @@ pub async fn cmd_git_remote_add(
     )?;
     journal.expect_remote(&remote, true, Some(&connection), binding.is_some())?;
     let mut tx = workspace_command.start_transaction();
+    tx.repo_mut()
+        .view_mut()
+        .archive_remote_observations(&remote)
+        .map_err(crate::command_error::user_error)?;
     git::add_remote(tx.repo_mut(), &remote, &url, push_url.as_deref())?;
     let mut keys = vec![(
         remote.clone(),
@@ -138,15 +142,12 @@ pub async fn cmd_git_remote_add(
             .project_state_mut()
             .bindings
             .insert(BindingId::generate(), Merge::resolved(Some(binding)));
-        tx.repo_mut()
-            .view_mut()
-            .store_view_mut()
-            .remote_connections
-            .insert(
-                remote.clone(),
-                Merge::resolved(Some(connection.clone())),
-            );
     }
+    tx.repo_mut()
+        .view_mut()
+        .store_view_mut()
+        .remote_connections
+        .insert(remote.clone(), Merge::resolved(Some(connection.clone())));
     git::set_remote_config_keys(tx.repo().store(), &keys)?;
     warn_if_remote_url_matches(ui, tx.repo(), &remote, &url, push_url.as_deref())?;
     journal.expect_operation(tx.repo().view())?;
@@ -193,7 +194,9 @@ fn warn_if_remote_url_matches(
         // Don't print the URL itself because remote URLs can contain credentials,
         // such as user:password or token path segments.
         if remote_url_matches {
-            let Ok(name) = str::from_utf8(&remote_name) else { continue; };
+            let Ok(name) = str::from_utf8(&remote_name) else {
+                continue;
+            };
             let remote_name = repo.view().remote_qualified_name(RemoteName::new(name));
             writeln!(
                 ui.warning_default(),

@@ -154,7 +154,8 @@ pub async fn cmd_redo(
         target_op_parent.view().await?.store_view(),
         tx.base_repo().view().store_view(),
         &DEFAULT_REVERT_WHAT,
-    );
+    )
+    .map_err(user_error)?;
     tx.repo_mut().set_view(new_view);
     if let Some(mut formatter) = ui.status_formatter() {
         write!(formatter, "Restored to operation: ")?;

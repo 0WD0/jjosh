@@ -1,176 +1,159 @@
-#+title: 把项目归属变成引用身份
-#+subtitle: 从已实现的 remote 命名空间到 typed 本地引用
+#+title: Typed 本地引用：身份、语法与迁移提案
 #+options: toc:2 num:nil
 
-本提案讨论把本地引用表示为 typed identity，不是当前命令手册。
-remote 的根／项目命名空间、稳定 ConnectionId 和批量传输已经实现；当前可执行流程见 [[file:workflows.org][操作指南]]。下文新增的 typed 本地引用、组件引用语法和 =--scope= 是拟议接口。
+本文是尚未实现的本地引用模型提案，不是命令手册。当前项目、逻辑 remote、历史观察和本地传输边界见 [[file:subprojects-design.org][项目模型]]；可执行日常流程见 [[file:workflows.org][操作指南]]。
 
-子项目作为仓库开发单元的定义、目录归属、来源关系和本地身份，先由 [[file:subprojects-design.org][子项目模型]] 讨论。
-本文只讨论引用 namespace；项目与 scope 可以关联，但不是同一个概念，也不要求项目模型与全部结构化引用改造同时落地。
+本文将“必须保留的现有合同”与“拟议的新接口”分开。typed 本地引用、组件级引用语法和 =--scope= 都属于提案，不应作为当前可用功能发布。
 
-* 要解决的歧义
+* 已实现的基线，不再作为未来目标
 
-当前 =main#engine@upstream= 已在 engine 项目内选择 upstream。根和其他项目都能各自配置同名连接，不需要人为添加全局前缀。剩余歧义主要在本地引用仍使用普通名字和已登记 label：
+当前系统已经具备：
 
-- 字面根名字 =main#engine= 与“engine 项目的 main”无法同时表达。
-- 引用解析、显示和选择仍需根据登记状态解释字符串，而非直接操作 typed 本地引用组件。
-- 完整引用表示需要让名字中的字面分隔符与 scope 语法无损往返。
+- 根与各 ProjectId 独立的 remote 命名空间、稳定 ConnectionId、不可变 BindingId；逻辑别名与 scoped 物理 handle 分离。
+- repo-owned 当前项目、绑定、label、remote_names 和 remote_connections；remote-tracking-owned 引用、转换观察以及 observed 历史身份。
+- 当前逻辑别名优先于历史别名，即使当前连接从未 fetch。历史可由显式物理选择器读取，不必激活旧项目、绑定或配置。
+- 部分 operation restore 不回退 URL、认证、Git mirror 同步基线或 endpoint/ref 发布 lease；旧根观察归档，不覆盖重建后连接的记录。
+- 多项目 fetch/push 的显式范围选择、项目内默认值隔离与整批预检，以及 nested/preserve 原生导入的不同状态合同。
+- =simple_op_store_projects_v3= 的历史身份编码；v1/v2 可读，但写入须显式排他迁移。
 
-结构化本地引用解决这些剩余身份与选择问题，并保留已实现的连接范围隔离。
-它不把 monorepo 拆成多个仓库，不按文件内容判定提交所有权，也不替用户隐藏 divergent change。
-如果普通名字没有造成实际障碍，现有使用方式不需要先等待这项重构。
+这些是 typed 本地引用必须保持的行为，不是本提案才会修复的缺陷。现有逻辑／历史分离也不依赖本提案落地。
 
-* 数据模型
+* 剩余问题：本地名字仍承担身份解释
+
+当前 =View.local_bookmarks= / =local_tags= 以普通 RefName 为键。登记的 label 让 =main#engine= 表示 engine 的交付引用；未登记的后缀则仍是字面名字。显示名、label 和项目目录已有各自边界，但本地引用的项目归属仍需从字符串结合登记状态解释。
+
+这留下三类问题：
+
+1. 根中名字恰为 =main#engine= 的引用，与 engine 内的 main，不能作为两个独立本地身份无歧义共存。
+2. parser、formatter、模板、补全、模式选择和存储层容易各自解释后缀；显示文本不能成为可靠的数据交换键。
+3. label 登记、删除或迁移需要防止重新解释既有本地名字。历史不能依赖“今天登记了哪些 label”才能确定原来的引用归属。
+
+目标是使本地引用归属成为结构化身份，并让语法只负责选取该身份。它不是按文件归属划分 commit，不建立每项目 DAG，也不自动消除同 change ID 的多个版本。
+
+* 拟议身份模型
+
+项目 scope 复用仓库本地 ProjectId；label 是选择／显示它的名字，不是身份。这里的“引用 ID”是结构化键，不是新增 UUID。
 
 #+begin_example
-Scope          = Root | Named(name)
-LocalRef       = (scope, kind, name)
-RemoteRef      = (scope, kind, name, remote)
-Connection     = (scope, remote)
-kind           = bookmark | tag
+RefScope = Root | Project(ProjectId)
+RefKind  = Bookmark | Tag
+LocalRefId { scope: RefScope, kind: RefKind, name: RefName }
+RemoteRefId { local: LocalRefId, connection: ConnectionId }
 #+end_example
 
-scope 属于引用和连接配置，不属于 commit。
-=main#engine= 仍可指向同时修改 engine、应用和构建文件的整合提交。
-仓库保留唯一的 DAG、heads、workspaces、change ID 索引和 operation history。
+root/project 与 kind 都参与比较、排序和去重。不存在基于显示字符串的等价判定，也不在本次提案中引入与项目无关的任意 named scope。
 
-View 按 scope 保存本地引用、远端观察和 tracking；引用目标继续使用完整 RefTarget，保留 adds/removes/absence。
-远端观察可以在没有可用连接配置时存在，例如从本地 jj 仓库导入的状态。
-不得把冲突目标压成一个 OID，也不得要求“每个 scope 的每个 change 只有一个版本”。
+=RemoteRefId= 是正常逻辑身份的目标形态；兼容导入／原生 =@git= 等保留身份须有显式表示，不能假装拥有可联网的 ConnectionId。具体编码在实施前确定，但不能用当前 alias 字符串作兜底身份。已有历史观察继续保存自己的 ConnectionId，不引入第二套历史 remote ID。
 
-项目挂载、filter、来源 base 是转换配置，不是引用身份。
-移动目录、修改 filter、scope rename 和 remote rename 是四种不同操作。
-本提案不附带任意历史布局搬迁，也不引入跨仓库项目 UUID。子项目模型中的仓库本地 ProjectId 用于元数据关联，不是这里的引用 scope 或另一套 change 身份。
+scope 属于引用，不属于 commit。engine 的 main 仍可指向同时修改 engine、应用和构建文件的完整提交。唯一 DAG、heads、workspaces、change ID 索引与 operation history 保持不变。
 
-* 用户如何选择
+每个 target 继续是完整 =RefTarget=，remote 继续保存 tracking。adds、removes、absence 与引用冲突必须无损保留，不能为了 typed key 简化为单个 OID。普通 change ID 的版本歧义保持 jj 现有处理；引用或 commit ID 选择具体版本。
 
-推荐显示形式仍为 =name[#scope][@remote]=，但 parser 和 formatter 必须按组件工作：
+项目路径、来源表示、base、引用 label 和 remote alias 是不同对象。移动检出布局不改引用身份，remote rename 不改 ConnectionId，项目显示名改动不迁移引用。项目撤销后的历史引用可以保留 ProjectId 而不激活项目；历史显示所需信息不能反向写入当前拓扑。
 
-| revset 收到的文本 | 拟议含义 |
-|------------------+----------|
-| =main= | 根本地引用 |
-| =main@origin= | 根 origin 的观察 |
-| =main#engine= | engine 的本地引用 |
-| =main#engine@origin= | engine 的 origin 观察 |
-| ="main#engine"= | 根中名字恰为 main#engine 的引用 |
-| ="feature#parser"#engine= | engine 中名字恰为 feature#parser 的引用 |
+* 拟议文本接口
 
-表中的引号属于 revset 语法；shell 引用是另一层。不能通过 split 显示文本恢复身份。
-显式 scope 的引用解析失败就报错，不退回全局 commit/change ID。
-=@= 仍是工作副本，不新增按项目的工作副本 ID。
+推荐外观仍是 =name[#scope][@remote]=，但 parser 和 formatter 按组件处理。以下是拟议 revset 语法，不是当前命令示例：
 
-拟议的 typed 本地引用命令选择遵守以下契约：
+| revset 文本 | 拟议解释 |
+|-------------+----------|
+| =main= | 根本地 main |
+| =main@origin= | 根 origin 的 main 观察 |
+| =main#engine= | engine 本地 main |
+| =main#engine@origin= | engine 的 origin 上 main 的观察 |
+| ="main#engine"= | 根中名字恰为 main#engine 的本地引用 |
+| ="feature#parser"#engine= | engine 中名字恰为 feature#parser 的本地引用 |
+| =main#engine@"origin@inner"= | engine 内别名恰为 origin@inner 的 remote 观察 |
 
-- 精确名字省略 scope 时属于根；显式 =--scope engine= 才把该命令的未限定名字放入 engine。
-- 命令 scope 与参数中的显式 scope 冲突时拒绝，不让任一方静默覆盖另一方。
-- 修改或删除的名字模式限于所选 scope；跨 scope 批量修改必须显式选择范围。
-- 浏览集合默认保持全局。=bookmarks()=、tag 集合、日志、不可变历史和维护遍历不能漏掉子项目；组件过滤可显式缩小范围。
-- 模板、排序、去重、补全和 operation diff 使用完整身份。全局 trunk 策略不从多个项目的 main 中猜一个。
+引号属于 revset 组件语法；传给 shell 时仍需独立保护整段参数。不能 split 格式化字符串恢复身份。名字里的字面 =#=、=@=、引号和转义必须可无损往返，bookmark/tag 选择保持原有类型区分机制。
 
-已实现的传输边界是：=git fetch --project engine --project app= 选择指定项目，=--all-projects= 选择所有未删除的登记项目，二者互斥且排除根；没有项目选择时只获取根。重复项目去重，=--all-remotes= 只展开所选范围。
-每个项目分别解析 =--remote=、=git.projects.LABEL.fetch= 和唯一连接／origin 回退，不继承根配置。=--all-projects= 包含冲突候选，未解决定义、错误默认值或没有连接都会在网络请求前报错，不跳过离线项目。=--revision=／=--fetch-url= 要求整批只有一个物理 remote。
-发布通过 =git push --bookmark 'glob:topic#*'= 按每个引用的 label 选择项目默认值；=--remote fork= 在每个项目内解释同一别名，缺少任何一个便预检失败。=--remote origin#= 明确选择根连接。项目引用不继承根的 =git.push=。
+显式 scope 无法解析就报错，不回退到根字面引用或 commit/change ID。当前工作副本符号 =@= 保持原义，不新增项目工作副本 ID。当前显式根 remote 选择器 =origin#= 的能力必须保留，具体与组件语法的组合需在 parser 接口中一次定义，而非在各命令中分别拼接。
 
-未来若用 =--scope= 选择 typed 引用范围，需要保留上述显式批量选择、根边界和默认值隔离，不能按提交修改了哪些目录分发。新增接口不应把已有多项目获取退回为单项目传输。
+历史 remote 的显式物理选择器继续作为兼容入口：它解析到观察身份，不是新的可配置 alias。formatter 在当前别名遮蔽旧观察或有同名历史候选时，须输出能选回原身份的形式；不能为了好看只显示 origin。
 
-* 版本不是名字的附属品
+** 拟议命令范围规则
 
-change ID 联系一个 change 的不同版本，commit ID 标识具体版本；scope 不改变这个关系。
-两个 remote 可以各自指向同一 change 的不同版本，也可以出现本地引用冲突。这是两种不同状态。
-裸 change ID 的歧义处理保持 jj 现状，精确引用或 commit ID 用于选择版本。
+=--scope= 尚未实现。若采用它，本地引用命令遵守以下规则：
 
-设 C 同时修改项目 A、B，发布 A 得到 P，重新获取后得到 C'：
+- 精确名字未限定 scope 时选择根；显式 =--scope engine= 才改变该命令内未限定名字的归属。
+- 参数自带 scope 与命令 scope 不一致时报错，不静默覆盖。
+- 修改／删除的名字模式只覆盖所选 scope；跨 scope 修改必须显式选择范围。
+- 浏览集合默认保持全局。=bookmarks()=、tag 集合、日志、不可变历史、rebase、索引和 GC 不能漏掉项目 scope。
+- 模板、排序、去重、补全和 operation diff 使用完整身份；需要显示用的 label 与存储 ID 分开传递。
+- trunk 等仓库策略明确指定引用，不在多个项目的 main 中猜一个默认主线。
 
-- C' 与 C 的 change ID 相同，不足以证明整份提交等价。
-- A 子树相同，也不能证明 B 的修改已经发布或可以被替换。
-- 有明确且有效的转换边界时可以复用已知 canonical 版本；否则保留合法的多个版本。
-- 验收应检查未发布工作与父图是否正确，不能把“没有 divergence”本身作为目标。
+本地引用范围与传输范围不混为同一参数。现有 =git fetch --project A --project B= / =--all-projects= 的显式批量选择、排除根、独立默认值及预检不变；不能因为引入单个 =--scope= 而退回单项目 fetch。
 
-native 导入要继续保留原生版本、空提交、有序父边、冲突树和引用冲突。
-Josh 过滤可以裁剪提交、调整父关系，历史中的 workspace/stored 定义还可能改变过滤语义；它不能冒充无损 native 导入。
-不带有效 change-id 头的 Git 提交依赖 OID 生成身份，改变 OID 不自动保留原生 change 身份。
+现有 push 按所选引用 label 路由的行为改为按 typed scope 路由，结果应一致。=--remote fork= 仍在各项目内解释；项目不继承根默认值，缺少任一目的连接在网络写入前阻止整批。路由仍不看提交修改了哪些目录。
 
-* 从版本到传输
+* 与转换和 tracking 的接口
 
-引用选择、历史转换和发布授权是三层输入，必须分别表示：
+typed identity 只改变引用的归属表达，不把以下三层合成一个字段：
 
-| 输入 | 作用 | 不能代替什么 |
-|------+------|--------------|
-| 用户选定的 canonical 版本与引用动作 | 决定发布内容 | 来源上下文 |
-| 具体 raw 历史、filter、base 与接续信息 | 重建来源坐标 | 目标当前位置 |
-| 实际 endpoint、完整 ref 与 expected-old | 校验覆盖授权 | 转换结果正确性 |
+| 输入 | 决定什么 |
+|------+----------|
+| LocalRefId / 所选 canonical 版本与引用动作 | 本地开发状态与发布内容 |
+| 不可变 binding、raw 历史、base、generation | 转换来源坐标及逆转换依据 |
+| endpoint、完整 wire ref、expected-old | 目标写入约束 |
 
-** 获取
+** fetch 的边界
 
-传输先接收明确选择的 raw refs 和对象，转换具体版本，再把结构化引用更新交给 jj tracking 合并。
-已实现的批量获取在首个网络请求前预检全部目标；预检不能保证服务器可达，网络阶段仍可能部分失败。typed 引用改造不能把未完成获取当作完整观察。
-删除推断只覆盖本次完整观察的 scope、remote、kind 和名字范围；未请求或获取失败不等于远端删除。
+转换层输入明确的 source refs，输出结构化引用更新和独立转换观察；tracking 合并仍由 jj 完成。ObservationKey 向 typed 引用迁移时须保持 bookmark、tag 与 pinned revision 的区别；raw ref 和 endpoint 不因本地 scope 改名而改写。
 
-转换产生同 change ID 的新版本，并不能直接授权 synthetic rewrite 替换旧整合版本。
-必须在进入引用合并前判定转换边界；不能将现有 raw Git 的新旧可达集合推断原封不动套到坐标变化上。
+选择／默认值／绑定预检在首个网络请求前完成；预检不保证网络阶段全成功。删除推断只覆盖本次完整观察的身份和范围，失败、未请求和未完成不代表删除。根 Git scanner 的扫描集与候选集继续排除 scoped 私有状态；=@git= 的内置身份不得变成导入来源的活动根连接。
 
-根 Git scanner 的实际扫描集与已知观察候选集都要排除 scoped 私有状态，否则会把没扫描到的 scoped refs 当成删除。
-导入的 scoped =@git= 是来源观察，不得驱动当前 backend 的根分支。
+同 change ID 的转换版本不能仅凭 ID 相同授权整份 canonical rewrite。设 C 同时修改 A、B，发布 A 后获取到 C'：A 子树相同不能证明 B 已发布。只有有效来源对应与转换边界支持的复用才可替换，其他合法版本和未发布工作必须保留。
 
-** 发布
+** push 的边界
 
-对已有目标，逆转换必须保留目标过滤范围外的内容并使用正确的 raw 父图。
-对新目标，来源基线必须能由选定历史确定；存在歧义就要求选择具体版本，不能按 change ID 挑第一个候选。
-没有项目内变化时不应把远端退回一个较旧的等价投影版本。
+来源表示及 base 继续由绑定和保留观察决定，而非引用名字推导。目的已有内容时，逆转换保留 filter 外内容及 raw 父图；来源上下文歧义时选择具体版本或 base，不按 change ID 挑第一个。
 
-lease 按实际 endpoint 和完整 ref 记录 raw 身份。upstream 的 base、另一个 fork 的观察、刚收到的 advertisement 都不能授权覆盖当前目标。
-annotated tag 同时需要直接对象 ID 和 peeled commit；只比较后者会漏掉 annotation-only 更新。改变签名对象的目标不能继续宣称签名有效。
+lease 保持 endpoint/ref 的 raw 身份；typed scope 不刷新它，operation restore 也不回退它。annotated tag 保留直接对象与 peeled commit 的区别，签名对象改写后不能沿用签名有效性。
 
-整批选择、转换与 endpoint/ref 碰撞检查在网络写入前完成；每个更新只有在收到明确成功结果后才能推进观察。多个逻辑 remote 指向同一个实际 ref 时，在准备阶段拒绝重复目的地。
-一个 remote 的多个 push URL 若不能逐 endpoint 转换、检查和记账，就必须明确拒绝，不能只处理第一个。
-这不提供跨 remote 的原子发布，也不允许 operation restore 撤销外部结果。
+整批转换、可发布性及重复目的地检查保持在首个网络写入前。当前转换连接只允许选定方向一个 endpoint；typed 改造不能悄悄接受多个 push URL 却只处理一个。只有确认成功的更新推进对应记录，不声称跨 remote 原子发布。
 
-* 配置与对象各归其位
+* 操作历史、导入与本地配置
 
-Git config 是 URL、push URL、认证相关设置与 per-remote 选项的权威来源；转换语义由 operation-owned 绑定保存，不由 Git 配置里的命名前缀推导。
-连接仍通过 named remote 配置解析，保留 include/global 来源边界和未知配置项，不把它们展平写回本地。
-独立 projection 继续连接真实来源 endpoint，不引入本地 transport façade，也不因为配置了 filter 就自动获得项目 scope。
+repo 侧保存 typed 本地引用及当前拓扑；remote-tracking 侧保存远端引用、tracking、转换观察及历史身份。只恢复 tracking 不能改当前 alias，也不能让导入／断开的观察成为活动连接。恢复后的引用与观察不得借当前项目目录或 URL 重新解释。
 
-Git 的 remote section 是扁平的，已实现的项目连接使用内部 handle 与 operation-owned scoped 名字对应，并以显式 metadata 声明所有权。
-逻辑改名保持 ConnectionId、BindingId 和 handle 不变，创建前检查有效配置中的碰撞，不通过名字前缀接管用户 section。
-handle 是局部存储键，不是项目身份；原生 Git 的 remote list 会看到它。typed 本地引用提案应复用这些边界，而非建立第二套连接身份。
+Git config 继续是地址、认证和 per-remote 设置的权威来源，scoped handle 继续复用 =jjosh-<ConnectionId>=；根名字保留原生 Git 兼容。typed 本地引用不增加第二份连接配置，不把 URL 或 endpoint 塞进引用身份。
 
-来源对象、浅边界和不可重建的转换对应关系由 backend/转换层保管。
-当前按 endpoint 隔离来源的做法应继续成立：完整和浅获取走同一流程，canonical 图保持闭合，不能把来源浅状态变成 monorepo 的全局 shallow。
-保活不要求把 raw commits 暴露为用户 heads；但可见文件与 canonical 对象也不足以恢复所有逆转换输入。
-可重算的缓存不能成为引用存在的前提，不可重建的 provenance 则不能被当成缓存随手删除。
+nested 导入只安装来源历史 remote 身份，不占用当前 origin；preserve 保留可支持的当前项目连接与配置，也保留历史身份。两种模式都排除来源内置 =@git=，目标同步状态仍属于目标。迁移到 typed 引用不得降低原生导入对有序父边、空提交、冲突、divergence 和 change 身份的保真。
 
-* 如何迁移而不重新解释历史
+来源 raw 对象、浅边界、normalization 代际和不可重建的 provenance 继续由来源层保存。typed 引用的可见目标和 canonical 图不能替代它们；GC 根遍历必须纳入全部 scope 和保留观察，不能把来源存储当作可随意清空的普通缓存。
 
-remote 命名空间的显式迁移由 =project migrate= 执行：旧逻辑别名逐字保留，物理配置键和 refs 重定位到独立 handle，不自动剥掉项目前缀。简化别名使用显式 remote rename；稳定 ID、有效引用、tracking 和转换依据保持身份。
-恢复旧操作不会把被删除后重建的同名连接视为旧实例。必要时清理断开的旧观察，并用 =project resolve --connection ID --name NAME= 明确修复当前连接的名字，而不是按名字猜测。项目 operation-store 使用 =simple_op_store_projects_v2= 保存 scoped remote 元数据；本地项目导入不会激活来源连接或认证。
+* 迁移合同：不重新解释旧历史
 
-未来 typed 本地引用迁移还需要覆盖：
+当前 v3 解决的是逻辑与历史 remote 身份分离，不是 typed 本地引用格式。typed 改造需要独立确定的新格式能力标记与显式迁移，不能未经升级就把新键写入现有 writer 认为是普通名字的字段。
 
-1. typed symbols、View 编码、全局遍历和引用合并；所有冲突项与 tracking 状态保持完整。
-2. parser/formatter、revset、模板、补全、命令范围和默认策略。
-3. 已有 scoped remote 和物理 refs 与 typed 本地引用的对应关系、转换更新接口、逐 endpoint 发布记账。
-4. operation restore、能力标记与旧 writer 排除。
-5. 显式本地引用归属迁移和中断恢复；确认新状态成立后移除退役路径。
+实施前须给出完整转换表和恢复协议：
 
-旧 operation 按各自格式记录的身份解码，不拿当前项目目录或配置重新解释旧历史，也不把已记录的项目引用一概降为根字面名字。
-未来迁移计划要明确每个旧本地引用到 typed identity 的映射，以及观察和 tracking 如何接续；有歧义时要求映射。
-迁移不重写提交图、不合并 divergence、不激活导入的连接，也不刷新发布 lease。
+1. 依据旧 operation 的记录，把每个旧本地名字映射到明确的 Root 或 Project(ProjectId)，保留 kind 与原始名字组件；不是拿当前 label 状态套到所有旧 View。
+2. 一并迁移 remote ref、tracking、ObservationKey、模板符号、默认策略和物理 ref 同步接口，不留两个解释入口并行猜测。
+3. 映射有歧义、缺少历史依据或目的身份碰撞时要求显式映射／解决，不通过丢弃引用或将项目引用一律降为根来继续。
+4. 保留 signed targets、删除项和历史归属，不改 commit DAG、change ID、raw OID、generation 或 lease，不自动合并 divergence。
+5. 给不支持新模型的 writer 设置读写边界；旧对象按原编码保留散列。读历史不顺便合成新字段；新状态只能在明确迁移或变更边界写入。
+6. 若要改 Git refs／配置，使用持久恢复日志及比较校验，覆盖中断、重复执行、锁冲突和并发 operation heads；单个 jj transaction 不是跨存储原子性。
+7. 迁移成功且恢复路径成立后退役旧解释路径，不保留长期 alias shim。必须明确哪些旧版本还能只读，哪些须拒绝打开。
 
-Git config、物理 refs 和 jj operation 不是一个原子存储。
-恢复协议必须覆盖中断、重复执行、锁冲突和并发 operation heads；不能用“一次 jj transaction”代替跨存储恢复。
-旧格式不得在不认识 scope 的程序中被静默写回。
+这不提供任意历史项目布局搬迁、不激活导入连接、不复制认证，也不回退外部发布。现有 =project migrate --apply --exclusive= 是当前项目格式迁移命令，不能提前宣称它已经支持本文的 typed 引用迁移。
 
-* 实现是否成立，看这些结果
+* 验收条件与尚需确定的接口
 
-- 根字面 =main#engine= 与 scoped main 共存，显示再解析无损；已有的各项目 origin 独立改名和删除能力保持不变。
-- 全局日志、不可变历史、rebase、索引和 GC 不漏掉任何 scope；同 change 多版本与引用冲突各自保留。
-- 获取部分 refs 不删除未选择观察，根 Git import/export 不复活或清空 scoped 私有状态。
-- 部分项目往返保留其他项目的未发布工作；相同 change ID 不触发未经证明的整体替换。
-- fork 的过滤范围外内容不丢失；stale lease、annotation-only 更新和重复目的地都被正确处理。
-- 本地项目导入和 operation restore 保留冲突、divergence 和 tracking；恢复本地状态不撤销远端发布。
-- 浅边界变化不导致 canonical 图缺父，也不丢失旧本地版本需要的逆转换依据。
-- 迁移在歧义、中断和旧 writer 面前明确停下，恢复后旧物理 refs 不再作为根引用出现。
+以下验收混合了新能力和必须保持的既有行为，不是已通过的测试报告：
 
-这些是 typed 本地引用改造的验收条件，包含必须保持的既有行为，不是该未来改造已通过的测试报告。
-实现入口见 [[file:../jj/core/src/ref_name.rs][引用名字]]、[[file:../jj/lib/src/op_store.rs][operation View]]、[[file:../jj/lib/src/git.rs][Git 引用同步]]，以及 [[file:../crates/jjosh-cli/src/git_remote/][jjosh 远端扩展]]、[[file:../crates/jjosh-cli/src/source_repo.rs][来源对象库]]。
+| 范围 | 消费者可观察的结果 |
+|------+------------------|
+| 身份与语法 | 根字面 main#engine 与 engine/main 共存；引号及分隔符往返不丢身份 |
+| 命令选择 | 精确／模式修改不越界；显式冲突拒绝；全局浏览、维护不漏 scope |
+| 历史名称 | 当前 B 在首次 fetch 前也不借旧 A 的记录；历史显式选择器仍准确可读 |
+| 部分恢复 | repo 与 tracking 各恢复各的状态，配置、mirror 基线、lease 不回退 |
+| 转换往返 | A 的发布保留 B 的未发布工作；相同 change ID 不触发未经证明的替换 |
+| 获取与删除 | 部分 fetch 不删除未选观察，根同步不复活／清空 scoped 私有引用 |
+| 发布安全 | filter 外内容、stale lease、tag 注释更新和重复目的地得到正确处理 |
+| 原生导入 | nested 不激活历史连接，preserve 保持当前／历史分界，@git 不跨仓库迁入 |
+| 存储与维护 | signed conflicts、浅来源代际和 provenance 保留；中断可恢复；旧 writer 不静默写回 |
+
+尚需在实现前确定：保留 pseudo-remote 的 typed 表示、bookmark/tag 组件语法与现有 revset AST 的接口、typed scope 的跨范围模式语法、历史显示名的保存策略，以及有歧义旧引用的迁移映射输入。它们是本提案的剩余设计点，不是当前 remote 模型的待修复语义。
+
+实现入口：[[file:../jj/core/src/ref_name.rs][引用名字与符号]]、[[file:../jj/lib/src/op_store.rs][View 编码模型]]、[[file:../jj/lib/src/view.rs][身份选择与显示]]、[[file:../jj/lib/src/repo.rs][operation 合并]]、[[file:../jj/lib/src/git.rs][Git 同步]]，以及 [[file:../crates/jjosh-cli/src/git_remote/][转换与传输]]、[[file:../crates/jjosh-cli/src/native_import.rs][原生导入]]。

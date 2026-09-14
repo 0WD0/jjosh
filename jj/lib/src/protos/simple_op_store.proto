@@ -179,6 +179,8 @@ message ProjectMetadata {
   repeated ConnectionEntry connections = 5;
   repeated ObservationEntry observations = 6;
   repeated ScopedRemoteNameEntry remote_names = 7;
+  repeated ConnectionEntry observed_connections = 8;
+  repeated ScopedRemoteNameEntry observed_remote_names = 9;
 }
 
 message ScopedRemoteName {

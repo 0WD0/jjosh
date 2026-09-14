@@ -2031,7 +2031,9 @@ impl MutableRepo {
             };
             self.set_wc_sparse_patterns(name.clone(), target);
         }
-        self.view.project_state_mut().merge(base.project_state(), other.project_state());
+        self.view
+            .project_state_mut()
+            .merge(base.project_state(), other.project_state());
         crate::project::merge_map(
             &mut self.view.store_view_mut().remote_connections,
             &base.store_view().remote_connections,
@@ -2041,6 +2043,16 @@ impl MutableRepo {
             &mut self.view.store_view_mut().project_observations,
             &base.store_view().project_observations,
             &other.store_view().project_observations,
+        );
+        crate::project::merge_map(
+            &mut self.view.store_view_mut().observed_remote_connections,
+            &base.store_view().observed_remote_connections,
+            &other.store_view().observed_remote_connections,
+        );
+        crate::project::merge_map(
+            &mut self.view.store_view_mut().observed_remote_names,
+            &base.store_view().observed_remote_names,
+            &other.store_view().observed_remote_names,
         );
 
         let base_heads = base.heads().iter().cloned().collect_vec();

@@ -75,7 +75,8 @@ pub async fn cmd_op_revert(
         tx.repo().view().store_view(),
         tx.base_repo().view().store_view(),
         &args.what,
-    );
+    )
+    .map_err(user_error)?;
     tx.repo_mut().set_view(new_view);
     if let Some(mut formatter) = ui.status_formatter() {
         write!(formatter, "Reverted operation: ")?;

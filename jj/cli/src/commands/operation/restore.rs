@@ -56,7 +56,8 @@ pub async fn cmd_op_restore(
         target_op.view().await?.store_view(),
         tx.base_repo().view().store_view(),
         &args.what,
-    );
+    )
+    .map_err(crate::command_error::user_error)?;
     tx.repo_mut().set_view(new_view);
     if let Some(mut formatter) = ui.status_formatter() {
         write!(formatter, "Restored to operation: ")?;
