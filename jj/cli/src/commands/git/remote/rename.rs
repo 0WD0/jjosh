@@ -46,39 +46,84 @@ pub async fn cmd_git_remote_rename(
 ) -> Result<(), CommandError> {
     let mut workspace_command = command.workspace_helper_no_snapshot(ui).await?;
     let git_lock = workspace_command.lock_git_import_export()?;
-    let old = crate::git_remote::resolve_remote_selector(&workspace_command, args.old.as_str(), args.project.as_deref())?;
+    let old = crate::git_remote::resolve_remote_selector(
+        &workspace_command,
+        args.old.as_str(),
+        args.project.as_deref(),
+    )?;
     crate::git_remote::check_remote(command, &workspace_command, &old)?;
-    let identity = workspace_command.repo().view().remote_identity(&old)
-        .map_err(crate::command_error::user_error)?.cloned();
-    let (new, specified_scope) = super::new_remote_name(&workspace_command, &args.new, args.project.as_deref())?;
+    let identity = workspace_command
+        .repo()
+        .view()
+        .remote_identity(&old)
+        .map_err(crate::command_error::user_error)?
+        .cloned();
+    let (new, specified_scope) =
+        super::new_remote_name(&workspace_command, &args.new, args.project.as_deref())?;
     let scope = identity.as_ref().map(|identity| &identity.project);
-    if specified_scope.as_ref().is_some_and(|requested| Some(requested) != scope) {
-        return Err(crate::command_error::user_error("Rename cannot move a remote to another scope"));
+    if specified_scope
+        .as_ref()
+        .is_some_and(|requested| Some(requested) != scope)
+    {
+        return Err(crate::command_error::user_error(
+            "Rename cannot move a remote to another scope",
+        ));
     }
     super::ensure_available_remote_name(&workspace_command, &new, scope)?;
-    let local_old = workspace_command.repo().view().remote_local_name(&old).to_owned();
+    let local_old = workspace_command
+        .repo()
+        .view()
+        .remote_local_name(&old)
+        .to_owned();
     let display_old = workspace_command.repo().view().remote_qualified_name(&old);
-    let labels = scope.map(|project| super::project_config_labels(workspace_command.repo().view(), project));
+    let labels =
+        scope.map(|project| super::project_config_labels(workspace_command.repo().view(), project));
     let mut options = git::GitRemoteManagementOptions {
         extra_config_keys: git::MANAGED_REMOTE_KEYS,
         ..Default::default()
     };
-    options.repo_config =
-        rename_remote_in_repo_config(ui, command.raw_config(), workspace_command.repo().view(), &local_old, &new, labels.as_deref())?;
-    let extra_paths = options.repo_config.iter().map(|file| file.path().to_owned()).collect::<Vec<_>>();
-    let journal = git::begin_remote_management(workspace_command.repo().store(), &workspace_command.repo().operation().id().hex(), &extra_paths)?;
+    options.repo_config = rename_remote_in_repo_config(
+        ui,
+        command.raw_config(),
+        workspace_command.repo().view(),
+        &local_old,
+        &new,
+        labels.as_deref(),
+    )?;
+    let extra_paths = options
+        .repo_config
+        .iter()
+        .map(|file| file.path().to_owned())
+        .collect::<Vec<_>>();
+    let journal = git::begin_remote_management(
+        workspace_command.repo().store(),
+        &workspace_command.repo().operation().id().hex(),
+        &extra_paths,
+    )?;
     let git_repo = git::get_git_repo(workspace_command.repo().store())?;
-    let connection = git::remote_connection_id(&git_repo, &old).map_err(crate::command_error::user_error)?;
+    let connection =
+        git::remote_connection_id(&git_repo, &old).map_err(crate::command_error::user_error)?;
     let managed = git::remote_required_capability(&git_repo, &old).is_some();
     let mut tx = workspace_command.start_transaction();
     if let Some(mut identity) = identity {
-        let connection = connection.as_ref().ok_or_else(|| crate::command_error::user_error("Scoped remote has no configured connection"))?;
+        let connection = connection.as_ref().ok_or_else(|| {
+            crate::command_error::user_error("Scoped remote has no configured connection")
+        })?;
         journal.expect_remote(&old, true, Some(connection), managed)?;
-        git::commit_remote_management_config(tx.repo().store(), &old, options.repo_config.as_ref())?;
+        git::commit_remote_management_config(
+            tx.repo().store(),
+            &old,
+            options.repo_config.as_ref(),
+        )?;
         identity.name = new.clone();
-        tx.repo_mut().view_mut().project_state_mut().remote_names.insert(
-            connection.clone(), jj_lib::merge::Merge::resolved(Some(identity)),
-        );
+        tx.repo_mut()
+            .view_mut()
+            .project_state_mut()
+            .remote_names
+            .insert(
+                connection.clone(),
+                jj_lib::merge::Merge::resolved(Some(identity)),
+            );
     } else {
         journal.expect_remote(&old, false, connection.as_ref(), false)?;
         journal.expect_remote(&new, true, connection.as_ref(), managed)?;
@@ -87,10 +132,21 @@ pub async fn cmd_git_remote_rename(
         if let Some(owner) = view.remote_connections.remove(&old) {
             view.remote_connections.insert(new.clone(), owner);
         }
-        let old_keys: Vec<_> = view.project_observations.keys().filter(|key| key.remote == old).cloned().collect();
+        let old_keys: Vec<_> = view
+            .project_observations
+            .keys()
+            .filter(|key| key.remote == old)
+            .cloned()
+            .collect();
         for key in old_keys {
             let value = view.project_observations.remove(&key).unwrap();
-            view.project_observations.insert(jj_lib::project::ObservationKey { remote: new.clone(), ..key }, value);
+            view.project_observations.insert(
+                jj_lib::project::ObservationKey {
+                    remote: new.clone(),
+                    ..key
+                },
+                value,
+            );
         }
     }
     journal.expect_operation(tx.repo().view())?;

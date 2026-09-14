@@ -158,7 +158,8 @@ fn trackable_remote_bookmarks_matching<'a>(
         for (name, remote_ref) in &remote_view.bookmarks {
             let symbol = name.to_remote_symbol(remote);
             if bookmark_matcher.is_match(name.as_str())
-                && jj_lib::revset::remote_ref_is_visible(view, symbol).map_err(crate::command_error::user_error)?
+                && jj_lib::revset::remote_ref_is_visible(view, symbol)
+                    .map_err(crate::command_error::user_error)?
             {
                 matches.push((symbol, remote_ref));
             }
@@ -166,7 +167,8 @@ fn trackable_remote_bookmarks_matching<'a>(
         for (name, _) in view.local_bookmarks_matching(bookmark_matcher) {
             let symbol = name.to_remote_symbol(remote);
             if !remote_view.bookmarks.contains_key(name)
-                && jj_lib::revset::remote_ref_matches_scope(view, symbol).map_err(crate::command_error::user_error)?
+                && jj_lib::revset::remote_ref_matches_scope(view, symbol)
+                    .map_err(crate::command_error::user_error)?
             {
                 matches.push((symbol, RemoteRef::absent_ref()));
             }
@@ -246,7 +248,15 @@ fn warn_unmatched_remotes(ui: &Ui, view: &View, name_expr: &StringExpression) ->
     let mut names = name_expr
         .exact_strings()
         .map(RemoteName::new)
-        .filter(|name| !view.remote_views().any(|(remote, _)| view.remote_local_name(remote) == *name || view.remote_qualified_name(remote) == name.as_str() || view.remote_in_scope(remote, None).unwrap_or(false) && name.as_str().strip_suffix('#') == Some(view.remote_local_name(remote).as_str())))
+        .filter(|name| {
+            !view.remote_views().any(|(remote, _)| {
+                view.remote_local_name(remote) == *name
+                    || view.remote_qualified_name(remote) == name.as_str()
+                    || view.remote_in_scope(remote, None).unwrap_or(false)
+                        && name.as_str().strip_suffix('#')
+                            == Some(view.remote_local_name(remote).as_str())
+            })
+        })
         .peekable();
     if names.peek().is_none() {
         return Ok(());

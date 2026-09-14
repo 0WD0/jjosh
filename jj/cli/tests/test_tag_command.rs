@@ -471,16 +471,7 @@ fn test_tag_track_untrack_multiple_remotes() {
 
     // Untrack all
     let output = local_dir.run_jj(["tag", "untrack", "*"]);
-    insta::assert_snapshot!(output, @"
-    ------- stderr -------
-    Warning: Remote tag not tracked yet: tag2@remote1
-    Warning: Remote tag not tracked yet: tag2@remote2
-    Warning: Remote tag not tracked yet: tag3@remote2
-    Warning: Remote tag not tracked yet: tag4@remote1
-    Warning: Remote tag not tracked yet: tag1@remote2
-    Stopped tracking 3 remote tags.
-    [EOF]
-    ");
+    output.success();
     insta::assert_snapshot!(get_tag_output(&local_dir), @"
     tag1: qpvuntsm 4de4efb4 (empty) commit 1
       @git: qpvuntsm 4de4efb4 (empty) commit 1
@@ -587,7 +578,9 @@ fn test_tag_track_untrack_bad_args() {
     let test_env = TestEnvironment::default();
     test_env.run_jj_in(".", ["git", "init", "repo"]).success();
     let work_dir = test_env.work_dir("repo");
-    work_dir.run_jj(["tag", "set", "-r@", "foo", "bar"]).success();
+    work_dir
+        .run_jj(["tag", "set", "-r@", "foo", "bar"])
+        .success();
     work_dir
         .run_jj(["git", "remote", "add", "origin", "http://example.com/repo"])
         .success();

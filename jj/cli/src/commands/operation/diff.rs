@@ -664,8 +664,14 @@ fn write_metadata_map_diff_with_names<K: Ord, V: Eq + std::fmt::Debug>(
     name: impl Fn(&K, bool) -> String,
 ) -> std::io::Result<()> {
     let mut written_heading = false;
-    for key in from.keys().chain(to.keys()).collect::<std::collections::BTreeSet<_>>() {
-        if from.get(key) == to.get(key) { continue; }
+    for key in from
+        .keys()
+        .chain(to.keys())
+        .collect::<std::collections::BTreeSet<_>>()
+    {
+        if from.get(key) == to.get(key) {
+            continue;
+        }
         if !written_heading {
             writeln!(formatter, "\nChanged {heading}:")?;
             written_heading = true;
@@ -683,8 +689,12 @@ fn write_metadata_map_diff_with_names<K: Ord, V: Eq + std::fmt::Debug>(
             (true, false) => writeln!(formatter, "{}:", name(key, false))?,
             _ => writeln!(formatter, "{}:", name(key, true))?,
         }
-        if let Some(value) = from.get(key) { writeln!(formatter, "  - {value:?}")?; }
-        if let Some(value) = to.get(key) { writeln!(formatter, "  + {value:?}")?; }
+        if let Some(value) = from.get(key) {
+            writeln!(formatter, "  - {value:?}")?;
+        }
+        if let Some(value) = to.get(key) {
+            writeln!(formatter, "  + {value:?}")?;
+        }
     }
     Ok(())
 }

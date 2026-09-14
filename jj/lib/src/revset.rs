@@ -2657,7 +2657,10 @@ pub fn resolve_remote_ref_symbol(
         Some((name, label)) => match view.project_state().resolve_label(label)? {
             Some(project) => {
                 if reference_project.as_ref() != Some(&project) {
-                    return Err("Remote selector and local reference belong to different project scopes".into());
+                    return Err(
+                        "Remote selector and local reference belong to different project scopes"
+                            .into(),
+                    );
                 }
                 (RemoteName::new(name), Some(project))
             }
@@ -2669,10 +2672,16 @@ pub fn resolve_remote_ref_symbol(
     if symbol.remote == crate::git::REMOTE_NAME_FOR_LOCAL_GIT_REPO
         || (project.is_none() && remote_name == crate::git::REMOTE_NAME_FOR_LOCAL_GIT_REPO)
     {
-        return Ok(RemoteRefSymbolBuf { name: symbol.name.to_owned(), remote: remote_name.to_owned() });
+        return Ok(RemoteRefSymbolBuf {
+            name: symbol.name.to_owned(),
+            remote: remote_name.to_owned(),
+        });
     }
     let remote = if let Some(project) = &project {
-        let remotes = view.remote_views().map(|(remote, _)| remote.to_owned()).collect_vec();
+        let remotes = view
+            .remote_views()
+            .map(|(remote, _)| remote.to_owned())
+            .collect_vec();
         view.resolve_remote_name(&remotes, Some(project), remote_name)?
     } else {
         // Unknown root symbols remain addressable for native no-match diagnostics
@@ -2682,7 +2691,10 @@ pub fn resolve_remote_ref_symbol(
         }
         remote_name.to_owned()
     };
-    Ok(RemoteRefSymbolBuf { name: symbol.name.to_owned(), remote })
+    Ok(RemoteRefSymbolBuf {
+        name: symbol.name.to_owned(),
+        remote,
+    })
 }
 
 /// The registered project selected by a canonical local reference name.
@@ -2734,17 +2746,26 @@ pub fn remote_name_expression_to_matcher(
         match expression {
             StringExpression::Pattern(pattern) => {
                 let matcher = pattern.to_matcher();
-                StringExpression::union_all(view.remote_views()
-                    .filter(|(remote, _)| matcher.is_match(view.remote_local_name(remote).as_str())
-                        || matcher.is_match(&view.remote_qualified_name(remote))
-                        || view.remote_in_scope(remote, None).unwrap_or(false)
-                            && matcher.is_match(&format!("{}#", view.remote_local_name(remote).as_str())))
-                    .map(|(remote, _)| StringExpression::exact(remote))
-                    .collect())
+                StringExpression::union_all(
+                    view.remote_views()
+                        .filter(|(remote, _)| {
+                            matcher.is_match(view.remote_local_name(remote).as_str())
+                                || matcher.is_match(&view.remote_qualified_name(remote))
+                                || view.remote_in_scope(remote, None).unwrap_or(false)
+                                    && matcher.is_match(&format!(
+                                        "{}#",
+                                        view.remote_local_name(remote).as_str()
+                                    ))
+                        })
+                        .map(|(remote, _)| StringExpression::exact(remote))
+                        .collect(),
+                )
             }
             StringExpression::NotIn(inner) => resolve(view, inner).negated(),
             StringExpression::Union(left, right) => resolve(view, left).union(resolve(view, right)),
-            StringExpression::Intersection(left, right) => resolve(view, left).intersection(resolve(view, right)),
+            StringExpression::Intersection(left, right) => {
+                resolve(view, left).intersection(resolve(view, right))
+            }
         }
     }
     resolve(view, expression).to_matcher()
@@ -2809,8 +2830,10 @@ fn all_formatted_ref_symbols<'a>(
 
 fn make_no_such_symbol_error(repo: &dyn Repo, name: String) -> RevsetResolutionError {
     let include_synced_remotes = name.contains('@');
-    let tag_names = all_formatted_ref_symbols(repo.view(), repo.view().tags(), include_synced_remotes);
-    let bookmark_names = all_formatted_ref_symbols(repo.view(), repo.view().bookmarks(), include_synced_remotes);
+    let tag_names =
+        all_formatted_ref_symbols(repo.view(), repo.view().tags(), include_synced_remotes);
+    let bookmark_names =
+        all_formatted_ref_symbols(repo.view(), repo.view().bookmarks(), include_synced_remotes);
     let mut candidates = collect_similar(&name, itertools::chain(tag_names, bookmark_names));
     candidates.dedup(); // tags and bookmarks may have duplicate symbols
     RevsetResolutionError::NoSuchRevision { name, candidates }

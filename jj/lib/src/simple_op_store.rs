@@ -162,7 +162,12 @@ impl SimpleOpStore {
 
     /// Upgrade only in an explicitly acknowledged exclusive maintenance window.
     /// Older, already running binaries do not participate in this lock protocol.
-    fn ensure_store_type(&self, projects: bool, sparse: bool, exclusive_upgrade: bool) -> Result<(), PathError> {
+    fn ensure_store_type(
+        &self,
+        projects: bool,
+        sparse: bool,
+        exclusive_upgrade: bool,
+    ) -> Result<(), PathError> {
         let type_path = self.path.join("type");
         let lock_path = self.path.join("type.lock");
         let _lock = crate::lock::FileLock::lock(lock_path.clone())
@@ -172,15 +177,39 @@ impl SimpleOpStore {
             Err(err) if err.kind() == ErrorKind::NotFound && !self.project_format.load(std::sync::atomic::Ordering::Relaxed) => return Ok(()),
             Err(err) => return Err(err).context(&type_path),
         };
-        if ![Self::name(), Self::sparse_name(), Self::legacy_project_name(), Self::project_name()].iter().any(|name| current == name.as_bytes()) {
-            return Err(io::Error::new(ErrorKind::InvalidData, "unsupported operation store type")).context(&type_path);
+        if ![
+            Self::name(),
+            Self::sparse_name(),
+            Self::legacy_project_name(),
+            Self::project_name(),
+        ]
+        .iter()
+        .any(|name| current == name.as_bytes())
+        {
+            return Err(io::Error::new(
+                ErrorKind::InvalidData,
+                "unsupported operation store type",
+            ))
+            .context(&type_path);
         }
-        if self.project_format.load(std::sync::atomic::Ordering::Relaxed) && current != Self::project_name().as_bytes() {
-            return Err(io::Error::new(ErrorKind::InvalidData, "operation store lost required project format capability")).context(&type_path);
+        if self
+            .project_format
+            .load(std::sync::atomic::Ordering::Relaxed)
+            && current != Self::project_name().as_bytes()
+        {
+            return Err(io::Error::new(
+                ErrorKind::InvalidData,
+                "operation store lost required project format capability",
+            ))
+            .context(&type_path);
         }
         if current == Self::legacy_project_name().as_bytes() && !exclusive_upgrade {
-            return Err(io::Error::new(ErrorKind::PermissionDenied,
-                "Legacy project storage is read-only; stop incompatible jj processes and run `jjosh project migrate --apply --exclusive`")).context(&type_path);
+            return Err(io::Error::new(
+                ErrorKind::PermissionDenied,
+                "Legacy project storage is read-only; stop incompatible jj processes and run \
+                 `jjosh project migrate --apply --exclusive`",
+            ))
+            .context(&type_path);
         }
         let required = if current == Self::project_name().as_bytes() || projects {
             Self::project_name()
@@ -221,8 +250,22 @@ impl SimpleOpStore {
         let path = self.path.join("type");
         match fs::read(&path) {
             Ok(value) if value == Self::project_name().as_bytes() => Ok(false),
-            Ok(value) if [Self::name(), Self::sparse_name(), Self::legacy_project_name()].iter().any(|name| value == name.as_bytes()) => Ok(true),
-            Ok(_) => Err(io::Error::new(ErrorKind::InvalidData, "unsupported operation store type")).context(&path),
+            Ok(value)
+                if [
+                    Self::name(),
+                    Self::sparse_name(),
+                    Self::legacy_project_name(),
+                ]
+                .iter()
+                .any(|name| value == name.as_bytes()) =>
+            {
+                Ok(true)
+            }
+            Ok(_) => Err(io::Error::new(
+                ErrorKind::InvalidData,
+                "unsupported operation store type",
+            ))
+            .context(&path),
             Err(err) if err.kind() == ErrorKind::NotFound => Ok(false),
             Err(err) => Err(err).context(&path),
         }
@@ -1430,11 +1473,16 @@ mod tests {
     #[test]
     fn test_v1_project_store_reads_but_cannot_write_until_exclusive_upgrade() -> TestResult {
         let temp_dir = new_temp_dir();
-        let root_data = RootOperationData { root_commit_id: CommitId::from_hex("000000") };
+        let root_data = RootOperationData {
+            root_commit_id: CommitId::from_hex("000000"),
+        };
         let store = SimpleOpStore::init(temp_dir.path(), root_data.clone())?;
         let view = create_view();
         let id = store.write_view(&view).block_on()?;
-        fs::write(temp_dir.path().join("type"), SimpleOpStore::legacy_project_name())?;
+        fs::write(
+            temp_dir.path().join("type"),
+            SimpleOpStore::legacy_project_name(),
+        )?;
         let legacy = SimpleOpStore::load(temp_dir.path(), root_data);
         assert_eq!(legacy.read_view(&id).block_on()?, view);
         assert!(legacy.requires_project_store_upgrade()?);
@@ -1447,11 +1495,15 @@ mod tests {
 
     #[test]
     fn test_project_history_requires_explicit_upgrade_and_never_downgrades() -> TestResult {
-        use crate::project::{ProjectId, ProjectRecord};
+        use crate::project::ProjectId;
+        use crate::project::ProjectRecord;
         let temp_dir = new_temp_dir();
-        let store = SimpleOpStore::init(temp_dir.path(), RootOperationData {
-            root_commit_id: CommitId::from_hex("000000"),
-        })?;
+        let store = SimpleOpStore::init(
+            temp_dir.path(),
+            RootOperationData {
+                root_commit_id: CommitId::from_hex("000000"),
+            },
+        )?;
         fs::write(temp_dir.path().join("type"), SimpleOpStore::sparse_name())?;
         let empty = create_view();
         let empty_id = store.write_view(&empty).block_on()?;

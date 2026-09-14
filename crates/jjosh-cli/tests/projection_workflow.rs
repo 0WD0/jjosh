@@ -181,16 +181,34 @@ impl Fixture {
     }
 
     fn physical_remote(&self, client: &Path, project: &str, alias: &str) -> String {
-        let state: serde_json::Value = serde_json::from_str(
-            &self.jj(client, &["project", "show", project, "--json"]),
-        ).unwrap();
-        let identity = state["projects"][0]["remotes"].as_array().unwrap().iter()
+        let state: serde_json::Value =
+            serde_json::from_str(&self.jj(client, &["project", "show", project, "--json"]))
+                .unwrap();
+        let identity = state["projects"][0]["remotes"]
+            .as_array()
+            .unwrap()
+            .iter()
             .find(|remote| remote["candidates"][0]["definition"]["name"] == alias)
-            .unwrap()["connection"].as_str().unwrap();
+            .unwrap()["connection"]
+            .as_str()
+            .unwrap();
         let git_dir = client.join(".jj/repo/store/git");
-        self.git(&git_dir, &["remote"]).lines().find(|name| {
-            self.git(&git_dir, &["config", "--get", &format!("remote.{name}.jjosh-connectionId")]).trim() == identity
-        }).unwrap().to_owned()
+        self.git(&git_dir, &["remote"])
+            .lines()
+            .find(|name| {
+                self.git(
+                    &git_dir,
+                    &[
+                        "config",
+                        "--get",
+                        &format!("remote.{name}.jjosh-connectionId"),
+                    ],
+                )
+                .trim()
+                    == identity
+            })
+            .unwrap()
+            .to_owned()
     }
 
     fn refs(&self, remote: &Path) -> String {
@@ -274,8 +292,14 @@ fn offline_project_registration_survives_remote_removal_and_exports_only_its_dir
     );
     f.jj(
         &client,
-        &["git", "fetch", "--remote", "replacement#api", "--branch",
-        "main",],
+        &[
+            "git",
+            "fetch",
+            "--remote",
+            "replacement#api",
+            "--branch",
+            "main",
+        ],
     );
     assert_eq!(
         f.jj(
@@ -1590,7 +1614,10 @@ fn attached_remote_lifecycle_preserves_mount_push_endpoint_and_peer() {
         f.jj(&client, &["git", "fetch", "--project", "project", "--remote", name]);
     }
     let physical = f.physical_remote(&client, "project", "origin");
-    f.jj(&client, &["git", "remote", "add", "origin", remote.to_str().unwrap()]);
+    f.jj(
+        &client,
+        &["git", "remote", "add", "origin", remote.to_str().unwrap()],
+    );
     f.jj(&client, &["git", "fetch", "--remote", "origin"]);
     let root_origin = f.log(&client, "main@origin", "commit_id");
     f.git(
@@ -1602,7 +1629,10 @@ fn attached_remote_lifecycle_preserves_mount_push_endpoint_and_peer() {
         ],
     );
     let before = f.log(&client, "main#project@origin", "commit_id");
-    f.jj(&client, &["git", "remote", "rename", "origin#project", "renamed"]);
+    f.jj(
+        &client,
+        &["git", "remote", "rename", "origin#project", "renamed"],
+    );
     assert_eq!(f.log(&client, "main#project@renamed", "commit_id"), before);
     assert_eq!(f.physical_remote(&client, "project", "renamed"), physical);
     assert_eq!(f.log(&client, "main@origin", "commit_id"), root_origin);

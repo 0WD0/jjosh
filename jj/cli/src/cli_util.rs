@@ -1507,7 +1507,10 @@ impl WorkspaceCommandHelper {
     ) -> Result<(), CommandError> {
         use jj_lib::git;
         let git_settings = git::GitSettings::from_settings(self.settings())?;
-        let remote_settings = crate::revset_util::resolve_remote_settings(self.repo().view(), self.settings().remote_settings()?)?;
+        let remote_settings = crate::revset_util::resolve_remote_settings(
+            self.repo().view(),
+            self.settings().remote_settings()?,
+        )?;
         let import_options =
             crate::git_util::load_git_import_options(ui, &git_settings, &remote_settings)?;
         let mut tx = self.start_transaction();
@@ -3797,8 +3800,10 @@ pub fn has_tracked_remote_bookmarks(repo: &dyn Repo, bookmark: &RefName) -> bool
     };
     repo.view()
         .remote_bookmarks_matching(&StringMatcher::exact(bookmark), &remote_matcher)
-        .any(|(symbol, remote_ref)| remote_ref.is_tracked()
-            && jj_lib::revset::remote_ref_is_visible(repo.view(), symbol).unwrap_or(false))
+        .any(|(symbol, remote_ref)| {
+            remote_ref.is_tracked()
+                && jj_lib::revset::remote_ref_is_visible(repo.view(), symbol).unwrap_or(false)
+        })
 }
 
 /// Whether or not the `tag` has any tracked remotes (i.e. is a tracking local
@@ -3810,8 +3815,10 @@ pub fn has_tracked_remote_tags(repo: &dyn Repo, tag: &RefName) -> bool {
     };
     repo.view()
         .remote_tags_matching(&StringMatcher::exact(tag), &remote_matcher)
-        .any(|(symbol, remote_ref)| remote_ref.is_tracked()
-            && jj_lib::revset::remote_ref_is_visible(repo.view(), symbol).unwrap_or(false))
+        .any(|(symbol, remote_ref)| {
+            remote_ref.is_tracked()
+                && jj_lib::revset::remote_ref_is_visible(repo.view(), symbol).unwrap_or(false)
+        })
 }
 
 pub fn load_fileset_aliases(

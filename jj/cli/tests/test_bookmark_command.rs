@@ -2126,23 +2126,38 @@ fn test_bookmark_track_untrack_bad_args() {
 
     let output = work_dir.run_jj(["bookmark", "track", "--remote=foo", "bar@baz"]);
     assert_eq!(output.status.code(), Some(2));
-    assert_eq!(get_bookmark_output(&work_dir).success().stdout, bookmarks_before);
+    assert_eq!(
+        get_bookmark_output(&work_dir).success().stdout,
+        bookmarks_before
+    );
 
     let output = work_dir.run_jj(["bookmark", "track", "foo", "bar@baz"]);
     assert_eq!(output.status.code(), Some(2));
-    assert_eq!(get_bookmark_output(&work_dir).success().stdout, bookmarks_before);
+    assert_eq!(
+        get_bookmark_output(&work_dir).success().stdout,
+        bookmarks_before
+    );
 
     let output = work_dir.run_jj(["bookmark", "track", "~foo@bar"]);
     assert_eq!(output.status.code(), Some(1));
-    assert_eq!(get_bookmark_output(&work_dir).success().stdout, bookmarks_before);
+    assert_eq!(
+        get_bookmark_output(&work_dir).success().stdout,
+        bookmarks_before
+    );
 
     let output = work_dir.run_jj(["bookmark", "untrack", "--remote=foo", "bar@baz"]);
     assert_eq!(output.status.code(), Some(2));
-    assert_eq!(get_bookmark_output(&work_dir).success().stdout, bookmarks_before);
+    assert_eq!(
+        get_bookmark_output(&work_dir).success().stdout,
+        bookmarks_before
+    );
 
     let output = work_dir.run_jj(["bookmark", "untrack", "foo", "bar@baz"]);
     assert_eq!(output.status.code(), Some(2));
-    assert_eq!(get_bookmark_output(&work_dir).success().stdout, bookmarks_before);
+    assert_eq!(
+        get_bookmark_output(&work_dir).success().stdout,
+        bookmarks_before
+    );
 }
 
 #[test]

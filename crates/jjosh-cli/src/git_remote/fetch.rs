@@ -143,7 +143,10 @@ pub(super) async fn run(
     selection: GitFetchRefExpression,
     options: &GitRemoteFetchOptions,
 ) -> Result<Vec<GitRemoteObservation>, CommandError> {
-    let git = jj_lib::git::get_git_backend(repo.store())?.git_repo();
+    let mut git = jj_lib::git::get_git_backend(repo.store())?.git_repo();
+    // Earlier fetches in this operation can publish new packs and observation
+    // refs. Negotiation disables ODB refreshes, so it needs a current snapshot.
+    git.reload().map_err(user_error)?;
     let configured_endpoint = session
         .endpoint_url(&git, gix::remote::Direction::Fetch)
         .map_err(user_error)?;

@@ -129,7 +129,9 @@ pub fn untracked_bookmarks() -> Vec<CompletionCandidate> {
             .output()
             .map_err(user_error)?;
         if !labels.status.success() {
-            return Err(user_error(String::from_utf8_lossy(&labels.stderr).into_owned()));
+            return Err(user_error(
+                String::from_utf8_lossy(&labels.stderr).into_owned(),
+            ));
         }
         let labels: BTreeMap<String, Option<String>> =
             serde_json::from_slice(&labels.stdout).map_err(user_error)?;
@@ -141,7 +143,9 @@ pub fn untracked_bookmarks() -> Vec<CompletionCandidate> {
             .output()
             .map_err(user_error)?;
         if !remotes.status.success() {
-            return Err(user_error(String::from_utf8_lossy(&remotes.stderr).into_owned()));
+            return Err(user_error(
+                String::from_utf8_lossy(&remotes.stderr).into_owned(),
+            ));
         }
         let remotes = String::from_utf8_lossy(&remotes.stdout);
         let remotes = remotes
@@ -170,7 +174,9 @@ pub fn untracked_bookmarks() -> Vec<CompletionCandidate> {
             .output()
             .map_err(user_error)?;
         if !bookmark_table.status.success() {
-            return Err(user_error(String::from_utf8_lossy(&bookmark_table.stderr).into_owned()));
+            return Err(user_error(
+                String::from_utf8_lossy(&bookmark_table.stderr).into_owned(),
+            ));
         }
         let bookmark_table = String::from_utf8_lossy(&bookmark_table.stdout);
 

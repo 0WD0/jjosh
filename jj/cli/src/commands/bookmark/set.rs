@@ -94,7 +94,8 @@ pub async fn cmd_bookmark_set(
     }
 
     let mut tx = workspace_command.start_transaction();
-    let remote_settings = revset_util::resolve_remote_settings(tx.repo().view(), tx.settings().remote_settings()?)?;
+    let remote_settings =
+        revset_util::resolve_remote_settings(tx.repo().view(), tx.settings().remote_settings()?)?;
     let remote_auto_track_matchers =
         revset_util::parse_remote_auto_track_bookmarks_map_for_new_bookmarks(ui, &remote_settings)?;
     let readonly_repo = tx.base_repo().clone();

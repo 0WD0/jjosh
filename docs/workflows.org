@@ -88,7 +88,7 @@ jjosh git remote add fork /path/to/parser-fork.git \
   --like origin#parser
 #+end_src
 
-fetch 和 push 默认使用同一个 URL。读取与发布使用不同地址时，add 可指定 =--push-url URL=；后续用 =git remote set-url --project parser --push fork URL= 修改发布地址。
+fetch 和 push 默认使用同一个 URL。读取与发布使用不同地址时，add 可指定 =--push-url URL=；后续用 =git remote set-url --project parser fork --push URL= 修改发布地址。
 
 已经创建、尚未使用的普通 remote 可以补上项目映射：
 

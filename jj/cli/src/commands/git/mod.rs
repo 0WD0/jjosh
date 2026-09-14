@@ -119,7 +119,6 @@ pub fn maybe_add_gitignore(workspace_command: &WorkspaceCommandHelper) -> Result
     }
 }
 
-
 const TRUNK_CONFIG_NAME: [&str; 2] = ["revset-aliases", "trunk()"];
 
 #[derive(Clone, Copy, Debug)]
@@ -195,29 +194,38 @@ pub(crate) fn prepare_remote_settings_scope(
         if !sources.insert(old.as_str())
             || new.as_deref().is_some_and(|new| !destinations.insert(new))
         {
-            return Err(crate::command_error::user_error("Remote settings changes contain duplicate names"));
+            return Err(crate::command_error::user_error(
+                "Remote settings changes contain duplicate names",
+            ));
         }
         for name in std::iter::once(old.as_str()).chain(new.as_deref()) {
             for layer in config.as_ref().layers() {
-                let item = layer.look_up_item(["remotes", name])
-                    .map_err(|_| crate::command_error::user_error("Remote settings parent must be a table"))?;
+                let item = layer.look_up_item(["remotes", name]).map_err(|_| {
+                    crate::command_error::user_error("Remote settings parent must be a table")
+                })?;
                 if item.is_some()
                     && (layer.source != ConfigSource::Repo
                         || layer.path.as_deref() != file.as_ref().map(|file| file.path()))
                 {
                     return Err(crate::command_error::user_error(format!(
-                        "Remote settings for {name:?} are not owned by the repo-local config; move them there explicitly before changing scope"
+                        "Remote settings for {name:?} are not owned by the repo-local config; \
+                         move them there explicitly before changing scope"
                     )));
                 }
                 if item.is_some() && new.as_deref() == Some(name) && name != old.as_str() {
-                    return Err(crate::command_error::user_error(format!("Remote settings for {name:?} already exist")));
+                    return Err(crate::command_error::user_error(format!(
+                        "Remote settings for {name:?} already exist"
+                    )));
                 }
             }
         }
     }
     let mut changed = false;
     if let Some(file) = &mut file
-        && let Some(remotes) = file.data_mut().as_table_mut().get_mut("remotes")
+        && let Some(remotes) = file
+            .data_mut()
+            .as_table_mut()
+            .get_mut("remotes")
             .and_then(|item| item.as_table_like_mut())
     {
         for (old, new) in aliases {
@@ -242,15 +250,23 @@ fn rename_remote_in_repo_config(
     project_labels: Option<&[String]>,
 ) -> Result<Option<ConfigFile>, CommandError> {
     let file = if let Some(labels) = project_labels {
-        let aliases = labels.iter().map(|label| (
-            RemoteNameBuf::from(format!("{}#{label}", old_remote.as_str())),
-            Some(format!("{}#{label}", new_remote.as_str())),
-        )).collect::<Vec<_>>();
-        prepare_remote_settings_scope(config, &aliases)?.or_else(|| existing_repo_config_file(config))
+        let aliases = labels
+            .iter()
+            .map(|label| {
+                (
+                    RemoteNameBuf::from(format!("{}#{label}", old_remote.as_str())),
+                    Some(format!("{}#{label}", new_remote.as_str())),
+                )
+            })
+            .collect::<Vec<_>>();
+        prepare_remote_settings_scope(config, &aliases)?
+            .or_else(|| existing_repo_config_file(config))
     } else {
         existing_repo_config_file(config)
     };
-    let Some(mut file) = file else { return Ok(None); };
+    let Some(mut file) = file else {
+        return Ok(None);
+    };
 
     if let Some(labels) = project_labels {
         update_remote_defaults(&mut file, Some(labels), old_remote, Some(new_remote));
@@ -269,7 +285,9 @@ fn rename_remote_in_repo_config(
     // trunk = <name>@<old_remote> -> <name>@<new_remote>
     if let Some(old_symbol) = get_trunk_symbol(file.layer())
         && old_symbol.remote == old_remote
-        && crate::git_remote::parse_remote_selector_scope(view, old_symbol.name.as_str(), None)?.1.is_none()
+        && crate::git_remote::parse_remote_selector_scope(view, old_symbol.name.as_str(), None)?
+            .1
+            .is_none()
     {
         let new_symbol = old_symbol.name.to_remote_symbol(new_remote);
         file.set_value(TRUNK_CONFIG_NAME, new_symbol.to_string())
@@ -292,14 +310,23 @@ fn remove_remote_from_repo_config(
     project_labels: Option<&[String]>,
 ) -> Result<Option<ConfigFile>, CommandError> {
     let file = if let Some(labels) = project_labels {
-        let aliases = labels.iter().map(|label| (
-            RemoteNameBuf::from(format!("{}#{label}", old_remote.as_str())), None,
-        )).collect::<Vec<_>>();
-        prepare_remote_settings_scope(config, &aliases)?.or_else(|| existing_repo_config_file(config))
+        let aliases = labels
+            .iter()
+            .map(|label| {
+                (
+                    RemoteNameBuf::from(format!("{}#{label}", old_remote.as_str())),
+                    None,
+                )
+            })
+            .collect::<Vec<_>>();
+        prepare_remote_settings_scope(config, &aliases)?
+            .or_else(|| existing_repo_config_file(config))
     } else {
         existing_repo_config_file(config)
     };
-    let Some(mut file) = file else { return Ok(None); };
+    let Some(mut file) = file else {
+        return Ok(None);
+    };
     if let Some(labels) = project_labels {
         update_remote_defaults(&mut file, Some(labels), old_remote, None);
         return Ok(Some(file));
@@ -317,7 +344,9 @@ fn remove_remote_from_repo_config(
     // trunk = <name>@<old_remote>
     if let Some(old_symbol) = get_trunk_symbol(file.layer())
         && old_symbol.remote == old_remote
-        && crate::git_remote::parse_remote_selector_scope(view, old_symbol.name.as_str(), None)?.1.is_none()
+        && crate::git_remote::parse_remote_selector_scope(view, old_symbol.name.as_str(), None)?
+            .1
+            .is_none()
     {
         file.delete_value(TRUNK_CONFIG_NAME)
             .expect("old value was string");
@@ -337,12 +366,26 @@ fn update_remote_defaults(
     old_remote: &RemoteName,
     new_remote: Option<&RemoteName>,
 ) {
-    let Some(git) = file.data_mut().as_table_mut().get_mut("git")
-        .and_then(|item| item.as_table_like_mut()) else { return; };
+    let Some(git) = file
+        .data_mut()
+        .as_table_mut()
+        .get_mut("git")
+        .and_then(|item| item.as_table_like_mut())
+    else {
+        return;
+    };
     if let Some(labels) = project_labels {
-        let Some(projects) = git.get_mut("projects").and_then(|item| item.as_table_like_mut()) else { return; };
+        let Some(projects) = git
+            .get_mut("projects")
+            .and_then(|item| item.as_table_like_mut())
+        else {
+            return;
+        };
         for label in labels {
-            if let Some(defaults) = projects.get_mut(label).and_then(|item| item.as_table_like_mut()) {
+            if let Some(defaults) = projects
+                .get_mut(label)
+                .and_then(|item| item.as_table_like_mut())
+            {
                 update_remote_default_table(defaults, old_remote, new_remote);
             }
         }
@@ -357,20 +400,33 @@ fn update_remote_default_table(
     new_remote: Option<&RemoteName>,
 ) {
     let replace = |value: &mut toml_edit::Value| {
-        let Some(text) = value.as_str() else { return false; };
+        let Some(text) = value.as_str() else {
+            return false;
+        };
         let explicit = text.strip_prefix("exact:");
         if explicit.unwrap_or(text) != old_remote.as_str() {
             return false;
         }
-        let Some(new_remote) = new_remote else { return true; };
-        let text = if explicit.is_some() { format!("exact:{}", new_remote.as_str()) } else { new_remote.as_str().to_owned() };
+        let Some(new_remote) = new_remote else {
+            return true;
+        };
+        let text = if explicit.is_some() {
+            format!("exact:{}", new_remote.as_str())
+        } else {
+            new_remote.as_str().to_owned()
+        };
         let mut replacement = toml_edit::Value::from(text);
         *replacement.decor_mut() = value.decor().clone();
         *value = replacement;
         false
     };
     for direction in ["fetch", "push"] {
-        let Some(value) = defaults.get_mut(direction).and_then(|item| item.as_value_mut()) else { continue; };
+        let Some(value) = defaults
+            .get_mut(direction)
+            .and_then(|item| item.as_value_mut())
+        else {
+            continue;
+        };
         if let Some(values) = value.as_array_mut() {
             let mut index = 0;
             while index < values.len() {

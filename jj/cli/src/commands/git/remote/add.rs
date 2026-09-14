@@ -15,12 +15,14 @@
 use gix::Url;
 use gix::remote::Direction;
 use jj_lib::git;
+use jj_lib::merge::Merge;
+use jj_lib::object_id::ObjectId as _;
+use jj_lib::project::BindingId;
+use jj_lib::project::ConnectionId;
+use jj_lib::project::ScopedRemoteName;
 use jj_lib::ref_name::RemoteName;
 use jj_lib::ref_name::RemoteNameBuf;
 use jj_lib::repo::Repo;
-use jj_lib::object_id::ObjectId as _;
-use jj_lib::project::{BindingId, ConnectionId, ScopedRemoteName};
-use jj_lib::merge::Merge;
 
 use crate::cli_util::CommandHelper;
 use crate::command_error::CommandError;
@@ -63,26 +65,47 @@ pub async fn cmd_git_remote_add(
         .transpose()?;
 
     let (local_name, requested_scope) = super::new_remote_name(
-        &workspace_command, &args.remote, args.binding.project.as_deref(),
+        &workspace_command,
+        &args.remote,
+        args.binding.project.as_deref(),
     )?;
     let connection = ConnectionId::generate();
     let scoped_handle = RemoteNameBuf::from(format!("jjosh-{}", connection.hex()));
     let mut binding_args = args.binding.clone();
     if let Some(project) = &requested_scope {
-        binding_args.project = Some(workspace_command.repo().view().project_state()
-            .projects[project].as_resolved().and_then(Option::as_ref)
-            .expect("validated project").name.clone());
+        binding_args.project = Some(
+            workspace_command.repo().view().project_state().projects[project]
+                .as_resolved()
+                .and_then(Option::as_ref)
+                .expect("validated project")
+                .name
+                .clone(),
+        );
     }
-    let binding = super::prepare_binding(command, &workspace_command, &scoped_handle, &connection, &binding_args)?;
+    let binding = super::prepare_binding(
+        command,
+        &workspace_command,
+        &scoped_handle,
+        &connection,
+        &binding_args,
+    )?;
     let scope = binding.as_ref().and_then(super::binding_scope).cloned();
     super::ensure_available_remote_name(&workspace_command, &local_name, scope.as_ref())?;
-    let remote = if scope.is_some() { scoped_handle } else { local_name.clone() };
+    let remote = if scope.is_some() {
+        scoped_handle
+    } else {
+        local_name.clone()
+    };
     let git_repo = git::get_git_repo(workspace_command.repo().store())?;
     if git::try_find_active_remote(&git_repo, &remote)?.is_some() {
         return Err(git::GitRemoteManagementError::RemoteAlreadyExists(local_name.clone()).into());
     }
     let git_lock = workspace_command.lock_git_import_export()?;
-    let journal = git::begin_remote_management(workspace_command.repo().store(), &workspace_command.repo().operation().id().hex(), &[])?;
+    let journal = git::begin_remote_management(
+        workspace_command.repo().store(),
+        &workspace_command.repo().operation().id().hex(),
+        &[],
+    )?;
     journal.expect_remote(&remote, true, Some(&connection), binding.is_some())?;
     let mut tx = workspace_command.start_transaction();
     git::add_remote(tx.repo_mut(), &remote, &url, push_url.as_deref())?;
@@ -98,10 +121,17 @@ pub async fn cmd_git_remote_add(
             Some("jjosh-v1".into()),
         ));
         if let Some(project) = scope {
-            tx.repo_mut().view_mut().project_state_mut().remote_names.insert(
-                connection.clone(),
-                Merge::resolved(Some(ScopedRemoteName { project, name: local_name.clone() })),
-            );
+            tx.repo_mut()
+                .view_mut()
+                .project_state_mut()
+                .remote_names
+                .insert(
+                    connection.clone(),
+                    Merge::resolved(Some(ScopedRemoteName {
+                        project,
+                        name: local_name.clone(),
+                    })),
+                );
         }
         tx.repo_mut()
             .view_mut()
@@ -121,7 +151,8 @@ pub async fn cmd_git_remote_add(
     warn_if_remote_url_matches(ui, tx.repo(), &remote, &url, push_url.as_deref())?;
     journal.expect_operation(tx.repo().view())?;
     let display_name = tx.repo().view().remote_qualified_name(&remote);
-    tx.finish_with_git_import_export_lock(ui, format!("add git remote {display_name}"), &git_lock).await?;
+    tx.finish_with_git_import_export_lock(ui, format!("add git remote {display_name}"), &git_lock)
+        .await?;
     journal.complete()?;
     Ok(())
 }

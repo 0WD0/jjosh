@@ -394,13 +394,16 @@ pub(super) async fn prepare(
 }
 
 fn session_remote_display(session: &Session) -> String {
-    if let Some(identity) = session.connection.as_ref()
+    if let Some(identity) = session
+        .connection
+        .as_ref()
         .and_then(|connection| session.state.remote_names.get(connection))
         .and_then(Merge::as_resolved)
         .and_then(Option::as_ref)
-        && let Some(project) = &session.project {
-            return format!("{}#{}", identity.name.as_str(), project.label);
-        }
+        && let Some(project) = &session.project
+    {
+        return format!("{}#{}", identity.name.as_str(), project.label);
+    }
     session.name.as_str().to_owned()
 }
 

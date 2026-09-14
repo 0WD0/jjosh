@@ -53,7 +53,10 @@ pub struct ScopedRemoteName {
     #[serde(serialize_with = "serialize_remote_name")]
     pub name: RemoteNameBuf,
 }
-fn serialize_remote_name<S: serde::Serializer>(name: &RemoteNameBuf, serializer: S) -> Result<S::Ok, S::Error> {
+fn serialize_remote_name<S: serde::Serializer>(
+    name: &RemoteNameBuf,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
     serializer.serialize_str(name.as_str())
 }
 #[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize)]
@@ -115,7 +118,10 @@ impl std::fmt::Display for ProjectDiagnostic {
 
 impl ProjectState {
     pub fn is_empty(&self) -> bool {
-        self.projects.is_empty() && self.bindings.is_empty() && self.labels.is_empty() && self.remote_names.is_empty()
+        self.projects.is_empty()
+            && self.bindings.is_empty()
+            && self.labels.is_empty()
+            && self.remote_names.is_empty()
     }
 
     /// Derived constraints include every positive candidate of unresolved records.
@@ -183,24 +189,65 @@ impl ProjectState {
         }
         let mut names = BTreeMap::new();
         for (connection, target) in &self.remote_names {
-            let projects = target.adds().flatten().map(|identity| identity.project.clone()).collect();
+            let projects = target
+                .adds()
+                .flatten()
+                .map(|identity| identity.project.clone())
+                .collect();
             if !target.is_resolved() {
-                report(format!("Connection {connection} has an unresolved scoped remote name"), projects, vec![], vec![]);
+                report(
+                    format!("Connection {connection} has an unresolved scoped remote name"),
+                    projects,
+                    vec![],
+                    vec![],
+                );
             }
             for identity in target.adds().flatten() {
                 if identity.name.as_str().is_empty() || !healthy_project(&identity.project) {
-                    report(format!("Connection {connection} has an invalid name or unavailable project"), vec![identity.project.clone()], vec![], vec![]);
+                    report(
+                        format!(
+                            "Connection {connection} has an invalid name or unavailable project"
+                        ),
+                        vec![identity.project.clone()],
+                        vec![],
+                        vec![],
+                    );
                 }
-                if let Some(previous) = names.insert((&identity.project, &identity.name), connection)
-                    && previous != connection {
-                    report(format!("Remote name {:?} is duplicated in project {}", identity.name.as_str(), identity.project), vec![identity.project.clone()], vec![], vec![]);
+                if let Some(previous) =
+                    names.insert((&identity.project, &identity.name), connection)
+                    && previous != connection
+                {
+                    report(
+                        format!(
+                            "Remote name {:?} is duplicated in project {}",
+                            identity.name.as_str(),
+                            identity.project
+                        ),
+                        vec![identity.project.clone()],
+                        vec![],
+                        vec![],
+                    );
                 }
                 for (binding_id, bindings) in &self.bindings {
-                    for binding in bindings.adds().flatten().filter(|binding| &binding.connection_id == connection) {
+                    for binding in bindings
+                        .adds()
+                        .flatten()
+                        .filter(|binding| &binding.connection_id == connection)
+                    {
                         if binding.target != BindingTarget::Project(identity.project.clone()) {
                             let mut projects = vec![identity.project.clone()];
-                            if let BindingTarget::Project(project) = &binding.target { projects.push(project.clone()); }
-                            report(format!("Connection {connection} has a scoped name incompatible with binding {binding_id}"), projects, vec![binding_id.clone()], vec![]);
+                            if let BindingTarget::Project(project) = &binding.target {
+                                projects.push(project.clone());
+                            }
+                            report(
+                                format!(
+                                    "Connection {connection} has a scoped name incompatible with \
+                                     binding {binding_id}"
+                                ),
+                                projects,
+                                vec![binding_id.clone()],
+                                vec![],
+                            );
                         }
                     }
                 }
@@ -249,7 +296,11 @@ impl ProjectState {
         merge_map(&mut self.projects, &base.projects, &other.projects);
         merge_map(&mut self.bindings, &base.bindings, &other.bindings);
         merge_map(&mut self.labels, &base.labels, &other.labels);
-        merge_map(&mut self.remote_names, &base.remote_names, &other.remote_names);
+        merge_map(
+            &mut self.remote_names,
+            &base.remote_names,
+            &other.remote_names,
+        );
     }
 }
 
@@ -336,21 +387,39 @@ mod tests {
         let connection = ConnectionId::generate();
         let project = ProjectId::generate();
         let binding = BindingId::generate();
-        let old = ScopedRemoteName { project: project.clone(), name: "origin".into() };
-        let new = ScopedRemoteName { project: project.clone(), name: "upstream".into() };
+        let old = ScopedRemoteName {
+            project: project.clone(),
+            name: "origin".into(),
+        };
+        let new = ScopedRemoteName {
+            project: project.clone(),
+            name: "upstream".into(),
+        };
         let mut base = ProjectState::default();
-        base.projects.insert(project.clone(), Merge::normal(record("parser", "parser")));
-        base.bindings.insert(binding.clone(), Merge::normal(BindingRecord {
-            target: BindingTarget::Project(project), connection_id: connection.clone(),
-            representation: Representation::Whole, base: None,
-        }));
-        base.remote_names.insert(connection.clone(), Merge::normal(old.clone()));
+        base.projects
+            .insert(project.clone(), Merge::normal(record("parser", "parser")));
+        base.bindings.insert(
+            binding.clone(),
+            Merge::normal(BindingRecord {
+                target: BindingTarget::Project(project),
+                connection_id: connection.clone(),
+                representation: Representation::Whole,
+                base: None,
+            }),
+        );
+        base.remote_names
+            .insert(connection.clone(), Merge::normal(old.clone()));
         let mut ours = base.clone();
         ours.remote_names.remove(&connection);
         let mut theirs = base.clone();
-        theirs.remote_names.insert(connection.clone(), Merge::normal(new.clone()));
+        theirs
+            .remote_names
+            .insert(connection.clone(), Merge::normal(new.clone()));
         ours.merge(&base, &theirs);
-        assert_eq!(ours.remote_names[&connection], Merge::from_vec(vec![None, Some(old), Some(new)]));
+        assert_eq!(
+            ours.remote_names[&connection],
+            Merge::from_vec(vec![None, Some(old), Some(new)])
+        );
         assert_eq!(ours.bindings[&binding], base.bindings[&binding]);
         let conflict = ours.clone();
         ours.merge(&conflict, &theirs);

@@ -356,7 +356,7 @@ fn test_git_push_other_remote_has_bookmark() {
     let operation_id = work_dir.current_operation_id();
     work_dir.run_jj(["git", "push"]).success();
     assert_eq!(work_dir.current_operation_id(), operation_id);
-    // The bookmark was moved on the "other" remote as well (since it's actually the
+// The bookmark was moved on the "other" remote as well (since it's actually the
     // same remote), but `jj` is not aware of that since it thinks this is a
     // different remote. So, the push should fail.
     //

@@ -344,10 +344,13 @@ pub async fn cmd_git_push(
             .iter()
             .chain(named_bookmark_commits.iter().map(|(name, _)| name)),
         &all_remotes,
-    ).await?;
+    )
+    .await?;
     let routes = &selection.routes;
     let remote_expr = StringExpression::union_all(
-        routes.values().flatten()
+        routes
+            .values()
+            .flatten()
             .map(|route| StringExpression::exact(&route.remote))
             .collect_vec(),
     );
@@ -759,7 +762,10 @@ pub async fn cmd_git_push(
     if all_ok || some_exported {
         let description = {
             let remotes = match &*by_remote {
-                [(remote, _)] => format!("git remote {}", tx.repo().view().remote_qualified_name(remote)),
+                [(remote, _)] => format!(
+                    "git remote {}",
+                    tx.repo().view().remote_qualified_name(remote)
+                ),
                 // by_remote is not empty
                 _ => format!(
                     "git remotes {remotes}",
@@ -820,7 +826,8 @@ struct PushRouting<'a> {
 
 impl PushRouting<'_> {
     fn includes(self, name: &RefName, remote: &RemoteName) -> bool {
-        self.routes.get(name)
+        self.routes
+            .get(name)
             .is_some_and(|routes| routes.iter().any(|route| route.remote == remote))
     }
 
@@ -952,13 +959,21 @@ async fn resolve_push_routes<'a>(
         find_tags_to_push(ui, view, &args.tag, DEFAULT_REMOTE)?;
     }
 
-    let mut destinations: HashMap<Option<jj_lib::project::ProjectId>, Vec<RemoteNameBuf>> = HashMap::new();
+    let mut destinations: HashMap<Option<jj_lib::project::ProjectId>, Vec<RemoteNameBuf>> =
+        HashMap::new();
     let mut routes = HashMap::new();
     for name in selected {
-        let qualified = name.as_str().rsplit_once('#')
-            .map(|(name, label)| view.project_state().resolve_label(label)
-                .map(|project| project.map(|project| (name, project))))
-            .transpose().map_err(user_error)?.flatten();
+        let qualified = name
+            .as_str()
+            .rsplit_once('#')
+            .map(|(name, label)| {
+                view.project_state()
+                    .resolve_label(label)
+                    .map(|project| project.map(|project| (name, project)))
+            })
+            .transpose()
+            .map_err(user_error)?
+            .flatten();
         let project = qualified.as_ref().map(|(_, project)| project);
         // An explicit source supplies the conversion binding for export to a
         // root destination. Source selection itself remains reference-scoped.
@@ -967,16 +982,27 @@ async fn resolve_push_routes<'a>(
             std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
             std::collections::hash_map::Entry::Vacant(entry) => {
                 entry.insert(crate::git_remote::select_remote_names(
-                    ui, view, workspace.settings(), all_remotes, destination_scope,
-                    args.remotes.as_deref(), gix::remote::Direction::Push, false,
+                    ui,
+                    view,
+                    workspace.settings(),
+                    all_remotes,
+                    destination_scope,
+                    args.remotes.as_deref().map_or(
+                        crate::git_remote::RemoteSelection::Default,
+                        crate::git_remote::RemoteSelection::Explicit,
+                    ),
+                    gix::remote::Direction::Push,
                 )?)
             }
         };
         let publication_name = qualified.as_ref().map_or(name.as_str(), |(name, _)| *name);
-        let selected_routes = remotes.iter().map(|remote| GitPushRoute {
-            remote: remote.clone(),
-            name: publication_name.into(),
-        }).collect();
+        let selected_routes = remotes
+            .iter()
+            .map(|remote| GitPushRoute {
+                remote: remote.clone(),
+                name: publication_name.into(),
+            })
+            .collect();
         routes.insert(name, selected_routes);
     }
     if use_default_revset {
@@ -992,15 +1018,25 @@ async fn resolve_push_routes<'a>(
             destinations.insert(
                 None,
                 crate::git_remote::select_remote_names(
-                    ui, view, workspace.settings(), all_remotes, None,
-                    args.remotes.as_deref(), gix::remote::Direction::Push, false,
+                    ui,
+                    view,
+                    workspace.settings(),
+                    all_remotes,
+                    None,
+                    args.remotes.as_deref().map_or(
+                        crate::git_remote::RemoteSelection::Default,
+                        crate::git_remote::RemoteSelection::Explicit,
+                    ),
+                    gix::remote::Direction::Push,
                 )?,
             );
         }
         // Selection evaluates each remote's range once. Report only actual
         // destinations, not unrelated remotes considered during routing.
         for remote in all_remotes.iter().filter(|remote| {
-            destinations.values().any(|remotes| remotes.contains(remote))
+            destinations
+                .values()
+                .any(|remotes| remotes.contains(remote))
         }) {
             if default_revisions_by_remote
                 .get(remote)
@@ -1469,7 +1505,6 @@ async fn print_commits_ready_to_push(
     }
     Ok(())
 }
-
 
 #[derive(Clone, Debug)]
 struct RejectedRefUpdateReason {

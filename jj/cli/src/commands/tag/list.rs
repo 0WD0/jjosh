@@ -187,7 +187,8 @@ pub async fn cmd_tag_list(
         include_synced_remotes: args.tracked || args.all_remotes || args.remotes.is_some(),
         include_untracked_remotes: !args.tracked && (args.all_remotes || args.remotes.is_some()),
     };
-    let mut list_items = commit_ref_list::collect_items(view, view.tags(), &predicates).map_err(crate::command_error::user_error)?;
+    let mut list_items = commit_ref_list::collect_items(view, view.tags(), &predicates)
+        .map_err(crate::command_error::user_error)?;
     commit_ref_list::sort(repo.store(), &mut list_items, &sort_keys)?;
 
     ui.request_pager();
