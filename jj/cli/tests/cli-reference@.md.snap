@@ -68,6 +68,9 @@ This document contains the help content for the `jj` command-line program.
 * [`jj git push`↴](#jj-git-push)
 * [`jj git remote`↴](#jj-git-remote)
 * [`jj git remote add`↴](#jj-git-remote-add)
+* [`jj git remote attach`↴](#jj-git-remote-attach)
+* [`jj git remote recover`↴](#jj-git-remote-recover)
+* [`jj git remote forget-observations`↴](#jj-git-remote-forget-observations)
 * [`jj git remote list`↴](#jj-git-remote-list)
 * [`jj git remote remove`↴](#jj-git-remote-remove)
 * [`jj git remote rename`↴](#jj-git-remote-rename)
@@ -1800,9 +1803,11 @@ By default, this command does nothing in colocated workspaces because the export
 
 Fetch from a Git remote
 
-If no remotes are specified, fetches the remotes specified by the `git.fetch` setting. If that is not configured and there are multiple remotes, the remote named "origin" will be used.
+Explicit remotes take precedence over the selected scope's configuration. Project fetches use only `git.projects.<label>.fetch`, never `git.fetch`.
 
-If no branches nor tags are specified, fetches bookmarks and tags specified by the `remotes.<name>.fetch-bookmarks`/`fetch-tags` settings. If `remotes.<name>.fetch-bookmarks` is not configured, the default fetch refspecs for the selected remotes are read from the Git configuration.
+If no default is configured, uses the only candidate or the remote named "origin". Project fetches consider only that project's bound remotes; ordinary fetches consider only root remotes.
+
+If no branches, tags, or revisions are specified, fetches bookmarks and tags specified by the `remotes.<name>.fetch-bookmarks`/`fetch-tags` settings. If `remotes.<name>.fetch-bookmarks` is not configured, the default fetch refspecs for the selected remotes are read from the Git configuration.
 
 Commits that are no longer reachable from any branch on the remote will be considered abandoned by the remote, and will be abandoned in the local repo to match the remote. Set `git.abandon-unreachable-commits` to `false` to disable this behavior.
 
@@ -1824,6 +1829,15 @@ If a working-copy commit gets abandoned, it will be given a new, empty commit. T
    By default, the specified pattern matches tag names with glob syntax, but only `*` is expanded. Other wildcard characters such as `?` are *not* supported. Patterns can be repeated or combined with [logical operators] to specify multiple tags, but only union and negative intersection are supported.
 
    [logical operators]: https://docs.jj-vcs.dev/latest/revsets/#string-patterns
+* `--revision <OID>` — Fetch a full source commit ID (can be repeated)
+
+   Requires exactly one matching named remote. Does not fetch default branches or tags unless they are explicitly selected.
+* `--depth <N>` — Limit fetched source history to this many commits
+* `--deepen <N>` — Extend existing shallow source history by this many commits
+* `--unshallow` — Fetch the complete history of a shallow source
+* `--fetch-url <URL>` — Fetch from this URL once without changing the named remote
+
+   Requires exactly one matching named remote.
 * `--tracked` — Fetch only tracked bookmarks and tags
 
    This fetches only bookmarks and tags that are already tracked from the specified remote(s).
@@ -1832,6 +1846,12 @@ If a working-copy commit gets abandoned, it will be given a new, empty commit. T
    By default, the specified pattern matches remote names with glob syntax, e.g. `--remote '*'`. You can also use other [string pattern syntax].
 
    [string pattern syntax]: https://docs.jj-vcs.dev/latest/revsets/#string-patterns
+* `--project <NAME>` — Fetch from this project's remotes (can be repeated)
+
+   Each project uses git.projects.<label>.fetch after --remote. The label remains stable when the project's display name changes.
+* `--all-projects` — Fetch from every registered project's remotes, excluding root remotes
+
+   Resolves remote selections and defaults independently in each project.
 * `--all-remotes` — Fetch from all remotes
 
 
@@ -1912,7 +1932,7 @@ When pushing a bookmark or tag, the command pushes all commits in the range from
 
 If the local reference has changed from the last fetch, push will update the remote reference to the new position after passing safety checks. This is similar to `git push --force-with-lease` - the remote is updated only if its current state matches what Jujutsu last fetched.
 
-Unlike in Git, the remote to push to is not derived from the tracked remote bookmarks. Use `--remote` to select the remote Git repository by name. There is no option to push to multiple remotes.
+Unlike in Git, the remote to push to is not derived from the tracked remote bookmarks. Use `--remote` (which can be repeated) or `git.push` to select destinations explicitly. Each selected reference resolves local remote names and defaults within its own project or root namespace.
 
 Before the command actually moves, creates, or deletes a remote bookmark, it makes several [safety checks]. If there is a problem, you may need to run `jj git fetch --remote <remote name>` and/or resolve some [bookmark conflicts].
 
@@ -1926,7 +1946,7 @@ Before the command actually moves, creates, or deletes a remote bookmark, it mak
 
 * `--remote <REMOTE>` — The remote(s) to push to (can be repeated)
 
-   This defaults to the `git.push` setting. If that is not configured, and if there are multiple remotes, the remote named "origin" will be used.
+   This defaults to the `git.push` setting. If that is not configured, an embedding application's remote extension may choose destinations per reference. Otherwise, the only remote is used, or "origin" if there are multiple remotes.
 
    By default, the specified pattern matches remote names with glob syntax, e.g., `--remote '*'`. You can also use other [string pattern syntax].
 
@@ -1967,6 +1987,9 @@ Before the command actually moves, creates, or deletes a remote bookmark, it mak
 
    Automatically tracks the bookmark if it is new.
 * `--dry-run` — Only display what will change on the remote
+* `--base <BASE>` — Source branch supplying context when reversing a history projection
+* `--source <SOURCE>` — Explicit immutable source binding for an unbound destination
+* `--merge` — Merge reverse-projected history with its source context
 * `-o`, `--option <OPTION>` — Git push options
 
 
@@ -1982,6 +2005,9 @@ The Git repo will be a bare git repo stored inside the `.jj/` directory.
 ###### **Subcommands:**
 
 * `add` — Add a Git remote
+* `attach` — Explicitly bind an existing, unused ordinary connection
+* `recover` — Recover an interrupted local remote change without network access
+* `forget-observations` — Forget a remote's cached observations and tracking, without removing its connection
 * `list` — List Git remotes
 * `remove` — Remove a Git remote and forget its bookmarks
 * `rename` — Rename a Git remote
@@ -2007,6 +2033,64 @@ Add a Git remote
 * `--push-url <PUSH_URL>` — The URL used for push
 
    Local path will be resolved to absolute form
+* `--project <PROJECT>`
+* `--whole`
+* `--filter <FILTER>`
+* `--view <VIEW>`
+* `--like <LIKE_REMOTE>`
+* `--base <BASE>`
+
+
+
+## `jj git remote attach`
+
+Explicitly bind an existing, unused ordinary connection
+
+**Usage:** `jj git remote attach [OPTIONS] <REMOTE>`
+
+###### **Arguments:**
+
+* `<REMOTE>`
+
+###### **Options:**
+
+* `--project <PROJECT>`
+* `--whole`
+* `--filter <FILTER>`
+* `--view <VIEW>`
+* `--like <LIKE_REMOTE>`
+* `--base <BASE>`
+
+
+
+## `jj git remote recover`
+
+Recover an interrupted local remote change without network access
+
+**Usage:** `jj git remote recover <--rollback|--accept>`
+
+###### **Options:**
+
+* `--rollback` — Restore saved config and refs; requires the original operation
+* `--accept` — Keep local changes after verifying current binding and owner consistency
+
+
+
+## `jj git remote forget-observations`
+
+Forget a remote's cached observations and tracking, without removing its connection.
+
+Clears restored ownership and conversion evidence for detached aliases, allowing explicit reuse after a connection was deleted. Active scoped connection names, local bookmarks, tags, projects, bindings, source objects and endpoint leases remain. No network request is made. The alias need not have a configured connection.
+
+**Usage:** `jj git remote forget-observations [OPTIONS] <REMOTE>`
+
+###### **Arguments:**
+
+* `<REMOTE>`
+
+###### **Options:**
+
+* `--project <PROJECT>` — Resolve the remote within this project
 
 
 
@@ -2014,7 +2098,11 @@ Add a Git remote
 
 List Git remotes
 
-**Usage:** `jj git remote list`
+**Usage:** `jj git remote list [OPTIONS]`
+
+###### **Options:**
+
+* `--project <PROJECT>` — List local aliases in this project
 
 
 
@@ -2022,11 +2110,15 @@ List Git remotes
 
 Remove a Git remote and forget its bookmarks
 
-**Usage:** `jj git remote remove <REMOTE>`
+**Usage:** `jj git remote remove [OPTIONS] <REMOTE>`
 
 ###### **Arguments:**
 
 * `<REMOTE>` — The remote's name
+
+###### **Options:**
+
+* `--project <PROJECT>` — Resolve the remote within this project
 
 
 
@@ -2034,12 +2126,16 @@ Remove a Git remote and forget its bookmarks
 
 Rename a Git remote
 
-**Usage:** `jj git remote rename <OLD> <NEW>`
+**Usage:** `jj git remote rename [OPTIONS] <OLD> <NEW>`
 
 ###### **Arguments:**
 
 * `<OLD>` — The name of an existing remote
 * `<NEW>` — The desired name for `old`
+
+###### **Options:**
+
+* `--project <PROJECT>` — Resolve the remote within this project
 
 
 
@@ -2060,6 +2156,7 @@ Set the URL of a Git remote
 
 ###### **Options:**
 
+* `--project <PROJECT>` — Resolve the remote within this project
 * `--push <PUSH>` — The URL or path to push to
 
    Local path will be resolved to absolute form.

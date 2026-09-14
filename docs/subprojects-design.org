@@ -105,7 +105,7 @@ Josh filter/view 按过滤规则转换历史，可能裁掉内容和提交。导
 #+begin_example
 topic                            仓库中的普通书签
 topic#parser                     parser 的交付书签
-topic#parser@parser-origin       parser-origin 上 topic 的本地记录
+topic#parser@origin              parser 的 origin 上 topic 的本地记录
 #+end_example
 
 本地书签始终指向完整提交。=#parser= 给发布选择提供项目身份，wire ref 则使用去掉项目 label 后的 =topic=。
@@ -118,7 +118,7 @@ label 在 operation 状态中保存，项目显示名可以独立修改。因此
 
 远端引用记录与本地书签之间的更新关系由 tracking 管理。fetch 接收来源版本，tracking 合并引用更新，new 等命令选择工作头。
 
-完整结构化 scope 的设计见 [[file:scoped-references-design.org][引用 scope 提案]]。当前 label 模型使用全仓库唯一的 remote 名；项目路径和 label 的整体迁移需要另行定义转换规则。
+remote 命名空间已按根／ProjectId 隔离，每个项目都可以使用 origin。本地引用仍通过已登记的 label 解释普通名字；将本地引用改为完整 typed identity、允许根字面名字与项目引用无歧义共存，见 [[file:scoped-references-design.org][引用 scope 提案]]。项目路径和 label 的整体迁移是另一项契约。
 
 * 稳定身份与本地连接
 
@@ -132,20 +132,26 @@ label 在 operation 状态中保存，项目显示名可以独立修改。因此
 
 这些 ID 的作用域是当前仓库。相同名字或 URL 不会自动建立跨仓库身份对应。
 
-remote 的 URL、push URL 和认证属于本地连接配置。一个连接实例最多关联一个活动绑定；多个项目使用同一外部仓库时，通过不同 remote 别名配置。
+remote 的 URL、push URL 和认证属于本地连接配置。一个连接实例最多关联一个活动绑定；多个项目使用同一外部仓库时，各自配置连接，逻辑别名可以相同。逻辑身份由根或 ProjectId 与项目内名字组成，不依赖前缀；Git config 和物理 refs 使用独立的内部 handle，名字改动不改变 handle。
 set-url 调整连接地址，绑定仍保留原来的项目和表示。
 
 ConnectionId 使操作恢复能够区分“原来的 origin”和“删除后重新创建的 origin”。
 恢复出的绑定仍关联原连接实例；连接已不存在时显示为未连接，开发者可显式处理旧绑定和远端记录。
+若删除后同名重建，再恢复旧 remote-tracking 状态，旧名字和记录不会自动归给新连接。清理断开的旧观察后，可用 =project resolve --connection ID --name NAME= 为当前绑定的实际连接明确修复名字；系统校验连接与项目归属，不按同名或唯一候选猜测。
 
 地址也有自己的身份。来源对象、浅边界和发布 lease 按实际 endpoint 定位；同一个连接可以先后访问不同地址，不同连接也可能访问同一个地址。
 
-默认目的地是本地连接选择的一部分：=git.projects.LABEL.fetch= 与 =git.projects.LABEL.push= 分别保存一个 remote 别名。
+默认目的地是本地连接选择的一部分：=git.projects.LABEL.fetch= 与 =git.projects.LABEL.push= 支持 remote 名字、显式模式和列表，值只在该项目内解析。push 的选择必须解析为单一目的连接；fetch 可以展开多个连接。两者均不继承根的 =git.fetch=／=git.push=。
 配置按稳定的引用 label 定位项目，项目改显示名时仍然有效。仓库内的配置随 remote rename/remove 更新，用户级配置独立维护。
 
 * 一次获取留下什么
 
 获取既产生可供本地开发使用的提交，也记录这些提交怎样从外部历史转换而来。
+
+=git fetch --project parser --project app= 选择多个项目，重复项目去重；=--all-projects= 选择全部未删除的登记项目，两者互斥且都排除根。不带项目选择时只获取根。
+每个项目独立解析显式 =--remote= 表达式，其次采用 =git.projects.LABEL.fetch=，否则选择唯一连接或项目内的 origin；=--all-remotes= 展开每个所选范围的全部连接。
+整批范围、配置和绑定在网络请求前预检。缺少显式别名、没有活动连接或未解决定义都会报错，不会跳过离线项目；=--all-projects= 包含冲突候选而不是只挑健康定义。=--revision=／=--fetch-url= 要求去重后只有一个物理 remote。
+预检完成不等于所有服务器可达；网络阶段可能部分失败，获取也不会自动决定整合策略。
 
 以过滤上游 =src/parser/= 为例：
 
@@ -188,15 +194,16 @@ ConnectionId 使操作恢复能够区分“原来的 origin”和“删除后重
 - *写入目标*：实际发布地址、完整 wire ref 和预期旧对象 ID。
 
 目的 remote 有匹配绑定时，使用它自己的表示。向未绑定目的地导出时，用 =--source= 明确选择来源关系。
-发布目的地优先采用 =--remote=，其次采用 =git.push=。两者均未指定时，按项目 label 读取 =git.projects.LABEL.push=；没有配置则选择项目唯一的绑定连接，或绑定到该项目的 =origin=，否则报告歧义。
-指定的项目默认值必须属于本项目；未知或跨项目的值报错。获取通过 =git fetch --project NAME= 选择项目，采用相同顺序及独立的 =fetch= 配置；普通 fetch 和普通引用保留仓库级选择规则。
+每个所选引用分别解析目的地。项目引用优先采用显式 =--remote=，其次按稳定 label 读取 =git.projects.LABEL.push=；没有配置则选择项目唯一连接或项目内的 origin，否则报告歧义。未知或跨项目的默认值报错，不回退到根。
+普通根引用采用根的 =git.push= 和默认规则；项目引用不继承它。=--remote fork= 在每个引用的项目内解析，=--remote origin#= 才明确选择根的 origin。
+=git push --bookmark 'glob:topic#*'= 按各引用的 label 批量路由；加 =--remote fork= 要求每个被选项目都有自己的 fork。选择不取决于提交改了哪些目录。
 
 转换和传输预检完成后，计划中的 expected-old 就是提交给目标服务器的精确旧 Git 对象 ID。
 已知目标状态保存在 endpoint/ref 的 lease 中。这个状态独立于本地 canonical commit：即使两个 fork 转换出相同版本，它们仍有各自的更新依据。
 annotated tag 的 lease 使用 tag 对象本身的 ID，从而覆盖只改变注释的更新。
 
-所有选中项先完成转换、可发布性检查和 endpoint/ref 碰撞检查，再开始写入远端。
-dry-run 展示这一份已准备计划，包括新 raw target。网络发布可能部分成功，系统只为独立确认的结果更新本地发布记录。
+所有选中项先完成选择、转换、可发布性检查和 endpoint/ref 碰撞检查，再开始写入远端；任一项目缺少显式别名会阻止整批发布。
+dry-run 展示这一份已准备计划，包括新 raw target。网络发布可能部分成功，不提供跨远端原子性；系统只为独立确认的结果更新本地发布记录，op restore 也不能撤销外部结果。
 
 项目绑定只描述转换。push 使用配置的 push URL，未配置时使用普通 URL；服务器负责访问授权。原生 Git 直接访问外部仓库时不会经过项目转换。
 
@@ -236,19 +243,20 @@ rollback 在原 operation 上恢复已记录的旧本地状态；accept 校验�
 写锁与 ref 比较保护相应的修改步骤，遇到不兼容的外部更新时报告冲突。恢复只处理本地状态。
 
 迁移使用同一恢复机制，在新 operation 提交后退役旧元数据。
+迁移保留旧逻辑别名的完整拼写：parser 的 =parser-upstream= 仍叫 =parser-upstream=，不会剥掉前缀。物理配置键和 refs 重定位到独立 handle，已有 ConnectionId、BindingId、有效引用和转换记录保持身份。需要改成 origin 时，显式运行 =git remote rename --project parser parser-upstream origin=。
 盘点和 apply 期间需要停止旧版及原生 Git 并发写者；恢复日志的基线建立后才开始相应校验。
 维护操作步骤集中在使用指南末尾。
 
 * 历史保存与导入
 
-项目状态编码在 =simple_op_store_projects_v1= operation-store 中。格式标记区分能够保留这些语义的读写程序；恢复空项目状态仍使用同一格式。
+项目状态编码在 =simple_op_store_projects_v2= operation-store 中，包含 scoped remote 身份。格式标记区分能够保留这些语义的读写程序；恢复空项目状态仍使用同一格式。
 读取旧 View 时保留其原有散列语义，格式升级通过显式迁移完成。
 
 GC 将保留 View 中转换观察引用的 canonical commits 纳入根集合。
 来源 raw 对象、normalization 和原生对应关系也需保留，以便旧观察继续解释历史和支持反向转换。
 仓库备份因此包括操作元数据及来源对象库，而不仅是可见工作文件。
 
-native bundle v2 携带原生开发图及项目、绑定、label、连接归属和观察元数据。
+native bundle v3 携带原生开发图及项目、绑定、label、scoped remote 名字、连接归属和观察元数据。
 project import 将来源开发图放进一个新外层项目，建立这个项目的定义和离线原生对应关系。
 bundle 中的内部项目元数据描述来源的组织方式；目标仓库的活动连接、URL 和认证通过本地 remote 单独配置。
 
