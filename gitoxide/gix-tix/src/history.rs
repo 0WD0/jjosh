@@ -1774,9 +1774,9 @@ fn refs_with_commit_targets(repo: &gix::Repository, prefix: &[u8], label: &str) 
         let name = reference.name().to_owned();
         let target = reference.target().into_owned();
         if let Some(target_name) = target.try_name()
-            && crate::edit::undo::ref_chain_reaches_queue(repo, target_name)?
+            && crate::edit::undo::ref_chain_reaches_internal(repo, target_name)?
         {
-            tracing::warn!(name = %name, %label, "ignoring tix reference into the undo queue");
+            tracing::warn!(name = %name, %label, "ignoring tix reference into internal state");
             continue;
         }
         if let Some(target_name) = target.try_name()
@@ -1800,8 +1800,8 @@ fn refs_with_commit_targets(repo: &gix::Repository, prefix: &[u8], label: &str) 
                 continue;
             }
         };
-        if crate::edit::undo::is_queue_commit(repo, id)? {
-            tracing::warn!(name = %name, %label, "ignoring tix reference to an undo queue commit");
+        if crate::edit::undo::is_internal_commit(repo, id)? {
+            tracing::warn!(name = %name, %label, "ignoring tix reference to an internal state commit");
             continue;
         }
         match repo.find_header(id) {
@@ -1872,8 +1872,8 @@ pub(crate) fn referenced_refs(
             .or_raise(|| message!("could not parse revision {revision}"))?;
         for reference in [spec.first_reference(), spec.second_reference()].into_iter().flatten() {
             gix::error::ensure!(
-                !crate::edit::undo::ref_chain_reaches_queue(repo, reference.name.as_ref())?,
-                message("the undo queue is not a selectable revision")
+                !crate::edit::undo::ref_chain_reaches_internal(repo, reference.name.as_ref())?,
+                message("internal Tix state is not a selectable revision")
             );
             gix::error::ensure!(
                 !crate::edit::replay_refs::ref_chain_reaches(repo, reference.name.as_ref())?,
@@ -2157,8 +2157,8 @@ pub(crate) fn resolve_revision(
     let first_reference = spec.first_reference().map(|reference| reference.name.clone());
     for reference in [spec.first_reference(), spec.second_reference()].into_iter().flatten() {
         gix::error::ensure!(
-            !crate::edit::undo::ref_chain_reaches_queue(repo, reference.name.as_ref())?,
-            message("the undo queue is not a selectable revision")
+            !crate::edit::undo::ref_chain_reaches_internal(repo, reference.name.as_ref())?,
+            message("internal Tix state is not a selectable revision")
         );
         gix::error::ensure!(
             !crate::edit::replay_refs::ref_chain_reaches(repo, reference.name.as_ref())?,
@@ -2174,8 +2174,8 @@ pub(crate) fn resolve_revision(
         .or_raise(|| message("revision does not resolve to a commit"))?
         .id;
     gix::error::ensure!(
-        !crate::edit::undo::is_queue_commit(repo, id)?,
-        message("the undo queue is not a selectable revision")
+        !crate::edit::undo::is_internal_commit(repo, id)?,
+        message("internal Tix state is not a selectable revision")
     );
     gix::error::ensure!(
         !crate::edit::replay_refs::is_checkpoint(repo, id)?,
@@ -2232,7 +2232,7 @@ pub(crate) fn decorations_excluding(
         };
         let full_name = reference.name().to_owned();
         if excluded.contains(full_name.as_bstr())
-            || crate::edit::undo::is_queue_ref(full_name.as_bstr())
+            || crate::edit::is_internal_ref(full_name.as_bstr())
             || crate::edit::replay_refs::is_ref(full_name.as_bstr())
         {
             continue;
@@ -3967,7 +3967,7 @@ mod tests {
         assert!(
             with_tags
                 .iter()
-                .all(|name| !crate::edit::undo::is_queue_ref(name.as_bytes().into())),
+                .all(|name| !crate::edit::is_internal_ref(name.as_bytes().into())),
             "undo queue refs never become tree traversal tips"
         );
         Ok(())

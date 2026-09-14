@@ -2,6 +2,7 @@ use gix::error::message;
 use std::ffi::OsString;
 
 use super::*;
+use crate::edit::undo;
 
 struct Replay {
     source_commit_id: ObjectId,

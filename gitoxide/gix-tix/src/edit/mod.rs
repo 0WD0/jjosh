@@ -5,6 +5,10 @@ use gix::{
     error::{OptionExt, ResultExt, bail, message},
 };
 
+pub(crate) fn is_internal_ref(name: &gix::bstr::BStr) -> bool {
+    undo::is_queue_ref(name) || rebase::session::is_ref(name)
+}
+
 #[cfg(test)]
 pub(super) fn loaded_graph(repo: &gix::Repository) -> Result<crate::history::HistoryGraph> {
     if repo.head_id().is_err() {
@@ -18,7 +22,7 @@ pub(super) fn loaded_graph(repo: &gix::Repository) -> Result<crate::history::His
                 .name()
                 .as_bstr()
                 .starts_with(crate::history::REVIEW_STASH_PREFIX)
-            || undo::is_queue_ref(reference.name().as_bstr())
+            || is_internal_ref(reference.name().as_bstr())
             || replay_refs::is_ref(reference.name().as_bstr())
         {
             continue;
