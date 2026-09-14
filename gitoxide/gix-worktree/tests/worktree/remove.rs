@@ -3,6 +3,61 @@ use std::fs;
 use gix_worktree::remove::Options;
 
 #[test]
+fn relative_roots_are_rejected_before_either_root_is_removed() -> crate::Result {
+    if gix_testtools::run_in_isolated_process()? {
+        return Ok(());
+    }
+    let tmp = gix_testtools::tempfile::tempdir()?;
+    let _cwd = gix_testtools::set_current_dir(tmp.path())?;
+    let work_dir = tmp.path().join("checkout");
+    let git_dir = tmp.path().join("repo.git/worktrees/linked");
+    fs::create_dir(&work_dir)?;
+    fs::create_dir_all(&git_dir)?;
+    fs::write(work_dir.join("keep"), b"checkout content")?;
+    fs::write(git_dir.join("keep"), b"administrative content")?;
+
+    let relative_work_dir = std::path::Path::new("checkout");
+    let relative_git_dir = std::path::Path::new("repo.git/worktrees/linked");
+    for (work_dir_input, git_dir_input) in [
+        (relative_work_dir, git_dir.as_path()),
+        (work_dir.as_path(), relative_git_dir),
+        (relative_work_dir, relative_git_dir),
+        (std::path::Path::new(""), git_dir.as_path()),
+        (work_dir.as_path(), std::path::Path::new("")),
+        (std::path::Path::new("."), git_dir.as_path()),
+        (work_dir.as_path(), std::path::Path::new(".")),
+    ] {
+        let err = gix_worktree::remove(
+            work_dir_input,
+            git_dir_input,
+            gix_features::progress::Discard,
+            Options::default(),
+        )
+        .expect_err("both roots must be absolute before deletion can begin");
+        let rejected = if work_dir_input.is_absolute() {
+            git_dir_input
+        } else {
+            work_dir_input
+        };
+        assert!(
+            matches!(err, gix_worktree::remove::Error::RelativePath { ref path } if path.as_path() == rejected),
+            "the error identifies the first relative root without reporting a partial deletion: {err:?}"
+        );
+        assert_eq!(
+            fs::read(work_dir.join("keep"))?,
+            b"checkout content",
+            "rejecting either argument leaves the checkout untouched"
+        );
+        assert_eq!(
+            fs::read(git_dir.join("keep"))?,
+            b"administrative content",
+            "rejecting either argument leaves the private Git directory untouched"
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn removes_both_roots_with_configured_thread_limits_without_retries() -> crate::Result {
     for thread_limit in [None, Some(0), Some(1), Some(2)] {
         let tmp = gix_testtools::tempfile::tempdir()?;
@@ -135,6 +190,78 @@ fn only_the_conventional_empty_worktrees_parent_is_removed() -> crate::Result {
     )?;
 
     assert!(parent.exists(), "an arbitrary parent directory is retained");
+    Ok(())
+}
+
+#[test]
+#[cfg(unix)]
+fn unreadable_directories_match_git() -> crate::Result {
+    use std::os::unix::fs::PermissionsExt;
+
+    for empty in [true, false] {
+        for use_git in [true, false] {
+            let tmp = gix_testtools::tempfile::tempdir()?;
+            gix_testtools::git(tmp.path(), "init")?;
+            gix_testtools::git(tmp.path(), "commit --allow-empty -m initial")?;
+            gix_testtools::git(tmp.path(), "worktree add --detach linked HEAD")?;
+            let work_dir = tmp.path().join("linked");
+            let git_dir = tmp.path().join(".git/worktrees/linked");
+            let unreadable = [work_dir.join("unreadable"), git_dir.join("unreadable")];
+            for path in &unreadable {
+                fs::create_dir(path)?;
+                if !empty {
+                    fs::write(path.join("keep"), b"content")?;
+                }
+                // Directory scans fail, but an empty directory can still be unlinked by its parent.
+                fs::set_permissions(path, fs::Permissions::from_mode(0o000))?;
+            }
+            let scan_error = fs::read_dir(&unreadable[0]).err();
+
+            let result: crate::Result = if use_git {
+                gix_testtools::git(tmp.path(), "worktree remove --force linked").map(|_| ())
+            } else {
+                gix_worktree::remove(
+                    &work_dir,
+                    &git_dir,
+                    gix_features::progress::Discard,
+                    Options {
+                        max_retries: 0,
+                        ..Options::default()
+                    },
+                )
+                .map_err(Into::into)
+            };
+            for path in &unreadable {
+                if path.exists() {
+                    fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
+                }
+            }
+            // Root can bypass these permissions, so require a fixture that actually fails to scan.
+            let Some(scan_error) = scan_error else {
+                return Ok(());
+            };
+            assert_eq!(
+                scan_error.kind(),
+                std::io::ErrorKind::PermissionDenied,
+                "mode-000 directories cannot be scanned by this user"
+            );
+            for root in [&work_dir, &git_dir] {
+                assert_eq!(
+                    root.exists(),
+                    !empty,
+                    "only empty unreadable directories can be removed"
+                );
+            }
+            if empty {
+                result?;
+            } else {
+                assert!(
+                    result.is_err(),
+                    "nonempty unreadable directories still report a failure"
+                );
+            }
+        }
+    }
     Ok(())
 }
 

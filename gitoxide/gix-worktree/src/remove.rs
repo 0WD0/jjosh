@@ -68,6 +68,11 @@ impl std::error::Error for DirectoryError {
 ///
 #[derive(Debug)]
 pub enum Error {
+    /// A removal root was not absolute, so neither root was removed.
+    RelativePath {
+        /// The root which must be made absolute by the caller.
+        path: PathBuf,
+    },
     /// The checkout could not be fully removed, but its private Git directory was removed.
     Worktree(DirectoryError),
     /// The private Git directory could not be fully removed, but its checkout was removed.
@@ -84,6 +89,7 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::RelativePath { path } => write!(f, "Removal root '{}' must be an absolute path", path.display()),
             Self::Worktree(_) => f.write_str("Could not fully remove the linked-worktree checkout"),
             Self::GitDir(_) => f.write_str("Could not fully remove the linked-worktree administration"),
             Self::Both { worktree, git_dir } => write!(
@@ -98,7 +104,7 @@ impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Worktree(err) | Self::GitDir(err) => Some(err),
-            Self::Both { .. } => None,
+            Self::RelativePath { .. } | Self::Both { .. } => None,
         }
     }
 }
@@ -112,10 +118,14 @@ pub(super) mod _impl {
 
     /// Recursively remove `work_dir` and its private `git_dir` without following symbolic links.
     ///
+    /// Both roots must be absolute. Relative roots are rejected before either root is touched
+    /// to leave no ambiguity with respect to the CWD.
+    ///
     /// Traversal and leaf deletion use [`Options::thread_limit`], and protect Unix mount boundaries
     /// by not crossing them. Directory deletion is currently single-threaded.
     /// The private Git directory is removed even if removing the checkout fails. A missing root is
     /// considered removed successfully, and an empty parent `worktrees` directory is removed as well.
+    /// Successful removal of a root supersedes errors encountered while scanning it.
     ///
     /// Entry types, including each leaf's symlink flag, are cached during traversal and may be stale
     /// when deletion runs, creating a time-of-check/time-of-use (TOCTOU) race with concurrent replacements.
@@ -131,6 +141,9 @@ pub(super) mod _impl {
     ) -> Result<(), Error> {
         let work_dir = work_dir.as_ref();
         let git_dir = git_dir.as_ref();
+        if let Some(path) = [work_dir, git_dir].into_iter().find(|path| !path.is_absolute()) {
+            return Err(Error::RelativePath { path: path.to_owned() });
+        }
         let worktree = remove_root(
             work_dir,
             progress.add_child("scan worktree"),
@@ -181,7 +194,7 @@ fn remove_root_with_after_scan(
     options @ Options { max_retries, .. }: Options,
     mut after_scan: impl FnMut(),
 ) -> Result<(), DirectoryError> {
-    let root = absolute_root(root)?;
+    let root = normalize_root(root)?;
     let root = root.as_path();
     scan.init(None, gix_features::progress::count("entries"));
     #[cfg(unix)]
@@ -212,7 +225,7 @@ fn remove_root_with_after_scan(
         let mut directories = Vec::new();
         #[cfg(unix)]
         let mut retained_mounts = Vec::new();
-        let mut first_error = None;
+        let mut scan_error = None;
         let mut entry_count = 0;
         for entry in walk.by_ref() {
             entry_count += 1;
@@ -227,7 +240,7 @@ fn remove_root_with_after_scan(
                             Ok(false) => retained_mounts.push(path.clone()),
                             Err(source) => {
                                 if !gix_fs::io_err::is_not_found(source.kind(), source.raw_os_error()) {
-                                    first_error.get_or_insert(DirectoryError { path, source });
+                                    scan_error.get_or_insert(DirectoryError { path, source });
                                 }
                                 continue;
                             }
@@ -239,7 +252,7 @@ fn remove_root_with_after_scan(
                 }
                 Err(source) if gix_fs::io_err::is_not_found(source.kind(), source.raw_os_error()) => {}
                 Err(source) => {
-                    first_error.get_or_insert_with(|| DirectoryError {
+                    scan_error.get_or_insert_with(|| DirectoryError {
                         path: root.to_owned(),
                         source,
                     });
@@ -253,7 +266,7 @@ fn remove_root_with_after_scan(
             gix_features::progress::count("entries"),
         );
         let counter = remove.counter();
-        let leaf_error = remove_leaves(&leaves, num_threads, |path, is_symlink| {
+        let mut first_error = remove_leaves(&leaves, num_threads, |path, is_symlink| {
             let result = remove_leaf(path, is_symlink);
             counter.fetch_add(1, Ordering::Relaxed);
             result
@@ -264,10 +277,6 @@ fn remove_root_with_after_scan(
                     source,
                 })
         });
-        if first_error.is_none() {
-            first_error = leaf_error;
-        }
-
         directories.sort_unstable_by_key(|(depth, _)| std::cmp::Reverse(*depth));
         for (_, path) in directories {
             #[cfg(unix)]
@@ -284,15 +293,17 @@ fn remove_root_with_after_scan(
             }
             let result = fs::remove_dir(&path);
             remove.inc();
-            if first_error.is_none()
-                && let Err(source) = result
-                && !gix_fs::io_err::is_not_found(source.kind(), source.raw_os_error())
-            {
-                first_error = Some(DirectoryError { path, source });
+            match result {
+                Err(source) if !gix_fs::io_err::is_not_found(source.kind(), source.raw_os_error()) => {
+                    first_error.get_or_insert(DirectoryError { path, source });
+                }
+                // The root's removal proves that scan failures did not leave anything behind.
+                _ if path == root => scan_error = None,
+                _ => {}
             }
         }
 
-        let Some(err) = first_error else {
+        let Some(err) = scan_error.or(first_error) else {
             return Ok(());
         };
         if err.source.kind() != io::ErrorKind::DirectoryNotEmpty
@@ -307,14 +318,10 @@ fn remove_root_with_after_scan(
     unreachable!("the final deletion attempt always returns")
 }
 
-fn absolute_root(root: &Path) -> Result<PathBuf, DirectoryError> {
+fn normalize_root(root: &Path) -> Result<PathBuf, DirectoryError> {
+    debug_assert!(root.is_absolute(), "removal roots are validated before normalization");
     // Trailing separators make `symlink_metadata()` follow the final symlink.
-    let absolute: PathBuf = std::path::absolute(root)
-        .map(|path| path.components().collect())
-        .map_err(|source| DirectoryError {
-            path: root.to_owned(),
-            source,
-        })?;
+    let absolute: PathBuf = root.components().collect();
     let resolved = match fs::symlink_metadata(&absolute) {
         // Keep file and symlink leaves intact; only directories need root and mount checks.
         Ok(metadata) if !metadata.is_dir() => return Ok(absolute),
@@ -493,16 +500,17 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn relative_roots_are_normalized_before_finding_the_containing_device() {
-        let root = super::absolute_root(std::path::Path::new("one-component"))
-            .expect("the current directory can be made absolute");
-        assert!(root.is_absolute());
+    fn normalized_roots_keep_their_containing_device() -> gix_testtools::Result {
+        let tmp = gix_testtools::tempfile::tempdir()?;
+        let root = super::normalize_root(&tmp.path().join("one-component"))?;
+        assert!(root.is_absolute(), "root normalization preserves absolute paths");
         assert!(
             root.parent()
                 .and_then(|parent| std::fs::metadata(parent).ok())
                 .is_some(),
-            "a relative root still has a containing filesystem"
+            "a missing root still has a containing filesystem"
         );
+        Ok(())
     }
 
     #[cfg(unix)]
@@ -555,7 +563,7 @@ mod tests {
             std::path::PathBuf::from("/.."),
             root_link.join(".."),
         ] {
-            let root = super::absolute_root(&root)?;
+            let root = super::normalize_root(&root)?;
             let entry = dua_core::Entry::from_path(&root, dua_core::Options::default().skip_metadata())?;
             let device = std::os::unix::fs::MetadataExt::dev(&std::fs::symlink_metadata(&root)?);
             assert!(
