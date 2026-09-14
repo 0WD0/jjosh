@@ -35,9 +35,9 @@ enum Command {
     Remove(NameArgs),
     /// Explicitly choose or delete unresolved metadata, or retire a disconnected binding.
     Resolve(ResolveArgs),
-    /// Import recorded native sources as new outer projects in one operation.
+    /// Import recorded local JJ repositories as new outer projects in one operation.
     /// Nested project metadata is not activated; source URLs and permissions are never imported.
-    Import(crate::native::ImportArgs),
+    Import(crate::project_import::ImportArgs),
     /// Inspect or explicitly apply migration of legacy project configuration.
     Migrate(crate::project_migration::Args),
 }
@@ -134,7 +134,7 @@ pub(crate) async fn recorded_workspace(ui: &Ui, command: &CommandHelper) -> Resu
 
 pub(crate) async fn run(ui: &mut Ui, command: &CommandHelper, args: Args) -> Result<(), CommandError> {
     match args.command {
-        Command::Import(args) => crate::native::run_import(ui, command, args).await,
+        Command::Import(args) => crate::project_import::run_import(ui, command, args).await,
         Command::Migrate(args) => crate::project_migration::run(ui, command, &args).await,
         Command::List(args) => inspect(ui, command, None, args.json, false).await,
         Command::Show(args) => inspect(ui, command, Some(args.project), args.output.json, false).await,

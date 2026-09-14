@@ -3435,7 +3435,7 @@ fn imported_soft_fork_attaches_upstream_without_reimporting_local_history() {
         &["project", "import", "--source",
         &format!("app={}", work.display()),],
     );
-    jjosh(&client, &["new", "@", "workspace/default#app"]);
+    jjosh(&client, &["new", "@", "main#app"]);
     let fork = commit_id(&client, "main#app");
     let before = jjosh(
         &client,
@@ -5103,21 +5103,6 @@ fn signed_transformed_fetch_does_not_grant_sibling_observations_or_leases() {
     );
 }
 
-fn exported_view(client: &Path) -> serde_json::Value {
-    let temp = tempfile::tempdir().unwrap();
-    let bundle = temp.path().join("state.jjosh");
-    jjosh(client, &["native", "export", bundle.to_str().unwrap()]);
-    let mut archive = tar::Archive::new(fs::File::open(bundle).unwrap());
-    for entry in archive.entries().unwrap() {
-        let mut entry = entry.unwrap();
-        if entry.path().unwrap() == Path::new("manifest.json") {
-            let manifest: serde_json::Value = serde_json::from_reader(&mut entry).unwrap();
-            return manifest["view"].clone();
-        }
-    }
-    panic!("native export did not contain a manifest");
-}
-
 #[test]
 fn legacy_migration_preserves_observations_unless_explicitly_cleared() {
     for (clear, explicit_base) in [(false, true), (true, true), (false, false), (true, false)] {
@@ -5193,27 +5178,6 @@ fn legacy_migration_preserves_observations_unless_explicitly_cleared() {
         );
         jjosh(&client, &["bookmark", "track", "main#app@origin"]);
         jjosh(&client, &["tag", "track", "v1#app@origin"]);
-        let before = exported_view(&client);
-        assert_eq!(
-            before["remote_views"]["origin"]["bookmarks"]["main#app"]["target"],
-            serde_json::json!([canonical])
-        );
-        assert_ne!(
-            before["remote_views"]["origin"]["bookmarks"]["main#app"]["state"],
-            before["remote_views"]["origin"]["bookmarks"]["untracked#app"]["state"]
-        );
-        assert_eq!(
-            before["remote_views"]["origin"]["tags"]["v1#app"]["target"],
-            serde_json::json!([canonical])
-        );
-        assert_eq!(
-            before["project_metadata"]["observations"],
-            serde_json::json!([])
-        );
-        assert_eq!(
-            before["project_metadata"]["bindings"],
-            serde_json::json!({})
-        );
         for (key, value) in [("jjosh-project", "app"), ("jjosh-mount", "app")] {
             git(
                 &git_dir,
@@ -5245,45 +5209,17 @@ fn legacy_migration_preserves_observations_unless_explicitly_cleared() {
         }
         jjosh(&client, &apply);
         let physical = physical_remote(&client, "app", "origin");
-        let after = exported_view(&client);
-        for field in ["local_bookmarks", "local_tags", "wc_commit_ids"] {
-            assert_eq!(after[field], before[field]);
-        }
         assert_eq!(
             fs::read_to_string(client.join("app/value.txt")).unwrap(),
             "legacy canonical content\n"
         );
-        assert!(after["remote_views"].get("origin").is_none());
-        if clear {
-            assert!(after["remote_views"].get(&physical).is_none());
-        } else {
-            assert_eq!(
-                after["remote_views"][&physical],
-                before["remote_views"]["origin"]
-            );
+        if !clear {
             assert_eq!(commit_id(&client, "main#app@origin"), canonical);
             assert_eq!(
                 commit_id(&client, "remote_tags(exact:\"v1#app\", exact:\"origin\")"),
                 canonical
             );
         }
-        let mut expected_git_refs = before["git_refs"].as_object().unwrap().clone();
-        for prefix in ["refs/remotes/origin/", "refs/jj/remote-tags/origin/"] {
-            for (name, target) in before["git_refs"].as_object().unwrap() {
-                if let Some(suffix) = name.strip_prefix(prefix) {
-                    expected_git_refs.remove(name);
-                    if !clear {
-                        let namespace = prefix.strip_suffix("origin/").unwrap();
-                        expected_git_refs
-                            .insert(format!("{namespace}{physical}/{suffix}"), target.clone());
-                    }
-                }
-            }
-        }
-        assert_eq!(
-            after["git_refs"],
-            serde_json::Value::Object(expected_git_refs)
-        );
         // Compare every physical ref, including exact annotated tag OIDs and
         // any private anchors. Rekeying may neither invent a publication lease
         // nor discard a pre-existing one.
@@ -5306,29 +5242,6 @@ fn legacy_migration_preserves_observations_unless_explicitly_cleared() {
             })
             .collect();
         assert_eq!(git(&git_dir, &["show-ref"]), expected_refs);
-        let metadata = &after["project_metadata"];
-        assert_eq!(metadata["observations"], serde_json::json!([]));
-        let connection = metadata["remote_connections"][&physical][0]
-            .as_str()
-            .unwrap();
-        assert_eq!(metadata["remote_names"][connection][0]["name"], "origin");
-        let bindings = metadata["bindings"].as_object().unwrap();
-        assert_eq!(bindings.len(), 1);
-        let binding = &bindings.values().next().unwrap()[0];
-        assert_eq!(binding["connection"], connection);
-        assert_eq!(binding["project"], metadata["labels"]["app"][0]);
-        assert_eq!(
-            binding["representation"],
-            serde_json::json!({"josh_filter": ":/src"})
-        );
-        assert_eq!(
-            binding["base"],
-            if explicit_base {
-                serde_json::json!("refs/heads/main")
-            } else {
-                serde_json::Value::Null
-            }
-        );
         assert!(!sidecar.exists());
         assert_eq!(git(&remote, &["show-ref"]), endpoint_refs);
 
@@ -5363,10 +5276,6 @@ fn legacy_migration_preserves_observations_unless_explicitly_cleared() {
                 assert_eq!(operation_id(&client), operation);
                 assert_eq!(git(&git_dir, &["show-ref"]), refs);
                 assert_eq!(git(&remote, &["show-ref"]), endpoint_refs);
-                assert_eq!(
-                    exported_view(&client)["project_metadata"]["observations"],
-                    serde_json::json!([])
-                );
             }
         }
     }

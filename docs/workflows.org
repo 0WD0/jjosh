@@ -46,24 +46,23 @@ jjosh git remote add origin /path/to/components.git \
 先在来源仓库运行 =jjosh status=，让工作文件进入已记录状态，再回到目标仓库执行：
 
 #+begin_src sh
+source_change=$(jjosh --ignore-working-copy -R /path/to/parser-work log -r @ --no-graph -T change_id)
 jjosh project import --source parser=/path/to/parser-work --mount parser=libs/parser
-jjosh new @ workspace/default#parser
+jjosh new @ "$source_change"
 #+end_src
 
-import 会一并登记项目。这一入口用于尚未登记的 parser；=default= 是来源 workspace 的名字。
+import 会一并登记项目。这一入口用于尚未登记的 parser；来源必须是本地 jj workspace 目录。
 需要一次带入多个项目时，重复指定 =--source= 和相应的 =--mount=。
 
 来源的 change ID 会保留。目录和父提交的变化会生成新的 commit ID，失效的提交签名会移除并报告。
 导入范围是来源已记录的开发状态和所需祖先历史；未记录文件及旧 operation/evolution history 留在来源仓库。
+导入不会创建 =workspace/*= 或 Git HEAD 书签，也不会迁入来源 workspace。已有书签按项目限定名保留，例如 =main#parser=；没有书签的版本可用来源 change ID 选择。用户自己命名为 =workspace/default= 的书签仍按普通书签保留。
 
 以后持续接收来源更新，为项目配置 whole remote：
 
 #+begin_src sh
 jjosh git remote add upstream /path/to/parser-work --project parser --whole
 #+end_src
-
-无法直接读取来源目录时，可通过 bundle 运输。在来源运行 =jjosh native export /path/to/parser.bundle=；在目标运行 =native inspect= 检查，然后将 project import 的来源地址换成 bundle 路径。
-native bundle v3 还可携带来源的项目、scoped remote 名字及转换观察元数据，project import 以一个外层项目接入开发图；备份整个仓库时还需保存仓库元数据和来源对象库。
 
 来源 remote 的名字保存在新外层项目中，连接地址由你另行配置。内部项目的 =origin#inner= 导入为外层项目内的 =origin@inner=，来源 Git 工作树记录使用 =git@source=；命令会列出这些明确映射并拒绝重名。引用中的 remote 含 =@= 时加引号，例如 =main#inner#parser@"origin@inner"=。
 

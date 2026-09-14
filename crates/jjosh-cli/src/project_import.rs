@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::io::Write as _;
-use std::path::PathBuf;
 
 use jj_cli::cli_util::CommandHelper;
 use jj_cli::command_error::CommandError;
@@ -13,33 +12,8 @@ use jj_lib::repo::Repo as _;
 use crate::native_source::NativeSource;
 
 #[derive(clap::Args, Clone, Debug)]
-pub(crate) struct Args {
-    #[command(subcommand)]
-    command: Command,
-}
-
-#[derive(clap::Subcommand, Clone, Debug)]
-enum Command {
-    /// Export recorded native state to an optional self-contained transport file.
-    ///
-    /// Does not snapshot or write the source repository. Old operation/evolution
-    /// histories, user settings and credentials are not exported.
-    Export(BundleArgs),
-    /// Validate a native bundle without needing its source repository.
-    Inspect(BundleArgs),
-    /// Relocate a native change graph with explicit path and parent mappings.
-    Transplant(crate::transplant::Args),
-}
-
-#[derive(clap::Args, Clone, Debug)]
-struct BundleArgs {
-    /// Native bundle file (export never overwrites an existing file).
-    file: PathBuf,
-}
-
-#[derive(clap::Args, Clone, Debug)]
 pub(crate) struct ImportArgs {
-    /// Native jj workspace or bundle and its identity (repeatable).
+    /// Local JJ workspace and its project name (repeatable).
     #[arg(long, value_name = "NAME=PATH", required = true)]
     source: Vec<String>,
     /// Dest directory for an imported project (repeatable). Defaults to NAME/.
@@ -47,68 +21,12 @@ pub(crate) struct ImportArgs {
     mount: Vec<String>,
 }
 
-fn require_current_operation(command: &CommandHelper) -> Result<(), CommandError> {
-    if !command.is_at_head_operation() || command.global_args().no_integrate_operation {
-        return Err(user_error(
-            "Native state changes require the current integrated operation",
-        ));
-    }
-    Ok(())
-}
-
-pub(crate) async fn run(
-    ui: &mut Ui,
-    command: &CommandHelper,
-    args: Args,
-) -> Result<(), CommandError> {
-    match args.command {
-        Command::Transplant(args) => crate::transplant::run(ui, command, args).await,
-        Command::Inspect(args) => {
-            let source =
-                crate::native_bundle::load(&command.cwd().join(args.file), command.settings())
-                    .await
-                    .map_err(|err| user_error_with_message("Cannot inspect native bundle", err))?;
-            writeln!(
-                ui.stdout(),
-                "Valid native bundle: {} commits, {} heads, source operation {}; {} project definitions, {} binding definitions, {} conversion observations (inert source metadata)",
-                source.commits.len() - 1,
-                source.view.head_ids.len(),
-                source.source_operation,
-                source.view.project_state.projects.len(),
-                source.view.project_state.bindings.len(),
-                source.view.project_observations.len(),
-            )?;
-            Ok(())
-        }
-        Command::Export(args) => {
-            require_current_operation(command)?;
-            let workspace = command.load_workspace()?;
-            let source = NativeSource::read(workspace.repo_loader(), None)
-                .await
-                .map_err(|err| user_error_with_message("Cannot read native source", err))?;
-            let count = crate::native_bundle::export(
-                &source,
-                &command.cwd().join(&args.file),
-                command.settings(),
-            )
-            .await
-            .map_err(|err| user_error_with_message("Cannot export native bundle", err))?;
-            writeln!(
-                ui.status(),
-                "Exported {count} native commits to {}. Source state unchanged.",
-                args.file.display()
-            )?;
-            Ok(())
-        }
-    }
-}
-
 pub(crate) async fn run_import(
     ui: &mut Ui,
     command: &CommandHelper,
     args: ImportArgs,
 ) -> Result<(), CommandError> {
-    require_current_operation(command)?;
+    crate::project::require_current_operation(command)?;
     let mut names = HashSet::new();
     let mut specifications = Vec::with_capacity(args.source.len());
     for value in args.source {
@@ -195,20 +113,25 @@ pub(crate) async fn run_import(
                 )));
             }
         }
-        let source = if path.is_dir() {
-            let source_workspace = command.load_workspace_at(&path, workspace.settings())?;
-            if std::fs::canonicalize(source_workspace.repo_path())?
-                == std::fs::canonicalize(workspace.repo_path())?
-            {
-                return Err(user_error(
-                    "Cannot import a workspace from the destination's own repository",
-                ));
-            }
-            NativeSource::read(source_workspace.repo_loader(), None).await
-        } else {
-            crate::native_bundle::load(&path, workspace.settings()).await
+        if !path.is_dir() {
+            return Err(user_error(format!(
+                "Project source {} must be a local JJ workspace directory",
+                path.display()
+            )));
         }
-        .map_err(|err| user_error_with_message(format!("Cannot read native source {name}"), err))?;
+        let source_workspace = command.load_workspace_at(&path, workspace.settings())?;
+        if std::fs::canonicalize(source_workspace.repo_path())?
+            == std::fs::canonicalize(workspace.repo_path())?
+        {
+            return Err(user_error(
+                "Cannot import a workspace from the destination's own repository",
+            ));
+        }
+        let source = NativeSource::read(source_workspace.repo_loader(), None)
+            .await
+            .map_err(|err| {
+                user_error_with_message(format!("Cannot read project source {name}"), err)
+            })?;
         let remote_plan =
             crate::native_import::plan_remotes(&source.view, &project_id).map_err(|err| {
                 user_error_with_message(format!("Cannot map native source remotes for {name}"), err)
@@ -328,8 +251,8 @@ pub(crate) async fn run_import(
     }
     writeln!(
         ui.status(),
-        "Native states imported in one transaction; working copy unchanged. Compose source \
-         workspace bookmarks with jjosh new."
+        "Projects imported in one transaction; working copy unchanged. Select imported \
+         revisions by their bookmarks or change IDs with jjosh new."
     )?;
     Ok(())
 }

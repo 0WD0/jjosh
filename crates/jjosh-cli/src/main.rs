@@ -6,8 +6,7 @@ mod git_transport;
 mod interop;
 mod projection_history;
 mod remote_refs;
-mod native;
-mod native_bundle;
+mod project_import;
 mod native_import;
 mod native_project;
 mod native_source;
@@ -15,7 +14,6 @@ mod project_config;
 mod projection;
 mod ref_names;
 mod source_repo;
-mod transplant;
 
 use jj_cli::cli_util::CliRunner;
 use jj_cli::cli_util::CommandHelper;
@@ -28,8 +26,6 @@ enum JjoshCommand {
     Project(project::Args),
     /// Work with bidirectional Josh history projections.
     Projection(projection::Args),
-    /// Transport and relocate recorded native Jujutsu states.
-    Native(native::Args),
 }
 
 async fn run_jjosh_command(
@@ -40,7 +36,6 @@ async fn run_jjosh_command(
     match command {
         JjoshCommand::Project(args) => project::run(ui, command_helper, args).await,
         JjoshCommand::Projection(args) => projection::run(ui, command_helper, args).await,
-        JjoshCommand::Native(args) => native::run(ui, command_helper, args).await,
     }
 }
 

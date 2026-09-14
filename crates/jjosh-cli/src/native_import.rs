@@ -14,7 +14,6 @@ use jj_lib::project::BindingTarget;
 use jj_lib::project::ConnectionId;
 use jj_lib::project::ProjectId;
 use jj_lib::project::ScopedRemoteName;
-use jj_lib::ref_name::RefName;
 use jj_lib::ref_name::RemoteNameBuf;
 use jj_lib::repo::MutableRepo;
 use jj_lib::repo::Repo as _;
@@ -209,21 +208,10 @@ pub(crate) async fn import_source(
             .remote_views
             .keys()
             .any(|name| name.as_str().contains("jjosh-native-")),
-        "Source contains legacy native correspondence bookmarks; run `jjosh native migrate` in \
-         the source and re-export any bundle"
+        "Source contains unsupported legacy native correspondence bookmarks"
     );
     source.copy_objects_to(jj_lib::git::get_git_backend(&dest_store)?)?;
     let source_view = &source.view;
-    for workspace in source_view.wc_commit_ids.keys() {
-        let role = format!("workspace/{}", workspace.as_str());
-        ensure!(
-            !source_view
-                .local_bookmarks
-                .contains_key(RefName::new(&role)),
-            "source {scope} bookmark {role:?} collides with its workspace role; rename the \
-             bookmark before importing"
-        );
-    }
 
     let source_native_view = jj_lib::view::View::new(source_view.clone(), false);
     let mut roots: Vec<_> = source_native_view
@@ -401,23 +389,16 @@ fn map_view(mut view: View, scope: &str, ids: &HashMap<CommitId, CommitId>) -> V
             (name, remote)
         })
         .collect();
-    for (workspace, id) in std::mem::take(&mut view.wc_commit_ids) {
-        // Collisions were rejected before any objects were written.
-        view.local_bookmarks.insert(
-            crate::ref_names::local_name(scope, &format!("workspace/{}", workspace.as_str()))
-                .into(),
-            RefTarget::normal(ids[&id].clone()),
-        );
-    }
+    view.wc_commit_ids.clear();
     // These are observations of the foreign backend, not destination Git refs
     // or real destination workspaces. Source @git refs above remain namespaced.
     view.git_refs.clear();
     view.git_heads.clear();
-    // Source workspaces become bookmark roles, not mounted target workspaces.
+    // Do not activate source workspace roles in the destination.
     view.wc_sparse_patterns.clear();
-    // This import wraps the complete source in one new outer project. Foreign
-    // identities and observation ownership are preserved by bundles, but cannot
-    // become active nested projects or local connection authority here.
+    // This import wraps the source in one new outer project. Foreign identities
+    // and observation ownership cannot become active nested projects or local
+    // connection authority here.
     view.project_state = Default::default();
     view.remote_connections.clear();
     view.project_observations.clear();

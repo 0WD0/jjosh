@@ -2,8 +2,6 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::Cursor;
-use std::io::Read;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
@@ -162,15 +160,15 @@ impl NativeRepo {
         )
     }
 
-    fn export(&self, path: &Path) {
-        self.jj(&["native", "export", path.to_str().unwrap()]);
-    }
-
     fn import(&self, a: &Path, b: &Path) {
-        self.jj(&["project", "import", "--source",
-        &format!("a={}", a.display()),
-        "--source",
-        &format!("b={}", b.display()),]);
+        self.jj(&[
+            "project",
+            "import",
+            "--source",
+            &format!("a={}", a.display()),
+            "--source",
+            &format!("b={}", b.display()),
+        ]);
     }
 
     fn add_project_remote(&self, name: &str, url: &Path, project: &str) {
@@ -218,7 +216,7 @@ impl NativeRepo {
 }
 
 #[test]
-fn native_bundle_preserves_root_and_nested_scoped_aliases_without_activating_endpoints() {
+fn local_import_preserves_root_and_nested_scoped_aliases_without_activating_endpoints() {
     let seed = NativeRepo::new();
     seed.write("value.txt", "portable source\n");
     seed.jj(&["describe", "-m", "portable source"]);
@@ -237,15 +235,13 @@ fn native_bundle_preserves_root_and_nested_scoped_aliases_without_activating_end
     source.add_project_remote("origin", &seed.path, "inner");
     source.jj(&["git", "fetch", "--project", "inner", "--branch", "main"]);
     source.jj(&["bookmark", "track", "main#inner@origin"]);
-    let bundle = source.temp.path().join("scoped.bundle");
-    source.export(&bundle);
 
     let target = NativeRepo::new();
     target.jj(&[
         "project",
         "import",
         "--source",
-        &format!("outer={}", bundle.display()),
+        &format!("outer={}", source.path.display()),
     ]);
     assert_eq!(
         target.jj(&["file", "show", "-r", "main#outer@origin", "outer/value.txt"]),
@@ -297,7 +293,7 @@ fn native_bundle_preserves_root_and_nested_scoped_aliases_without_activating_end
 }
 
 #[test]
-fn imports_self_contained_native_graphs_without_checkout_or_source_snapshot() {
+fn imports_local_graphs_without_checkout_or_source_snapshot() {
     let a = NativeRepo::new();
     a.write("base.txt", "base\n");
     a.jj(&["describe", "-m", "a base"]);
@@ -315,8 +311,8 @@ fn imports_self_contained_native_graphs_without_checkout_or_source_snapshot() {
     a.write("merge.txt", "merge delta\n");
     a.bookmark("main");
     a.jj(&["status"]);
-    // Recorded source workspace selection must travel in the bundle without
-    // becoming the destination workspace's selection after namespacing.
+    // Recorded source workspace selection must not become the destination
+    // workspace's selection after namespacing.
     a.jj(&["sparse", "set", "file:left.txt"]);
     assert!(!a.path.join("base.txt").exists());
     a.jj(&["sparse", "map", "set", "left.txt=visible-left.txt"]);
@@ -325,8 +321,7 @@ fn imports_self_contained_native_graphs_without_checkout_or_source_snapshot() {
         fs::read_to_string(a.path.join("visible-left.txt")).unwrap(),
         "left\n"
     );
-    // Concurrent layout choices are native view conflicts, not commit-tree
-    // conflicts. Export must retain every referenced configuration object.
+    // Concurrent source layout choices must not affect the imported trees.
     let layout_base = a.operation_id();
     a.jj(&["sparse", "map", "set", "left.txt=other-left.txt"]);
     a.jj(&[
@@ -343,36 +338,29 @@ fn imports_self_contained_native_graphs_without_checkout_or_source_snapshot() {
     b.write("file.txt", "independent root\n");
     b.jj(&["describe", "-m", "b base"]);
     b.bookmark("main");
+    b.jj(&["new", "-m", "unbookmarked source working copy"]);
+    b.write("working-copy.txt", "recorded working copy\n");
     b.jj(&["status"]);
     let a_graph = a.graph("all() ~ root()");
     let b_graph = b.graph("all() ~ root()");
     let a_main = a.change_id("main");
     let b_main = b.change_id("main");
+    let a_wc = a.change_id("@");
+    let b_wc = b.change_id("@");
     let description = a.log("main", "description");
     let parents = format!("{},{}", a.change_id("right"), a.change_id("left"));
-    // Export must use the recorded view, not implicitly snapshot this file.
+    // Import must use the recorded view, not implicitly snapshot this file.
     a.write("not-recorded.txt", "leave this in the source only\n");
     let a_before = a.state();
     let b_before = b.state();
-    let packages = tempfile::tempdir().unwrap();
-    let a_bundle = packages.path().join("a.bundle");
-    let b_bundle = packages.path().join("b.bundle");
-    a.export(&a_bundle);
-    b.export(&b_bundle);
-    assert_eq!(a.state(), a_before);
-    assert_eq!(b.state(), b_before);
-    fs::remove_dir_all(&a.path).unwrap();
-    fs::remove_dir_all(&b.path).unwrap();
 
     for colocated in [false, true] {
         let target = NativeRepo::with_colocation(colocated);
-        let target_before = target.state();
-        target.jj(&["native", "inspect", a_bundle.to_str().unwrap()]);
-        target.jj(&["native", "inspect", b_bundle.to_str().unwrap()]);
-        assert_eq!(target.state(), target_before);
         let target_checkout = target.log("@", "commit_id");
 
-        target.import(&a_bundle, &b_bundle);
+        target.import(&a.path, &b.path);
+        assert_eq!(a.state(), a_before);
+        assert_eq!(b.state(), b_before);
         let remote_names = || {
             target.jj(&[
                 "bookmark",
@@ -390,8 +378,13 @@ fn imports_self_contained_native_graphs_without_checkout_or_source_snapshot() {
         assert_eq!(target.log("@", "commit_id"), target_checkout);
         assert!(!target.path.join("a").exists());
         assert!(!target.path.join("b").exists());
-        assert_eq!(target.graph("::workspace/default#a ~ root()"), a_graph);
-        assert_eq!(target.graph("::workspace/default#b ~ root()"), b_graph);
+        assert_eq!(target.graph(&format!("::{a_wc} ~ root()")), a_graph);
+        assert_eq!(target.graph(&format!("::{b_wc} ~ root()")), b_graph);
+        assert!(
+            target
+                .log("bookmarks(glob:\"workspace/*\")", "change_id")
+                .is_empty()
+        );
         assert_eq!(target.change_id("main#a"), a_main);
         assert_eq!(target.change_id("main#b"), b_main);
         assert_eq!(
@@ -413,13 +406,14 @@ fn imports_self_contained_native_graphs_without_checkout_or_source_snapshot() {
         );
         assert!(target.jj(&["git", "remote", "list"]).is_empty());
 
-        target.jj(&["new", "workspace/default#a", "workspace/default#b"]);
+        target.jj(&["new", &a_wc, &b_wc]);
         for (path, contents) in [
             ("a/base.txt", "base\n"),
             ("a/left.txt", "left\n"),
             ("a/right.txt", "right\n"),
             ("a/merge.txt", "merge delta\n"),
             ("b/file.txt", "independent root\n"),
+            ("b/working-copy.txt", "recorded working copy\n"),
         ] {
             assert_eq!(
                 fs::read_to_string(target.path.join(path)).unwrap(),
@@ -429,8 +423,8 @@ fn imports_self_contained_native_graphs_without_checkout_or_source_snapshot() {
         assert!(!target.path.join("a/not-recorded.txt").exists());
         assert_eq!(target.path.join(".git").exists(), colocated);
         target.jj(&["status"]);
-        assert_eq!(target.graph("::workspace/default#a ~ root()"), a_graph);
-        assert_eq!(target.graph("::workspace/default#b ~ root()"), b_graph);
+        assert_eq!(target.graph(&format!("::{a_wc} ~ root()")), a_graph);
+        assert_eq!(target.graph(&format!("::{b_wc} ~ root()")), b_graph);
     }
 }
 
@@ -463,7 +457,7 @@ fn preserves_native_conflicts_and_current_divergence_not_evolution_history() {
     let divergent_change = b.change_id("@");
     b.jj(&["describe", "-m", "current left"]);
     b.jj(&["--at-op", &fork, "describe", "-m", "current right"]);
-    // Reconcile operation heads before export; both versions remain current.
+    // Reconcile operation heads before import; both versions remain current.
     b.jj(&["status"]);
     let divergent_graph = b.graph("divergent()");
     assert_eq!(divergent_graph.len(), 2);
@@ -486,21 +480,12 @@ fn preserves_native_conflicts_and_current_divergence_not_evolution_history() {
     );
     let a_before = a.state();
     let b_before = b.state();
-    let packages = tempfile::tempdir().unwrap();
-    let a_bundle = packages.path().join("a.bundle");
-    let b_bundle = packages.path().join("b.bundle");
-    a.export(&a_bundle);
-    b.export(&b_bundle);
-    assert_eq!(a.state(), a_before);
-    assert_eq!(b.state(), b_before);
-    fs::remove_dir_all(&a.path).unwrap();
-    fs::remove_dir_all(&b.path).unwrap();
 
     for colocated in [false, true] {
         let target = NativeRepo::with_colocation(colocated);
-        target.jj(&["native", "inspect", a_bundle.to_str().unwrap()]);
-        target.jj(&["native", "inspect", b_bundle.to_str().unwrap()]);
-        target.import(&a_bundle, &b_bundle);
+        target.import(&a.path, &b.path);
+        assert_eq!(a.state(), a_before);
+        assert_eq!(b.state(), b_before);
 
         assert_eq!(target.graph("divergent()"), divergent_graph);
         assert_eq!(target.graph("bookmarks(exact:\"main#b\")"), divergent_graph);
@@ -535,7 +520,7 @@ fn preserves_native_conflicts_and_current_divergence_not_evolution_history() {
             conflict_text
         );
 
-        target.jj(&["new", "workspace/default#a", "workspace/default#b"]);
+        target.jj(&["new", "main#a", "description(substring:\"current left\")"]);
         assert_eq!(
             target.log("@ & conflicts()", "commit_id"),
             target.log("@", "commit_id")
@@ -572,148 +557,99 @@ fn preserves_native_conflicts_and_current_divergence_not_evolution_history() {
 }
 
 #[test]
-fn rejects_namespace_collisions_without_publishing_any_source() {
+fn rejects_duplicate_source_names_without_publishing_any_source() {
     let a = NativeRepo::new();
     a.write("a.txt", "a\n");
     a.jj(&["status"]);
     let b = NativeRepo::new();
     b.write("b.txt", "b\n");
     b.jj(&["status"]);
-    // This source-local name would overwrite the generated workspace role.
-    b.bookmark("workspace/default");
     let a_before = a.state();
     let b_before = b.state();
-    let packages = tempfile::tempdir().unwrap();
-    let a_bundle = packages.path().join("a.bundle");
-    let b_bundle = packages.path().join("b.bundle");
-    a.export(&a_bundle);
-    b.export(&b_bundle);
-    let a_source = format!("a={}", a_bundle.display());
-    let b_source = format!("b={}", b_bundle.display());
-    let repeated = format!("a={}", b_bundle.display());
+    let a_source = format!("a={}", a.path.display());
+    let repeated = format!("a={}", b.path.display());
 
     for colocated in [false, true] {
         let target = NativeRepo::with_colocation(colocated);
         let before = target.state();
-        for second in [&b_source, &repeated] {
-            let output = target.unchecked(&["project", "import", "--source", &a_source, "--source", second,]);
-            assert!(!output.status.success(), "collision unexpectedly succeeded");
-            assert_eq!(target.state(), before);
-        }
+        let output = target.unchecked(&[
+            "project", "import", "--source", &a_source, "--source", &repeated,
+        ]);
+        assert!(!output.status.success(), "collision unexpectedly succeeded");
+        assert_eq!(target.state(), before);
     }
     assert_eq!(a.state(), a_before);
     assert_eq!(b.state(), b_before);
 }
 
 #[test]
-fn rejects_invalid_bundles_atomically_and_never_overwrites_an_export() {
+fn imports_real_workspace_bookmark_without_synthesizing_working_copy_bookmarks() {
+    let a = NativeRepo::new();
+    a.write("a.txt", "unbookmarked source\n");
+    a.jj(&["describe", "-m", "unbookmarked source"]);
+    let a_wc = a.change_id("@");
+    let b = NativeRepo::new();
+    b.write("b.txt", "real bookmark\n");
+    b.jj(&["describe", "-m", "real bookmark"]);
+    b.bookmark("workspace/default");
+    let b_bookmark = b.change_id("workspace/default");
+    b.jj(&["new", "-m", "different working copy"]);
+    b.write("wc.txt", "unbookmarked working copy\n");
+    b.jj(&["status"]);
+    let b_wc = b.change_id("@");
+    let a_before = a.state();
+    let b_before = b.state();
+
+    for colocated in [false, true] {
+        let target = NativeRepo::with_colocation(colocated);
+        let checkout = target.log("@", "commit_id");
+        target.import(&a.path, &b.path);
+        assert_eq!(target.log("@", "commit_id"), checkout);
+        assert_eq!(
+            target.jj(&["bookmark", "list", "-T", "name ++ \"\\n\""]),
+            "workspace/default#b\n"
+        );
+        assert_eq!(target.change_id("workspace/default#b"), b_bookmark);
+        assert_eq!(
+            target.jj(&["file", "show", "-r", "workspace/default#b", "b/b.txt"]),
+            "real bookmark\n"
+        );
+        assert_eq!(target.change_id(&format!("{a_wc} & heads(all())")), a_wc);
+        assert_eq!(target.change_id(&format!("{b_wc} & heads(all())")), b_wc);
+        target.jj(&["new", &a_wc, &b_wc]);
+        assert_eq!(
+            fs::read_to_string(target.path.join("a/a.txt")).unwrap(),
+            "unbookmarked source\n"
+        );
+        assert_eq!(
+            fs::read_to_string(target.path.join("b/wc.txt")).unwrap(),
+            "unbookmarked working copy\n"
+        );
+        assert_eq!(a.state(), a_before);
+        assert_eq!(b.state(), b_before);
+    }
+}
+
+#[test]
+fn rejects_non_repository_sources_without_publishing_any_source() {
     let source = NativeRepo::new();
     source.write("file.txt", "recorded contents\n");
-    source.jj(&["describe", "-m", "bundle validation"]);
+    source.jj(&["describe", "-m", "local source validation"]);
     source.bookmark("main");
-    source.jj(&["sparse", "set", "file:file.txt"]);
     source.write("unrecorded.txt", "must remain unrecorded\n");
     let source_before = source.state();
-    let packages = tempfile::tempdir().unwrap();
-    let valid = packages.path().join("valid.bundle");
-    source.export(&valid);
-    assert_eq!(source.state(), source_before);
-    let original = fs::read(&valid).unwrap();
-
-    assert!(
-        !source
-            .unchecked(&["native", "export", valid.to_str().unwrap()])
-            .status
-            .success()
-    );
-    assert_eq!(fs::read(&valid).unwrap(), original);
-    assert_eq!(source.state(), source_before);
-
-    let malformed = packages.path().join("malformed.bundle");
-    fs::write(&malformed, b"not a native state package\n").unwrap();
-    let unsupported = packages.path().join("unsupported.bundle");
-    let truncated = packages.path().join("truncated.bundle");
-    let invalid_sparse = packages.path().join("invalid-sparse.bundle");
-    let missing_sparse = packages.path().join("missing-sparse.bundle");
-    let mismatched_sparse = packages.path().join("mismatched-sparse.bundle");
-    let unknown_sparse = packages.path().join("unknown-sparse-field.bundle");
-    for (path, corruption) in [
-        (&unsupported, "version"),
-        (&truncated, "pack"),
-        (&invalid_sparse, "sparse"),
-        (&missing_sparse, "missing-sparse"),
-        (&mismatched_sparse, "mismatched-sparse"),
-        (&unknown_sparse, "unknown-sparse"),
-    ] {
-        let mut archive = tar::Archive::new(Cursor::new(&original));
-        let mut writer = tar::Builder::new(fs::File::create(path).unwrap());
-        for entry in archive.entries().unwrap() {
-            let mut entry = entry.unwrap();
-            let name = entry.path().unwrap().into_owned();
-            let mut contents = Vec::new();
-            entry.read_to_end(&mut contents).unwrap();
-            if name == Path::new("manifest.json") && corruption != "pack" {
-                let mut manifest: serde_json::Value = serde_json::from_slice(&contents).unwrap();
-                match corruption {
-                    "version" => manifest["version"] = serde_json::json!(1_000_000),
-                    "sparse" => {
-                        manifest["view"]["wc_sparse_patterns"] =
-                            serde_json::json!({"default": ["not-an-object-id"]});
-                    }
-                    "missing-sparse" => {
-                        manifest["working_copy_patterns"] = serde_json::json!({});
-                    }
-                    "mismatched-sparse" => {
-                        let objects = manifest["working_copy_patterns"].as_object_mut().unwrap();
-                        let id = objects.keys().next().unwrap().clone();
-                        let object = objects.remove(&id).unwrap();
-                        let wrong_id = "00".repeat(64);
-                        objects.insert(wrong_id.clone(), object);
-                        manifest["view"]["wc_sparse_patterns"] =
-                            serde_json::json!({"default": [wrong_id]});
-                    }
-                    "unknown-sparse" => {
-                        let objects = manifest["working_copy_patterns"].as_object_mut().unwrap();
-                        objects.values_mut().next().unwrap()["unknown"] = serde_json::json!(true);
-                    }
-                    _ => unreachable!(),
-                }
-                contents = serde_json::to_vec(&manifest).unwrap();
-            } else if corruption == "pack" && name == Path::new("objects.pack") {
-                contents.truncate(contents.len() / 2);
-            }
-            let mut header = tar::Header::new_gnu();
-            header.set_size(contents.len() as u64);
-            header.set_mode(0o600);
-            header.set_cksum();
-            writer
-                .append_data(&mut header, name, Cursor::new(contents))
-                .unwrap();
-        }
-        writer.finish().unwrap();
-    }
-    fs::remove_dir_all(&source.path).unwrap();
+    let invalid_sources = tempfile::tempdir().unwrap();
+    let regular_file = invalid_sources.path().join("file");
+    fs::write(&regular_file, b"not a repository\n").unwrap();
+    let plain_directory = invalid_sources.path().join("directory");
+    fs::create_dir(&plain_directory).unwrap();
+    let missing = invalid_sources.path().join("missing");
 
     for colocated in [false, true] {
         let target = NativeRepo::with_colocation(colocated);
         let before = target.state();
-        let valid_source = format!("a={}", valid.display());
-        for path in [
-            &malformed,
-            &unsupported,
-            &truncated,
-            &invalid_sparse,
-            &missing_sparse,
-            &mismatched_sparse,
-            &unknown_sparse,
-        ] {
-            assert!(
-                !target
-                    .unchecked(&["native", "inspect", path.to_str().unwrap()])
-                    .status
-                    .success()
-            );
-            assert_eq!(target.state(), before);
+        let valid_source = format!("a={}", source.path.display());
+        for path in [&regular_file, &plain_directory, &missing] {
             let invalid_source = format!("b={}", path.display());
             // A valid first source must not be published if the second fails.
             assert!(
@@ -730,6 +666,7 @@ fn rejects_invalid_bundles_atomically_and_never_overwrites_an_export() {
                     .success()
             );
             assert_eq!(target.state(), before);
+            assert_eq!(source.state(), source_before);
         }
     }
 }
@@ -779,8 +716,12 @@ fn direct_native_import_preserves_recorded_state_without_rebuilding_source_index
     let target = NativeRepo::new();
     target.write("existing.txt", "existing monorepo\n");
     target.jj(&["describe", "-m", "existing monorepo"]);
-    target.jj(&["project", "import", "--source",
-    &format!("app={}", source.path.display()),]);
+    target.jj(&[
+        "project",
+        "import",
+        "--source",
+        &format!("app={}", source.path.display()),
+    ]);
     assert!(!association.exists(), "source index was rebuilt");
     assert_eq!(
         fs::read_to_string(source.path.join("value.txt")).unwrap(),
@@ -843,17 +784,21 @@ fn scope_suffix_convention_uses_native_tracking_and_project_publication() {
     mono.bookmark("main");
     let root_main = mono.log("main", "commit_id");
     let store_type = fs::read(mono.path.join(".jj/repo/op_store/type")).unwrap();
-    mono.jj(&["project", "import", "--source",
-    &format!("alpha={}", source.path.display()),]);
+    mono.jj(&[
+        "project",
+        "import",
+        "--source",
+        &format!("alpha={}", source.path.display()),
+    ]);
     let scoped = "main#alpha";
     assert_eq!(mono.change_id(scoped), source.change_id("main"));
     assert_eq!(
         mono.log("v1#alpha", "commit_id"),
         mono.log(scoped, "commit_id")
     );
-    assert_eq!(
-        mono.log("workspace/default#alpha", "commit_id"),
-        mono.log(scoped, "commit_id")
+    assert!(
+        mono.log("bookmarks(exact:\"workspace/default#alpha\")", "change_id")
+            .is_empty()
     );
     assert_eq!(
         mono.log("main#alpha@origin", "commit_id"),
@@ -948,8 +893,12 @@ fn scope_suffix_convention_rejects_an_occupied_name_namespace() {
     let mono = NativeRepo::new();
     mono.bookmark("\"existing#alpha\"");
     let before = mono.operation_id();
-    let output = mono.unchecked(&["project", "import", "--source",
-    &format!("alpha={}", source.path.display()),]);
+    let output = mono.unchecked(&[
+        "project",
+        "import",
+        "--source",
+        &format!("alpha={}", source.path.display()),
+    ]);
     assert!(!output.status.success());
     assert_eq!(mono.operation_id(), before);
 }
@@ -974,10 +923,14 @@ fn native_partial_publication_returns_to_canonical_change_and_accepts_contributi
     let mono = NativeRepo::new();
     mono.write("root.txt", "monorepo root\n");
     mono.jj(&["describe", "-m", "monorepo root"]);
-    mono.jj(&["project", "import", "--source",
-    &format!("alpha={}", alpha.path.display()),
-    "--source",
-    &format!("beta={}", beta.path.display()),]);
+    mono.jj(&[
+        "project",
+        "import",
+        "--source",
+        &format!("alpha={}", alpha.path.display()),
+        "--source",
+        &format!("beta={}", beta.path.display()),
+    ]);
     mono.jj(&["new", "@", "main#alpha", "main#beta", "-m", "composition"]);
     mono.jj(&["new", "-m", "one change across projects"]);
     mono.write("alpha/value.txt", "alpha local\n");
@@ -1226,8 +1179,12 @@ fn native_boundary_migration_preserves_rewrites_and_old_version_intake() {
         source.jj(&["git", "export"]);
         let raw = source.log("@", "commit_id");
         let mono = NativeRepo::with_colocation(colocated);
-        mono.jj(&["project", "import", "--source",
-        &format!("app={}", source.path.display()),]);
+        mono.jj(&[
+            "project",
+            "import",
+            "--source",
+            &format!("app={}", source.path.display()),
+        ]);
         let original = mono.log("main#app", "commit_id");
         let git_dir = mono.path.join(if colocated {
             ".git"
@@ -1253,7 +1210,13 @@ fn native_boundary_migration_preserves_rewrites_and_old_version_intake() {
             &format!("refs/jjosh/native/app/origin/{raw}"),
         ]);
         let graph = mono.graph("all()");
-        mono.jj(&["project", "migrate", "--apply", "--native-source", "app=detached"]);
+        mono.jj(&[
+            "project",
+            "migrate",
+            "--apply",
+            "--native-source",
+            "app=detached",
+        ]);
         assert_eq!(mono.graph("all()"), graph);
         let remote_names = || {
             mono.jj(&[
@@ -1274,8 +1237,14 @@ fn native_boundary_migration_preserves_rewrites_and_old_version_intake() {
         assert_ne!(rewritten, original);
         assert_eq!(mono.log("main#app", "commit_id"), rewritten);
         mono.add_project_remote("app-upstream", &source.path, "app");
-        mono.jj(&["git", "fetch", "--remote", "app-upstream#app", "--branch",
-        "main",]);
+        mono.jj(&[
+            "git",
+            "fetch",
+            "--remote",
+            "app-upstream#app",
+            "--branch",
+            "main",
+        ]);
         assert_eq!(mono.log("main#app@app-upstream", "commit_id"), original);
         assert_eq!(mono.log("main#app", "commit_id"), rewritten);
         assert_eq!(
@@ -1510,10 +1479,7 @@ fn obsolete_remote_key_retirement_preflights_included_remote_sections() {
         assert!(!output.status.success());
         assert_eq!(mono.state(), state);
         assert_eq!(fs::read(&config_path).unwrap(), config);
-        assert_eq!(
-            fs::read_to_string(&included).unwrap(),
-            included_contents
-        );
+        assert_eq!(fs::read_to_string(&included).unwrap(), included_contents);
     }
     // Correcting ownership is sufficient: preflight must not leave a journal
     // requiring recovery before the user can retry migration.
@@ -1815,10 +1781,14 @@ fn native_import_fetch_push_use_nested_mounts() {
     let dest = NativeRepo::new();
     dest.write("keep.txt", "root\n");
     dest.jj(&["describe", "-m", "monorepo"]);
-    dest.jj(&["project", "import", "--source",
-    &format!("alpha={}", source.path.display()),
-    "--mount",
-    "alpha=vendor/alpha",]);
+    dest.jj(&[
+        "project",
+        "import",
+        "--source",
+        &format!("alpha={}", source.path.display()),
+        "--mount",
+        "alpha=vendor/alpha",
+    ]);
     assert!(!dest.path.join("vendor").exists());
     dest.jj(&["new", "@", "main#alpha"]);
     assert_eq!(
@@ -1860,7 +1830,9 @@ fn native_import_fetch_push_use_nested_mounts() {
         "add",
         "alpha-origin",
         remote.to_str().unwrap(),
-        "--project", "alpha", "--whole",
+        "--project",
+        "alpha",
+        "--whole",
     ]);
     dest.jj(&[
         "bookmark",
@@ -1912,21 +1884,29 @@ fn native_import_rejects_occupied_or_overlapping_mounts() {
     let dest = NativeRepo::new();
     dest.write("vendor/alpha/blocked.txt", "occupied\n");
     dest.jj(&["describe", "-m", "occupied"]);
-    let occupied = dest.unchecked(&["project", "import", "--source",
-    &format!("alpha={}", source.path.display()),
-    "--mount",
-    "alpha=vendor/alpha",]);
+    let occupied = dest.unchecked(&[
+        "project",
+        "import",
+        "--source",
+        &format!("alpha={}", source.path.display()),
+        "--mount",
+        "alpha=vendor/alpha",
+    ]);
     assert!(!occupied.status.success());
 
     let overlap = NativeRepo::new();
-    let overlapped = overlap.unchecked(&["project", "import", "--source",
-    &format!("alpha={}", source.path.display()),
-    "--source",
-    &format!("beta={}", other.path.display()),
-    "--mount",
-    "alpha=vendor",
-    "--mount",
-    "beta=vendor/beta",]);
+    let overlapped = overlap.unchecked(&[
+        "project",
+        "import",
+        "--source",
+        &format!("alpha={}", source.path.display()),
+        "--source",
+        &format!("beta={}", other.path.display()),
+        "--mount",
+        "alpha=vendor",
+        "--mount",
+        "beta=vendor/beta",
+    ]);
     assert!(!overlapped.status.success());
 }
 
@@ -1942,10 +1922,14 @@ fn native_project_names_are_jj_symbols() {
     chinese.bookmark("main");
 
     let dest = NativeRepo::new();
-    dest.jj(&["project", "import", "--source",
-    &format!("foo.bar={}", dotted.path.display()),
-    "--source",
-    &format!("项目={}", chinese.path.display()),]);
+    dest.jj(&[
+        "project",
+        "import",
+        "--source",
+        &format!("foo.bar={}", dotted.path.display()),
+        "--source",
+        &format!("项目={}", chinese.path.display()),
+    ]);
     dest.jj(&["new", "main#foo.bar", "main#项目"]);
     assert_eq!(
         fs::read_to_string(dest.path.join("foo.bar/file.txt")).unwrap(),
@@ -1956,7 +1940,11 @@ fn native_project_names_are_jj_symbols() {
         "han\n"
     );
 
-    let hash = dest.unchecked(&["project", "import", "--source",
-    &format!("a#b={}", dotted.path.display()),]);
+    let hash = dest.unchecked(&[
+        "project",
+        "import",
+        "--source",
+        &format!("a#b={}", dotted.path.display()),
+    ]);
     assert!(!hash.status.success());
 }
