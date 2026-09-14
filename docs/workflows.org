@@ -47,16 +47,17 @@ jjosh git remote add origin /path/to/components.git \
 
 #+begin_src sh
 source_change=$(jjosh --ignore-working-copy -R /path/to/parser-work log -r @ --no-graph -T change_id)
-jjosh project import --source parser=/path/to/parser-work --mount parser=libs/parser
+jjosh project import --nested parser=/path/to/parser-work --mount parser=libs/parser
 jjosh new @ "$source_change"
 #+end_src
 
 import 会一并登记项目。这一入口用于尚未登记的 parser；来源必须是本地 jj workspace 目录。
-需要一次带入多个项目时，重复指定 =--source= 和相应的 =--mount=。
+需要一次带入多个来源时，重复指定 =--nested NAME=PATH= 或 =--preserve NAME=PATH=，可在同一命令中混用。至少指定一个来源；来源名字在两种选项之间也必须唯一。默认挂载目录是 =NAME/=，用 =--mount NAME=DEST= 覆盖。
 
 来源的 change ID 会保留。目录和父提交的变化会生成新的 commit ID，失效的提交签名会移除并报告。
 导入范围是来源已记录的开发状态和所需祖先历史；未记录文件及旧 operation/evolution history 留在来源仓库。
 导入不会创建 =workspace/*= 或 Git HEAD 书签，也不会迁入来源 workspace。已有书签按项目限定名保留，例如 =main#parser=；没有书签的版本可用来源 change ID 选择。用户自己命名为 =workspace/default= 的书签仍按普通书签保留。
+两种模式都在发布前复核来源 operation 和 Git 配置，并通过同一 journal 安装私有 refs、连接配置及本次导入的本地/remote Git mirrors。安装中断时使用 =jjosh git remote recover --rollback= 恢复，再重试；不会发布只有部分来源的目标操作。
 
 以后持续接收来源更新，为项目配置 whole remote：
 
@@ -65,6 +66,41 @@ jjosh git remote add upstream /path/to/parser-work --project parser --whole
 #+end_src
 
 来源 remote 的名字保存在新外层项目中，连接地址由你另行配置。内部项目的 =origin#inner= 导入为外层项目内的 =origin@inner=，来源 Git 工作树记录使用 =git@source=；命令会列出这些明确映射并拒绝重名。引用中的 remote 含 =@= 时加引号，例如 =main#inner#parser@"origin@inner"=。
+
+** 来源已经有多个项目
+
+用 =--preserve NAME=PATH= 声明需要保留项目组织的来源，而不是再包一层项目：
+
+#+begin_src sh
+source_change=$(jjosh --ignore-working-copy -R /path/to/team-work log -r @ --no-graph -T change_id)
+jjosh project import --preserve team=/path/to/team-work --mount team=vendor/team
+jjosh new @ "$source_change"
+#+end_src
+
+例如来源的 parser 项目位于 =libs/parser=，目标路径为 =vendor/team/libs/parser=，ProjectId、BindingId、ConnectionId 和稳定 label 不变。=main#parser= 仍叫这个名字；来源根书签 =topic= 则成为 =team/topic=。不会创建名为 team 的外层项目。来源根 remote 的物理名字使用 =team-原名=，项目 remote 继续由保留的连接身份定位。
+
+原生对应关系、隐藏的 canonical 锚点及 filtered 来源的 raw/normalization generation 会一起保留；原来源目录不再是目标继续转换的必要依赖。已有项目绑定的连接会保留 URL、pushURL 和 remote 设置；fetch refspec 的目标引用由项目规划明确给出，远端 wire ref 与 push 目标不变。不会复制全局凭据配置，也不会在导入期间访问远端。导入后可直接使用原有项目连接：
+
+#+begin_src sh
+jjosh git fetch --remote origin#parser
+#+end_src
+
+来源本来没有地址的项目连接仍保持未连接；可以用 =git remote set-url= 配置，而不更换连接或绑定身份。publication ledger 按原 endpoint/ref 保留，包括未被当前转换观察索引的旧 lease 和未跟踪分支的发布记录。缺失的 lease 不会被推断成已观察到不存在；修改地址本身不会授予新 endpoint 的发布依据。依赖来源 URL rewrite 配置而在目标解释不同的地址，以及无法保持含义的相对路径或 refspec，会明确拒绝，不静默改连其他仓库。
+
+有以下情况时，导入在发布目标操作前拒绝：项目身份重复或布局不同、名称/label/目录/引用冲突、未解决的项目元数据、不同的转换依据、来源存在仓库级 =RepositoryView= 投影绑定，或有配置地址但未绑定项目的连接。普通根 remote 无法继续挂载后的历史，不能仅复制 URL 就当作项目连接使用；这种来源应保持独立或选择 =--nested= 外层导入。不会自动分配替代 ID、覆盖目标定义或丢弃绑定。相同项目的持续更新使用现有连接的 fetch，而不是重复导入。
+
+该模式仍不迁入额外 workspace、旧 operation/evolution history，也不自动整合工作副本。普通输入冲突不会修改目标配置和用户 refs。对象复制可能留下不可变对象；新来源 cache 则在对象、shallow 信息和 refs 全部准备好后才原子安装，不会留下阻止重试的半成品。已完整安装的 cache 可在稍后的操作失败后保留。配置和 Git mirror 安装中断时，按错误提示执行 =jjosh git remote recover --rollback=；已提交操作的中断可使用 =--accept= 验证并完成恢复。
+
+** 在一次操作中混用两种模式
+
+#+begin_src sh
+jjosh project import \
+  --preserve jjosh=/path/to/jjosh \
+  --preserve appkit-apps=/path/to/appkit-apps \
+  --nested majutsu=/path/to/majutsu
+#+end_src
+
+前两个来源保留已有项目，第三个来源创建新的 majutsu 外层项目。所有来源共同规划、检查冲突并在同一事务中发布；任何来源的预检失败都不会发布其他来源。导入仍不切换或整合目标工作副本，需要时再用 =jjosh new= 选择导入版本。
 
 * 配置与外部仓库的关系
 

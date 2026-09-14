@@ -256,7 +256,9 @@ fn offline_project_registration_survives_remote_removal_and_exports_only_its_dir
             "add",
             "publication",
             bare.to_str().unwrap(),
-            "--project", "api", "--whole",
+            "--project",
+            "api",
+            "--whole",
         ],
     );
     f.jj(&client, &["bookmark", "create", "main#api", "-r", "@"]);
@@ -288,7 +290,15 @@ fn offline_project_registration_survives_remote_removal_and_exports_only_its_dir
     );
     f.jj(
         &client,
-        &["git", "remote", "attach", "replacement", "--project", "api", "--whole"],
+        &[
+            "git",
+            "remote",
+            "attach",
+            "replacement",
+            "--project",
+            "api",
+            "--whole",
+        ],
     );
     f.jj(
         &client,
@@ -325,7 +335,10 @@ fn registering_a_filtered_project_preserves_its_reverse_source_layout() {
     f.commit(&source, "source layout");
     let bare = f.bare(&source, "source.git");
     let client = f.init_client("client", false);
-    f.jj(&client, &["project", "add", "api", "--path", "packages/api"]);
+    f.jj(
+        &client,
+        &["project", "add", "api", "--path", "packages/api"],
+    );
     f.jj(
         &client,
         &[
@@ -427,8 +440,19 @@ fn project_check_isolates_unrelated_connection_failures() {
     let bare = f.dir("source.git");
     f.git(&bare, &["init", "--bare"]);
     for (project, remote) in [("api", "publication"), ("other", "secondary")] {
-        f.jj(&client, &["git", "remote", "add", remote, bare.to_str().unwrap(),
-            "--project", project, "--whole"]);
+        f.jj(
+            &client,
+            &[
+                "git",
+                "remote",
+                "add",
+                remote,
+                bare.to_str().unwrap(),
+                "--project",
+                project,
+                "--whole",
+            ],
+        );
     }
     let publication = f.physical_remote(&client, "api", "publication");
     let secondary = f.physical_remote(&client, "other", "secondary");
@@ -1509,7 +1533,10 @@ fn fetch_removes_deleted_branches_and_empty_projections() {
     f.git(&source, &["rm", "-r", "-f", "app"]);
     f.write(&source, "outside.txt", "outside projection\n");
     f.commit(&source, "empty projected history");
-    f.git(&source, &["push", "--force", remote.to_str().unwrap(), "HEAD:main"]);
+    f.git(
+        &source,
+        &["push", "--force", remote.to_str().unwrap(), "HEAD:main"],
+    );
     f.jj(&client, &["git", "fetch", "--remote", "origin"]);
     assert!(
         !f.jj_unchecked(&client, &["log", "-r", "main@origin"])
@@ -1611,7 +1638,10 @@ fn attached_remote_lifecycle_preserves_mount_push_endpoint_and_peer() {
                 "--whole",
             ],
         );
-        f.jj(&client, &["git", "fetch", "--project", "project", "--remote", name]);
+        f.jj(
+            &client,
+            &["git", "fetch", "--project", "project", "--remote", name],
+        );
     }
     let physical = f.physical_remote(&client, "project", "origin");
     f.jj(
@@ -1698,14 +1728,28 @@ fn rejected_remote_lifecycle_preserves_bindings_and_observations() {
     let remote = f.bare(&source, "source.git");
     let client = f.client("client", false, &remote, ":/app");
     let git_dir = client.join(".jj/repo/store/git");
-    f.jj(&client, &["git", "remote", "add", "destination", remote.to_str().unwrap()]);
+    f.jj(
+        &client,
+        &[
+            "git",
+            "remote",
+            "add",
+            "destination",
+            remote.to_str().unwrap(),
+        ],
+    );
     let config = fs::read(git_dir.join("config")).unwrap();
     let operation = f.operation_id(&client);
     let observation = f.log(&client, "main@origin", "commit_id");
     f.write(&client, "unrecorded.txt", "local edit\n");
-    assert!(!f.jj_unchecked(
-        &client, &["git", "remote", "rename", "origin", "destination"],
-    ).status.success());
+    assert!(
+        !f.jj_unchecked(
+            &client,
+            &["git", "remote", "rename", "origin", "destination"],
+        )
+        .status
+        .success()
+    );
     assert_eq!(fs::read(git_dir.join("config")).unwrap(), config);
     assert_eq!(f.operation_id(&client), operation);
     assert_eq!(f.log(&client, "main@origin", "commit_id"), observation);
@@ -1715,7 +1759,11 @@ fn rejected_remote_lifecycle_preserves_bindings_and_observations() {
     let operation = f.operation_id(&client);
     let ref_lock = git_dir.join("refs/remotes/origin/main.lock");
     fs::write(&ref_lock, "").unwrap();
-    assert!(!f.jj_unchecked(&client, &["git", "remote", "remove", "origin"]).status.success());
+    assert!(
+        !f.jj_unchecked(&client, &["git", "remote", "remove", "origin"])
+            .status
+            .success()
+    );
     assert_eq!(fs::read(git_dir.join("config")).unwrap(), config);
     assert_eq!(f.operation_id(&client), operation);
     assert_eq!(f.log(&client, "main@origin", "commit_id"), observation);
@@ -1723,6 +1771,12 @@ fn rejected_remote_lifecycle_preserves_bindings_and_observations() {
 
     f.jj(&client, &["git", "remote", "rename", "origin", "renamed"]);
     f.jj(&client, &["git", "fetch", "--remote", "renamed"]);
-    assert_eq!(f.jj(&client, &["file", "list", "-r", "main@renamed"]), "file.txt\n");
-    assert_eq!(fs::read_to_string(client.join("unrecorded.txt")).unwrap(), "local edit\n");
+    assert_eq!(
+        f.jj(&client, &["file", "list", "-r", "main@renamed"]),
+        "file.txt\n"
+    );
+    assert_eq!(
+        fs::read_to_string(client.join("unrecorded.txt")).unwrap(),
+        "local edit\n"
+    );
 }

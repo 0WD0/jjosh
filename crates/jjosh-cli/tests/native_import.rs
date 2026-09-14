@@ -164,9 +164,9 @@ impl NativeRepo {
         self.jj(&[
             "project",
             "import",
-            "--source",
+            "--nested",
             &format!("a={}", a.display()),
-            "--source",
+            "--nested",
             &format!("b={}", b.display()),
         ]);
     }
@@ -213,6 +213,238 @@ impl NativeRepo {
             .unwrap()
             .to_owned()
     }
+
+    fn project(&self, name: &str) -> serde_json::Value {
+        let state: serde_json::Value =
+            serde_json::from_str(&self.jj(&["project", "show", name, "--json"])).unwrap();
+        state["projects"][0].clone()
+    }
+
+    #[track_caller]
+    fn assert_rejected_without_changes(&self, args: &[&str]) {
+        let git_dir = PathBuf::from(self.jj(&["--ignore-working-copy", "git", "root"]).trim());
+        let config = || {
+            (
+                fs::read(git_dir.join("config")).unwrap(),
+                fs::read(self.path.join(".jj/repo/config.toml")).ok(),
+            )
+        };
+        let refs = || {
+            native_git(
+                &git_dir,
+                &["for-each-ref", "--format=%(refname) %(objectname)"],
+            )
+            .lines()
+            .filter(|line| !line.starts_with("refs/jj/"))
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+        };
+        let before = self.state();
+        let config_before = config();
+        let refs_before = refs();
+        let output = self.unchecked(args);
+        assert!(
+            !output.status.success(),
+            "jjosh {args:?} unexpectedly succeeded:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            self.state(),
+            before,
+            "rejected command changed repository state"
+        );
+        assert_eq!(
+            config(),
+            config_before,
+            "rejected command changed configuration"
+        );
+        assert_eq!(
+            refs(),
+            refs_before,
+            "rejected command changed Git references"
+        );
+    }
+}
+
+#[test]
+fn mixed_import_recovers_failed_mirror_installation_before_retry() {
+    let upstream = NativeRepo::new();
+    upstream.write("value.txt", "upstream\n");
+    upstream.jj(&["describe", "-m", "upstream"]);
+    upstream.bookmark("main");
+    let source = NativeRepo::new();
+    source.jj(&["project", "add", "alpha", "--path", "alpha"]);
+    source.add_project_remote("origin", &upstream.path, "alpha");
+    source.jj(&["git", "fetch", "--remote", "origin#alpha"]);
+    let physical = source.physical_remote("alpha", "origin");
+    let source_before = source.state();
+    upstream.jj(&["git", "export"]);
+    let nested = NativeRepo::new();
+    nested.jj(&[
+        "git",
+        "remote",
+        "add",
+        "origin",
+        upstream.path.join(".jj/repo/store/git").to_str().unwrap(),
+    ]);
+    nested.jj(&["git", "fetch", "--remote", "origin", "--branch", "main"]);
+    nested.jj(&["bookmark", "set", "main", "-r", "main@origin"]);
+    nested.jj(&["bookmark", "track", "main@origin"]);
+    let nested_before = nested.state();
+    let nested_change = nested.change_id("main");
+    let target = NativeRepo::new();
+    target.jj(&[
+        "git",
+        "remote",
+        "add",
+        "existing",
+        upstream.path.to_str().unwrap(),
+    ]);
+    native_git(
+        &target.path.join(".jj/repo/store/git"),
+        &["config", "remote.existing.tagOpt", "--no-tags"],
+    );
+    let git_dir = target.path.join(".jj/repo/store/git");
+    let config_before = fs::read(git_dir.join("config")).unwrap();
+    let repo_config_before = fs::read(target.path.join(".jj/repo/config.toml")).ok();
+    let state_before = target.state();
+    let refs = || {
+        native_git(
+            &git_dir,
+            &["for-each-ref", "--format=%(refname) %(objectname)"],
+        )
+        .lines()
+        .filter(|line| !line.starts_with("refs/jj/"))
+        .map(str::to_owned)
+        .collect::<Vec<_>>()
+    };
+    let refs_before = refs();
+    let lock = git_dir.join(format!("refs/remotes/{physical}/main#alpha.lock"));
+    fs::create_dir_all(lock.parent().unwrap()).unwrap();
+    fs::write(&lock, "held by another writer\n").unwrap();
+    let specification = format!("archive={}", source.path.display());
+    let nested_specification = format!("outer={}", nested.path.display());
+    let args = [
+        "project",
+        "import",
+        "--preserve",
+        &specification,
+        "--nested",
+        &nested_specification,
+    ];
+    assert!(!target.unchecked(&args).status.success());
+    assert_eq!(target.operation_id(), state_before.0);
+    fs::remove_file(lock).unwrap();
+    target.jj(&["git", "remote", "recover", "--rollback"]);
+    assert_eq!(target.state(), state_before);
+    assert_eq!(fs::read(git_dir.join("config")).unwrap(), config_before);
+    assert_eq!(
+        fs::read(target.path.join(".jj/repo/config.toml")).ok(),
+        repo_config_before
+    );
+    // Offline relation anchors must roll back along with preserved connections.
+    assert_eq!(refs(), refs_before);
+    assert_eq!(source.state(), source_before);
+    assert_eq!(nested.state(), nested_before);
+
+    target.jj(&args);
+    assert_eq!(target.change_id("main#outer"), nested_change);
+    assert_eq!(target.change_id("main#outer@origin"), nested_change);
+    assert_eq!(
+        target.jj(&["file", "show", "-r", "main#outer", "outer/value.txt"]),
+        "upstream\n"
+    );
+    let imported = target.log("main#alpha@origin", "commit_id");
+    target.jj(&["git", "fetch", "--remote", "origin#alpha"]);
+    assert_eq!(target.log("main#alpha@origin", "commit_id"), imported);
+    target.jj(&["git", "import"]);
+    assert_eq!(target.change_id("main#outer@origin"), nested_change);
+    assert_eq!(source.state(), source_before);
+    assert_eq!(nested.state(), nested_before);
+}
+
+#[test]
+fn outer_import_recovers_failed_mirror_installation_before_retry() {
+    let upstream = NativeRepo::new();
+    upstream.write("value.txt", "upstream\n");
+    upstream.jj(&["describe", "-m", "upstream"]);
+    upstream.bookmark("main");
+    upstream.jj(&["git", "export"]);
+    let endpoint = upstream.path.join(".jj/repo/store/git");
+    let source = NativeRepo::new();
+    source.jj(&["git", "remote", "add", "origin", endpoint.to_str().unwrap()]);
+    source.jj(&["git", "fetch", "--remote", "origin", "--branch", "main"]);
+    source.jj(&["bookmark", "set", "main", "-r", "main@origin"]);
+    source.jj(&["bookmark", "track", "main@origin"]);
+    let source_before = source.state();
+    let source_change = source.change_id("main");
+
+    let target = NativeRepo::new();
+    target.write("keep.txt", "destination\n");
+    target.jj(&["describe", "-m", "destination"]);
+    target.bookmark("existing");
+    target.jj(&["git", "export"]);
+    target.jj(&[
+        "git",
+        "remote",
+        "add",
+        "existing",
+        endpoint.to_str().unwrap(),
+    ]);
+    target.jj(&["git", "fetch", "--remote", "existing", "--branch", "main"]);
+    let git_dir = target.path.join(".jj/repo/store/git");
+    native_git(&git_dir, &["config", "remote.existing.tagOpt", "--no-tags"]);
+    let config_before = fs::read(git_dir.join("config")).unwrap();
+    let repo_config_before = fs::read(target.path.join(".jj/repo/config.toml")).ok();
+    let state_before = target.state();
+    let refs = || {
+        native_git(
+            &git_dir,
+            &["for-each-ref", "--format=%(refname) %(objectname)"],
+        )
+        .lines()
+        .filter(|line| !line.starts_with("refs/jj/"))
+        .map(str::to_owned)
+        .collect::<Vec<_>>()
+    };
+    let refs_before = refs();
+    // A real Git lock fails the local mirror export after private import
+    // provenance has been installed, without predicting generated remote IDs.
+    let lock = git_dir.join("refs/heads/main#archive.lock");
+    fs::create_dir_all(lock.parent().unwrap()).unwrap();
+    fs::write(&lock, "held by another writer\n").unwrap();
+    let specification = format!("archive={}", source.path.display());
+    let args = ["project", "import", "--nested", &specification];
+    assert!(!target.unchecked(&args).status.success());
+    assert_eq!(target.operation_id(), state_before.0);
+    fs::remove_file(lock).unwrap();
+    target.jj(&["git", "remote", "recover", "--rollback"]);
+    assert_eq!(target.state(), state_before);
+    assert_eq!(fs::read(git_dir.join("config")).unwrap(), config_before);
+    assert_eq!(
+        fs::read(target.path.join(".jj/repo/config.toml")).ok(),
+        repo_config_before
+    );
+    // Includes offline relation anchors, excluding only immutable-object
+    // keep refs that need not be removed by rollback.
+    assert_eq!(refs(), refs_before);
+    assert_eq!(source.state(), source_before);
+
+    target.jj(&args);
+    assert_eq!(target.change_id("main#archive"), source_change);
+    let imported = target.log("main#archive", "commit_id");
+    assert_eq!(target.log("main#archive@origin", "commit_id"), imported);
+    assert_eq!(
+        native_git(&git_dir, &["rev-parse", "refs/heads/main#archive"]).trim(),
+        imported
+    );
+    assert_eq!(
+        target.jj(&["file", "show", "-r", "main#archive", "archive/value.txt",]),
+        "upstream\n"
+    );
+    target.jj(&["git", "import"]);
+    assert_eq!(target.log("main#archive@origin", "commit_id"), imported);
+    assert_eq!(source.state(), source_before);
 }
 
 #[test]
@@ -240,7 +472,7 @@ fn local_import_preserves_root_and_nested_scoped_aliases_without_activating_endp
     target.jj(&[
         "project",
         "import",
-        "--source",
+        "--nested",
         &format!("outer={}", source.path.display()),
     ]);
     assert_eq!(
@@ -557,7 +789,121 @@ fn preserves_native_conflicts_and_current_divergence_not_evolution_history() {
 }
 
 #[test]
-fn rejects_duplicate_source_names_without_publishing_any_source() {
+fn mixed_import_preserves_project_identity_and_wraps_nested_history_in_one_operation() {
+    let preserved = NativeRepo::new();
+    preserved.jj(&["project", "add", "alpha", "--path", "lib"]);
+    preserved.write("lib/value.txt", "preserved project\n");
+    preserved.write("root.txt", "preserved root\n");
+    preserved.jj(&["describe", "-m", "preserved source"]);
+    preserved.bookmark("main#alpha");
+    preserved.bookmark("root-main");
+    preserved.jj(&["tag", "set", "v1#alpha"]);
+    let preserved_project = preserved.project("alpha");
+    let preserved_change = preserved.change_id("@");
+    preserved.write("unrecorded.txt", "do not import or snapshot\n");
+    let preserved_before = preserved.state();
+
+    let nested = NativeRepo::new();
+    nested.jj(&["project", "add", "beta", "--path", "pkg"]);
+    nested.write("pkg/value.txt", "nested project\n");
+    nested.jj(&["describe", "-m", "nested source"]);
+    nested.bookmark("main");
+    nested.bookmark("main#beta");
+    nested.jj(&["tag", "set", "v1"]);
+    let nested_project = nested.project("beta");
+    let nested_change = nested.change_id("@");
+    nested.write("unrecorded.txt", "leave nested source alone\n");
+    let nested_before = nested.state();
+
+    let target = NativeRepo::new();
+    target.write("keep.txt", "destination checkout\n");
+    target.jj(&["describe", "-m", "destination"]);
+    let checkout = target.log("@", "commit_id");
+    let checkout_files = target.state().3;
+    let operations = || {
+        target.jj(&[
+            "--ignore-working-copy",
+            "op",
+            "log",
+            "--no-graph",
+            "-T",
+            "id ++ \"\\n\"",
+        ])
+    };
+    let operations_before = operations();
+    target.jj(&[
+        "project",
+        "import",
+        "--preserve",
+        &format!("bundle={}", preserved.path.display()),
+        "--nested",
+        &format!("outer={}", nested.path.display()),
+        "--mount",
+        "bundle=vendor/preserved",
+        "--mount",
+        "outer=vendor/nested",
+    ]);
+    assert_eq!(
+        operations().lines().skip(1).collect::<Vec<_>>(),
+        operations_before.lines().collect::<Vec<_>>()
+    );
+    assert_eq!(target.log("@", "commit_id"), checkout);
+    assert_eq!(target.state().3, checkout_files);
+    assert_eq!(preserved.state(), preserved_before);
+    assert_eq!(nested.state(), nested_before);
+
+    let imported = target.project("alpha");
+    assert_eq!(imported["id"], preserved_project["id"]);
+    assert_eq!(
+        imported["candidates"][0]["definition"]["path"],
+        "vendor/preserved/lib"
+    );
+    let wrapper = target.project("outer");
+    assert_ne!(wrapper["id"], nested_project["id"]);
+    assert_ne!(wrapper["id"], preserved_project["id"]);
+    assert_eq!(
+        wrapper["candidates"][0]["definition"]["path"],
+        "vendor/nested"
+    );
+    let projects: serde_json::Value =
+        serde_json::from_str(&target.jj(&["project", "list", "--json"])).unwrap();
+    assert_eq!(projects["projects"].as_array().unwrap().len(), 2);
+    for reference in ["main#alpha", "bundle/root-main", "v1#alpha"] {
+        assert_eq!(target.change_id(reference), preserved_change);
+    }
+    for reference in ["main#outer", "main#beta#outer", "v1#outer"] {
+        assert_eq!(target.change_id(reference), nested_change);
+    }
+    for (revision, path, contents) in [
+        (
+            "main#alpha",
+            "vendor/preserved/lib/value.txt",
+            "preserved project\n",
+        ),
+        (
+            "bundle/root-main",
+            "vendor/preserved/root.txt",
+            "preserved root\n",
+        ),
+        (
+            "main#outer",
+            "vendor/nested/pkg/value.txt",
+            "nested project\n",
+        ),
+    ] {
+        assert_eq!(target.jj(&["file", "show", "-r", revision, path]), contents);
+    }
+    for revision in ["bundle/root-main", "main#outer"] {
+        assert!(
+            !target
+                .jj(&["file", "list", "-r", revision])
+                .contains("unrecorded.txt")
+        );
+    }
+}
+
+#[test]
+fn rejects_invalid_import_arguments_without_publishing_any_source() {
     let a = NativeRepo::new();
     a.write("a.txt", "a\n");
     a.jj(&["status"]);
@@ -571,12 +917,27 @@ fn rejects_duplicate_source_names_without_publishing_any_source() {
 
     for colocated in [false, true] {
         let target = NativeRepo::with_colocation(colocated);
-        let before = target.state();
-        let output = target.unchecked(&[
-            "project", "import", "--source", &a_source, "--source", &repeated,
+        for (first, second) in [
+            ("--nested", "--nested"),
+            ("--preserve", "--preserve"),
+            ("--nested", "--preserve"),
+            ("--preserve", "--nested"),
+        ] {
+            target.assert_rejected_without_changes(&[
+                "project", "import", first, &a_source, second, &repeated,
+            ]);
+        }
+        target.assert_rejected_without_changes(&["project", "import"]);
+        target.assert_rejected_without_changes(&[
+            "project",
+            "import",
+            "--nested",
+            &a_source,
+            "--preserve",
+            &format!("b={}", b.path.display()),
+            "--mount",
+            "missing=vendor/missing",
         ]);
-        assert!(!output.status.success(), "collision unexpectedly succeeded");
-        assert_eq!(target.state(), before);
     }
     assert_eq!(a.state(), a_before);
     assert_eq!(b.state(), b_before);
@@ -657,9 +1018,9 @@ fn rejects_non_repository_sources_without_publishing_any_source() {
                     .unchecked(&[
                         "project",
                         "import",
-                        "--source",
+                        "--nested",
                         &valid_source,
-                        "--source",
+                        "--nested",
                         &invalid_source,
                     ])
                     .status
@@ -719,7 +1080,7 @@ fn direct_native_import_preserves_recorded_state_without_rebuilding_source_index
     target.jj(&[
         "project",
         "import",
-        "--source",
+        "--nested",
         &format!("app={}", source.path.display()),
     ]);
     assert!(!association.exists(), "source index was rebuilt");
@@ -742,7 +1103,7 @@ fn direct_native_import_preserves_recorded_state_without_rebuilding_source_index
             .unchecked(&[
                 "project",
                 "import",
-                "--source",
+                "--nested",
                 &format!("app={}", source.path.display())
             ])
             .status
@@ -787,7 +1148,7 @@ fn scope_suffix_convention_uses_native_tracking_and_project_publication() {
     mono.jj(&[
         "project",
         "import",
-        "--source",
+        "--nested",
         &format!("alpha={}", source.path.display()),
     ]);
     let scoped = "main#alpha";
@@ -896,7 +1257,7 @@ fn scope_suffix_convention_rejects_an_occupied_name_namespace() {
     let output = mono.unchecked(&[
         "project",
         "import",
-        "--source",
+        "--nested",
         &format!("alpha={}", source.path.display()),
     ]);
     assert!(!output.status.success());
@@ -926,9 +1287,9 @@ fn native_partial_publication_returns_to_canonical_change_and_accepts_contributi
     mono.jj(&[
         "project",
         "import",
-        "--source",
+        "--nested",
         &format!("alpha={}", alpha.path.display()),
-        "--source",
+        "--nested",
         &format!("beta={}", beta.path.display()),
     ]);
     mono.jj(&["new", "@", "main#alpha", "main#beta", "-m", "composition"]);
@@ -1182,7 +1543,7 @@ fn native_boundary_migration_preserves_rewrites_and_old_version_intake() {
         mono.jj(&[
             "project",
             "import",
-            "--source",
+            "--nested",
             &format!("app={}", source.path.display()),
         ]);
         let original = mono.log("main#app", "commit_id");
@@ -1784,7 +2145,7 @@ fn native_import_fetch_push_use_nested_mounts() {
     dest.jj(&[
         "project",
         "import",
-        "--source",
+        "--nested",
         &format!("alpha={}", source.path.display()),
         "--mount",
         "alpha=vendor/alpha",
@@ -1887,7 +2248,7 @@ fn native_import_rejects_occupied_or_overlapping_mounts() {
     let occupied = dest.unchecked(&[
         "project",
         "import",
-        "--source",
+        "--nested",
         &format!("alpha={}", source.path.display()),
         "--mount",
         "alpha=vendor/alpha",
@@ -1898,9 +2259,9 @@ fn native_import_rejects_occupied_or_overlapping_mounts() {
     let overlapped = overlap.unchecked(&[
         "project",
         "import",
-        "--source",
+        "--nested",
         &format!("alpha={}", source.path.display()),
-        "--source",
+        "--nested",
         &format!("beta={}", other.path.display()),
         "--mount",
         "alpha=vendor",
@@ -1925,9 +2286,9 @@ fn native_project_names_are_jj_symbols() {
     dest.jj(&[
         "project",
         "import",
-        "--source",
+        "--nested",
         &format!("foo.bar={}", dotted.path.display()),
-        "--source",
+        "--nested",
         &format!("项目={}", chinese.path.display()),
     ]);
     dest.jj(&["new", "main#foo.bar", "main#项目"]);
@@ -1943,8 +2304,628 @@ fn native_project_names_are_jj_symbols() {
     let hash = dest.unchecked(&[
         "project",
         "import",
-        "--source",
+        "--nested",
         &format!("a#b={}", dotted.path.display()),
     ]);
     assert!(!hash.status.success());
+}
+
+#[test]
+fn preserve_projects_import_retains_scopes_and_active_remote_identity() {
+    let seed = NativeRepo::new();
+    seed.write("value.txt", "upstream\n");
+    seed.jj(&["describe", "-m", "upstream"]);
+    seed.bookmark("main");
+    let endpoint = seed.temp.path().join("upstream.git");
+    native_git(&seed.path, &["init", "--bare", endpoint.to_str().unwrap()]);
+    seed.jj(&["git", "remote", "add", "origin", endpoint.to_str().unwrap()]);
+    seed.jj(&["git", "push", "--remote", "origin", "--bookmark", "main"]);
+    let push_endpoint = seed.temp.path().join("publication.git");
+    native_git(
+        &seed.path,
+        &[
+            "clone",
+            "--bare",
+            endpoint.to_str().unwrap(),
+            push_endpoint.to_str().unwrap(),
+        ],
+    );
+
+    let source = NativeRepo::new();
+    source.jj(&["project", "add", "alpha", "--path", "libs/alpha"]);
+    source.jj(&["project", "add", "beta", "--path", "tools/beta"]);
+    source.jj(&["project", "rename", "beta", "tooling"]);
+    source.write("root.txt", "source root\n");
+    source.write("tools/beta/tool.txt", "second project\n");
+    source.jj(&["describe", "-m", "source root and tooling"]);
+    source.add_project_remote("origin", &endpoint, "alpha");
+    let physical = source.physical_remote("alpha", "origin");
+    native_git(
+        &source.path.join(".jj/repo/store/git"),
+        &[
+            "config",
+            &format!("remote.{physical}.pushurl"),
+            push_endpoint.to_str().unwrap(),
+        ],
+    );
+    source.jj(&[
+        "git",
+        "fetch",
+        "--remote",
+        "origin#alpha",
+        "--branch",
+        "main",
+    ]);
+    source.jj(&["bookmark", "track", "main#alpha@origin"]);
+    source.jj(&["tag", "set", "v1#alpha", "-r", "main#alpha"]);
+    source.jj(&["new", "@", "main#alpha", "-m", "source composition"]);
+    source.bookmark("main#beta");
+    source.bookmark("root-main");
+    source.jj(&["tag", "set", "root-release"]);
+    let source_change = source.change_id("@");
+    let source_alpha = source.project("alpha");
+    let source_tooling = source.project("tooling");
+    let source_main = source.change_id("main#alpha");
+    // Preserve the recorded source operation without snapshotting later edits.
+    source.write("not-recorded.txt", "leave in source\n");
+    let source_before = source.state();
+
+    let target = NativeRepo::new();
+    target.write("keep.txt", "destination root\n");
+    target.jj(&["describe", "-m", "destination"]);
+    let checkout = target.log("@", "commit_id");
+    target.jj(&[
+        "project",
+        "import",
+        "--preserve",
+        &format!("bundle={}", source.path.display()),
+        "--mount",
+        "bundle=vendor/source",
+    ]);
+
+    assert_eq!(source.state(), source_before);
+    assert_eq!(target.log("@", "commit_id"), checkout);
+    assert!(!target.path.join("vendor").exists());
+    assert_eq!(
+        target.jj(&["workspace", "list", "-T", "name ++ \"\\n\""]),
+        "default\n"
+    );
+    let projects: serde_json::Value =
+        serde_json::from_str(&target.jj(&["project", "list", "--json"])).unwrap();
+    assert_eq!(projects["projects"].as_array().unwrap().len(), 2);
+    for (name, original, path) in [
+        ("alpha", &source_alpha, "vendor/source/libs/alpha"),
+        ("tooling", &source_tooling, "vendor/source/tools/beta"),
+    ] {
+        let imported = target.project(name);
+        assert_eq!(imported["id"], original["id"]);
+        assert_eq!(imported["labels"], original["labels"]);
+        assert_eq!(imported["remotes"], original["remotes"]);
+        assert_eq!(imported["candidates"][0]["definition"]["name"], name);
+        assert_eq!(imported["candidates"][0]["definition"]["path"], path);
+        let bindings = |project: &serde_json::Value| {
+            project["bindings"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|binding| {
+                    (
+                        binding["id"].clone(),
+                        binding["candidates"][0]["definition"].clone(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(bindings(&imported), bindings(original));
+    }
+    let mut bookmarks: Vec<_> = target
+        .jj(&["bookmark", "list", "-T", r#"if(!remote, name ++ "\n")"#])
+        .lines()
+        .map(str::to_owned)
+        .collect();
+    bookmarks.sort();
+    assert_eq!(bookmarks, ["bundle/root-main", "main#alpha", "main#beta"]);
+    assert_eq!(target.change_id("bundle/root-main"), source_change);
+    assert_eq!(target.change_id("main#beta"), source_change);
+    assert_eq!(target.change_id("bundle/root-release"), source_change);
+    assert_eq!(target.change_id("v1#alpha"), source_main);
+    assert_eq!(target.change_id("main#alpha@origin"), source_main);
+    assert_eq!(
+        target.log("tracked_remote_bookmarks(main#alpha, origin)", "commit_id"),
+        target.log("main#alpha", "commit_id")
+    );
+
+    let imported_main = target.log("main#alpha@origin", "commit_id");
+    assert_eq!(target.project("alpha")["remotes"], source_alpha["remotes"]);
+    // The previously observed raw commit must resolve to the imported canonical
+    // commit, not a second canonicalization with the same tree or change ID.
+    target.jj(&[
+        "git",
+        "fetch",
+        "--remote",
+        "origin#alpha",
+        "--branch",
+        "main",
+    ]);
+    assert_eq!(target.log("main#alpha@origin", "commit_id"), imported_main);
+
+    target.jj(&["new", "@", &source_change, "-m", "destination composition"]);
+    for (path, contents) in [
+        ("keep.txt", "destination root\n"),
+        ("vendor/source/root.txt", "source root\n"),
+        ("vendor/source/libs/alpha/value.txt", "upstream\n"),
+        ("vendor/source/tools/beta/tool.txt", "second project\n"),
+    ] {
+        assert_eq!(
+            fs::read_to_string(target.path.join(path)).unwrap(),
+            contents
+        );
+    }
+    assert!(!target.path.join("vendor/source/not-recorded.txt").exists());
+    target.write(
+        "vendor/source/libs/alpha/value.txt",
+        "published from preserved project\n",
+    );
+    target.write(
+        "vendor/source/tools/beta/tool.txt",
+        "do not publish sibling\n",
+    );
+    target.jj(&["describe", "-m", "preserved project contribution"]);
+    target.bookmark("main#alpha");
+    let published = target.log("main#alpha", "commit_id");
+    target.jj(&[
+        "git",
+        "push",
+        "--remote",
+        "origin#alpha",
+        "--bookmark",
+        "main#alpha",
+    ]);
+    assert_eq!(
+        native_git(&push_endpoint, &["show", "main:value.txt"]),
+        "published from preserved project\n"
+    );
+    assert_eq!(
+        native_git(&push_endpoint, &["ls-tree", "-r", "--name-only", "main"]),
+        "value.txt\n"
+    );
+    assert_eq!(
+        native_git(&endpoint, &["show", "main:value.txt"]),
+        "upstream\n"
+    );
+    // Model upstream accepting publication before fetching through the
+    // independently preserved read endpoint.
+    native_git(
+        &push_endpoint,
+        &["push", endpoint.to_str().unwrap(), "main"],
+    );
+    target.jj(&[
+        "git",
+        "fetch",
+        "--remote",
+        "origin#alpha",
+        "--branch",
+        "main",
+    ]);
+    assert_eq!(target.log("main#alpha@origin", "commit_id"), published);
+    assert_eq!(target.project("alpha")["remotes"], source_alpha["remotes"]);
+    assert_eq!(
+        target.project("alpha")["bindings"][0]["id"],
+        source_alpha["bindings"][0]["id"]
+    );
+    assert_eq!(source.state(), source_before);
+}
+
+#[test]
+fn preserve_projects_retains_unindexed_legacy_lease_for_non_fast_forward_publication() {
+    let seed = NativeRepo::new();
+    seed.write("value.txt", "upstream\n");
+    seed.jj(&["describe", "-m", "upstream main"]);
+    seed.bookmark("main");
+    let endpoint = seed.temp.path().join("upstream.git");
+    native_git(&seed.path, &["init", "--bare", endpoint.to_str().unwrap()]);
+    seed.jj(&["git", "remote", "add", "origin", endpoint.to_str().unwrap()]);
+    seed.jj(&["git", "push", "--remote", "origin", "--bookmark", "main"]);
+    let main_raw = native_git(&endpoint, &["rev-parse", "main"]);
+    seed.jj(&["new", "-m", "retained branch"]);
+    seed.write("retained-only.txt", "old branch contribution\n");
+    seed.bookmark("retained");
+    seed.jj(&[
+        "git",
+        "push",
+        "--remote",
+        "origin",
+        "--bookmark",
+        "retained",
+    ]);
+
+    let source = NativeRepo::new();
+    source.jj(&["project", "add", "alpha", "--path", "libs/alpha"]);
+    source.jj(&["project", "add", "beta", "--path", "tools/beta"]);
+    source.write("root.txt", "source root\n");
+    source.write("tools/beta/tool.txt", "sibling project\n");
+    source.jj(&["describe", "-m", "source root and sibling"]);
+    source.add_project_remote("origin", &endpoint, "alpha");
+    source.jj(&[
+        "git",
+        "fetch",
+        "--remote",
+        "origin#alpha",
+        "--branch",
+        "main",
+    ]);
+    source.jj(&["bookmark", "track", "main#alpha@origin"]);
+    source.jj(&["new", "@", "main#alpha", "-m", "source composition"]);
+    source.bookmark("root-main");
+    let source_change = source.change_id("@");
+
+    // Archived sources can retain this supported legacy lease without a
+    // corresponding conversion observation: only main was converted above.
+    // The key is a real Git blob containing endpoint NUL destination, and the
+    // legacy ref points directly at the unconverted upstream commit.
+    let source_git = source.path.join(".jj/repo/store/git");
+    let key_file = source.temp.path().join("legacy-publication-key");
+    fs::write(
+        &key_file,
+        format!("file://{}\0refs/heads/retained", endpoint.display()),
+    )
+    .unwrap();
+    let key = native_git(
+        &source_git,
+        &["hash-object", "-w", key_file.to_str().unwrap()],
+    );
+    native_git(
+        &source_git,
+        &[
+            "fetch",
+            "--no-tags",
+            "--no-write-fetch-head",
+            endpoint.to_str().unwrap(),
+            &format!("refs/heads/retained:refs/jjosh/link-push/{}", key.trim()),
+        ],
+    );
+
+    let target = NativeRepo::new();
+    target.write("keep.txt", "destination root\n");
+    target.jj(&["describe", "-m", "destination"]);
+    target.jj(&[
+        "project",
+        "import",
+        "--preserve",
+        &format!("bundle={}", source.path.display()),
+        "--mount",
+        "bundle=vendor/source",
+    ]);
+    target.jj(&["new", "@", &source_change, "-m", "destination composition"]);
+    target.write(
+        "vendor/source/libs/alpha/value.txt",
+        "published using retained lease\n",
+    );
+    target.write(
+        "vendor/source/tools/beta/tool.txt",
+        "do not publish sibling\n",
+    );
+    target.jj(&["describe", "-m", "project contribution"]);
+    target.bookmark("retained#alpha");
+
+    // This contribution descends from main, not the retained-only commit.
+    // Naming the bookmark explicitly permits a new tracking relationship, but
+    // an unknown wire lease still rejects the non-fast-forward update.
+    // Do not fetch or reconnect after import: publication must use the lease.
+    target.jj(&[
+        "git",
+        "push",
+        "--remote",
+        "origin#alpha",
+        "--bookmark",
+        "retained#alpha",
+    ]);
+    assert_eq!(
+        native_git(&endpoint, &["show", "retained:value.txt"]),
+        "published using retained lease\n"
+    );
+    assert_eq!(
+        native_git(&endpoint, &["ls-tree", "-r", "--name-only", "retained"]),
+        "value.txt\n"
+    );
+    assert_eq!(native_git(&endpoint, &["rev-parse", "main"]), main_raw);
+}
+
+#[test]
+fn preserve_projects_rejects_configured_unbound_root_endpoint_without_publication() {
+    let seed = NativeRepo::new();
+    seed.write("value.txt", "read endpoint\n");
+    seed.jj(&["describe", "-m", "read endpoint"]);
+    seed.bookmark("main");
+    seed.jj(&["git", "export"]);
+    let endpoint = seed.path.join(".jj/repo/store/git");
+
+    let source = NativeRepo::new();
+    source.jj(&["project", "add", "alpha", "--path", "lib"]);
+    source.write("lib/local.txt", "source project\n");
+    source.jj(&["describe", "-m", "source project"]);
+    let source_git = source.path.join(".jj/repo/store/git");
+    // Configuration alone activates this endpoint, even without fetched
+    // observations. It has no project binding to translate mounted history.
+    native_git(
+        &source_git,
+        &["remote", "add", "origin", endpoint.to_str().unwrap()],
+    );
+    native_git(
+        &source_git,
+        &["config", "remote.origin.tagOpt", "--no-tags"],
+    );
+    native_git(
+        &source_git,
+        &[
+            "config",
+            "remote.origin.pushurl",
+            seed.temp.path().join("publication.git").to_str().unwrap(),
+        ],
+    );
+    let source_before = source.state();
+    let source_config = fs::read(source_git.join("config")).unwrap();
+    let source_refs = native_git(
+        &source_git,
+        &["for-each-ref", "--format=%(refname) %(objectname)"],
+    );
+
+    let target = NativeRepo::new();
+    target.write("keep.txt", "destination\n");
+    target.jj(&["describe", "-m", "destination"]);
+    target.bookmark("existing");
+    target.jj(&[
+        "git",
+        "remote",
+        "add",
+        "existing",
+        endpoint.to_str().unwrap(),
+    ]);
+    target.jj(&["git", "fetch", "--remote", "existing", "--branch", "main"]);
+    target.assert_rejected_without_changes(&[
+        "project",
+        "import",
+        "--preserve",
+        &format!("archive={}", source.path.display()),
+    ]);
+    assert_eq!(source.state(), source_before);
+    assert_eq!(fs::read(source_git.join("config")).unwrap(), source_config);
+    assert_eq!(
+        native_git(
+            &source_git,
+            &["for-each-ref", "--format=%(refname) %(objectname)"],
+        ),
+        source_refs
+    );
+}
+
+#[test]
+fn preserve_projects_rejects_duplicate_project_identity_without_publication() {
+    let source = NativeRepo::new();
+    source.jj(&["project", "add", "alpha", "--path", "lib"]);
+    source.write("lib/value.txt", "source\n");
+    source.jj(&["describe", "-m", "source"]);
+    source.bookmark("main#alpha");
+    let target = NativeRepo::new();
+    target.jj(&[
+        "project",
+        "import",
+        "--preserve",
+        &format!("first={}", source.path.display()),
+    ]);
+    assert_eq!(
+        target.project("alpha")["candidates"][0]["definition"]["path"],
+        "first/lib"
+    );
+    assert_eq!(target.project("alpha")["id"], source.project("alpha")["id"]);
+    target.assert_rejected_without_changes(&[
+        "project",
+        "import",
+        "--preserve",
+        &format!("second={}", source.path.display()),
+    ]);
+}
+
+#[test]
+fn mixed_import_preflights_names_labels_roots_and_reference_collisions() {
+    let source = NativeRepo::new();
+    source.jj(&["project", "add", "alpha", "--path", "lib"]);
+    source.jj(&["project", "rename", "alpha", "service"]);
+    source.write("lib/value.txt", "source\n");
+    source.jj(&["describe", "-m", "source"]);
+    source.bookmark("main#alpha");
+    source.bookmark("root-main");
+    let source_before = source.state();
+    let valid = NativeRepo::new();
+    valid.jj(&["project", "add", "independent", "--path", "pkg"]);
+    valid.write("pkg/other.txt", "must not be partially imported\n");
+    valid.jj(&["describe", "-m", "independent source"]);
+    valid.bookmark("main#independent");
+    let valid_before = valid.state();
+
+    for collision in ["name", "label", "root", "reference"] {
+        let target = NativeRepo::new();
+        match collision {
+            "name" => {
+                target.jj(&["project", "add", "service", "--path", "existing"]);
+            }
+            "label" => {
+                target.jj(&["project", "add", "alpha", "--path", "existing"]);
+                target.jj(&["project", "rename", "alpha", "existing"]);
+            }
+            "root" => {
+                target.jj(&["project", "add", "existing", "--path", "bundle/lib"]);
+            }
+            "reference" => target.bookmark("bundle/root-main"),
+            _ => unreachable!(),
+        }
+        target.assert_rejected_without_changes(&[
+            "project",
+            "import",
+            "--nested",
+            &format!("accepted={}", valid.path.display()),
+            "--preserve",
+            &format!("bundle={}", source.path.display()),
+        ]);
+    }
+    // Reservations from another input must reject collisions just like
+    // projects already present in the target, regardless of option order.
+    for (name, mount) in [
+        ("service", "accepted"),
+        ("alpha", "accepted"),
+        ("accepted", "bundle/lib"),
+    ] {
+        let target = NativeRepo::new();
+        target.assert_rejected_without_changes(&[
+            "project",
+            "import",
+            "--preserve",
+            &format!("bundle={}", source.path.display()),
+            "--nested",
+            &format!("{name}={}", valid.path.display()),
+            "--mount",
+            &format!("{name}={mount}"),
+        ]);
+    }
+    assert_eq!(source.state(), source_before);
+    assert_eq!(valid.state(), valid_before);
+}
+
+#[test]
+fn preserve_projects_rejects_repository_view_bindings_before_publication() {
+    let source = NativeRepo::new();
+    source.jj(&["project", "add", "alpha", "--path", "lib"]);
+    source.write("lib/value.txt", "source\n");
+    source.jj(&["describe", "-m", "source with repository view"]);
+    source.bookmark("main#alpha");
+    let endpoint = source.temp.path().join("view.git");
+    native_git(
+        &source.path,
+        &["init", "--bare", endpoint.to_str().unwrap()],
+    );
+    source.jj(&[
+        "git",
+        "remote",
+        "add",
+        "view",
+        endpoint.to_str().unwrap(),
+        "--filter",
+        ":/lib",
+    ]);
+    let source_before = source.state();
+    let target = NativeRepo::new();
+    target.write("keep.txt", "destination\n");
+    target.jj(&["describe", "-m", "destination"]);
+    target.bookmark("keep");
+    target.jj(&[
+        "git",
+        "remote",
+        "add",
+        "existing",
+        endpoint.to_str().unwrap(),
+    ]);
+    target.jj(&["config", "set", "--repo", "git.fetch", "existing"]);
+    target.jj(&["git", "export"]);
+    target.assert_rejected_without_changes(&[
+        "project",
+        "import",
+        "--preserve",
+        &format!("bundle={}", source.path.display()),
+    ]);
+    assert_eq!(source.state(), source_before);
+}
+
+#[test]
+fn preserve_projects_filtered_publication_survives_source_repository_relocation() {
+    let seed = NativeRepo::new();
+    seed.write("subdir/value.txt", "upstream project\n");
+    seed.write("outside.txt", "upstream-only file\n");
+    seed.jj(&["describe", "-m", "filtered upstream"]);
+    seed.bookmark("main");
+    let endpoint = seed.temp.path().join("upstream.git");
+    native_git(&seed.path, &["init", "--bare", endpoint.to_str().unwrap()]);
+    seed.jj(&["git", "remote", "add", "origin", endpoint.to_str().unwrap()]);
+    seed.jj(&["git", "push", "--remote", "origin", "--bookmark", "main"]);
+    let upstream_parent = native_git(&endpoint, &["rev-parse", "main"]);
+
+    let source = NativeRepo::new();
+    source.jj(&["project", "add", "api", "--path", "packages/api"]);
+    source.jj(&[
+        "git",
+        "remote",
+        "add",
+        "origin",
+        endpoint.to_str().unwrap(),
+        "--project",
+        "api",
+        "--filter",
+        ":/subdir",
+        "--base",
+        "main",
+    ]);
+    source.jj(&["git", "fetch", "--remote", "origin#api", "--branch", "main"]);
+    source.jj(&["bookmark", "track", "main#api@origin"]);
+    let source_change = source.change_id("main#api");
+    let source_operation = source.operation_id();
+
+    let target = NativeRepo::new();
+    target.jj(&[
+        "project",
+        "import",
+        "--preserve",
+        &format!("archive={}", source.path.display()),
+    ]);
+    assert_eq!(source.operation_id(), source_operation);
+    assert_eq!(target.change_id("main#api@origin"), source_change);
+    fs::rename(&source.path, source.temp.path().join("relocated-source")).unwrap();
+    assert!(!source.path.exists());
+    // Push before fetching again: publication must use the imported observation
+    // and raw generation, not rebuild them from the endpoint or old source path.
+    target.jj(&[
+        "new",
+        "main#api",
+        "-m",
+        "continue imported filtered project",
+    ]);
+    assert_eq!(
+        fs::read_to_string(target.path.join("archive/packages/api/value.txt")).unwrap(),
+        "upstream project\n"
+    );
+    target.write("archive/packages/api/value.txt", "filtered contribution\n");
+    target.write("local-only.txt", "never publish destination root\n");
+    target.jj(&["describe", "-m", "filtered contribution"]);
+    target.bookmark("main#api");
+    let published = target.log("main#api", "commit_id");
+    let published_change = target.change_id("main#api");
+    target.jj(&[
+        "git",
+        "push",
+        "--remote",
+        "origin#api",
+        "--bookmark",
+        "main#api",
+    ]);
+    assert_eq!(
+        native_git(&endpoint, &["rev-parse", "main^"]),
+        upstream_parent
+    );
+    assert_eq!(
+        native_git(&endpoint, &["show", "main:subdir/value.txt"]),
+        "filtered contribution\n"
+    );
+    assert_eq!(
+        native_git(&endpoint, &["show", "main:outside.txt"]),
+        "upstream-only file\n"
+    );
+    assert_eq!(
+        native_git(&endpoint, &["ls-tree", "-r", "--name-only", "main"]),
+        "outside.txt\nsubdir/value.txt\n"
+    );
+    target.jj(&["git", "fetch", "--remote", "origin#api", "--branch", "main"]);
+    assert_eq!(target.log("main#api@origin", "commit_id"), published);
+    assert_eq!(target.change_id("main#api@origin"), published_change);
+    assert_eq!(
+        fs::read_to_string(target.path.join("local-only.txt")).unwrap(),
+        "never publish destination root\n"
+    );
 }

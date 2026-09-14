@@ -33,39 +33,69 @@ pub(crate) fn generation(endpoint: &str, input: ObjectId) -> String {
 }
 
 pub(crate) fn parse_generation(value: &str) -> Result<(String, ObjectId)> {
-    let (endpoint, input): (String, String) = serde_json::from_str(value).context("Invalid source generation witness")?;
+    let (endpoint, input): (String, String) =
+        serde_json::from_str(value).context("Invalid source generation witness")?;
     Ok((endpoint, ObjectId::from_hex(input.as_bytes())?))
 }
 
 impl SourceRepo {
-
     pub fn open(main: &gix::Repository, endpoint: &str) -> Result<Self> {
-        ensure!(main.object_hash() == gix::hash::Kind::Sha1, "Source projection requires SHA-1");
+        Self::install_new(main, endpoint, |_| Ok(()))?;
+        Self::open_existing(main, endpoint)?.context("Initialized source repository is missing")
+    }
+
+    /// Populate a configured staging repository before publishing a new cache.
+    /// Returns false if an existing or concurrently installed cache must be merged.
+    pub(crate) fn install_new(
+        main: &gix::Repository,
+        endpoint: &str,
+        populate: impl FnOnce(&Self) -> Result<()>,
+    ) -> Result<bool> {
+        ensure!(
+            main.object_hash() == gix::hash::Kind::Sha1,
+            "Source projection requires SHA-1"
+        );
         let path = Self::cache_path(main, endpoint)?;
-        if !path.try_exists()? {
-            let parent = path.parent().context("Source cache has no parent directory")?;
-            fs::create_dir_all(parent)?;
-            // Install a fully configured repository, never a partially initialized cache.
-            let temporary = tempfile::tempdir_in(parent)?;
-            let initial = gix::init_bare(temporary.path())?;
-            let config_path = main.config_path(gix::config::Source::Local)?.canonicalize()?;
-            let objects_path = main.objects.store_ref().path().canonicalize()?;
-            let mut config = b"[include]\n\tpath = ".to_vec();
-            config.extend(quoted_path(&config_path));
-            config.extend_from_slice(b"\n[core]\n\trepositoryFormatVersion = 0\n\tbare = true\n\tlogAllRefUpdates = false\n[gitoxide \"core\"]\n\tshallowFile = shallow\n");
-            fs::write(initial.git_dir().join("config"), config)?;
-            fs::create_dir_all(initial.git_dir().join("objects/info"))?;
-            let mut alternate = quoted_path(&objects_path);
-            alternate.push(b'\n');
-            fs::write(initial.git_dir().join("objects/info/alternates"), alternate)?;
-            drop(initial);
-            if let Err(error) = fs::rename(temporary.path(), &path) {
-                // A concurrent initializer may have installed the same endpoint.
-                if !path.try_exists()? {
-                    return Err(error).context("Installing source repository");
-                }
-            }
+        if path.try_exists()? {
+            return Ok(false);
         }
+        let parent = path
+            .parent()
+            .context("Source cache has no parent directory")?;
+        fs::create_dir_all(parent)?;
+        let temporary = tempfile::tempdir_in(parent)?;
+        let initial = gix::init_bare(temporary.path())?;
+        let config_path = main
+            .config_path(gix::config::Source::Local)?
+            .canonicalize()?;
+        let objects_path = main.objects.store_ref().path().canonicalize()?;
+        let mut config = b"[include]\n\tpath = ".to_vec();
+        config.extend(quoted_path(&config_path));
+        config.extend_from_slice(b"\n[core]\n\trepositoryFormatVersion = 0\n\tbare = true\n\tlogAllRefUpdates = false\n[gitoxide \"core\"]\n\tshallowFile = shallow\n");
+        fs::write(initial.git_dir().join("config"), config)?;
+        fs::create_dir_all(initial.git_dir().join("objects/info"))?;
+        let mut alternate = quoted_path(&objects_path);
+        alternate.push(b'\n');
+        fs::write(initial.git_dir().join("objects/info/alternates"), alternate)?;
+        drop(initial);
+        let staged = Self::open_at(main, temporary.path())?;
+        populate(&staged)?;
+        drop(staged);
+        if path.try_exists()? {
+            return Ok(false);
+        }
+        if let Err(error) = fs::rename(temporary.path(), &path) {
+            // A configured repository is nonempty, so rename cannot replace a
+            // concurrently installed cache. Its evidence must be checked instead.
+            if path.try_exists()? {
+                return Ok(false);
+            }
+            return Err(error).context("Installing source repository");
+        }
+        Ok(true)
+    }
+
+    fn open_at(main: &gix::Repository, path: &Path) -> Result<Self> {
         let mut git = gix::open_opts(
             path,
             gix::open::Options::default().config_overrides([
@@ -76,8 +106,68 @@ impl SourceRepo {
         )?;
         git.clear_namespace();
         ensure!(git.is_bare(), "Source cache must be bare");
-        ensure!(git.object_hash() == main.object_hash(), "Source cache object format mismatch");
+        ensure!(
+            git.object_hash() == main.object_hash(),
+            "Source cache object format mismatch"
+        );
         Ok(Self { git })
+    }
+
+    /// Open existing evidence without initializing or configuring the source.
+    pub(crate) fn open_existing(main: &gix::Repository, endpoint: &str) -> Result<Option<Self>> {
+        let path = Self::cache_path(main, endpoint)?;
+        if !path.try_exists()? {
+            return Ok(None);
+        }
+        Self::open_at(main, &path).map(Some)
+    }
+
+    /// Historical cut edges remain necessary after a source has been deepened.
+    pub(crate) fn import_boundaries(&self) -> Result<HashSet<ObjectId>> {
+        let mut boundaries = self.boundaries()?;
+        for (input, raw) in self.persisted_inverse()? {
+            let object = self.git.find_object(input)?;
+            ensure!(
+                object.kind == gix_object::Kind::Commit,
+                "Normalization input is not a commit"
+            );
+            ensure!(
+                self.git.find_object(raw)?.kind == gix_object::Kind::Commit,
+                "Normalization raw original is not a commit"
+            );
+            if gix_object::CommitRef::from_bytes(&object.data, input.kind())?
+                .parents()
+                .next()
+                .is_none()
+            {
+                boundaries.insert(raw);
+            }
+        }
+        Ok(boundaries)
+    }
+
+    /// Check an observation against retained provenance. The import capture
+    /// validates all retained complete-generation closures in one shared walk.
+    pub(crate) fn verify_import_generation_witness(
+        &self,
+        raw: ObjectId,
+        input: ObjectId,
+    ) -> Result<()> {
+        let inverse = self.persisted_inverse()?;
+        ensure!(
+            inverse.get(&input).copied().unwrap_or(input) == raw,
+            "Source generation does not identify the observed raw input"
+        );
+        let name = format!("refs/jjosh/generations/{input}");
+        let reference = self
+            .git
+            .find_reference(name.as_str())
+            .context("Observed source generation is unavailable")?;
+        ensure!(
+            reference.target().try_id() == Some(input.as_ref()),
+            "Source generation retention was modified"
+        );
+        Ok(())
     }
 
     pub fn git(&self) -> &gix::Repository {
@@ -89,23 +179,39 @@ impl SourceRepo {
     }
 
     /// Recover the exact complete input graph witnessed by an older operation.
-    pub fn witnessed_generation(&self, tx: &Transaction, raw: ObjectId, input: ObjectId) -> Result<Normalized> {
+    pub fn witnessed_generation(
+        &self,
+        tx: &Transaction,
+        raw: ObjectId,
+        input: ObjectId,
+    ) -> Result<Normalized> {
         self.check_transaction(tx)?;
         let inverse = self.persisted_inverse()?;
-        ensure!(inverse.get(&input).copied().unwrap_or(input) == raw, "Source generation does not identify the observed raw input");
+        ensure!(
+            inverse.get(&input).copied().unwrap_or(input) == raw,
+            "Source generation does not identify the observed raw input"
+        );
         let retained = tx.resolve_ref(&format!("refs/jjosh/generations/{input}"))?;
-        ensure!(retained == Some(input), "Observed source generation is unavailable; fetch cannot replace historical conversion evidence");
+        ensure!(
+            retained == Some(input),
+            "Observed source generation is unavailable; fetch cannot replace historical conversion evidence"
+        );
         let mut visited = HashSet::new();
         let mut pending = vec![input];
         let mut pairs = Vec::new();
         while let Some(id) = pending.pop() {
-            if !visited.insert(id) { continue; }
+            if !visited.insert(id) {
+                continue;
+            }
             let commit = CommitData::read(tx.odb(), id)?;
             pending.extend(commit.parsed()?.parents());
             pairs.push((inverse.get(&id).copied().unwrap_or(id), id));
         }
         copy_objects(tx.odb(), None, &[input], &HashSet::new(), false)?;
-        Ok(Normalized { tips: BTreeMap::from([(raw, input)]), pairs })
+        Ok(Normalized {
+            tips: BTreeMap::from([(raw, input)]),
+            pairs,
+        })
     }
 
     pub fn retain_observations(&self, tx: &Transaction, objects: &[ObjectId]) -> Result<()> {
@@ -113,8 +219,19 @@ impl SourceRepo {
         for id in objects {
             let name = format!("refs/jjosh/observed-objects/{id}");
             let old = tx.resolve_ref(&name)?;
-            ensure!(old.is_none_or(|old| old == *id), "Observed object retention was modified");
-            tx.update_ref(&name, old.map_or(josh_core::cache::Expected::Absent, josh_core::cache::Expected::At), *id, "retain immutable source observation")?;
+            ensure!(
+                old.is_none_or(|old| old == *id),
+                "Observed object retention was modified"
+            );
+            tx.update_ref(
+                &name,
+                old.map_or(
+                    josh_core::cache::Expected::Absent,
+                    josh_core::cache::Expected::At,
+                ),
+                *id,
+                "retain immutable source observation",
+            )?;
         }
         Ok(())
     }
@@ -140,17 +257,33 @@ impl SourceRepo {
         }
         self.retain_raw(&tx, &migrated.iter().map(|(_, id)| *id).collect::<Vec<_>>())?;
         for (name, id) in migrated {
-            tx.update_ref(&name, josh_core::cache::Expected::Absent, id, "isolate source context")?;
+            tx.update_ref(
+                &name,
+                josh_core::cache::Expected::Absent,
+                id,
+                "isolate source context",
+            )?;
         }
         let marker = josh_core::objects::write_blob(tx.odb(), b"source-context-v1\n")?;
-        tx.update_ref(INITIALIZED_REF, josh_core::cache::Expected::Absent, marker, "initialize isolated source")?;
+        tx.update_ref(
+            INITIALIZED_REF,
+            josh_core::cache::Expected::Absent,
+            marker,
+            "initialize isolated source",
+        )?;
         tx.flush_mem_odb()
     }
 
     /// Source refs must remain valid even if canonical objects are later collected.
     pub fn retain_raw(&self, tx: &Transaction, tips: &[ObjectId]) -> Result<()> {
         self.check_transaction(tx)?;
-        copy_objects(tx.odb(), Some(&self.git), tips, &self.retention_boundaries(tx)?, false)
+        copy_objects(
+            tx.odb(),
+            Some(&self.git),
+            tips,
+            &self.retention_boundaries(tx)?,
+            false,
+        )
     }
 
     /// Cut exactly the declared shallow edges, and rewrite only their descendants.
@@ -215,12 +348,29 @@ impl SourceRepo {
         let raw_roots: Vec<_> = normalized.tips.keys().copied().collect();
         self.retain_raw(tx, &raw_roots)?;
         let complete_roots: Vec<_> = normalized.tips.values().copied().collect();
-        copy_objects(tx.odb(), Some(&self.git), &complete_roots, &HashSet::new(), false)?;
+        copy_objects(
+            tx.odb(),
+            Some(&self.git),
+            &complete_roots,
+            &HashSet::new(),
+            false,
+        )?;
         for input in &complete_roots {
             let name = format!("refs/jjosh/generations/{input}");
             let old = tx.resolve_ref(&name)?;
-            ensure!(old.is_none_or(|old| old == *input), "Source generation retention was modified");
-            tx.update_ref(&name, old.map_or(josh_core::cache::Expected::Absent, josh_core::cache::Expected::At), *input, "retain source normalization generation")?;
+            ensure!(
+                old.is_none_or(|old| old == *input),
+                "Source generation retention was modified"
+            );
+            tx.update_ref(
+                &name,
+                old.map_or(
+                    josh_core::cache::Expected::Absent,
+                    josh_core::cache::Expected::At,
+                ),
+                *input,
+                "retain source normalization generation",
+            )?;
         }
         let mut inverse = BTreeMap::new();
         for &(raw, input) in &normalized.pairs {
@@ -231,10 +381,19 @@ impl SourceRepo {
         if inverse.is_empty() {
             return Ok(());
         }
-        let roots: Vec<_> = inverse.iter().flat_map(|(&input, &raw)| [input, raw]).collect();
+        let roots: Vec<_> = inverse
+            .iter()
+            .flat_map(|(&input, &raw)| [input, raw])
+            .collect();
         // Do not skip alternates here: source retention must not rely on a main
         // repository GC retaining objects only reachable from source-side refs.
-        copy_objects(tx.odb(), Some(&self.git), &roots, &self.retention_boundaries(tx)?, false)?;
+        copy_objects(
+            tx.odb(),
+            Some(&self.git),
+            &roots,
+            &self.retention_boundaries(tx)?,
+            false,
+        )?;
         let mut edits = Vec::with_capacity(inverse.len() * 2);
         for (input, raw) in inverse {
             for (suffix, target) in [("raw", raw), ("normalized", input)] {
@@ -252,7 +411,12 @@ impl SourceRepo {
 
     /// Reverse both the current normalization and every retained older generation.
     /// Known raw originals are terminal anchors, even if their parents are absent.
-    pub fn denormalize(&self, tx: &Transaction, tip: ObjectId, normalized: &Normalized) -> Result<Normalized> {
+    pub fn denormalize(
+        &self,
+        tx: &Transaction,
+        tip: ObjectId,
+        normalized: &Normalized,
+    ) -> Result<Normalized> {
         self.check_transaction(tx)?;
         let mut anchors = self.persisted_inverse()?;
         for &(raw, input) in &normalized.pairs {
@@ -287,7 +451,10 @@ impl SourceRepo {
                     let id = commit.id();
                     let parsed = commit.parsed()?;
                     let parents: Vec<_> = parsed.parents().map(|parent| mapped[&parent]).collect();
-                    let has_provenance = parsed.extra_headers.iter().any(|(key, _)| *key == PROVENANCE);
+                    let has_provenance = parsed
+                        .extra_headers
+                        .iter()
+                        .any(|(key, _)| *key == PROVENANCE);
                     let raw = if !has_provenance && parsed.parents().eq(parents.iter().copied()) {
                         id
                     } else {
@@ -300,24 +467,37 @@ impl SourceRepo {
         }
         Ok(Normalized {
             tips: BTreeMap::from([(mapped[&tip], tip)]),
-            pairs: mapped.into_iter().map(|(input, raw)| (raw, input)).collect(),
+            pairs: mapped
+                .into_iter()
+                .map(|(input, raw)| (raw, input))
+                .collect(),
         })
     }
 
     /// Copy a complete canonical closure after the source transaction is flushed.
     /// A destination-present object is assumed to already have a complete closure.
     pub fn copy_complete_to(&self, destination: &gix::Repository, tips: &[ObjectId]) -> Result<()> {
-        ensure!(self.git.object_hash() == destination.object_hash(), "Object format mismatch");
+        ensure!(
+            self.git.object_hash() == destination.object_hash(),
+            "Object format mismatch"
+        );
         copy_objects(&self.git, Some(destination), tips, &HashSet::new(), true)
     }
 
     fn cache_path(main: &gix::Repository, endpoint: &str) -> Result<PathBuf> {
-        let key = gix_object::compute_hash(main.object_hash(), gix_object::Kind::Blob, endpoint.as_bytes())?;
+        let key = gix_object::compute_hash(
+            main.object_hash(),
+            gix_object::Kind::Blob,
+            endpoint.as_bytes(),
+        )?;
         Ok(main.git_dir().join("jjosh/sources").join(key.to_string()))
     }
 
     fn check_transaction(&self, tx: &Transaction) -> Result<()> {
-        ensure!(tx.repo().git_dir().canonicalize()? == self.path().canonicalize()?, "Source transaction must be opened on the endpoint repository");
+        ensure!(
+            tx.repo().git_dir().canonicalize()? == self.path().canonicalize()?,
+            "Source transaction must be opened on the endpoint repository"
+        );
         Ok(())
     }
 
@@ -328,11 +508,17 @@ impl SourceRepo {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(HashSet::new()),
             Err(error) => return Err(error).context("Reading source shallow boundaries"),
         };
-        bytes.lines().map(|line| {
-            let id = ObjectId::from_hex(line).context("Invalid source shallow boundary")?;
-            ensure!(id.kind() == self.git.object_hash(), "Shallow boundary object format mismatch");
-            Ok(id)
-        }).collect()
+        bytes
+            .lines()
+            .map(|line| {
+                let id = ObjectId::from_hex(line).context("Invalid source shallow boundary")?;
+                ensure!(
+                    id.kind() == self.git.object_hash(),
+                    "Shallow boundary object format mismatch"
+                );
+                Ok(id)
+            })
+            .collect()
     }
 
     /// Old normalized roots still witness cut edges after the live depth changes.
@@ -340,7 +526,12 @@ impl SourceRepo {
     fn retention_boundaries(&self, tx: &Transaction) -> Result<HashSet<ObjectId>> {
         let mut boundaries = self.boundaries()?;
         for (input, raw) in self.persisted_inverse()? {
-            if CommitData::read(tx.odb(), input)?.parsed()?.parents().next().is_none() {
+            if CommitData::read(tx.odb(), input)?
+                .parsed()?
+                .parents()
+                .next()
+                .is_none()
+            {
                 boundaries.insert(raw);
             }
         }
@@ -354,8 +545,12 @@ impl SourceRepo {
         for reference in platform.prefixed(MAP_PREFIX)? {
             let reference = reference.map_err(anyhow::Error::from_boxed)?;
             let name = std::str::from_utf8(reference.name().as_bstr())?;
-            let suffix = name.strip_prefix(MAP_PREFIX).context("Invalid normalization ref namespace")?;
-            let (input, kind) = suffix.split_once('/').context("Invalid normalization ref name")?;
+            let suffix = name
+                .strip_prefix(MAP_PREFIX)
+                .context("Invalid normalization ref namespace")?;
+            let (input, kind) = suffix
+                .split_once('/')
+                .context("Invalid normalization ref name")?;
             let input = ObjectId::from_hex(input.as_bytes())?;
             let gix::refs::TargetRef::Object(target) = reference.target() else {
                 bail!("Normalization ref {name} must not be symbolic");
@@ -363,17 +558,22 @@ impl SourceRepo {
             match kind {
                 "raw" => insert_mapping(&mut inverse, input, target.to_owned())?,
                 "normalized" => {
-                    ensure!(target == input.as_ref(), "Normalization ref {name} has an inconsistent target");
+                    ensure!(
+                        target == input.as_ref(),
+                        "Normalization ref {name} has an inconsistent target"
+                    );
                     retained.insert(input);
                 }
                 _ => bail!("Invalid normalization ref {name}"),
             }
         }
-        ensure!(inverse.keys().copied().collect::<BTreeSet<_>>() == retained, "Incomplete persisted normalization mapping");
+        ensure!(
+            inverse.keys().copied().collect::<BTreeSet<_>>() == retained,
+            "Incomplete persisted normalization mapping"
+        );
         Ok(inverse)
     }
 }
-
 
 /// A short-lived object lookup view for one publication spanning several sources.
 /// It owns no refs or source history; the transport consumes it into a complete pack.
@@ -393,7 +593,10 @@ pub(crate) fn transport_repository(
         alternates.push(b'\n');
     }
     fs::create_dir_all(repository.git_dir().join("objects/info"))?;
-    fs::write(repository.git_dir().join("objects/info/alternates"), alternates)?;
+    fs::write(
+        repository.git_dir().join("objects/info/alternates"),
+        alternates,
+    )?;
     drop(repository);
     let repository = gix::open(directory.path())?;
     Ok((directory, repository))
@@ -403,17 +606,32 @@ enum CommitWork {
     Finish(CommitData),
 }
 
-fn insert_mapping(inverse: &mut BTreeMap<ObjectId, ObjectId>, input: ObjectId, raw: ObjectId) -> Result<()> {
+fn insert_mapping(
+    inverse: &mut BTreeMap<ObjectId, ObjectId>,
+    input: ObjectId,
+    raw: ObjectId,
+) -> Result<()> {
     if let Some(previous) = inverse.insert(input, raw) {
-        ensure!(previous == raw, "Ambiguous source normalization for {input}: {previous} and {raw}");
+        ensure!(
+            previous == raw,
+            "Ambiguous source normalization for {input}: {previous} and {raw}"
+        );
     }
     Ok(())
 }
 
-fn rewrite(tx: &Transaction, commit: gix_object::CommitRef<'_>, parents: &[ObjectId], raw: Option<ObjectId>) -> Result<ObjectId> {
+fn rewrite(
+    tx: &Transaction,
+    commit: gix_object::CommitRef<'_>,
+    parents: &[ObjectId],
+    raw: Option<ObjectId>,
+) -> Result<ObjectId> {
     let parent_hex: Vec<_> = parents.iter().map(ToString::to_string).collect();
     let mut commit = gix_object::CommitRef {
-        parents: parent_hex.iter().map(|hex| hex.as_bytes().as_bstr()).collect(),
+        parents: parent_hex
+            .iter()
+            .map(|hex| hex.as_bytes().as_bstr())
+            .collect(),
         ..commit
     };
     // Signatures no longer attest this commit. Mergetags describe the original
@@ -422,9 +640,12 @@ fn rewrite(tx: &Transaction, commit: gix_object::CommitRef<'_>, parents: &[Objec
         *key != PROVENANCE && *key != b"gpgsig" && *key != b"gpgsig-sha256" && *key != b"mergetag"
     });
     if let Some(raw) = raw {
-        commit.extra_headers.push((PROVENANCE.as_bstr(), Cow::Owned(raw.to_string().into())));
+        commit
+            .extra_headers
+            .push((PROVENANCE.as_bstr(), Cow::Owned(raw.to_string().into())));
     }
-    gix_object::Write::write(tx.odb(), &commit).map_err(|error| anyhow::anyhow!("Writing source history commit: {error}"))
+    gix_object::Write::write(tx.odb(), &commit)
+        .map_err(|error| anyhow::anyhow!("Writing source history commit: {error}"))
 }
 
 /// Quote both config paths and alternates with Git's C-style path quoting.
@@ -434,7 +655,10 @@ fn quoted_path(path: &Path) -> Vec<u8> {
     quoted.push(b'"');
     for &byte in path.iter() {
         match byte {
-            b'"' | b'\\' => { quoted.push(b'\\'); quoted.push(byte); }
+            b'"' | b'\\' => {
+                quoted.push(b'\\');
+                quoted.push(byte);
+            }
             b'\n' => quoted.extend_from_slice(b"\\n"),
             b'\t' => quoted.extend_from_slice(b"\\t"),
             _ => quoted.push(byte),
@@ -451,38 +675,69 @@ enum ObjectWork {
 
 /// Children are written first: a failed copy cannot leave a destination root
 /// whose incomplete closure a subsequent copy would incorrectly skip.
-fn copy_objects(source: &impl gix_object::Find, destination: Option<&gix::Repository>, tips: &[ObjectId], shallow: &HashSet<ObjectId>, skip_present: bool) -> Result<()> {
+pub(crate) fn copy_objects(
+    source: &impl gix_object::Find,
+    destination: Option<&gix::Repository>,
+    tips: &[ObjectId],
+    shallow: &HashSet<ObjectId>,
+    skip_present: bool,
+) -> Result<()> {
     let mut complete = HashMap::new();
     let mut active = HashSet::new();
-    let mut pending: Vec<_> = tips.iter().rev().map(|id| ObjectWork::Visit(*id, None)).collect();
+    let mut pending: Vec<_> = tips
+        .iter()
+        .rev()
+        .map(|id| ObjectWork::Visit(*id, None))
+        .collect();
     let mut destination_buffer = Vec::new();
     while let Some(work) = pending.pop() {
         match work {
             ObjectWork::Visit(id, expected) => {
                 if let Some(&kind) = complete.get(&id) {
-                    ensure!(expected.is_none_or(|expected| expected == kind), "Object {id} has an inconsistent type");
+                    ensure!(
+                        expected.is_none_or(|expected| expected == kind),
+                        "Object {id} has an inconsistent type"
+                    );
                     continue;
                 }
                 if skip_present
                     && let Some(destination) = destination
-                    && let Some(object) = destination.objects.try_find(&id, &mut destination_buffer).map_err(|error| anyhow::anyhow!("Reading destination object {id}: {error}"))?
+                    && let Some(object) = destination
+                        .objects
+                        .try_find(&id, &mut destination_buffer)
+                        .map_err(|error| {
+                            anyhow::anyhow!("Reading destination object {id}: {error}")
+                        })?
                 {
-                    ensure!(expected.is_none_or(|expected| expected == object.kind), "Destination object {id} has an inconsistent type");
+                    ensure!(
+                        expected.is_none_or(|expected| expected == object.kind),
+                        "Destination object {id} has an inconsistent type"
+                    );
                     complete.insert(id, object.kind);
                     continue;
                 }
                 ensure!(active.insert(id), "Cycle in object graph at {id}");
                 let mut bytes = Vec::new();
-                let object = source.try_find(&id, &mut bytes).map_err(|error| anyhow::anyhow!("Reading source object {id}: {error}"))?.with_context(|| format!("Missing source object {id}"))?;
+                let object = source
+                    .try_find(&id, &mut bytes)
+                    .map_err(|error| anyhow::anyhow!("Reading source object {id}: {error}"))?
+                    .with_context(|| format!("Missing source object {id}"))?;
                 let kind = object.kind;
-                ensure!(expected.is_none_or(|expected| expected == kind), "Source object {id} has an inconsistent type");
+                ensure!(
+                    expected.is_none_or(|expected| expected == kind),
+                    "Source object {id} has an inconsistent type"
+                );
                 let mut children = Vec::new();
                 match kind {
                     gix_object::Kind::Commit => {
                         let commit = gix_object::CommitRef::from_bytes(object.data, id.kind())?;
                         children.push((commit.tree(), Some(gix_object::Kind::Tree)));
                         if !shallow.contains(&id) {
-                            children.extend(commit.parents().map(|parent| (parent, Some(gix_object::Kind::Commit))));
+                            children.extend(
+                                commit
+                                    .parents()
+                                    .map(|parent| (parent, Some(gix_object::Kind::Commit))),
+                            );
                         }
                     }
                     gix_object::Kind::Tree => {
@@ -507,11 +762,21 @@ fn copy_objects(source: &impl gix_object::Find, destination: Option<&gix::Reposi
                     bytes = Vec::new();
                 }
                 pending.push(ObjectWork::Finish(id, kind, bytes));
-                pending.extend(children.into_iter().rev().map(|(id, kind)| ObjectWork::Visit(id, kind)));
+                pending.extend(
+                    children
+                        .into_iter()
+                        .rev()
+                        .map(|(id, kind)| ObjectWork::Visit(id, kind)),
+                );
             }
             ObjectWork::Finish(id, kind, bytes) => {
                 if let Some(destination) = destination {
-                    destination.objects.write_buf_with_known_id(kind, &bytes, id).map_err(|error| anyhow::anyhow!("Retaining source object {id}: {error}"))?;
+                    destination
+                        .objects
+                        .write_buf_with_known_id(kind, &bytes, id)
+                        .map_err(|error| {
+                            anyhow::anyhow!("Retaining source object {id}: {error}")
+                        })?;
                 }
                 active.remove(&id);
                 complete.insert(id, kind);
@@ -519,4 +784,40 @@ fn copy_objects(source: &impl gix_object::Find, destination: Option<&gix::Reposi
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn interrupted_cache_population_leaves_no_published_cache_and_can_retry() -> Result<()> {
+        let temporary = tempfile::tempdir()?;
+        let main = gix::init_bare(temporary.path().join("main.git"))?;
+        let endpoint = "https://example.invalid/source.git";
+        let marker = b"source-context-v1\n";
+        let interrupted = SourceRepo::install_new(&main, endpoint, |staged| {
+            staged.git().write_blob(marker)?;
+            anyhow::bail!("interrupted before shallow metadata and refs were installed")
+        });
+        assert!(interrupted.is_err());
+        assert!(SourceRepo::open_existing(&main, endpoint)?.is_none());
+
+        SourceRepo::install_new(&main, endpoint, |staged| {
+            let id = staged.git().write_blob(marker)?.detach();
+            staged.git().reference(
+                INITIALIZED_REF,
+                id,
+                gix::refs::transaction::PreviousValue::MustNotExist,
+                "initialize source context",
+            )?;
+            Ok(())
+        })?;
+        let installed = SourceRepo::open_existing(&main, endpoint)?
+            .context("Retried cache was not published")?;
+        let reference = installed.git().find_reference(INITIALIZED_REF)?;
+        let object = reference.id().object()?;
+        assert_eq!(object.data, marker);
+        Ok(())
+    }
 }

@@ -23,6 +23,65 @@ use jj_lib::repo_path::RepoPathBuf;
 use jj_lib::repo_path::RepoPathComponentBuf;
 use jj_lib::store::Store;
 
+/// The recorded operation and effective Git configuration used for a capture.
+pub(crate) struct SourceState {
+    operation: jj_lib::op_store::OperationId,
+    config: Vec<u8>,
+}
+
+impl SourceState {
+    pub async fn capture(loader: &RepoLoader) -> Result<(Self, View)> {
+        let heads = jj_lib::op_walk::get_current_head_ops(
+            loader.op_store(),
+            loader.op_heads_store().as_ref(),
+        )
+        .await?;
+        let [operation] = heads.as_slice() else {
+            anyhow::bail!(
+                "Native source requires one recorded operation head; select/reconcile its state \
+                 before importing"
+            );
+        };
+        let backend = jj_lib::git::get_git_backend(loader.store())?;
+        ensure!(
+            backend.commit_id_length() == 20,
+            "Native sources require Git SHA-1"
+        );
+        backend.disable_lazy_commit_imports();
+        let state = Self {
+            operation: operation.id().clone(),
+            config: Self::git_config(loader)?,
+        };
+        let view = operation.view().await?.store_view().clone();
+        Ok((state, view))
+    }
+
+    pub async fn verify(&self, loader: &RepoLoader) -> Result<()> {
+        let heads = jj_lib::op_walk::get_current_head_ops(
+            loader.op_store(),
+            loader.op_heads_store().as_ref(),
+        )
+        .await?;
+        ensure!(
+            heads.len() == 1 && heads[0].id() == &self.operation,
+            "Native source changed during import; retry from a stable recorded operation"
+        );
+        ensure!(
+            Self::git_config(loader)? == self.config,
+            "Native source Git configuration changed during import; retry from a stable source"
+        );
+        Ok(())
+    }
+
+    fn git_config(loader: &RepoLoader) -> Result<Vec<u8>> {
+        let mut git = jj_lib::git::get_git_repo(loader.store())?;
+        git.reload()?;
+        let mut config = Vec::new();
+        git.config_snapshot().write_to(&mut config)?;
+        Ok(config)
+    }
+}
+
 /// A recorded local native state and its authoritative commit metadata.
 pub(crate) struct NativeSource {
     pub store: Arc<Store>,
@@ -31,23 +90,6 @@ pub(crate) struct NativeSource {
 }
 
 impl NativeSource {
-    pub async fn read(loader: &RepoLoader, bookmark: Option<&str>) -> Result<Self> {
-        Self::read_with(loader, |view| {
-            if let Some(name) = bookmark {
-                let target = view
-                    .local_bookmarks
-                    .get(jj_lib::ref_name::RefName::new(name))
-                    .with_context(|| format!("Source has no local bookmark {name:?}"))?
-                    .clone();
-                *view = View::make_root(loader.store().root_commit_id().clone());
-                view.head_ids.extend(target.added_ids().cloned());
-                view.local_bookmarks.insert(name.into(), target);
-            }
-            Ok(())
-        })
-        .await
-    }
-
     /// Capture only selected recorded local refs and their ancestry. In particular,
     /// fetching a workspace never snapshots it or imports its working-copy roles,
     /// foreign remote observations, or unrelated visible heads.
@@ -57,68 +99,38 @@ impl NativeSource {
     ) -> Result<Self> {
         let bookmarks = selection.bookmark.to_matcher();
         let tags = selection.tag.to_matcher();
-        Self::read_with(loader, |view| {
-            let mut selected = View::make_root(loader.store().root_commit_id().clone());
-            selected.local_bookmarks = std::mem::take(&mut view.local_bookmarks)
-                .into_iter()
-                .filter(|(name, _)| bookmarks.is_match(name.as_str()))
-                .collect();
-            selected.local_tags = std::mem::take(&mut view.local_tags)
-                .into_iter()
-                .filter(|(name, _)| tags.is_match(name.as_str()))
-                .collect();
-            for target in selected
-                .local_bookmarks
-                .values()
-                .chain(selected.local_tags.values())
-            {
-                selected.head_ids.extend(target.added_ids().cloned());
-            }
-            *view = selected;
-            Ok(())
-        })
-        .await
-    }
-
-    async fn read_with(
-        loader: &RepoLoader,
-        select: impl FnOnce(&mut View) -> Result<()>,
-    ) -> Result<Self> {
-        let heads = jj_lib::op_walk::get_current_head_ops(
-            loader.op_store(),
-            loader.op_heads_store().as_ref(),
-        )
-        .await?;
-        let [operation] = heads.as_slice() else {
-            anyhow::bail!(
-                "Native source has multiple operation heads; select/reconcile its state before \
-                 importing"
-            );
-        };
-        let backend = jj_lib::git::get_git_backend(loader.store())?;
-        ensure!(
-            backend.commit_id_length() == 20,
-            "Native sources require Git SHA-1"
-        );
-        backend.disable_lazy_commit_imports();
-        let mut view = operation.view().await?.store_view().clone();
-        select(&mut view)?;
-        let source = Self::read_view(loader.store().clone(), view).await?;
-        let current = jj_lib::op_walk::get_current_head_ops(
-            loader.op_store(),
-            loader.op_heads_store().as_ref(),
-        )
-        .await?;
-        ensure!(
-            current.len() == 1 && current[0].id() == operation.id(),
-            "Native source changed during capture; retry from a stable recorded operation"
-        );
+        let (state, mut view) = SourceState::capture(loader).await?;
+        let mut selected = View::make_root(loader.store().root_commit_id().clone());
+        selected.local_bookmarks = std::mem::take(&mut view.local_bookmarks)
+            .into_iter()
+            .filter(|(name, _)| bookmarks.is_match(name.as_str()))
+            .collect();
+        selected.local_tags = std::mem::take(&mut view.local_tags)
+            .into_iter()
+            .filter(|(name, _)| tags.is_match(name.as_str()))
+            .collect();
+        for target in selected
+            .local_bookmarks
+            .values()
+            .chain(selected.local_tags.values())
+        {
+            selected.head_ids.extend(target.added_ids().cloned());
+        }
+        let source = Self::read_view(loader.store().clone(), selected, &[]).await?;
+        state.verify(loader).await?;
         Ok(source)
     }
 
-    pub async fn read_view(store: Arc<Store>, view: View) -> Result<Self> {
+    /// Capture the view's parent closure plus private roots without publishing
+    /// those roots as visible heads or references.
+    pub async fn read_view(
+        store: Arc<Store>,
+        view: View,
+        extra_roots: &[CommitId],
+    ) -> Result<Self> {
         let native_view = jj_lib::view::View::new(view.clone(), false);
         let mut pending: Vec<_> = native_view.all_referenced_commit_ids().cloned().collect();
+        pending.extend_from_slice(extra_roots);
         pending.push(store.root_commit_id().clone());
         let mut commits = HashMap::new();
         while let Some(id) = pending.pop() {
@@ -135,7 +147,7 @@ impl NativeSource {
             commits.insert(id, commit);
         }
         let root = store.backend().read_commit(store.root_commit_id()).await?;
-        validate_graph(&view, &commits, store.root_commit_id(), &root)?;
+        validate_graph(&view, extra_roots, &commits, store.root_commit_id(), &root)?;
         validate_trees(&store, &commits).await?;
         Ok(Self {
             store,
@@ -233,10 +245,11 @@ fn object_roots(
     roots
 }
 
-/// Validate the entire current parent closure, including hidden ref terms and
-/// Git observations. Reject dangling extras and cycles in the recorded source.
+/// Validate the complete closure of the recorded view and explicit private
+/// roots. Reject unrelated commits and cycles without making private roots visible.
 fn validate_graph(
     view: &View,
+    extra_roots: &[CommitId],
     commits: &HashMap<CommitId, backend::Commit>,
     root_id: &CommitId,
     root: &backend::Commit,
@@ -250,6 +263,7 @@ fn validate_graph(
         .all_referenced_commit_ids()
         .map(|id| (id.clone(), false))
         .collect();
+    pending.extend(extra_roots.iter().map(|id| (id.clone(), false)));
     pending.push((root_id.clone(), false));
     let mut active = HashSet::new();
     let mut done = HashSet::new();
@@ -284,7 +298,7 @@ fn validate_graph(
     }
     ensure!(
         done.len() == commits.len(),
-        "source contains commits outside the recorded view's parent closure"
+        "source contains commits outside the recorded view and explicit roots' parent closure"
     );
     Ok(())
 }

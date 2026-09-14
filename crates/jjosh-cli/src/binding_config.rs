@@ -7,7 +7,8 @@ use josh_core::filter::Filter;
 /// Normalize a declarative source context without resolving it against a peer.
 pub(crate) fn parse_base(value: &str) -> Result<String> {
     if let Some(pin) = value.strip_prefix("pins/") {
-        let oid = gix_hash::ObjectId::from_hex(pin.as_bytes()).context("Invalid pinned source base")?;
+        let oid =
+            gix_hash::ObjectId::from_hex(pin.as_bytes()).context("Invalid pinned source base")?;
         return Ok(format!("pins/{oid}"));
     }
     if let Ok(oid) = gix_hash::ObjectId::from_hex(value.as_bytes()) {
@@ -27,17 +28,25 @@ pub(crate) fn parse_base(value: &str) -> Result<String> {
 fn validated_filter(value: &str) -> Result<Filter> {
     let filter = josh_core::filter::parse(value).context("Invalid Josh source filter")?;
     for key in josh_changes::remote_config::TRANSPORT_META_KEYS {
-        ensure!(filter.get_meta(key).is_none(), "Source filter cannot contain transport metadata {key}");
+        ensure!(
+            filter.get_meta(key).is_none(),
+            "Source filter cannot contain transport metadata {key}"
+        );
     }
     Ok(filter)
 }
 
 pub(crate) fn parse_filter(value: &str) -> Result<Representation> {
-    Ok(Representation::JoshFilter(josh_core::filter::spec(validated_filter(value)?)))
+    Ok(Representation::JoshFilter(josh_core::filter::spec(
+        validated_filter(value)?,
+    )))
 }
 
 pub(crate) fn parse_view(value: &str) -> Result<Representation> {
-    ensure!(!value.is_empty() && !value.contains('\0'), "View paths must not be empty or contain NUL");
+    ensure!(
+        !value.is_empty() && !value.contains('\0'),
+        "View paths must not be empty or contain NUL"
+    );
     let mut path = PathBuf::new();
     for component in Path::new(value).components() {
         match component {
@@ -47,7 +56,9 @@ pub(crate) fn parse_view(value: &str) -> Result<Representation> {
         }
     }
     // An empty normalized path selects the root workspace.josh, as in preview.
-    Ok(Representation::JoshView(path.to_str().context("View path is not UTF-8")?.to_owned()))
+    Ok(Representation::JoshView(
+        path.to_str().context("View path is not UTF-8")?.to_owned(),
+    ))
 }
 
 pub(crate) fn filter(representation: &Representation) -> Result<Filter> {
@@ -58,7 +69,9 @@ pub(crate) fn filter(representation: &Representation) -> Result<Filter> {
             if value.is_empty() {
                 return Ok(Filter::new().workspace(PathBuf::new()));
             }
-            let Representation::JoshView(path) = parse_view(value)? else { unreachable!() };
+            let Representation::JoshView(path) = parse_view(value)? else {
+                unreachable!()
+            };
             Ok(Filter::new().workspace(path))
         }
     }
@@ -69,8 +82,10 @@ pub(crate) fn filter(representation: &Representation) -> Result<Filter> {
 pub(crate) fn unmount_legacy(value: &str, mount: &str) -> Result<Representation> {
     let mounted = josh_core::filter::parse(value).context("Invalid legacy mounted filter")?;
     let source = mounted.subdir(mount);
-    ensure!(source.prefix(mount) == mounted,
-        "Cannot prove legacy filter is confined to mount {mount}; pass --representation REMOTE=filter:SOURCE with the unmounted source definition");
+    ensure!(
+        source.prefix(mount) == mounted,
+        "Cannot prove legacy filter is confined to mount {mount}; pass --representation REMOTE=filter:SOURCE with the unmounted source definition"
+    );
     if source == Filter::new() {
         Ok(Representation::Whole)
     } else {

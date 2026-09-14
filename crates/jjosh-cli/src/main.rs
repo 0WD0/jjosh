@@ -1,18 +1,20 @@
-mod git_remote;
 mod binding_config;
-mod project_migration;
-mod project;
+mod git_remote;
 mod git_transport;
 mod interop;
-mod projection_history;
-mod remote_refs;
-mod project_import;
 mod native_import;
 mod native_project;
 mod native_source;
+mod project;
 mod project_config;
+mod project_import;
+mod project_migration;
+mod project_preserve;
+mod project_provenance;
 mod projection;
+mod projection_history;
 mod ref_names;
+mod remote_refs;
 mod source_repo;
 
 use jj_cli::cli_util::CliRunner;
