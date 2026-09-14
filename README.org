@@ -20,7 +20,7 @@ jjosh 适合这样的开发：应用和依赖需要一起修改，但它们仍�
 | monorepo 中已有的目录 | =projection add= | 登记为可单独发布的项目，不重新导入 |
 | 已有完整历史，只想换检出布局 | =sparse= | 只改变工作副本，不生成另一份历史 |
 
-想先试一次完整往返，读 [[file:docs/workflows.org][操作指南]]：它从临时目录创建来源和 fork，不访问真实远端。
+具体操作见 [[file:docs/workflows.org][工作流指南]]，按接入项目、接收更新、向 fork 发布等任务查阅。
 
 * 构建
 
@@ -165,7 +165,8 @@ native/Josh 转换目前要求 SHA-1 Git backend，gitlink 不递归展开。过
 
 * 开发与参考
 
-- [[file:docs/workflows.org][操作指南]]：可运行的往返示例、浅历史、固定 OID 与临时镜像。
+- [[file:docs/workflows.org][工作流指南]]：接入、同步、发布、浅历史和检出布局的日常操作。
+- [[file:docs/subprojects-design.org][子项目模型设计]]：子项目与 jj 核心概念、来源转换和命令职责的关系；尚未实现。
 - [[file:docs/scoped-references-design.org][结构化 scope 提案]]：未实现的引用模型设计，不是命令手册。
 - [[file:jj/CHANGELOG.md][变更记录]]：命令和格式迁移说明。
 - [[file:crates/jjosh-cli/src/][crates/jjosh-cli/]]：CLI、项目转换和来源传输；[[file:crates/jjosh-cli/tests/][工作流测试]]覆盖跨仓库行为。
