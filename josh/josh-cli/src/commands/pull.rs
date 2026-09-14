@@ -465,6 +465,7 @@ pub fn handle_pull(
     };
 
     let updates = fetch::handle_fetch(&fetch_args, transaction, distributed_cache)?;
+    transaction.flush_mem_odb()?;
     for line in render_fetch_summary(&updates, &args.remote, Some(transaction))? {
         eprintln!("{}", line);
     }

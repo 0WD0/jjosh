@@ -621,7 +621,7 @@ jj currently does not support partial clones. To use jj with this repository, tr
     impl From<GitPushError> for CommandError {
         fn from(err: GitPushError) -> Self {
             match err {
-                GitPushError::NoSuchRemote(_) => user_error(err),
+                GitPushError::ManagedState(_) | GitPushError::NoSuchRemote(_) => user_error(err),
                 GitPushError::RemoteName(_) => {
                     user_error(err).hinted("Run `jj git remote rename` to give a different name.")
                 }

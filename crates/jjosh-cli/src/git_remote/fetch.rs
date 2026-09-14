@@ -5,18 +5,26 @@ use std::sync::atomic::AtomicBool;
 
 use gix::bstr::ByteSlice as _;
 use jj_cli::cli_util::CommandHelper;
-use jj_cli::command_error::{CommandError, user_error};
+use jj_cli::command_error::CommandError;
+use jj_cli::command_error::user_error;
 use jj_cli::git_remote::GitRemoteFetchOptions;
 use jj_cli::git_remote::GitRemoteSession as _;
 use jj_cli::ui::Ui;
 use jj_lib::backend::CommitId;
-use jj_lib::git::{GitFetchRefExpression, GitRefKind, GitRemoteObservation};
+use jj_lib::git::GitFetchRefExpression;
+use jj_lib::git::GitRefKind;
+use jj_lib::git::GitRemoteObservation;
 use jj_lib::merge::Merge;
 use jj_lib::object_id::ObjectId as _;
-use jj_lib::op_store::{RefTarget, View};
-use jj_lib::project::{ConversionTerm, ObservationKey, ObservationKind};
-use jj_lib::ref_name::{RefName, RemoteRefSymbolBuf};
-use jj_lib::repo::{MutableRepo, Repo as _};
+use jj_lib::op_store::RefTarget;
+use jj_lib::op_store::View;
+use jj_lib::project::ConversionTerm;
+use jj_lib::project::ObservationKey;
+use jj_lib::project::ObservationKind;
+use jj_lib::ref_name::RefName;
+use jj_lib::ref_name::RemoteRefSymbolBuf;
+use jj_lib::repo::MutableRepo;
+use jj_lib::repo::Repo as _;
 
 use super::Session;
 
@@ -92,7 +100,11 @@ fn install_refs(
     old: &BTreeMap<String, gix::ObjectId>,
     new: &BTreeMap<String, gix::ObjectId>,
 ) -> Result<(), CommandError> {
-    use gix::refs::transaction::{Change, LogChange, PreviousValue, RefEdit, RefLog};
+    use gix::refs::transaction::Change;
+    use gix::refs::transaction::LogChange;
+    use gix::refs::transaction::PreviousValue;
+    use gix::refs::transaction::RefEdit;
+    use gix::refs::transaction::RefLog;
     let deletions = old
         .iter()
         .filter(|(name, _)| !new.contains_key(*name))
@@ -178,7 +190,8 @@ pub(super) async fn run(
     let reuse_history = !changes_depth;
     if changes_depth && session.filter().is_none() {
         return Err(user_error(
-            "Shallow source history requires a Git projection remote, not an ordinary or native JJ source",
+            "Shallow source history requires a Git projection remote, not an ordinary or native \
+             JJ source",
         ));
     }
     // Ordinary SHA-1 observations can authorize a later explicit --source push.
@@ -214,7 +227,9 @@ pub(super) async fn run(
                 };
                 if wire_selected || local_selected {
                     return Err(user_error(format!(
-                        "Remote {} retains converted publication evidence for {}; raw fetch would replace that observation. Explicitly configure the matching binding or forget the converted observations before fetching this selection",
+                        "Remote {} retains converted publication evidence for {}; raw fetch would \
+                         replace that observation. Explicitly configure the matching binding or \
+                         forget the converted observations before fetching this selection",
                         session.name.as_str(),
                         key.name.as_str(),
                     )));
@@ -243,7 +258,8 @@ pub(super) async fn run(
                 }
                 if session.local_name(source) != key.name {
                     return Err(user_error(
-                        "Stored conversion observation does not match this binding's reference label",
+                        "Stored conversion observation does not match this binding's reference \
+                         label",
                     ));
                 }
                 converted
@@ -461,7 +477,8 @@ pub(super) async fn run(
                 .is_none_or(|ids| ids.is_empty())
         {
             return Err(user_error(
-                "Cannot deepen a source that is not shallow; use --depth for its initial shallow fetch",
+                "Cannot deepen a source that is not shallow; use --depth for its initial shallow \
+                 fetch",
             ));
         }
         let shallow = if let Some(depth) = options.depth {
@@ -833,12 +850,6 @@ pub(super) async fn run(
             }
             mirrors.insert(canonical_ref(session, kind, name), id);
         }
-        let canonical_git_oid = converted
-            .target
-            .as_normal()
-            .map(|id| gix::ObjectId::try_from(id.as_bytes()))
-            .transpose()
-            .map_err(user_error)?;
         let evidence = session.binding.as_ref().map(|_| {
             let mut terms = raw_terms.remove(&source).unwrap_or_else(|| {
                 vec![ConversionTerm {
@@ -868,7 +879,6 @@ pub(super) async fn run(
                 remote: session.name.clone(),
             },
             target: converted.target,
-            canonical_git_oid,
             evidence,
         });
     }

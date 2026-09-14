@@ -13,6 +13,11 @@
 // limitations under the License.
 
 //! Crash recovery for transactions spanning operation publication and local files.
+//!
+//! Before an enrolled operation is published, its exact already-written ID is
+//! durably committed in the journal. Recovery re-publishes that operation if its
+//! publication receipt is missing, preserving unrelated operation heads. Only
+//! transactions without a durable commit decision are rolled back.
 
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
@@ -20,9 +25,11 @@ use std::fs::File;
 use std::path::Component;
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 
 use bstr::ByteSlice as _;
-use futures::TryStreamExt as _;
 use gix::refs::FullName;
 use gix::refs::FullNameRef;
 use gix::refs::Namespace;
@@ -47,12 +54,15 @@ pub const TRANSACTION_ATTRIBUTE: &str = "local-state-transaction";
 /// A local-state safety conflict or storage failure. Errors leave the fence intact.
 #[derive(Debug, Error)]
 pub enum LocalStateError {
+    /// A live local-state writer or enrolled operation still owns the journal.
+    #[error("Another local-state change or recovery is running")]
+    Busy,
     /// The state cannot safely be attributed to this transaction.
     #[error("{0}")]
     Safety(String),
-    /// A legacy journal has no trustworthy publication evidence.
+    /// A journal from an older protocol must be recovered by its original version.
     #[error(
-        "This local-state journal lacks verifiable publication evidence. Recover it using the \
+        "This local-state journal uses an incompatible recovery protocol. Recover it using the \
          version that created it before upgrading."
     )]
     LegacyJournal,
@@ -71,7 +81,7 @@ impl LocalStateError {
 #[serde(tag = "state", rename_all = "snake_case")]
 enum Publication {
     Prepared,
-    OperationPrepared { target: String },
+    CommitDecided { target: String },
     Published { operation_id: String },
     LocalCommitted,
 }
@@ -123,7 +133,6 @@ struct JournalRecord {
     version: u32,
     repo_path: PathBuf,
     origin_operation: String,
-    begin_heads: BTreeSet<String>,
     nonce: String,
     publication: Publication,
     files: Vec<FileChange>,
@@ -216,23 +225,6 @@ fn canonical_repo_path(loader: &RepoLoader) -> Result<PathBuf, LocalStateError> 
     dunce::canonicalize(path).map_err(LocalStateError::other)
 }
 
-fn require_exclusive_heads(loader: &RepoLoader) -> Result<(), LocalStateError> {
-    // OpHeadsStore::lock() is explicitly optional. Publication evidence needs
-    // the concrete filesystem store's exclusive lock, not a plugin's no-op.
-    if loader
-        .op_heads_store()
-        .as_ref()
-        .downcast_ref::<crate::simple_op_heads_store::SimpleOpHeadsStore>()
-        .is_none()
-    {
-        return Err(LocalStateError::Safety(
-            "Local-state transactions require the filesystem SimpleOpHeadsStore; this \
-             operation-heads store does not provide a supported exclusive publication lock"
-                .into(),
-        ));
-    }
-    Ok(())
-}
 
 /// Tests whether this Git store has an interrupted cross-store transaction.
 pub fn has_pending(git_repo: &gix::Repository) -> Result<bool, LocalStateError> {
@@ -256,16 +248,14 @@ pub fn ensure_no_pending(git_repo: &gix::Repository) -> Result<(), LocalStateErr
 fn lock_journal(path: &Path) -> Result<crate::lock::FileLock, LocalStateError> {
     crate::lock::FileLock::try_lock(path.with_extension("lock"))
         .map_err(LocalStateError::other)?
-        .ok_or_else(|| {
-            LocalStateError::Safety("Another local-state change or recovery is running".into())
-        })
+        .ok_or(LocalStateError::Busy)
 }
 
 fn load_record(path: &Path) -> Result<JournalRecord, LocalStateError> {
     let bytes = std::fs::read(path).map_err(LocalStateError::other)?;
     let value: serde_json::Value =
         serde_json::from_slice(&bytes).map_err(LocalStateError::other)?;
-    if value.get("version").and_then(serde_json::Value::as_u64) != Some(2) {
+    if value.get("version").and_then(serde_json::Value::as_u64) != Some(3) {
         return Err(LocalStateError::LegacyJournal);
     }
     let record: JournalRecord = serde_json::from_value(value).map_err(LocalStateError::other)?;
@@ -396,31 +386,53 @@ fn open_ref_stores(
         .collect()
 }
 
+/// The journal lock remains live until every enrolled publication has finished.
+/// It is acquired before any operation-head lock, never by publication hooks.
+pub(crate) struct JournalLease {
+    path: PathBuf,
+    nonce: String,
+    bound: AtomicBool,
+    _lock: crate::lock::FileLock,
+}
+
+/// A live capability to publish the single operation enrolled in a journal.
+pub(crate) struct Enrollment {
+    lease: Arc<JournalLease>,
+}
+
+impl JournalLease {
+    pub(crate) fn check_mutation(&self, git_repo: &gix::Repository) -> Result<(), LocalStateError> {
+        if !journal_matches_store(&self.path, git_repo)?
+            || load_record(&self.path)?.nonce != self.nonce
+        {
+            return Err(LocalStateError::Safety(
+                "Git mutation has no matching live local-state lease".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+
 /// A durable cross-store transaction. Dropping it never removes its recovery record.
 pub struct LocalStateTransaction {
     path: PathBuf,
     loader: RepoLoader,
     // Caller authority is never serialized into the recovery record.
     extra_paths: Vec<PathBuf>,
-    _lock: crate::lock::FileLock,
+    lease: Arc<JournalLease>,
 }
 
-/// Captures local preimages and the actual operation heads under both stores' locks.
+/// Captures local preimages while holding the journal's writer lease.
 /// `extra_paths` are exact additional files authorized by the caller, including
 /// externally stored repository configuration resolved by the CLI.
 pub async fn begin(
     repo: &ReadonlyRepo,
     extra_paths: &[PathBuf],
 ) -> Result<LocalStateTransaction, LocalStateError> {
-    require_exclusive_heads(repo.loader())?;
     let git_repo = get_git_repo(repo.store()).map_err(LocalStateError::other)?;
     let path = journal_path(&git_repo);
     let lock = lock_journal(&path)?;
-    let _heads_lock = repo
-        .op_heads_store()
-        .lock()
-        .await
-        .map_err(LocalStateError::other)?;
     ensure_no_pending(&git_repo)?;
     let repo_path = canonical_repo_path(repo.loader())?;
     let config = git_repo
@@ -445,17 +457,9 @@ pub async fn begin(
         });
     }
     let record = JournalRecord {
-        version: 2,
+        version: 3,
         repo_path,
         origin_operation: repo.operation().id().hex(),
-        begin_heads: repo
-            .op_heads_store()
-            .get_op_heads()
-            .await
-            .map_err(LocalStateError::other)?
-            .iter()
-            .map(|id| id.hex())
-            .collect(),
         nonce: format!("{:032x}", rand::random::<u128>()),
         publication: Publication::Prepared,
         files,
@@ -466,11 +470,20 @@ pub async fn begin(
         path,
         loader: repo.loader().clone(),
         extra_paths,
-        _lock: lock,
+        lease: Arc::new(JournalLease {
+            path: journal_path(&git_repo),
+            nonce: record.nonce,
+            bound: AtomicBool::new(false),
+            _lock: lock,
+        }),
     })
 }
 
 impl LocalStateTransaction {
+    pub(crate) fn lease(&self) -> &Arc<JournalLease> {
+        &self.lease
+    }
+
     /// Enrolls this exact transaction, never an unrelated operation with similar state.
     pub fn bind_transaction(&self, transaction: &mut Transaction) -> Result<(), LocalStateError> {
         let record = load_record(&self.path)?;
@@ -485,7 +498,22 @@ impl LocalStateTransaction {
                 "Local-state transaction has a different base operation or store".into(),
             ));
         }
-        transaction.set_attribute(TRANSACTION_ATTRIBUTE.into(), record.nonce);
+        if self
+            .lease
+            .bound
+            .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
+            .is_err()
+        {
+            return Err(LocalStateError::Safety(
+                "Local-state journal already has an enrolled transaction".into(),
+            ));
+        }
+        transaction.enroll_local_state(
+            Enrollment {
+                lease: self.lease.clone(),
+            },
+            record.nonce,
+        );
         Ok(())
     }
 
@@ -589,20 +617,13 @@ impl LocalStateTransaction {
         save_record(&self.path, &record)
     }
 
-    /// Completes only a durable local decision or a proven published operation.
+    /// Completes a durable decision, replaying its exact operation if necessary.
     pub async fn complete(self) -> Result<(), LocalStateError> {
-        require_exclusive_heads(&self.loader)?;
-        let _heads_lock = self
-            .loader
-            .op_heads_store()
-            .lock()
-            .await
-            .map_err(LocalStateError::other)?;
         let mut record = load_record(&self.path)?;
         record.check_repo(&self.loader)?;
         if !establish_commit(&self.loader, &self.path, &mut record).await? {
             return Err(LocalStateError::Safety(
-                "The enrolled operation has not been published; run `jj util recover`".into(),
+                "The local-state transaction has no commit decision; run `jj util recover`".into(),
             ));
         }
         finish(
@@ -615,115 +636,81 @@ impl LocalStateTransaction {
     }
 }
 
-/// Persists the exact target before head publication. The caller must hold the
-/// operation-heads lock; this hook must not acquire the journal lock in reverse order.
-pub(crate) fn before_publish(repo: &ReadonlyRepo) -> Result<(), LocalStateError> {
-    let nonce = repo
-        .operation()
-        .metadata()
-        .attributes
-        .get(TRANSACTION_ATTRIBUTE);
-    let Ok(git_repo) = get_git_repo(repo.store()) else {
-        if nonce.is_some() {
+impl Enrollment {
+    pub(crate) fn downgrade(&self) -> std::sync::Weak<JournalLease> {
+        Arc::downgrade(&self.lease)
+    }
+
+    /// Durably commits to this exact operation before attempting publication.
+    pub(crate) fn before_publish(&self, repo: &ReadonlyRepo) -> Result<(), LocalStateError> {
+        let mut record = load_record(&self.lease.path)?;
+        record.check_repo(repo.loader())?;
+        if record.nonce != self.lease.nonce
+            || repo.operation().metadata().attributes.get(TRANSACTION_ATTRIBUTE)
+                != Some(&record.nonce)
+            || !repo
+                .operation()
+                .parent_ids()
+                .iter()
+                .any(|id| id.hex() == record.origin_operation)
+        {
             return Err(LocalStateError::Safety(
-                "Local-state publication has no Git store".into(),
+                "Operation does not carry the journal's enrollment proof".into(),
             ));
         }
-        return Ok(());
-    };
-    let path = journal_path(&git_repo);
-    if !has_pending(&git_repo)? {
-        return if nonce.is_none() {
-            Ok(())
-        } else {
-            Err(LocalStateError::Safety(
-                "Local-state publication has no matching journal".into(),
-            ))
+        match &record.publication {
+            Publication::Prepared => {}
+            Publication::CommitDecided { target } if target == &repo.operation().id().hex() => {
+                return Ok(());
+            }
+            _ => {
+                return Err(LocalStateError::Safety(
+                    "Local-state journal already has a different commit decision".into(),
+                ));
+            }
+        }
+        record.publication = Publication::CommitDecided {
+            target: repo.operation().id().hex(),
         };
+        save_record(&self.lease.path, &record)
     }
-    require_exclusive_heads(repo.loader())?;
-    let mut record = load_record(&path)?;
-    record.check_repo(repo.loader())?;
-    if nonce != Some(&record.nonce)
-        || !repo
-            .operation()
-            .parent_ids()
-            .iter()
-            .any(|id| id.hex() == record.origin_operation)
-    {
-        return Err(LocalStateError::Safety(
-            "An unrelated operation cannot publish while local-state recovery is pending".into(),
-        ));
-    }
-    match &record.publication {
-        Publication::Prepared => {}
-        Publication::OperationPrepared { target } if target == &repo.operation().id().hex() => {
-            return Ok(());
-        }
-        _ => {
+
+    /// Records successful publication before releasing the live journal lease.
+    pub(crate) fn after_publish(&self, repo: &ReadonlyRepo) -> Result<(), LocalStateError> {
+        let mut record = load_record(&self.lease.path)?;
+        record.check_repo(repo.loader())?;
+        if record.nonce != self.lease.nonce
+            || repo.operation().metadata().attributes.get(TRANSACTION_ATTRIBUTE)
+                != Some(&record.nonce)
+        {
             return Err(LocalStateError::Safety(
-                "Local-state journal already has a different commit decision".into(),
+                "Published operation is not enrolled in the journal".into(),
             ));
         }
+        match &record.publication {
+            Publication::CommitDecided { target } if target == &repo.operation().id().hex() => {}
+            Publication::Published { operation_id } if operation_id == &repo.operation().id().hex() => {
+                return Ok(());
+            }
+            _ => {
+                return Err(LocalStateError::Safety(
+                    "Published operation does not match the prepared target".into(),
+                ));
+            }
+        }
+        record.publication = Publication::Published {
+            operation_id: repo.operation().id().hex(),
+        };
+        save_record(&self.lease.path, &record)
     }
-    record.publication = Publication::OperationPrepared {
-        target: repo.operation().id().hex(),
-    };
-    save_record(&path, &record)
 }
 
-/// Makes a successfully published decision irrevocable. The caller holds the
-/// operation-heads lock and has just successfully updated the published heads.
-pub(crate) fn after_publish(repo: &ReadonlyRepo) -> Result<(), LocalStateError> {
-    let nonce = repo
-        .operation()
-        .metadata()
-        .attributes
-        .get(TRANSACTION_ATTRIBUTE);
-    let Ok(git_repo) = get_git_repo(repo.store()) else {
-        return Ok(());
-    };
-    if !has_pending(&git_repo)? {
-        return if nonce.is_none() {
-            Ok(())
-        } else {
-            Err(LocalStateError::Safety(
-                "Published local-state operation has no journal".into(),
-            ))
-        };
-    }
-    require_exclusive_heads(repo.loader())?;
-    let path = journal_path(&git_repo);
-    let mut record = load_record(&path)?;
-    record.check_repo(repo.loader())?;
-    if nonce != Some(&record.nonce) {
-        return Err(LocalStateError::Safety(
-            "Published operation is not enrolled in the journal".into(),
-        ));
-    }
-    match &record.publication {
-        Publication::OperationPrepared { target } if target == &repo.operation().id().hex() => {}
-        Publication::Published { operation_id } if operation_id == &repo.operation().id().hex() => {
-            return Ok(());
-        }
-        _ => {
-            return Err(LocalStateError::Safety(
-                "Published operation does not match the prepared target".into(),
-            ));
-        }
-    }
-    record.publication = Publication::Published {
-        operation_id: repo.operation().id().hex(),
-    };
-    save_record(&path, &record)
-}
-
-/// Result of deterministic recovery against actual published operation heads.
+/// Result of replaying a durable decision or rolling back an undecided transaction.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RecoveryOutcome {
     /// There was no recovery fence.
     NoPending,
-    /// No enrolled operation was published, so preimages were restored.
+    /// No commit decision was made, so preimages were restored.
     RolledBack,
     /// The committed change was verified and its retirements completed.
     Completed,
@@ -734,65 +721,54 @@ async fn establish_commit(
     path: &Path,
     record: &mut JournalRecord,
 ) -> Result<bool, LocalStateError> {
-    require_exclusive_heads(loader)?;
     let target = match &record.publication {
         Publication::LocalCommitted | Publication::Published { .. } => return Ok(true),
         Publication::Prepared => return Ok(false),
-        Publication::OperationPrepared { target } => {
+        Publication::CommitDecided { target } => {
             OperationId::try_from_hex(target).ok_or_else(|| {
                 LocalStateError::Safety("Invalid publication target in local-state journal".into())
             })?
         }
     };
-    let heads = loader
-        .op_heads_store()
-        .get_op_heads()
+    let operation = loader
+        .load_operation(&target)
         .await
         .map_err(LocalStateError::other)?;
-    if heads.iter().map(|id| id.hex()).collect::<BTreeSet<_>>() == record.begin_heads {
-        return Ok(false);
+    if operation.metadata().attributes.get(TRANSACTION_ATTRIBUTE) != Some(&record.nonce)
+        || !operation
+            .parent_ids()
+            .iter()
+            .any(|id| id.hex() == record.origin_operation)
+    {
+        return Err(LocalStateError::Safety(
+            "Committed operation does not carry the journal's enrollment proof".into(),
+        ));
     }
-    let mut operations = Vec::with_capacity(heads.len());
-    for id in heads {
-        operations.push(
-            loader
-                .load_operation(&id)
-                .await
-                .map_err(LocalStateError::other)?,
-        );
-    }
-    let ancestors = crate::op_walk::walk_ancestors(&operations);
-    futures::pin_mut!(ancestors);
-    while let Some(operation) = ancestors.try_next().await.map_err(LocalStateError::other)? {
-        if operation.id() == &target {
-            if operation.metadata().attributes.get(TRANSACTION_ATTRIBUTE) != Some(&record.nonce)
-                || !operation
-                    .parent_ids()
-                    .iter()
-                    .any(|id| id.hex() == record.origin_operation)
-            {
-                return Err(LocalStateError::Safety(
-                    "Published operation does not carry the journal's enrollment proof".into(),
-                ));
-            }
-            record.publication = Publication::Published {
-                operation_id: target.hex(),
-            };
-            save_record(path, record)?;
-            return Ok(true);
-        }
-    }
-    Ok(false)
+    // Replay is idempotent and removes only this operation's own parents. Never
+    // infer non-publication from moving heads or replace unrelated concurrent
+    // heads. A lost receipt may reintroduce an ancestor head, which ordinary jj
+    // head resolution already handles.
+    loader
+        .op_heads_store()
+        .update_op_heads(operation.parent_ids(), operation.id())
+        .await
+        .map_err(LocalStateError::other)?;
+    record.publication = Publication::Published {
+        operation_id: target.hex(),
+    };
+    save_record(path, record)?;
+    Ok(true)
 }
 
-/// Recovers locally, without selecting a view, fetching, or publishing operations.
+/// Recovers locally without fetching or inventing an operation. A durable commit
+/// decision replays publication of its exact already-written operation, preserving
+/// unrelated heads; only an undecided transaction restores preimages.
 /// Additional external files must be freshly authorized by the caller; recorded
 /// file paths never grant recovery authority by themselves.
 pub async fn recover(
     loader: &RepoLoader,
     extra_paths: &[PathBuf],
 ) -> Result<RecoveryOutcome, LocalStateError> {
-    require_exclusive_heads(loader)?;
     let git_repo = get_git_repo(loader.store()).map_err(LocalStateError::other)?;
     let path = journal_path(&git_repo);
     let _lock = lock_journal(&path)?;
@@ -803,31 +779,9 @@ pub async fn recover(
         .iter()
         .map(|path| canonical_file_path(path))
         .collect::<Result<_, _>>()?;
-    let _heads_lock = loader
-        .op_heads_store()
-        .lock()
-        .await
-        .map_err(LocalStateError::other)?;
     let mut record = load_record(&path)?;
     record.check_repo(loader)?;
     let committed = establish_commit(loader, &path, &mut record).await?;
-    if !committed {
-        let heads: BTreeSet<_> = loader
-            .op_heads_store()
-            .get_op_heads()
-            .await
-            .map_err(LocalStateError::other)?
-            .iter()
-            .map(|id| id.hex())
-            .collect();
-        if heads != record.begin_heads {
-            return Err(LocalStateError::Safety(
-                "Operation heads changed without publication of the enrolled transaction; \
-                 refusing ambiguous local-state recovery"
-                    .into(),
-            ));
-        }
-    }
     finish(
         loader,
         &path,
@@ -1248,7 +1202,10 @@ mod tests {
     }
 
     #[derive(Debug)]
-    struct OptionalLockHeads(Arc<dyn crate::op_heads_store::OpHeadsStore>);
+    struct OptionalLockHeads {
+        inner: Arc<dyn crate::op_heads_store::OpHeadsStore>,
+        empty_next_read: AtomicBool,
+    }
 
     struct NoopHeadsLock;
 
@@ -1257,7 +1214,7 @@ mod tests {
     #[async_trait::async_trait]
     impl crate::op_heads_store::OpHeadsStore for OptionalLockHeads {
         fn name(&self) -> &str {
-            self.0.name()
+            self.inner.name()
         }
 
         async fn update_op_heads(
@@ -1265,13 +1222,16 @@ mod tests {
             old: &[OperationId],
             new: &OperationId,
         ) -> Result<(), crate::op_heads_store::OpHeadsStoreError> {
-            self.0.update_op_heads(old, new).await
+            self.inner.update_op_heads(old, new).await
         }
 
         async fn get_op_heads(
             &self,
         ) -> Result<Vec<OperationId>, crate::op_heads_store::OpHeadsStoreError> {
-            self.0.get_op_heads().await
+            if self.empty_next_read.swap(false, Ordering::Relaxed) {
+                return Ok(Vec::new());
+            }
+            self.inner.get_op_heads().await
         }
 
         async fn lock(
@@ -1362,7 +1322,12 @@ mod tests {
                 .await
                 .unwrap();
             let _lock = repo.op_heads_store().lock().await.unwrap();
-            before_publish(&repo).unwrap();
+            Enrollment {
+                lease: journal.lease.clone(),
+            }
+            .before_publish(&repo)
+            .unwrap();
+            unpublished.leave_unpublished();
             repo.clone()
         }
 
@@ -1424,6 +1389,71 @@ mod tests {
             RecoveryOutcome::RolledBack
         );
         assert_eq!(std::fs::read(&file).unwrap(), b"before");
+    }
+
+    #[tokio::test]
+    async fn delayed_publication_retains_the_journal_lease() {
+        let fixture = Fixture::new().await;
+        let file = fixture.file("metadata", b"before");
+        let journal = begin(&fixture.repo, std::slice::from_ref(&file))
+            .await
+            .unwrap();
+        fixture.change_file(&file, b"after");
+        let mut transaction = fixture.repo.start_transaction();
+        journal.bind_transaction(&mut transaction).unwrap();
+        drop(journal);
+        assert!(matches!(
+            recover(fixture.repo.loader(), &[]).await,
+            Err(LocalStateError::Busy)
+        ));
+        let unpublished = transaction.write("delayed enrollment").await.unwrap();
+        assert!(matches!(
+            recover(fixture.repo.loader(), &[]).await,
+            Err(LocalStateError::Busy)
+        ));
+        assert_eq!(std::fs::read(&file).unwrap(), b"after");
+        let published = unpublished.publish().await.unwrap();
+        assert_eq!(
+            recover(fixture.repo.loader(), &[]).await.unwrap(),
+            RecoveryOutcome::Completed
+        );
+        assert_eq!(std::fs::read(file).unwrap(), b"after");
+        assert_eq!(
+            fixture.repo.op_heads_store().get_op_heads().await.unwrap(),
+            vec![published.operation().id().clone()]
+        );
+    }
+
+    #[tokio::test]
+    async fn abandoning_delayed_publication_allows_rollback_but_not_nonce_reuse() {
+        let fixture = Fixture::new().await;
+        let file = fixture.file("metadata", b"before");
+        let journal = begin(&fixture.repo, std::slice::from_ref(&file))
+            .await
+            .unwrap();
+        fixture.change_file(&file, b"after");
+        let mut transaction = fixture.repo.start_transaction();
+        journal.bind_transaction(&mut transaction).unwrap();
+        let unpublished = transaction.write("abandoned enrollment").await.unwrap();
+        let nonce = unpublished.operation().metadata().attributes[TRANSACTION_ATTRIBUTE].clone();
+        drop(journal);
+        assert!(matches!(
+            recover(fixture.repo.loader(), &[]).await,
+            Err(LocalStateError::Busy)
+        ));
+        let abandoned = unpublished.leave_unpublished();
+        assert_eq!(
+            recover(fixture.repo.loader(), &[]).await.unwrap(),
+            RecoveryOutcome::RolledBack
+        );
+        let mut replay = abandoned.start_transaction();
+        replay.set_attribute(TRANSACTION_ATTRIBUTE.into(), nonce);
+        assert!(replay.commit("replay recovered enrollment").await.is_err());
+        assert_eq!(std::fs::read(file).unwrap(), b"before");
+        assert_eq!(
+            fixture.repo.op_heads_store().get_op_heads().await.unwrap(),
+            vec![fixture.repo.operation().id().clone()]
+        );
     }
 
     #[tokio::test]
@@ -1624,7 +1654,11 @@ mod tests {
         fixture.publish_heads(&published).await;
         {
             let _lock = fixture.repo.op_heads_store().lock().await.unwrap();
-            after_publish(&published).unwrap();
+            Enrollment {
+                lease: journal.lease.clone(),
+            }
+            .after_publish(&published)
+            .unwrap();
         }
         record_file_mutations(&fixture.git, &[(index.clone(), Some(b"after".to_vec()))]).unwrap();
         drop(journal);
@@ -1708,7 +1742,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn unproven_target_with_changed_heads_is_ambiguous() {
+    async fn unproven_target_rolls_back_after_unrelated_publication() {
         let fixture = Fixture::new().await;
         let file = fixture.file("metadata", b"before");
         let journal = begin(&fixture.repo, std::slice::from_ref(&file))
@@ -1719,20 +1753,19 @@ mod tests {
         let unrelated = fixture
             .repo
             .start_transaction()
-            .write("unrelated")
+            .commit("unrelated")
             .await
             .unwrap();
-        let unrelated = fixture
-            .repo
-            .loader()
-            .load_at(unrelated.operation())
-            .await
-            .unwrap();
-        fixture.publish_heads(&unrelated).await;
         drop(journal);
-        assert!(recover(fixture.repo.loader(), &[]).await.is_err());
-        assert_eq!(std::fs::read(file).unwrap(), b"after");
-        assert!(has_pending(&fixture.git).unwrap());
+        assert_eq!(
+            recover(fixture.repo.loader(), &[]).await.unwrap(),
+            RecoveryOutcome::RolledBack
+        );
+        assert_eq!(std::fs::read(file).unwrap(), b"before");
+        assert_eq!(
+            fixture.repo.op_heads_store().get_op_heads().await.unwrap(),
+            vec![unrelated.operation().id().clone()]
+        );
     }
 
     #[tokio::test]
@@ -1758,22 +1791,7 @@ mod tests {
             .write("foreign publication")
             .await
             .unwrap();
-        let foreign_repo = other
-            .repo
-            .loader()
-            .load_at(unpublished.operation())
-            .await
-            .unwrap();
-        {
-            let _lock = other.repo.op_heads_store().lock().await.unwrap();
-            let error = before_publish(&foreign_repo).unwrap_err();
-            assert!(
-                error
-                    .to_string()
-                    .contains(&owner.directory.path().display().to_string())
-            );
-            assert!(after_publish(&foreign_repo).is_err());
-        }
+        assert!(unpublished.publish().await.is_err());
         drop(journal);
         let error = recover(other.repo.loader(), &[]).await.unwrap_err();
         assert!(
@@ -1885,46 +1903,86 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn optional_operation_head_locks_cannot_authorize_local_state_recovery() {
+    async fn optional_operation_head_locks_support_publication_and_recovery() {
         let fixture = Fixture::new().await;
         let real = fixture.repo.loader();
         let plugin = RepoLoader::new(
             real.settings().clone(),
             real.store().clone(),
             real.op_store().clone(),
-            Arc::new(OptionalLockHeads(real.op_heads_store().clone())),
+            Arc::new(OptionalLockHeads {
+                inner: real.op_heads_store().clone(),
+                empty_next_read: AtomicBool::new(false),
+            }),
             real.index_store().clone(),
             real.submodule_store().clone(),
         );
         let plugin_repo = plugin.load_at(fixture.repo.operation()).await.unwrap();
-        // Unjournaled plugin transactions retain the ordinary upstream contract.
-        plugin_repo
-            .start_transaction()
-            .commit("ordinary plugin operation")
+        let file = fixture.file("metadata", b"before");
+        let journal = begin(&plugin_repo, std::slice::from_ref(&file))
             .await
             .unwrap();
-        assert!(matches!(
-            begin(&plugin_repo, &[]).await,
-            Err(LocalStateError::Safety(_))
-        ));
-        assert!(!has_pending(&fixture.git).unwrap());
+        fixture.change_file(&file, b"after");
+        drop(journal);
+        assert_eq!(
+            recover(&plugin, &[]).await.unwrap(),
+            RecoveryOutcome::RolledBack
+        );
+        assert_eq!(std::fs::read(&file).unwrap(), b"before");
+
+        let journal = begin(&plugin_repo, std::slice::from_ref(&file))
+            .await
+            .unwrap();
+        fixture.change_file(&file, b"after");
+        let mut transaction = plugin_repo.start_transaction();
+        journal.bind_transaction(&mut transaction).unwrap();
+        plugin_repo.start_transaction().commit("unrelated").await.unwrap();
+        let published = transaction.commit("enrolled plugin operation").await.unwrap();
+        drop(journal);
+        assert_eq!(
+            recover(&plugin, &[]).await.unwrap(),
+            RecoveryOutcome::Completed
+        );
+        assert_eq!(std::fs::read(file).unwrap(), b"after");
+        // Keeping a published repository alive must not retain the lease.
+        let next = begin(&published, &[]).await.unwrap();
+        drop(next);
+        recover(&plugin, &[]).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn empty_head_read_does_not_disprove_crashed_publication() {
+        let fixture = Fixture::new().await;
+        let real = fixture.repo.loader();
+        let heads = Arc::new(OptionalLockHeads {
+            inner: real.op_heads_store().clone(),
+            empty_next_read: AtomicBool::new(false),
+        });
+        let plugin = RepoLoader::new(
+            real.settings().clone(),
+            real.store().clone(),
+            real.op_store().clone(),
+            heads.clone(),
+            real.index_store().clone(),
+            real.submodule_store().clone(),
+        );
         let file = fixture.file("metadata", b"before");
         let journal = begin(&fixture.repo, std::slice::from_ref(&file))
             .await
             .unwrap();
         fixture.change_file(&file, b"after");
+        let published = fixture.prepare(&journal).await;
+        fixture.publish_heads(&published).await;
         drop(journal);
-        assert!(matches!(
-            recover(&plugin, &[]).await,
-            Err(LocalStateError::Safety(_))
-        ));
+        heads.empty_next_read.store(true, Ordering::Relaxed);
+        assert!(recover(&plugin, &[]).await.is_err());
         assert_eq!(std::fs::read(&file).unwrap(), b"after");
         assert!(has_pending(&fixture.git).unwrap());
         assert_eq!(
-            recover(real, &[]).await.unwrap(),
-            RecoveryOutcome::RolledBack
+            recover(&plugin, &[]).await.unwrap(),
+            RecoveryOutcome::Completed
         );
-        assert_eq!(std::fs::read(file).unwrap(), b"before");
+        assert_eq!(std::fs::read(file).unwrap(), b"after");
     }
 
     #[tokio::test]

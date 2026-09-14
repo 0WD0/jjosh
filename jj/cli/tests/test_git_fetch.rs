@@ -2356,6 +2356,44 @@ fn test_git_fetch_remotely_rewritten_descendants() {
 }
 
 #[test]
+fn test_git_fetch_tracked_conflicts_with_branch_before_transport() {
+    let test_env = TestEnvironment::default();
+    test_env.add_config("remotes.origin.auto-track-bookmarks = '*'");
+    test_env.run_jj_in(".", ["git", "init", "repo"]).success();
+    let work_dir = test_env.work_dir("repo");
+    let remote_repo = add_git_remote(&test_env, &work_dir, "origin");
+    add_commit_to_branch(&remote_repo, "foo", "initial foo");
+    add_commit_to_branch(&remote_repo, "bar", "initial bar");
+    work_dir.run_jj(["git", "fetch"]).success();
+    let bookmarks_before = get_bookmark_output(&work_dir).success();
+    let operation_before = work_dir
+        .run_jj(["op", "log", "--no-graph", "-n", "1", "-T", "id"])
+        .success();
+    add_commit_to_branch(&remote_repo, "foo", "updated foo");
+    add_commit_to_branch(&remote_repo, "bar", "updated bar");
+
+    let trace_path = test_env.env_root().join("git-trace");
+    let output = work_dir.run_jj_with(|cmd| {
+        cmd.args(["git", "fetch", "--tracked", "--branch", "foo"])
+            .env("GIT_TRACE", &trace_path)
+    });
+    assert_eq!(output.status.code(), Some(2), "{output}");
+    assert!(!trace_path.exists(), "invalid selection invoked Git");
+    assert_eq!(
+        get_bookmark_output(&work_dir).success().stdout.raw(),
+        bookmarks_before.stdout.raw(),
+    );
+    assert_eq!(
+        work_dir
+            .run_jj(["op", "log", "--no-graph", "-n", "1", "-T", "id"])
+            .success()
+            .stdout
+            .raw(),
+        operation_before.stdout.raw(),
+    );
+}
+
+#[test]
 fn test_git_fetch_tracked() {
     let test_env = TestEnvironment::default();
     test_env.add_config("remotes.origin.auto-track-bookmarks = '*'");

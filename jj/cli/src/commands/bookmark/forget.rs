@@ -96,14 +96,8 @@ pub async fn cmd_bookmark_forget(
     let mut forgotten_local: usize = 0;
     let mut forgotten_remote: usize = 0;
 
-    for &(symbol, remote_ref) in &matched_remote_bookmarks {
-        // If the remote bookmark was already deleted explicitly, there is
-        // nothing left for `forget` to do.
-        if remote_ref.is_absent() {
-            continue;
-        }
-        tx.repo_mut()
-            .set_remote_bookmark(symbol, RemoteRef::absent());
+    for &(symbol, _) in &matched_remote_bookmarks {
+        tx.repo_mut().forget_remote_bookmark(symbol);
         forgotten_remote += 1;
     }
 
@@ -111,22 +105,21 @@ pub async fn cmd_bookmark_forget(
         if bookmark_target.local_target.is_present() {
             forgotten_local += 1;
         }
-        tx.repo_mut()
-            .set_local_bookmark_target(name, RefTarget::absent());
         for (remote, _) in &bookmark_target.remote_refs {
             let symbol = name.to_remote_symbol(remote);
             if !jj_lib::revset::remote_ref_is_visible(repo.view(), symbol).map_err(crate::command_error::user_error)? {
                 continue;
             }
-            // If the remote bookmark was already deleted explicitly, skip it.
-            if tx.repo().get_remote_bookmark(symbol).is_absent() {
+            // An explicitly forgotten entry may also match the local pattern.
+            if !tx.repo().view().get_remote_view(remote).is_some_and(|remote_view| {
+                remote_view.bookmarks.contains_key(symbol.name)
+            }) {
                 continue;
             }
             // If `--include-remotes` is specified, we forget the corresponding
             // remote bookmarks instead of untracking them.
             if args.include_remotes {
-                tx.repo_mut()
-                    .set_remote_bookmark(symbol, RemoteRef::absent());
+                tx.repo_mut().forget_remote_bookmark(symbol);
                 forgotten_remote += 1;
                 continue;
             }
@@ -137,6 +130,8 @@ pub async fn cmd_bookmark_forget(
             }
             tx.repo_mut().untrack_remote_bookmark(symbol);
         }
+        tx.repo_mut()
+            .set_local_bookmark_target(name, RefTarget::absent());
     }
 
     if forgotten_local != 0 {

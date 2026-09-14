@@ -51,7 +51,7 @@ pub struct RemoteIdentity<'a> {
 
 impl RemoteIdentity<'_> {
     /// Display a recorded alias with its stable project label when available.
-    /// Missing labels retain the recorded local name, not a guessed scope.
+    /// Missing labels retain the physical key, not a guessed scope.
     pub fn qualified_name(
         &self,
         state: &crate::project::ProjectState,
@@ -65,7 +65,7 @@ impl RemoteIdentity<'_> {
         }) {
             format!("{}#{label}", name.name.as_str())
         } else {
-            name.name.as_str().to_owned()
+            physical.as_str().to_owned()
         }
     }
 }

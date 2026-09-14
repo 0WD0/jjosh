@@ -136,7 +136,6 @@ pub(crate) async fn run_import(
     .map_err(user_error)?;
 
     let mut workspace = crate::project::recorded_workspace(ui, command).await?;
-    let git_lock = workspace.lock_git_import_export()?;
     crate::interop::sha1_git_repo_path(&workspace)?;
     let git = jj_lib::git::get_git_repo(workspace.repo().store())?;
     jj_lib::local_state::ensure_no_pending(&git)?;
@@ -271,9 +270,7 @@ pub(crate) async fn run_import(
     }
     jj_lib::git::check_import_remote_configs(workspace.repo().store(), &remote_configs)?;
 
-    let journal = jj_lib::local_state::begin(workspace.repo(), &[]).await?;
     let mut tx = workspace.start_transaction();
-    tx.bind_local_state(&journal)?;
     let mut view = tx.repo().view().store_view().clone();
     let mut edits = BTreeMap::new();
     let mut witnesses = Vec::with_capacity(sources.len());
@@ -350,9 +347,6 @@ pub(crate) async fn run_import(
         ));
         witnesses.push(witness);
     }
-    for source in &witnesses {
-        source.verify().await?;
-    }
 
     let local_bookmarks: HashSet<_> = view
         .local_bookmarks
@@ -373,13 +367,32 @@ pub(crate) async fn run_import(
         .cloned()
         .collect();
 
+    // Graph rewriting and provenance preparation only materialize objects.
+    // Serialize the validate-and-publish section, not the expensive planning.
+    let git_lock = tx.base_workspace_helper().lock_git_import_export()?;
+    let journal = jj_lib::local_state::begin(tx.base_repo(), &[]).await?;
+    tx.bind_local_state(&journal)?;
+    for source in &witnesses {
+        source.verify().await?;
+    }
+    let mut git = jj_lib::git::get_git_repo(tx.repo().store())?;
+    git.reload().map_err(user_error)?;
+    let mut checked_remotes = HashSet::new();
+    reserve_remotes(
+        &git,
+        tx.base_repo().view().store_view(),
+        remotes.iter(),
+        &mut checked_remotes,
+    )?;
+    jj_lib::git::check_import_remote_configs(tx.repo().store(), &remote_configs)?;
+
     // Both modes publish every authority-bearing side effect through one journal.
     // Object and cache materialization above never publishes main-repository refs.
     tx.repo_mut().set_view(view);
     let edits: Vec<_> = edits.into_values().collect();
     journal.record_ref_edits(&git, &edits)?;
     git.edit_references(edits).map_err(user_error)?;
-    jj_lib::git::import_remote_configs(tx.repo().store(), &remote_configs)?;
+    jj_lib::git::import_remote_configs(tx.repo().store(), &remote_configs, Some(&journal))?;
     let stats = jj_lib::git::export_some_refs(tx.repo_mut(), |kind, symbol| {
         if symbol.remote == jj_lib::git::REMOTE_NAME_FOR_LOCAL_GIT_REPO {
             match kind {

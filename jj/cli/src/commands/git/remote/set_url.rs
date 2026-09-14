@@ -70,13 +70,15 @@ pub async fn cmd_git_remote_set_url(
     super::require_integrated_local_state(command)?;
     let workspace_command = command.workspace_helper_no_snapshot(ui).await?;
     let _git_lock = workspace_command.lock_git_import_export()?;
+    let journal = local_state::begin(workspace_command.repo(), &[]).await?;
     let view = workspace_command.repo().view();
     let remote = super::resolve_management_remote(
         &workspace_command,
         args.remote.as_str(),
         args.project.as_deref(),
     )?;
-    let git_repo = git::get_git_repo(workspace_command.repo().store())?;
+    let mut git_repo = git::get_git_repo(workspace_command.repo().store())?;
+    git_repo.reload().map_err(user_error)?;
     let inspection = git::inspect_remote_management(view, &git_repo, &remote)?;
     let connection = inspection.connection();
     super::check_management_binding(command, &workspace_command, &remote, connection)?;
@@ -111,7 +113,6 @@ pub async fn cmd_git_remote_set_url(
             git_repo.remote_at(url.as_str()).map_err(user_error)?;
         }
     }
-    let journal = local_state::begin(workspace_command.repo(), &[]).await?;
     if !inspection.has_config {
         let connection = connection.expect("validated logical connection");
         let managed = view
@@ -138,8 +139,9 @@ pub async fn cmd_git_remote_set_url(
             &remote,
             fetch_url.as_deref().expect("validated fetch URL"),
             push_url.as_deref(),
+            Some(&journal),
         )?;
-        git::set_remote_config_keys(workspace_command.repo().store(), &keys)?;
+        git::set_remote_config_keys(workspace_command.repo().store(), &keys, Some(&journal))?;
     }
 
     if inspection.has_config {
@@ -148,6 +150,7 @@ pub async fn cmd_git_remote_set_url(
             &remote,
             fetch_url.as_deref(),
             push_url.as_deref(),
+            Some(&journal),
         )?;
     }
     journal.commit_local()?;

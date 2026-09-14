@@ -301,8 +301,13 @@ async fn cmd_attach(
                 .clone(),
         );
     }
+    let git_lock = workspace.lock_git_import_export()?;
+    let extra_paths: Vec<_> = command.config_env().maybe_repo_config_path(ui)?.into_iter().collect();
+    let journal = local_state::begin(workspace.repo(), &extra_paths).await?;
+    crate::git_remote::check_repo_config_unchanged(command.raw_config())?;
     crate::git_remote::check_remote(command, &workspace, &remote)?;
-    let git_repo = git::get_git_repo(workspace.repo().store())?;
+    let mut git_repo = git::get_git_repo(workspace.repo().store())?;
+    git_repo.reload().map_err(user_error)?;
     if git::try_find_active_remote(&git_repo, &remote)?.is_none() {
         return Err(git::GitRemoteManagementError::NoSuchRemote(local_name.clone()).into());
     }
@@ -380,13 +385,6 @@ async fn cmd_attach(
             )],
         )?;
     }
-    let extra_paths = options
-        .repo_config
-        .iter()
-        .map(|file| file.path().to_owned())
-        .collect::<Vec<_>>();
-    let git_lock = workspace.lock_git_import_export()?;
-    let journal = local_state::begin(workspace.repo(), &extra_paths).await?;
     let mut tx = workspace.start_transaction();
     tx.bind_local_state(&journal)?;
     if remote != old_remote {
@@ -408,6 +406,7 @@ async fn cmd_attach(
                 Some("jjosh-v1".into()),
             ),
         ],
+        Some(&journal),
     )?;
     if let Some(project) = scope {
         tx.repo_mut()

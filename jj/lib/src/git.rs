@@ -55,6 +55,8 @@ pub use crate::git_subprocess::GitSubprocessCallback;
 use crate::git_subprocess::GitSubprocessContext;
 use crate::git_subprocess::GitSubprocessError;
 use crate::index::IndexError;
+use crate::local_state::JournalLease;
+use crate::local_state::LocalStateTransaction;
 use crate::matchers::EverythingMatcher;
 use crate::merge::Diff;
 use crate::merge::Merge;
@@ -80,6 +82,7 @@ use crate::ref_name::RemoteRefSymbol;
 use crate::ref_name::RemoteRefSymbolBuf;
 use crate::ref_name::WorkspaceName;
 use crate::repo::MutableRepo;
+use crate::repo::ReadonlyRepo;
 use crate::repo::Repo;
 use crate::repo_path::RepoPath;
 use crate::revset::ResolvedRevsetExpression;
@@ -661,6 +664,7 @@ pub fn check_raw_fetch_selection(
 pub fn set_remote_config_keys(
     store: &Store,
     updates: &[(RemoteNameBuf, String, Option<String>)],
+    journal: Option<&LocalStateTransaction>,
 ) -> Result<(), GitRemoteManagementError> {
     let mut git_repo = get_git_repo(store)?;
     let _lock = lock_remote_config(&git_repo)?;
@@ -705,6 +709,7 @@ pub fn set_remote_config_keys(
         &config,
         Vec::new(),
         &GitRemoteManagementOptions::default(),
+        journal.map(|journal| journal.lease().as_ref()),
     )
 }
 
@@ -837,14 +842,8 @@ pub struct GitRemoteObservation {
     pub kind: GitRefKind,
     pub symbol: RemoteRefSymbolBuf,
     /// May contain a native conflict. Every term must use canonical commit IDs.
+    /// Absent or conflicted targets have no representable physical Git mirror.
     pub target: RefTarget,
-    /// Peeled canonical commit ID of the physical Git mirror, if representable.
-    ///
-    /// This is never an endpoint/raw object ID or an annotated tag object ID.
-    /// Use `None` for an absent or conflicted target, and remove its physical
-    /// mirror. For a normal target, this must identify the same canonical commit.
-    /// Real remote tags aren't recorded in `View.git_refs`, as with Git scanning.
-    pub canonical_git_oid: Option<gix::ObjectId>,
     /// Immutable conversion input, independently merged from the canonical target.
     pub evidence: Option<ConversionObservation>,
 }
@@ -1082,12 +1081,7 @@ fn diff_remote_observations(
     let mut observations: HashMap<_, _> = observations
         .into_iter()
         .filter(|observation| selected(observation.kind, observation.symbol.as_ref()))
-        .map(|observation| {
-            (
-                (observation.kind, observation.symbol),
-                (observation.target, observation.canonical_git_oid),
-            )
-        })
+        .map(|observation| ((observation.kind, observation.symbol), observation.target))
         .collect();
     let mut known_git_refs: HashMap<&GitRefName, &RefTarget> = view
         .git_refs()
@@ -1099,14 +1093,12 @@ fn diff_remote_observations(
         .map(|(name, target)| (name.as_ref(), target))
         .collect();
     let mut changed_git_refs = Vec::new();
-    for ((kind, symbol), (_, canonical_git_oid)) in &observations {
+    for ((kind, symbol), target) in &observations {
         if let Some(name) = to_git_ref_name(*kind, symbol.as_ref()) {
             let old_target = known_git_refs
                 .remove::<GitRefName>(name.as_ref())
                 .unwrap_or_else(|| RefTarget::absent_ref());
-            let new_target = RefTarget::resolved(
-                canonical_git_oid.map(|oid| CommitId::from_bytes(oid.as_bytes())),
-            );
+            let new_target = RefTarget::resolved(target.as_normal().cloned());
             if *old_target != new_target {
                 changed_git_refs.push((name, new_target));
             }
@@ -1136,7 +1128,7 @@ fn diff_remote_observations(
         }
         let new_target = observations
             .remove(&(kind, symbol.to_owned()))
-            .map_or_else(RefTarget::absent, |(target, _)| target);
+            .unwrap_or_else(RefTarget::absent);
         if new_target != old_remote_ref.target {
             changed.push(GitImportRefUpdate::new(
                 symbol.to_owned(),
@@ -1145,7 +1137,7 @@ fn diff_remote_observations(
             ));
         }
     }
-    for ((kind, symbol), (target, _)) in observations {
+    for ((kind, symbol), target) in observations {
         if target.is_absent() {
             continue;
         }
@@ -2013,6 +2005,7 @@ pub fn export_some_refs(
         &git_ref_filter,
     );
 
+    let lease = mut_repo.local_state.upgrade();
     let check_and_detach_head = |git_repo: &gix::Repository| -> Result<(), GitExportError> {
         let Ok(head_ref) = git_repo.find_reference("HEAD") else {
             return Ok(());
@@ -2051,6 +2044,7 @@ pub fn export_some_refs(
                     git_repo,
                     gix::refs::transaction::PreviousValue::MustExistAndMatch(old_target),
                     current_oid,
+                    lease.as_deref(),
                 )
                 .map_err(GitExportError::from_git)?;
             }
@@ -2095,13 +2089,14 @@ fn export_refs_to_git(
     kind: GitRefKind,
     refs: RefsToExport,
 ) -> Vec<(RemoteRefSymbolBuf, FailedRefExportReason)> {
+    let lease = mut_repo.local_state.upgrade();
     let mut failed = refs.failed;
     for (symbol, old_oid) in refs.to_delete {
         let Some(git_ref_name) = to_git_ref_name(kind, symbol.as_ref()) else {
             failed.push((symbol, FailedRefExportReason::InvalidGitName));
             continue;
         };
-        if let Err(reason) = delete_git_ref(git_repo, &git_ref_name, &old_oid) {
+        if let Err(reason) = delete_git_ref(git_repo, &git_ref_name, &old_oid, lease.as_deref()) {
             failed.push((symbol, reason));
         } else {
             let new_target = RefTarget::absent();
@@ -2133,6 +2128,7 @@ fn export_refs_to_git(
             old_commit_oid,
             new_commit_oid,
             new_ref_oid,
+            lease.as_deref(),
         ) {
             failed.push((symbol, reason));
         } else {
@@ -2337,11 +2333,27 @@ fn find_git_tag_oid_to_copy(
         .find_map(|git_ref| git_ref.inner.target.try_into_id().ok())
 }
 
+// Capture ownership explicitly. An ordinary writer never starts recording if a
+// journal appears after this check; native locks/CAS preserve external edits.
+fn check_git_mutation(
+    git_repo: &gix::Repository,
+    lease: Option<&JournalLease>,
+) -> Result<bool, crate::local_state::LocalStateError> {
+    if let Some(lease) = lease {
+        lease.check_mutation(git_repo)?;
+        Ok(true)
+    } else {
+        crate::local_state::ensure_no_pending(git_repo)?;
+        Ok(false)
+    }
+}
+
 fn edit_exported_git_ref(
     git_repo: &gix::Repository,
     edit: gix::refs::transaction::RefEdit,
+    lease: Option<&JournalLease>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    if !crate::local_state::has_pending(git_repo)? {
+    if !check_git_mutation(git_repo, lease)? {
         git_repo.edit_reference(edit)?;
         return Ok(());
     }
@@ -2363,6 +2375,7 @@ fn delete_git_ref(
     git_repo: &gix::Repository,
     git_ref_name: &GitRefName,
     old_oid: &gix::oid,
+    lease: Option<&JournalLease>,
 ) -> Result<(), FailedRefExportReason> {
     let Some(git_ref) = git_repo
         .try_find_reference(git_ref_name.as_str())
@@ -2373,7 +2386,7 @@ fn delete_git_ref(
     };
     if resolve_git_ref_to_commit_id(&git_ref, Some(old_oid)).as_deref() == Some(old_oid) {
         // The ref has not been updated by git, so go ahead and delete it
-        edit_exported_git_ref(git_repo, remove_ref(git_ref))
+        edit_exported_git_ref(git_repo, remove_ref(git_ref), lease)
             .map_err(FailedRefExportReason::FailedToDelete)
     } else {
         // The ref was updated by git
@@ -2387,6 +2400,7 @@ fn create_git_ref(
     git_ref_name: &GitRefName,
     new_commit_oid: gix::ObjectId,
     new_ref_oid: Option<gix::ObjectId>,
+    lease: Option<&JournalLease>,
 ) -> Result<(), FailedRefExportReason> {
     let new_oid = new_ref_oid.unwrap_or(new_commit_oid);
     let constraint = gix::refs::transaction::PreviousValue::MustNotExist;
@@ -2399,7 +2413,7 @@ fn create_git_ref(
         constraint,
         "export from jj",
     );
-    let Err(set_err) = edit_exported_git_ref(git_repo, edit) else {
+    let Err(set_err) = edit_exported_git_ref(git_repo, edit, lease) else {
         // The ref was added in jj but still doesn't exist in git
         return Ok(());
     };
@@ -2425,6 +2439,7 @@ fn move_git_ref(
     old_commit_oid: gix::ObjectId,
     new_commit_oid: gix::ObjectId,
     new_ref_oid: Option<gix::ObjectId>,
+    lease: Option<&JournalLease>,
 ) -> Result<(), FailedRefExportReason> {
     let new_oid = new_ref_oid.unwrap_or(new_commit_oid);
     let constraint =
@@ -2438,7 +2453,7 @@ fn move_git_ref(
         constraint,
         "export from jj",
     );
-    let Err(set_err) = edit_exported_git_ref(git_repo, edit) else {
+    let Err(set_err) = edit_exported_git_ref(git_repo, edit, lease) else {
         // Successfully updated from old_oid to new_oid (unchanged in git)
         return Ok(());
     };
@@ -2464,7 +2479,7 @@ fn move_git_ref(
             constraint,
             "export from jj",
         );
-        edit_exported_git_ref(git_repo, edit).map_err(FailedRefExportReason::FailedToSet)?;
+        edit_exported_git_ref(git_repo, edit, lease).map_err(FailedRefExportReason::FailedToSet)?;
         Ok(())
     } else {
         Err(FailedRefExportReason::FailedToSet(set_err))
@@ -2477,10 +2492,18 @@ fn update_git_ref(
     old_commit_oid: Option<gix::ObjectId>,
     new_commit_oid: gix::ObjectId,
     new_ref_oid: Option<gix::ObjectId>,
+    lease: Option<&JournalLease>,
 ) -> Result<(), FailedRefExportReason> {
     match old_commit_oid {
-        None => create_git_ref(git_repo, git_ref_name, new_commit_oid, new_ref_oid),
-        Some(old_oid) => move_git_ref(git_repo, git_ref_name, old_oid, new_commit_oid, new_ref_oid),
+        None => create_git_ref(git_repo, git_ref_name, new_commit_oid, new_ref_oid, lease),
+        Some(old_oid) => move_git_ref(
+            git_repo,
+            git_ref_name,
+            old_oid,
+            new_commit_oid,
+            new_ref_oid,
+            lease,
+        ),
     }
 }
 
@@ -2490,9 +2513,9 @@ fn update_git_head(
     git_repo: &gix::Repository,
     expected_ref: gix::refs::transaction::PreviousValue,
     new_oid: Option<gix::ObjectId>,
+    lease: Option<&JournalLease>,
 ) -> Result<(), GitResetHeadError> {
-    let journaled =
-        crate::local_state::has_pending(git_repo).map_err(GitResetHeadError::from_git)?;
+    let journaled = check_git_mutation(git_repo, lease).map_err(GitResetHeadError::from_git)?;
     let mut ref_edits = Vec::new();
     let new_target = if let Some(oid) = new_oid {
         gix::refs::Target::Object(oid)
@@ -2626,6 +2649,7 @@ pub fn create_worktree(
         &git_repo,
         gix::refs::transaction::PreviousValue::MustExistAndMatch(unborn_branch),
         None,
+        None,
     )
     .map_err(GitCreateWorktreeError::from_git)
 }
@@ -2733,6 +2757,7 @@ pub async fn reset_head(
     let git_repo = git_backend
         .open_git_repo_at_workdir(workspace_root)
         .map_err(GitResetHeadError::from_git)?;
+    let lease = mut_repo.local_state.upgrade();
     if git_repo.state().is_some() {
         // An in-progress Git operation is not owned by this transaction. Never
         // delete its merge/rebase state as part of a journaled local change.
@@ -2766,7 +2791,7 @@ pub async fn reset_head(
             gix::refs::transaction::PreviousValue::MustExist
         };
         let new_oid = new_head_target.as_normal().map(owned_oid_from_commit_id);
-        update_git_head(&git_repo, expected_ref, new_oid)?;
+        update_git_head(&git_repo, expected_ref, new_oid, lease.as_deref())?;
         mut_repo.set_git_head_target(workspace_name, new_head_target);
     }
 
@@ -2776,7 +2801,7 @@ pub async fn reset_head(
         clear_operation_state(&git_repo)?;
     }
 
-    reset_index(mut_repo, &git_repo, wc_commit).await
+    reset_index(mut_repo, &git_repo, wc_commit, lease.as_deref()).await
 }
 
 // TODO: Polish and upstream this to `gix`.
@@ -2816,6 +2841,7 @@ async fn reset_index(
     repo: &dyn Repo,
     git_repo: &gix::Repository,
     wc_commit: &Commit,
+    lease: Option<&JournalLease>,
 ) -> Result<(), GitResetHeadError> {
     let parent_tree = wc_commit.parent_tree(repo).await?;
     // Use the merged parent tree as the Git index, allowing `git diff` to show the
@@ -2861,15 +2887,16 @@ async fn reset_index(
 
     debug_assert!(index.verify_entries().is_ok());
 
-    write_git_index(git_repo, &mut index)
+    write_git_index(git_repo, &mut index, lease)
 }
 
 fn write_git_index(
     git_repo: &gix::Repository,
     index: &mut gix::index::File,
+    lease: Option<&JournalLease>,
 ) -> Result<(), GitResetHeadError> {
     let options = gix::index::write::Options::default();
-    if !crate::local_state::has_pending(git_repo).map_err(GitResetHeadError::from_git)? {
+    if !check_git_mutation(git_repo, lease).map_err(GitResetHeadError::from_git)? {
         return index.write(options).map_err(GitResetHeadError::from_git);
     }
     index
@@ -3005,7 +3032,7 @@ fn build_index_from_merged_tree(
 /// Should be called when the diff between the working-copy commit and its
 /// parent(s) has changed.
 pub async fn update_intent_to_add(
-    repo: &dyn Repo,
+    repo: &ReadonlyRepo,
     workspace_root: &Path,
     old_tree: &MergedTree,
     new_tree: &MergedTree,
@@ -3020,7 +3047,8 @@ pub async fn update_intent_to_add(
     let mut_index = Arc::make_mut(&mut index);
     update_intent_to_add_impl(&git_repo, mut_index, old_tree, new_tree).await?;
     debug_assert!(mut_index.verify_entries().is_ok());
-    write_git_index(&git_repo, mut_index)?;
+    let lease = repo.local_state.upgrade();
+    write_git_index(&git_repo, mut_index, lease.as_deref())?;
 
     Ok(())
 }
@@ -3142,15 +3170,8 @@ impl GitRemoteManagementError {
 #[derive(Default)]
 pub struct GitRemoteManagementOptions {
     pub extra_config_keys: &'static [&'static str],
-    pub sidecar: Option<GitRemoteSidecar>,
     /// Prepared repository-level settings committed alongside the Git remote.
     pub repo_config: Option<crate::config::ConfigFile>,
-}
-
-/// A name-keyed metadata file to move, or retire when `new` is absent.
-pub struct GitRemoteSidecar {
-    pub old: PathBuf,
-    pub new: Option<PathBuf>,
 }
 
 fn lock_remote_config(
@@ -3169,6 +3190,7 @@ pub fn commit_remote_management_config(
     store: &Store,
     remote: &RemoteName,
     repo_config: Option<&crate::config::ConfigFile>,
+    journal: Option<&LocalStateTransaction>,
 ) -> Result<(), GitRemoteManagementError> {
     let mut git_repo = get_git_repo(store)?;
     let _config_lock = lock_remote_config(&git_repo)?;
@@ -3199,21 +3221,23 @@ pub fn commit_remote_management_config(
                 repo_config: Some(repo_config.clone()),
                 ..Default::default()
             },
+            journal.map(|journal| journal.lease().as_ref()),
         )?;
     }
     Ok(())
 }
 
-/// All fallible preparation, including reference locks and destination collision
-/// checks, precedes mutation. Keep the config and sidecar locks until rollback or
-/// completion so another config writer cannot observe and overwrite half a move.
+/// All fallible preparation, including reference locks, precedes mutation. Keep
+/// native config locks until rollback or completion.
 fn commit_remote_management(
     git_repo: &gix::Repository,
     config: &gix::config::File,
     edits: Vec<gix::refs::transaction::RefEdit>,
     options: &GitRemoteManagementOptions,
+    lease: Option<&JournalLease>,
 ) -> Result<(), GitRemoteManagementError> {
     let run = || -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let journaled = check_git_mutation(git_repo, lease)?;
         let config_path = config.meta().path.as_ref().expect("local Git config path");
         let directory = config_path.parent().expect("Git config directory");
         let mut replacement = tempfile::NamedTempFile::new_in(directory)?;
@@ -3247,77 +3271,18 @@ fn commit_remote_management(
             repo_config_files = Some((file.path().to_owned(), replacement, backup));
         }
 
-        let mut sidecar_locks = Vec::new();
-        let mut retired = None;
-        let sidecar_move = if let Some(sidecar) = &options.sidecar {
-            let old_parent = sidecar.old.parent().expect("sidecar directory");
-            if old_parent.try_exists()? {
-                sidecar_locks.push(gix::lock::Marker::acquire_to_hold_resource(
-                    &sidecar.old,
-                    gix::lock::acquire::Fail::Immediately,
-                    None,
-                )?);
-            }
-            if let Some(new) = &sidecar.new {
-                if new.parent().expect("sidecar directory").try_exists()? {
-                    sidecar_locks.push(gix::lock::Marker::acquire_to_hold_resource(
-                        new,
-                        gix::lock::acquire::Fail::Immediately,
-                        None,
-                    )?);
-                }
-                // symlink_metadata detects dangling symlinks as collisions too.
-                match std::fs::symlink_metadata(new) {
-                    Ok(_) => {
-                        return Err(std::io::Error::new(
-                            std::io::ErrorKind::AlreadyExists,
-                            format!("Remote metadata already exists: {}", new.display()),
-                        )
-                        .into());
-                    }
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                    Err(error) => return Err(error.into()),
-                }
-            }
-            match std::fs::symlink_metadata(&sidecar.old) {
-                Ok(metadata) => {
-                    if !metadata.file_type().is_file() {
-                        return Err(std::io::Error::new(
-                            std::io::ErrorKind::InvalidData,
-                            "Remote metadata is not a regular file",
-                        )
-                        .into());
-                    }
-                    let destination = if let Some(new) = &sidecar.new {
-                        new.clone()
-                    } else {
-                        let temporary =
-                            tempfile::NamedTempFile::new_in(old_parent)?.into_temp_path();
-                        let path = temporary.to_path_buf();
-                        retired = Some(temporary);
-                        path
-                    };
-                    Some((&sidecar.old, destination))
-                }
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-                Err(error) => return Err(error.into()),
-            }
-        } else {
-            None
-        };
-        let mut journal_files = vec![(config_path.clone(), std::fs::read(replacement.path())?)];
-        if let Some((path, replacement, _)) = &repo_config_files {
-            journal_files.push((path.clone(), std::fs::read(replacement.path())?));
-        }
         let committer = git_repo.committer().transpose()?;
         let references = git_repo.refs.transaction().prepare(
             edits,
             gix::lock::acquire::Fail::Immediately,
             gix::lock::acquire::Fail::Immediately,
         )?;
-        crate::local_state::record_mutation(git_repo, references.locked_edits(), &journal_files)?;
-        if let Some((old, new)) = &sidecar_move {
-            std::fs::rename(old, new)?;
+        if journaled {
+            let mut files = vec![(config_path.clone(), std::fs::read(replacement.path())?)];
+            if let Some((path, replacement, _)) = &repo_config_files {
+                files.push((path.clone(), std::fs::read(replacement.path())?));
+            }
+            crate::local_state::record_mutation(git_repo, references.locked_edits(), &files)?;
         }
         let mut repo_config_backup = None;
         let mut config_changed = false;
@@ -3342,19 +3307,12 @@ fn commit_remote_management(
             } else {
                 Ok(())
             };
-            let restore_sidecar = if let Some((old, new)) = &sidecar_move {
-                std::fs::rename(new, old).map_err(|error| error.to_string())
-            } else {
-                Ok(())
-            };
-            if restore_config.is_err() || restore_sidecar.is_err() || restore_repo_config.is_err() {
+            if restore_config.is_err() || restore_repo_config.is_err() {
                 // A failed restoration must preserve its backup and be reported,
                 // never be hidden behind the original error.
-                let retained = retired.map(|path| path.keep().map_err(|error| error.to_string()));
                 return Err(std::io::Error::other(format!(
                     "{error}; rollback failed: config={restore_config:?}, repo \
-                     config={restore_repo_config:?}, metadata={restore_sidecar:?}, retained \
-                     metadata={retained:?}",
+                     config={restore_repo_config:?}",
                 ))
                 .into());
             }
@@ -3962,6 +3920,7 @@ fn check_import_remote_configs_inner(
 pub fn import_remote_configs(
     store: &Store,
     imports: &[ImportedRemoteConfig],
+    journal: Option<&LocalStateTransaction>,
 ) -> Result<(), GitRemoteManagementError> {
     if imports.is_empty() {
         return Ok(());
@@ -3971,7 +3930,7 @@ pub fn import_remote_configs(
     git_repo
         .reload()
         .map_err(GitRemoteManagementError::from_git)?;
-    if !crate::local_state::has_pending(&git_repo).map_err(GitRemoteManagementError::from_git)? {
+    if journal.is_none() {
         return Err(GitRemoteManagementError::ManagedState(
             "Importing remote configuration requires a prepared remote management journal".into(),
         ));
@@ -4001,6 +3960,7 @@ pub fn import_remote_configs(
         &config,
         Vec::new(),
         &GitRemoteManagementOptions::default(),
+        journal.map(|journal| journal.lease().as_ref()),
     )
 }
 
@@ -4010,6 +3970,23 @@ pub fn create_remote_config(
     remote_name: &RemoteName,
     url: &str,
     push_url: Option<&str>,
+    journal: Option<&LocalStateTransaction>,
+) -> Result<(), GitRemoteManagementError> {
+    create_remote_config_inner(
+        store,
+        remote_name,
+        url,
+        push_url,
+        journal.map(|journal| journal.lease().as_ref()),
+    )
+}
+
+fn create_remote_config_inner(
+    store: &Store,
+    remote_name: &RemoteName,
+    url: &str,
+    push_url: Option<&str>,
+    lease: Option<&JournalLease>,
 ) -> Result<(), GitRemoteManagementError> {
     let mut git_repo = get_git_repo(store)?;
     let _config_lock = lock_remote_config(&git_repo)?;
@@ -4044,6 +4021,7 @@ pub fn create_remote_config(
         &config,
         Vec::new(),
         &GitRemoteManagementOptions::default(),
+        lease,
     )
 }
 
@@ -4053,7 +4031,14 @@ pub fn add_remote(
     url: &str,
     push_url: Option<&str>,
 ) -> Result<(), GitRemoteManagementError> {
-    create_remote_config(mut_repo.store(), remote_name, url, push_url)?;
+    let lease = mut_repo.local_state.upgrade();
+    create_remote_config_inner(
+        mut_repo.store(),
+        remote_name,
+        url,
+        push_url,
+        lease.as_deref(),
+    )?;
 
     mut_repo.ensure_remote(remote_name);
 
@@ -4141,6 +4126,7 @@ pub fn remove_remote_with_options(
     options: &GitRemoteManagementOptions,
 ) -> Result<(), GitRemoteManagementError> {
     let mut git_repo = get_git_repo(mut_repo.store())?;
+    let lease = mut_repo.local_state.upgrade();
     let _config_lock = lock_remote_config(&git_repo)?;
     git_repo
         .reload()
@@ -4152,7 +4138,13 @@ pub fn remove_remote_with_options(
         ));
     }
     if !inspection.owns_config() {
-        commit_remote_management(&git_repo, &git_repo.config_snapshot(), Vec::new(), options)?;
+        commit_remote_management(
+            &git_repo,
+            &git_repo.config_snapshot(),
+            Vec::new(),
+            options,
+            lease.as_deref(),
+        )?;
         mut_repo.remove_remote(remote_name);
         return Ok(());
     }
@@ -4162,7 +4154,7 @@ pub fn remove_remote_with_options(
     remove_remote_git_config_sections(&mut config, remote_name, options.extra_config_keys)?;
     let edits = remove_remote_git_ref_edits(&git_repo, remote_name)
         .map_err(GitRemoteManagementError::from_git)?;
-    commit_remote_management(&git_repo, &config, edits, options)?;
+    commit_remote_management(&git_repo, &config, edits, options, lease.as_deref())?;
 
     if remote_name != REMOTE_NAME_FOR_LOCAL_GIT_REPO {
         remove_remote_refs(mut_repo, remote_name);
@@ -4235,6 +4227,7 @@ pub fn rename_remote_with_options(
     options: &GitRemoteManagementOptions,
 ) -> Result<(), GitRemoteManagementError> {
     let mut git_repo = get_git_repo(mut_repo.store())?;
+    let lease = mut_repo.local_state.upgrade();
     let _config_lock = lock_remote_config(&git_repo)?;
     // Validate and rekey the committed state, including preceding journaled
     // configuration retirements, rather than the backend's cached snapshot.
@@ -4259,7 +4252,13 @@ pub fn rename_remote_with_options(
         .check_rename_remote(old_remote_name, new_remote_name)
         .map_err(GitRemoteManagementError::ManagedState)?;
     if !inspection.owns_config() {
-        commit_remote_management(&git_repo, &git_repo.config_snapshot(), Vec::new(), options)?;
+        commit_remote_management(
+            &git_repo,
+            &git_repo.config_snapshot(),
+            Vec::new(),
+            options,
+            lease.as_deref(),
+        )?;
         mut_repo
             .rename_remote(old_remote_name, new_remote_name)
             .map_err(GitRemoteManagementError::ManagedState)?;
@@ -4321,7 +4320,7 @@ pub fn rename_remote_with_options(
     remove_remote_git_config_sections(&mut config, old_remote_name, options.extra_config_keys)?;
     let edits = rename_remote_git_ref_edits(&git_repo, old_remote_name, new_remote_name)
         .map_err(GitRemoteManagementError::from_git)?;
-    commit_remote_management(&git_repo, &config, edits, options)?;
+    commit_remote_management(&git_repo, &config, edits, options, lease.as_deref())?;
 
     if old_remote_name != REMOTE_NAME_FOR_LOCAL_GIT_REPO {
         rename_remote_refs(mut_repo, old_remote_name, new_remote_name)?;
@@ -4391,6 +4390,7 @@ pub fn set_remote_urls(
     remote_name: &RemoteName,
     new_url: Option<&str>,
     new_push_url: Option<&str>,
+    journal: Option<&LocalStateTransaction>,
 ) -> Result<(), GitRemoteManagementError> {
     // quick sanity check
     if new_url.is_none() && new_push_url.is_none() {
@@ -4460,6 +4460,7 @@ pub fn set_remote_urls(
         &config,
         Vec::new(),
         &GitRemoteManagementOptions::default(),
+        journal.map(|journal| journal.lease().as_ref()),
     )?;
 
     Ok(())
@@ -5022,6 +5023,8 @@ impl<'a> GitFetch<'a> {
 
 #[derive(Error, Debug)]
 pub enum GitPushError {
+    #[error("{0}")]
+    ManagedState(String),
     #[error("No git remote named '{}'", .0.as_symbol())]
     NoSuchRemote(RemoteNameBuf),
     #[error(transparent)]
@@ -5216,6 +5219,8 @@ pub fn push_updates(
     callback: &mut dyn GitSubprocessCallback,
     options: &GitPushOptions,
 ) -> Result<GitPushStats, GitPushError> {
+    check_remote_capability(repo.store(), repo.view(), remote_name, &[])
+        .map_err(GitPushError::ManagedState)?;
     let mut qualified_remote_refs_expected_locations = HashMap::new();
     let mut refspecs = vec![];
     for update in updates {

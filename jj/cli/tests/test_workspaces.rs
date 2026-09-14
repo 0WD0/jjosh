@@ -325,6 +325,63 @@ fn test_workspaces_add_ignore_working_copy() {
     assert!(!secondary_dir.root().join("excluded").exists());
 }
 
+#[test_case("empty"; "explicit empty selection")]
+#[test_case("copy"; "unregistered physical selection")]
+fn test_workspaces_add_deferred_unregistered_sparse_patterns(sparse_patterns: &str) {
+    let test_env = TestEnvironment::default();
+    test_env.run_jj_in(".", ["git", "init", "main"]).success();
+    let main_dir = test_env.work_dir("main");
+    main_dir.write_file("tracked", "recorded");
+    main_dir.write_file("excluded", "hidden");
+    main_dir.run_jj(["new"]).success();
+    if sparse_patterns == "copy" {
+        let unregistered = main_dir
+            .run_jj(["op", "log", "--no-graph", "-n", "1", "-T", "id"])
+            .success();
+        main_dir.run_jj(["sparse", "set", "tracked"]).success();
+        // Restore the legacy state: only the physical working copy knows the
+        // selection, with no operation-versioned sparse intent registered.
+        main_dir
+            .run_jj(["op", "restore", unregistered.stdout.raw().trim()])
+            .success();
+        assert_eq!(main_dir.read_file("tracked"), "recorded");
+        assert!(!main_dir.root().join("excluded").exists());
+    }
+    let source_commit = main_dir
+        .run_jj(["log", "-r", "@", "--no-graph", "-T", "commit_id"])
+        .success();
+    main_dir
+        .run_jj([
+            "--ignore-working-copy",
+            "workspace",
+            "add",
+            "--sparse-patterns",
+            sparse_patterns,
+            "-r",
+            source_commit.stdout.raw().trim(),
+            "../secondary",
+        ])
+        .success();
+    let secondary_dir = test_env.work_dir("secondary");
+    assert!(!secondary_dir.root().join("tracked").exists());
+    assert!(!secondary_dir.root().join("excluded").exists());
+
+    secondary_dir
+        .run_jj(["workspace", "update-stale"])
+        .success();
+    if sparse_patterns == "copy" {
+        assert_eq!(secondary_dir.read_file("tracked"), "recorded");
+    } else {
+        assert!(!secondary_dir.root().join("tracked").exists());
+    }
+    assert!(!secondary_dir.root().join("excluded").exists());
+    // Excluded files remain in the canonical commit, not silently deleted.
+    assert_eq!(
+        secondary_dir.run_jj(["file", "list"]).success().stdout.raw(),
+        "excluded\ntracked\n",
+    );
+}
+
 /// Test that --no-integrate-operation is respected
 #[test]
 fn test_workspaces_add_no_integrate_operation() {

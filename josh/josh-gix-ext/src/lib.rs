@@ -302,12 +302,13 @@ pub fn write_commit(
     Ok(id)
 }
 
-/// Serialize a new commit whose author, committer, encoding, and safe logical-identity headers
-/// are taken from `base`, and write it to `out`.
+/// Serialize a new UTF-8 commit whose author, committer, and safe logical-identity
+/// headers are taken from `base`, and write it to `out`.
 ///
 /// Only the `change-id` extra header is retained. Signatures and other extension metadata are
 /// deliberately dropped because changing the tree, parents, or message invalidates them, and
-/// callers cannot safely interpret arbitrary headers.
+/// callers cannot safely interpret arbitrary headers. The base encoding is not
+/// inherited: the replacement `message` is UTF-8.
 pub fn write_commit_with_signatures_of(
     out: &impl gix_object::Write,
     base: &CommitData,
@@ -327,7 +328,7 @@ pub fn write_commit_with_signatures_of(
         parents: parents.to_vec().into(),
         author: parsed.author()?.into(),
         committer: parsed.committer()?.into(),
-        encoding: parsed.encoding.map(ToOwned::to_owned),
+        encoding: None,
         message: message.into(),
         extra_headers,
     };
@@ -741,15 +742,12 @@ mod tests {
         let base = CommitData::read(&repo.objects, base_oid).unwrap();
 
         let copied_oid =
-            write_commit_with_signatures_of(&repo.objects, &base, tree, &[], "new message\n")
+            write_commit_with_signatures_of(&repo.objects, &base, tree, &[], "café\n")
                 .unwrap();
         let copied = CommitData::read(&repo.objects, copied_oid).unwrap();
         let parsed = copied.parsed().unwrap();
 
-        assert_eq!(
-            parsed.encoding.map(|value| value.as_bytes()),
-            Some(b"ISO-8859-1".as_slice())
-        );
+        assert!(parsed.encoding.is_none());
         assert_eq!(
             parsed
                 .extra_headers()
@@ -759,7 +757,18 @@ mod tests {
         );
         assert!(parsed.extra_headers().find("gpgsig").is_none());
         assert!(parsed.extra_headers().find("custom-header").is_none());
-        assert_eq!(parsed.message.as_bytes(), b"new message\n");
+        assert_eq!(parsed.message.as_bytes(), "café\n".as_bytes());
+
+        // Git must decode the replacement as UTF-8, regardless of the base's
+        // legacy message encoding.
+        let output = std::process::Command::new("git")
+            .current_dir(repo.path())
+            .args(["-c", "i18n.logOutputEncoding=UTF-8", "log", "-1", "--format=%B"])
+            .arg(copied_oid.to_string())
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8(output.stdout).unwrap().trim_end(), "café");
     }
 
     #[test]

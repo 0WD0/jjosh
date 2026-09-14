@@ -66,6 +66,8 @@ pub struct Transaction {
     parent_ops: Vec<Operation>,
     op_metadata: OperationMetadata,
     end_time: Option<Timestamp>,
+    #[cfg(feature = "git")]
+    local_state: Option<crate::local_state::Enrollment>,
 }
 
 impl Transaction {
@@ -78,6 +80,8 @@ impl Transaction {
             parent_ops,
             op_metadata,
             end_time,
+            #[cfg(feature = "git")]
+            local_state: None,
         }
     }
 
@@ -91,6 +95,17 @@ impl Transaction {
 
     pub fn set_attribute(&mut self, key: String, value: String) {
         self.op_metadata.attributes.insert(key, value);
+    }
+
+    #[cfg(feature = "git")]
+    pub(crate) fn enroll_local_state(
+        &mut self,
+        enrollment: crate::local_state::Enrollment,
+        nonce: String,
+    ) {
+        self.mut_repo.local_state = enrollment.downgrade();
+        self.local_state = Some(enrollment);
+        self.set_attribute(crate::local_state::TRANSACTION_ATTRIBUTE.into(), nonce);
     }
 
     pub fn repo(&self) -> &MutableRepo {
@@ -170,7 +185,14 @@ impl Transaction {
         };
 
         let index = base_repo.index_store().write_index(mut_index, &operation)?;
-        let unpublished = UnpublishedOperation::new(base_repo.loader(), operation, view, index);
+        let unpublished = UnpublishedOperation::new(
+            base_repo.loader(),
+            operation,
+            view,
+            index,
+            #[cfg(feature = "git")]
+            self.local_state,
+        );
         Ok(unpublished)
     }
 }
@@ -211,6 +233,8 @@ pub fn create_op_metadata(
 pub struct UnpublishedOperation {
     op_heads_store: Arc<dyn OpHeadsStore>,
     repo: Arc<ReadonlyRepo>,
+    #[cfg(feature = "git")]
+    local_state: Option<crate::local_state::Enrollment>,
 }
 
 impl UnpublishedOperation {
@@ -219,10 +243,22 @@ impl UnpublishedOperation {
         operation: Operation,
         view: View,
         index: Box<dyn ReadonlyIndex>,
+        #[cfg(feature = "git")] local_state: Option<crate::local_state::Enrollment>,
     ) -> Self {
+        let repo = repo_loader.create_from(operation, view, index);
+        #[cfg(feature = "git")]
+        let repo = {
+            let mut repo = repo;
+            if let Some(enrollment) = &local_state {
+                Arc::get_mut(&mut repo).unwrap().local_state = enrollment.downgrade();
+            }
+            repo
+        };
         Self {
             op_heads_store: repo_loader.op_heads_store().clone(),
-            repo: repo_loader.create_from(operation, view, index),
+            repo,
+            #[cfg(feature = "git")]
+            local_state,
         }
     }
 
@@ -231,14 +267,33 @@ impl UnpublishedOperation {
     }
 
     pub async fn publish(self) -> Result<Arc<ReadonlyRepo>, TransactionCommitError> {
-        let _lock = self.op_heads_store.lock().await?;
         #[cfg(feature = "git")]
-        crate::local_state::before_publish(&self.repo)?;
-        self.op_heads_store
-            .update_op_heads(self.operation().parent_ids(), self.operation().id())
-            .await?;
+        if self.local_state.is_none()
+            && self
+                .operation()
+                .metadata()
+                .attributes
+                .contains_key(crate::local_state::TRANSACTION_ATTRIBUTE)
+        {
+            return Err(crate::local_state::LocalStateError::Safety(
+                "Local-state publication requires a live enrollment lease".into(),
+            )
+            .into());
+        }
         #[cfg(feature = "git")]
-        crate::local_state::after_publish(&self.repo)?;
+        if let Some(enrollment) = &self.local_state {
+            enrollment.before_publish(&self.repo)?;
+        }
+        {
+            let _lock = self.op_heads_store.lock().await?;
+            self.op_heads_store
+                .update_op_heads(self.operation().parent_ids(), self.operation().id())
+                .await?;
+        }
+        #[cfg(feature = "git")]
+        if let Some(enrollment) = &self.local_state {
+            enrollment.after_publish(&self.repo)?;
+        }
         Ok(self.repo)
     }
 

@@ -16,14 +16,13 @@ use jj_lib::local_state;
 use jj_lib::local_state::RecoveryOutcome;
 
 use crate::cli_util::CommandHelper;
-use crate::cli_util::GitImportExportLock;
 use crate::command_error::CommandError;
 use crate::ui::Ui;
 
 /// Recover an interrupted local state change without network access
 ///
-/// Published operations determine whether to complete the change or restore its
-/// saved local state. The selected operation does not determine recovery.
+/// A durable commit decision determines whether to complete the change or restore
+/// its saved local state. The selected operation does not determine recovery.
 #[derive(clap::Args, Clone, Debug)]
 pub(crate) struct UtilRecoverArgs {}
 
@@ -35,8 +34,6 @@ pub(crate) async fn cmd_util_recover(
     // Do not load or merge the selected operation before inspecting publication
     // evidence. Recovery must also work with --at-op selecting historical state.
     let workspace = command.load_workspace()?;
-    let git_repo = jj_lib::git::get_git_repo(workspace.repo_loader().store())?;
-    let _git_lock = GitImportExportLock::acquire(&git_repo)?;
     let extra_paths: Vec<_> = command
         .config_env()
         .maybe_repo_config_path(ui)?

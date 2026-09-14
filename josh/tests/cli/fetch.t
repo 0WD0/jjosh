@@ -98,3 +98,22 @@
   │   ┆  contents2
   └── remote_newfile
       ┆  remote_newfile
+
+A failed projected-ref publication must fail the command, leave the old ref
+unchanged, and remain fetchable after releasing the lock.
+
+  $ echo advanced > ${TESTTMP}/remote/libs/sub1/file1
+  $ git -C ${TESTTMP}/remote/libs commit -am "advance upstream" > /dev/null
+  $ before=$(git rev-parse refs/remotes/origin/master)
+  $ touch .git/refs/remotes/origin/master.lock
+  $ josh fetch > /dev/null 2>&1
+  [1]
+  $ test "$(git rev-parse refs/remotes/origin/master)" = "$before"
+  $ josh filter origin > /dev/null 2>&1
+  [1]
+  $ test "$(git rev-parse refs/remotes/origin/master)" = "$before"
+  $ rm .git/refs/remotes/origin/master.lock
+  $ josh fetch > /dev/null 2>&1
+  $ test "$(git rev-parse refs/remotes/origin/master)" != "$before"
+  $ git log -1 --format=%s refs/remotes/origin/master
+  advance upstream
