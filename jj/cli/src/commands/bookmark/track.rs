@@ -80,7 +80,7 @@ pub async fn cmd_bookmark_track(
     let repo = workspace_command.repo().clone();
     let view = repo.view();
 
-    let (bookmark_exprs, remote_symbols) = parse_name_patterns_or_remote_symbols(ui, &args.names)?;
+    let (bookmark_exprs, remote_symbols) = parse_name_patterns_or_remote_symbols(ui, repo.view(), &args.names)?;
     // Reject mixed syntax. It is confusing if the default @<remote> or
     // user-specified --remote flag applies only to <bookmark> patterns.
     if !bookmark_exprs.is_empty() && !remote_symbols.is_empty() {
@@ -105,9 +105,9 @@ pub async fn cmd_bookmark_track(
             (None, None) => StringExpression::all(),
         };
         let bookmark_matcher = bookmark_expr.to_matcher();
-        let remote_matcher = remote_expr.to_matcher();
+        let remote_matcher = jj_lib::revset::remote_name_expression_to_matcher(view, &remote_expr);
         let matched_refs =
-            trackable_remote_bookmarks_matching(view, &bookmark_matcher, &remote_matcher).collect();
+            trackable_remote_bookmarks_matching(view, &bookmark_matcher, &remote_matcher)?;
         warn_unmatched_local_or_remote_bookmarks(ui, view, &bookmark_expr)?;
         warn_unmatched_remotes(ui, view, &remote_expr)?;
         matched_refs
@@ -118,7 +118,7 @@ pub async fn cmd_bookmark_track(
         if remote_ref.is_tracked() {
             writeln!(
                 ui.warning_default(),
-                "Remote bookmark already tracked: {symbol}"
+                "Remote bookmark already tracked: {}", view.remote_ref_symbol(symbol)
             )?;
         } else {
             symbols.push(symbol);
@@ -137,7 +137,7 @@ pub async fn cmd_bookmark_track(
     }
     tx.finish(
         ui,
-        format!("track remote bookmark {}", symbols.iter().join(", ")),
+        format!("track remote bookmark {}", symbols.iter().map(|symbol| view.remote_ref_symbol(*symbol)).join(", ")),
     )
     .await?;
 
@@ -182,7 +182,7 @@ pub async fn cmd_bookmark_track(
             for (remote_name, remote_ref) in bookmark_target.remote_refs {
                 if remote_per_bookmark[name].contains(&remote_name) {
                     let commit_ref =
-                        CommitRef::remote(name, remote_name, remote_ref.clone(), local_target);
+                        CommitRef::remote(name, view.remote_ref_remote_name(name.to_remote_symbol(remote_name)).as_ref(), remote_ref.clone(), local_target);
                     template.format(&commit_ref, formatter.as_mut())?;
                 }
             }

@@ -38,6 +38,15 @@ pub(crate) fn label_references(view: &View, label: &str) -> Vec<String> {
             references.push(format!("observation {}@{}", key.name.as_str(), key.remote.as_str()));
         }
     }
+    if let Some(projects) = view.project_state.labels.get(label) {
+        for (connection, names) in &view.project_state.remote_names {
+            for name in names.adds().flatten() {
+                if projects.adds().flatten().any(|project| project == &name.project) {
+                    references.push(format!("remote {}#{label} (connection {})", name.name.as_str(), connection.hex()));
+                }
+            }
+        }
+    }
     references.sort();
     references.dedup();
     references
@@ -80,6 +89,11 @@ pub(crate) fn validate_removal(view: &View, id: &ProjectId) -> Result<Vec<String
     for (binding_id, definition) in &view.project_state.bindings {
         ensure!(!definition.adds().flatten().any(|record| record.target == BindingTarget::Project(id.clone())),
             "Project {} has active binding {}; remove its remote or explicitly retire the disconnected binding with project resolve --binding ID --delete first", id.hex(), binding_id.hex());
+    }
+    for (connection, names) in &view.project_state.remote_names {
+        ensure!(!names.adds().flatten().any(|name| &name.project == id),
+            "Project {} still has remote connection {}; retire its scoped name before removing the project",
+            id.hex(), connection.hex());
     }
     let mut labels = Vec::new();
     for (label, target) in &view.project_state.labels {

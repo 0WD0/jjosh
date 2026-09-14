@@ -721,7 +721,7 @@ pub async fn cmd_gerrit_upload(
                 user_error_with_message("Internal git error while pushing to gerrit", err)
             }
         })?;
-        print_push_stats(ui, &push_stats)?;
+        print_push_stats(ui, tx.repo().view(), &push_stats)?;
         if !push_stats.all_ok() {
             return Err(user_error("Failed to push all changes to gerrit"));
         }

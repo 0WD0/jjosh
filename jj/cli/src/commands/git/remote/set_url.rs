@@ -31,6 +31,10 @@ pub struct GitRemoteSetUrlArgs {
     #[arg(add = ArgValueCandidates::new(complete::git_remotes))]
     remote: RemoteNameBuf,
 
+    /// Resolve the remote within this project
+    #[arg(long)]
+    project: Option<String>,
+
     /// The URL or path to fetch from
     ///
     /// This is a short form, equivalent to using the explicit --fetch.
@@ -58,7 +62,8 @@ pub async fn cmd_git_remote_set_url(
     args: &GitRemoteSetUrlArgs,
 ) -> Result<(), CommandError> {
     let workspace_command = command.workspace_helper_no_snapshot(ui).await?;
-    crate::git_remote::check_remote(command, &workspace_command, &args.remote)?;
+    let remote = crate::git_remote::resolve_remote_selector(&workspace_command, args.remote.as_str(), args.project.as_deref())?;
+    crate::git_remote::check_remote(command, &workspace_command, &remote)?;
 
     let process_url = |url: Option<&String>| {
         url.map(|url| absolute_git_url(command.cwd(), url))
@@ -72,7 +77,7 @@ pub async fn cmd_git_remote_set_url(
 
     git::set_remote_urls(
         workspace_command.repo().store(),
-        &args.remote,
+        &remote,
         fetch_url.as_deref(),
         push_url.as_deref(),
     )?;

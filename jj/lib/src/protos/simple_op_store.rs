@@ -248,6 +248,27 @@ pub struct ProjectMetadata {
     pub connections: ::prost::alloc::vec::Vec<ConnectionEntry>,
     #[prost(message, repeated, tag = "6")]
     pub observations: ::prost::alloc::vec::Vec<ObservationEntry>,
+    #[prost(message, repeated, tag = "7")]
+    pub remote_names: ::prost::alloc::vec::Vec<ScopedRemoteNameEntry>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ScopedRemoteName {
+    #[prost(bytes = "vec", tag = "1")]
+    pub project_id: ::prost::alloc::vec::Vec<u8>,
+    #[prost(string, tag = "2")]
+    pub name: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ScopedRemoteNameTerm {
+    #[prost(message, optional, tag = "1")]
+    pub value: ::core::option::Option<ScopedRemoteName>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ScopedRemoteNameEntry {
+    #[prost(bytes = "vec", tag = "1")]
+    pub connection_id: ::prost::alloc::vec::Vec<u8>,
+    #[prost(message, repeated, tag = "2")]
+    pub terms: ::prost::alloc::vec::Vec<ScopedRemoteNameTerm>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ProjectRecord {

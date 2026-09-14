@@ -286,7 +286,10 @@ async fn init_git_refs(
     colocated: bool,
 ) -> Result<Arc<ReadonlyRepo>, CommandError> {
     let git_settings = GitSettings::from_settings(repo.settings())?;
-    let remote_settings = repo.settings().remote_settings()?;
+    let remote_settings = crate::revset_util::resolve_remote_settings(
+        repo.view(),
+        repo.settings().remote_settings()?,
+    )?;
     let import_options = GitImportOptions {
         // There should be no old refs to abandon, but enforce it.
         abandon_unreachable_commits: false,
@@ -305,7 +308,7 @@ async fn init_git_refs(
         // If remotes.<name>.auto-track-bookmarks is set, local bookmarks could
         // be created for the imported remote branches.
         let stats = git::export_refs(tx.repo_mut())?;
-        print_git_export_stats(ui, &stats)?;
+        print_git_export_stats(ui, tx.repo().view(), &stats)?;
     }
     let repo = tx.commit("import git refs").await?;
     writeln!(

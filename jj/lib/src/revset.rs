@@ -2645,15 +2645,102 @@ fn reload_repo_at_operation(
         })
 }
 
+/// Resolves a user remote reference in the registered scope of its local name.
+/// The returned remote is the physical storage key, not a display alias.
+pub fn resolve_remote_ref_symbol(
+    view: &crate::view::View,
+    symbol: RemoteRefSymbol<'_>,
+) -> Result<RemoteRefSymbolBuf, String> {
+    let reference_project = remote_ref_project(view, symbol.name)?;
+    let (remote_name, project) = match symbol.remote.as_str().strip_suffix('#') {
+        Some(name) => (RemoteName::new(name), None),
+        None => (symbol.remote, reference_project),
+    };
+    #[cfg(feature = "git")]
+    if remote_name == crate::git::REMOTE_NAME_FOR_LOCAL_GIT_REPO {
+        return Ok(RemoteRefSymbolBuf { name: symbol.name.to_owned(), remote: remote_name.to_owned() });
+    }
+    let remotes = view.remote_views().map(|(remote, _)| remote.to_owned()).collect_vec();
+    let remote = view.resolve_remote_name(&remotes, project.as_ref(), remote_name)?;
+    Ok(RemoteRefSymbolBuf { name: symbol.name.to_owned(), remote })
+}
+
+/// The registered project selected by a canonical local reference name.
+pub fn remote_ref_project(
+    view: &crate::view::View,
+    name: &RefName,
+) -> Result<Option<crate::project::ProjectId>, String> {
+    match name.as_str().rsplit_once('#') {
+        Some((_, label)) => view.store_view().project_state.resolve_label(label),
+        None => Ok(None),
+    }
+}
+
+/// Whether a physical remote reference belongs to its local name's scope.
+/// The backing Git pseudo-remote mirrors local refs from every scope.
+pub fn remote_ref_matches_scope(
+    view: &crate::view::View,
+    symbol: RemoteRefSymbol<'_>,
+) -> Result<bool, String> {
+    let project = remote_ref_project(view, symbol.name)?;
+    #[cfg(feature = "git")]
+    if symbol.remote == crate::git::REMOTE_NAME_FOR_LOCAL_GIT_REPO {
+        return Ok(true);
+    }
+    view.remote_in_scope(symbol.remote, project.as_ref())
+}
+
+/// Whether an existing remote reference can be shown in its physical namespace.
+/// Root destinations may intentionally retain literal scoped reference names
+/// from explicit source exports. They render with an explicit root selector.
+pub fn remote_ref_is_visible(
+    view: &crate::view::View,
+    symbol: RemoteRefSymbol<'_>,
+) -> Result<bool, String> {
+    if remote_ref_matches_scope(view, symbol)? {
+        return Ok(true);
+    }
+    view.remote_in_scope(symbol.remote, None)
+}
+
+/// Compiles a logical remote-name expression into a matcher of physical keys.
+/// Resolve each pattern before combining it so negation and intersection keep
+/// their meaning when a remote has both local and qualified display names.
+pub fn remote_name_expression_to_matcher(
+    view: &crate::view::View,
+    expression: &StringExpression,
+) -> crate::str_util::StringMatcher {
+    fn resolve(view: &crate::view::View, expression: &StringExpression) -> StringExpression {
+        match expression {
+            StringExpression::Pattern(pattern) => {
+                let matcher = pattern.to_matcher();
+                StringExpression::union_all(view.remote_views()
+                    .filter(|(remote, _)| matcher.is_match(view.remote_local_name(remote).as_str())
+                        || matcher.is_match(&view.remote_qualified_name(remote))
+                        || view.remote_in_scope(remote, None).unwrap_or(false)
+                            && matcher.is_match(&format!("{}#", view.remote_local_name(remote).as_str())))
+                    .map(|(remote, _)| StringExpression::exact(remote))
+                    .collect())
+            }
+            StringExpression::NotIn(inner) => resolve(view, inner).negated(),
+            StringExpression::Union(left, right) => resolve(view, left).union(resolve(view, right)),
+            StringExpression::Intersection(left, right) => resolve(view, left).intersection(resolve(view, right)),
+        }
+    }
+    resolve(view, expression).to_matcher()
+}
+
 fn resolve_remote_symbol(
     repo: &dyn Repo,
     symbol: RemoteRefSymbol<'_>,
 ) -> Result<CommitId, RevsetResolutionError> {
-    let remote_ref = repo.view().get_remote_tag(symbol);
+    let physical = resolve_remote_ref_symbol(repo.view(), symbol)
+        .map_err(|err| RevsetResolutionError::Other(err.into()))?;
+    let remote_ref = repo.view().get_remote_tag(physical.as_ref());
     if let Some(id) = to_resolved_ref("remote_tag", symbol, &remote_ref.target)? {
         return Ok(id);
     }
-    let remote_ref = repo.view().get_remote_bookmark(symbol);
+    let remote_ref = repo.view().get_remote_bookmark(physical.as_ref());
     if let Some(id) = to_resolved_ref("remote_bookmark", symbol, &remote_ref.target)? {
         return Ok(id);
     }
@@ -2677,6 +2764,7 @@ fn to_resolved_ref(
 }
 
 fn all_formatted_ref_symbols<'a>(
+    view: &'a crate::view::View,
     all_refs: impl Iterator<Item = (&'a RefName, LocalRemoteRefTarget<'a>)>,
     include_synced_remotes: bool,
 ) -> impl Iterator<Item = String> {
@@ -2693,15 +2781,16 @@ fn all_formatted_ref_symbols<'a>(
                     || !remote_ref.is_tracked()
                     || remote_ref.target != *local_target
             })
-            .map(move |(remote, _)| format_remote_symbol(name.as_str(), remote.as_str()));
+            .filter(move |&(remote, _)| remote_ref_is_visible(view, name.to_remote_symbol(remote)).unwrap_or(false))
+            .map(move |(remote, _)| format_remote_symbol(name.as_str(), &view.remote_ref_remote_name(name.to_remote_symbol(remote))));
         local_symbol.into_iter().chain(remote_symbols)
     })
 }
 
 fn make_no_such_symbol_error(repo: &dyn Repo, name: String) -> RevsetResolutionError {
     let include_synced_remotes = name.contains('@');
-    let tag_names = all_formatted_ref_symbols(repo.view().tags(), include_synced_remotes);
-    let bookmark_names = all_formatted_ref_symbols(repo.view().bookmarks(), include_synced_remotes);
+    let tag_names = all_formatted_ref_symbols(repo.view(), repo.view().tags(), include_synced_remotes);
+    let bookmark_names = all_formatted_ref_symbols(repo.view(), repo.view().bookmarks(), include_synced_remotes);
     let mut candidates = collect_similar(&name, itertools::chain(tag_names, bookmark_names));
     candidates.dedup(); // tags and bookmarks may have duplicate symbols
     RevsetResolutionError::NoSuchRevision { name, candidates }
@@ -2993,16 +3082,22 @@ fn resolve_commit_ref(
             remote_ref_state,
         } => {
             let name_matcher = symbol.name.to_matcher();
-            let remote_matcher = symbol.remote.to_matcher();
-            let commit_ids = repo
-                .view()
-                .remote_bookmarks_matching(&name_matcher, &remote_matcher)
-                .filter(|(_, remote_ref)| {
-                    remote_ref_state.is_none_or(|state| remote_ref.state == state)
-                })
-                .flat_map(|(_, remote_ref)| remote_ref.target.added_ids())
-                .cloned()
-                .collect();
+            let remote_matcher = remote_name_expression_to_matcher(repo.view(), &symbol.remote);
+            let view = repo.view();
+            let mut commit_ids = Vec::new();
+            for (symbol, remote_ref) in view.all_remote_bookmarks() {
+                if !name_matcher.is_match(symbol.name.as_str())
+                    || !remote_matcher.is_match(symbol.remote.as_str())
+                {
+                    continue;
+                }
+                if remote_ref_is_visible(view, symbol)
+                    .map_err(|err| RevsetResolutionError::Other(err.into()))?
+                    && remote_ref_state.is_none_or(|state| remote_ref.state == state)
+                {
+                    commit_ids.extend(remote_ref.target.added_ids().cloned());
+                }
+            }
             Ok(commit_ids)
         }
         RevsetCommitRef::Tags(expression) => {
@@ -3019,16 +3114,22 @@ fn resolve_commit_ref(
             remote_ref_state,
         } => {
             let name_matcher = symbol.name.to_matcher();
-            let remote_matcher = symbol.remote.to_matcher();
-            let commit_ids = repo
-                .view()
-                .remote_tags_matching(&name_matcher, &remote_matcher)
-                .filter(|(_, remote_ref)| {
-                    remote_ref_state.is_none_or(|state| remote_ref.state == state)
-                })
-                .flat_map(|(_, remote_ref)| remote_ref.target.added_ids())
-                .cloned()
-                .collect();
+            let remote_matcher = remote_name_expression_to_matcher(repo.view(), &symbol.remote);
+            let view = repo.view();
+            let mut commit_ids = Vec::new();
+            for (symbol, remote_ref) in view.all_remote_tags() {
+                if !name_matcher.is_match(symbol.name.as_str())
+                    || !remote_matcher.is_match(symbol.remote.as_str())
+                {
+                    continue;
+                }
+                if remote_ref_is_visible(view, symbol)
+                    .map_err(|err| RevsetResolutionError::Other(err.into()))?
+                    && remote_ref_state.is_none_or(|state| remote_ref.state == state)
+                {
+                    commit_ids.extend(remote_ref.target.added_ids().cloned());
+                }
+            }
             Ok(commit_ids)
         }
     }

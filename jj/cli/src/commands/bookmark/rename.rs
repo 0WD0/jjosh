@@ -111,18 +111,22 @@ pub async fn cmd_bookmark_rename(
             tracked_present_old_remotes_exist = true;
         }
         let new_remote_bookmark = new_bookmark.to_remote_symbol(symbol.remote);
+        if !jj_lib::revset::remote_ref_is_visible(base_view, new_remote_bookmark).map_err(user_error)? {
+            continue;
+        }
         let existing_ref = tx.repo().view().get_remote_bookmark(new_remote_bookmark);
         if existing_ref.is_present() && !existing_ref.is_tracked() {
             writeln!(
                 ui.warning_default(),
                 "The renamed bookmark already exists on the remote '{remote}', tracking state was \
                  dropped.",
-                remote = new_remote_bookmark.remote.as_symbol(),
+                remote = jj_lib::revset::format_symbol(&base_view.remote_ref_remote_name(new_remote_bookmark)),
             )?;
             writeln!(
                 ui.hint_default(),
                 "To track the existing remote bookmark, run `jj bookmark track \
                  {new_remote_bookmark}`.",
+                new_remote_bookmark = base_view.remote_ref_symbol(new_remote_bookmark),
             )?;
             continue;
         }
@@ -149,7 +153,7 @@ pub async fn cmd_bookmark_rename(
                 ui.warning_default(),
                 "Tracking of remote bookmark {new_bookmark}@{remote} was dropped.",
                 new_bookmark = new_bookmark.as_symbol(),
-                remote = symbol.remote.as_symbol(),
+                remote = jj_lib::revset::format_symbol(&base_view.remote_ref_remote_name(new_bookmark.to_remote_symbol(symbol.remote))),
             )?;
             writeln!(
                 ui.hint_default(),

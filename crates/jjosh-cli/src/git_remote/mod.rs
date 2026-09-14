@@ -2,14 +2,14 @@ mod fetch;
 mod lifecycle;
 mod push;
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, ensure};
 use gix::remote::Direction;
 use jj_cli::cli_util::{CommandHelper, WorkspaceCommandHelper};
 use jj_cli::command_error::{CommandError, user_error};
-use jj_cli::git_remote::{GitPreparedPush, GitPushRoute, GitPushRouter, GitRemoteExtension, GitRemoteFetchOptions, GitRemotePushOptions, GitRemoteSession, RemoteFuture};
+use jj_cli::git_remote::{GitPreparedPush, GitRemoteExtension, GitRemoteFetchOptions, GitRemotePushOptions, GitRemoteSession, RemoteFuture};
 use jj_cli::ui::Ui;
 use jj_lib::backend::CommitId;
 use jj_lib::git::{GitFetchRefExpression, GitPushOptions, GitPushRefTargets, GitRemoteObservation, IgnoredRefspecs};
@@ -39,42 +39,10 @@ pub(crate) struct Session {
     pub binding: Option<(BindingId, BindingRecord)>,
     pub connection: Option<ConnectionId>,
     pub state: ProjectState,
+    view: jj_lib::view::View,
     filter: Option<Filter>,
 }
 
-struct DefaultPushRouter {
-    state: ProjectState,
-    settings: jj_lib::settings::UserSettings,
-    candidates: BTreeMap<ProjectId, Vec<RemoteNameBuf>>,
-}
-
-impl GitPushRouter for DefaultPushRouter {
-    fn route(&self, name: &RefName) -> Result<Option<GitPushRoute>, CommandError> {
-        let Some((destination, label)) = name.as_str().rsplit_once('#') else {
-            return Ok(None);
-        };
-        let Some(project) = self.state.resolve_label(label).map_err(user_error)? else {
-            return Ok(None);
-        };
-        self.state.validate_project(&project).map_err(user_error)?;
-        let candidates = self.candidates.get(&project).ok_or_else(|| {
-            user_error(format!(
-                "No default push remote for project label {label}; create a binding or use \
-                 --remote with --source"
-            ))
-        })?;
-        let remote = jj_cli::git_remote::select_project_remote(
-            &self.settings,
-            label,
-            candidates,
-            Direction::Push,
-        )?;
-        Ok(Some(GitPushRoute {
-            remote,
-            name: destination.into(),
-        }))
-    }
-}
 
 pub(crate) fn config_string(repo: &gix::Repository, key: &str) -> Result<Option<String>> {
     repo.config_snapshot()
@@ -129,57 +97,22 @@ impl GitRemoteExtension for Extension {
         Ok(Box::new(Session::open(
             &backend.git_repo(),
             backend.git_repo_path().to_owned(),
-            workspace.repo().view().project_state(),
+            workspace.repo().view(),
             remote,
         )?))
     }
 
-    fn default_push_router(
-        &self,
-        workspace: &WorkspaceCommandHelper,
-    ) -> Result<Option<Box<dyn GitPushRouter>>, CommandError> {
-        let backend = jj_lib::git::get_git_backend(workspace.repo().store())?;
-        let git = backend.git_repo();
-        let state = workspace.repo().view().project_state();
-        let mut candidates: BTreeMap<ProjectId, Vec<RemoteNameBuf>> = BTreeMap::new();
-        for name in jj_lib::git::get_all_remote_names(workspace.repo().store())? {
-            let Some(connection) = config_string(
-                &git,
-                &format!("remote.{}.jjosh-connectionId", name.as_str()),
-            )
-            .map_err(user_error)?
-            .and_then(|id| ConnectionId::try_from_hex(&id)) else {
-                continue;
-            };
-            let projects: std::collections::BTreeSet<_> = state
-                .bindings
-                .values()
-                .flat_map(|value| value.adds().flatten())
-                .filter(|record| record.connection_id == connection)
-                .filter_map(|record| match &record.target {
-                    BindingTarget::Project(id) => Some(id.clone()),
-                    BindingTarget::RepositoryView => None,
-                })
-                .collect();
-            for project in projects {
-                candidates.entry(project).or_default().push(name.clone());
-            }
-        }
-        Ok(Some(Box::new(DefaultPushRouter {
-            state: state.clone(),
-            settings: workspace.settings().clone(),
-            candidates,
-        })))
-    }
 }
 
 impl Session {
     fn open(
         git: &gix::Repository,
         git_path: PathBuf,
-        state: &ProjectState,
+        view: &jj_lib::view::View,
         name: &RemoteName,
     ) -> Result<Self, CommandError> {
+        let state = view.project_state();
+        view.remote_identity(name).map_err(user_error)?;
         jj_lib::git::check_obsolete_remote_config(git, name).map_err(user_error)?;
         git.find_remote(name.as_str()).map_err(user_error)?;
         let connection =
@@ -221,12 +154,18 @@ impl Session {
             };
             if let (Some(value), Some(project)) = (filter, &project) { filter = Some(value.prefix(project.mount.as_internal_file_string())); }
         }
-        Ok(Self { name: name.to_owned(), git_path, project, binding, connection, state: state.clone(), filter })
+        Ok(Self { name: name.to_owned(), git_path, project, binding, connection, state: state.clone(), view: view.clone(), filter })
     }
 
     fn push_scope(&self, git: &gix::Repository, project: Option<&ProjectId>, source: Option<&str>) -> Result<Self, CommandError> {
         let selected = if let Some(source) = source {
-            let selected = Self::open(git, self.git_path.clone(), &self.state, RemoteName::new(source))?;
+            let candidates = git.remote_names().iter()
+                .map(|name| std::str::from_utf8(name).map(RemoteNameBuf::from).map_err(user_error))
+                .collect::<Result<Vec<_>, _>>()?;
+            let source = jj_cli::git_remote::resolve_remote_selector_in_view(
+                &self.view, &candidates, source, project,
+            )?;
+            let selected = Self::open(git, self.git_path.clone(), &self.view, &source)?;
             if selected.binding.is_none() { return Err(user_error("--source must select an active conversion binding")); }
             if self.binding.is_some() && self.binding.as_ref().map(|(id, _)| id) != selected.binding.as_ref().map(|(id, _)| id) {
                 return Err(user_error("Destination has its own immutable binding; --source cannot replace its representation"));

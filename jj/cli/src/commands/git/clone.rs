@@ -228,7 +228,10 @@ pub async fn cmd_git_clone(
             object_hash.into(),
         )
         .await?;
-        let remote_settings = workspace_command.settings().remote_settings()?;
+        let remote_settings = crate::revset_util::resolve_remote_settings(
+            workspace_command.repo().view(),
+            workspace_command.settings().remote_settings()?,
+        )?;
         let bookmark = if let Some(expr) = &specific_bookmark_expr {
             expr.clone()
         } else if let Some(expr) = parse_remote_fetch_bookmarks(ui, &remote_settings, remote_name)?
@@ -379,7 +382,10 @@ async fn fetch_new_remote(
     )?;
     let settings = workspace_command.settings();
     let git_settings = GitSettings::from_settings(settings)?;
-    let remote_settings = settings.remote_settings()?;
+    let remote_settings = crate::revset_util::resolve_remote_settings(
+        workspace_command.repo().view(),
+        settings.remote_settings()?,
+    )?;
     let subprocess_options = git_settings.to_subprocess_options();
     let import_options = GitImportOptions {
         // There may be a large number of new commits. Don't record synthetic

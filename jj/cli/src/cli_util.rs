@@ -1507,7 +1507,7 @@ impl WorkspaceCommandHelper {
     ) -> Result<(), CommandError> {
         use jj_lib::git;
         let git_settings = git::GitSettings::from_settings(self.settings())?;
-        let remote_settings = self.settings().remote_settings()?;
+        let remote_settings = crate::revset_util::resolve_remote_settings(self.repo().view(), self.settings().remote_settings()?)?;
         let import_options =
             crate::git_util::load_git_import_options(ui, &git_settings, &remote_settings)?;
         let mut tx = self.start_transaction();
@@ -2409,7 +2409,7 @@ to the current parents may contain changes from multiple commits.
                     // rewritten descendants, but it's harmless.
                     let stats =
                         jj_lib::git::export_refs(mut_repo).map_err(snapshot_command_error)?;
-                    crate::git_util::print_git_export_stats(ui, &stats)
+                    crate::git_util::print_git_export_stats(ui, mut_repo.view(), &stats)
                         .map_err(snapshot_command_error)?;
                 } else {
                     let old_tree = wc_commit.tree();
@@ -2646,7 +2646,7 @@ to the current parents may contain changes from multiple commits.
                 .await?;
             }
             let stats = jj_lib::git::export_refs(tx.repo_mut())?;
-            crate::git_util::print_git_export_stats(ui, &stats)?;
+            crate::git_util::print_git_export_stats(ui, tx.repo().view(), &stats)?;
         }
 
         self.user_repo = ReadonlyUserRepo::new(
@@ -2952,7 +2952,7 @@ pub async fn export_working_copy_changes_to_git(
     let repo = mut_repo.base_repo().as_ref();
     jj_lib::git::update_intent_to_add(repo, workspace_root, old_tree, new_tree).await?;
     let stats = jj_lib::git::export_refs(mut_repo)?;
-    crate::git_util::print_git_export_stats(ui, &stats)?;
+    crate::git_util::print_git_export_stats(ui, mut_repo.view(), &stats)?;
     Ok(())
 }
 #[cfg(not(feature = "git"))]
@@ -3797,7 +3797,8 @@ pub fn has_tracked_remote_bookmarks(repo: &dyn Repo, bookmark: &RefName) -> bool
     };
     repo.view()
         .remote_bookmarks_matching(&StringMatcher::exact(bookmark), &remote_matcher)
-        .any(|(_, remote_ref)| remote_ref.is_tracked())
+        .any(|(symbol, remote_ref)| remote_ref.is_tracked()
+            && jj_lib::revset::remote_ref_is_visible(repo.view(), symbol).unwrap_or(false))
 }
 
 /// Whether or not the `tag` has any tracked remotes (i.e. is a tracking local
@@ -3809,7 +3810,8 @@ pub fn has_tracked_remote_tags(repo: &dyn Repo, tag: &RefName) -> bool {
     };
     repo.view()
         .remote_tags_matching(&StringMatcher::exact(tag), &remote_matcher)
-        .any(|(_, remote_ref)| remote_ref.is_tracked())
+        .any(|(symbol, remote_ref)| remote_ref.is_tracked()
+            && jj_lib::revset::remote_ref_is_visible(repo.view(), symbol).unwrap_or(false))
 }
 
 pub fn load_fileset_aliases(

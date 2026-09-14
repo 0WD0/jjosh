@@ -23,6 +23,7 @@ use jj_lib::backend::MergedTreeValue;
 use jj_lib::backend::SymlinkId;
 use jj_lib::backend::TreeId;
 use jj_lib::backend::TreeValue;
+use jj_lib::object_id::ObjectId as _;
 use jj_lib::op_store::OperationId;
 use jj_lib::op_store::ViewId;
 use jj_lib::repo_path::RepoPath;
@@ -101,6 +102,10 @@ pub struct DebugObjectViewArgs {
 
     #[arg(long, group = "target")]
     op: Option<String>,
+
+    /// Print resolved project reference labels as JSON
+    #[arg(long)]
+    project_labels: bool,
 }
 
 pub async fn cmd_debug_object(
@@ -194,7 +199,16 @@ pub async fn cmd_debug_object(
                     .ok_or_else(|| user_error(format!(r#"Invalid hex view id: "{view_id}""#)))?
             };
             let view = repo_loader.op_store().read_view(&id).await?;
-            writeln!(ui.stdout(), "{view:#?}")?;
+            if args.project_labels {
+                let labels = view.project_state.labels.keys().map(|label| {
+                    let project = view.project_state.resolve_label(label).map_err(user_error)?;
+                    Ok((label, project.map(|project| project.hex())))
+                }).collect::<Result<std::collections::BTreeMap<_, _>, CommandError>>()?;
+                serde_json::to_writer(ui.stdout(), &labels).map_err(user_error)?;
+                writeln!(ui.stdout())?;
+            } else {
+                writeln!(ui.stdout(), "{view:#?}")?;
+            }
         }
     }
 

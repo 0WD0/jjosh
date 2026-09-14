@@ -28,8 +28,11 @@ use jj_lib::backend::CommitId;
 use jj_lib::config::ConfigValue;
 use jj_lib::op_store::LocalRemoteRefTarget;
 use jj_lib::ref_name::RefName;
+use jj_lib::ref_name::RemoteRefSymbol;
+use jj_lib::revset::remote_ref_is_visible;
 use jj_lib::store::Store;
 use jj_lib::str_util::StringMatcher;
+use jj_lib::view::View;
 
 use crate::commit_templater::CommitRef;
 
@@ -62,9 +65,10 @@ pub struct RefFilterPredicates {
 
 /// Builds a list of local/remote refs matching the given predicates.
 pub fn collect_items<'a>(
+    view: &View,
     all_refs: impl IntoIterator<Item = (&'a RefName, LocalRemoteRefTarget<'a>)>,
     predicates: &RefFilterPredicates,
-) -> Vec<RefListItem> {
+) -> Result<Vec<RefListItem>, String> {
     let mut list_items = Vec::new();
     let refs_to_list = all_refs
         .into_iter()
@@ -81,10 +85,16 @@ pub fn collect_items<'a>(
             local_target,
             remote_refs,
         } = targets;
-        let (mut tracked_remote_refs, untracked_remote_refs) = remote_refs
+        let mut visible_remote_refs = Vec::with_capacity(remote_refs.len());
+        for (remote, remote_ref) in remote_refs {
+            if remote_ref_is_visible(view, RemoteRefSymbol { name, remote })? {
+                visible_remote_refs.push((remote, remote_ref));
+            }
+        }
+        let (mut tracked_remote_refs, untracked_remote_refs) = visible_remote_refs
             .iter()
             .copied()
-            .filter(|(remote_name, _)| predicates.remote_matcher.is_match(remote_name.as_str()))
+            .filter(|(remote, _)| predicates.remote_matcher.is_match(remote.as_str()))
             .partition::<Vec<_>, _>(|&(_, remote_ref)| remote_ref.is_tracked());
         if !predicates.include_synced_remotes {
             tracked_remote_refs.retain(|&(_, remote_ref)| remote_ref.target != *local_target);
@@ -96,28 +106,42 @@ pub fn collect_items<'a>(
             let primary = CommitRef::local(
                 name,
                 local_target.clone(),
-                remote_refs.iter().map(|&(_, remote_ref)| remote_ref),
+                visible_remote_refs.iter().map(|&(_, remote_ref)| remote_ref),
             );
-            let tracked = tracked_remote_refs
+            let mut tracked: Vec<_> = tracked_remote_refs
                 .iter()
                 .map(|&(remote, remote_ref)| {
-                    CommitRef::remote(name, remote, remote_ref.clone(), local_target)
+                    CommitRef::remote(
+                        name,
+                        view.remote_ref_remote_name(RemoteRefSymbol { name, remote }),
+                        remote_ref.clone(),
+                        local_target,
+                    )
                 })
                 .collect();
+            tracked.sort_by(|left, right| left.remote_name().cmp(&right.remote_name()));
             list_items.push(RefListItem { primary, tracked });
         }
 
         if predicates.include_untracked_remotes {
             list_items.extend(untracked_remote_refs.iter().map(|&(remote, remote_ref)| {
                 RefListItem {
-                    primary: CommitRef::remote_only(name, remote, remote_ref.target.clone()),
+                    primary: CommitRef::remote_only(
+                        name,
+                        view.remote_ref_remote_name(RemoteRefSymbol { name, remote }),
+                        remote_ref.target.clone(),
+                    ),
                     tracked: vec![],
                 }
             }));
         }
     }
 
-    list_items
+    list_items.sort_by(|left, right| {
+        (left.primary.name(), left.primary.remote_name())
+            .cmp(&(right.primary.name(), right.primary.remote_name()))
+    });
+    Ok(list_items)
 }
 
 /// Sort key for the `--sort` argument option.

@@ -527,12 +527,18 @@
                         "type": "object",
                         "properties": {
                             "fetch": {
-                                "type": "string",
-                                "description": "Literal alias of the default fetch remote bound to this project"
+                                "description": "Project-local fetch remote names or patterns; never inherits git.fetch",
+                                "oneOf": [
+                                    { "type": "string" },
+                                    { "type": "array", "items": { "type": "string" } }
+                                ]
                             },
                             "push": {
-                                "type": "string",
-                                "description": "Literal alias of the default push remote bound to this project"
+                                "description": "Project-local push remote names or patterns; never inherits git.push",
+                                "oneOf": [
+                                    { "type": "string" },
+                                    { "type": "array", "items": { "type": "string" } }
+                                ]
                             }
                         },
                         "additionalProperties": false

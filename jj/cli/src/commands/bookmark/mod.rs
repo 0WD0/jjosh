@@ -139,7 +139,7 @@ fn resolve_trackable_remote_bookmarks<'a>(
         writeln!(
             ui.warning_default(),
             "No matching remote bookmarks for names: {}",
-            unmatched_symbols.iter().join(", ")
+            unmatched_symbols.iter().map(|symbol| view.remote_ref_symbol(*symbol)).join(", ")
         )?;
     }
     Ok(trackable_refs)
@@ -149,17 +149,30 @@ fn trackable_remote_bookmarks_matching<'a>(
     view: &'a View,
     bookmark_matcher: &StringMatcher,
     remote_matcher: &StringMatcher,
-) -> impl Iterator<Item = (RemoteRefSymbol<'a>, &'a RemoteRef)> {
-    let present_or_tracked_matches =
-        view.remote_bookmarks_matching(bookmark_matcher, remote_matcher);
-    let absent_matches =
-        view.remote_views_matching(remote_matcher)
-            .flat_map(move |(remote, remote_view)| {
-                view.local_bookmarks_matching(bookmark_matcher)
-                    .filter(|&(name, _)| !remote_view.bookmarks.contains_key(name))
-                    .map(|(name, _)| (name.to_remote_symbol(remote), RemoteRef::absent_ref()))
-            });
-    itertools::chain(present_or_tracked_matches, absent_matches)
+) -> Result<Vec<(RemoteRefSymbol<'a>, &'a RemoteRef)>, CommandError> {
+    let mut matches = Vec::new();
+    for (remote, remote_view) in view.remote_views() {
+        if !remote_matcher.is_match(remote.as_str()) {
+            continue;
+        }
+        for (name, remote_ref) in &remote_view.bookmarks {
+            let symbol = name.to_remote_symbol(remote);
+            if bookmark_matcher.is_match(name.as_str())
+                && jj_lib::revset::remote_ref_is_visible(view, symbol).map_err(crate::command_error::user_error)?
+            {
+                matches.push((symbol, remote_ref));
+            }
+        }
+        for (name, _) in view.local_bookmarks_matching(bookmark_matcher) {
+            let symbol = name.to_remote_symbol(remote);
+            if !remote_view.bookmarks.contains_key(name)
+                && jj_lib::revset::remote_ref_matches_scope(view, symbol).map_err(crate::command_error::user_error)?
+            {
+                matches.push((symbol, RemoteRef::absent_ref()));
+            }
+        }
+    }
+    Ok(matches)
 }
 
 async fn is_fast_forward(
@@ -233,7 +246,7 @@ fn warn_unmatched_remotes(ui: &Ui, view: &View, name_expr: &StringExpression) ->
     let mut names = name_expr
         .exact_strings()
         .map(RemoteName::new)
-        .filter(|name| view.get_remote_view(name).is_none())
+        .filter(|name| !view.remote_views().any(|(remote, _)| view.remote_local_name(remote) == *name || view.remote_qualified_name(remote) == name.as_str() || view.remote_in_scope(remote, None).unwrap_or(false) && name.as_str().strip_suffix('#') == Some(view.remote_local_name(remote).as_str())))
         .peekable();
     if names.peek().is_none() {
         return Ok(());

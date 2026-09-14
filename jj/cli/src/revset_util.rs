@@ -371,6 +371,7 @@ where
 /// Parses bookmark/tag name patterns or remote symbols.
 pub fn parse_name_patterns_or_remote_symbols<I>(
     ui: &Ui,
+    view: &jj_lib::view::View,
     texts: I,
 ) -> Result<(Vec<StringExpression>, Vec<RemoteRefSymbolBuf>), CommandError>
 where
@@ -394,7 +395,7 @@ where
     for text in texts {
         let node = revset::parse_program(text.as_ref()).map_err(wrap_err)?;
         if let revset::ExpressionKind::RemoteSymbol(symbol) = node.kind {
-            remote_symbols.push(symbol);
+            remote_symbols.push(revset::resolve_remote_ref_symbol(view, symbol.as_ref()).map_err(user_error)?);
         } else {
             let expr =
                 revset::expect_string_expression(&mut diagnostics, &node).map_err(wrap_err)?;
@@ -403,6 +404,55 @@ where
     }
     print_parse_diagnostics(ui, "In name pattern", &diagnostics)?;
     Ok((name_expressions, remote_symbols))
+}
+
+/// Resolves human `remotes` configuration keys to physical connection keys.
+/// Unqualified entries apply only to root remotes; registered `#label` entries
+/// apply only to that project's local remote name.
+pub fn resolve_remote_settings(
+    view: &jj_lib::view::View,
+    settings: RemoteSettingsMap,
+) -> Result<RemoteSettingsMap, CommandError> {
+    let mut resolved = RemoteSettingsMap::new();
+    let candidates = view.remote_views().map(|(remote, _)| remote.to_owned())
+        .chain(view.store_view().remote_connections.keys().cloned())
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter().collect::<Vec<_>>();
+    for (selector, settings) in settings {
+        let (name, project) = match selector.as_str().rsplit_once('#') {
+            Some((name, "")) => (RemoteName::new(name), None),
+            Some((name, label)) => match view.store_view().project_state.resolve_label(label).map_err(user_error)? {
+                Some(project) => (RemoteName::new(name), Some(project)),
+                None => (selector.as_ref(), None),
+            },
+            None => (selector.as_ref(), None),
+        };
+        let mut matching = Vec::new();
+        for remote in &candidates {
+            if view.remote_local_name(remote) == name
+                && view.remote_in_scope(remote, project.as_ref()).map_err(user_error)?
+            {
+                matching.push(remote.clone());
+            }
+        }
+        match matching.as_slice() {
+            [remote] => {
+                if resolved.insert(remote.clone(), settings).is_some() {
+                    return Err(user_error(format!("Multiple remote settings entries select {}", selector.as_symbol())));
+                }
+            }
+            [] if project.is_none() && !candidates.iter().any(|remote| remote.as_str() == name.as_str()) => {
+                // Ordinary root settings may precede the first Git import.
+                // Keeping an unknown root name is inert until that remote exists.
+                if resolved.insert(name.to_owned(), settings).is_some() {
+                    return Err(user_error(format!("Multiple remote settings entries select {}", selector.as_symbol())));
+                }
+            }
+            [] => {}
+            _ => return Err(user_error(format!("Ambiguous remote settings key {}", selector.as_symbol()))),
+        }
+    }
+    Ok(resolved)
 }
 
 /// Parses the given `remotes.<name>.auto-track-bookmarks` settings into a map

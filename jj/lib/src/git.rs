@@ -172,7 +172,8 @@ pub enum GitRemoteNameError {
     InvalidName(#[from] gix::remote::name::Error),
 }
 
-fn validate_remote_name(name: &RemoteName) -> Result<(), GitRemoteNameError> {
+/// Validates a user-visible remote name before any connection mutation.
+pub fn validate_remote_name(name: &RemoteName) -> Result<(), GitRemoteNameError> {
     gix::remote::name::validated(name.as_str())?;
     if name == REMOTE_NAME_FOR_LOCAL_GIT_REPO {
         Err(GitRemoteNameError::ReservedForLocalGitRepo)
@@ -3362,6 +3363,40 @@ fn lock_remote_config(
         .map_err(GitRemoteManagementError::from_git)
 }
 
+/// Commits repository settings for a logical remote rename without renaming its
+/// physical Git section or refs. The caller owns the semantic operation journal.
+pub fn commit_remote_management_config(
+    store: &Store,
+    remote: &RemoteName,
+    repo_config: Option<&crate::config::ConfigFile>,
+) -> Result<(), GitRemoteManagementError> {
+    let mut git_repo = get_git_repo(store)?;
+    let _config_lock = lock_remote_config(&git_repo)?;
+    // Earlier journaled steps may have changed the physical remote configuration.
+    git_repo.reload().map_err(GitRemoteManagementError::from_git)?;
+    try_find_active_remote(&git_repo, remote)?
+        .ok_or_else(|| GitRemoteManagementError::NoSuchRemote(remote.to_owned()))?;
+    let config = git_repo.config_snapshot();
+    if config.sections_by_name("remote").into_iter().flatten().any(|section| {
+        section.header().subsection_name() == Some(BStr::new(remote.as_str()))
+            && section.meta() != config.meta()
+    }) {
+        return Err(GitRemoteManagementError::NonstandardConfiguration(remote.to_owned()));
+    }
+    if let Some(repo_config) = repo_config {
+        commit_remote_management(
+            &git_repo,
+            &config,
+            Vec::new(),
+            &GitRemoteManagementOptions {
+                repo_config: Some(repo_config.clone()),
+                ..Default::default()
+            },
+        )?;
+    }
+    Ok(())
+}
+
 /// All fallible preparation, including reference locks and destination collision
 /// checks, precedes mutation. Keep the config and sidecar locks until rollback or
 /// completion so another config writer cannot observe and overwrite half a move.
@@ -3908,9 +3943,11 @@ pub fn rename_remote_with_options(
     new_remote_name: &RemoteName,
     options: &GitRemoteManagementOptions,
 ) -> Result<(), GitRemoteManagementError> {
-    let git_repo = get_git_repo(mut_repo.store())?;
+    let mut git_repo = get_git_repo(mut_repo.store())?;
     let _config_lock = lock_remote_config(&git_repo)?;
-    let git_repo = get_git_repo(mut_repo.store())?;
+    // Validate and rekey the committed state, including preceding journaled
+    // configuration retirements, rather than the backend's cached snapshot.
+    git_repo.reload().map_err(GitRemoteManagementError::from_git)?;
 
     validate_remote_name(new_remote_name)?;
 

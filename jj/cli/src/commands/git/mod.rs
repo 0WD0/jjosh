@@ -28,14 +28,11 @@ use clap::Subcommand;
 use jj_lib::config::ConfigFile;
 use jj_lib::config::ConfigLayer;
 use jj_lib::config::ConfigSource;
-use jj_lib::git;
-use jj_lib::git::UnexpectedGitBackendError;
 use jj_lib::ref_name::RemoteName;
 use jj_lib::ref_name::RemoteNameBuf;
 use jj_lib::ref_name::RemoteRefSymbol;
 use jj_lib::ref_name::RemoteRefSymbolBuf;
 use jj_lib::revset;
-use jj_lib::store::Store;
 
 use self::clone::GitCloneArgs;
 use self::clone::cmd_git_clone;
@@ -122,13 +119,6 @@ pub fn maybe_add_gitignore(workspace_command: &WorkspaceCommandHelper) -> Result
     }
 }
 
-fn get_single_remote(store: &Store) -> Result<Option<RemoteNameBuf>, UnexpectedGitBackendError> {
-    let mut names = git::get_all_remote_names(store)?;
-    Ok(match names.len() {
-        1 => names.pop(),
-        _ => None,
-    })
-}
 
 const TRUNK_CONFIG_NAME: [&str; 2] = ["revset-aliases", "trunk()"];
 
@@ -192,17 +182,80 @@ fn write_repo_presets(
     Ok(())
 }
 
+/// Prepare an atomic, repo-local move or removal of exact remote settings tables.
+/// Qualified keys are logical aliases, never the underlying physical Git handles.
+pub(crate) fn prepare_remote_settings_scope(
+    config: &RawConfig,
+    aliases: &[(RemoteNameBuf, Option<String>)],
+) -> Result<Option<ConfigFile>, CommandError> {
+    let mut file = existing_repo_config_file(config);
+    let mut sources = std::collections::BTreeSet::new();
+    let mut destinations = std::collections::BTreeSet::new();
+    for (old, new) in aliases {
+        if !sources.insert(old.as_str())
+            || new.as_deref().is_some_and(|new| !destinations.insert(new))
+        {
+            return Err(crate::command_error::user_error("Remote settings changes contain duplicate names"));
+        }
+        for name in std::iter::once(old.as_str()).chain(new.as_deref()) {
+            for layer in config.as_ref().layers() {
+                let item = layer.look_up_item(["remotes", name])
+                    .map_err(|_| crate::command_error::user_error("Remote settings parent must be a table"))?;
+                if item.is_some()
+                    && (layer.source != ConfigSource::Repo
+                        || layer.path.as_deref() != file.as_ref().map(|file| file.path()))
+                {
+                    return Err(crate::command_error::user_error(format!(
+                        "Remote settings for {name:?} are not owned by the repo-local config; move them there explicitly before changing scope"
+                    )));
+                }
+                if item.is_some() && new.as_deref() == Some(name) && name != old.as_str() {
+                    return Err(crate::command_error::user_error(format!("Remote settings for {name:?} already exist")));
+                }
+            }
+        }
+    }
+    let mut changed = false;
+    if let Some(file) = &mut file
+        && let Some(remotes) = file.data_mut().as_table_mut().get_mut("remotes")
+            .and_then(|item| item.as_table_like_mut())
+    {
+        for (old, new) in aliases {
+            if let Some(item) = remotes.remove(old.as_str()) {
+                changed = true;
+                if let Some(new) = new {
+                    remotes.insert(new, item);
+                }
+            }
+        }
+    }
+    Ok(if changed { file } else { None })
+}
+
 /// Prepares preset trunk and remote settings for the remote-management transaction.
 fn rename_remote_in_repo_config(
     ui: &Ui,
     config: &RawConfig,
+    view: &jj_lib::view::View,
     old_remote: &RemoteName,
     new_remote: &RemoteName,
+    project_labels: Option<&[String]>,
 ) -> Result<Option<ConfigFile>, CommandError> {
-    let Some(mut file) = existing_repo_config_file(config) else {
-        return Ok(None);
+    let file = if let Some(labels) = project_labels {
+        let aliases = labels.iter().map(|label| (
+            RemoteNameBuf::from(format!("{}#{label}", old_remote.as_str())),
+            Some(format!("{}#{label}", new_remote.as_str())),
+        )).collect::<Vec<_>>();
+        prepare_remote_settings_scope(config, &aliases)?.or_else(|| existing_repo_config_file(config))
+    } else {
+        existing_repo_config_file(config)
     };
+    let Some(mut file) = file else { return Ok(None); };
 
+    if let Some(labels) = project_labels {
+        update_remote_defaults(&mut file, Some(labels), old_remote, Some(new_remote));
+        return Ok(Some(file));
+    }
     // [remotes.<old_remote>] -> [remotes.<new_remote>]
     if let Some(remotes_item) = file.data_mut().as_table_mut().get_mut("remotes")
         && let Some(remotes_table) = remotes_item.as_table_like_mut()
@@ -211,11 +264,12 @@ fn rename_remote_in_repo_config(
         remotes_table.insert(new_remote.as_str(), old_item);
     }
 
-    update_project_remote_defaults(&mut file, old_remote, Some(new_remote));
+    update_remote_defaults(&mut file, None, old_remote, Some(new_remote));
 
     // trunk = <name>@<old_remote> -> <name>@<new_remote>
     if let Some(old_symbol) = get_trunk_symbol(file.layer())
         && old_symbol.remote == old_remote
+        && crate::git_remote::parse_remote_selector_scope(view, old_symbol.name.as_str(), None)?.1.is_none()
     {
         let new_symbol = old_symbol.name.to_remote_symbol(new_remote);
         file.set_value(TRUNK_CONFIG_NAME, new_symbol.to_string())
@@ -233,11 +287,23 @@ fn rename_remote_in_repo_config(
 fn remove_remote_from_repo_config(
     ui: &Ui,
     config: &RawConfig,
+    view: &jj_lib::view::View,
     old_remote: &RemoteName,
+    project_labels: Option<&[String]>,
 ) -> Result<Option<ConfigFile>, CommandError> {
-    let Some(mut file) = existing_repo_config_file(config) else {
-        return Ok(None);
+    let file = if let Some(labels) = project_labels {
+        let aliases = labels.iter().map(|label| (
+            RemoteNameBuf::from(format!("{}#{label}", old_remote.as_str())), None,
+        )).collect::<Vec<_>>();
+        prepare_remote_settings_scope(config, &aliases)?.or_else(|| existing_repo_config_file(config))
+    } else {
+        existing_repo_config_file(config)
     };
+    let Some(mut file) = file else { return Ok(None); };
+    if let Some(labels) = project_labels {
+        update_remote_defaults(&mut file, Some(labels), old_remote, None);
+        return Ok(Some(file));
+    }
 
     // [remotes.<old_remote>]
     if let Some(remotes_item) = file.data_mut().as_table_mut().get_mut("remotes")
@@ -246,11 +312,12 @@ fn remove_remote_from_repo_config(
         remotes_table.remove(old_remote.as_str());
     }
 
-    update_project_remote_defaults(&mut file, old_remote, None);
+    update_remote_defaults(&mut file, None, old_remote, None);
 
     // trunk = <name>@<old_remote>
     if let Some(old_symbol) = get_trunk_symbol(file.layer())
         && old_symbol.remote == old_remote
+        && crate::git_remote::parse_remote_selector_scope(view, old_symbol.name.as_str(), None)?.1.is_none()
     {
         file.delete_value(TRUNK_CONFIG_NAME)
             .expect("old value was string");
@@ -263,41 +330,58 @@ fn remove_remote_from_repo_config(
     Ok(Some(file))
 }
 
-/// Retargets literal repo-local defaults without rebuilding their parent tables.
-fn update_project_remote_defaults(
+/// Retarget exact local names only, leaving patterns and other scopes untouched.
+fn update_remote_defaults(
     file: &mut ConfigFile,
+    project_labels: Option<&[String]>,
     old_remote: &RemoteName,
     new_remote: Option<&RemoteName>,
 ) {
-    let Some(projects) = file
-        .data_mut()
-        .as_table_mut()
-        .get_mut("git")
-        .and_then(|item| item.as_table_like_mut())
-        .and_then(|table| table.get_mut("projects"))
-        .and_then(|item| item.as_table_like_mut())
-    else {
-        return;
+    let Some(git) = file.data_mut().as_table_mut().get_mut("git")
+        .and_then(|item| item.as_table_like_mut()) else { return; };
+    if let Some(labels) = project_labels {
+        let Some(projects) = git.get_mut("projects").and_then(|item| item.as_table_like_mut()) else { return; };
+        for label in labels {
+            if let Some(defaults) = projects.get_mut(label).and_then(|item| item.as_table_like_mut()) {
+                update_remote_default_table(defaults, old_remote, new_remote);
+            }
+        }
+    } else {
+        update_remote_default_table(git, old_remote, new_remote);
+    }
+}
+
+fn update_remote_default_table(
+    defaults: &mut dyn toml_edit::TableLike,
+    old_remote: &RemoteName,
+    new_remote: Option<&RemoteName>,
+) {
+    let replace = |value: &mut toml_edit::Value| {
+        let Some(text) = value.as_str() else { return false; };
+        let explicit = text.strip_prefix("exact:");
+        if explicit.unwrap_or(text) != old_remote.as_str() {
+            return false;
+        }
+        let Some(new_remote) = new_remote else { return true; };
+        let text = if explicit.is_some() { format!("exact:{}", new_remote.as_str()) } else { new_remote.as_str().to_owned() };
+        let mut replacement = toml_edit::Value::from(text);
+        *replacement.decor_mut() = value.decor().clone();
+        *value = replacement;
+        false
     };
-    for (_, project) in projects.iter_mut() {
-        let Some(defaults) = project.as_table_like_mut() else {
-            continue;
-        };
-        for direction in ["fetch", "push"] {
-            if defaults.get(direction).and_then(|item| item.as_str()) != Some(old_remote.as_str()) {
-                continue;
+    for direction in ["fetch", "push"] {
+        let Some(value) = defaults.get_mut(direction).and_then(|item| item.as_value_mut()) else { continue; };
+        if let Some(values) = value.as_array_mut() {
+            let mut index = 0;
+            while index < values.len() {
+                if replace(values.get_mut(index).expect("valid array index")) {
+                    values.remove(index);
+                } else {
+                    index += 1;
+                }
             }
-            if let Some(new_remote) = new_remote {
-                let value = defaults
-                    .get_mut(direction)
-                    .and_then(|item| item.as_value_mut())
-                    .expect("matching remote default is a string");
-                let mut replacement = toml_edit::Value::from(new_remote.as_str());
-                *replacement.decor_mut() = value.decor().clone();
-                *value = replacement;
-            } else {
-                defaults.remove(direction);
-            }
+        } else if replace(value) {
+            defaults.remove(direction);
         }
     }
 }

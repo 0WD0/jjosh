@@ -30,6 +30,7 @@ struct Prepared {
 
 struct PreparedPush {
     remote: RemoteNameBuf,
+    remote_display: String,
     targets: GitPushRefTargets,
     canonical: Vec<GitRefUpdate>,
     scopes: Vec<(Session, Vec<(usize, String)>)>,
@@ -377,6 +378,7 @@ pub(super) async fn prepare(
         .collect();
     Ok(Box::new(PreparedPush {
         remote: session.name.clone(),
+        remote_display: repo.view().remote_qualified_name(&session.name),
         targets: targets.clone(),
         canonical,
         scopes,
@@ -389,6 +391,17 @@ pub(super) async fn prepare(
         sources,
         transport,
     }))
+}
+
+fn session_remote_display(session: &Session) -> String {
+    if let Some(identity) = session.connection.as_ref()
+        .and_then(|connection| session.state.remote_names.get(connection))
+        .and_then(Merge::as_resolved)
+        .and_then(Option::as_ref)
+        && let Some(project) = &session.project {
+            return format!("{}#{}", identity.name.as_str(), project.label);
+        }
+    session.name.as_str().to_owned()
 }
 
 impl GitPreparedPush for PreparedPush {
@@ -418,7 +431,7 @@ impl GitPreparedPush for PreparedPush {
             writeln!(
                 ui.status(),
                 "  {name:?} -> {} -> {} ({action})",
-                self.remote.as_symbol(),
+                self.remote_display,
                 prepared.update.name
             )?;
             if let Some(index) = prepared.scope {
@@ -436,7 +449,7 @@ impl GitPreparedPush for PreparedPush {
                 writeln!(
                     ui.status(),
                     "    Source: {} (binding {})",
-                    scope.name.as_symbol(),
+                    session_remote_display(scope),
                     id.hex()
                 )?;
                 writeln!(

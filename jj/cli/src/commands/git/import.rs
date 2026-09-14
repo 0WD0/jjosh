@@ -54,7 +54,10 @@ pub async fn cmd_git_import(
         crate::git_remote::check_remote(command, &workspace_command, &remote)?;
     }
     let git_settings = GitSettings::from_settings(workspace_command.settings())?;
-    let remote_settings = workspace_command.settings().remote_settings()?;
+    let remote_settings = crate::revset_util::resolve_remote_settings(
+        workspace_command.repo().view(),
+        workspace_command.settings().remote_settings()?,
+    )?;
     let import_options = load_git_import_options(ui, &git_settings, &remote_settings)?;
     let mut tx = workspace_command.start_transaction();
     let stats = git::import_refs(tx.repo_mut(), &import_options).await?;

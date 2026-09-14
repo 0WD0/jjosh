@@ -30,10 +30,10 @@ cd mono
 jjosh describe -m 'Start monorepo'
 
 jjosh project add parser --path libs/parser
-jjosh git remote add parser-upstream /path/to/parser.git \
+jjosh git remote add origin /path/to/parser.git \
   --project parser --whole
-jjosh git fetch --remote parser-upstream --branch main
-jjosh new @ main#parser@parser-upstream
+jjosh git fetch --project parser --branch main
+jjosh new @ main#parser@origin
 #+end_src
 
 此时 parser 的文件位于 =libs/parser/=，可以与应用代码一起编辑。
@@ -47,7 +47,9 @@ fetch 带入历史，最后的 new 将它与本地工作合在一起。
 |------+------|
 | =main= | 当前仓库的 main 书签 |
 | =main#parser= | 用于交付 parser 的本地 main 书签 |
-| =main#parser@parser-upstream= | 从 parser-upstream 获取的 main |
+| =main#parser@origin= | 从 parser 的 origin 获取的 main |
+
+每个项目有自己的 remote 名字。parser、app 和仓库根可以各自配置 =origin=；只有一个 remote 时，fetch 和 push 都自动使用它。
 
 如果代码已经在 monorepo 里，只需登记目录：
 
@@ -64,35 +66,30 @@ jjosh project add app --path apps/app
 #+begin_src sh
 jjosh describe -m 'Extend parser and update its callers'
 jjosh bookmark create topic#parser -r @
+jjosh git push --bookmark topic#parser --dry-run
 #+end_src
 
-在托管平台创建 parser 的 fork，然后配置发布地址。这里假设 fork 已有 main 分支：
+=#parser= 选定项目，默认目的地是该项目的 origin。检查计划中的地址、目录映射和分支，确认后执行：
 
 #+begin_src sh
-jjosh git remote add parser-origin /path/to/parser-fork.git \
-  --like parser-upstream
-jjosh git fetch --remote parser-origin --branch main
-jjosh git push --remote parser-origin --bookmark topic#parser --dry-run
-#+end_src
-
-=--like= 采用与 upstream 相同的目录映射。这个 remote 与普通 jj remote 一样用于 fetch 和 push。
-检查计划中的地址、项目和分支，确认后执行：
-
-#+begin_src sh
-jjosh git push --remote parser-origin --bookmark topic#parser
-#+end_src
-
-fork 收到的是名为 =topic= 的分支，=libs/parser/= 中的内容出现在它的根目录。
-同一提交里对应用的修改仍留在本地，可以另选应用的发布地址。
-
-日常可以为项目分别记住获取和发布的 remote：
-
-#+begin_src sh
-jjosh config set --repo git.projects.parser.fetch parser-upstream
-jjosh config set --repo git.projects.parser.push parser-origin
-jjosh git fetch --project parser --branch main
 jjosh git push --bookmark topic#parser
 #+end_src
+
+origin 收到的是名为 =topic= 的分支，=libs/parser/= 中的内容出现在它的根目录。
+同一提交里对应用的修改仍留在本地，可以另选应用的发布地址。
+
+如果要向自己的 fork 发布，为 parser 增加一个 remote，并覆盖发布默认值：
+
+#+begin_src sh
+jjosh git remote add fork /path/to/parser-fork.git --like origin#parser
+jjosh git fetch --project parser --remote fork --branch main
+jjosh config set --repo git.projects.parser.push fork
+jjosh bookmark track topic#parser@fork
+jjosh git push --bookmark topic#parser --dry-run
+#+end_src
+
+=--like origin#parser= 采用 parser 的 origin 的目录映射。两个 remote 都能 fetch 和 push；获取仍默认使用 origin。
+配置中的 parser 是稳定的引用 label，项目改显示名后仍然有效。
 
 * 继续使用
 
