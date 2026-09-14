@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use gix::Result;
 use gix::error::{OptionExt as _, ResultExt as _, message};
 
@@ -132,6 +134,7 @@ pub(super) fn parents_pending(
     repo: &gix::Repository,
     commit: &gix::objs::Commit,
     new_parents: &[ObjectId],
+    frozen_parents: &HashSet<ObjectId>,
 ) -> Result<bool> {
     let state = State::read(commit)?;
     let source = state
@@ -145,6 +148,7 @@ pub(super) fn parents_pending(
     let original_parents = &source.as_ref().unwrap_or(commit).parents;
     for (index, parent_commit_id) in mapped.as_deref().unwrap_or(new_parents).iter().enumerate() {
         if original_parents.get(index) != Some(parent_commit_id)
+            && !frozen_parents.contains(parent_commit_id)
             && is_pending(&repo.find_commit(*parent_commit_id)?.decode()?.into_owned()?)
         {
             return Ok(true);
@@ -162,6 +166,7 @@ pub(super) fn rewrite(
     new_parents: &[ObjectId],
     eager: bool,
     resolution: bool,
+    frozen_parents: &HashSet<ObjectId>,
 ) -> Result<TreeRewrite> {
     let previous = State::read(commit)?;
     if previous.is_none() {
@@ -206,6 +211,7 @@ pub(super) fn rewrite(
     for (original_parent_commit_id, parent_commit_id) in source.parents.iter().zip(&state.parents) {
         gix::error::ensure!(
             original_parent_commit_id == parent_commit_id
+                || frozen_parents.contains(parent_commit_id)
                 || !is_pending(&repo.find_commit(*parent_commit_id)?.decode()?.into_owned()?),
             "merge replay requires finalized changed parents"
         );
