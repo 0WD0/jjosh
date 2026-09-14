@@ -534,7 +534,7 @@ impl ConfigEnv {
     }
 
     /// Returns a path to the existing repo-specific config file.
-    fn maybe_repo_config_path(&self, ui: &Ui) -> Result<Option<PathBuf>, CommandError> {
+    pub(crate) fn maybe_repo_config_path(&self, ui: &Ui) -> Result<Option<PathBuf>, CommandError> {
         Ok(self
             .load_secure_config(ui, self.repo_config.as_ref(), REPO_CONFIG_DIR, false)?
             .and_then(|c| c.config_file))

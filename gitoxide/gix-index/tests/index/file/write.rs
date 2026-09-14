@@ -89,6 +89,74 @@ fn skip_hash() -> crate::Result {
 }
 
 #[test]
+fn write_with_inspects_staged_bytes_and_can_reject_commit() -> crate::Result {
+    let tmp = gix_testtools::tempfile::TempDir::new()?;
+    let path = tmp.path().join("index");
+    let lock_path = tmp.path().join("index.lock");
+    let object_hash = gix_testtools::object_hash();
+    let mut index = Generated("v2").open();
+    index.set_path(&path);
+    index.write(Options::default())?;
+    let original_bytes = std::fs::read(&path)?;
+    let original_checksum = index.checksum();
+    assert_eq!(index.version(), Version::V2);
+    index.entries_mut()[0].flags.insert(entry::Flags::EXTENDED);
+
+    let mut staged_bytes = Vec::new();
+    let err = index
+        .write_with(Options::default(), |lock| {
+            assert_eq!(lock.resource_path(), path);
+            assert_eq!(lock.lock_path(), lock_path);
+            assert_eq!(std::fs::read(lock.resource_path())?, original_bytes);
+            assert!(matches!(
+                gix_lock::File::acquire_to_update_resource(
+                    lock.resource_path(),
+                    gix_lock::acquire::Fail::Immediately,
+                    None,
+                ),
+                Err(gix_lock::acquire::Error::PermanentlyLocked { .. })
+            ));
+            let staged = gix_index::File::at(lock.lock_path(), object_hash, false, Default::default())?;
+            assert_eq!(staged.version(), Version::V3);
+            assert!(staged.entries()[0].flags.contains(entry::Flags::EXTENDED));
+            staged_bytes = std::fs::read(lock.lock_path())?;
+            assert_ne!(staged_bytes, original_bytes);
+            Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied).into())
+        })
+        .expect_err("the callback rejects the commit");
+    let gix_index::file::write::Error::BeforeCommit(source) = err else {
+        panic!("expected the callback error");
+    };
+    assert_eq!(
+        source.downcast_ref::<std::io::Error>().expect("original error").kind(),
+        std::io::ErrorKind::PermissionDenied
+    );
+    assert_eq!(std::fs::read(&path)?, original_bytes);
+    assert_eq!(index.version(), Version::V2);
+    assert_eq!(index.checksum(), original_checksum);
+    assert!(!lock_path.exists(), "rejection releases the lock");
+    drop(gix_lock::File::acquire_to_update_resource(
+        &path,
+        gix_lock::acquire::Fail::Immediately,
+        None,
+    )?);
+
+    index.write_with(Options::default(), |lock| {
+        assert_eq!(std::fs::read(lock.resource_path())?, original_bytes);
+        assert_eq!(std::fs::read(lock.lock_path())?, staged_bytes);
+        Ok(())
+    })?;
+    assert_eq!(std::fs::read(&path)?, staged_bytes);
+    assert!(!lock_path.exists(), "commit releases the lock");
+    let committed = gix_index::File::at(&path, object_hash, false, Default::default())?;
+    assert_eq!(index.version(), Version::V3);
+    assert_eq!(index.version(), committed.version());
+    assert_eq!(index.checksum(), committed.checksum());
+    assert_ne!(index.checksum(), original_checksum);
+    Ok(())
+}
+
+#[test]
 fn roundtrips_sparse_index() -> crate::Result {
     // NOTE: I initially tried putting these fixtures into the main roundtrip test above,
     // but the call to `compare_raw_bytes` panics. It seems like git is using a different

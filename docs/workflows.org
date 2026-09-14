@@ -505,15 +505,23 @@ jjosh project check parser
 
 ** 中断恢复
 
-remote 修改、原生 import 或迁移若报告未完成的本地安装，按报错选择：
+remote 修改、原生 import 或迁移中断后，普通当前 operation 上的下一条命令会先尝试本地恢复，再加载状态。也可显式运行：
 
-| 命令 | 使用条件与效果 |
-|------+----------------|
-| =jjosh git remote recover --rollback= | 原 operation 上恢复日志保存的旧本地配置和 refs，再重试 |
-| =jjosh git remote recover --accept= | 已提交状态经一致性校验后，保留修改并完成收尾 |
+#+begin_src sh
+jjosh util recover
+#+end_src
 
-恢复不访问网络。外部配置/ref 已有不兼容修改时，先处理诊断，不能盲目 accept。
-仍被使用的 Git 锁文件应由对应进程释放。
+恢复方向由持久证据决定，不再提供 =--accept=／=--rollback=：
+
+| 证据 | 动作 |
+|------+------|
+| 确切的目标 operation 已发布，或纯配置修改已有持久提交决定 | 安装已准备的最终状态，完成退役与收尾 |
+| 目标未发布，实际 operation heads 仍与开始时一致 | 恢复已记录的旧配置、refs 和受影响的 Git index |
+| heads 无法解释，或文件／refs 存在未记录的外部变化 | 停止并保留日志，不覆盖、不猜测 |
+
+=--at-operation= 选择历史状态、=--ignore-working-copy= 和 =--no-integrate-operation= 不触发自动恢复；显式 =util recover= 仍依据所属仓库的实际发布状态，而非所选 View。需要日志的修改不能使用 =--no-integrate-operation=；迁移 dry-run 不受此限制。
+
+恢复不访问网络，也不接管 jj 的 working-copy checkout／stale 恢复。外部冲突须先按诊断处理；仍被使用的锁应由对应进程释放，不要删除日志或强行解锁。旧格式日志缺少确切发布证据，须先用创建日志的版本恢复，再升级。
 
 ** 升级旧仓库
 

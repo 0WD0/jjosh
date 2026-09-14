@@ -1043,21 +1043,18 @@ impl WorkspaceCommandEnvironment {
         &self.workspace_name
     }
 
-    /// Acquires a lock for Git import/export operations if the workspace is
-    /// supposed to be colocated.
+    /// Acquires the shared Git writer lock, including non-colocated workspaces.
     fn lock_git_import_export(
         &self,
         workspace: &Workspace,
     ) -> Result<GitImportExportLock, CommandError> {
-        let lock = if self.working_copy_shared_with_git {
-            let lock_path = workspace.repo_path().join("git_import_export.lock");
-            Some(FileLock::lock(lock_path).map_err(|err| {
-                user_error_with_message("Failed to take lock for Git import/export", err)
-            })?)
-        } else {
-            None
-        };
-        Ok(GitImportExportLock { _lock: lock })
+        #[cfg(feature = "git")]
+        if let Ok(git_repo) = jj_lib::git::get_git_repo(workspace.repo_loader().store()) {
+            return GitImportExportLock::acquire(&git_repo);
+        }
+        #[cfg(not(feature = "git"))]
+        let _ = workspace;
+        Ok(GitImportExportLock { _lock: None })
     }
 
     /// Parsing context for fileset expressions specified by command arguments.
@@ -1255,11 +1252,22 @@ impl WorkspaceCommandEnvironment {
     }
 }
 
-/// A token that holds a lock for git import/export operations in colocated
-/// repositories. For non-colocated repos, this is an empty token (no actual
-/// lock held). The lock is automatically released when this token is dropped.
+/// Holds the shared Git import/export lock until dropped. Git worktrees and
+/// separate JJ repositories sharing a Git store use the same coordination point.
+/// Non-Git repositories use an empty token.
 pub struct GitImportExportLock {
     _lock: Option<FileLock>,
+}
+
+impl GitImportExportLock {
+    #[cfg(feature = "git")]
+    pub(crate) fn acquire(git_repo: &gix::Repository) -> Result<Self, CommandError> {
+        let path = git_repo.common_dir().join("jj-import-export.lock");
+        let lock = FileLock::lock(path).map_err(|err| {
+            user_error_with_message("Failed to take lock for Git import/export", err)
+        })?;
+        Ok(Self { _lock: Some(lock) })
+    }
 }
 
 /// Provides utilities for writing a command that works on a [`Workspace`]
@@ -1369,11 +1377,15 @@ impl WorkspaceCommandHelper {
         #[cfg(feature = "git")]
         if self.env.working_copy_shared_with_git {
             let git_repo = jj_lib::git::get_git_repo(self.repo().store())
-                .map_err(CommandError::from).map_err(snapshot_command_error)?;
-            jj_lib::git::ensure_no_pending_remote_management(&git_repo)
-                .map_err(CommandError::from).map_err(snapshot_command_error)?;
+                .map_err(CommandError::from)
+                .map_err(snapshot_command_error)?;
+            jj_lib::local_state::ensure_no_pending(&git_repo)
+                .map_err(CommandError::from)
+                .map_err(snapshot_command_error)?;
             for remote in jj_lib::git::get_all_remote_names(self.repo().store())
-                .map_err(CommandError::from).map_err(snapshot_command_error)? {
+                .map_err(CommandError::from)
+                .map_err(snapshot_command_error)?
+            {
                 crate::git_remote::check_remote(&self.env.command, self, &remote)
                     .map_err(snapshot_command_error)?;
             }
@@ -3035,6 +3047,21 @@ impl WorkspaceCommandTransaction<'_> {
         self.tx.repo_mut()
     }
 
+    /// Enrolls this operation in a recoverable local-state transaction.
+    #[cfg(feature = "git")]
+    pub fn bind_local_state(
+        &mut self,
+        journal: &jj_lib::local_state::LocalStateTransaction,
+    ) -> Result<(), CommandError> {
+        if !self.helper.env.command.should_commit_transaction() {
+            return Err(user_error(
+                "Local-state changes cannot use --no-integrate-operation",
+            ));
+        }
+        journal.bind_transaction(&mut self.tx)?;
+        Ok(())
+    }
+
     pub fn check_out(&mut self, commit: &Commit) -> Result<Commit, CheckOutCommitError> {
         let name = self.helper.workspace_name().to_owned();
         self.id_prefix_context.take(); // invalidate
@@ -3159,6 +3186,52 @@ pub fn find_workspace_dir(cwd: &Path) -> &Path {
     cwd.ancestors()
         .find(|path| path.join(".jj").is_dir())
         .unwrap_or(cwd)
+}
+
+#[cfg(feature = "git")]
+async fn recover_local_state_before_dispatch(
+    ui: &Ui,
+    loader: &dyn WorkspaceLoader,
+    settings: &UserSettings,
+    config_env: &ConfigEnv,
+    store_factories: &StoreFactories,
+    working_copy_factories: &WorkingCopyFactories,
+) -> Result<bool, CommandError> {
+    let store_path = loader.repo_path().join("store");
+    if !store_path
+        .join("git_target")
+        .try_exists()
+        .map_err(user_error)?
+    {
+        return Ok(false);
+    }
+    let git_path =
+        jj_lib::git_backend::GitBackend::resolve_git_repo_path(&store_path).map_err(user_error)?;
+    let git_repo = gix::open(git_path).map_err(user_error)?;
+    if !jj_lib::local_state::has_pending(&git_repo)? {
+        return Ok(false);
+    }
+    // Match normal writer ordering: Git import/export, journal, operation heads.
+    let _lock = GitImportExportLock::acquire(&git_repo)?;
+    let workspace = loader
+        .load(settings, store_factories, working_copy_factories)
+        .map_err(|err| map_workspace_load_error(err, None))?;
+    let extra_paths: Vec<_> = config_env.maybe_repo_config_path(ui)?.into_iter().collect();
+    match jj_lib::local_state::recover(workspace.repo_loader(), &extra_paths).await? {
+        jj_lib::local_state::RecoveryOutcome::NoPending => {}
+        jj_lib::local_state::RecoveryOutcome::RolledBack => {
+            writeln!(
+                ui.status(),
+                "Rolled back an interrupted local-state change."
+            )?;
+        }
+        jj_lib::local_state::RecoveryOutcome::Completed => {
+            writeln!(ui.status(), "Completed an interrupted local-state change.")?;
+        }
+    }
+    // Another process may have finished while we waited. Reload in that case
+    // too: the original settings could have observed an intermediate config.
+    Ok(true)
 }
 
 fn map_workspace_load_error(err: WorkspaceLoadError, user_wc_path: Option<&str>) -> CommandError {
@@ -5034,28 +5107,42 @@ impl<'a> CliRunner<'a> {
         migrate_config(&mut config)?;
         ui.reset(&config)?;
 
-        // Print only the last migration messages to omit duplicates.
-        for (source, desc) in &last_config_migration_descriptions {
-            let source_str = match source {
-                ConfigSource::Default => "default-provided",
-                ConfigSource::System => "system-level",
-                ConfigSource::EnvBase | ConfigSource::EnvOverrides => "environment-provided",
-                ConfigSource::User => "user-level",
-                ConfigSource::Repo => "repo-level",
-                ConfigSource::Workspace => "workspace-level",
-                ConfigSource::CommandArg => "CLI-provided",
-            };
-            writeln!(
-                ui.warning_default(),
-                "Deprecated {source_str} config: {desc}"
-            )?;
-        }
-
         if args.global_args.repository.is_some() {
             warn_if_args_mismatch(ui, &self.app, &config, &string_args)?;
         }
 
         let settings = UserSettings::from_config(config)?;
+        #[cfg(feature = "git")]
+        let settings = if !args.global_args.ignore_working_copy
+            && !args.global_args.no_integrate_operation
+            && args
+                .global_args
+                .at_operation
+                .as_deref()
+                .is_none_or(|op| op == "@")
+            && !matches.subcommand().is_some_and(|(name, sub)| {
+                name == "util" && sub.subcommand_name() == Some("recover")
+            })
+            && let Ok(loader) = &maybe_workspace_loader
+            && recover_local_state_before_dispatch(
+                ui,
+                loader.as_ref(),
+                &settings,
+                &config_env,
+                &self.store_factories,
+                &self.working_copy_factories,
+            )
+            .await?
+        {
+            config_env.reload_repo_config(ui, &mut raw_config)?;
+            config_env.reload_workspace_config(ui, &mut raw_config)?;
+            let mut config = config_env.resolve_config(&raw_config)?;
+            migrate_config(&mut config)?;
+            ui.reset(&config)?;
+            UserSettings::from_config(config)?
+        } else {
+            settings
+        };
         let command_helper_data = CommandHelperData {
             app: self.app,
             cwd,
@@ -5076,6 +5163,22 @@ impl<'a> CliRunner<'a> {
             working_copy_factories: self.working_copy_factories,
             workspace_loader_factory: self.workspace_loader_factory,
         };
+        // Print only the last migration messages to omit duplicates.
+        for (source, desc) in &last_config_migration_descriptions {
+            let source_str = match source {
+                ConfigSource::Default => "default-provided",
+                ConfigSource::System => "system-level",
+                ConfigSource::EnvBase | ConfigSource::EnvOverrides => "environment-provided",
+                ConfigSource::User => "user-level",
+                ConfigSource::Repo => "repo-level",
+                ConfigSource::Workspace => "workspace-level",
+                ConfigSource::CommandArg => "CLI-provided",
+            };
+            writeln!(
+                ui.warning_default(),
+                "Deprecated {source_str} config: {desc}"
+            )?;
+        }
         let command_helper = CommandHelper {
             data: Rc::new(command_helper_data),
         };

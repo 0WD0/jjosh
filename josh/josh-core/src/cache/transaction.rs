@@ -462,10 +462,11 @@ impl Transaction {
             .borrow()
             .iter()
             .rev()
-            .find(|edit| &edit.name == name)
-            .map(|edit| match &edit.change {
-                gix::refs::transaction::Change::Update { new, .. } => Some(new.clone()),
-                gix::refs::transaction::Change::Delete { .. } => None,
+            .filter(|edit| &edit.name == name)
+            .find_map(|edit| match &edit.change {
+                gix::refs::transaction::Change::Update { new, .. } => Some(Some(new.clone())),
+                gix::refs::transaction::Change::Delete { .. } => Some(None),
+                gix::refs::transaction::Change::Verify { .. } => None,
             })
     }
 
@@ -502,21 +503,23 @@ impl Transaction {
         }
         let pending = self.pending_refs.borrow();
         for candidate in candidates {
-            if let Some(edit) = pending
+            if let Some(target) = pending
                 .iter()
                 .rev()
-                .find(|edit| edit.name.as_bstr() == candidate.as_bytes())
-            {
-                return Some(match &edit.change {
+                .filter(|edit| edit.name.as_bstr() == candidate.as_bytes())
+                .find_map(|edit| match &edit.change {
                     gix::refs::transaction::Change::Update { new, .. } => {
-                        Some(gix::refs::Reference {
+                        Some(Some(gix::refs::Reference {
                             name: edit.name.clone(),
                             target: new.clone(),
                             peeled: None,
-                        })
+                        }))
                     }
-                    gix::refs::transaction::Change::Delete { .. } => None,
-                });
+                    gix::refs::transaction::Change::Delete { .. } => Some(None),
+                    gix::refs::transaction::Change::Verify { .. } => None,
+                })
+            {
+                return Some(target);
             }
         }
         None
@@ -959,6 +962,7 @@ impl Transaction {
                 | gix::refs::transaction::Change::Delete { .. } => {
                     refs.remove(name);
                 }
+                gix::refs::transaction::Change::Verify { .. } => {}
             }
         }
         // Byte order of the full names is the contract, not whatever order the store

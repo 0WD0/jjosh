@@ -306,7 +306,7 @@ pub(crate) fn update(
                     }
                     _ => unreachable!("at this point it can only be one variant"),
                 },
-                Change::Delete { .. } => {
+                Change::Delete { .. } | Change::Verify { .. } => {
                     unreachable!("we don't do that here")
                 }
             }
@@ -368,8 +368,8 @@ fn update_needs_adjustment_as_edits_symbolic_target_is_missing(
                         unreachable!("BUG: we don't do that here")
                     }
                 },
-                Change::Delete { .. } => {
-                    unreachable!("we don't ever delete here")
+                Change::Delete { .. } | Change::Verify { .. } => {
+                    unreachable!("we only update here")
                 }
             }
             let target_ref_exists_locally = repo.refs.try_find(new_target_ref).ok().flatten().is_some();

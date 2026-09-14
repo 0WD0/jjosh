@@ -14,7 +14,7 @@
 
 use clap_complete::ArgValueCandidates;
 use jj_lib::git;
-use jj_lib::object_id::ObjectId as _;
+use jj_lib::local_state;
 use jj_lib::ref_name::RemoteNameBuf;
 use jj_lib::repo::Repo as _;
 
@@ -45,6 +45,7 @@ pub async fn cmd_git_remote_remove(
     command: &CommandHelper,
     args: &GitRemoteRemoveArgs,
 ) -> Result<(), CommandError> {
+    super::require_integrated_local_state(command)?;
     let mut workspace_command = command.workspace_helper_no_snapshot(ui).await?;
     let git_lock = workspace_command.lock_git_import_export()?;
     let remote = super::resolve_management_remote(
@@ -83,18 +84,9 @@ pub async fn cmd_git_remote_remove(
         .iter()
         .map(|file| file.path().to_owned())
         .collect::<Vec<_>>();
-    let journal = git::begin_remote_management(
-        workspace_command.repo().store(),
-        &workspace_command.repo().operation().id().hex(),
-        &extra_paths,
-    )?;
-    journal.expect_remote(
-        &remote,
-        inspection.has_config && !inspection.owns_config(),
-        inspection.configured_connection.as_ref(),
-        inspection.managed && !inspection.owns_config(),
-    )?;
+    let journal = local_state::begin(workspace_command.repo(), &extra_paths).await?;
     let mut tx = workspace_command.start_transaction();
+    tx.bind_local_state(&journal)?;
     git::remove_remote_with_options(tx.repo_mut(), &remote, &options)?;
     if let Some(connection) = connection {
         tx.repo_mut()
@@ -115,7 +107,6 @@ pub async fn cmd_git_remote_remove(
     }
     let view = tx.repo_mut().view_mut().store_view_mut();
     view.remote_connections.remove(&remote);
-    journal.expect_operation(tx.repo().view())?;
     if tx.repo().has_changes() {
         tx.finish_with_git_import_export_lock(
             ui,
@@ -125,7 +116,8 @@ pub async fn cmd_git_remote_remove(
         .await?;
     } else {
         // Do not print "Nothing changed." for the remote named "git".
+        journal.commit_local()?;
     }
-    journal.complete()?;
+    journal.complete().await?;
     Ok(())
 }

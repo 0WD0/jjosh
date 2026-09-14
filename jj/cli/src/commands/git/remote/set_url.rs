@@ -14,6 +14,7 @@
 
 use clap_complete::ArgValueCandidates;
 use jj_lib::git;
+use jj_lib::local_state;
 use jj_lib::object_id::ObjectId as _;
 use jj_lib::ref_name::RemoteNameBuf;
 use jj_lib::repo::Repo as _;
@@ -66,6 +67,7 @@ pub async fn cmd_git_remote_set_url(
     command: &CommandHelper,
     args: &GitRemoteSetUrlArgs,
 ) -> Result<(), CommandError> {
+    super::require_integrated_local_state(command)?;
     let workspace_command = command.workspace_helper_no_snapshot(ui).await?;
     let _git_lock = workspace_command.lock_git_import_export()?;
     let view = workspace_command.repo().view();
@@ -109,11 +111,7 @@ pub async fn cmd_git_remote_set_url(
             git_repo.remote_at(url.as_str()).map_err(user_error)?;
         }
     }
-    let journal = git::begin_remote_management(
-        workspace_command.repo().store(),
-        &workspace_command.repo().operation().id().hex(),
-        &[],
-    )?;
+    let journal = local_state::begin(workspace_command.repo(), &[]).await?;
     if !inspection.has_config {
         let connection = connection.expect("validated logical connection");
         let managed = view
@@ -133,7 +131,6 @@ pub async fn cmd_git_remote_set_url(
                 Some("jjosh-v1".into()),
             ));
         }
-        journal.expect_remote(&remote, true, Some(connection), managed)?;
         // Only reconnect local configuration. Keep the operation's historical
         // tracking state exactly as restored, including an absent remote view.
         git::create_remote_config(
@@ -146,12 +143,6 @@ pub async fn cmd_git_remote_set_url(
     }
 
     if inspection.has_config {
-        journal.expect_remote(
-            &remote,
-            inspection.has_config,
-            inspection.configured_connection.as_ref(),
-            inspection.managed,
-        )?;
         git::set_remote_urls(
             workspace_command.repo().store(),
             &remote,
@@ -159,7 +150,7 @@ pub async fn cmd_git_remote_set_url(
             push_url.as_deref(),
         )?;
     }
-    journal.expect_unchanged_operation(workspace_command.repo().view())?;
-    journal.complete()?;
+    journal.commit_local()?;
+    journal.complete().await?;
     Ok(())
 }

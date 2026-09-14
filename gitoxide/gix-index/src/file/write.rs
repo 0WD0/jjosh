@@ -1,6 +1,6 @@
 use crate::{File, Version, write};
 
-/// The error produced by [`File::write()`].
+/// The error produced by [`File::write()`] and [`File::write_with()`].
 #[derive(Debug, thiserror::Error)]
 #[expect(missing_docs)]
 pub enum Error {
@@ -10,6 +10,8 @@ pub enum Error {
     AcquireLock(#[from] gix_lock::acquire::Error),
     #[error("Could not commit lock for index file")]
     CommitLock(#[from] gix_lock::commit::Error<gix_lock::File>),
+    #[error("Index write rejected before committing the lock")]
+    BeforeCommit(#[source] Box<dyn std::error::Error + Send + Sync>),
 }
 
 impl File {
@@ -65,16 +67,31 @@ impl File {
     ///
     /// [issue #2421]: https://github.com/GitoxideLabs/gitoxide/issues/2421
     pub fn write(&mut self, options: write::Options) -> Result<(), Error> {
+        self.write_with(options, |_| Ok(()))
+    }
+
+    /// Write ourselves like [`File::write()`], invoking `before_commit` after all serialized bytes have been flushed
+    /// to the index lock file, but before committing it to the index path.
+    ///
+    /// The callback receives the held lock so it can inspect the staged bytes at [`gix_lock::File::lock_path()`]
+    /// and the original index at [`gix_lock::File::resource_path()`]. If it fails, the lock is dropped without
+    /// changing the original index or updating our version and checksum.
+    ///
+    /// The tree-cache considerations documented on [`File::write()`] also apply here.
+    pub fn write_with(
+        &mut self,
+        options: write::Options,
+        before_commit: impl FnOnce(&gix_lock::File) -> Result<(), Box<dyn std::error::Error + Send + Sync>>,
+    ) -> Result<(), Error> {
         let _span = gix_features::trace::detail!("gix_index::File::write()", path = ?self.path);
         let mut lock = std::io::BufWriter::with_capacity(
             64 * 1024,
             gix_lock::File::acquire_to_update_resource(&self.path, gix_lock::acquire::Fail::Immediately, None)?,
         );
         let (version, digest) = self.write_to(&mut lock, options)?;
-        match lock.into_inner() {
-            Ok(lock) => lock.commit()?,
-            Err(err) => return Err(Error::Io(err.into_error().into())),
-        };
+        let lock = lock.into_inner().map_err(|err| Error::Io(err.into_error().into()))?;
+        before_commit(&lock).map_err(Error::BeforeCommit)?;
+        lock.commit()?;
         self.state.version = version;
         self.checksum = Some(digest);
         Ok(())

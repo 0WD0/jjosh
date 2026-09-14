@@ -111,14 +111,14 @@ impl Transaction<'_, '_> {
                         }
                     }
                 }
-                Change::Delete { .. } => {}
+                Change::Delete { .. } | Change::Verify { .. } => {}
             }
         }
 
         for change in &mut updates {
             let (reflog_root, relative_name) = self.store.reflog_base_and_relative_path(change.update.name.as_ref());
             match &change.update.change {
-                Change::Update { .. } => {}
+                Change::Update { .. } | Change::Verify { .. } => {}
                 Change::Delete { .. } => {
                     // Reflog deletion happens first in case it fails a ref without log is less terrible than
                     // a log without a reference.
@@ -156,6 +156,7 @@ impl Transaction<'_, '_> {
                     ..
                 } => delete_loose_refs && *mode == RefLog::AndReference && matches!(new, Target::Object(_)),
                 Change::Delete { log: mode, .. } => *mode == RefLog::AndReference,
+                Change::Verify { .. } => false,
             };
             if take_lock_and_delete {
                 let lock = change.lock.take();

@@ -39,6 +39,10 @@ impl RefChange {
         let (before, after) = match &edit.change {
             Change::Update { expected, new, .. } => (state_from_expected(expected)?, state_from_target(new)),
             Change::Delete { expected, .. } => (state_from_expected(expected)?, State::Missing),
+            Change::Verify { expected } => {
+                let state = state_from_expected(expected)?;
+                (state.clone(), state)
+            }
         };
         Ok(RefChange {
             name: edit.name.clone(),

@@ -338,22 +338,27 @@ impl GitBackend {
         Ok(Self::new(repo, extra_metadata_store, git_settings))
     }
 
+    /// Resolves the Git repository path recorded in a backend store without
+    /// loading its index or extra metadata.
+    pub fn resolve_git_repo_path(store_path: &Path) -> Result<PathBuf, Box<GitBackendLoadError>> {
+        let target_path = store_path.join("git_target");
+        let git_repo_path_bytes = fs::read(&target_path)
+            .context(&target_path)
+            .map_err(GitBackendLoadError::Path)?;
+        let git_repo_path = file_util::path_from_bytes(&git_repo_path_bytes)
+            .map_err(GitBackendLoadError::DecodeRepositoryPath)?;
+        let git_repo_path = store_path.join(git_repo_path);
+        canonicalize_git_repo_path(&git_repo_path)
+            .context(&git_repo_path)
+            .map_err(GitBackendLoadError::Path)
+            .map_err(Into::into)
+    }
+
     pub fn load(
         settings: &UserSettings,
         store_path: &Path,
     ) -> Result<Self, Box<GitBackendLoadError>> {
-        let git_repo_path = {
-            let target_path = store_path.join("git_target");
-            let git_repo_path_bytes = fs::read(&target_path)
-                .context(&target_path)
-                .map_err(GitBackendLoadError::Path)?;
-            let git_repo_path = file_util::path_from_bytes(&git_repo_path_bytes)
-                .map_err(GitBackendLoadError::DecodeRepositoryPath)?;
-            let git_repo_path = store_path.join(git_repo_path);
-            canonicalize_git_repo_path(&git_repo_path)
-                .context(&git_repo_path)
-                .map_err(GitBackendLoadError::Path)?
-        };
+        let git_repo_path = Self::resolve_git_repo_path(store_path)?;
         let repo = gix::ThreadSafeRepository::open_opts(
             git_repo_path,
             gix_open_opts_from_settings(settings),
@@ -420,6 +425,14 @@ impl GitBackend {
     /// Path to the `.git` directory or the repository itself if it's bare.
     pub fn git_repo_path(&self) -> &Path {
         self.base_repo.path()
+    }
+
+    /// Path to this JJ backend's store, distinct from the possibly shared Git repository.
+    pub fn store_path(&self) -> &Path {
+        self.extra_metadata_store
+            .directory()
+            .parent()
+            .expect("extra metadata lives inside the backend store")
     }
 
     fn shallow_root_ids(&self, git_repo: &gix::Repository) -> BackendResult<&[CommitId]> {

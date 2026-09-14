@@ -15,6 +15,7 @@
 use gix::Url;
 use gix::remote::Direction;
 use jj_lib::git;
+use jj_lib::local_state;
 use jj_lib::merge::Merge;
 use jj_lib::object_id::ObjectId as _;
 use jj_lib::project::BindingId;
@@ -56,6 +57,7 @@ pub async fn cmd_git_remote_add(
     command: &CommandHelper,
     args: &GitRemoteAddArgs,
 ) -> Result<(), CommandError> {
+    super::require_integrated_local_state(command)?;
     let mut workspace_command = command.workspace_helper_no_snapshot(ui).await?;
     let url = absolute_git_url(command.cwd(), &args.url)?;
     let push_url = args
@@ -101,13 +103,9 @@ pub async fn cmd_git_remote_add(
         return Err(git::GitRemoteManagementError::RemoteAlreadyExists(local_name.clone()).into());
     }
     let git_lock = workspace_command.lock_git_import_export()?;
-    let journal = git::begin_remote_management(
-        workspace_command.repo().store(),
-        &workspace_command.repo().operation().id().hex(),
-        &[],
-    )?;
-    journal.expect_remote(&remote, true, Some(&connection), binding.is_some())?;
+    let journal = local_state::begin(workspace_command.repo(), &[]).await?;
     let mut tx = workspace_command.start_transaction();
+    tx.bind_local_state(&journal)?;
     tx.repo_mut()
         .view_mut()
         .archive_remote_observations(&remote)
@@ -150,11 +148,10 @@ pub async fn cmd_git_remote_add(
         .insert(remote.clone(), Merge::resolved(Some(connection.clone())));
     git::set_remote_config_keys(tx.repo().store(), &keys)?;
     warn_if_remote_url_matches(ui, tx.repo(), &remote, &url, push_url.as_deref())?;
-    journal.expect_operation(tx.repo().view())?;
     let display_name = tx.repo().view().remote_qualified_name(&remote);
     tx.finish_with_git_import_export_lock(ui, format!("add git remote {display_name}"), &git_lock)
         .await?;
-    journal.complete()?;
+    journal.complete().await?;
     Ok(())
 }
 
