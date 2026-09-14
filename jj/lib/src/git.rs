@@ -16,6 +16,8 @@
 
 use std::borrow::Borrow;
 use std::borrow::Cow;
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::default::Default;
@@ -56,15 +58,19 @@ use crate::git_subprocess::GitSubprocessError;
 use crate::index::IndexError;
 use crate::matchers::EverythingMatcher;
 use crate::merge::Diff;
+use crate::merge::Merge;
 use crate::merged_tree::MergedTree;
 use crate::merged_tree::TreeDiffEntry;
 use crate::object_id::ObjectId as _;
-use crate::merge::Merge;
-use crate::project::{BindingTarget, ConnectionId, ConversionObservation, ObservationKey, ObservationKind};
 use crate::op_store::RefTarget;
 use crate::op_store::RefTargetOptionExt as _;
 use crate::op_store::RemoteRef;
 use crate::op_store::RemoteRefState;
+use crate::project::BindingTarget;
+use crate::project::ConnectionId;
+use crate::project::ConversionObservation;
+use crate::project::ObservationKey;
+use crate::project::ObservationKind;
 use crate::ref_name::GitRefName;
 use crate::ref_name::GitRefNameBuf;
 use crate::ref_name::RefName;
@@ -546,6 +552,8 @@ struct RemoteJournalRecord {
     files: Vec<(PathBuf, Option<Vec<u8>>, Vec<Option<Vec<u8>>>)>,
     refs: Vec<(String, Option<(bool, String)>, Option<(bool, String)>)>,
     #[serde(default)]
+    previous_refs: BTreeMap<String, Vec<Option<(bool, String)>>>,
+    #[serde(default)]
     retire_files: Vec<PathBuf>,
     #[serde(default)]
     retire_refs: Vec<String>,
@@ -599,7 +607,11 @@ impl GitRemoteJournal {
         save_remote_journal(&self.path, record)
     }
 
-    pub fn register_retirements(&self, paths: &[PathBuf], refs: &[String]) -> Result<(), GitRemoteManagementError> {
+    pub fn register_retirements(
+        &self,
+        paths: &[PathBuf],
+        refs: &[String],
+    ) -> Result<(), GitRemoteManagementError> {
         let mut record: RemoteJournalRecord = serde_json::from_slice(&std::fs::read(&self.path).map_err(GitRemoteManagementError::from_git)?)
             .map_err(GitRemoteManagementError::from_git)?;
         if !record.requires_new_operation {
@@ -617,9 +629,26 @@ impl GitRemoteJournal {
     }
 
     pub fn complete(self) -> Result<(), GitRemoteManagementError> {
-        let record: RemoteJournalRecord = serde_json::from_slice(&std::fs::read(&self.path).map_err(GitRemoteManagementError::from_git)?)
-            .map_err(GitRemoteManagementError::from_git)?;
-        let git_repo = gix::open(self.path.parent().unwrap()).map_err(GitRemoteManagementError::from_git)?;
+        let record: RemoteJournalRecord = serde_json::from_slice(
+            &std::fs::read(&self.path).map_err(GitRemoteManagementError::from_git)?,
+        )
+        .map_err(GitRemoteManagementError::from_git)?;
+        let _file_locks = record
+            .retire_files
+            .iter()
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .map(|file| {
+                gix::lock::Marker::acquire_to_hold_resource(
+                    file,
+                    gix::lock::acquire::Fail::Immediately,
+                    None,
+                )
+                .map_err(GitRemoteManagementError::from_git)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let git_repo =
+            gix::open(self.path.parent().unwrap()).map_err(GitRemoteManagementError::from_git)?;
         let mut edits = Vec::new();
         for name in &record.retire_refs {
             let (_, before, _) = record.refs.iter().find(|(entry, _, _)| entry == name)
@@ -683,7 +712,11 @@ impl Drop for GitRemoteJournal {
     }
 }
 
-pub fn begin_remote_management(store: &Store, operation_id: &str, extra_paths: &[PathBuf]) -> Result<GitRemoteJournal, GitRemoteManagementError> {
+pub fn begin_remote_management(
+    store: &Store,
+    operation_id: &str,
+    extra_paths: &[PathBuf],
+) -> Result<GitRemoteJournal, GitRemoteManagementError> {
     let git_repo = get_git_repo(store)?;
     let path = remote_journal_path(&git_repo);
     let lock = crate::lock::FileLock::try_lock(path.with_extension("lock"))
@@ -696,12 +729,31 @@ pub fn begin_remote_management(store: &Store, operation_id: &str, extra_paths: &
     for file in std::iter::once(&config_path).chain(extra_paths) {
         files.push((file.clone(), read_journal_file(file)?, Vec::new()));
     }
-    let record = RemoteJournalRecord { operation_id: operation_id.into(), files, refs: Vec::new(), retire_files: Vec::new(), retire_refs: Vec::new(), expected_remotes: Vec::new(), expected_operation: None, requires_new_operation: true };
-    let mut temporary = tempfile::NamedTempFile::new_in(path.parent().unwrap()).map_err(GitRemoteManagementError::from_git)?;
-    serde_json::to_writer(temporary.as_file_mut(), &record).map_err(GitRemoteManagementError::from_git)?;
-    temporary.as_file().sync_all().map_err(GitRemoteManagementError::from_git)?;
-    temporary.persist_noclobber(&path).map_err(GitRemoteManagementError::from_git)?;
-    File::open(path.parent().unwrap()).and_then(|file| file.sync_all()).map_err(GitRemoteManagementError::from_git)?;
+    let record = RemoteJournalRecord {
+        operation_id: operation_id.into(),
+        files,
+        refs: Vec::new(),
+        previous_refs: BTreeMap::new(),
+        retire_files: Vec::new(),
+        retire_refs: Vec::new(),
+        expected_remotes: Vec::new(),
+        expected_operation: None,
+        requires_new_operation: true,
+    };
+    let mut temporary = tempfile::NamedTempFile::new_in(path.parent().unwrap())
+        .map_err(GitRemoteManagementError::from_git)?;
+    serde_json::to_writer(temporary.as_file_mut(), &record)
+        .map_err(GitRemoteManagementError::from_git)?;
+    temporary
+        .as_file()
+        .sync_all()
+        .map_err(GitRemoteManagementError::from_git)?;
+    temporary
+        .persist_noclobber(&path)
+        .map_err(GitRemoteManagementError::from_git)?;
+    File::open(path.parent().unwrap())
+        .and_then(|file| file.sync_all())
+        .map_err(GitRemoteManagementError::from_git)?;
     Ok(GitRemoteJournal { path, _lock: lock })
 }
 
@@ -756,7 +808,11 @@ fn decode_journal_target(value: &(bool, String)) -> Result<gix::refs::Target, Gi
     }
 }
 
-fn journal_ref_edit(name: &str, expected: Option<&(bool, String)>, new: Option<&(bool, String)>) -> Result<gix::refs::transaction::RefEdit, GitRemoteManagementError> {
+fn journal_ref_edit(
+    name: &str,
+    expected: Option<&(bool, String)>,
+    new: Option<&(bool, String)>,
+) -> Result<gix::refs::transaction::RefEdit, GitRemoteManagementError> {
     use gix::refs::transaction::{Change, PreviousValue, RefLog};
     let expected = expected.map(decode_journal_target).transpose()?
         .map_or(PreviousValue::MustNotExist, PreviousValue::MustExistAndMatch);
@@ -767,10 +823,20 @@ fn journal_ref_edit(name: &str, expected: Option<&(bool, String)>, new: Option<&
             log: gix::refs::transaction::LogChange { mode: RefLog::AndReference, force_create_reflog: false, message: "recover remote change".into() },
         }
     } else { Change::Delete { expected, log: RefLog::AndReference } };
-    Ok(gix::refs::transaction::RefEdit { name: name.try_into().map_err(GitRemoteManagementError::from_git)?, change, deref: false })
+    Ok(gix::refs::transaction::RefEdit {
+        name: name
+            .try_into()
+            .map_err(GitRemoteManagementError::from_git)?,
+        change,
+        deref: false,
+    })
 }
 
-fn record_ref_edits_inner(git_repo: &gix::Repository, record: &mut RemoteJournalRecord, edits: &[gix::refs::transaction::RefEdit]) -> Result<(), GitRemoteManagementError> {
+fn record_ref_edits_inner(
+    git_repo: &gix::Repository,
+    record: &mut RemoteJournalRecord,
+    edits: &[gix::refs::transaction::RefEdit],
+) -> Result<(), GitRemoteManagementError> {
     for edit in edits {
         let name = edit.name.as_bstr().to_string();
         let after = match &edit.change {
@@ -783,6 +849,7 @@ fn record_ref_edits_inner(git_repo: &gix::Repository, record: &mut RemoteJournal
                     "Ref {name} changed between prepared remote steps; refusing to absorb an external update"
                 )));
             }
+            record.previous_refs.entry(name.clone()).or_default().push(expected_after.clone());
             *expected_after = after;
         } else {
             let before = read_journal_ref(git_repo, &name)?;
@@ -792,7 +859,11 @@ fn record_ref_edits_inner(git_repo: &gix::Repository, record: &mut RemoteJournal
     Ok(())
 }
 
-fn record_remote_management_mutation(git_repo: &gix::Repository, edits: &[gix::refs::transaction::RefEdit], files: &[(PathBuf, Vec<u8>)]) -> Result<(), GitRemoteManagementError> {
+fn record_remote_management_mutation(
+    git_repo: &gix::Repository,
+    edits: &[gix::refs::transaction::RefEdit],
+    files: &[(PathBuf, Vec<u8>)],
+) -> Result<(), GitRemoteManagementError> {
     let path = remote_journal_path(git_repo);
     if !path.try_exists().map_err(GitRemoteManagementError::from_git)? { return Ok(()); }
     let mut record = load_remote_journal(&path)?;
@@ -812,19 +883,50 @@ fn record_remote_management_mutation(git_repo: &gix::Repository, edits: &[gix::r
 }
 
 /// Recovery is local only: it never fetches, publishes, or refreshes a lease.
-pub fn recover_remote_management(store: &Store, view: &View, operation_id: &str, accept: bool, capabilities: &[&str]) -> Result<(), GitRemoteManagementError> {
+pub fn recover_remote_management(
+    store: &Store,
+    view: &View,
+    operation_id: &str,
+    accept: bool,
+    capabilities: &[&str],
+) -> Result<(), GitRemoteManagementError> {
     let git_repo = get_git_repo(store)?;
     let path = remote_journal_path(&git_repo);
     let lock = crate::lock::FileLock::try_lock(path.with_extension("lock"))
         .map_err(GitRemoteManagementError::from_git)?
-        .ok_or_else(|| GitRemoteManagementError::ManagedState("Remote change is still running".into()))?;
-    let record: RemoteJournalRecord = serde_json::from_slice(&std::fs::read(&path).map_err(GitRemoteManagementError::from_git)?)
-        .map_err(GitRemoteManagementError::from_git)?;
-    let _config_lock = lock_remote_config(&git_repo)?;
+        .ok_or_else(|| {
+            GitRemoteManagementError::ManagedState("Remote change is still running".into())
+        })?;
+    let record: RemoteJournalRecord =
+        serde_json::from_slice(&std::fs::read(&path).map_err(GitRemoteManagementError::from_git)?)
+            .map_err(GitRemoteManagementError::from_git)?;
+    // Hold every file's writer lock through rollback. Acceptance leaves
+    // retirement locks to complete(), which rechecks before deleting files.
+    let _file_locks = record
+        .files
+        .iter()
+        .map(|(file, _, _)| file)
+        .filter(|file| !accept || !record.retire_files.contains(file))
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .map(|file| {
+            gix::lock::Marker::acquire_to_hold_resource(
+                file,
+                gix::lock::acquire::Fail::Immediately,
+                None,
+            )
+            .map_err(GitRemoteManagementError::from_git)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     if accept {
         if (record.requires_new_operation && operation_id == record.operation_id)
-            || record.expected_operation.as_ref() != Some(&remote_semantic_fingerprint(view)) {
-            return Err(GitRemoteManagementError::ManagedState("The prepared semantic operation has not been committed; refusing to accept or retire local metadata".into()));
+            || record.expected_operation.as_ref() != Some(&remote_semantic_fingerprint(view))
+        {
+            return Err(GitRemoteManagementError::ManagedState(
+                "The prepared semantic operation has not been committed; refusing to accept or \
+                 retire local metadata"
+                    .into(),
+            ));
         }
         for (file, before, after) in &record.files {
             let current = read_journal_file(file)?;
@@ -864,11 +966,20 @@ pub fn recover_remote_management(store: &Store, view: &View, operation_id: &str,
         let mut edits = Vec::new();
         for (name, before, after) in &record.refs {
             let current = read_journal_ref(&git_repo, name)?;
-            if &current == before { continue; }
-            if &current != after {
-                return Err(GitRemoteManagementError::ManagedState(format!("Reference {name} changed outside the prepared operation; refusing rollback")));
+            if &current == before {
+                continue;
             }
-            edits.push(journal_ref_edit(name, after.as_ref(), before.as_ref())?);
+            if &current != after
+                && !record
+                    .previous_refs
+                    .get(name)
+                    .is_some_and(|steps| steps.contains(&current))
+            {
+                return Err(GitRemoteManagementError::ManagedState(format!(
+                    "Reference {name} changed outside the prepared operation; refusing rollback"
+                )));
+            }
+            edits.push(journal_ref_edit(name, current.as_ref(), before.as_ref())?);
         }
         for (file, before, after) in &record.files {
             let current = read_journal_file(file)?;
@@ -1211,6 +1322,18 @@ pub async fn import_remote_observations(
     for observation in &observations {
         if !selected(observation.kind, observation.symbol.as_ref()) {
             continue;
+        }
+        if let Some((_, label)) = observation.symbol.name.as_str().rsplit_once('#')
+            && let Some(project) = mut_repo.view().project_state().resolve_label(label)
+                .map_err(GitImportError::ManagedState)?
+            && !observation.evidence.as_ref().is_some_and(|evidence| {
+                matches!(&evidence.binding.target, BindingTarget::Project(target) if target == &project)
+            })
+        {
+            return Err(GitImportError::ManagedState(format!(
+                "Git ref {} occupies a registered project label without matching project conversion evidence",
+                observation.symbol
+            )));
         }
         let remote = &observation.symbol.remote;
         let connection = remote_connection_id(&git_repo, remote).map_err(GitImportError::ManagedState)?;
