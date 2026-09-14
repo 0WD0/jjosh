@@ -261,6 +261,7 @@ GC 将保留 View 中转换观察引用的 canonical commits 纳入根集合。
 =--preserve NAME=PATH= 保留该来源项目、绑定、连接身份和稳定 label，只给 canonical 路径增加来源挂载前缀；项目引用保持原名，根引用加入来源名字前缀，不创建外层项目。
 两种输入选项均可重复、混用，至少指定一个；来源名字跨模式唯一。=--mount NAME=DEST= 覆盖默认的 =NAME/= 挂载目录。所有来源参与同一次规划和发布事务，不使用全局模式开关。
 仅导入真实书签，不将工作副本或 Git HEAD 状态改造成书签；未命名的导入版本通过保留的 change ID 选择。
+来源内置 =@git= 是本地同步镜像，不参与项目连接迁移。两种模式均按保留的内置身份排除该 pseudo-remote，不生成别名或连接；真实本地引用和开发图不因此丢弃，目标 =@git= 仅反映目标自己的 Git 镜像状态。
 
 保留模式同时迁入私有原生锚点、raw 对象、normalization generations 和 publication ledger；canonical ID 随提交映射，raw ID、endpoint 和 generation 不重新解释。ledger 独立于转换观察捕获，不能遗漏未跟踪分支或旧格式 lease。已有项目绑定的连接保留 URL、pushURL 和 remote 设置，fetch 目标引用由语义规划明确给出；配置层不根据物理名字推断作用域。不复制全局凭据配置，不自动 fetch 或 push。
 项目身份复用、命名/目录冲突和不一致的转换依据均拒绝，不自动覆盖或更换身份。当前模型没有非项目的子目录作用范围，因此来源的 =RepositoryView= 绑定及其保留观察，以及有地址但未绑定项目的连接，在该模式下拒绝，不扩展存储格式。

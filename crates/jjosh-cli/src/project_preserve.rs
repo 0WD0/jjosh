@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use anyhow::{Context, Result, bail, ensure};
 use jj_lib::backend::CommitId;
 use jj_lib::git::ImportedRemoteMapping;
+use jj_lib::git::REMOTE_NAME_FOR_LOCAL_GIT_REPO;
 use jj_lib::merge::Merge;
 use jj_lib::object_id::ObjectId as _;
 use jj_lib::op_store::{RefTarget, View};
@@ -139,6 +140,7 @@ pub(crate) fn prepare(
         .chain(source.remote_connections.keys())
         .chain(source.project_observations.keys().map(|key| &key.remote))
         .chain(configured_remotes.keys())
+        .filter(|remote| remote.as_str() != REMOTE_NAME_FOR_LOCAL_GIT_REPO.as_str())
         .collect();
     let destination_remotes: BTreeSet<_> = destination
         .remote_views
@@ -247,6 +249,7 @@ pub(crate) fn prepare(
     view.remote_views = source
         .remote_views
         .iter()
+        .filter(|(remote, _)| remote.as_str() != REMOTE_NAME_FOR_LOCAL_GIT_REPO.as_str())
         .map(|(remote, refs)| {
             let mut refs = refs.clone();
             refs.bookmarks = refs
@@ -265,11 +268,13 @@ pub(crate) fn prepare(
     view.remote_connections = source
         .remote_connections
         .iter()
+        .filter(|(remote, _)| remote.as_str() != REMOTE_NAME_FOR_LOCAL_GIT_REPO.as_str())
         .map(|(remote, owner)| (remotes[remote].destination.clone(), owner.clone()))
         .collect();
     view.project_observations = source
         .project_observations
         .iter()
+        .filter(|(key, _)| key.remote != REMOTE_NAME_FOR_LOCAL_GIT_REPO)
         .map(|(key, target)| {
             let mut key = key.clone();
             key.remote = remotes[&key.remote].destination.clone();
@@ -301,6 +306,14 @@ fn binding_definitions(view: &View) -> impl Iterator<Item = (&BindingId, &Bindin
 }
 
 fn validate_source(source: &View) -> Result<()> {
+    for (key, target) in &source.project_observations {
+        ensure!(
+            key.remote != REMOTE_NAME_FOR_LOCAL_GIT_REPO || target.iter().all(Option::is_none),
+            "Source local Git observation {}@{} cannot own project conversion evidence",
+            key.name.as_str(),
+            key.remote.as_str()
+        );
+    }
     // The operation store validates record encodings. Apply the same semantic
     // diagnostics used by project check, then inspect detached/negative evidence
     // as well: it must remain valid after relocating all projects.
@@ -358,8 +371,13 @@ fn validate_source(source: &View) -> Result<()> {
     }
     for (connection, names) in &source.project_state.remote_names {
         if names.is_present() {
-            ensure!(source.remote_connections.values().any(|owners| owners.as_resolved().and_then(Option::as_ref) == Some(connection)),
-                "Source scoped connection {connection} has no physical remote mapping; reconnect or retire it before importing");
+            ensure!(
+                source.remote_connections.iter().any(|(remote, owners)| {
+                    remote.as_str() != REMOTE_NAME_FOR_LOCAL_GIT_REPO.as_str()
+                        && owners.as_resolved().and_then(Option::as_ref) == Some(connection)
+                }),
+                "Source scoped connection {connection} has no physical remote mapping; reconnect or retire it before importing"
+            );
         }
     }
     for (key, target) in &source.project_observations {

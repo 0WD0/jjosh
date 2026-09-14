@@ -58,6 +58,7 @@ import 会一并登记项目。这一入口用于尚未登记的 parser；来源
 导入范围是来源已记录的开发状态和所需祖先历史；未记录文件及旧 operation/evolution history 留在来源仓库。
 导入不会创建 =workspace/*= 或 Git HEAD 书签，也不会迁入来源 workspace。已有书签按项目限定名保留，例如 =main#parser=；没有书签的版本可用来源 change ID 选择。用户自己命名为 =workspace/default= 的书签仍按普通书签保留。
 两种模式都在发布前复核来源 operation 和 Git 配置，并通过同一 journal 安装私有 refs、连接配置及本次导入的本地/remote Git mirrors。安装中断时使用 =jjosh git remote recover --rollback= 恢复，再重试；不会发布只有部分来源的目标操作。
+来源内置的 =@git= 只是本地 Git 同步记录，不是远端；两种模式都不把它导入为别名、连接或 remote 观察，即使它与来源本地书签、标签不同。真实书签、标签和已记录开发图仍保留，目标的 =@git= 由目标自己的 Git 导出结果建立。此规则按内置身份判断，不按 remote 名字的前后缀过滤。
 
 以后持续接收来源更新，为项目配置 whole remote：
 
@@ -65,7 +66,7 @@ import 会一并登记项目。这一入口用于尚未登记的 parser；来源
 jjosh git remote add upstream /path/to/parser-work --project parser --whole
 #+end_src
 
-来源 remote 的名字保存在新外层项目中，连接地址由你另行配置。内部项目的 =origin#inner= 导入为外层项目内的 =origin@inner=，来源 Git 工作树记录使用 =git@source=；命令会列出这些明确映射并拒绝重名。引用中的 remote 含 =@= 时加引号，例如 =main#inner#parser@"origin@inner"=。
+来源真实 remote 的名字保存在新外层项目中，连接地址由你另行配置。内部项目的 =origin#inner= 导入为外层项目内的 =origin@inner=；命令会列出这些明确映射并拒绝重名。引用中的 remote 含 =@= 时加引号，例如 =main#inner#parser@"origin@inner"=。
 
 ** 来源已经有多个项目
 
