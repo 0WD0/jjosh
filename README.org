@@ -64,8 +64,7 @@ jjosh git push --bookmark topic#parser
 * 按目标继续
 
 - [[file:docs/workflows.org][使用指南]]：已有目录、Git 和本地 jj 输入；fork 与默认 remote；批量同步、tag、过滤表示、稀疏检出、恢复与旧格式版本边界。
-- [[file:docs/subprojects-design.org][项目与 remote 模型]]：项目、逻辑连接、本地地址和历史观察各自负责什么。
-- [[file:docs/scoped-references-design.org][类型化本地引用提案]]：未来设计，不是当前可用的命令或语法。
+- [[file:docs/subprojects-design.org][项目与 remote 模型]]：项目、引用归属与名称解析、逻辑连接、本地地址和历史观察的统一设计。
 - [[file:jj/docs/][Jujutsu 文档]]：new、describe、rebase、squash、revset、workspace 等日常用法。
 - [[file:jj/CHANGELOG.md][变更记录]]：版本变化和升级提示。
 
