@@ -1179,6 +1179,75 @@ fn file_at_revision(client: &Path, revision: &str, path: &str) -> Vec<u8> {
 }
 
 #[test]
+fn pure_project_changes_support_unpublished_and_concurrent_operations_without_snapshotting() {
+    let temp = tempfile::tempdir().unwrap();
+    let client = create_client(temp.path(), false);
+    jjosh(&client, &["project", "add", "api", "--path", "api"]);
+    fs::write(client.join("dirty.txt"), "unrecorded user data\n").unwrap();
+    let base = operation_id(&client);
+    let output = jjosh(
+        &client,
+        &[
+            "--no-integrate-operation",
+            "project",
+            "rename",
+            "api",
+            "draft",
+        ],
+    );
+    assert_eq!(operation_id(&client), base);
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    let draft = stderr
+        .split_whitespace()
+        .filter(|word| word.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .find(|operation| {
+            jjosh_unchecked(
+                &client,
+                &["--at-op", operation, "project", "show", "draft", "--json"],
+            )
+            .status
+            .success()
+        })
+        .expect("the reported unpublished operation must be loadable");
+    let draft_state: serde_json::Value = serde_json::from_slice(
+        &jjosh(
+            &client,
+            &["--at-op", draft, "project", "show", "draft", "--json"],
+        )
+        .stdout,
+    )
+    .unwrap();
+    assert_eq!(
+        draft_state["projects"][0]["candidates"][0]["definition"]["name"],
+        "draft"
+    );
+    for name in ["left", "right"] {
+        jjosh(
+            &client,
+            &["--at-op", base.trim(), "project", "rename", "api", name],
+        );
+    }
+    let merged: serde_json::Value =
+        serde_json::from_slice(&jjosh(&client, &["project", "list", "--json"]).stdout).unwrap();
+    let names: std::collections::BTreeSet<_> = merged["projects"][0]["candidates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|candidate| candidate["definition"]["name"].as_str())
+        .collect();
+    assert_eq!(names, std::collections::BTreeSet::from(["left", "right"]));
+    assert_eq!(
+        fs::read(client.join("dirty.txt")).unwrap(),
+        b"unrecorded user data\n"
+    );
+    let recorded = String::from_utf8(
+        jjosh(&client, &["--ignore-working-copy", "file", "list"]).stdout,
+    )
+    .unwrap();
+    assert!(!recorded.lines().any(|path| path == "dirty.txt"));
+}
+
+#[test]
 fn conflicted_project_metadata_can_be_restored_and_repaired_by_repo_only_restore() {
     let temp = tempfile::tempdir().unwrap();
     let (_, source, _) = create_remote(temp.path(), "source");
@@ -1186,26 +1255,50 @@ fn conflicted_project_metadata_can_be_restored_and_repaired_by_repo_only_restore
     import_project(&client, "api", "api", &source, ":/src");
     let healthy = operation_id(&client);
     let canonical = commit_id(&client, "main#api@api-upstream");
-    jjosh(&client, &["--at-op", healthy.trim(), "project", "rename", "api", "left"]);
-    jjosh(&client, &["--at-op", healthy.trim(), "project", "rename", "api", "right"]);
+    jjosh(
+        &client,
+        &[
+            "--at-op",
+            healthy.trim(),
+            "project",
+            "rename",
+            "api",
+            "left",
+        ],
+    );
+    jjosh(
+        &client,
+        &[
+            "--at-op",
+            healthy.trim(),
+            "project",
+            "rename",
+            "api",
+            "right",
+        ],
+    );
     // Loading the current repository merges both operation heads and retains
     // their signed project-definition conflict.
-    let conflict: serde_json::Value = serde_json::from_slice(
-        &jjosh(&client, &["project", "list", "--json"]).stdout,
-    ).unwrap();
+    let conflict: serde_json::Value =
+        serde_json::from_slice(&jjosh(&client, &["project", "list", "--json"]).stdout).unwrap();
     assert!(!conflict["diagnostics"].as_array().unwrap().is_empty());
     let conflicted = operation_id(&client);
-    jjosh(&client, &["op", "restore", healthy.trim(), "--what", "repo"]);
+    jjosh(
+        &client,
+        &["op", "restore", healthy.trim(), "--what", "repo"],
+    );
     jjosh(&client, &["project", "check", "api"]);
     assert_eq!(commit_id(&client, "main#api@api-upstream"), canonical);
 
     jjosh(&client, &["op", "restore", conflicted.trim()]);
-    let restored: serde_json::Value = serde_json::from_slice(
-        &jjosh(&client, &["project", "list", "--json"]).stdout,
-    ).unwrap();
+    let restored: serde_json::Value =
+        serde_json::from_slice(&jjosh(&client, &["project", "list", "--json"]).stdout).unwrap();
     assert_eq!(restored["projects"], conflict["projects"]);
     assert!(!restored["diagnostics"].as_array().unwrap().is_empty());
-    jjosh(&client, &["op", "restore", healthy.trim(), "--what", "repo"]);
+    jjosh(
+        &client,
+        &["op", "restore", healthy.trim(), "--what", "repo"],
+    );
     jjosh(&client, &["project", "check", "api"]);
     assert_eq!(commit_id(&client, "main#api@api-upstream"), canonical);
 }
@@ -1218,14 +1311,26 @@ fn repo_only_rewind_keeps_historical_project_refs_listed_and_resolvable() {
     let client = create_client(temp.path(), false);
     let before_project = operation_id(&client);
     import_project(&client, "api", "api", &source, ":/src");
-    jjosh(&client, &["git", "fetch", "--remote", "api-upstream#api", "--tag", "v1"]);
+    jjosh(
+        &client,
+        &[
+            "git",
+            "fetch",
+            "--remote",
+            "api-upstream#api",
+            "--tag",
+            "v1",
+        ],
+    );
     let physical = physical_remote(&client, "api", "api-upstream");
     let canonical = commit_id(&client, "main#api@api-upstream");
     let tag = commit_id(&client, "v1#api@api-upstream");
-    jjosh(&client, &["op", "restore", before_project.trim(), "--what", "repo"]);
-    let state: serde_json::Value = serde_json::from_slice(
-        &jjosh(&client, &["project", "list", "--json"]).stdout,
-    ).unwrap();
+    jjosh(
+        &client,
+        &["op", "restore", before_project.trim(), "--what", "repo"],
+    );
+    let state: serde_json::Value =
+        serde_json::from_slice(&jjosh(&client, &["project", "list", "--json"]).stdout).unwrap();
     assert!(state["projects"].as_array().unwrap().is_empty());
 
     for (kind, name, expected) in [
@@ -1233,20 +1338,49 @@ fn repo_only_rewind_keeps_historical_project_refs_listed_and_resolvable() {
         ("tag", "v1#api", tag.as_str()),
     ] {
         let symbol = format!("{name}@{physical}");
-        let names = String::from_utf8(jjosh(&client, &[
-            kind, "list", "--all-remotes", "-T",
-            r#"if(remote && remote != "git", name ++ "@" ++ remote ++ "\n")"#,
-        ]).stdout).unwrap();
+        let names = String::from_utf8(
+            jjosh(
+                &client,
+                &[
+                    kind,
+                    "list",
+                    "--all-remotes",
+                    "-T",
+                    r#"if(remote && remote != "git", name ++ "@" ++ remote ++ "\n")"#,
+                ],
+            )
+            .stdout,
+        )
+        .unwrap();
         assert!(names.lines().any(|line| line == symbol), "{names}");
         assert_eq!(commit_id(&client, &symbol), expected);
     }
-    let template_refs = String::from_utf8(jjosh(&client, &[
-        "log", "--no-graph", "-r", &format!("main#api@{physical}"),
-        "-T", r#"remote_bookmarks.map(|ref| ref.name() ++ "@" ++ ref.remote()).join("\n")"#,
-    ]).stdout).unwrap();
-    assert!(template_refs.lines().any(|line| line == format!("main#api@{physical}")));
+    let template_refs = String::from_utf8(
+        jjosh(
+            &client,
+            &[
+                "log",
+                "--no-graph",
+                "-r",
+                &format!("main#api@{physical}"),
+                "-T",
+                r#"remote_bookmarks.map(|ref| ref.name() ++ "@" ++ ref.remote()).join("\n")"#,
+            ],
+        )
+        .stdout,
+    )
+    .unwrap();
+    assert!(
+        template_refs
+            .lines()
+            .any(|line| line == format!("main#api@{physical}"))
+    );
     // No active alias or project scope is invented to expose retained history.
-    assert!(!jjosh_unchecked(&client, &["log", "-r", "main#api@api-upstream"]).status.success());
+    assert!(
+        !jjosh_unchecked(&client, &["log", "-r", "main#api@api-upstream"])
+            .status
+            .success()
+    );
 }
 
 #[test]
@@ -1260,20 +1394,43 @@ fn forgetting_converted_remote_bookmarks_preserves_history_and_publication_lease
         let canonical = commit_id(&client, "main#api@api-upstream");
         let observed = operation_id(&client);
         if include_remotes {
-            jjosh(&client, &["bookmark", "forget", "main#api", "--include-remotes"]);
+            jjosh(
+                &client,
+                &["bookmark", "forget", "main#api", "--include-remotes"],
+            );
         } else {
             jjosh(&client, &["bookmark", "forget", "main#api@api-upstream"]);
             assert_eq!(commit_id(&client, "main#api"), canonical);
         }
         jjosh(&client, &["project", "check", "api"]);
-        assert!(!jjosh_unchecked(&client, &["log", "-r", "main#api@api-upstream"]).status.success());
-        let historical = String::from_utf8(jjosh(&client, &[
-            "--at-op", observed.trim(), "log", "--no-graph", "-r",
-            "main#api@api-upstream", "-T", "commit_id",
-        ]).stdout).unwrap();
+        assert!(
+            !jjosh_unchecked(&client, &["log", "-r", "main#api@api-upstream"])
+                .status
+                .success()
+        );
+        let historical = String::from_utf8(
+            jjosh(
+                &client,
+                &[
+                    "--at-op",
+                    observed.trim(),
+                    "log",
+                    "--no-graph",
+                    "-r",
+                    "main#api@api-upstream",
+                    "-T",
+                    "commit_id",
+                ],
+            )
+            .stdout,
+        )
+        .unwrap();
         assert_eq!(historical.trim(), canonical);
 
-        jjosh(&client, &["new", &canonical, "-m", "publish after forgetting"]);
+        jjosh(
+            &client,
+            &["new", &canonical, "-m", "publish after forgetting"],
+        );
         fs::write(client.join("api/value.txt"), "republished\n").unwrap();
         jjosh(&client, &["bookmark", "set", "main#api"]);
         // A forget must not reset the independently remembered raw endpoint.
@@ -1281,13 +1438,30 @@ fn forgetting_converted_remote_bookmarks_preserves_history_and_publication_lease
         git(&work, &["commit", "-am", "external advance"]);
         git(&work, &["push", source.to_str().unwrap(), "HEAD:main"]);
         let advanced = git(&source, &["rev-parse", "main"]);
-        let push = ["git", "push", "--remote", "api-upstream", "--bookmark", "main#api", "--allow-new"];
+        let push = [
+            "git",
+            "push",
+            "--remote",
+            "api-upstream",
+            "--bookmark",
+            "main#api",
+            "--allow-new",
+        ];
         assert!(!jjosh_unchecked(&client, &push).status.success());
         assert_eq!(git(&source, &["rev-parse", "main"]), advanced);
-        git(&source, &["update-ref", "refs/heads/main", &original, advanced.trim()]);
+        git(
+            &source,
+            &["update-ref", "refs/heads/main", &original, advanced.trim()],
+        );
         jjosh(&client, &push);
-        assert_eq!(git(&source, &["show", "main:src/value.txt"]), "republished\n");
-        assert_eq!(git(&source, &["show", "main:outside.txt"]), "source-outside\n");
+        assert_eq!(
+            git(&source, &["show", "main:src/value.txt"]),
+            "republished\n"
+        );
+        assert_eq!(
+            git(&source, &["show", "main:outside.txt"]),
+            "source-outside\n"
+        );
     }
 }
 
@@ -5233,9 +5407,11 @@ fn tag_object(git_dir: &Path, target: &str, kind: &str, name: &str, message: &st
     fs::write(
         file.path(),
         format!(
-            "object {target}\ntype {kind}\ntag {name}\ntagger Release Author <release@example.com> 1700000000 +0530\n\n{message}"
+            "object {target}\ntype {kind}\ntag {name}\ntagger Release Author \
+             <release@example.com> 1700000000 +0530\n\n{message}"
         ),
-    ).unwrap();
+    )
+    .unwrap();
     git(
         git_dir,
         &[

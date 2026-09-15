@@ -150,7 +150,7 @@ fn ensure_available_remote_name(
                     == project
                     && identity
                         .and_then(|identity| identity.scoped_name)
-                        .map_or(remote.as_ref(), |identity| identity.name.as_ref())
+                        .map_or(remote.as_str(), |identity| identity.name.as_str())
                         == name =>
             {
                 return Err(user_error(format!(
@@ -236,7 +236,7 @@ fn resolve_management_remote(
                 identity.source == jj_lib::view::remote_identity::IdentitySource::Logical
             })
             .and_then(|identity| identity.scoped_name);
-        let local = scoped.map_or(remote.as_ref(), |identity| identity.name.as_ref());
+        let local = scoped.map_or(remote.as_str(), |identity| identity.name.as_str());
         if scoped.map(|identity| &identity.project) != project.as_ref() || local != name {
             continue;
         }
@@ -301,7 +301,6 @@ fn management_remote_name(
         name.as_str()
     };
     let local = RemoteNameBuf::from(local);
-    git::validate_remote_name(&local).map_err(user_error)?;
     Ok((local, scope))
 }
 
@@ -523,10 +522,7 @@ async fn cmd_attach(
     {
         crate::git_remote::commit_repo_config_update(command.raw_config(), &updated).map_err(
             |err| {
-                crate::command_error::user_error_with_message(
-                    "Remote attached, but repository settings were not updated",
-                    err,
-                )
+                err.hinted("Remote attached, but repository settings were not updated")
             },
         )?;
     }

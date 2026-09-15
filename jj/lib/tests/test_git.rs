@@ -7350,7 +7350,7 @@ fn test_native_remote_owner_and_key_guards() -> TestResult {
     assert_eq!(std::fs::read(&config_path)?, before);
     let fresh = gix::open(fresh.path())?;
     assert_eq!(
-        git::remote_connection_id(&fresh, "origin".as_ref())?,
+        git::remote_connection_id(&fresh, "origin".as_ref()).unwrap(),
         Some(connection)
     );
     assert_eq!(

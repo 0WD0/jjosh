@@ -110,10 +110,7 @@ pub async fn cmd_git_remote_remove(
     {
         crate::git_remote::commit_repo_config_update(command.raw_config(), &updated).map_err(
             |err| {
-                crate::command_error::user_error_with_message(
-                    "Remote removed, but repository settings were not updated",
-                    err,
-                )
+                err.hinted("Remote removed, but repository settings were not updated")
             },
         )?;
     }

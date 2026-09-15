@@ -1,16 +1,24 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
+use std::collections::HashMap;
+use std::collections::HashSet;
 use std::fs;
 use std::io::Write as _;
 
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::Context;
+use anyhow::Result;
+use anyhow::bail;
+use anyhow::ensure;
 use gix::ObjectId;
-use gix::refs::transaction::{PreviousValue, RefEdit};
+use gix::refs::transaction::PreviousValue;
+use gix::refs::transaction::RefEdit;
 use jj_lib::backend::CommitId;
 use jj_lib::object_id::ObjectId as _;
 use jj_lib::op_store::View;
 use jj_lib::project::Representation;
 
-use crate::source_repo::{SourceRepo, copy_objects};
+use crate::source_repo::SourceRepo;
+use crate::source_repo::copy_objects;
 
 /// A read-only snapshot of the evidence needed by the imported operation.
 /// Canonical anchors are graph roots; raw objects never become JJ graph roots.

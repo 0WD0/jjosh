@@ -1,7 +1,11 @@
 use jj_cli::cli_util::WorkspaceCommandHelper;
-use jj_cli::command_error::{CommandError, user_error};
+use jj_cli::command_error::CommandError;
+use jj_cli::command_error::user_error;
 use jj_cli::git_remote::GitRemoteBindingArgs;
-use jj_lib::project::{BindingRecord, BindingTarget, ConnectionId, Representation};
+use jj_lib::project::BindingRecord;
+use jj_lib::project::BindingTarget;
+use jj_lib::project::ConnectionId;
+use jj_lib::project::Representation;
 use jj_lib::ref_name::RemoteName;
 use jj_lib::repo::Repo as _;
 
@@ -26,7 +30,8 @@ pub(super) fn prepare_binding(
             .is_some()
         {
             return Err(user_error(format!(
-                "Remote {} still has legacy configuration; use project migrate rather than attaching a new definition",
+                "Remote {} still has legacy configuration; use project migrate rather than \
+                 attaching a new definition",
                 remote.as_str()
             )));
         }
@@ -39,7 +44,8 @@ pub(super) fn prepare_binding(
         match std::fs::symlink_metadata(&sidecar) {
             Ok(_) => {
                 return Err(user_error(format!(
-                    "Legacy sidecar {} must be migrated or explicitly removed before creating a new binding",
+                    "Legacy sidecar {} must be migrated or explicitly removed before creating a \
+                     new binding",
                     sidecar.display()
                 )));
             }
@@ -54,7 +60,8 @@ pub(super) fn prepare_binding(
         + usize::from(args.like_remote.is_some());
     if count != 1 {
         return Err(user_error(
-            "A binding requires exactly one of --whole, --filter, --view, or --like; representations are never inherited implicitly",
+            "A binding requires exactly one of --whole, --filter, --view, or --like; \
+             representations are never inherited implicitly",
         ));
     }
     let project = args
@@ -73,8 +80,14 @@ pub(super) fn prepare_binding(
             args.project.as_deref(),
         )?;
         git.find_remote(source_name.as_str()).map_err(user_error)?;
-        let id = jj_lib::git::remote_connection_id(&git, &source_name).map_err(user_error)?
-            .ok_or_else(|| user_error(format!("Remote {source} has no adopted connection; use project migrate for legacy configuration")))?;
+        let id = jj_lib::git::remote_connection_id(&git, &source_name)
+            .map_err(user_error)?
+            .ok_or_else(|| {
+                user_error(format!(
+                    "Remote {source} has no adopted connection; use project migrate for legacy \
+                     configuration"
+                ))
+            })?;
         let (_, source_binding) = state
             .binding_for_connection(&id)
             .map_err(user_error)?

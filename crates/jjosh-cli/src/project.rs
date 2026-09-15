@@ -193,10 +193,17 @@ pub(crate) async fn run(
             };
             let mut tx = workspace.start_transaction();
             tx.repo_mut().set_view(view);
-            command
+            let repo = command
                 .maybe_commit_transaction(tx.into_inner(), &description)
                 .await?;
             writeln!(ui.status(), "{description}; working files unchanged.")?;
+            if !command.should_commit_transaction() {
+                writeln!(
+                    ui.status(),
+                    "Operation left uncommitted because --no-integrate-operation was requested: {}",
+                    jj_cli::cli_util::short_operation_hash(repo.op_id())
+                )?;
+            }
             Ok(())
         }
     }
@@ -387,7 +394,8 @@ fn resolve(
             && roots.any(|root| root != first)
         {
             return Err(user_error(
-                "ProjectId has inconsistent immutable roots; repair the corrupt input instead of choosing a layout",
+                "ProjectId has inconsistent immutable roots; repair the corrupt input instead of \
+                 choosing a layout",
             ));
         }
         let selected = if args.delete {
@@ -423,7 +431,8 @@ fn resolve(
         let definitions: Vec<_> = target.iter().flatten().collect();
         if definitions.windows(2).any(|pair| pair[0] != pair[1]) {
             return Err(user_error(
-                "BindingId has inconsistent immutable definitions; repair the corrupt input instead of choosing one",
+                "BindingId has inconsistent immutable definitions; repair the corrupt input \
+                 instead of choosing one",
             ));
         }
         if args.delete {
@@ -441,7 +450,8 @@ fn resolve(
                         .any(|record| connection.as_ref() == Some(&record.connection_id))
                     {
                         return Err(user_error(format!(
-                            "Binding is connected to remote {name}; use git remote remove to retire it atomically"
+                            "Binding is connected to remote {name}; use git remote remove to \
+                             retire it atomically"
                         )));
                     }
                 }
@@ -456,7 +466,8 @@ fn resolve(
                 })
             }) {
                 return Err(user_error(
-                    "Binding still owns observations; explicitly clear its remote references/tracking before retiring it",
+                    "Binding still owns observations; explicitly clear its remote \
+                     references/tracking before retiring it",
                 ));
             }
             view.project_state.bindings.remove(&id);
@@ -495,7 +506,8 @@ fn resolve(
                 .is_some_and(|target| target.adds().flatten().next().is_some())
             {
                 return Err(user_error(
-                    "Selected label candidate refers to an absent project; restore or resolve that project first",
+                    "Selected label candidate refers to an absent project; restore or resolve \
+                     that project first",
                 ));
             }
             view.project_state
@@ -636,7 +648,8 @@ fn local_diagnostics(
     std::collections::BTreeMap<jj_lib::project::ConnectionId, Vec<String>>,
     std::collections::BTreeSet<BindingId>,
 ) {
-    use jj_lib::project::{BindingTarget, ProjectDiagnostic};
+    use jj_lib::project::BindingTarget;
+    use jj_lib::project::ProjectDiagnostic;
     let state = repo.view().project_state();
     let mut connections = std::collections::BTreeMap::<_, Vec<String>>::new();
     if let Ok(git) = jj_lib::git::get_git_repo(repo.store()) {
@@ -704,7 +717,10 @@ fn local_diagnostics(
                 if jj_lib::git::remote_required_capability(&git, remote).as_deref()
                     != Some("jjosh-v1")
                 {
-                    problems.push(format!("Remote {name} has a binding but lacks the required jjosh-v1 capability marker"));
+                    problems.push(format!(
+                        "Remote {name} has a binding but lacks the required jjosh-v1 capability \
+                         marker"
+                    ));
                 }
                 match git.find_remote(name) {
                     Ok(remote) if remote.urls(gix::remote::Direction::Fetch).count() == 1 => {}
@@ -772,9 +788,17 @@ fn local_diagnostics(
                     }
                 }
                 diagnostics.push(ProjectDiagnostic {
-                    message: format!("Binding {id} is disconnected: its original local connection {} is unavailable", record.connection_id),
-                    projects: match &record.target { BindingTarget::Project(id) => vec![id.clone()], BindingTarget::RepositoryView => vec![] },
-                    bindings: vec![id.clone()], labels: vec![],
+                    message: format!(
+                        "Binding {id} is disconnected: its original local connection {} is \
+                         unavailable",
+                        record.connection_id
+                    ),
+                    projects: match &record.target {
+                        BindingTarget::Project(id) => vec![id.clone()],
+                        BindingTarget::RepositoryView => vec![],
+                    },
+                    bindings: vec![id.clone()],
+                    labels: vec![],
                 });
             }
         }

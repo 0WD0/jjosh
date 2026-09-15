@@ -63,6 +63,7 @@ pub async fn cmd_git_remote_rename(
     let identity = identity.and_then(|identity| identity.scoped_name).cloned();
     let (new, specified_scope) =
         super::management_remote_name(&workspace_command, &args.new, args.project.as_deref())?;
+    git::validate_remote_name(&new).map_err(crate::command_error::user_error)?;
     let scope = identity.as_ref().map(|identity| &identity.project);
     if specified_scope
         .as_ref()
@@ -75,8 +76,8 @@ pub async fn cmd_git_remote_rename(
     super::ensure_available_remote_name(&workspace_command, &new, scope)?;
     let local_old = identity
         .as_ref()
-        .map_or(old.as_ref(), |identity| identity.name.as_ref())
-        .to_owned();
+        .map_or(&old, |identity| &identity.name)
+        .clone();
     let display_old = workspace_command.repo().view().remote_qualified_name(&old);
     let labels =
         scope.map(|project| super::project_config_labels(workspace_command.repo().view(), project));
@@ -131,10 +132,7 @@ pub async fn cmd_git_remote_rename(
     {
         crate::git_remote::commit_repo_config_update(command.raw_config(), &updated).map_err(
             |err| {
-                crate::command_error::user_error_with_message(
-                    "Remote renamed, but repository settings were not updated",
-                    err,
-                )
+                err.hinted("Remote renamed, but repository settings were not updated")
             },
         )?;
     }
