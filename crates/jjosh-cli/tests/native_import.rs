@@ -2,10 +2,12 @@
 
 use std::collections::BTreeMap;
 use std::fs;
+use std::io::Write as _;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 use std::process::Output;
+use std::process::Stdio;
 
 struct NativeRepo {
     temp: tempfile::TempDir,
@@ -1233,6 +1235,114 @@ fn native_git(cwd: &Path, args: &[&str]) -> String {
         String::from_utf8_lossy(&output.stderr)
     );
     String::from_utf8(output.stdout).unwrap()
+}
+
+fn fast_export_without_jj_headers(source_git: &Path, source_tip: &str, destination: &Path) {
+    native_git(
+        destination.parent().unwrap(),
+        &["init", "--bare", destination.to_str().unwrap()],
+    );
+    native_git(source_git, &["update-ref", "refs/heads/main", source_tip]);
+    let export = Command::new("git")
+        .args(["fast-export", "refs/heads/main"])
+        .current_dir(source_git)
+        .env_clear()
+        .env("PATH", std::env::var_os("PATH").unwrap())
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .output()
+        .unwrap();
+    native_git(source_git, &["update-ref", "-d", "refs/heads/main"]);
+    assert!(
+        export.status.success(),
+        "git fast-export: {}",
+        String::from_utf8_lossy(&export.stderr)
+    );
+    let mut import = Command::new("git")
+        .args(["fast-import", "--force", "--quiet"])
+        .current_dir(destination)
+        .env_clear()
+        .env("PATH", std::env::var_os("PATH").unwrap())
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    import
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(&export.stdout)
+        .unwrap();
+    let output = import.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "git fast-import: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn fetch_reuses_native_history_after_git_loses_change_id_headers() {
+    let source = NativeRepo::new();
+    source.write("value.txt", "one\n");
+    source.jj(&["describe", "-m", "source one"]);
+    source.jj(&["new"]);
+    source.write("value.txt", "two\n");
+    source.jj(&["describe", "-m", "source two"]);
+    source.jj(&["new"]);
+    source.write("value.txt", "three\n");
+    source.jj(&["describe", "-m", "source three"]);
+    source.bookmark("main");
+
+    let target = NativeRepo::new();
+    target.jj(&[
+        "project",
+        "import",
+        "--nested",
+        &format!("ebox={}", source.path.display()),
+    ]);
+    let imported_tip = target.log("main#ebox", "commit_id");
+    let imported_change = target.change_id("main#ebox");
+
+    // fast-export/import preserves ordinary Git history but intentionally drops jj's
+    // private change-id commit header. This models a project that was first imported from
+    // a native JJ workspace and later fetched from a plain Git server.
+    let remote = target.temp.path().join("ebox.git");
+    fast_export_without_jj_headers(
+        &source.path.join(".jj/repo/store/git"),
+        &source.log("main", "commit_id"),
+        &remote,
+    );
+    let raw = native_git(&remote, &["cat-file", "-p", "main"]);
+    assert!(
+        !raw.lines().any(|line| line.starts_with("change-id ")),
+        "fast-export unexpectedly retained jj change identity:\n{raw}"
+    );
+
+    target.add_project_remote("upstream", &remote, "ebox");
+    target.jj(&[
+        "git",
+        "fetch",
+        "--project",
+        "ebox",
+        "--remote",
+        "upstream",
+        "--branch",
+        "main",
+    ]);
+    assert_eq!(target.log("main#ebox@upstream", "commit_id"), imported_tip);
+    assert_eq!(target.change_id("main#ebox@upstream"), imported_change);
+    assert_eq!(
+        target.log(
+            "heads(ancestors(main#ebox) & ancestors(main#ebox@upstream))",
+            "commit_id"
+        ),
+        imported_tip
+    );
+    target.jj(&["project", "check"]);
 }
 
 #[test]
