@@ -107,7 +107,8 @@ pub(crate) fn validate_registration(view: &View, name: &str, root: &RepoPath) ->
     let references = label_references(view, name);
     ensure!(
         references.is_empty(),
-        "Reference label {name:?} is occupied by literal references: {}. Use explicit project migration to adopt existing names",
+        "Reference label {name:?} is occupied by literal references: {}. Choose another label; \
+         this jjosh version does not reinterpret existing names",
         references.join(", ")
     );
     Ok(())

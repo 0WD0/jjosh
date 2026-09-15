@@ -20,7 +20,8 @@ export PATH="$PWD/target/release:$PATH"
 #+end_src
 
 历史转换目前要求 SHA-1 Git backend。下面新建非 colocated 仓库，便于以后调整检出布局。
-已有 jjosh 仓库升级前，先读[[file:docs/workflows.org][使用指南]]中的迁移与备份说明；不要让不兼容的旧程序继续写入。
+当前版本只写 =simple_op_store_projects_v3=。若仓库仍是旧 project store，先用支持旧格式迁移的历史 jjosh 版本完成升级；当前版本不会原地改写旧仓库。
+升级或备份前先读[[file:docs/workflows.org][使用指南]]中的版本边界说明；不要让不兼容的旧程序继续写入。
 即使尚无子项目，通过 jjosh 管理根 remote 也可能启用带连接身份的 v3 存储；此后不能让旧版或上游原版 jj 写入该存储。
 
 * 最短工作流：带入、修改、发布
@@ -62,7 +63,7 @@ jjosh git push --bookmark topic#parser
 
 * 按目标继续
 
-- [[file:docs/workflows.org][使用指南]]：已有目录、Git 和本地 jj 输入；fork 与默认 remote；批量同步、tag、过滤表示、稀疏检出、恢复与迁移。
+- [[file:docs/workflows.org][使用指南]]：已有目录、Git 和本地 jj 输入；fork 与默认 remote；批量同步、tag、过滤表示、稀疏检出、恢复与旧格式版本边界。
 - [[file:docs/subprojects-design.org][项目与 remote 模型]]：项目、逻辑连接、本地地址和历史观察各自负责什么。
 - [[file:docs/scoped-references-design.org][类型化本地引用提案]]：未来设计，不是当前可用的命令或语法。
 - [[file:jj/docs/][Jujutsu 文档]]：new、describe、rebase、squash、revset、workspace 等日常用法。

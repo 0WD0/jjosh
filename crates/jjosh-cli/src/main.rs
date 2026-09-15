@@ -8,7 +8,6 @@ mod native_source;
 mod project;
 mod project_config;
 mod project_import;
-mod project_migration;
 mod project_preserve;
 mod project_provenance;
 mod projection;

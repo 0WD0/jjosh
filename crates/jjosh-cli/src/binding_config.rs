@@ -77,30 +77,3 @@ pub(crate) fn filter(representation: &Representation) -> Result<Filter> {
     }
 }
 
-/// Remove the canonical layout only when recomposition proves no source content
-/// was lost. This is a filter operation, never a textual suffix removal.
-pub(crate) fn unmount_legacy(value: &str, mount: &str) -> Result<Representation> {
-    let mounted = josh_core::filter::parse(value).context("Invalid legacy mounted filter")?;
-    let source = mounted.subdir(mount);
-    ensure!(
-        source.prefix(mount) == mounted,
-        "Cannot prove legacy filter is confined to mount {mount}; pass --representation REMOTE=filter:SOURCE with the unmounted source definition"
-    );
-    if source == Filter::new() {
-        Ok(Representation::Whole)
-    } else {
-        parse_filter(&josh_core::filter::spec(source))
-    }
-}
-
-pub(crate) fn parse_mapping(value: &str) -> Result<Representation> {
-    if value == "whole" {
-        Ok(Representation::Whole)
-    } else if let Some(value) = value.strip_prefix("filter:") {
-        parse_filter(value)
-    } else if let Some(value) = value.strip_prefix("view:") {
-        parse_view(value)
-    } else {
-        anyhow::bail!("Representation must be whole, filter:EXPRESSION, or view:REPO_PATH")
-    }
-}

@@ -143,8 +143,8 @@ impl View {
             }
             (None, Some((_, binding))) if matches!(binding.target, BindingTarget::Project(_)) => {
                 return Err(format!(
-                    "Remote {} requires scoped identity migration; run `jjosh project migrate \
-                     --apply --exclusive`",
+                    "Remote {} requires legacy scoped-identity migration; use a historical jjosh \
+                     version that supports project migration before upgrading",
                     remote.as_str()
                 ));
             }
@@ -388,8 +388,8 @@ impl View {
             });
         if occupied {
             return Err(format!(
-                "Project label {label:?} would adopt existing literal references; migrate them \
-                 explicitly"
+                "Project label {label:?} would adopt existing literal references; choose another \
+                 label instead"
             ));
         }
         Ok(())

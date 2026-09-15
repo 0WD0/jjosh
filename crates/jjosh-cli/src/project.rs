@@ -39,8 +39,6 @@ enum Command {
     /// Choose --nested or --preserve for each source; both may be combined.
     /// Preserved project connections retain their settings. No remote is contacted.
     Import(crate::project_import::ImportArgs),
-    /// Inspect or explicitly apply migration of legacy project configuration.
-    Migrate(crate::project_migration::Args),
 }
 
 #[derive(clap::Args, Clone, Debug)]
@@ -133,7 +131,6 @@ pub(crate) async fn run(
 ) -> Result<(), CommandError> {
     match args.command {
         Command::Import(args) => crate::project_import::run_import(ui, command, args).await,
-        Command::Migrate(args) => crate::project_migration::run(ui, command, &args).await,
         Command::List(args) => inspect(ui, command, None, args.json, false).await,
         Command::Show(args) => {
             inspect(ui, command, Some(args.project), args.output.json, false).await
