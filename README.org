@@ -66,12 +66,14 @@ jjosh git push --bookmark topic#parser
 - [[file:docs/workflows.org][使用指南]]：已有目录、Git 和本地 jj 输入；fork 与默认 remote；批量同步、tag、过滤表示、稀疏检出、恢复与旧格式版本边界。
 - [[file:docs/subprojects-design.org][项目与 remote 模型]]：项目、引用归属与名称解析、逻辑连接、本地地址和历史观察的统一设计。
 - [[file:jj/docs/][Jujutsu 文档]]：new、describe、rebase、squash、revset、workspace 等日常用法。
-- [[file:jj/CHANGELOG.md][变更记录]]：版本变化和升级提示。
+- [[file:CHANGELOG.md][jjosh 变更记录]]：jjosh 自己的版本变化和兼容性提示；上游 JJ 的发行说明仍在 [[file:jj/CHANGELOG.md][jj/CHANGELOG.md]]。
 
 * 开发入口
 
 CLI 入口与工作流测试在 [[file:crates/jjosh-cli/][crates/jjosh-cli/]]。
 =jj/=、=josh/=、=gitoxide/= 保留各自的 Cargo workspace；根目录的 =.cargo/config.toml= 把依赖指向这些本地源码。
+
+上游目录以持续同步为前提。jjosh-only 的产品说明、兼容性说明和 release notes 放在本目录的 README、=docs/= 与 =CHANGELOG.md=；不要把它们写进 =jj/=、=josh/=、=gitoxide/= 各自的 CHANGELOG、README 或用户文档。修改这些 subtree 中的源码、测试或必要生成物时，应把 patch 保持在实现所需的最小范围，避免制造与后续 upstream sync 无关的文档冲突。上游自身已经存在的维护元文件（例如 AGENTS/CLAUDE）也应保留，不因嵌入 monorepo 而删除。
 
 #+begin_src sh
 cargo test --locked -p jjosh-cli

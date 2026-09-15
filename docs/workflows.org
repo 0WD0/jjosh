@@ -385,6 +385,11 @@ jjosh sparse map set libs/parser=.
 =sparse map list= 查看映射，=sparse map reset= 恢复原位置，=sparse reset= 恢复完整检出。
 多目录选择见 [[file:../jj/docs/filesets.md][filesets 文档]]。
 
+=sparse set= 的普通参数和 =--add/--remove= 都使用 jj fileset；未带 =root:= 的路径按当前目录解释，=root:=／=root-glob:= 明确使用 canonical 仓库坐标。
+=sparse list= / =sparse edit= 展示并编辑有序的 =+ FILESET=、=- FILESET= 与 mapping 规则。选择和映射共同组成 operation-versioned 的工作副本配置；它们改变物理检出与 snapshot 范围，不改变完整 commit 的树或 project 归属。
+
+如果 sparse/layout 只更新了期望 operation、尚未修改文件，可以用普通 operation restore/undo 调整期望状态。若文件物化已经开始后失败，工作副本可能处于部分更新状态；不要手工删除 in-progress guard 或强制 snapshot。优先从健康 workspace 创建空 replacement，在已知 revision 上配置有效 sparse/layout 后，再人工核对需要保留的本地文件。
+
 ** 浅获取、指定对象与临时镜像
 
 Git filter/view 来源首次 fetch 可加 =--depth 1=，以后加深：
