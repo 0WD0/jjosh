@@ -34,6 +34,7 @@ use jj_lib::ref_name::RefNameBuf;
 use jj_lib::ref_name::RemoteName;
 use jj_lib::ref_name::RemoteNameBuf;
 use jj_lib::repo::MutableRepo;
+use jj_lib::repo_path::RepoPathBuf;
 use jj_lib::repo::Repo as _;
 use jj_lib::settings::UserSettings;
 use jj_lib::str_util::StringExpression;
@@ -506,6 +507,11 @@ pub trait GitRemoteSession {
     /// Maps a logical ref to its publication name, independently of fetch scope.
     fn push_name<'a>(&self, local: &'a RefName) -> &'a str {
         local.as_str()
+    }
+
+    /// Canonical subtree whose projected history is published by this session.
+    fn push_validation_root(&self) -> Option<RepoPathBuf> {
+        None
     }
 
     fn default_fetch_bookmarks(&self) -> Result<(IgnoredRefspecs, StringExpression), CommandError>;
