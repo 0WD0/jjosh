@@ -2067,7 +2067,7 @@ fn build_local_remote_refs_index<'a>(
         let local_target = target.local_target;
         let mut remote_refs = Vec::with_capacity(target.remote_refs.len());
         for (remote, remote_ref) in target.remote_refs {
-            if revset::remote_ref_is_visible(view, RemoteRefSymbol { name, remote })? {
+            if revset::remote_ref_is_visible_for_listing(view, RemoteRefSymbol { name, remote }) {
                 remote_refs.push((
                     view.remote_ref_remote_name(RemoteRefSymbol { name, remote }),
                     remote_ref,

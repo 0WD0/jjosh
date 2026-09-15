@@ -29,7 +29,6 @@ use jj_lib::config::ConfigValue;
 use jj_lib::op_store::LocalRemoteRefTarget;
 use jj_lib::ref_name::RefName;
 use jj_lib::ref_name::RemoteRefSymbol;
-use jj_lib::revset::remote_ref_is_visible;
 use jj_lib::store::Store;
 use jj_lib::str_util::StringMatcher;
 use jj_lib::view::View;
@@ -87,7 +86,10 @@ pub fn collect_items<'a>(
         } = targets;
         let mut visible_remote_refs = Vec::with_capacity(remote_refs.len());
         for (remote, remote_ref) in remote_refs {
-            if remote_ref_is_visible(view, RemoteRefSymbol { name, remote })? {
+            if jj_lib::revset::remote_ref_is_visible_for_listing(
+                view,
+                RemoteRefSymbol { name, remote },
+            ) {
                 visible_remote_refs.push((remote, remote_ref));
             }
         }

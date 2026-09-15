@@ -2743,6 +2743,22 @@ pub fn remote_ref_is_visible(
     view.remote_in_scope(symbol.remote, None)
 }
 
+/// Whether a persisted remote reference should be retained in listing/enumeration.
+///
+/// Scope validation can fail while project metadata is conflicted or otherwise
+/// unresolved. Listings, templates, and broad remote-ref revsets must remain
+/// available in that state so users can inspect and repair the repository. Keep
+/// the persisted reference visible on validation errors; display-name projection
+/// independently falls back to its physical key when the logical identity cannot
+/// be validated. Exact symbol resolution, transport, and mutation must continue
+/// to use the strict scope checks instead.
+pub fn remote_ref_is_visible_for_listing(
+    view: &crate::view::View,
+    symbol: RemoteRefSymbol<'_>,
+) -> bool {
+    remote_ref_is_visible(view, symbol).unwrap_or(true)
+}
+
 /// Compiles a logical remote-name expression into a matcher of physical keys.
 /// Resolve each pattern before combining it so negation and intersection keep
 /// their meaning when a remote has both local and qualified display names.
@@ -2831,7 +2847,7 @@ fn all_formatted_ref_symbols<'a>(
                     || remote_ref.target != *local_target
             })
             .filter(move |&(remote, _)| {
-                remote_ref_is_visible(view, name.to_remote_symbol(remote)).unwrap_or(false)
+                remote_ref_is_visible_for_listing(view, name.to_remote_symbol(remote))
             })
             .map(move |(remote, _)| {
                 format_remote_symbol(
@@ -3149,8 +3165,7 @@ fn resolve_commit_ref(
                 {
                     continue;
                 }
-                if remote_ref_is_visible(view, symbol)
-                    .map_err(|err| RevsetResolutionError::Other(err.into()))?
+                if remote_ref_is_visible_for_listing(view, symbol)
                     && remote_ref_state.is_none_or(|state| remote_ref.state == state)
                 {
                     commit_ids.extend(remote_ref.target.added_ids().cloned());
@@ -3181,8 +3196,7 @@ fn resolve_commit_ref(
                 {
                     continue;
                 }
-                if remote_ref_is_visible(view, symbol)
-                    .map_err(|err| RevsetResolutionError::Other(err.into()))?
+                if remote_ref_is_visible_for_listing(view, symbol)
                     && remote_ref_state.is_none_or(|state| remote_ref.state == state)
                 {
                     commit_ids.extend(remote_ref.target.added_ids().cloned());
