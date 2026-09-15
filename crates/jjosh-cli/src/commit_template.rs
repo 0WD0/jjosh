@@ -145,11 +145,7 @@ fn project_scopes(state: &ProjectState) -> Vec<ProjectScope> {
         for j in i + 1..candidates.len() {
             let a = &candidates[i];
             let b = &candidates[j];
-            if !a.names.is_disjoint(&b.names)
-                || a.roots
-                    .iter()
-                    .any(|a| b.roots.iter().any(|b| a.starts_with(b) || b.starts_with(a)))
-            {
+            if !a.names.is_disjoint(&b.names) || !a.roots.is_disjoint(&b.roots) {
                 candidates[i].uncertain = true;
                 candidates[j].uncertain = true;
             }
@@ -223,12 +219,12 @@ mod tests {
     }
 
     #[test]
-    fn overlapping_roots_and_duplicate_names_have_distinct_uncertain_ids() {
+    fn identical_roots_and_duplicate_names_have_distinct_uncertain_ids() {
         let mut state = ProjectState::default();
         for (suffix, name, path) in [
             (1, "same", "apps/a"),
             (2, "same", "apps/b"),
-            (3, "nested", "apps/a/nested"),
+            (3, "same-root", "apps/a"),
             (4, "healthy", "libs/c"),
         ] {
             let mut id = vec![0; 16];

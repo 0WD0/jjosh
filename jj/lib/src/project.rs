@@ -32,6 +32,7 @@ impl ConnectionId {
 #[derive(ContentHash, Clone, Debug, Eq, PartialEq, Hash, serde::Serialize)]
 pub struct ProjectRecord {
     pub name: String,
+    /// Complete delivery subtree, including any independently registered descendants.
     pub canonical_root: RepoPathBuf,
 }
 #[derive(ContentHash, Clone, Debug, Eq, PartialEq, Hash, serde::Serialize)]
@@ -148,8 +149,15 @@ impl ProjectState {
             }
             for (other_id, other) in &candidates[i + 1..] {
                 if id == other_id { continue; }
-                if record.name == other.name || record.canonical_root.starts_with(&other.canonical_root) || other.canonical_root.starts_with(&record.canonical_root) {
-                    report(format!("Projects {id} and {other_id} have conflicting names or roots"), vec![(*id).clone(), (*other_id).clone()], vec![], vec![]);
+                if record.name == other.name || record.canonical_root == other.canonical_root {
+                    report(
+                        format!(
+                            "Projects {id} and {other_id} have conflicting names or identical roots"
+                        ),
+                        vec![(*id).clone(), (*other_id).clone()],
+                        vec![],
+                        vec![],
+                    );
                 }
             }
         }
@@ -343,13 +351,60 @@ mod tests {
         let a = ProjectId::generate();
         let b = ProjectId::generate();
         let mut state = ProjectState::default();
-        state.projects.insert(a.clone(), Merge::from_vec(vec![
-            Some(record("renamed", "packages/a")), None, Some(record("other", "packages/a")),
-        ]));
-        state.projects.insert(b.clone(), Merge::normal(record("b", "packages/a/nested")));
+        state.projects.insert(
+            a.clone(),
+            Merge::from_vec(vec![
+                Some(record("renamed", "packages/a")),
+                None,
+                Some(record("other", "packages/a")),
+            ]),
+        );
+        state
+            .projects
+            .insert(b.clone(), Merge::normal(record("b", "packages/a")));
         assert!(state.validate_project(&b).is_err());
         state.projects.insert(a, Merge::from_vec(vec![None, Some(record("retired", "packages/a")), None]));
         assert!(state.validate_project(&b).is_ok());
+    }
+
+    #[test]
+    fn nested_roots_are_independent_and_only_identical_roots_conflict() {
+        let parent = ProjectId::generate();
+        let child = ProjectId::generate();
+        let mut state = ProjectState::default();
+        state
+            .projects
+            .insert(parent.clone(), Merge::normal(record("outer", "pkg")));
+        state
+            .projects
+            .insert(child.clone(), Merge::normal(record("inner", "pkg/inner")));
+        assert!(state.diagnostics().is_empty());
+        state.validate_project(&parent).unwrap();
+        state.validate_project(&child).unwrap();
+
+        // An unresolved ancestor does not make a healthy child's path ambiguous.
+        state.projects.insert(
+            parent.clone(),
+            Merge::from_vec(vec![
+                Some(record("left", "pkg")),
+                Some(record("outer", "pkg")),
+                Some(record("right", "pkg")),
+            ]),
+        );
+        assert!(state.validate_project(&parent).is_err());
+        state.validate_project(&child).unwrap();
+
+        state.projects.insert(
+            parent.clone(),
+            Merge::from_vec(vec![None, Some(record("outer", "pkg")), None]),
+        );
+        state.validate_project(&child).unwrap();
+
+        state
+            .projects
+            .insert(parent.clone(), Merge::normal(record("other", "pkg/inner")));
+        assert!(state.validate_project(&parent).is_err());
+        assert!(state.validate_project(&child).is_err());
     }
 
     #[test]

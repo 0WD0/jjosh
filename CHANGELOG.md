@@ -8,7 +8,7 @@
 ### 不兼容变化
 
 - subproject 的项目定义、稳定 label、不可变 binding、connection 身份和转换观察由 JJ operation 持有。
-  当前写入格式为 `simple_op_store_projects_v3`；v1/v2 仅保留读取兼容，当前版本不提供原地升级器。
+  当前写入格式继续是 `simple_op_store_projects_v3`；嵌套项目只放宽拓扑校验，不改变 ProjectRecord、View 编码或 operation-store 类型。v1/v2 仅保留读取兼容，当前版本不提供旧格式迁移器。
 - `project migrate` 与通用 legacy-adoption 实现已退役。仍停留在旧 project store 的仓库，需要先用支持对应格式的历史 jjosh 完成升级。
 - 旧的 `jjosh native`、`link` 以及早期 projection/project 管理入口不再作为兼容别名保留。日常远端同步统一走 `jjosh git fetch/push`，项目管理统一走 `jjosh project`。
 - project 本地引用继续使用 `NAME#LABEL` 约定。活动 label 会占用对应后缀；不会为了同时支持同名字面根引用而自动重新解释已有 refs。
@@ -16,6 +16,7 @@
 
 ### 主要能力
 
+- 项目根允许严格包含；父项目交付完整子树，父子身份、连接、观察与 lease 独立。`touched_projects` 同时列出实际被触及的父、子范围。
 - `log` 默认显示提交实际触及的子项目；`touched_projects` 模板字段支持自定义展示，按当前加载的 project View 和原生 diff 语义计算，不改变提交或引用身份。
 - 一个 monorepo 共享完整 JJ 开发图，同时为多个 project 建立独立交付范围。ProjectId、BindingId、ConnectionId 分别承担项目、转换关系和逻辑 remote 实例的稳定身份。
 - project remote 支持项目内独立的 `origin`/`upstream` 等别名；Git 物理 handle 与逻辑别名分离，rename 保留 connection/binding 身份，remove 后重新 add 是新实例。

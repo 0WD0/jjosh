@@ -123,6 +123,8 @@ fn mounts_overlap(left: &RepoPath, right: &RepoPath) -> bool {
     left.starts_with(right) || right.starts_with(left)
 }
 
+/// Import destinations must be disjoint even though registered delivery scopes may nest.
+/// Two sources writing into the same subtree require an explicit history integration.
 pub(crate) fn check_mounts_disjoint<'a>(
     mounts: impl IntoIterator<Item = (&'a str, &'a RepoPath)>,
 ) -> Result<()> {

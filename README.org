@@ -20,7 +20,7 @@ export PATH="$PWD/target/release:$PATH"
 #+end_src
 
 历史转换目前要求 SHA-1 Git backend。下面新建非 colocated 仓库，便于以后调整检出布局。
-当前版本只写 =simple_op_store_projects_v3=。若仓库仍是旧 project store，先用支持旧格式迁移的历史 jjosh 版本完成升级；当前版本不会原地改写旧仓库。
+当前版本写入 =simple_op_store_projects_v3=。父子项目共享同一套 v3 记录与 View 编码；嵌套只改变合法拓扑，不引入新的 store 格式。v1/v2 仓库仍需先用支持旧格式迁移的历史 jjosh 完成升级。
 升级或备份前先读[[file:docs/workflows.org][使用指南]]中的版本边界说明；不要让不兼容的旧程序继续写入。
 即使尚无子项目，通过 jjosh 管理根 remote 也可能启用带连接身份的 v3 存储；此后不能让旧版或上游原版 jj 写入该存储。
 

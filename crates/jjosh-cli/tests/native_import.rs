@@ -2012,6 +2012,303 @@ fn native_import_rejects_occupied_or_overlapping_mounts() {
 }
 
 #[test]
+fn nested_registration_and_lifecycle_keep_children_independent() {
+    let repo = NativeRepo::new();
+    repo.jj(&["project", "add", "child", "--path", "bundle/child"]);
+    let child_remote = repo.temp.path().join("child.git");
+    native_git(
+        repo.temp.path(),
+        &["init", "--bare", child_remote.to_str().unwrap()],
+    );
+    repo.add_project_remote("origin", &child_remote, "child");
+    repo.write("bundle/child/file", "child\n");
+    repo.write("bundle/glue", "glue\n");
+    repo.jj(&["describe", "-m", "recorded source"]);
+    let child = repo.project("child");
+    let commit = repo.log("@", "commit_id");
+    let before = repo.operation_id();
+    repo.write(
+        "pending.txt",
+        "do not snapshot during project registration\n",
+    );
+
+    repo.jj(&["project", "add", "bundle", "--path", "bundle"]);
+    assert_eq!(repo.log("@", "commit_id"), commit);
+    assert_eq!(repo.project("child"), child);
+    repo.jj(&[
+        "project",
+        "add",
+        "grandchild",
+        "--path",
+        "bundle/child/nested",
+    ]);
+    repo.jj(&["project", "check"]);
+    repo.assert_rejected_without_changes(&["project", "add", "alias", "--path", "bundle/child"]);
+    repo.assert_rejected_without_changes(&["project", "add", "bundle", "--path", "elsewhere"]);
+    let nested = repo.operation_id();
+    repo.jj(&["project", "rename", "bundle", "outer"]);
+    assert_eq!(repo.project("child"), child);
+    repo.jj(&["project", "remove", "outer"]);
+    assert_eq!(repo.project("child"), child);
+    repo.jj(&["project", "check", "grandchild"]);
+    assert_eq!(
+        fs::read(repo.path.join("pending.txt")).unwrap(),
+        b"do not snapshot during project registration\n"
+    );
+    repo.jj(&["op", "restore", &nested, "--what", "repo"]);
+    repo.jj(&["project", "check", "bundle"]);
+    for key in ["id", "candidates", "labels", "bindings", "remotes"] {
+        assert_eq!(repo.project("child")[key], child[key]);
+    }
+    repo.jj(&["op", "restore", &before, "--what", "repo"]);
+    for key in ["id", "candidates", "labels", "bindings", "remotes"] {
+        assert_eq!(repo.project("child")[key], child[key]);
+    }
+    assert_eq!(repo.log("@", "commit_id"), commit);
+    assert_eq!(
+        fs::read(repo.path.join("bundle/child/file")).unwrap(),
+        b"child\n"
+    );
+    assert_eq!(fs::read(repo.path.join("bundle/glue")).unwrap(), b"glue\n");
+    assert_eq!(
+        fs::read_to_string(repo.path.join(".jj/repo/op_store/type")).unwrap(),
+        "simple_op_store_projects_v3"
+    );
+}
+
+#[test]
+fn concurrent_parent_and_child_registration_enables_nesting_at_operation_merge() {
+    let repo = NativeRepo::new();
+    let base = repo.operation_id();
+    for (name, path) in [("parent", "pkg"), ("child", "pkg/child")] {
+        repo.jj(&["--at-op", &base, "project", "add", name, "--path", path]);
+        // Nested topology is ordinary v3 project state; no store-format transition is needed.
+        assert_eq!(
+            fs::read_to_string(repo.path.join(".jj/repo/op_store/type")).unwrap(),
+            "simple_op_store_projects_v3"
+        );
+    }
+    repo.jj(&["project", "check"]);
+    assert_eq!(
+        fs::read_to_string(repo.path.join(".jj/repo/op_store/type")).unwrap(),
+        "simple_op_store_projects_v3"
+    );
+    assert_ne!(repo.project("parent")["id"], repo.project("child")["id"]);
+    let healthy = repo.operation_id();
+    for name in ["left", "right"] {
+        repo.jj(&["--at-op", &healthy, "project", "rename", "parent", name]);
+    }
+    // Conflicting parent names do not invalidate the child's independent definition.
+    repo.jj(&["project", "check", "child"]);
+    repo.jj(&["op", "restore", &healthy, "--what", "repo"]);
+    repo.jj(&["project", "check"]);
+}
+
+#[test]
+fn nested_whole_fetch_push_keep_parent_and_child_observations_independent() {
+    for colocated in [false, true] {
+        let repo = NativeRepo::with_colocation(colocated);
+        repo.jj(&["describe", "-m", "monorepo base"]);
+        let source = NativeRepo::new();
+        source.write("value.txt", "initial\n");
+        source.jj(&["describe", "-m", "child base"]);
+        source.bookmark("main");
+        // Export a plain Git source so both directions exercise real wire refs.
+        let child = repo.temp.path().join("child.git");
+        let parent = repo.temp.path().join("parent.git");
+        for remote in [&child, &parent] {
+            native_git(
+                repo.temp.path(),
+                &["init", "--bare", remote.to_str().unwrap()],
+            );
+        }
+        source.jj(&["git", "remote", "add", "origin", child.to_str().unwrap()]);
+        source.jj(&["git", "push", "--remote", "origin", "--bookmark", "main"]);
+        let raw_base = native_git(&child, &["rev-parse", "refs/heads/main"]);
+        repo.jj(&["project", "add", "child", "--path", "bundle/child"]);
+        repo.add_project_remote("origin", &child, "child");
+        repo.jj(&[
+            "git",
+            "fetch",
+            "--project",
+            "child",
+            "--remote",
+            "origin",
+            "--branch",
+            "main",
+        ]);
+        repo.jj(&["bookmark", "track", "main#child@origin"]);
+        let observed_child = repo.log("main#child@origin", "commit_id");
+        repo.jj(&["new", "@", "main#child@origin"]);
+        repo.jj(&["project", "add", "bundle", "--path", "bundle"]);
+        repo.add_project_remote("origin", &parent, "bundle");
+        repo.write("bundle/glue.txt", "parent-only\n");
+        repo.write("bundle/child/value.txt", "local change\n");
+        repo.write("outside.txt", "never exported\n");
+        repo.jj(&["describe", "-m", "change both scopes"]);
+        let canonical = repo.log("@", "commit_id");
+        repo.bookmark("main#bundle");
+        repo.bookmark("main#child");
+        repo.jj(&["git", "push", "--bookmark", "main#bundle"]);
+        assert_eq!(
+            native_git(&child, &["rev-parse", "refs/heads/main"]),
+            raw_base
+        );
+        assert_eq!(repo.log("main#child@origin", "commit_id"), observed_child);
+        assert_eq!(
+            native_git(&parent, &["ls-tree", "-r", "--name-only", "main"]),
+            "child/value.txt\nglue.txt\n"
+        );
+        assert_eq!(
+            native_git(&parent, &["show", "main:child/value.txt"]),
+            "local change\n"
+        );
+        let raw_parent = native_git(&parent, &["rev-parse", "main"]);
+        repo.jj(&["git", "fetch", "--project", "bundle", "--branch", "main"]);
+        assert_eq!(repo.log("main#bundle@origin", "commit_id"), canonical);
+        assert_eq!(repo.log("main#child@origin", "commit_id"), observed_child);
+
+        repo.jj(&["git", "push", "--bookmark", "main#child"]);
+        assert_eq!(native_git(&parent, &["rev-parse", "main"]), raw_parent);
+        assert_eq!(
+            native_git(&child, &["ls-tree", "-r", "--name-only", "main"]),
+            "value.txt\n"
+        );
+        repo.jj(&["git", "fetch", "--project", "child", "--branch", "main"]);
+        assert_eq!(repo.log("main#child@origin", "commit_id"), canonical);
+        assert_eq!(repo.log("main#bundle@origin", "commit_id"), canonical);
+        assert_eq!(repo.log("divergent()", "commit_id"), "");
+
+        // A fresh consumer has no publication anchors from this client. Receiving the
+        // parent first, then the child, must still reuse the validated native version.
+        let fresh = NativeRepo::with_colocation(colocated);
+        fresh.jj(&["project", "add", "bundle", "--path", "bundle"]);
+        fresh.jj(&["project", "add", "child", "--path", "bundle/child"]);
+        fresh.add_project_remote("origin", &parent, "bundle");
+        fresh.add_project_remote("origin", &child, "child");
+        fresh.jj(&["git", "fetch", "--project", "bundle", "--branch", "main"]);
+        let parent_version = fresh.log("main#bundle@origin", "commit_id");
+        assert_eq!(
+            fresh.log("remote_bookmarks(exact:main#child)", "commit_id"),
+            ""
+        );
+        fresh.jj(&["git", "fetch", "--project", "child", "--branch", "main"]);
+        assert_eq!(fresh.log("main#child@origin", "commit_id"), parent_version);
+        assert_eq!(fresh.log("divergent()", "commit_id"), "");
+        fresh.jj(&["project", "check"]);
+
+        // Advance the child outside this client. Parent fetch/push must not grant a child
+        // lease, even when the local commit changes both nested delivery scopes.
+        source.jj(&["git", "fetch", "--remote", "origin"]);
+        source.jj(&["new", "main@origin"]);
+        source.write("value.txt", "external child advance\n");
+        source.jj(&["describe", "-m", "external child"]);
+        source.bookmark("main");
+        source.jj(&["git", "push", "--remote", "origin", "--bookmark", "main"]);
+        let external_child = native_git(&child, &["rev-parse", "main"]);
+        repo.jj(&["new", &canonical]);
+        repo.write("bundle/child/value.txt", "unseen concurrent change\n");
+        repo.write("bundle/glue.txt", "parent advance\n");
+        repo.jj(&["describe", "-m", "local concurrent work"]);
+        repo.bookmark("main#bundle");
+        repo.bookmark("main#child");
+        repo.jj(&["git", "push", "--bookmark", "main#bundle"]);
+        repo.jj(&["git", "fetch", "--project", "bundle", "--branch", "main"]);
+        assert_eq!(repo.log("main#child@origin", "commit_id"), canonical);
+        let blocked = repo.unchecked(&["git", "push", "--bookmark", "main#child"]);
+        assert!(
+            !blocked.status.success(),
+            "child push inherited its parent's lease"
+        );
+        assert!(
+            String::from_utf8_lossy(&blocked.stderr).contains("stale lease"),
+            "{}",
+            String::from_utf8_lossy(&blocked.stderr)
+        );
+        assert_eq!(native_git(&child, &["rev-parse", "main"]), external_child);
+        let observed_parent = repo.log("main#bundle@origin", "commit_id");
+        repo.jj(&["git", "fetch", "--project", "child", "--branch", "main"]);
+        assert_eq!(repo.log("main#bundle@origin", "commit_id"), observed_parent);
+        repo.jj(&["project", "check"]);
+    }
+}
+
+#[test]
+fn preserve_import_relocates_nested_projects_inside_an_existing_parent() {
+    let source = NativeRepo::new();
+    source.jj(&["project", "add", "outer", "--path", "pkg"]);
+    source.jj(&["project", "add", "inner", "--path", "pkg/inner"]);
+    for project in ["outer", "inner"] {
+        let remote = source.temp.path().join(format!("{project}.git"));
+        native_git(
+            source.temp.path(),
+            &["init", "--bare", remote.to_str().unwrap()],
+        );
+        source.add_project_remote("origin", &remote, project);
+    }
+    source.write("pkg/glue", "glue\n");
+    source.write("pkg/inner/file", "inner\n");
+    source.jj(&["describe", "-m", "nested source"]);
+    source.bookmark("main#outer");
+    source.bookmark("main#inner");
+    let outer = source.project("outer");
+    let inner = source.project("inner");
+    let source_before = source.state();
+    let dest = NativeRepo::new();
+    dest.jj(&["project", "add", "container", "--path", "bundle"]);
+    dest.write("bundle/local", "keep container contents\n");
+    dest.jj(&["describe", "-m", "container"]);
+    dest.jj(&[
+        "project",
+        "import",
+        "--preserve",
+        &format!("source={}", source.path.display()),
+        "--mount",
+        "source=bundle/source",
+    ]);
+    for (name, original, path) in [
+        ("outer", outer, "bundle/source/pkg"),
+        ("inner", inner, "bundle/source/pkg/inner"),
+    ] {
+        let imported = dest.project(name);
+        assert_eq!(imported["id"], original["id"]);
+        assert_eq!(imported["labels"], original["labels"]);
+        assert_eq!(imported["bindings"], original["bindings"]);
+        assert_eq!(imported["remotes"], original["remotes"]);
+        assert_eq!(imported["candidates"][0]["definition"]["path"], path);
+    }
+    assert_eq!(
+        fs::read(dest.path.join("bundle/local")).unwrap(),
+        b"keep container contents\n"
+    );
+    assert!(!dest.path.join("bundle/source").exists());
+    dest.jj(&["new", "@", "main#outer"]);
+    assert_eq!(
+        fs::read(dest.path.join("bundle/source/pkg/inner/file")).unwrap(),
+        b"inner\n"
+    );
+    assert_eq!(
+        fs::read(dest.path.join("bundle/local")).unwrap(),
+        b"keep container contents\n"
+    );
+    dest.jj(&["project", "check"]);
+    assert_eq!(source.state(), source_before);
+
+    // --nested still means an opaque outer import, not implicit activation of inner peers.
+    let opaque = NativeRepo::new();
+    opaque.jj(&[
+        "project",
+        "import",
+        "--nested",
+        &format!("opaque={}", source.path.display()),
+    ]);
+    let state: serde_json::Value =
+        serde_json::from_str(&opaque.jj(&["project", "list", "--json"])).unwrap();
+    assert_eq!(state["projects"].as_array().unwrap().len(), 1);
+    opaque.jj(&["project", "check"]);
+}
+
+#[test]
 fn native_project_names_are_jj_symbols() {
     let dotted = NativeRepo::new();
     dotted.write("file.txt", "dot\n");
