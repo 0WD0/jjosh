@@ -4,7 +4,10 @@ use std::collections::HashSet;
 use anyhow::Context;
 use anyhow::Result;
 use anyhow::ensure;
+use jj_lib::backend;
 use jj_lib::backend::CommitId;
+use jj_lib::backend::Signature;
+use jj_lib::backend::TreeId;
 use jj_lib::commit::Commit;
 use jj_lib::git::REMOTE_NAME_FOR_LOCAL_GIT_REPO;
 use jj_lib::merge::Merge;
@@ -34,6 +37,131 @@ pub(crate) struct Imported {
 enum CommitVisit {
     Read(CommitId),
     Write(CommitId),
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+struct ProjectVersionMetadata {
+    description: String,
+    author: Signature,
+    committer: Signature,
+}
+
+impl From<&backend::Commit> for ProjectVersionMetadata {
+    fn from(commit: &backend::Commit) -> Self {
+        Self {
+            description: commit.description.clone(),
+            author: commit.author.clone(),
+            committer: commit.committer.clone(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+struct ProjectVersionKey {
+    metadata: ProjectVersionMetadata,
+    root_tree: Merge<TreeId>,
+    conflict_labels: Merge<String>,
+}
+
+impl From<&backend::Commit> for ProjectVersionKey {
+    fn from(commit: &backend::Commit) -> Self {
+        Self {
+            metadata: commit.into(),
+            root_tree: commit.root_tree.clone(),
+            conflict_labels: commit.conflict_labels.clone(),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct ExistingProjectVersion {
+    id: CommitId,
+    parents: Vec<CommitId>,
+}
+
+/// Content identity fallback for Git histories which lost jj's change-id header.
+///
+/// Native local imports preserve source ChangeIds, while a later ordinary Git export can
+/// legitimately omit the `change-id` header. The raw Git commit then gets a synthetic ChangeId
+/// when fetched again. Index only destination commits whose ordinary metadata occurs in this
+/// source graph, and compare the complete project subtree plus already-remapped parents before
+/// reusing one. This is deliberately stricter than matching descriptions or trees alone.
+async fn index_existing_project_versions(
+    source: &NativeSource,
+    dest: &dyn jj_lib::repo::Repo,
+    mount: &RepoPath,
+    already_mapped: &HashMap<CommitId, CommitId>,
+) -> Result<HashMap<ProjectVersionKey, Vec<ExistingProjectVersion>>> {
+    let source_metadata: HashSet<_> = source
+        .commits
+        .iter()
+        .filter(|(id, commit)| {
+            !already_mapped.contains_key(*id)
+                && commit.change_id
+                    == jj_lib::git_backend::synthetic_change_id_from_git_commit_id(id)
+        })
+        .map(|(_, commit)| ProjectVersionMetadata::from(commit))
+        .collect();
+    if source_metadata.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let root = dest.store().root_commit_id();
+    let mut pending: Vec<_> = dest.view().heads().iter().cloned().collect();
+    let mut visited = HashSet::new();
+    let mut versions: HashMap<ProjectVersionKey, Vec<ExistingProjectVersion>> = HashMap::new();
+    while let Some(id) = pending.pop() {
+        if id == *root || !visited.insert(id.clone()) {
+            continue;
+        }
+        let commit = dest.store().get_commit_async(&id).await?;
+        pending.extend(commit.parent_ids().iter().cloned());
+        let metadata = ProjectVersionMetadata::from(commit.store_commit().as_ref());
+        if !source_metadata.contains(&metadata)
+            || !crate::native_project::commit_has_project_tree(&commit, mount).await?
+        {
+            continue;
+        }
+        let projected = crate::native_project::project_tree(&commit, mount).await?;
+        let key = ProjectVersionKey {
+            metadata,
+            root_tree: projected.tree_ids().clone(),
+            conflict_labels: projected.labels().as_merge().clone(),
+        };
+        versions
+            .entry(key)
+            .or_default()
+            .push(ExistingProjectVersion {
+                id,
+                parents: commit.parent_ids().to_vec(),
+            });
+    }
+    Ok(versions)
+}
+
+fn find_existing_project_version(
+    versions: &HashMap<ProjectVersionKey, Vec<ExistingProjectVersion>>,
+    source: &backend::Commit,
+    mount: &RepoPath,
+) -> Result<Option<CommitId>> {
+    let Some(candidates) = versions.get(&ProjectVersionKey::from(source)) else {
+        return Ok(None);
+    };
+    let mut matches = candidates
+        .iter()
+        .filter(|candidate| candidate.parents == source.parents);
+    let Some(candidate) = matches.next() else {
+        return Ok(None);
+    };
+    if let Some(other) = matches.next() {
+        anyhow::bail!(
+            "Project history at {} has multiple content-identical versions {} and {}; cannot \
+             recover a lost Git change identity",
+            mount.as_internal_file_string(),
+            candidate.id.hex(),
+            other.id.hex()
+        );
+    }
+    Ok(Some(candidate.id.clone()))
 }
 
 /// Explicitly flatten foreign scopes into disconnected aliases of the outer
@@ -180,6 +308,7 @@ pub(crate) async fn rewrite_graph(
         "Source contains unsupported legacy native correspondence bookmarks"
     );
     source.copy_objects_to(jj_lib::git::get_git_backend(&dest_store)?)?;
+    let existing_versions = index_existing_project_versions(source, dest, mount, &ids).await?;
 
     // A captured source may also retain hidden canonical versions referenced
     // only by private conversion anchors. Rewrite those without exposing heads.
@@ -236,6 +365,16 @@ pub(crate) async fn rewrite_graph(
                 intended.predecessors.clear();
                 if intended.secure_sig.take().is_some() {
                     stripped_signatures += 1;
+                }
+                if intended.change_id
+                    == jj_lib::git_backend::synthetic_change_id_from_git_commit_id(&old_id)
+                    && let Some(existing) =
+                        find_existing_project_version(&existing_versions, &intended, mount)?
+                {
+                    ids.insert(old_id.clone(), existing.clone());
+                    grafts.push((old_id.clone(), existing));
+                    active.remove(&old_id);
+                    continue;
                 }
                 for tree_id in intended.root_tree.iter() {
                     if !trees.contains_key(tree_id) {

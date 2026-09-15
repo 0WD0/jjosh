@@ -16,6 +16,7 @@
 
 ### 主要能力
 
+- native project fetch 在普通 Git 传输丢失 JJ `change-id` header 时，可用唯一的项目子树、提交元数据和已映射父版本恢复已有 canonical 历史，避免把同一项目历史重新导入成不相交链。
 - 项目根允许严格包含；父项目交付完整子树，父子身份、连接、观察与 lease 独立。`touched_projects` 同时列出实际被触及的父、子范围。
 - `log` 默认显示提交实际触及的子项目；`touched_projects` 模板字段支持自定义展示，按当前加载的 project View 和原生 diff 语义计算，不改变提交或引用身份。
 - 一个 monorepo 共享完整 JJ 开发图，同时为多个 project 建立独立交付范围。ProjectId、BindingId、ConnectionId 分别承担项目、转换关系和逻辑 remote 实例的稳定身份。
