@@ -13,6 +13,7 @@ repository = "https://github.com/jj-vcs/jj"
 [workspace.dependencies]
 anyhow = "1.0"
 clap = { version = "4.6.5", features = ["derive"] }
+futures = "0.3"
 gix = { version = "0.87.1", default-features = false, features = ["sha1", "sha256", "blocking-network-client", "blocking-http-transport-reqwest-rust-tls"] }
 gix-pack = { version = "0.74.2", default-features = false, features = ["sha1", "sha256"] }
 gix-hash = { version = "0.26", features = ["sha1"] }
@@ -23,4 +24,5 @@ jj-lib = { path = "jj/lib", default-features = false, features = ["git"] }
 josh-core = { path = "josh/josh-core" }
 josh-cli = { path = "josh/josh-cli" }
 josh-changes = { path = "josh/josh-changes" }
+pollster = "1.0"
 

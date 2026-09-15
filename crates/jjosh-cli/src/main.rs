@@ -1,4 +1,5 @@
 mod binding_config;
+mod commit_template;
 mod git_remote;
 mod git_transport;
 mod interop;
@@ -44,6 +45,8 @@ fn main() -> std::process::ExitCode {
     CliRunner::init()
         .name("jjosh")
         .version(env!("CARGO_PKG_VERSION"))
+        .add_commit_template_extension(Box::new(commit_template::Extension))
+        .add_extra_config(commit_template::default_config())
         .add_git_remote_extension(Box::new(git_remote::Extension))
         .add_subcommand(run_jjosh_command)
         .run()

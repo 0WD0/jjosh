@@ -27,6 +27,24 @@
 项目书签仍指向完整提交；发布时才根据项目与绑定选取内容。引用名不能独自证明它来自哪个服务器、哪种转换或哪次观察。
 =--project parser= 按项目显示名选择，=#parser= 按稳定 label 选择；两个范围不一致会报错。
 
+* 查看提交涉及的项目
+
+=jjosh log= 默认在提交头部显示 =[app, parser]= 这样的项目列表，按项目显示名排序。
+列表来自提交相对父树的实际文件变化，不由 bookmark 名字、依赖关系或发布目标推导；项目之外的修改与空提交不显示项目列表。
+merge 与 =jj diff= 一样，以自动合并后的父树为基线：纯 merge 不重复列出父提交涉及的项目，冲突解决和额外修改则正常归类。
+
+自定义模板可使用 =touched_projects= 或 =commit.touched_projects()=，返回字符串列表：
+
+#+begin_src sh
+jjosh log -T 'separate(" ", change_id.short(), format_touched_projects(self), description.first_line()) ++ "\n"'
+jjosh log -T 'json(touched_projects) ++ "\n"'
+#+end_src
+
+分类使用本次命令加载的 project View 和完整提交中的 canonical 路径，不受 sparse、路径映射或当前目录影响。
+项目改显示名后，旧提交显示新名字；=--at-op= 使用该 operation 的布局。已移除的项目不从历史 remote 观察中重新激活。
+项目定义有歧义时按正项候选路径匹配，显示 =project:短ID?=，不猜名字；断开的 remote 不影响分类。
+用户配置的 =templates.log= 和显式 =-T= 优先；=builtin_log_compact= 仍提供不带项目列表的上游布局。
+
 * 把代码放进本地修改图
 
 ** 目标仓库与已有目录
