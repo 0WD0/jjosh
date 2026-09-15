@@ -55,6 +55,7 @@ use jj_lib::object_id::ObjectId as _;
 use jj_lib::repo::Repo as _;
 use jj_lib::working_copy::SnapshotOptions;
 use jj_lib::working_copy_patterns::WorkingCopyPatterns;
+use jj_lib::working_copy_patterns::WorkingCopyPatternsError;
 use tokio::runtime::Builder;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
@@ -91,6 +92,8 @@ enum RunError {
     JobFailure(#[from] JoinError),
     #[error(transparent)]
     FileLock(#[from] FileLockError),
+    #[error(transparent)]
+    WorkingCopyPatterns(#[from] WorkingCopyPatternsError),
     #[error("invalid value for `run.jobs`: {0} (must be a positive integer)")]
     InvalidJobCount(i64),
 }
@@ -264,11 +267,7 @@ impl WorkspacePool {
         };
 
         tree_state
-            .set_sparse_patterns(self.sparsity.clone())
-            .map_err(|_| RunError::FailedCheckout(commit.id().clone()))?;
-
-        tree_state
-            .check_out(&commit.tree())
+            .check_out_with_sparse_patterns(&commit.tree(), self.sparsity.clone())
             .map_err(|_| RunError::FailedCheckout(commit.id().clone()))?;
 
         // If we checked out a revision with a completely empty tree,
@@ -302,7 +301,12 @@ impl WorkspacePool {
             }
             drop(diff);
             for path in &added_paths {
-                let abs = path.to_fs_path_unchecked(&working_copy_dir);
+                let Some(physical_path) = tree_state.sparse_patterns().repo_to_wc(path)? else {
+                    continue;
+                };
+                let abs = physical_path
+                    .as_repo_path()
+                    .to_fs_path_unchecked(&working_copy_dir);
                 if let Err(err) = fs::remove_file(&abs)
                     && err.kind() != io::ErrorKind::NotFound
                 {
@@ -537,7 +541,13 @@ async fn rewrite_commit(
         // This keeps the slot free of stale files that would cause silent
         // `skipped_files` collisions in the next `check_out`.
         for path in stats.untracked_paths.keys() {
-            let abs = path.to_fs_path_unchecked(&working_copy_dir);
+            let Some(physical_path) = workspace.tree_state.sparse_patterns().repo_to_wc(path)?
+            else {
+                continue;
+            };
+            let abs = physical_path
+                .as_repo_path()
+                .to_fs_path_unchecked(&working_copy_dir);
             if let Err(err) = fs::remove_file(&abs)
                 && err.kind() != io::ErrorKind::NotFound
             {

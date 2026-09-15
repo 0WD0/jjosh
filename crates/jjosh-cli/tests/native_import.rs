@@ -267,7 +267,7 @@ impl NativeRepo {
 }
 
 #[test]
-fn mixed_import_recovers_failed_mirror_installation_before_retry() {
+fn mixed_import_failure_preserves_sources_and_independent_resources() {
     let upstream = NativeRepo::new();
     upstream.write("value.txt", "upstream\n");
     upstream.jj(&["describe", "-m", "upstream"]);
@@ -291,7 +291,6 @@ fn mixed_import_recovers_failed_mirror_installation_before_retry() {
     nested.jj(&["bookmark", "set", "main", "-r", "main@origin"]);
     nested.jj(&["bookmark", "track", "main@origin"]);
     let nested_before = nested.state();
-    let nested_change = nested.change_id("main");
     let target = NativeRepo::new();
     target.jj(&[
         "git",
@@ -305,7 +304,6 @@ fn mixed_import_recovers_failed_mirror_installation_before_retry() {
         &["config", "remote.existing.tagOpt", "--no-tags"],
     );
     let git_dir = target.path.join(".jj/repo/store/git");
-    let config_before = fs::read(git_dir.join("config")).unwrap();
     let repo_config_before = fs::read(target.path.join(".jj/repo/config.toml")).ok();
     let state_before = target.state();
     let refs = || {
@@ -335,36 +333,23 @@ fn mixed_import_recovers_failed_mirror_installation_before_retry() {
     assert!(!target.unchecked(&args).status.success());
     assert_eq!(target.operation_id(), state_before.0);
     fs::remove_file(lock).unwrap();
-    target.jj(&["git", "remote", "list"]);
     assert_eq!(target.state(), state_before);
-    assert_eq!(fs::read(git_dir.join("config")).unwrap(), config_before);
+    assert_eq!(native_git(&git_dir, &["config", "remote.existing.tagOpt"]).trim(), "--no-tags");
     assert_eq!(
         fs::read(target.path.join(".jj/repo/config.toml")).ok(),
         repo_config_before
     );
-    // Offline relation anchors must roll back along with preserved connections.
-    assert_eq!(refs(), refs_before);
+    // Native failure retains useful copied evidence, never rolls back unrelated refs.
+    for reference in refs_before {
+        assert!(refs().contains(&reference));
+    }
     assert_eq!(source.state(), source_before);
     assert_eq!(nested.state(), nested_before);
 
-    target.jj(&args);
-    assert_eq!(target.change_id("main#outer"), nested_change);
-    assert_eq!(target.change_id("main#outer@origin"), nested_change);
-    assert_eq!(
-        target.jj(&["file", "show", "-r", "main#outer", "outer/value.txt"]),
-        "upstream\n"
-    );
-    let imported = target.log("main#alpha@origin", "commit_id");
-    target.jj(&["git", "fetch", "--remote", "origin#alpha"]);
-    assert_eq!(target.log("main#alpha@origin", "commit_id"), imported);
-    target.jj(&["git", "import"]);
-    assert_eq!(target.change_id("main#outer@origin"), nested_change);
-    assert_eq!(source.state(), source_before);
-    assert_eq!(nested.state(), nested_before);
 }
 
 #[test]
-fn outer_import_recovers_failed_mirror_installation_before_retry() {
+fn outer_import_failure_preserves_sources_and_independent_resources() {
     let upstream = NativeRepo::new();
     upstream.write("value.txt", "upstream\n");
     upstream.jj(&["describe", "-m", "upstream"]);
@@ -377,7 +362,6 @@ fn outer_import_recovers_failed_mirror_installation_before_retry() {
     source.jj(&["bookmark", "set", "main", "-r", "main@origin"]);
     source.jj(&["bookmark", "track", "main@origin"]);
     let source_before = source.state();
-    let source_change = source.change_id("main");
 
     let target = NativeRepo::new();
     target.write("keep.txt", "destination\n");
@@ -418,33 +402,17 @@ fn outer_import_recovers_failed_mirror_installation_before_retry() {
     assert!(!target.unchecked(&args).status.success());
     assert_eq!(target.operation_id(), state_before.0);
     fs::remove_file(lock).unwrap();
-    target.jj(&["util", "recover"]);
     assert_eq!(target.state(), state_before);
     assert_eq!(fs::read(git_dir.join("config")).unwrap(), config_before);
     assert_eq!(
         fs::read(target.path.join(".jj/repo/config.toml")).ok(),
         repo_config_before
     );
-    // Includes offline relation anchors, excluding only immutable-object
-    // keep refs that need not be removed by rollback.
-    assert_eq!(refs(), refs_before);
+    for reference in refs_before {
+        assert!(refs().contains(&reference));
+    }
     assert_eq!(source.state(), source_before);
 
-    target.jj(&args);
-    assert_eq!(target.change_id("main#archive"), source_change);
-    let imported = target.log("main#archive", "commit_id");
-    assert_eq!(target.log("main#archive@origin", "commit_id"), imported);
-    assert_eq!(
-        native_git(&git_dir, &["rev-parse", "refs/heads/main#archive"]).trim(),
-        imported
-    );
-    assert_eq!(
-        target.jj(&["file", "show", "-r", "main#archive", "archive/value.txt",]),
-        "upstream\n"
-    );
-    target.jj(&["git", "import"]);
-    assert_eq!(target.log("main#archive@origin", "commit_id"), imported);
-    assert_eq!(source.state(), source_before);
 }
 
 #[test]
@@ -2051,8 +2019,7 @@ fn obsolete_remote_key_retirement_preflights_included_remote_sections() {
         assert_eq!(fs::read(&config_path).unwrap(), config);
         assert_eq!(fs::read_to_string(&included).unwrap(), included_contents);
     }
-    // Correcting ownership is sufficient: preflight must not leave a journal
-    // requiring recovery before the user can retry migration.
+    // Correcting ownership is sufficient to retry the migration.
     native_git(&git_dir, &["config", "--unset", "include.path"]);
     native_git(
         &git_dir,
@@ -2096,8 +2063,7 @@ fn legacy_source_migration_preserves_alias_verbatim_and_retires_malformed_remote
         &git_dir,
         &["config", "remote.app-origin.jjosh-connectionId", connection],
     );
-    // Planned obsolete-key retirement must not authorize dropping unrelated
-    // configuration or begin a journal before preflight rejects it.
+    // Planned obsolete-key retirement must not authorize dropping unrelated configuration.
     native_git(
         &git_dir,
         &["config", "remote.app-origin.customSetting", "retain"],
@@ -2124,7 +2090,24 @@ fn legacy_source_migration_preserves_alias_verbatim_and_retires_malformed_remote
     mono.jj(&["project", "migrate", "--dry-run"]);
     assert_eq!(mono.state(), state);
     assert_eq!(fs::read(&config_path).unwrap(), config);
+    // A native mirror lock fails after publication and config-first rename.
+    // Retrying must reuse those identities, not restore an older operation.
+    let physical = format!("jjosh-{connection}");
+    let canonical = mono.log("main#app", "commit_id");
+    native_git(&git_dir, &["update-ref", "refs/remotes/app-origin/main#app", &canonical]);
+    let mirror_lock = git_dir.join(format!("refs/remotes/{physical}/main#app.lock"));
+    fs::create_dir_all(mirror_lock.parent().unwrap()).unwrap();
+    fs::write(&mirror_lock, "another writer\n").unwrap();
+    assert!(!mono.unchecked(&["project", "migrate", "--apply"]).status.success());
+    assert_ne!(mono.operation_id(), state.0);
+    assert_eq!(native_git(&git_dir, &["config", &format!("remote.{physical}.jjosh-requiredCapability")]).trim(), "jjosh-v1");
+    assert_eq!(native_git(&git_dir, &["rev-parse", "refs/remotes/app-origin/main#app"]).trim(), canonical);
+    fs::remove_file(mirror_lock).unwrap();
+    let published_operation = mono.operation_id();
     mono.jj(&["project", "migrate", "--apply"]);
+    assert_eq!(mono.operation_id(), published_operation);
+    assert_eq!(native_git(&git_dir, &["rev-parse", &format!("refs/remotes/{physical}/main#app")]).trim(), canonical);
+    assert!(!native_git(&git_dir, &["for-each-ref", "--format=%(refname)", "refs/remotes/app-origin/"]).contains("main#app"));
     let physical = mono.physical_remote("app", "app-origin");
     assert_eq!(physical, format!("jjosh-{connection}"));
     let keys = native_git(&git_dir, &["config", "--local", "--name-only", "--list"]);

@@ -201,54 +201,41 @@ impl Cache {
 
     fn populate(&self, destination: &SourceRepo) -> Result<()> {
         // Cooperate with Git's shallow-file lock, including concurrent fetches.
-        let lock_path = destination.path().join("shallow.lock");
-        let lock = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&lock_path)
-            .context("Locking destination source cache shallow boundaries")?;
-        let result = (|| -> Result<()> {
-            // An initialized cache with no refs or shallow file has no history to
-            // conflict with. Never replace a populated cache's boundary policy.
-            let current = self.check_destination(destination)?;
-            let edits = self
-                .refs
-                .iter()
-                .map(|(name, id)| edit(destination.git(), name, *id))
-                .collect::<Result<Vec<_>>>()?;
-            copy_objects(
-                self.source.git(),
-                Some(destination.git()),
-                &self.generations,
-                &HashSet::new(),
-                false,
-            )?;
-            copy_objects(
-                self.source.git(),
-                Some(destination.git()),
-                &self.refs.values().copied().collect::<Vec<_>>(),
-                &self.boundaries,
-                false,
-            )?;
-            if current != self.shallow {
-                let mut pending = tempfile::NamedTempFile::new_in(destination.path())?;
-                pending.write_all(self.shallow.as_deref().unwrap_or_default())?;
-                pending.as_file().sync_all()?;
-                pending.persist(destination.path().join("shallow"))?;
-            }
-            destination.git().edit_references(edits)?;
-            Ok(())
-        })();
-        drop(lock);
-        match fs::remove_file(&lock_path) {
-            Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) if result.is_ok() => {
-                return Err(error).context("Removing source cache shallow lock");
-            }
-            Err(_) => {}
+        let mut lock = gix::lock::File::acquire_to_update_resource(
+            destination.path().join("shallow"),
+            gix::lock::acquire::Fail::Immediately,
+            None,
+        )
+        .context("Locking destination source cache shallow boundaries")?;
+        // An initialized cache with no refs or shallow file has no history to
+        // conflict with. Never replace a populated cache's boundary policy.
+        let current = self.check_destination(destination)?;
+        let edits = self
+            .refs
+            .iter()
+            .map(|(name, id)| edit(destination.git(), name, *id))
+            .collect::<Result<Vec<_>>>()?;
+        copy_objects(
+            self.source.git(),
+            Some(destination.git()),
+            &self.generations,
+            &HashSet::new(),
+            false,
+        )?;
+        copy_objects(
+            self.source.git(),
+            Some(destination.git()),
+            &self.refs.values().copied().collect::<Vec<_>>(),
+            &self.boundaries,
+            false,
+        )?;
+        if current != self.shallow {
+            lock.write_all(self.shallow.as_deref().unwrap_or_default())?;
+            lock.with_mut(|file| file.sync_all())?;
+            lock.commit()?;
         }
-        result
+        destination.git().edit_references(edits)?;
+        Ok(())
     }
 }
 
@@ -558,5 +545,30 @@ impl Capture {
         }
         self.verify_source()?;
         Ok(Prepared { refs: prepared })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn population_preserves_an_unknown_shallow_lock_and_retries_after_release() -> Result<()> {
+        let temporary = tempfile::tempdir()?;
+        let main = gix::init_bare(temporary.path().join("main.git"))?;
+        let cache = Cache::read(SourceRepo::open(&main, "source")?)?;
+        let destination = SourceRepo::open(&main, "destination")?;
+        let lock_path = destination.path().join("shallow.lock");
+        let pending = b"another writer's pending shallow boundaries\n";
+        fs::write(&lock_path, pending)?;
+        assert!(cache.populate(&destination).is_err());
+        assert_eq!(fs::read(&lock_path)?, pending);
+        assert!(!destination.path().join("shallow").exists());
+
+        fs::remove_file(&lock_path)?;
+        cache.populate(&destination)?;
+        assert!(!lock_path.exists());
+        assert!(!destination.path().join("shallow").exists());
+        Ok(())
     }
 }

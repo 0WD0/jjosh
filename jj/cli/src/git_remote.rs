@@ -16,6 +16,7 @@
 //!
 //! Argument selection, tracking, import, and operation commits remain owned by jj.
 
+use std::io::Write as _;
 use std::num::NonZeroU32;
 use std::pin::Pin;
 
@@ -46,7 +47,7 @@ use crate::ui::Ui;
 
 pub type RemoteFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, CommandError>> + 'a>>;
 
-/// Prepare a journalable repo-local settings cutover for renamed/scoped aliases.
+/// Prepare repo-local settings for renamed/scoped aliases.
 pub fn prepare_remote_settings_scope(
     config: &crate::config::RawConfig,
     aliases: &[(RemoteNameBuf, Option<String>)],
@@ -55,15 +56,48 @@ pub fn prepare_remote_settings_scope(
 }
 
 /// Reject stale loaded repo-local settings before installing a prepared rewrite.
-/// Call while holding the local-state journal lease.
+/// Call while holding the native settings-file lock.
 pub fn check_repo_config_unchanged(config: &crate::config::RawConfig) -> Result<(), CommandError> {
     if let Some(file) = crate::config::existing_repo_config_file(config)
         && std::fs::read_to_string(file.path())? != file.layer().data.to_string()
     {
         return Err(user_error(
-            "Repository configuration changed while preparing a local-state change; retry",
+            "Repository configuration changed while preparing a settings update; retry",
         ));
     }
+    Ok(())
+}
+
+/// Atomically replace the authorized repo settings, rejecting stale loaded data.
+pub fn commit_repo_config_update(
+    raw_config: &crate::config::RawConfig,
+    updated: &jj_lib::config::ConfigFile,
+) -> Result<(), CommandError> {
+    let loaded = crate::config::existing_repo_config_file(raw_config)
+        .ok_or_else(|| user_error("No loaded repository configuration authorizes this update"))?;
+    if loaded.path() != updated.path() {
+        return Err(user_error(
+            "Repository configuration update targets an unauthorized file",
+        ));
+    }
+    let _lock = gix::lock::Marker::acquire_to_hold_resource(
+        updated.path(),
+        gix::lock::acquire::Fail::Immediately,
+        None,
+    )
+    .map_err(user_error)?;
+    check_repo_config_unchanged(raw_config)?;
+    let parent = updated
+        .path()
+        .parent()
+        .expect("repository configuration parent");
+    let mut replacement = tempfile::NamedTempFile::new_in(parent)?;
+    replacement
+        .as_file()
+        .set_permissions(std::fs::metadata(updated.path())?.permissions())?;
+    replacement.write_all(updated.layer().data.to_string().as_bytes())?;
+    replacement.as_file().sync_all()?;
+    replacement.persist(updated.path()).map_err(user_error)?;
     Ok(())
 }
 
@@ -521,13 +555,24 @@ impl GitRemoteBindingArgs {
 }
 
 pub fn capabilities(command: &CommandHelper) -> &'static [&'static str] {
-    command.git_remote_extension().map_or(&[], |extension| extension.capabilities())
+    command
+        .git_remote_extension()
+        .map_or(&[], |extension| extension.capabilities())
 }
 
-pub fn check_remote(command: &CommandHelper, workspace: &WorkspaceCommandHelper, remote: &RemoteName) -> Result<(), CommandError> {
+pub fn check_remote(
+    command: &CommandHelper,
+    workspace: &WorkspaceCommandHelper,
+    remote: &RemoteName,
+) -> Result<(), CommandError> {
     use jj_lib::repo::Repo as _;
-    jj_lib::git::check_remote_capability(workspace.repo().store(), workspace.repo().view(), remote, capabilities(command))
-        .map_err(crate::command_error::user_error)
+    jj_lib::git::check_remote_capability(
+        workspace.repo().store(),
+        workspace.repo().view(),
+        remote,
+        capabilities(command),
+    )
+    .map_err(crate::command_error::user_error)
 }
 
 pub fn check_selected_ref(
@@ -540,8 +585,13 @@ pub fn check_selected_ref(
 ) -> Result<(), CommandError> {
     use jj_lib::project::BindingTarget;
     jj_lib::git::check_remote_capability(store, view, remote, capabilities).map_err(user_error)?;
-    let project = name.as_str().rsplit_once('#')
-        .map(|(_, label)| view.project_state().resolve_label(label)).transpose().map_err(user_error)?.flatten();
+    let project = name
+        .as_str()
+        .rsplit_once('#')
+        .map(|(_, label)| view.project_state().resolve_label(label))
+        .transpose()
+        .map_err(user_error)?
+        .flatten();
     let git_repo = jj_lib::git::get_git_repo(store)?;
     let connection = jj_lib::git::remote_connection_id(&git_repo, remote).map_err(user_error)?;
     let destination = connection
@@ -553,28 +603,56 @@ pub fn check_selected_ref(
     let selected = if let Some(source) = source {
         let candidates = jj_lib::git::get_all_remote_names(store)?;
         let source = resolve_remote_selector_in_view(view, &candidates, source, project.as_ref())?;
-        jj_lib::git::check_remote_capability(store, view, &source, capabilities).map_err(user_error)?;
-        let id = jj_lib::git::remote_connection_id(&git_repo, &source).map_err(user_error)?
+        jj_lib::git::check_remote_capability(store, view, &source, capabilities)
+            .map_err(user_error)?;
+        let id = jj_lib::git::remote_connection_id(&git_repo, &source)
+            .map_err(user_error)?
             .ok_or_else(|| user_error("--source must name a bound connection"))?;
-        Some(view.project_state().binding_for_connection(&id).map_err(user_error)?
-            .ok_or_else(|| user_error("--source has no active binding"))?)
-    } else { None };
+        Some(
+            view.project_state()
+                .binding_for_connection(&id)
+                .map_err(user_error)?
+                .ok_or_else(|| user_error("--source has no active binding"))?,
+        )
+    } else {
+        None
+    };
     if project.is_some() && !capabilities.contains(&"jjosh-v1") {
-        return Err(user_error(format!("Selected project ref {} requires capability jjosh-v1", name.as_symbol())));
+        return Err(user_error(format!(
+            "Selected project ref {} requires capability jjosh-v1",
+            name.as_symbol()
+        )));
     }
     if let Some((destination_id, _)) = &destination {
-        if selected.as_ref().is_some_and(|(source_id, _)| source_id != destination_id) {
-            return Err(user_error("A bound destination must use its own immutable binding, not another --source"));
+        if selected
+            .as_ref()
+            .is_some_and(|(source_id, _)| source_id != destination_id)
+        {
+            return Err(user_error(
+                "A bound destination must use its own immutable binding, not another --source",
+            ));
         }
     }
     let binding = destination.or(selected);
     if let Some(project) = project {
-        view.project_state().validate_project(&project).map_err(user_error)?;
-        if !binding.is_some_and(|(_, binding)| binding.target == BindingTarget::Project(project.clone())) {
-            return Err(user_error(format!("Project ref {} needs a matching destination binding or explicit --source", name.as_symbol())));
+        view.project_state()
+            .validate_project(&project)
+            .map_err(user_error)?;
+        if !binding
+            .is_some_and(|(_, binding)| binding.target == BindingTarget::Project(project.clone()))
+        {
+            return Err(user_error(format!(
+                "Project ref {} needs a matching destination binding or explicit --source",
+                name.as_symbol()
+            )));
         }
-    } else if binding.is_some_and(|(_, binding)| matches!(binding.target, BindingTarget::Project(_))) {
-        return Err(user_error(format!("Unscoped ref {} cannot be published through a project binding", name.as_symbol())));
+    } else if binding
+        .is_some_and(|(_, binding)| matches!(binding.target, BindingTarget::Project(_)))
+    {
+        return Err(user_error(format!(
+            "Unscoped ref {} cannot be published through a project binding",
+            name.as_symbol()
+        )));
     }
     Ok(())
 }

@@ -123,25 +123,7 @@ pub(crate) async fn recorded_workspace(
     ui: &Ui,
     command: &CommandHelper,
 ) -> Result<WorkspaceCommandHelper, CommandError> {
-    let workspace = command.load_workspace()?;
-    let loader = workspace.repo_loader();
-    let operation = if let Some(op) = &command.global_args().at_operation {
-        jj_lib::op_walk::resolve_op_for_load(loader, op).await?
-    } else {
-        let heads = jj_lib::op_walk::get_current_head_ops(
-            loader.op_store(),
-            loader.op_heads_store().as_ref(),
-        )
-        .await?;
-        let [operation] = heads.as_slice() else {
-            return Err(user_error(
-                "Project commands require one recorded operation head; reconcile operations first, or select --at-operation for inspection",
-            ));
-        };
-        operation.clone()
-    };
-    let repo = loader.load_at(&operation).await?;
-    command.for_workable_repo(ui, workspace, repo)
+    command.workspace_helper_no_snapshot(ui).await
 }
 
 pub(crate) async fn run(
@@ -158,7 +140,6 @@ pub(crate) async fn run(
         }
         Command::Check(args) => inspect(ui, command, args.project, args.output.json, true).await,
         mutation => {
-            require_current_operation(command)?;
             let mut workspace = recorded_workspace(ui, command).await?;
             let mut view = workspace.repo().view().store_view().clone();
             let description = match mutation {
@@ -212,7 +193,9 @@ pub(crate) async fn run(
             };
             let mut tx = workspace.start_transaction();
             tx.repo_mut().set_view(view);
-            tx.into_inner().commit(&description).await?;
+            command
+                .maybe_commit_transaction(tx.into_inner(), &description)
+                .await?;
             writeln!(ui.status(), "{description}; working files unchanged.")?;
             Ok(())
         }

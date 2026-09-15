@@ -166,8 +166,6 @@ pub struct ReadonlyRepo {
     change_id_index: OnceCell<Box<dyn ChangeIdIndex>>,
     // TODO: This should eventually become part of the index and not be stored fully in memory.
     view: View,
-    #[cfg(feature = "git")]
-    pub(crate) local_state: std::sync::Weak<crate::local_state::JournalLease>,
 }
 
 impl Debug for ReadonlyRepo {
@@ -292,8 +290,6 @@ impl ReadonlyRepo {
             index,
             change_id_index: OnceCell::new(),
             view: root_view,
-            #[cfg(feature = "git")]
-            local_state: std::sync::Weak::new(),
         }))
     }
 
@@ -760,8 +756,6 @@ impl RepoLoader {
             index,
             change_id_index: OnceCell::new(),
             view,
-            #[cfg(feature = "git")]
-            local_state: std::sync::Weak::new(),
         };
         Arc::new(repo)
     }
@@ -919,8 +913,6 @@ impl RepoLoader {
             index,
             change_id_index: OnceCell::new(),
             view,
-            #[cfg(feature = "git")]
-            local_state: std::sync::Weak::new(),
         };
         Ok(Arc::new(repo))
     }
@@ -967,8 +959,6 @@ pub struct MutableRepo {
     //   commits. However, if the type is `Abandoned`, a new working-copy commit should be created
     //   on top of all of the new commits instead.
     parent_mapping: HashMap<CommitId, Rewrite>,
-    #[cfg(feature = "git")]
-    pub(crate) local_state: std::sync::Weak<crate::local_state::JournalLease>,
 }
 
 impl MutableRepo {
@@ -985,8 +975,6 @@ impl MutableRepo {
             view: view.clone(),
             commit_predecessors: Default::default(),
             parent_mapping: Default::default(),
-            #[cfg(feature = "git")]
-            local_state: std::sync::Weak::new(),
         }
     }
 

@@ -14,13 +14,16 @@
 
 //! Operation restore composition and historical identity reconciliation.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 
 use super::remote_observations::RemoteObservations;
 use crate::merge::Merge;
 use crate::op_store;
+use crate::project::BindingId;
+use crate::project::BindingRecord;
 use crate::project::ConnectionId;
-use crate::project::{BindingId, BindingRecord, ProjectState};
+use crate::project::ProjectState;
 
 /// Compare immutable candidates, including negative terms, without interpreting
 /// active state or validating the associated project's current health.
@@ -156,11 +159,13 @@ pub fn restore_view(
 
 #[cfg(test)]
 mod tests {
-    use crate::backend::CommitId;
-    use crate::op_store::{RefTarget, RemoteRef, RemoteRefState, View};
-    use crate::ref_name::RemoteNameBuf;
-
     use super::*;
+    use crate::backend::CommitId;
+    use crate::op_store::RefTarget;
+    use crate::op_store::RemoteRef;
+    use crate::op_store::RemoteRefState;
+    use crate::op_store::View;
+    use crate::ref_name::RemoteNameBuf;
 
     #[test]
     fn tracking_restore_archives_old_root_owner_without_replacing_current_membership() {
@@ -245,7 +250,11 @@ mod tests {
 
     #[test]
     fn restore_preserves_conflicted_definitions_and_repo_only_restore_repairs_them() {
-        use crate::project::{BindingTarget, ProjectId, ProjectRecord, Representation, ScopedRemoteName};
+        use crate::project::BindingTarget;
+        use crate::project::ProjectId;
+        use crate::project::ProjectRecord;
+        use crate::project::Representation;
+        use crate::project::ScopedRemoteName;
         use crate::repo_path::RepoPathBuf;
 
         let mut healthy = View::make_root(CommitId::from_hex("00"));
@@ -256,49 +265,82 @@ mod tests {
             name: "lib".into(),
             canonical_root: RepoPathBuf::from_internal_string("lib").unwrap(),
         };
-        healthy.project_state.projects.insert(project.clone(), Merge::normal(definition.clone()));
-        healthy.project_state.labels.insert("lib".into(), Merge::normal(project.clone()));
-        healthy.project_state.remote_names.insert(connection.clone(), Merge::normal(ScopedRemoteName {
-            project: project.clone(),
-            name: "origin".into(),
-        }));
+        healthy
+            .project_state
+            .projects
+            .insert(project.clone(), Merge::normal(definition.clone()));
+        healthy
+            .project_state
+            .labels
+            .insert("lib".into(), Merge::normal(project.clone()));
+        healthy.project_state.remote_names.insert(
+            connection.clone(),
+            Merge::normal(ScopedRemoteName {
+                project: project.clone(),
+                name: "origin".into(),
+            }),
+        );
         let binding_record = BindingRecord {
             target: BindingTarget::Project(project.clone()),
             connection_id: connection.clone(),
             representation: Representation::Whole,
             base: None,
         };
-        healthy.project_state.bindings.insert(binding.clone(), Merge::normal(binding_record.clone()));
-        healthy.remote_connections.insert("origin".into(), Merge::normal(connection));
-        healthy.remote_views.entry("origin".into()).or_default().bookmarks.insert(
-            "main#lib".into(),
-            RemoteRef {
-                target: RefTarget::normal(CommitId::from_hex("11")),
-                state: RemoteRefState::Tracked,
-            },
-        );
+        healthy
+            .project_state
+            .bindings
+            .insert(binding.clone(), Merge::normal(binding_record.clone()));
+        healthy
+            .remote_connections
+            .insert("origin".into(), Merge::normal(connection));
+        healthy
+            .remote_views
+            .entry("origin".into())
+            .or_default()
+            .bookmarks
+            .insert(
+                "main#lib".into(),
+                RemoteRef {
+                    target: RefTarget::normal(CommitId::from_hex("11")),
+                    state: RemoteRefState::Tracked,
+                },
+            );
         RemoteObservations::new(&mut healthy).capture_identity("origin".as_ref());
         let mut conflicted = healthy.clone();
-        conflicted.project_state.projects.insert(project, Merge::from_vec(vec![
-            Some(ProjectRecord { name: "left".into(), ..definition.clone() }),
-            Some(definition.clone()),
-            Some(ProjectRecord { name: "right".into(), ..definition }),
-        ]));
+        conflicted.project_state.projects.insert(
+            project,
+            Merge::from_vec(vec![
+                Some(ProjectRecord {
+                    name: "left".into(),
+                    ..definition.clone()
+                }),
+                Some(definition.clone()),
+                Some(ProjectRecord {
+                    name: "right".into(),
+                    ..definition
+                }),
+            ]),
+        );
         // Signed active-state conflicts do not change the immutable binding.
-        conflicted.project_state.bindings.insert(binding, Merge::from_vec(vec![
-            None, Some(binding_record), None,
-        ]));
+        conflicted.project_state.bindings.insert(
+            binding,
+            Merge::from_vec(vec![None, Some(binding_record), None]),
+        );
         let restored = restore_view(&conflicted, &conflicted, &healthy).unwrap();
         assert_eq!(restored, conflicted);
         let repaired = restore_view(&healthy, &conflicted, &conflicted).unwrap();
         assert_eq!(repaired.project_state, healthy.project_state);
         assert_eq!(repaired.remote_views, conflicted.remote_views);
-        assert_eq!(repaired.observed_remote_connections, conflicted.observed_remote_connections);
+        assert_eq!(
+            repaired.observed_remote_connections,
+            conflicted.observed_remote_connections
+        );
     }
 
     #[test]
     fn ambiguous_immutable_binding_preserves_observations_without_relocation() {
-        use crate::project::{BindingTarget, Representation};
+        use crate::project::BindingTarget;
+        use crate::project::Representation;
 
         let mut old = View::make_root(CommitId::from_hex("00"));
         let connection = ConnectionId::generate();
@@ -309,30 +351,45 @@ mod tests {
             representation: Representation::Whole,
             base: None,
         };
-        old.project_state.bindings.insert(binding.clone(), Merge::normal(original.clone()));
-        old.remote_connections.insert("origin".into(), Merge::normal(connection.clone()));
-        old.remote_views.entry("origin".into()).or_default().bookmarks.insert(
-            "main".into(),
-            RemoteRef {
-                target: RefTarget::normal(CommitId::from_hex("11")),
-                state: RemoteRefState::Tracked,
-            },
-        );
+        old.project_state
+            .bindings
+            .insert(binding.clone(), Merge::normal(original.clone()));
+        old.remote_connections
+            .insert("origin".into(), Merge::normal(connection.clone()));
+        old.remote_views
+            .entry("origin".into())
+            .or_default()
+            .bookmarks
+            .insert(
+                "main".into(),
+                RemoteRef {
+                    target: RefTarget::normal(CommitId::from_hex("11")),
+                    state: RemoteRefState::Tracked,
+                },
+            );
         RemoteObservations::new(&mut old).capture_identity("origin".as_ref());
         let mut current = old.clone();
         current.remote_connections.clear();
-        current.remote_connections.insert("renamed".into(), Merge::normal(connection));
-        current.project_state.bindings.insert(binding, Merge::from_vec(vec![
-            Some(original.clone()),
-            None,
-            Some(BindingRecord {
-                representation: Representation::JoshFilter(":/lib".into()),
-                ..original
-            }),
-        ]));
+        current
+            .remote_connections
+            .insert("renamed".into(), Merge::normal(connection));
+        current.project_state.bindings.insert(
+            binding,
+            Merge::from_vec(vec![
+                Some(original.clone()),
+                None,
+                Some(BindingRecord {
+                    representation: Representation::JoshFilter(":/lib".into()),
+                    ..original
+                }),
+            ]),
+        );
         let restored = restore_view(&current, &old, &current).unwrap();
         assert_eq!(restored.remote_views, old.remote_views);
-        assert_eq!(restored.observed_remote_connections, old.observed_remote_connections);
+        assert_eq!(
+            restored.observed_remote_connections,
+            old.observed_remote_connections
+        );
         assert_eq!(restored.project_state, current.project_state);
     }
 }

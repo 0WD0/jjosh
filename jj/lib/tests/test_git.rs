@@ -2545,246 +2545,6 @@ fn test_import_remote_observations_tracked_native_conflict() -> TestResult {
 }
 
 #[test]
-fn test_remote_recovery_rejects_uncommitted_offline_retirement() -> TestResult {
-    let test_repo = TestRepo::init_with_backend(TestRepoBackend::Git);
-    let repo = &test_repo.repo;
-    let git_repo = get_git_repo(repo);
-    let name = "refs/jjosh/native/legacy/mount";
-    let oid = empty_git_commit(&git_repo, name, &[]);
-    let sidecar = git_repo.path().join("legacy.josh");
-    std::fs::write(&sidecar, b":/legacy")?;
-    let journal = jj_lib::local_state::begin(repo, std::slice::from_ref(&sidecar)).block_on()?;
-    journal.register_retirements(std::slice::from_ref(&sidecar), &[name.to_owned()])?;
-    let mut tx = repo.start_transaction();
-    let id = jj_lib::project::ProjectId::generate();
-    tx.repo_mut()
-        .view_mut()
-        .project_state_mut()
-        .projects
-        .insert(
-            id,
-            jj_lib::merge::Merge::resolved(Some(jj_lib::project::ProjectRecord {
-                name: "legacy".into(),
-                canonical_root: jj_lib::repo_path::RepoPathBuf::from_internal_string("legacy")?,
-            })),
-        );
-    journal.bind_transaction(&mut tx)?;
-    drop(tx);
-    drop(journal);
-    assert_eq!(
-        jj_lib::local_state::recover(repo.loader(), &[]).block_on()?,
-        jj_lib::local_state::RecoveryOutcome::RolledBack,
-    );
-    assert_eq!(std::fs::read(&sidecar)?, b":/legacy");
-    assert_eq!(
-        git_repo.find_reference(name)?.target().try_id(),
-        Some(oid.as_ref())
-    );
-    Ok(())
-}
-
-#[test]
-fn test_unrelated_publication_does_not_commit_pending_retirements() -> TestResult {
-    let test_repo = TestRepo::init_with_backend(TestRepoBackend::Git);
-    let repo = &test_repo.repo;
-    let git_repo = get_git_repo(repo);
-    let sidecar = git_repo.path().join("must-not-retire");
-    std::fs::write(&sidecar, b"still required")?;
-    let journal = jj_lib::local_state::begin(repo, std::slice::from_ref(&sidecar)).block_on()?;
-    journal.register_retirements(std::slice::from_ref(&sidecar), &[])?;
-    let mut intended = repo.start_transaction();
-    intended.repo_mut().set_local_bookmark_target(
-        "intended".as_ref(),
-        RefTarget::normal(repo.store().root_commit_id().clone()),
-    );
-    journal.bind_transaction(&mut intended)?;
-    let unrelated = repo
-        .start_transaction()
-        .commit("unrelated operation")
-        .block_on()?;
-    assert_eq!(
-        repo.op_heads_store().get_op_heads().block_on()?,
-        vec![unrelated.operation().id().clone()]
-    );
-    drop(intended);
-    drop(journal);
-    assert_eq!(std::fs::read(&sidecar)?, b"still required");
-    assert_eq!(
-        jj_lib::local_state::recover(repo.loader(), &[]).block_on()?,
-        jj_lib::local_state::RecoveryOutcome::RolledBack,
-    );
-    assert_eq!(std::fs::read(&sidecar)?, b"still required");
-    Ok(())
-}
-
-#[test]
-fn test_remote_recovery_preserves_unrelated_git_refs() -> TestResult {
-    let test_repo = TestRepo::init_with_backend(TestRepoBackend::Git);
-    let mut tx = test_repo.repo.start_transaction();
-    git::add_remote(
-        tx.repo_mut(),
-        "origin".as_ref(),
-        "https://example.invalid/repo",
-        None,
-    )?;
-    tx.commit("add remote").block_on()?;
-    let repo = test_repo
-        .env
-        .load_repo_at_head(&testutils::user_settings(), test_repo.repo_path());
-    let git_repo = get_git_repo(&repo);
-    let before = empty_git_commit(&git_repo, "refs/remotes/origin/main", &[]);
-    let journal = jj_lib::local_state::begin(&repo, &[]).block_on()?;
-    let mut other = repo.start_transaction();
-    assert!(git::remove_remote(other.repo_mut(), "origin".as_ref()).is_err());
-    assert!(gix::open(git_repo.path())?.find_remote("origin").is_ok());
-    other
-        .commit("unrelated operation while pending")
-        .block_on()?;
-    let mut tx = repo.start_transaction();
-    journal.bind_transaction(&mut tx)?;
-    git::remove_remote(tx.repo_mut(), "origin".as_ref())?;
-    let unrelated = empty_git_commit(&git_repo, "refs/heads/new-during-recovery", &[before]);
-    drop(tx);
-    drop(journal);
-    assert_eq!(
-        jj_lib::local_state::recover(repo.loader(), &[]).block_on()?,
-        jj_lib::local_state::RecoveryOutcome::RolledBack,
-    );
-    assert_eq!(
-        git_repo
-            .find_reference("refs/remotes/origin/main")?
-            .target()
-            .try_id(),
-        Some(before.as_ref())
-    );
-    assert_eq!(
-        git_repo
-            .find_reference("refs/heads/new-during-recovery")?
-            .target()
-            .try_id(),
-        Some(unrelated.as_ref())
-    );
-    Ok(())
-}
-
-#[test]
-fn test_remote_recovery_refuses_changed_retirement_ref() -> TestResult {
-    let test_repo = TestRepo::init_with_backend(TestRepoBackend::Git);
-    let repo = &test_repo.repo;
-    let git_repo = get_git_repo(repo);
-    let name = "refs/jjosh/native/legacy/mount";
-    let before = empty_git_commit(&git_repo, name, &[]);
-    let journal = jj_lib::local_state::begin(repo, &[]).block_on()?;
-    journal.register_retirements(&[], &[name.to_owned()])?;
-    let intervening = empty_git_commit(&git_repo, name, &[before]);
-    drop(journal);
-    assert!(
-        jj_lib::local_state::recover(repo.loader(), &[])
-            .block_on()
-            .is_err()
-    );
-    assert_eq!(
-        git_repo.find_reference(name)?.target().try_id(),
-        Some(intervening.as_ref())
-    );
-    Ok(())
-}
-
-#[test]
-fn test_remote_recovery_rolls_back_interrupted_second_ref_step() -> TestResult {
-    let test_repo = TestRepo::init_with_backend(TestRepoBackend::Git);
-    let mut tx = test_repo.repo.start_transaction();
-    git::add_remote(
-        tx.repo_mut(),
-        "origin".as_ref(),
-        "https://example.invalid/repo",
-        None,
-    )?;
-    tx.commit("add remote").block_on()?;
-    let repo = test_repo
-        .env
-        .load_repo_at_head(&testutils::user_settings(), test_repo.repo_path());
-    let git_repo = get_git_repo(&repo);
-    let name = "refs/remotes/origin/main";
-    let before = empty_git_commit(&git_repo, name, &[]);
-    let journal = jj_lib::local_state::begin(&repo, &[]).block_on()?;
-    let mut tx = repo.start_transaction();
-    journal.bind_transaction(&mut tx)?;
-    git::remove_remote(tx.repo_mut(), "origin".as_ref())?;
-    let edit = gix::refs::transaction::RefEdit {
-        name: name.try_into()?,
-        deref: false,
-        change: gix::refs::transaction::Change::Update {
-            expected: gix::refs::transaction::PreviousValue::MustNotExist,
-            new: gix::refs::Target::Object(before),
-            log: gix::refs::transaction::LogChange {
-                mode: gix::refs::transaction::RefLog::AndReference,
-                force_create_reflog: false,
-                message: "second remote step".into(),
-            },
-        },
-    };
-    // The second step is durable but interrupted before the ref update.
-    journal.record_ref_edits(&git_repo, &[edit])?;
-    drop(tx);
-    drop(journal);
-    assert_eq!(
-        jj_lib::local_state::recover(repo.loader(), &[]).block_on()?,
-        jj_lib::local_state::RecoveryOutcome::RolledBack,
-    );
-    assert_eq!(
-        git_repo.find_reference(name)?.target().try_id(),
-        Some(before.as_ref())
-    );
-    assert!(gix::open(git_repo.path())?.find_remote("origin").is_ok());
-    Ok(())
-}
-
-#[test]
-fn test_remote_recovery_honors_auxiliary_file_writer_lock() -> TestResult {
-    let test_repo = TestRepo::init_with_backend(TestRepoBackend::Git);
-    let mut tx = test_repo.repo.start_transaction();
-    git::add_remote(
-        tx.repo_mut(),
-        "origin".as_ref(),
-        "https://example.invalid/repo",
-        None,
-    )?;
-    tx.commit("add remote").block_on()?;
-    let repo = test_repo
-        .env
-        .load_repo_at_head(&testutils::user_settings(), test_repo.repo_path());
-    let git_repo = get_git_repo(&repo);
-    let auxiliary = git_repo.path().join("repo-config.toml");
-    std::fs::write(&auxiliary, b"original")?;
-    let journal = jj_lib::local_state::begin(&repo, std::slice::from_ref(&auxiliary)).block_on()?;
-    let mut tx = repo.start_transaction();
-    journal.bind_transaction(&mut tx)?;
-    git::remove_remote(tx.repo_mut(), "origin".as_ref())?;
-    drop(tx);
-    drop(journal);
-    let writer = gix::lock::Marker::acquire_to_hold_resource(
-        &auxiliary,
-        gix::lock::acquire::Fail::Immediately,
-        None,
-    )?;
-    assert!(
-        jj_lib::local_state::recover(repo.loader(), &[])
-            .block_on()
-            .is_err()
-    );
-    assert!(gix::open(git_repo.path())?.find_remote("origin").is_err());
-    assert_eq!(std::fs::read(&auxiliary)?, b"original");
-    drop(writer);
-    assert_eq!(
-        jj_lib::local_state::recover(repo.loader(), &[]).block_on()?,
-        jj_lib::local_state::RecoveryOutcome::RolledBack,
-    );
-    assert!(gix::open(git_repo.path())?.find_remote("origin").is_ok());
-    Ok(())
-}
-
-#[test]
 fn test_remote_observation_updates_evidence_with_unchanged_canonical_target() -> TestResult {
     use jj_lib::project::BindingId;
     use jj_lib::project::BindingRecord;
@@ -2814,22 +2574,10 @@ fn test_remote_observation_updates_evidence_with_unchanged_canonical_target() ->
         "origin".as_ref(),
         "https://example.invalid/first",
         None,
-    )?;
-    git::set_remote_config_keys(
-        tx.repo().store(),
         &[
-            (
-                "origin".into(),
-                "jjosh-connectionId".into(),
-                Some(connection.hex()),
-            ),
-            (
-                "origin".into(),
-                "jjosh-requiredCapability".into(),
-                Some("jjosh-v1".into()),
-            ),
+            ("jjosh-connectionId".into(), connection.hex()),
+            ("jjosh-requiredCapability".into(), "jjosh-v1".into()),
         ],
-        None,
     )?;
     tx.repo_mut()
         .view_mut()
@@ -4197,114 +3945,6 @@ fn test_export_undo_reexport() -> TestResult {
         mut_repo.get_remote_tag(remote_symbol("v1.0", "git")),
         &remote_ref_a
     );
-    Ok(())
-}
-
-#[test]
-fn test_local_state_recovery_restores_colocated_head_and_staged_index() -> TestResult {
-    let test_workspace = TestWorkspace::init_colocated_git();
-    let repo = &test_workspace.repo;
-    let git_repo = get_git_repo(repo);
-    let workspace_root = test_workspace.workspace.workspace_root();
-    assert!(git_repo.head()?.is_unborn());
-    let mut index = testutils::git::IndexManager::new(&git_repo);
-    index.add_file("staged.txt", b"keep my staged contents\n");
-    index.sync_index();
-    let staged = get_index_state(workspace_root);
-    let journal = jj_lib::local_state::begin(repo, &[]).block_on()?;
-    let mut tx = repo.start_transaction();
-    journal.bind_transaction(&mut tx)?;
-    let parent = write_random_commit(tx.repo_mut());
-    let wc_commit = tx
-        .repo_mut()
-        .new_commit(vec![parent.id().clone()], repo.store().empty_merged_tree())
-        .write_unwrap();
-    reset_head(tx.repo_mut(), &test_workspace.workspace, &wc_commit)?;
-    assert_eq!(git_repo.head_id()?, git_id(&parent));
-    assert_ne!(get_index_state(workspace_root), staged);
-    drop(tx);
-    drop(journal);
-
-    assert_eq!(
-        jj_lib::local_state::recover(repo.loader(), &[]).block_on()?,
-        jj_lib::local_state::RecoveryOutcome::RolledBack,
-    );
-    assert!(git_repo.head()?.is_unborn());
-    assert_eq!(get_index_state(workspace_root), staged);
-    Ok(())
-}
-
-#[test]
-fn test_local_state_recovery_restores_only_the_changed_worktree_head() -> TestResult {
-    let test_repo = TestRepo::init_with_backend(TestRepoBackend::Git);
-    let repo = &test_repo.repo;
-    let git_repo = get_git_repo(repo);
-    let original = empty_git_commit(&git_repo, "refs/heads/base", &[]);
-    let workspace_root = test_repo.env.root().join("wt");
-    testutils::git::add_worktree(
-        git_repo.path(),
-        &workspace_root,
-        Some(&original.to_string()),
-    );
-    let (workspace, repo) = Workspace::init_workspace_with_existing_repo(
-        &workspace_root,
-        test_repo.repo_path(),
-        repo,
-        &*default_working_copy_factory(),
-        "wt".into(),
-    )
-    .block_on()?;
-    let work_git_repo = get_git_backend(&repo).open_git_repo_at_workdir(&workspace_root)?;
-    let journal = jj_lib::local_state::begin(&repo, &[]).block_on()?;
-    let mut tx = repo.start_transaction();
-    journal.bind_transaction(&mut tx)?;
-    import_head(tx.repo_mut(), &workspace)?;
-    let parent = write_random_commit(tx.repo_mut());
-    let wc_commit = tx
-        .repo_mut()
-        .check_out(workspace.workspace_name().to_owned(), &parent)
-        .block_on()?;
-    reset_head(tx.repo_mut(), &workspace, &wc_commit)?;
-    assert_eq!(work_git_repo.head_id()?, git_id(&parent));
-    drop(tx);
-    drop(journal);
-
-    jj_lib::local_state::recover(repo.loader(), &[]).block_on()?;
-    assert_eq!(work_git_repo.head_id()?, original);
-    assert!(git_repo.head()?.is_unborn());
-    Ok(())
-}
-
-#[test]
-fn test_local_state_completion_keeps_postpublication_index_updates() -> TestResult {
-    let test_workspace = TestWorkspace::init_colocated_git();
-    let repo = &test_workspace.repo;
-    let workspace_root = test_workspace.workspace.workspace_root();
-    let old_tree = repo.store().empty_merged_tree();
-    let new_tree = testutils::create_tree_with(repo, |builder| {
-        builder.file(repo_path("new-file"), "new contents\n");
-    });
-    let journal = jj_lib::local_state::begin(repo, &[]).block_on()?;
-    let mut tx = repo.start_transaction();
-    journal.bind_transaction(&mut tx)?;
-    let published = tx.commit("publish before finishing index").block_on()?;
-    let mut unrelated = published.start_transaction();
-    assert!(
-        git::add_remote(
-            unrelated.repo_mut(),
-            "unrelated".as_ref(),
-            "https://example.invalid/unrelated",
-            None,
-        )
-        .is_err()
-    );
-    unrelated.commit("ordinary descendant").block_on()?;
-    git::update_intent_to_add(published.as_ref(), workspace_root, &old_tree, &new_tree)
-        .block_on()?;
-    let updated = get_index_state(workspace_root);
-    assert!(updated.contains("new-file"));
-    journal.complete().block_on()?;
-    assert_eq!(get_index_state(workspace_root), updated);
     Ok(())
 }
 
@@ -7364,7 +7004,13 @@ fn test_remote_remove_refs() -> TestResult {
     let test_repo = TestRepo::init_with_backend(TestRepoBackend::Git);
 
     let mut tx = test_repo.repo.start_transaction();
-    git::add_remote(tx.repo_mut(), "foo".as_ref(), "https://example.com/", None)?;
+    git::add_remote(
+        tx.repo_mut(),
+        "foo".as_ref(),
+        "https://example.com/",
+        None,
+        &[],
+    )?;
     let _repo = tx.commit("test").block_on()?;
     // Reload after Git configuration change.
     let repo = &test_repo
@@ -7415,7 +7061,13 @@ fn test_remote_rename_refs() -> TestResult {
     let test_repo = TestRepo::init_with_backend(TestRepoBackend::Git);
 
     let mut tx = test_repo.repo.start_transaction();
-    git::add_remote(tx.repo_mut(), "foo".as_ref(), "https://example.com/", None)?;
+    git::add_remote(
+        tx.repo_mut(),
+        "foo".as_ref(),
+        "https://example.com/",
+        None,
+        &[],
+    )?;
     let _repo = tx.commit("test").block_on()?;
     // Reload after Git configuration change.
     let repo = &test_repo
@@ -7650,6 +7302,80 @@ fn assert_fetch_and_push_urls(
 }
 
 #[test]
+fn test_native_remote_owner_and_key_guards() -> TestResult {
+    let test_repo = TestRepo::init_with_backend(TestRepoBackend::Git);
+    let repo = &test_repo.repo;
+    let connection = jj_lib::project::ConnectionId::generate();
+    git::create_remote_config(
+        repo.store(),
+        "origin".as_ref(),
+        "https://example.invalid/original",
+        None,
+        &[
+            ("jjosh-connectionId".into(), connection.hex()),
+            ("jjosh-requiredCapability".into(), "jjosh-v1".into()),
+        ],
+    )?;
+    let fresh = gix::open(get_git_repo(repo).path())?;
+    let expected = fresh.config_snapshot().clone();
+    let config_path = fresh.config_path(gix::config::Source::Local)?;
+    let before = std::fs::read(&config_path)?;
+    assert!(
+        git::set_remote_urls(
+            repo.store(),
+            "origin".as_ref(),
+            Some("https://example.invalid/stale"),
+            None,
+            None,
+        )
+        .is_err()
+    );
+    assert_eq!(std::fs::read(&config_path)?, before);
+    git::set_remote_urls(
+        repo.store(),
+        "origin".as_ref(),
+        Some("https://example.invalid/current"),
+        None,
+        Some(&connection),
+    )?;
+    let before = std::fs::read(&config_path)?;
+    assert!(
+        git::set_remote_config_keys(
+            repo.store(),
+            &[("origin".into(), "url".into(), None)],
+            &expected,
+        )
+        .is_err()
+    );
+    assert_eq!(std::fs::read(&config_path)?, before);
+    let fresh = gix::open(fresh.path())?;
+    assert_eq!(
+        git::remote_connection_id(&fresh, "origin".as_ref())?,
+        Some(connection)
+    );
+    assert_eq!(
+        git::remote_required_capability(&fresh, "origin".as_ref()).as_deref(),
+        Some("jjosh-v1")
+    );
+
+    // The backend handle predates creation: raw push must authorize fresh config
+    // before it can invoke transport, including for an empty update selection.
+    let options = GitSubprocessOptions::from_settings(repo.settings())?;
+    assert_matches!(
+        git::push_updates(
+            repo.as_ref(),
+            options,
+            "origin".as_ref(),
+            &[],
+            &mut NullCallback,
+            &git::GitPushOptions::default(),
+        ),
+        Err(git::GitPushError::ManagedState(_))
+    );
+    Ok(())
+}
+
+#[test]
 fn test_set_remote_urls() -> TestResult {
     let test_repo = TestRepo::init_with_backend(TestRepoBackend::Git);
     let repo = &test_repo.repo;
@@ -7661,6 +7387,7 @@ fn test_set_remote_urls() -> TestResult {
         remote_name.as_ref(),
         "https://example.com/repo/path",
         None,
+        &[],
     )?;
 
     // test initial state after adding the remote
@@ -7740,7 +7467,13 @@ fn test_remote_name_validation() -> TestResult {
 
     let try_add_remote = |name: &str| {
         let mut tx = test_repo.repo.start_transaction();
-        git::add_remote(tx.repo_mut(), name.as_ref(), "https://example.com/", None)
+        git::add_remote(
+            tx.repo_mut(),
+            name.as_ref(),
+            "https://example.com/",
+            None,
+            &[],
+        )
     };
 
     // Valid remote name

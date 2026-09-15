@@ -351,7 +351,7 @@ async fn configure_remote(
     source: &str,
 ) -> Result<WorkspaceCommandHelper, CommandError> {
     let mut tx = workspace_command.start_transaction();
-    git::add_remote(tx.repo_mut(), remote_name, source, None)?;
+    git::add_remote(tx.repo_mut(), remote_name, source, None, &[])?;
     tx.finish(ui, format!("add git remote {}", remote_name.as_symbol()))
         .await?;
     // Reload workspace to apply new remote configuration to

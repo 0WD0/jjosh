@@ -184,7 +184,8 @@ pub async fn cmd_git_fetch(
             || args.fetch_url.is_some())
     {
         return Err(user_error(
-            "--revision, --deepen, --unshallow, --fetch-url, --project, and --all-projects require capability jjosh-v1",
+            "--revision, --deepen, --unshallow, --fetch-url, --project, and --all-projects \
+             require capability jjosh-v1",
         ));
     }
     for revision in &args.revisions {
@@ -308,7 +309,8 @@ pub async fn cmd_git_fetch(
     if args.tracked {
         for remote in &matching_remotes {
             let bookmark = StringExpression::union_all(
-                workspace_command.repo()
+                workspace_command
+                    .repo()
                     .view()
                     .local_remote_bookmarks(remote)
                     .filter(|(_, targets)| targets.remote_ref.is_tracked())
@@ -321,7 +323,8 @@ pub async fn cmd_git_fetch(
                     .collect(),
             );
             let tag = StringExpression::union_all(
-                workspace_command.repo()
+                workspace_command
+                    .repo()
                     .view()
                     .local_remote_tags(remote)
                     .filter(|(_, targets)| targets.remote_ref.is_tracked())
@@ -335,7 +338,8 @@ pub async fn cmd_git_fetch(
             );
             let ref_expr = GitFetchRefExpression { bookmark, tag };
             if !crate::git_remote::capabilities(command).contains(&"jjosh-v1") {
-                git::check_raw_fetch_selection(workspace_command.repo().view(), remote, &ref_expr).map_err(user_error)?;
+                git::check_raw_fetch_selection(workspace_command.repo().view(), remote, &ref_expr)
+                    .map_err(user_error)?;
             }
             let expanded = expand_fetch_refspecs(remote, ref_expr)?;
             expansions.push((remote, expanded));
@@ -353,7 +357,14 @@ pub async fn cmd_git_fetch(
                 } else {
                     load_default_fetch_bookmarks(remote, &git_repo)?
                 };
-                warn_ignored_refspecs(ui, &workspace_command.repo().view().remote_qualified_name(remote), ignored)?;
+                warn_ignored_refspecs(
+                    ui,
+                    &workspace_command
+                        .repo()
+                        .view()
+                        .remote_qualified_name(remote),
+                    ignored,
+                )?;
                 expr
             };
             let tag = if let Some(expr) = &common_tag_expr {
@@ -365,7 +376,8 @@ pub async fn cmd_git_fetch(
             };
             let ref_expr = GitFetchRefExpression { bookmark, tag };
             if !crate::git_remote::capabilities(command).contains(&"jjosh-v1") {
-                git::check_raw_fetch_selection(workspace_command.repo().view(), remote, &ref_expr).map_err(user_error)?;
+                git::check_raw_fetch_selection(workspace_command.repo().view(), remote, &ref_expr)
+                    .map_err(user_error)?;
             }
             let expanded = expand_fetch_refspecs(remote, ref_expr)?;
             expansions.push((remote, expanded));

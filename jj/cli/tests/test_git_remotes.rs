@@ -935,6 +935,37 @@ fn test_git_remote_with_global_git_remote_config() {
 }
 
 #[test]
+fn test_disconnected_managed_remote_local_lifecycle_without_provider() -> TestResult {
+    let test_env = TestEnvironment::default();
+    test_env.run_jj_in(".", ["git", "init", "repo"]).success();
+    let work_dir = test_env.work_dir("repo");
+    work_dir.run_jj([
+        "git", "remote", "add", "origin", "https://example.com/original",
+    ]).success();
+    let git_path = work_dir.root().join(".jj/repo/store/git");
+    let git_repo = gix::open(&git_path)?;
+    let connection = git_repo.config_snapshot()
+        .string("remote.origin.jjosh-connectionId").unwrap().to_string();
+    // Simulate an owned conversion connection whose local endpoint was removed.
+    // The ordinary jj CLI has no provider for this capability.
+    fs::write(git_path.join("config"), format!(
+        "[core]\n\tbare = true\n[remote \"origin\"]\n\tjjosh-connectionId = {connection}\n\tjjosh-requiredCapability = jjosh-v1\n",
+    ))?;
+    work_dir.run_jj(["git", "remote", "rename", "origin", "renamed"]).success();
+    work_dir.run_jj([
+        "git", "remote", "set-url", "renamed", "https://example.com/reconnected",
+    ]).success();
+    let git_repo = gix::open(&git_path)?;
+    let config = git_repo.config_snapshot();
+    assert_eq!(config.string("remote.renamed.url").unwrap().to_string(), "https://example.com/reconnected");
+    assert_eq!(config.string("remote.renamed.jjosh-connectionId").unwrap().to_string(), connection);
+    assert_eq!(config.string("remote.renamed.jjosh-requiredCapability").unwrap().to_string(), "jjosh-v1");
+    work_dir.run_jj(["git", "remote", "remove", "renamed"]).success();
+    assert!(gix::open(&git_path)?.remote_names().is_empty());
+    Ok(())
+}
+
+#[test]
 fn test_git_remote_name_validation() {
     let test_env = TestEnvironment::default();
     test_env.run_jj_in(".", ["git", "init", "repo"]).success();

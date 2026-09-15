@@ -138,7 +138,6 @@ pub(crate) async fn run_import(
     let mut workspace = crate::project::recorded_workspace(ui, command).await?;
     crate::interop::sha1_git_repo_path(&workspace)?;
     let git = jj_lib::git::get_git_repo(workspace.repo().store())?;
-    jj_lib::local_state::ensure_no_pending(&git)?;
     let destination_path = std::fs::canonicalize(workspace.repo_path())?;
     // Reservation contains foreign commit IDs in preserved mode. Only the
     // individual plans, mapped through rewritten IDs, may reach publication.
@@ -367,11 +366,7 @@ pub(crate) async fn run_import(
         .cloned()
         .collect();
 
-    // Graph rewriting and provenance preparation only materialize objects.
-    // Serialize the validate-and-publish section, not the expensive planning.
-    let git_lock = tx.base_workspace_helper().lock_git_import_export()?;
-    let journal = jj_lib::local_state::begin(tx.base_repo(), &[]).await?;
-    tx.bind_local_state(&journal)?;
+    // Recheck source captures and the exact destination resources before publishing.
     for source in &witnesses {
         source.verify().await?;
     }
@@ -386,13 +381,11 @@ pub(crate) async fn run_import(
     )?;
     jj_lib::git::check_import_remote_configs(tx.repo().store(), &remote_configs)?;
 
-    // Both modes publish every authority-bearing side effect through one journal.
-    // Object and cache materialization above never publishes main-repository refs.
     tx.repo_mut().set_view(view);
     let edits: Vec<_> = edits.into_values().collect();
-    journal.record_ref_edits(&git, &edits)?;
+    let publication = async {
     git.edit_references(edits).map_err(user_error)?;
-    jj_lib::git::import_remote_configs(tx.repo().store(), &remote_configs, Some(&journal))?;
+    jj_lib::git::import_remote_configs(tx.repo().store(), &remote_configs)?;
     let stats = jj_lib::git::export_some_refs(tx.repo_mut(), |kind, symbol| {
         if symbol.remote == jj_lib::git::REMOTE_NAME_FOR_LOCAL_GIT_REPO {
             match kind {
@@ -417,13 +410,20 @@ pub(crate) async fn run_import(
         })
     {
         return Err(user_error(
-            "Cannot install imported Git mirrors; recover the interrupted import with \
-             jjosh util recover before retrying",
+            "Cannot install imported Git mirrors",
         ));
     }
-    tx.into_inner().commit("import project states").await?;
-    journal.complete().await?;
-    drop(git_lock);
+    command
+        .maybe_commit_transaction(tx.into_inner(), "import project states")
+        .await?;
+    Ok::<_, CommandError>(())
+    }.await;
+    publication.map_err(|error| user_error_with_message(
+        "Project import stopped after native installation began. Source repositories are unchanged; \
+         copied objects, provenance and any completed destination config/ref changes were retained. \
+         Resolve the reported resource conflict before importing again.",
+        error.error,
+    ))?;
     for (source, (projects, commits, signatures)) in witnesses.iter().zip(summaries) {
         if source.provenance.is_some() {
             writeln!(

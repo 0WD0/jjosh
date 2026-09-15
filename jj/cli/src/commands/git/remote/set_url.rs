@@ -14,7 +14,6 @@
 
 use clap_complete::ArgValueCandidates;
 use jj_lib::git;
-use jj_lib::local_state;
 use jj_lib::object_id::ObjectId as _;
 use jj_lib::ref_name::RemoteNameBuf;
 use jj_lib::repo::Repo as _;
@@ -67,10 +66,7 @@ pub async fn cmd_git_remote_set_url(
     command: &CommandHelper,
     args: &GitRemoteSetUrlArgs,
 ) -> Result<(), CommandError> {
-    super::require_integrated_local_state(command)?;
     let workspace_command = command.workspace_helper_no_snapshot(ui).await?;
-    let _git_lock = workspace_command.lock_git_import_export()?;
-    let journal = local_state::begin(workspace_command.repo(), &[]).await?;
     let view = workspace_command.repo().view();
     let remote = super::resolve_management_remote(
         &workspace_command,
@@ -81,7 +77,6 @@ pub async fn cmd_git_remote_set_url(
     git_repo.reload().map_err(user_error)?;
     let inspection = git::inspect_remote_management(view, &git_repo, &remote)?;
     let connection = inspection.connection();
-    super::check_management_binding(command, &workspace_command, &remote, connection)?;
     git::check_remote_owner(view, &remote, connection).map_err(user_error)?;
     if inspection.has_config && !inspection.owns_config() {
         return Err(user_error(format!(
@@ -89,9 +84,6 @@ pub async fn cmd_git_remote_set_url(
              or rename that configuration before reconnecting this logical remote",
             remote.as_symbol(),
         )));
-    }
-    if inspection.has_config {
-        crate::git_remote::check_remote(command, &workspace_command, &remote)?;
     }
     let process_url = |url: Option<&String>| {
         url.map(|url| absolute_git_url(command.cwd(), url))
@@ -107,7 +99,7 @@ pub async fn cmd_git_remote_set_url(
         let url = fetch_url
             .as_deref()
             .ok_or_else(|| user_error("Reconnecting a disconnected remote requires a fetch URL"))?;
-        // Validate before creating any local configuration or journal.
+        // Validate before creating any local configuration.
         git_repo.remote_at(url).map_err(user_error)?;
         if let Some(url) = &push_url {
             git_repo.remote_at(url.as_str()).map_err(user_error)?;
@@ -115,22 +107,15 @@ pub async fn cmd_git_remote_set_url(
     }
     if !inspection.has_config {
         let connection = connection.expect("validated logical connection");
-        let managed = view
-            .project_state()
-            .binding_for_connection(connection)
-            .map_err(user_error)?
-            .is_some();
-        let mut keys = vec![(
-            remote.clone(),
-            "jjosh-connectionId".into(),
-            Some(connection.hex()),
-        )];
+        let managed = view.project_state().bindings.values().any(|bindings| {
+            bindings
+                .iter()
+                .flatten()
+                .any(|binding| &binding.connection_id == connection)
+        });
+        let mut keys = vec![("jjosh-connectionId".into(), connection.hex())];
         if managed {
-            keys.push((
-                remote.clone(),
-                "jjosh-requiredCapability".into(),
-                Some("jjosh-v1".into()),
-            ));
+            keys.push(("jjosh-requiredCapability".into(), "jjosh-v1".into()));
         }
         // Only reconnect local configuration. Keep the operation's historical
         // tracking state exactly as restored, including an absent remote view.
@@ -139,9 +124,8 @@ pub async fn cmd_git_remote_set_url(
             &remote,
             fetch_url.as_deref().expect("validated fetch URL"),
             push_url.as_deref(),
-            Some(&journal),
+            &keys,
         )?;
-        git::set_remote_config_keys(workspace_command.repo().store(), &keys, Some(&journal))?;
     }
 
     if inspection.has_config {
@@ -150,10 +134,8 @@ pub async fn cmd_git_remote_set_url(
             &remote,
             fetch_url.as_deref(),
             push_url.as_deref(),
-            Some(&journal),
+            inspection.configured_connection.as_ref(),
         )?;
     }
-    journal.commit_local()?;
-    journal.complete().await?;
     Ok(())
 }

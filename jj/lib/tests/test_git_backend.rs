@@ -107,6 +107,30 @@ fn list_dir(dir: &Path) -> Vec<String> {
 }
 
 #[test]
+fn test_legacy_journal_refuses_load_and_init_without_deleting_record() -> TestResult {
+    let test_repo = TestRepo::init_with_backend(TestRepoBackend::Git);
+    let repo = &test_repo.repo;
+    let git_repo = get_git_backend(repo).git_repo();
+    let journal = git_repo.common_dir().join("jj-remote-journal");
+    let contents = b"legacy pending state requiring its original recovery implementation";
+    std::fs::write(&journal, contents)?;
+    assert!(matches!(
+        GitBackend::load(repo.settings(), &test_repo.repo_path().join("store")),
+        Err(err) if matches!(*err, jj_lib::git_backend::GitBackendLoadError::LegacyJournal(_))
+    ));
+    let store = test_repo.env.root().join("new-store");
+    std::fs::create_dir(&store)?;
+    assert!(matches!(
+        GitBackend::init_external(repo.settings(), &store, git_repo.path()),
+        Err(err) if matches!(*err, jj_lib::git_backend::GitBackendInitError::LegacyJournal(_))
+    ));
+    assert_eq!(std::fs::read(&journal)?, contents);
+    assert!(!store.join("git_target").exists());
+    assert!(!store.join("extra").exists());
+    Ok(())
+}
+
+#[test]
 fn test_gc() -> TestResult {
     // TODO: Better way to disable the test if git command couldn't be executed
     if !is_external_tool_installed("git") {

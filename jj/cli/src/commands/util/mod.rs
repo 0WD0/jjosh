@@ -20,8 +20,6 @@ mod exec;
 mod gc;
 mod install_man_pages;
 mod markdown_help;
-#[cfg(feature = "git")]
-mod recover;
 mod snapshot;
 
 use clap::Subcommand;
@@ -43,10 +41,6 @@ use self::install_man_pages::UtilInstallManPagesArgs;
 use self::install_man_pages::cmd_util_install_man_pages;
 use self::markdown_help::UtilMarkdownHelp;
 use self::markdown_help::cmd_util_markdown_help;
-#[cfg(feature = "git")]
-use self::recover::UtilRecoverArgs;
-#[cfg(feature = "git")]
-use self::recover::cmd_util_recover;
 use self::snapshot::UtilSnapshotArgs;
 use self::snapshot::cmd_util_snapshot;
 use crate::cli_util::CommandHelper;
@@ -65,8 +59,6 @@ pub(crate) enum UtilCommand {
     Gc(UtilGcArgs),
     InstallManPages(UtilInstallManPagesArgs),
     MarkdownHelp(UtilMarkdownHelp),
-    #[cfg(feature = "git")]
-    Recover(UtilRecoverArgs),
     Snapshot(UtilSnapshotArgs),
 }
 
@@ -85,8 +77,6 @@ pub(crate) async fn cmd_util(
         UtilCommand::Gc(args) => cmd_util_gc(ui, command, args).await,
         UtilCommand::InstallManPages(args) => cmd_util_install_man_pages(ui, command, args).await,
         UtilCommand::MarkdownHelp(args) => cmd_util_markdown_help(ui, command, args).await,
-        #[cfg(feature = "git")]
-        UtilCommand::Recover(args) => cmd_util_recover(ui, command, args).await,
         UtilCommand::Snapshot(args) => cmd_util_snapshot(ui, command, args).await,
     }
 }
