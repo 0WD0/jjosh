@@ -29,7 +29,6 @@ use futures::future::try_join_all;
 use indexmap::IndexSet;
 use itertools::Itertools as _;
 use jj_lib::backend::CommitId;
-use jj_lib::backend::MergedTreeValue;
 use jj_lib::commit::Commit;
 use jj_lib::git;
 use jj_lib::git::GitPushOptions;
@@ -48,12 +47,9 @@ use jj_lib::refs::LocalAndRemoteRef;
 use jj_lib::refs::RefPushAction;
 use jj_lib::refs::classify_ref_push_action;
 use jj_lib::repo::Repo;
-use jj_lib::repo_path::RepoPath;
-use jj_lib::repo_path::RepoPathBuf;
 use jj_lib::revset::RemoteRefSymbolExpression;
 use jj_lib::revset::ResolvedRevsetExpression;
 use jj_lib::revset::RevsetContainingFn;
-use jj_lib::revset::RevsetEvaluationError;
 use jj_lib::revset::RevsetExpression;
 use jj_lib::revset::UserRevsetExpression;
 use jj_lib::rewrite::CommitRewriter;
@@ -78,6 +74,7 @@ use crate::command_error::user_error_with_message;
 use crate::complete;
 use crate::formatter::Formatter;
 use crate::git_remote::GitPushRoute;
+use crate::git_remote::GitPushValidationCommit;
 use crate::git_remote::GitRemoteSession;
 use crate::git_util::GitSubprocessUi;
 use crate::git_util::print_push_stats;
@@ -412,7 +409,7 @@ pub async fn cmd_git_push(
                 workspace_helper,
                 remote,
                 args,
-                routing.validation_root(remote),
+                routing.validation_session(remote),
             )?;
 
             let ref_updates = classify_tags_and_bookmark_updates(
@@ -442,7 +439,7 @@ pub async fn cmd_git_push(
                 workspace_helper,
                 remote,
                 args,
-                routing.validation_root(remote),
+                routing.validation_session(remote),
             )?;
 
             let ref_updates = classify_tags_and_bookmark_updates(
@@ -473,7 +470,7 @@ pub async fn cmd_git_push(
                 workspace_helper,
                 remote,
                 args,
-                routing.validation_root(remote),
+                routing.validation_session(remote),
             )?;
 
             let ref_updates = classify_tags_and_bookmark_updates(
@@ -584,7 +581,7 @@ pub async fn cmd_git_push(
                 tx.base_workspace_helper(),
                 remote,
                 args,
-                routing.validation_root(remote),
+                routing.validation_session(remote),
             )?;
             // Error out if explicitly-specified targets can't be pushed.
             commits_validator
@@ -841,11 +838,9 @@ struct PushRouting<'a> {
     source: Option<&'a str>,
 }
 
-impl PushRouting<'_> {
-    fn validation_root(self, remote: &RemoteName) -> Option<RepoPathBuf> {
-        self.sessions
-            .get(remote)
-            .and_then(|session| session.push_validation_root())
+impl<'a> PushRouting<'a> {
+    fn validation_session(self, remote: &RemoteName) -> Option<&'a dyn GitRemoteSession> {
+        self.sessions.get(remote).map(|session| session.as_ref())
     }
 
     fn includes(self, name: &RefName, remote: &RemoteName) -> bool {
@@ -1200,101 +1195,6 @@ impl RejectedCommitReason {
     }
 }
 
-#[derive(Clone)]
-struct ProjectValidationState {
-    representative: CommitId,
-    tree: MergedTreeValue,
-}
-
-enum ProjectValidationVisit {
-    Read(CommitId),
-    Write(Commit),
-}
-
-/// Return canonical commits which survive project-subtree history projection.
-///
-/// This mirrors the content-pruning rule used by project publication: a linear commit whose
-/// project subtree is identical to its effective projected parent disappears, while commits
-/// with project changes and merges between distinct projected parents remain meaningful.
-async fn project_commits_to_validate(
-    repo: &dyn Repo,
-    root: &RepoPath,
-    candidate_ids: &[CommitId],
-) -> Result<Vec<Commit>, RevsetEvaluationError> {
-    let candidate_set: HashSet<_> = candidate_ids.iter().cloned().collect();
-    let mut candidate_commits = HashMap::new();
-    let mut projected = HashMap::<CommitId, ProjectValidationState>::new();
-    let mut surviving = HashSet::new();
-    let mut pending = candidate_ids
-        .iter()
-        .cloned()
-        .map(ProjectValidationVisit::Read)
-        .collect_vec();
-
-    while let Some(visit) = pending.pop() {
-        match visit {
-            ProjectValidationVisit::Read(id) => {
-                if projected.contains_key(&id) {
-                    continue;
-                }
-                let commit = repo.store().get_commit_async(&id).await?;
-                if candidate_set.contains(&id) {
-                    candidate_commits.insert(id.clone(), commit.clone());
-                    pending.push(ProjectValidationVisit::Write(commit.clone()));
-                    pending.extend(
-                        commit
-                            .parent_ids()
-                            .iter()
-                            .cloned()
-                            .map(ProjectValidationVisit::Read),
-                    );
-                } else {
-                    let tree = commit.tree().path_value(root).await?;
-                    projected.insert(
-                        id.clone(),
-                        ProjectValidationState {
-                            representative: id,
-                            tree,
-                        },
-                    );
-                }
-            }
-            ProjectValidationVisit::Write(commit) => {
-                let tree = commit.tree().path_value(root).await?;
-                let mut seen = HashSet::new();
-                let parents = commit
-                    .parent_ids()
-                    .iter()
-                    .filter_map(|id| {
-                        let state = &projected[id];
-                        seen.insert(state.representative.clone()).then_some(state)
-                    })
-                    .collect_vec();
-                if let [parent] = parents.as_slice()
-                    && parent.tree == tree
-                {
-                    projected.insert(commit.id().clone(), (*parent).clone());
-                    continue;
-                }
-                surviving.insert(commit.id().clone());
-                projected.insert(
-                    commit.id().clone(),
-                    ProjectValidationState {
-                        representative: commit.id().clone(),
-                        tree,
-                    },
-                );
-            }
-        }
-    }
-
-    Ok(candidate_ids
-        .iter()
-        .filter(|id| surviving.contains(*id))
-        .filter_map(|id| candidate_commits.remove(id))
-        .collect())
-}
-
 /// Validates that the commits that will be pushed are ready (have authorship
 /// information, are not conflicted, etc.).
 struct CommitsValidator<'repo> {
@@ -1302,7 +1202,7 @@ struct CommitsValidator<'repo> {
     known_heads: Vec<CommitId>,
     immutable_heads: Arc<ResolvedRevsetExpression>,
     private_commits: Option<(String, Box<RevsetContainingFn<'repo>>)>,
-    validation_root: Option<RepoPathBuf>,
+    validation_session: Option<&'repo dyn GitRemoteSession>,
     allow_empty_description: bool,
     allow_conflicts: bool,
 }
@@ -1313,7 +1213,7 @@ impl<'repo> CommitsValidator<'repo> {
         workspace_helper: &'repo WorkspaceCommandHelper,
         remote: &RemoteName,
         args: &GitPushArgs,
-        validation_root: Option<RepoPathBuf>,
+        validation_session: Option<&'repo dyn GitRemoteSession>,
     ) -> Result<Self, CommandError> {
         let repo = workspace_helper.repo().as_ref();
         let known_heads = repo
@@ -1341,7 +1241,7 @@ impl<'repo> CommitsValidator<'repo> {
             known_heads,
             immutable_heads,
             private_commits,
-            validation_root,
+            validation_session,
             allow_empty_description: args.allow_empty_description,
             allow_conflicts: args.allow_conflicts,
         })
@@ -1350,14 +1250,14 @@ impl<'repo> CommitsValidator<'repo> {
     async fn validate_update(
         &mut self,
         update: &Diff<Option<CommitId>>,
-    ) -> Result<Result<(), RejectedCommitReason>, RevsetEvaluationError> {
+    ) -> Result<Result<(), RejectedCommitReason>, CommandError> {
         self.validate_commits(update.after.as_slice()).await
     }
 
     async fn validate_updates(
         &mut self,
         updates: &GitPushRefTargets,
-    ) -> Result<Result<(), RejectedCommitReason>, RevsetEvaluationError> {
+    ) -> Result<Result<(), RejectedCommitReason>, CommandError> {
         let new_heads = itertools::chain(&updates.bookmarks, &updates.tags)
             .filter_map(|(_, update)| update.after.clone())
             .collect_vec();
@@ -1367,26 +1267,20 @@ impl<'repo> CommitsValidator<'repo> {
     async fn validate_commits(
         &mut self,
         new_heads: &[CommitId],
-    ) -> Result<Result<(), RejectedCommitReason>, RevsetEvaluationError> {
+    ) -> Result<Result<(), RejectedCommitReason>, CommandError> {
         let new_commits = RevsetExpression::commits(self.known_heads.clone())
             .union(&self.immutable_heads)
             .range(&RevsetExpression::commits(new_heads.to_vec()));
-        let candidate_ids = new_commits
-            .evaluate(self.repo)?
-            .stream()
-            .try_collect::<Vec<_>>()
-            .await?;
-        let commits = if let Some(root) = &self.validation_root {
-            project_commits_to_validate(self.repo, root, &candidate_ids).await?
-        } else {
-            try_join_all(
-                candidate_ids
-                    .iter()
-                    .map(|id| self.repo.store().get_commit_async(id)),
-            )
-            .await?
+        let candidates = new_commits.evaluate(self.repo)?.stream();
+        let mut commits = match self.validation_session {
+            Some(session) => session.push_validation_commits(self.repo, candidates),
+            None => crate::git_remote::default_push_validation_commits(self.repo, candidates),
         };
-        for commit in commits {
+        while let Some(GitPushValidationCommit {
+            commit,
+            has_conflict,
+        }) = commits.try_next().await?
+        {
             let mut reasons = vec![];
             let mut hint = None;
             if commit.description().is_empty() && !self.allow_empty_description {
@@ -1399,11 +1293,6 @@ impl<'repo> CommitsValidator<'repo> {
             {
                 reasons.push("has no author and/or committer set");
             }
-            let has_conflict = if let Some(root) = &self.validation_root {
-                !commit.tree().path_value(root).await?.is_resolved()
-            } else {
-                commit.has_conflict()
-            };
             if has_conflict && !self.allow_conflicts {
                 reasons.push("has conflicts");
             }

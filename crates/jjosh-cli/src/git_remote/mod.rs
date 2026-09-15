@@ -8,12 +8,14 @@ use std::path::PathBuf;
 use anyhow::Context;
 use anyhow::Result;
 use anyhow::ensure;
+use futures::stream::LocalBoxStream;
 use gix::remote::Direction;
 use jj_cli::cli_util::CommandHelper;
 use jj_cli::cli_util::WorkspaceCommandHelper;
 use jj_cli::command_error::CommandError;
 use jj_cli::command_error::user_error;
 use jj_cli::git_remote::GitPreparedPush;
+use jj_cli::git_remote::GitPushValidationStream;
 use jj_cli::git_remote::GitRemoteExtension;
 use jj_cli::git_remote::GitRemoteFetchOptions;
 use jj_cli::git_remote::GitRemotePushOptions;
@@ -41,6 +43,7 @@ use jj_lib::ref_name::RemoteNameBuf;
 use jj_lib::repo::MutableRepo;
 use jj_lib::repo::Repo;
 use jj_lib::repo_path::RepoPathBuf;
+use jj_lib::revset::RevsetEvaluationError;
 use jj_lib::str_util::StringExpression;
 use josh_core::filter::Filter;
 
@@ -443,8 +446,17 @@ impl GitRemoteSession for Session {
             .filter(|(_, label)| self.state.resolve_label(label).ok().flatten().is_some())
             .map_or(local.as_str(), |(name, _)| name)
     }
-    fn push_validation_root(&self) -> Option<RepoPathBuf> {
-        self.project.as_ref().map(|project| project.mount.clone())
+    fn push_validation_commits<'a>(
+        &'a self,
+        repo: &'a dyn Repo,
+        candidates: LocalBoxStream<'a, Result<CommitId, RevsetEvaluationError>>,
+    ) -> GitPushValidationStream<'a> {
+        match &self.project {
+            Some(project) => {
+                crate::native_project::validation::commits(repo, &project.mount, candidates)
+            }
+            None => jj_cli::git_remote::default_push_validation_commits(repo, candidates),
+        }
     }
     fn default_fetch_bookmarks(&self) -> Result<(IgnoredRefspecs, StringExpression), CommandError> {
         let repo = gix::open(&self.git_path).map_err(user_error)?;
