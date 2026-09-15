@@ -319,6 +319,108 @@ exit 2
     );
 }
 
+#[test]
+fn whole_parent_contains_filtered_child_without_recursively_unfiltering_it() {
+    for colocated in [false, true] {
+        let temp = tempfile::tempdir().unwrap();
+        let (_, child, _) = create_remote(temp.path(), "child");
+        let parent = temp.path().join("parent.git");
+        git(temp.path(), &["init", "--bare", parent.to_str().unwrap()]);
+        let client = create_client(temp.path(), colocated);
+        import_project(&client, "child", "bundle/child", &child, ":/src");
+        jjosh(&client, &["bookmark", "track", "main#child@child-upstream"]);
+        jjosh(&client, &["project", "add", "bundle", "--path", "bundle"]);
+        jjosh(
+            &client,
+            &[
+                "git",
+                "remote",
+                "add",
+                "origin",
+                parent.to_str().unwrap(),
+                "--whole",
+                "--project",
+                "bundle",
+            ],
+        );
+        fs::write(client.join("bundle/glue.txt"), "parent glue\n").unwrap();
+        fs::write(
+            client.join("bundle/child/value.txt"),
+            "filtered child edit\n",
+        )
+        .unwrap();
+        jjosh(&client, &["describe", "-m", "parent and filtered child"]);
+        let canonical = commit_id(&client, "@");
+        jjosh(&client, &["bookmark", "set", "main#bundle", "main#child"]);
+        let child_before = git(&child, &["rev-parse", "main"]);
+        jjosh(
+            &client,
+            &[
+                "git",
+                "push",
+                "--bookmark",
+                "main#bundle",
+                "--allow-empty-description",
+            ],
+        );
+        assert_eq!(git(&child, &["rev-parse", "main"]), child_before);
+        assert_eq!(
+            git(&parent, &["ls-tree", "-r", "--name-only", "main"]),
+            "child/value.txt\nglue.txt\n"
+        );
+        assert_eq!(
+            git(&parent, &["show", "main:child/value.txt"]),
+            "filtered child edit\n"
+        );
+        let parent_before = git(&parent, &["rev-parse", "main"]);
+        jjosh(
+            &client,
+            &[
+                "git",
+                "push",
+                "--remote",
+                "child-upstream",
+                "--bookmark",
+                "main#child",
+                "--allow-empty-description",
+            ],
+        );
+        assert_eq!(git(&parent, &["rev-parse", "main"]), parent_before);
+        assert_eq!(
+            git(&child, &["show", "main:src/value.txt"]),
+            "filtered child edit\n"
+        );
+        assert_eq!(
+            git(&child, &["show", "main:outside.txt"]),
+            "child-outside\n"
+        );
+        assert_eq!(
+            git(&child, &["ls-tree", "-r", "--name-only", "main"]),
+            "outside.txt\nsrc/value.txt\n"
+        );
+        jjosh(
+            &client,
+            &["git", "fetch", "--project", "bundle", "--branch", "main"],
+        );
+        assert_eq!(commit_id(&client, "main#bundle@origin"), canonical);
+        jjosh(
+            &client,
+            &[
+                "git",
+                "fetch",
+                "--project",
+                "child",
+                "--remote",
+                "child-upstream",
+                "--branch",
+                "main",
+            ],
+        );
+        assert_eq!(commit_id(&client, "main#child@child-upstream"), canonical);
+        jjosh(&client, &["project", "check"]);
+    }
+}
+
 fn import_project(client: &Path, project: &str, mount: &str, source: &Path, filter: &str) {
     let remote = format!("{project}-upstream");
     jjosh(client, &["project", "add", project, "--path", mount]);

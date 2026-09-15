@@ -53,18 +53,17 @@ pub(crate) fn prepare(
                 record
             })
         });
-        for record in target.iter().flatten() {
+        for record in target.adds().flatten() {
             for (other_id, other) in &destination.project_state.projects {
-                for other in other.iter().flatten() {
+                for other in other.adds().flatten() {
                     ensure!(
                         record.name != other.name,
                         "Source project {id} name {:?} is already claimed by destination project {other_id}",
                         record.name
                     );
                     ensure!(
-                        !record.canonical_root.starts_with(&other.canonical_root)
-                            && !other.canonical_root.starts_with(&record.canonical_root),
-                        "Imported project {} root {} overlaps destination project {} root {}",
+                        record.canonical_root != other.canonical_root,
+                        "Imported project {} root {} equals destination project {} root {}",
                         record.name,
                         record.canonical_root.as_internal_file_string(),
                         other.name,

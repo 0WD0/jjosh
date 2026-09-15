@@ -87,9 +87,8 @@ pub(crate) fn validate_registration(view: &View, name: &str, root: &RepoPath) ->
                 id.hex()
             );
             ensure!(
-                !root.starts_with(&record.canonical_root)
-                    && !record.canonical_root.starts_with(root),
-                "Project path {} overlaps {} ({}, {})",
+                root != record.canonical_root.as_ref(),
+                "Project path {} is already claimed at {} ({}, {})",
                 root.as_internal_file_string(),
                 record.canonical_root.as_internal_file_string(),
                 record.name,
