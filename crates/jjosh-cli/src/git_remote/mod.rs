@@ -24,7 +24,6 @@ use jj_lib::backend::CommitId;
 use jj_lib::git::GitFetchRefExpression;
 use jj_lib::git::GitPushOptions;
 use jj_lib::git::GitPushRefTargets;
-use jj_lib::git::GitRemoteObservation;
 use jj_lib::git::IgnoredRefspecs;
 use jj_lib::object_id::ObjectId as _;
 use jj_lib::project::BindingId;
@@ -448,14 +447,14 @@ impl GitRemoteSession for Session {
         let repo = gix::open(&self.git_path).map_err(user_error)?;
         jj_lib::git::load_default_fetch_bookmarks(&self.name, &repo).map_err(Into::into)
     }
-    fn fetch<'a>(
+    fn prepare_fetch<'a>(
         &'a self,
         ui: &'a mut Ui,
         command: &'a CommandHelper,
         repo: &'a mut MutableRepo,
         selection: GitFetchRefExpression,
         options: &'a GitRemoteFetchOptions,
-    ) -> RemoteFuture<'a, Vec<GitRemoteObservation>> {
+    ) -> RemoteFuture<'a, Box<dyn jj_cli::git_remote::GitPreparedFetch>> {
         Box::pin(fetch::run(self, ui, command, repo, selection, options))
     }
     fn prepare_push<'a>(

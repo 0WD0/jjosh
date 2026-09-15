@@ -312,11 +312,6 @@ pub async fn cmd_git_push(
     }
 
     let all_remotes = git::get_all_remote_names(workspace_command.repo().store())?;
-    let git_lock = if command.git_remote_extension().is_some() {
-        Some(workspace_command.lock_git_import_export()?)
-    } else {
-        None
-    };
     let mut tx = workspace_command.start_transaction();
     // Create these before resolving routes, so generated names use the same
     // routing and classification as every other selected bookmark.
@@ -792,12 +787,9 @@ pub async fn cmd_git_push(
             }
         };
 
-        if let Some(git_lock) = git_lock {
-            tx.finish_with_git_import_export_lock(ui, description, &git_lock)
-                .await?;
-        } else {
-            tx.finish(ui, description).await?;
-        }
+        // Remote publication and private provenance do not expose colocated Git mirrors. Acquire
+        // the import/export lock only for the ordinary transaction finish, after network I/O.
+        tx.finish(ui, description).await?;
     }
 
     if let Some(error) = push_error {

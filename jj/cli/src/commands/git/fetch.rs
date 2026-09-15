@@ -285,12 +285,6 @@ pub async fn cmd_git_fetch(
             );
         }
     }
-    let git_lock = if remote_sessions.is_empty() {
-        None
-    } else {
-        Some(workspace_command.lock_git_import_export()?)
-    };
-
     let remote_settings = crate::revset_util::resolve_remote_settings(
         workspace_command.repo().view(),
         workspace_command.settings().remote_settings()?,
@@ -388,6 +382,7 @@ pub async fn cmd_git_fetch(
     let import_options = load_git_import_options(ui, &git_settings, &remote_settings)?;
     let base_repo = workspace_command.repo().clone();
     let mut tx = workspace_command.start_transaction();
+    let mut extension_git_lock = None;
     let import_stats = if remote_sessions.is_empty() {
         let mut git_fetch = GitFetch::new(
             tx.repo_mut(),
@@ -409,16 +404,16 @@ pub async fn cmd_git_fetch(
         }
         git_fetch.import_refs().await?
     } else {
-        let mut observations = Vec::new();
+        let mut prepared_fetches = Vec::with_capacity(expansions.len());
         let mut selections = Vec::with_capacity(expansions.len());
         for (completed, (remote, expanded)) in expansions.into_iter().enumerate() {
             let expr = expanded.into_expression();
             let bookmarks = expr.bookmark.to_matcher();
             let tags = expr.tag.to_matcher();
             let session = &remote_sessions[remote];
-            observations.extend(
+            prepared_fetches.push(
                 session
-                    .fetch(ui, command, tx.repo_mut(), expr, &fetch_options)
+                    .prepare_fetch(ui, command, tx.repo_mut(), expr, &fetch_options)
                     .await
                     .map_err(|error| {
                         fetch_failure_context(error, base_repo.view(), &matching_remotes, completed)
@@ -428,6 +423,15 @@ pub async fn cmd_git_fetch(
             // it addressable for explicit tracking and first publication.
             tx.repo_mut().ensure_remote(remote);
             selections.push((*remote, bookmarks, tags));
+        }
+        // Network receive and conversion can be slow. Keep them outside the colocated Git
+        // import/export lock so read-only commands can snapshot and inspect the previous
+        // operation concurrently. Only canonical mirrors need to become visible atomically with
+        // the operation that imports them.
+        extension_git_lock = Some(tx.base_workspace_helper().lock_git_import_export()?);
+        let mut observations = Vec::new();
+        for prepared in prepared_fetches {
+            observations.extend(prepared.publish(tx.repo_mut()).await?);
         }
         git::import_remote_observations(
             tx.repo_mut(),
@@ -460,11 +464,14 @@ pub async fn cmd_git_fetch(
             .map(|n| tx.repo().view().remote_qualified_name(n))
             .join(","),
     );
-    if let Some(git_lock) = git_lock {
-        tx.finish_with_git_import_export_lock(ui, description, &git_lock)
-            .await?;
-    } else {
+    if remote_sessions.is_empty() {
         tx.finish(ui, description).await?;
+    } else {
+        let git_lock = extension_git_lock
+            .as_ref()
+            .expect("extension fetch acquired Git import/export lock before publishing mirrors");
+        tx.finish_with_git_import_export_lock(ui, description, git_lock)
+            .await?;
     }
     Ok(())
 }

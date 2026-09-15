@@ -7,8 +7,10 @@ use gix::bstr::ByteSlice as _;
 use jj_cli::cli_util::CommandHelper;
 use jj_cli::command_error::CommandError;
 use jj_cli::command_error::user_error;
+use jj_cli::git_remote::GitPreparedFetch;
 use jj_cli::git_remote::GitRemoteFetchOptions;
 use jj_cli::git_remote::GitRemoteSession as _;
+use jj_cli::git_remote::RemoteFuture;
 use jj_cli::ui::Ui;
 use jj_lib::backend::CommitId;
 use jj_lib::git::GitFetchRefExpression;
@@ -55,6 +57,26 @@ fn canonical_ref(session: &Session, kind: GitRefKind, source: &str) -> String {
 struct Converted {
     target: RefTarget,
     mirror: Option<gix::ObjectId>,
+}
+
+struct PreparedFetch {
+    old_canonical: BTreeMap<String, gix::ObjectId>,
+    mirrors: BTreeMap<String, gix::ObjectId>,
+    observations: Vec<GitRemoteObservation>,
+}
+
+impl GitPreparedFetch for PreparedFetch {
+    fn publish<'a>(
+        self: Box<Self>,
+        repo: &'a mut MutableRepo,
+    ) -> RemoteFuture<'a, Vec<GitRemoteObservation>> {
+        Box::pin(async move {
+            let mut git = jj_lib::git::get_git_backend(repo.store())?.git_repo();
+            git.reload().map_err(user_error)?;
+            install_refs(&git, &self.old_canonical, &self.mirrors)?;
+            Ok(self.observations)
+        })
+    }
 }
 
 impl Converted {
@@ -154,7 +176,7 @@ pub(super) async fn run(
     repo: &mut MutableRepo,
     selection: GitFetchRefExpression,
     options: &GitRemoteFetchOptions,
-) -> Result<Vec<GitRemoteObservation>, CommandError> {
+) -> Result<Box<dyn GitPreparedFetch>, CommandError> {
     let mut git = jj_lib::git::get_git_backend(repo.store())?.git_repo();
     // Earlier fetches in this operation can publish new packs and observation
     // refs. Negotiation disables ODB refreshes, so it needs a current snapshot.
@@ -882,6 +904,9 @@ pub(super) async fn run(
             evidence,
         });
     }
-    install_refs(&git, &old_canonical, &mirrors)?;
-    Ok(observations)
+    Ok(Box::new(PreparedFetch {
+        old_canonical,
+        mirrors,
+        observations,
+    }))
 }

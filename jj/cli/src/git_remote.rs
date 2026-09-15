@@ -471,6 +471,15 @@ pub struct GitRemotePushOutcome {
     pub error: Option<CommandError>,
 }
 
+/// A fully received and converted fetch whose shared Git mirrors are not yet visible.
+pub trait GitPreparedFetch {
+    /// Publish canonical Git mirrors and return the observations to import into the JJ view.
+    fn publish<'a>(
+        self: Box<Self>,
+        repo: &'a mut MutableRepo,
+    ) -> RemoteFuture<'a, Vec<GitRemoteObservation>>;
+}
+
 /// Fully converted and preflighted publication, with no remote writes yet.
 pub trait GitPreparedPush {
     /// Normalized endpoint and wire names, for collisions across remote aliases.
@@ -502,15 +511,16 @@ pub trait GitRemoteSession {
     fn default_fetch_bookmarks(&self) -> Result<(IgnoredRefspecs, StringExpression), CommandError>;
 
     /// Receives and converts a complete selected snapshot, including unchanged refs.
-    /// Install only canonical Git mirrors; return no raw objects as observations.
-    fn fetch<'a>(
+    /// Network I/O and private provenance writes happen here, but canonical Git mirrors must not
+    /// become visible until the returned preparation is published under jj's import/export lock.
+    fn prepare_fetch<'a>(
         &'a self,
         ui: &'a mut Ui,
         command: &'a CommandHelper,
         repo: &'a mut MutableRepo,
         selection: GitFetchRefExpression,
         options: &'a GitRemoteFetchOptions,
-    ) -> RemoteFuture<'a, Vec<GitRemoteObservation>>;
+    ) -> RemoteFuture<'a, Box<dyn GitPreparedFetch>>;
 
     /// Completes conversion, object preparation, and transport preflight before any
     /// remote refs change. Dry runs must not update observations or correspondence.
