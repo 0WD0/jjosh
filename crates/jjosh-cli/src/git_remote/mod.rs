@@ -443,6 +443,9 @@ impl GitRemoteSession for Session {
             .filter(|(_, label)| self.state.resolve_label(label).ok().flatten().is_some())
             .map_or(local.as_str(), |(name, _)| name)
     }
+    fn push_validation_root(&self) -> Option<RepoPathBuf> {
+        self.project.as_ref().map(|project| project.mount.clone())
+    }
     fn default_fetch_bookmarks(&self) -> Result<(IgnoredRefspecs, StringExpression), CommandError> {
         let repo = gix::open(&self.git_path).map_err(user_error)?;
         jj_lib::git::load_default_fetch_bookmarks(&self.name, &repo).map_err(Into::into)

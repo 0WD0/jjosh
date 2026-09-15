@@ -421,6 +421,102 @@ fn whole_parent_contains_filtered_child_without_recursively_unfiltering_it() {
     }
 }
 
+#[test]
+fn project_push_validates_only_commits_that_survive_scope_projection() {
+    let temp = tempfile::tempdir().unwrap();
+    let remote = temp.path().join("project.git");
+    git(temp.path(), &["init", "--bare", remote.to_str().unwrap()]);
+    let client = create_client(temp.path(), false);
+    jjosh(&client, &["project", "add", "p", "--path", "p"]);
+    jjosh(
+        &client,
+        &[
+            "git",
+            "remote",
+            "add",
+            "origin",
+            remote.to_str().unwrap(),
+            "--whole",
+            "--project",
+            "p",
+        ],
+    );
+
+    fs::create_dir(client.join("p")).unwrap();
+    fs::write(client.join("p/value.txt"), "base\n").unwrap();
+    jjosh(&client, &["describe", "-m", "project base"]);
+
+    // This empty-description commit changes only the monorepo outside project p. It must be
+    // pruned before push metadata validation, just as it is pruned from the exported history.
+    jjosh(&client, &["new"]);
+    fs::write(client.join("outside-only.txt"), "outside\n").unwrap();
+    jjosh(&client, &["new", "-m", "project update"]);
+    fs::write(client.join("p/value.txt"), "updated\n").unwrap();
+    jjosh(&client, &["bookmark", "set", "main#p", "-r", "@"]);
+
+    let dry_run = jjosh_unchecked(
+        &client,
+        &["git", "push", "--bookmark", "main#p", "--dry-run"],
+    );
+    assert_success(
+        &dry_run,
+        Path::new(env!("CARGO_BIN_EXE_jjosh")),
+        &["git", "push", "--bookmark", "main#p", "--dry-run"],
+    );
+
+    // An empty description on a commit which actually changes the project still blocks push.
+    jjosh(&client, &["new"]);
+    fs::write(client.join("p/value.txt"), "missing description\n").unwrap();
+    jjosh(&client, &["bookmark", "set", "main#p", "-r", "@"]);
+    let rejected = jjosh_unchecked(
+        &client,
+        &["git", "push", "--bookmark", "main#p", "--dry-run"],
+    );
+    assert!(!rejected.status.success());
+    assert!(
+        String::from_utf8_lossy(&rejected.stderr).contains("has no description"),
+        "{}",
+        String::from_utf8_lossy(&rejected.stderr)
+    );
+
+    // The same canonical history sent to an ordinary root remote keeps jj's full-history
+    // validation. Project scoping must not weaken normal Git push safety checks.
+    let root_remote = temp.path().join("root.git");
+    git(
+        temp.path(),
+        &["init", "--bare", root_remote.to_str().unwrap()],
+    );
+    jjosh(
+        &client,
+        &[
+            "git",
+            "remote",
+            "add",
+            "root-origin",
+            root_remote.to_str().unwrap(),
+        ],
+    );
+    jjosh(&client, &["bookmark", "set", "root-main", "-r", "@"]);
+    let root_rejected = jjosh_unchecked(
+        &client,
+        &[
+            "git",
+            "push",
+            "--remote",
+            "root-origin",
+            "--bookmark",
+            "root-main",
+            "--dry-run",
+        ],
+    );
+    assert!(!root_rejected.status.success());
+    assert!(
+        String::from_utf8_lossy(&root_rejected.stderr).contains("has no description"),
+        "{}",
+        String::from_utf8_lossy(&root_rejected.stderr)
+    );
+}
+
 fn import_project(client: &Path, project: &str, mount: &str, source: &Path, filter: &str) {
     let remote = format!("{project}-upstream");
     jjosh(client, &["project", "add", project, "--path", mount]);
