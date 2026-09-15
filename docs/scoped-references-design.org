@@ -133,7 +133,7 @@ nested 导入只安装来源历史 remote 身份，不占用当前 origin；pres
 3. 映射有歧义、缺少历史依据或目的身份碰撞时要求显式映射／解决，不通过丢弃引用或将项目引用一律降为根来继续。
 4. 保留 signed targets、删除项和历史归属，不改 commit DAG、change ID、raw OID、generation 或 lease，不自动合并 divergence。
 5. 给不支持新模型的 writer 设置读写边界；旧对象按原编码保留散列。读历史不顺便合成新字段；新状态只能在明确迁移或变更边界写入。
-6. 若要改 Git refs／配置，使用持久恢复日志及比较校验，覆盖中断、重复执行、锁冲突和并发 operation heads；单个 jj transaction 不是跨存储原子性。
+6. 若要改 Git refs／配置，沿用当前资源本地锁、所有权和 expected-value/CAS 合同，并把迁移拆成可重复的单调阶段；不要假设单个 jj transaction 能提供跨存储原子性，也不要重新引入覆盖所有资源的总 journal。
 7. 迁移成功且恢复路径成立后退役旧解释路径，不保留长期 alias shim。必须明确哪些旧版本还能只读，哪些须拒绝打开。
 
 这不提供任意历史项目布局搬迁、不激活导入连接、不复制认证，也不回退外部发布。现有 =project migrate --apply --exclusive= 是当前项目格式迁移命令，不能提前宣称它已经支持本文的 typed 引用迁移。

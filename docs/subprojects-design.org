@@ -156,6 +156,8 @@ main@jjosh-observed-OLD_ID
 
 按稳定 ID 合并后才推导跨记录约束：同名、目录重叠、多绑定、悬空 label、物理所有者冲突、观察与不可变定义不一致等。项目记录按整条合并，不从不同分支拼出一个未发生过的定义。诊断定位相关项目／绑定／引用，健康项目不因无关坏定义一律停用。
 
+诊断与枚举路径必须能够读取 unresolved/conflicted 状态：=project list/show=、引用列表、commit template，以及不指定一个精确 logical identity 的集合式 remote-ref revset，遇到 scope 校验失败时保留已持久化的 ref，并退回显示物理 remote key。它们不因此获得操作权限。精确 selector、transport、tracking 修改和其他 mutation 仍必须成功验证 project／binding／connection identity 后才能继续。
+
 ** 恢复矩阵
 
 表中的“历史”指所选旧 operation，“当前”指恢复前状态。默认同时选择 repo 与 remote-tracking。
@@ -183,7 +185,7 @@ main@jjosh-observed-OLD_ID
 
 =git remote remove= 支持离线移除当前逻辑连接及其当前引用／元数据，不要求先能传输；旧 operation 仍保留过去的历史，不删除他人所有的配置。=git remote set-url NAME URL= 可显式接通没有本地配置的当前连接，保留 ConnectionId 和 binding，不产生 fetch 观察或修改 tracking。若同一根物理键由另一个连接拥有，本地配置冲突会拒绝，必须先明确处理该配置。
 
-配置 section 是否存在、是否属于当前连接、是否有可用 endpoint 是三个独立事实。属于当前连接但暂时没有 URL 的 section 仍随 remove／根 rename 删除或改名；别的连接的 section 即使没有 URL 也不能被接管。管理预检、实际修改与恢复日志共用 Git 层的所有权检查。重连直接创建本地配置，不通过启动并丢弃语义事务来筛选副作用。
+配置 section 是否存在、是否属于当前连接、是否有可用 endpoint 是三个独立事实。属于当前连接但暂时没有 URL 的 section 仍随 remove／根 rename 删除或改名；别的连接的 section 即使没有 URL 也不能被接管。管理预检与实际修改共用 Git 层的所有权、锁和 expected-value 检查。重连直接创建本地配置，不通过启动并丢弃语义事务来筛选副作用。
 
 set-url 只改变传输地址，不改变 Whole/filter/view。想采用不同表示，应有意建立新的绑定／remote，而不是让旧观察随当前 URL 重新解释。纯历史观察不是可由 set-url 隐式激活的当前连接。
 
@@ -225,7 +227,7 @@ preserve 的项目引用保持原 label，普通根引用加来源名前缀。�
 
 两种模式都保留真实引用、原生版本、空提交、有序父边、冲突和 divergence，不把工作副本或 Git HEAD 伪造成书签。来源内置 =@git= 在两种模式下均排除；目标 =@git= 只描述目标自己的 Git 镜像同步。
 
-preserve 还搬运私有原生锚点、raw 对象、normalization generations 和 publication ledger；canonical ID 随映射重写，raw ID、endpoint、generation 不重新解释。ledger 的捕获独立于当前观察，不能遗漏未跟踪分支或旧 lease。完整来源代际闭包验证后才安装；配置、私有 refs 和 mirrors 通过本地恢复日志发布。失败后可能留下不可变对象或已完整安装的来源存储，它们不等于导入 operation 已提交。
+preserve 还搬运私有原生锚点、raw 对象、normalization generations 和 publication ledger；canonical ID 随映射重写，raw ID、endpoint、generation 不重新解释。ledger 的捕获独立于当前观察，不能遗漏未跟踪分支或旧 lease。完整来源代际闭包验证后才安装；配置、私有 refs 和 mirrors 使用各自资源锁／原生事务安装。失败后可能留下不可变对象或已经完整安装的本地资源，它们不等于导入 operation 已提交；重试必须重新验证所有权和碰撞。
 
 * 持久化、迁移与恢复限制
 
@@ -245,17 +247,17 @@ preserve 还搬运私有原生锚点、raw 对象、normalization generations �
 
 迁移默认盘点，不写入。它保留旧逻辑别名的完整拼写，把 scoped 物理配置和 refs 重定位到独立 handle；不自动剥前缀。已有稳定 ID、有效 target、tracking 和可验证转换依据保持身份。无法验证的旧证据须明确处理；迁移不能伪造 raw 来源、generation 或 lease，也不重写开发图来消除 divergence。
 
-** 本地恢复日志不是分布式事务
+** 跨资源修改按单调阶段收敛
 
-remote 管理、迁移和导入跨越 Git config、refs 与 jj operation。=local_state= 记录所属 JJ 仓库、事务 nonce、起始 heads、文件／引用变更及退役项。绑定的 Transaction 在发布前写入确切目标 operation ID，在更新 heads 后持久化已发布决定；没有新 operation 的纯配置修改使用独立提交决定，不以部分 View 指纹作为提交证据。
+remote 管理、迁移和导入跨越 Git config、refs、来源存储与 jj operation，但当前实现不再建立覆盖这些资源的总 journal，也不承诺跨资源回滚。operation 是逻辑状态的提交边界：一旦包含最终项目／连接身份的 operation 发布，后续本地物理修改只能向该状态收敛，不能把“恢复旧 operation”当成补偿事务。
 
-=util recover= 不接受用户选择恢复方向。目标可从实际 heads 到达，或已有持久提交决定时向前完成；未发布且 heads 未变时回滚；无法归因的 heads／外部修改则拒绝。已确认的提交决定不可逆，收尾中断后仍向前完成。恢复先验证全部已记录的前态、中间态或后态并获取文件／ref 锁，再安装对应状态；重复执行不会覆盖未知更新。
+发布 operation 前只允许准备可重复、不会夺取现有逻辑所有权的材料，例如复制对象、安装不可变 provenance／generation、写入可验证的来源锚点或尚未激活的 transport marker。失败时这些已经完整写入的材料可以保留；重试必须重新验证目标资源，不能因上一次留下材料便跳过身份或内容检查。
 
-本地 Git 写入复用 jj 的同步入口，协调锁位于 Git common directory，覆盖共享 Git 的 worktrees 和多个 JJ 仓库。ref 的作用域、namespace、CAS 和锁由 gix 处理；无变化及不存在的 ref 使用原生 Verify，不把 no-op Update 当作持锁保证。index 在 gix 已准备并持锁的写入边界记录，不复制其序列化实现。日志覆盖发布前的 HEAD/index 副作用，工作副本文件和 checkout／stale 恢复仍由 jj 管理。
+发布 operation 后的 Git config/ref cutover 使用资源自己的锁、ConnectionId 所有权检查和 expected-old/CAS。已提交的 config、ref 或来源状态不因后续步骤失败而回滚；并发修改导致 expected value 不匹配时保留实际资源并停止，由相同命令／迁移计划在冲突处理后重新运行。Git config 与 refs 是独立的原生事务：ref 锁在 config 发布前准备，但 config 已提交后 ref commit 仍可能失败或部分完成，错误会明确报告这种状态。
 
-普通当前 operation 命令在 snapshot 或自动合并 heads 前尝试恢复，再重新加载配置。=ConfigEnv= 重新授权实际 repo config 路径，包括仓库目录外的安全配置目录；库不从日志本身接受任意外部写入路径。协议要求 Git backend 和提供独占 heads 锁的内置 =SimpleOpHeadsStore=，不加强上游允许空锁的通用 =OpHeadsStore= 合同。
+=project import= 在完整逻辑 View 发布前安装所需对象、provenance、连接配置和 mirrors。导入失败不会修改来源仓库；目标中已经复制的对象以及完整完成的 config/ref 安装可以保留，重试时重新做碰撞与所有权检查。=project migrate= 先只读捕获输入并规划，再安装 additive evidence 和 inactive markers，随后发布最终 project／binding／remote identity，最后进行物理 rekey、仓库设置更新与 legacy 退役。发布后的 retirement 只删除规划时捕获且仍精确匹配的旧值。
 
-物理协调文件保留 =jj-remote-journal= 名称，新日志为 version 2；它与 =simple_op_store_projects_v3= 是不同格式。旧日志没有可靠的发布证据，须用创建它的版本完成恢复后升级。恢复不 fetch、不 push、不刷新 lease；不参与协议的旧 jj／原生 Git 并发写者仍须停止，已经发生的远端写入不在本地回滚能力内。
+当前版本没有 =local_state= 恢复协议或 =util recover= 命令。若 Git common directory 中存在旧版本留下的 =jj-remote-journal=，Git backend 会拒绝正常加载／初始化且不会删除它；必须先用创建该日志的旧版本完成恢复，再使用当前版本。升级旧 project 存储仍要求停止不兼容 writer；原生 Git 或旧 jj 在新锁协议之外的并发写入不受保护，远端已经完成的网络写入也从不参与本地回滚。
 
 * 维护入口
 
@@ -269,7 +271,8 @@ remote 管理、迁移和导入跨越 Git config、refs 与 jj operation。=loca
 | 编码、散列和 writer gate | [[file:../jj/lib/src/project_store.rs][project_store.rs]]、[[file:../jj/lib/src/simple_op_store.rs][simple_op_store.rs]] |
 | 项目命令与迁移 | [[file:../crates/jjosh-cli/src/project.rs][project CLI]]、[[file:../crates/jjosh-cli/src/project_migration.rs][migration]] |
 | 连接管理与 Git 写入 | [[file:../jj/cli/src/commands/git/remote/][remote CLI]]、[[file:../jj/lib/src/git.rs][git.rs]] |
-| 本地提交证据与中断恢复 | [[file:../jj/lib/src/local_state.rs][local_state.rs]]、[[file:../jj/lib/src/transaction.rs][transaction.rs]]；[[file:../jj/cli/src/commands/util/recover.rs][util recover]]只提供入口 |
+| 本地 Git config/ref 所有权、锁与 CAS | [[file:../jj/lib/src/git.rs][git.rs]]；repo-local 设置原子替换见 [[file:../jj/cli/src/git_remote.rs][git_remote.rs]] |
+| 迁移分阶段发布与可重试 cutover | [[file:../crates/jjosh-cli/src/project_migration.rs][project_migration.rs]] |
 | fetch / push 转换 | [[file:../crates/jjosh-cli/src/git_remote/][git_remote]] |
 | 来源材料与原生映射 | [[file:../crates/jjosh-cli/src/source_repo.rs][source_repo.rs]]、[[file:../crates/jjosh-cli/src/native_source.rs][native_source.rs]] |
 | 导入规划 | [[file:../crates/jjosh-cli/src/project_import.rs][project_import.rs]]、[[file:../crates/jjosh-cli/src/native_import.rs][native_import.rs]]、[[file:../crates/jjosh-cli/src/project_preserve.rs][project_preserve.rs]] |

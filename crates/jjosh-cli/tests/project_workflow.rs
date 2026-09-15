@@ -1282,6 +1282,13 @@ fn conflicted_project_metadata_can_be_restored_and_repaired_by_repo_only_restore
     let conflict: serde_json::Value =
         serde_json::from_slice(&jjosh(&client, &["project", "list", "--json"]).stdout).unwrap();
     assert!(!conflict["diagnostics"].as_array().unwrap().is_empty());
+    let unresolved = jjosh_unchecked(&client, &["log", "-r", "main#api@api-upstream"]);
+    assert!(!unresolved.status.success());
+    assert!(
+        String::from_utf8_lossy(&unresolved.stderr).contains("unavailable or unresolved"),
+        "{}",
+        String::from_utf8_lossy(&unresolved.stderr)
+    );
     let conflicted = operation_id(&client);
     jjosh(
         &client,
@@ -1445,14 +1452,63 @@ fn forgetting_converted_remote_bookmarks_preserves_history_and_publication_lease
             "api-upstream",
             "--bookmark",
             "main#api",
-            "--allow-new",
+            "--base",
+            original.as_str(),
         ];
-        assert!(!jjosh_unchecked(&client, &push).status.success());
+        let missing_source = jjosh_unchecked(&client, &push);
+        assert!(!missing_source.status.success());
+        assert!(
+            String::from_utf8_lossy(&missing_source.stderr)
+                .contains("no immutable conversion observation"),
+            "{}",
+            String::from_utf8_lossy(&missing_source.stderr)
+        );
+        // Reacquire immutable source evidence without fetching the destination
+        // branch. This must not refresh its independently retained publication
+        // lease, which still names `original`.
+        jjosh(
+            &client,
+            &[
+                "git",
+                "fetch",
+                "--project",
+                "api",
+                "--remote",
+                "api-upstream",
+                "--revision",
+                &original,
+            ],
+        );
+        let stale = jjosh_unchecked(&client, &push);
+        assert!(!stale.status.success());
+        assert!(
+            String::from_utf8_lossy(&stale.stderr).contains("stale lease"),
+            "{}",
+            String::from_utf8_lossy(&stale.stderr)
+        );
         assert_eq!(git(&source, &["rev-parse", "main"]), advanced);
         git(
             &source,
             &["update-ref", "refs/heads/main", &original, advanced.trim()],
         );
+        // Once the destination again matches the retained lease, rebuild the
+        // current tracking/mirror view before publishing. The stale-lease check
+        // above already proved that forgetting did not reset publication
+        // authorization; this fetch restores current conversion/tracking state.
+        jjosh(
+            &client,
+            &[
+                "git",
+                "fetch",
+                "--project",
+                "api",
+                "--remote",
+                "api-upstream",
+                "--branch",
+                "main",
+            ],
+        );
+        jjosh(&client, &["bookmark", "track", "main#api@api-upstream"]);
         jjosh(&client, &push);
         assert_eq!(
             git(&source, &["show", "main:src/value.txt"]),

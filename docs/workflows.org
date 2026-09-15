@@ -157,10 +157,10 @@ jjosh project import \
 两种模式都排除来源内置 =@git=：它是来源自己的 Git 同步记录，不是远端。
 真实书签、tag 和开发图仍保留，目标的 =@git= 由目标自己的 Git 同步建立。
 
-导入在安装前复核来源 operation 和 Git 配置，并以同一恢复日志安装配置及引用。
+导入在安装前复核来源 operation 和 Git 配置；配置、私有 refs 和 mirrors 使用各自资源的锁、原生事务与 expected-value 校验安装。
 普通输入错误不会改目标配置和用户 refs，但已复制的不可变对象或完整来源对象库可能保留。
 来源对象库在对象、浅边界和 refs 准备完成后才整体安装。
-安装中断按本文“中断恢复”处理；不要手工删除来源对象库来重试。
+安装中断按本文“中断与重试”处理；不要手工删除来源对象库来重试。
 
 * 连接不同的外部布局
 
@@ -503,25 +503,18 @@ jjosh project check parser
 逻辑 remote 名冲突用 =--connection ID --candidate N= 或 =--connection ID --name NAME=，不能借改名跨项目迁移。
 =project resolve --binding ID --delete= 也可停用已断开且无依赖的旧绑定。这些不是 tracking-only restore 的必做步骤。
 
-** 中断恢复
+** 中断与重试
 
-remote 修改、原生 import 或迁移中断后，普通当前 operation 上的下一条命令会先尝试本地恢复，再加载状态。也可显式运行：
+当前版本不再创建跨 Git config、refs 与 jj operation 的本地恢复日志，也没有 =util recover=。这些资源按阶段提交；已完整完成的步骤在后续失败时保留，命令通过所有权、锁和 expected-old/CAS 检查安全重试，而不是先把仓库回滚到旧 operation。
 
-#+begin_src sh
-jjosh util recover
-#+end_src
+| 中断位置 | 当前合同 |
+|----------+----------|
+| project import 或 migration 在逻辑 operation 发布前失败 | 来源仓库不变；已经复制的对象、provenance 或完整安装的本地资源可保留。处理报告的资源冲突后重跑同一命令。 |
+| migration 已发布最终 project／connection 元数据，物理 rekey／设置／退役未完成 | 保留已发布 operation 和已完成物理步骤；用相同显式 mappings 重跑 migration，使剩余资源向已发布状态收敛。不要用 operation restore 作为 cutover 回滚机制。 |
+| Git remote config 已提交但 refs 更新失败 | config 保留，refs 可能部分完成；按错误检查实际资源后重试。命令不会覆盖不再匹配预期值的 refs。 |
+| config/ref/sidecar 在计划后被其他 writer 改动 | 停止并保留外部新值；先明确处理冲突，再重试，不猜测也不强制回写旧快照。 |
 
-恢复方向由持久证据决定，不再提供 =--accept=／=--rollback=：
-
-| 证据 | 动作 |
-|------+------|
-| 确切的目标 operation 已发布，或纯配置修改已有持久提交决定 | 安装已准备的最终状态，完成退役与收尾 |
-| 目标未发布，实际 operation heads 仍与开始时一致 | 恢复已记录的旧配置、refs 和受影响的 Git index |
-| heads 无法解释，或文件／refs 存在未记录的外部变化 | 停止并保留日志，不覆盖、不猜测 |
-
-=--at-operation= 选择历史状态、=--ignore-working-copy= 和 =--no-integrate-operation= 不触发自动恢复；显式 =util recover= 仍依据所属仓库的实际发布状态，而非所选 View。需要日志的修改不能使用 =--no-integrate-operation=；迁移 dry-run 不受此限制。
-
-恢复不访问网络，也不接管 jj 的 working-copy checkout／stale 恢复。外部冲突须先按诊断处理；仍被使用的锁应由对应进程释放，不要删除日志或强行解锁。旧格式日志缺少确切发布证据，须先用创建日志的版本恢复，再升级。
+仍被使用的 =*.lock= 应由对应进程释放，不要手工删除来绕过并发检查。若仓库包含旧版本遗留的 =jj-remote-journal=，当前 Git backend 会拒绝正常打开且不会删除日志；先使用创建该日志的旧版本完成恢复，再升级到当前版本。这个 legacy journal 只是一项升级阻断，不是当前写入协议。
 
 ** 升级旧仓库
 
@@ -567,7 +560,7 @@ jjosh project check
 保留缓存不补造缺失的转换依据或发布 lease，也不证明远端当前状态。
 include/global remote 设置、孤立旧附属元数据和配置冲突需按诊断先整理，不能静默覆盖。
 从计划到 apply 完成应一直保持维护窗口；=--exclusive= 是已停止不兼容写者的确认，不是全局 Git 锁。
-日志建立前的并发写入不受恢复校验保护；安装中断按前面的 recover 处理。
+apply 会在写入前重新比较规划时捕获的 Git 输入，并在各资源上使用本地锁／expected value。安装中断后按前面的“中断与重试”处理；最终元数据已经发布时继续向前完成，不回滚到旧 operation。
 
 ** 数据与权限边界
 
