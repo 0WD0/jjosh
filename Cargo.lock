@@ -3382,6 +3382,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "futures",
  "gix",
  "gix-hash",
  "gix-object",
@@ -3392,6 +3393,7 @@ dependencies = [
  "josh-changes",
  "josh-cli",
  "josh-core",
+ "pollster",
  "serde",
  "serde_json",
  "tempfile",

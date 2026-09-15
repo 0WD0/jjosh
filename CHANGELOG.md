@@ -16,6 +16,7 @@
 
 ### 主要能力
 
+- `log` 默认显示提交实际触及的子项目；`touched_projects` 模板字段支持自定义展示，按当前加载的 project View 和原生 diff 语义计算，不改变提交或引用身份。
 - 一个 monorepo 共享完整 JJ 开发图，同时为多个 project 建立独立交付范围。ProjectId、BindingId、ConnectionId 分别承担项目、转换关系和逻辑 remote 实例的稳定身份。
 - project remote 支持项目内独立的 `origin`/`upstream` 等别名；Git 物理 handle 与逻辑别名分离，rename 保留 connection/binding 身份，remove 后重新 add 是新实例。
 - fetch/push 在网络操作前解析 project 范围、binding、endpoint 和目标 ref。转换观察与 publication lease 分离；canonical 版本相同也不会丢掉新的 raw/source 证据。

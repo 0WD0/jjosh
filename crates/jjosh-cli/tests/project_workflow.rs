@@ -174,6 +174,8 @@ fn slow_project_fetch_does_not_block_read_only_log() {
     let (_work, remote, _tip) = create_remote(root, "slow-fetch");
     let client = create_client(root, true);
     jjosh(&client, &["project", "add", "p", "--path", "p"]);
+    fs::create_dir(client.join("p")).unwrap();
+    fs::write(client.join("p/local.txt"), "local project edit\n").unwrap();
     let remote_url = format!("ssh://dummy{}", remote.display());
     jjosh(
         &client,
@@ -264,7 +266,7 @@ exit 2
             "@",
             "--no-graph",
             "-T",
-            "commit_id",
+            "jjosh_log_compact",
         ])
         .current_dir(&client)
         .stdout(Stdio::piped())
@@ -308,6 +310,12 @@ exit 2
             "--branch",
             "main",
         ],
+    );
+    let log_output = log.wait_with_output().unwrap();
+    assert!(
+        String::from_utf8_lossy(&log_output.stdout).contains("[p]"),
+        "project summary was not rendered: {}",
+        String::from_utf8_lossy(&log_output.stdout)
     );
 }
 

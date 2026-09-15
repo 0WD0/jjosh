@@ -1,0 +1,35 @@
+# jjosh owns this layout; upstream helpers and user template overrides remain intact.
+[templates]
+log = 'jjosh_log_compact'
+
+[template-aliases]
+'format_touched_projects(commit)' = '''
+label("touched_projects", surround("[", "]", commit.touched_projects().join(", ")))
+'''
+
+jjosh_log_compact = 'jjosh_log_compact(self)'
+'jjosh_log_compact(commit)' = '''
+if(commit.root(),
+  format_root_commit(commit),
+  label(
+    separate(" ",
+      if(commit.current_working_copy(), "working_copy"),
+      if(commit.immutable(), "immutable", "mutable"),
+      if(commit.conflict(), "conflicted"),
+    ),
+    concat(
+      separate(" ", format_short_commit_header(commit), format_touched_projects(commit)) ++ "\n",
+      separate(" ",
+        if(commit.empty(), empty_commit_marker),
+        if(commit.description(),
+          commit.description().first_line(),
+          label(if(commit.empty(), "empty"), description_placeholder),
+        ),
+      ) ++ "\n",
+    ),
+  )
+)
+'''
+
+[colors]
+touched_projects = "cyan"
