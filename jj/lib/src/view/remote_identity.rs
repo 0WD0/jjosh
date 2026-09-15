@@ -17,7 +17,7 @@
 //! Current membership shadows history, including deleted/conflicted entries.
 //! Historical names are read only from historical records; they do not acquire
 //! today's logical alias or activate an old project. Importers can inspect this
-//! projection before applying their own legacy adoption and mount policies.
+//! projection before applying their own mount and naming policies.
 
 use std::collections::BTreeMap;
 

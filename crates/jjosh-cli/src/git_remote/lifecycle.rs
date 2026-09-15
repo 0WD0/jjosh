@@ -30,8 +30,8 @@ pub(super) fn prepare_binding(
             .is_some()
         {
             return Err(user_error(format!(
-                "Remote {} still has legacy configuration; use project migrate rather than \
-                 attaching a new definition",
+                "Remote {} still has legacy configuration; migrate the repository with a \
+                 historical jjosh version before attaching a new definition",
                 remote.as_str()
             )));
         }
@@ -44,8 +44,9 @@ pub(super) fn prepare_binding(
         match std::fs::symlink_metadata(&sidecar) {
             Ok(_) => {
                 return Err(user_error(format!(
-                    "Legacy sidecar {} must be migrated or explicitly removed before creating a \
-                     new binding",
+                    "Legacy sidecar {} belongs to an old jjosh format; upgrade with the \
+                     historical jjosh version that created it, or explicitly remove it only after \
+                     confirming it is obsolete, before creating a new binding",
                     sidecar.display()
                 )));
             }
@@ -84,8 +85,8 @@ pub(super) fn prepare_binding(
             .map_err(user_error)?
             .ok_or_else(|| {
                 user_error(format!(
-                    "Remote {source} has no adopted connection; use project migrate for legacy \
-                     configuration"
+                    "Remote {source} has no adopted connection; legacy configuration must be \
+                     migrated with a historical jjosh version"
                 ))
             })?;
         let (_, source_binding) = state

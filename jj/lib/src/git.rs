@@ -467,8 +467,8 @@ pub fn check_obsolete_remote_config(
         })
     {
         return Err(format!(
-            "Remote {} has obsolete jjosh-readOnly configuration; run `jjosh project migrate` to \
-             remove it",
+            "Remote {} has obsolete jjosh-readOnly configuration; migrate the repository with a \
+             historical jjosh version before upgrading",
             remote.as_symbol(),
         ));
     }
@@ -609,8 +609,8 @@ fn check_remote_capability_inner(
         }
         if binding.is_none() {
             return Err(format!(
-                "Managed remote {} has no active binding in this operation; restore or explicitly \
-                 migrate the binding",
+                "Managed remote {} has no active binding in this operation; restore the binding \
+                 or reattach the remote explicitly",
                 remote.as_symbol()
             ));
         }

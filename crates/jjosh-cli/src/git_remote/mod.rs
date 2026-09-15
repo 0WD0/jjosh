@@ -209,7 +209,8 @@ impl Session {
                     .exists())
         {
             return Err(user_error(
-                "Legacy remote conversion requires explicit `project migrate`",
+                "Legacy remote conversion is read-only in this jjosh version; migrate the \
+                 repository with a historical jjosh version before upgrading",
             ));
         }
         let mut project = None;

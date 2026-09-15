@@ -482,7 +482,7 @@ jjosh git remote set-url origin#parser /path/to/parser.git
 普通根 remote 若同一个物理配置已属于 B，重新连接 A 会拒绝覆盖；按诊断明确处理该配置的保留、改名或移除，再重新接线。
 set-url 不是更换 whole/filter/view 的方式；需要不同表示时有意建立新的绑定/remote。
 
-* 项目维护、迁移与故障恢复
+* 项目维护、故障恢复与旧版本仓库
 
 ** 检查与调整项目
 
@@ -508,58 +508,22 @@ jjosh project check parser
 
 | 中断位置 | 当前合同 |
 |----------+----------|
-| project import 或 migration 在逻辑 operation 发布前失败 | 来源仓库不变；已经复制的对象、provenance 或完整安装的本地资源可保留。处理报告的资源冲突后重跑同一命令。 |
-| migration 已发布最终 project／connection 元数据，物理 rekey／设置／退役未完成 | 保留已发布 operation 和已完成物理步骤；用相同显式 mappings 重跑 migration，使剩余资源向已发布状态收敛。不要用 operation restore 作为 cutover 回滚机制。 |
+| project import 在逻辑 operation 发布前失败 | 来源仓库不变；已经复制的对象、provenance 或完整安装的本地资源可保留。处理报告的资源冲突后重跑同一命令。 |
 | Git remote config 已提交但 refs 更新失败 | config 保留，refs 可能部分完成；按错误检查实际资源后重试。命令不会覆盖不再匹配预期值的 refs。 |
 | config/ref/sidecar 在计划后被其他 writer 改动 | 停止并保留外部新值；先明确处理冲突，再重试，不猜测也不强制回写旧快照。 |
 
 仍被使用的 =*.lock= 应由对应进程释放，不要手工删除来绕过并发检查。若仓库包含旧版本遗留的 =jj-remote-journal=，当前 Git backend 会拒绝正常打开且不会删除日志；先使用创建该日志的旧版本完成恢复，再升级到当前版本。这个 legacy journal 只是一项升级阻断，不是当前写入协议。
 
-** 升级旧仓库
+** 旧格式仓库
 
-备份仓库元数据*和来源对象库*；停止不兼容的 jj 程序及原生 Git 并发写者，然后查看计划：
+当前项目存储格式是 =simple_op_store_projects_v3=，包含当前与历史连接身份、signed project state 和 conversion observations。
+v1/v2 store 仍可读取，因此可以检查旧仓库和历史对象；当前版本不会把它们写回，也没有 =project migrate= 命令。
 
-#+begin_src sh
-jjosh project migrate --dry-run
-#+end_src
+若一个*当前仓库*仍使用 v1/v2，先备份 jj operation 元数据、Git/backend 对象与配置、来源对象库和 publication ledger，然后使用支持该旧格式迁移的历史 jjosh 版本完成升级。确认仓库已经写成 v3 后，再切换到当前版本。
+不要尝试通过手工修改 =.jj/repo/op_store/type=、删除 legacy sidecar 或复制当前配置来跳过升级；这些标记不是完整的语义状态。
 
-不带选项也只显示计划。当前项目存储格式是 =simple_op_store_projects_v3=，包含历史连接身份记录。
-v1/v2 仍可读，但写入前必须显式执行 =project migrate --apply --exclusive=；不会自动允许旧 writer。
-旧 operation 继续按其记录的身份读取。即使没有登记子项目，通过 jjosh 创建或管理普通根 remote 也会记录连接身份，并可能选择 v3 存储。
-普通根的物理 Git 名字仍可为 origin，不代表仓库可由旧版或上游原版 jj 写入；这些 writer 不得写入 v3 存储。
-
-计划列出项目目录、表示、名字、内部连接重定位、引用处理及退役元数据。
-旧别名逐字保留，例如 parser-upstream 成为项目内同名 remote，不自动去项目前缀；项目 handle 改用独立身份，而不是改变连接/绑定身份。
-迁移后可以 =git remote rename --project parser parser-upstream origin= 简化名字。
-仓库级 =remotes.NAME= 移到限定名；旧 =remote.NAME.jjosh-readOnly= 清理。
-用于选择项目连接的根 =git.fetch/git.push= 应改成 =git.projects.LABEL.fetch/push=。
-
-按诊断补充明确选择：
-
-| 选项 | 用途 |
-|------+------|
-| =--representation REMOTE=whole= | 整个来源就是项目 |
-| =--representation REMOTE=filter:EXPR= | 项目挂载前的来源 filter |
-| =--representation REMOTE=view:PATH= | 来源版本化 view |
-| =--native-source PROJECT=REMOTE= | 原生对应关系归入同项目 whole 绑定 |
-| =--native-source PROJECT=detached= | 保留离线原生对应关系，默认选择 |
-| =--clear-observations REMOTE= | 可选地清除旧远端记录、tracking 和 canonical mirror；不是迁移前提 |
-
-例如确认旧 parser-upstream 的布局后：
-
-#+begin_src sh
-jjosh project migrate --dry-run \
-  --representation 'parser-upstream=filter::/src/parser'
-jjosh project migrate --apply --exclusive \
-  --representation 'parser-upstream=filter::/src/parser'
-jjosh project check
-#+end_src
-
-迁移可离线完成，不要求重新 fetch。默认保留旧观察、tracking 和 canonical mirror，也保留本地引用、工作文件、来源对象、浅边界、发布 lease 和有效连接配置。
-保留缓存不补造缺失的转换依据或发布 lease，也不证明远端当前状态。
-include/global remote 设置、孤立旧附属元数据和配置冲突需按诊断先整理，不能静默覆盖。
-从计划到 apply 完成应一直保持维护窗口；=--exclusive= 是已停止不兼容写者的确认，不是全局 Git 锁。
-apply 会在写入前重新比较规划时捕获的 Git 输入，并在各资源上使用本地锁／expected value。安装中断后按前面的“中断与重试”处理；最终元数据已经发布时继续向前完成，不回滚到旧 operation。
+旧 operation 继续按其记录的身份读取。普通根 remote 的物理 Git 名字仍可为 origin，这不表示仓库可由旧版或上游原版 jj 写入；这些 writer 不得写入 v3 存储。
+若当前版本检测到旧 =jjosh-readOnly=、旧 scoped identity 或 Josh sidecar authority，会拒绝把它当成当前连接；应回到能理解那一代格式的历史 jjosh 完成升级，而不是让当前命令猜测旧状态。
 
 ** 数据与权限边界
 

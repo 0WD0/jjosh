@@ -89,7 +89,8 @@ pub(crate) fn prepare(
                     .git_refs
                     .keys()
                     .any(|reference| suffix(reference.as_str()) == Some(label.as_str())),
-                "Project label {label:?} would adopt existing literal Git references; migrate them explicitly before importing"
+                "Project label {label:?} would adopt existing literal Git references; choose a \
+                 different label before importing"
             );
         }
     }

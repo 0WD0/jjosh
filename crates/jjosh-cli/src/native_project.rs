@@ -1,4 +1,3 @@
-use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
@@ -47,29 +46,8 @@ pub(crate) fn validate_project(name: &str) -> Result<()> {
     parse_project(name).map(|_| ())
 }
 
-pub(crate) fn project_ref_prefix(project: &str) -> String {
-    format!("refs/jjosh/native/{project}/")
-}
-
 pub(crate) fn binding_ref_prefix(binding: &BindingId) -> String {
     format!("refs/jjosh/native-bindings/{}/", binding.hex())
-}
-
-/// Direct imports are explicit reusable evidence, not disconnected named peers.
-pub(crate) fn record_offline_binding(transaction: &Transaction, binding: &BindingId) -> Result<()> {
-    let name = format!("{}offline", binding_ref_prefix(binding));
-    let marker = josh_core::objects::write_blob(transaction.odb(), OFFLINE_IMPORT_MARKER)?;
-    let old = transaction.resolve_ref(&name)?;
-    ensure!(
-        old.is_none_or(|old| old == marker),
-        "Offline native relation marker was modified"
-    );
-    transaction.update_ref(
-        &name,
-        old.map_or(Expected::Absent, Expected::At),
-        marker,
-        "record offline native relation",
-    )
 }
 
 /// Materialize only immutable objects; the importer journals and publishes the refs.
@@ -119,39 +97,6 @@ pub(crate) fn is_offline_binding(transaction: &Transaction, binding: &BindingId)
     Ok(transaction.resolve_ref(&name)?.is_some())
 }
 
-/// Copy only explicitly mapped legacy provenance; old operations retain their roots.
-pub(crate) fn migrate_binding_anchors(
-    transaction: &Transaction,
-    project: &str,
-    binding: &BindingId,
-) -> Result<()> {
-    let old = project_ref_prefix(project);
-    let new = binding_ref_prefix(binding);
-    transaction.for_each_ref_prefixed(&old, |name, target| {
-        let suffix = &name[old.len()..];
-        if suffix == "mount" {
-            return Ok(());
-        }
-        let name = format!("{new}{suffix}");
-        let previous = transaction.resolve_ref(&name)?;
-        ensure!(
-            previous.is_none_or(|id| id == target),
-            "Conflicting migrated native correspondence"
-        );
-        transaction.update_ref(
-            &name,
-            previous.map_or(Expected::Absent, Expected::At),
-            target,
-            "migrate native binding provenance",
-        )?;
-        Ok(())
-    })
-}
-
-fn mount_ref_name(project: &str) -> String {
-    format!("{}mount", project_ref_prefix(project))
-}
-
 /// Dest directory for a native project. Identity stays `NAME`; this path may be nested.
 pub(crate) fn parse_mount(value: &str) -> Result<RepoPathBuf> {
     ensure!(
@@ -193,49 +138,6 @@ pub(crate) fn check_mounts_disjoint<'a>(
         }
     }
     Ok(())
-}
-
-/// Legacy registrations, read only for explicit migration.
-pub(crate) fn list_registered_projects(transaction: &Transaction) -> Result<Vec<String>> {
-    project_names_matching(transaction, |suffix| suffix == "mount")
-}
-
-/// Legacy correspondence owners, read only for explicit migration.
-pub(crate) fn list_native_projects(transaction: &Transaction) -> Result<Vec<String>> {
-    project_names_matching(transaction, |suffix| {
-        suffix.split_once('/').is_some_and(|(kind, raw)| {
-            matches!(kind, "origin" | "published" | "graft") && !raw.is_empty()
-        })
-    })
-}
-
-fn project_names_matching(
-    transaction: &Transaction,
-    matches: impl Fn(&str) -> bool,
-) -> Result<Vec<String>> {
-    let mut names = BTreeSet::new();
-    transaction.for_each_ref_prefixed("refs/jjosh/native/", |name, _| {
-        let rest = name.strip_prefix("refs/jjosh/native/").unwrap_or(name);
-        for (index, _) in rest.match_indices('/') {
-            if matches(&rest[index + 1..]) {
-                names.insert(rest[..index].to_owned());
-                break;
-            }
-        }
-        Ok(())
-    })?;
-    Ok(names.into_iter().collect())
-}
-
-pub(crate) fn load_mount(transaction: &Transaction, project: &str) -> Result<RepoPathBuf> {
-    let Some(oid) = transaction.resolve_ref(&mount_ref_name(project))? else {
-        return default_mount(project);
-    };
-    let bytes = josh_core::filter::tree::blob_bytes(transaction.odb(), oid)
-        .ok_or_else(|| anyhow::anyhow!("Native mount ref for {project} is not a blob"))?;
-    let text = std::str::from_utf8(&bytes)
-        .map_err(|err| anyhow::anyhow!("Native mount ref for {project} is not UTF-8: {err}"))?;
-    parse_mount(text)
 }
 
 async fn value_at_path(
