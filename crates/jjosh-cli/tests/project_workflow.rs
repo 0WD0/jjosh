@@ -517,6 +517,140 @@ fn project_push_validates_only_commits_that_survive_scope_projection() {
     );
 }
 
+#[test]
+fn project_validation_and_export_collapse_out_of_scope_merge_parents() {
+    for colocated in [false, true] {
+        let temp = tempfile::tempdir().unwrap();
+        let remote = temp.path().join("project.git");
+        git(temp.path(), &["init", "--bare", remote.to_str().unwrap()]);
+        let client = create_client(temp.path(), colocated);
+        jjosh(&client, &["project", "add", "p", "--path", "p"]);
+        jjosh(
+            &client,
+            &[
+                "git",
+                "remote",
+                "add",
+                "origin",
+                remote.to_str().unwrap(),
+                "--whole",
+                "--project",
+                "p",
+            ],
+        );
+        fs::create_dir(client.join("p")).unwrap();
+        fs::write(client.join("p/value.txt"), "project\n").unwrap();
+        jjosh(&client, &["describe", "-m", "project base"]);
+        let base = commit_id(&client, "@");
+
+        // This disjoint branch and the content-neutral merge have no descriptions. Both
+        // disappear from the exported project graph, even though the merge has two parents.
+        jjosh(&client, &["new", "root()"]);
+        fs::write(client.join("unrelated.txt"), "outside\n").unwrap();
+        jjosh(&client, &["new", &base, "@"]);
+        jjosh(&client, &["bookmark", "set", "main#p"]);
+        let before = operation_id(&client);
+        jjosh(
+            &client,
+            &["git", "push", "--bookmark", "main#p", "--dry-run"],
+        );
+        assert_eq!(operation_id(&client), before);
+        assert!(git(&remote, &["for-each-ref"]).is_empty());
+
+        jjosh(&client, &["git", "push", "--bookmark", "main#p"]);
+        assert_eq!(
+            git(&remote, &["log", "main", "--format=%s"]),
+            "project base\n"
+        );
+        assert_eq!(
+            git(&remote, &["ls-tree", "-r", "--name-only", "main"]),
+            "value.txt\n"
+        );
+    }
+}
+
+#[test]
+fn project_validation_keeps_meaningful_merges_and_canonical_private_checks() {
+    let temp = tempfile::tempdir().unwrap();
+    let remote = temp.path().join("project.git");
+    git(temp.path(), &["init", "--bare", remote.to_str().unwrap()]);
+    let client = create_client(temp.path(), false);
+    // Tags normally make their targets immutable. Keep this fixture explicitly mutable so
+    // it exercises validation rather than the pre-existing immutable-history exemption.
+    jjosh(
+        &client,
+        &[
+            "config",
+            "set",
+            "--repo",
+            "revset-aliases.\"immutable_heads()\"",
+            "root()",
+        ],
+    );
+    jjosh(&client, &["project", "add", "p", "--path", "p"]);
+    jjosh(
+        &client,
+        &[
+            "git",
+            "remote",
+            "add",
+            "origin",
+            remote.to_str().unwrap(),
+            "--whole",
+            "--project",
+            "p",
+        ],
+    );
+    fs::create_dir(client.join("p")).unwrap();
+    fs::write(client.join("p/base"), "base\n").unwrap();
+    jjosh(&client, &["describe", "-m", "base"]);
+    let base = commit_id(&client, "@");
+    jjosh(&client, &["new", "-m", "left"]);
+    fs::write(client.join("p/left"), "left\n").unwrap();
+    let left = commit_id(&client, "@");
+    jjosh(&client, &["new", &base, "-m", "right"]);
+    fs::write(client.join("p/right"), "right\n").unwrap();
+    jjosh(&client, &["new", &left, "@"]);
+    jjosh(&client, &["bookmark", "set", "main#p"]);
+    jjosh(&client, &["tag", "set", "release#p"]);
+
+    for selector in [["--bookmark", "main#p"], ["--tag", "release#p"]] {
+        let before = operation_id(&client);
+        let rejected = jjosh_unchecked(
+            &client,
+            &["git", "push", selector[0], selector[1], "--dry-run"],
+        );
+        assert!(!rejected.status.success());
+        assert!(String::from_utf8_lossy(&rejected.stderr).contains("has no description"));
+        assert_eq!(operation_id(&client), before);
+    }
+    jjosh(&client, &["describe", "-m", "merge both project branches"]);
+    let canonical = commit_id(&client, "@");
+    let private = format!("git.private-commits={canonical}");
+    let rejected = jjosh_unchecked(
+        &client,
+        &[
+            "--config",
+            &private,
+            "git",
+            "push",
+            "--bookmark",
+            "main#p",
+            "--dry-run",
+        ],
+    );
+    assert!(!rejected.status.success());
+    assert!(String::from_utf8_lossy(&rejected.stderr).contains("is private"));
+    assert!(git(&remote, &["for-each-ref"]).is_empty());
+    jjosh(&client, &["git", "push", "--bookmark", "main#p"]);
+    assert_eq!(
+        git(&remote, &["show", "-s", "--format=%p", "main"])
+            .split_whitespace()
+            .count(),
+        2
+    );
+}
+
 fn import_project(client: &Path, project: &str, mount: &str, source: &Path, filter: &str) {
     let remote = format!("{project}-upstream");
     jjosh(client, &["project", "add", project, "--path", mount]);

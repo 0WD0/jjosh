@@ -275,6 +275,10 @@ set-url 只改变传输地址，不改变 Whole/filter/view。
 
 所有引用先完成版本、转换上下文、目标可发布性及 endpoint/ref 碰撞检查，再开始网络写入。转换关系当前要求所选方向恰好一个 endpoint，不会只处理多个 push URL 中的第一个。dry-run 展示准备后的 raw 计划。
 
+项目校验与 Whole 导出共用 canonical 子树历史的遍历和剪枝规则：保留有序父边，去重投影后的父版本，移除空项目历史形成的虚拟根父边，折叠与唯一有效父版本子树相同的提交。实际合并不同项目版本的 merge 仍需校验，不能直接以 =touched_projects= 或文件 diff 代替历史规划。
+校验以原 canonical commit 执行 description、作者和 private revset 检查，并使用规划时解析的项目子树判断冲突；已知远端／不可变历史的校验边界与导出的 immutable raw correspondence 分别提供，不互相授予发布依据。filter/view 的逆转换与 raw 可发布性检查仍属于转换层。
+JJ CLI 只消费 remote 扩展提供的校验流，不实现项目剪枝。普通根 remote 沿用有界并发的流式 commit 读取，可在首个无效提交处停止；仅项目历史规划需要收集当前候选图，不保留跨命令缓存。
+
 已有目标的逆转换保留 filter 外内容和正确 raw 父图；新目标的来源基线须能由所选历史确定，歧义时要求明确选择。项目内没有变化不能成为把目标退回旧等价投影的理由。只有独立确认成功的更新才推进相应发布记录；多个 remote 不具备原子发布保证。
 
 * 原生导入的两种状态合同
@@ -366,6 +370,7 @@ Git config 与 refs 是独立的原生事务：ref 锁在 config 发布前准备
 | 连接管理与 Git 写入 | [[file:../jj/cli/src/commands/git/remote/][remote CLI]]、[[file:../jj/lib/src/git.rs][git.rs]] |
 | 本地 Git config/ref 所有权、锁与 CAS | [[file:../jj/lib/src/git.rs][git.rs]]；repo-local 设置原子替换见 [[file:../jj/cli/src/git_remote.rs][git_remote.rs]] |
 | fetch / push 转换 | [[file:../crates/jjosh-cli/src/git_remote/][git_remote]] |
+| 子树历史规划、校验适配与 Whole 导出 | [[file:../crates/jjosh-cli/src/native_project/history.rs][history.rs]]、[[file:../crates/jjosh-cli/src/native_project/validation.rs][validation.rs]]、[[file:../crates/jjosh-cli/src/native_project/export.rs][export.rs]] |
 | 来源材料与原生映射 | [[file:../crates/jjosh-cli/src/source_repo.rs][source_repo.rs]]、[[file:../crates/jjosh-cli/src/native_source.rs][native_source.rs]] |
 | 导入规划 | [[file:../crates/jjosh-cli/src/project_import.rs][project_import.rs]]、[[file:../crates/jjosh-cli/src/native_import.rs][native_import.rs]]、[[file:../crates/jjosh-cli/src/project_preserve.rs][project_preserve.rs]] |
 | projection 与保留根 | [[file:../crates/jjosh-cli/src/projection.rs][projection.rs]]、[[file:../jj/cli/src/commands/util/gc.rs][GC]] |
