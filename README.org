@@ -79,3 +79,13 @@ CLI 入口与工作流测试在 [[file:crates/jjosh-cli/][crates/jjosh-cli/]]。
 cargo test --locked -p jjosh-cli
 cargo clippy --locked -p jjosh-cli --all-targets
 #+end_src
+
+性能回归用两个 release 二进制比较，不把 debug 构建耗时当作用户性能。
+[[file:tools/benchmark-native-push.py][native push 基准]]生成临时本地 Git 仓库，比较单引用与共享祖先的批量引用准备；无需网络，也不实际发布。
+每次运行检查新旧二进制的导出 OID 完全一致，以及 dry-run 不改变 operation 或远端 refs。
+
+#+begin_src sh
+# 修改前保存 release 二进制，修改并重新构建后运行：
+python3 tools/benchmark-native-push.py /path/to/jjosh-before target/release/jjosh \
+  --commits 2000 --refs 16 --runs 5
+#+end_src

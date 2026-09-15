@@ -24,7 +24,7 @@ use crate::git_transport::push::{self as transport, Expected, RefStatus, Update}
 
 struct Prepared {
     update: Update,
-    publications: Vec<(CommitId, CommitId)>,
+    native_export: Option<crate::native_project::export::ExportedProject>,
     scope: Option<usize>,
     evidence: Option<ConversionObservation>,
     normalized: Option<crate::source_repo::Normalized>,
@@ -429,6 +429,9 @@ pub(super) async fn prepare(
     let push_endpoint =
         super::remote_endpoint(&remote, Direction::Push, false).map_err(user_error)?;
     let mut scopes: Vec<(Session, Vec<(usize, String)>)> = Vec::new();
+    // Only Whole project conversion has ref-independent source context. Filter/view
+    // observations remain per-ref: sharing by project name alone would mix generations.
+    let mut native_scopes: HashMap<Option<ProjectId>, usize> = HashMap::new();
     let mut destinations = HashSet::with_capacity(canonical.len());
     for (index, update) in canonical.iter().enumerate() {
         let (destination, scope) = source_destination(session, update).map_err(user_error)?;
@@ -437,9 +440,16 @@ pub(super) async fn prepare(
                 "Multiple selected references map to push destination {destination}"
             )));
         }
+        if let Some(&scope_index) = native_scopes.get(&scope) {
+            scopes[scope_index].1.push((index, destination));
+            continue;
+        }
         let conversion = session.push_scope(&git, scope.as_ref(), preparation.source.as_deref())?;
         if conversion.filter().is_none() && (preparation.base.is_some() || preparation.merge) {
             return Err(user_error("--base and --merge require a Josh projection"));
+        }
+        if conversion.project.is_some() && conversion.whole() {
+            native_scopes.insert(scope, scopes.len());
         }
         scopes.push((conversion, vec![(index, destination)]));
     }
@@ -530,7 +540,7 @@ pub(super) async fn prepare(
                         },
                         new: update.targets.after,
                     },
-                    publications: Vec::new(),
+                    native_export: None,
                     scope: scope.binding.as_ref().map(|_| scope_index),
                     evidence: if let Some(connection) = &session.connection {
                         scope.binding.as_ref().map(|_| {
@@ -798,6 +808,7 @@ impl GitPreparedPush for PreparedPush {
             }
             if let Some(transaction) = &transaction {
                 let push_prefix = raw_prefix.as_deref().unwrap();
+                let mut recorded_native_anchors = HashSet::new();
                 for (prepared, (name, status)) in prepared.iter().zip(&report.refs) {
                     if *status != RefStatus::Accepted {
                         continue;
@@ -835,8 +846,16 @@ impl GitPreparedPush for PreparedPush {
                                 .push(format!("{name}: direct publication object: {error:#}"));
                         }
                     }
-                    if scopes[scope_index].0.whole() && scopes[scope_index].0.project.is_some() {
-                        for (raw, canonical) in &prepared.publications {
+                    if let Some(exported) = &prepared.native_export {
+                        for (raw, canonical) in exported.publications() {
+                            let key = (
+                                scopes[scope_index].0.binding_id().clone(),
+                                raw.clone(),
+                                canonical.clone(),
+                            );
+                            if recorded_native_anchors.contains(&key) {
+                                continue;
+                            }
                             if let Err(error) = crate::native_project::record_anchor(
                                 transaction,
                                 scopes[scope_index].0.binding_id(),
@@ -848,6 +867,9 @@ impl GitPreparedPush for PreparedPush {
                             {
                                 save_errors
                                     .push(format!("{name}: native publication anchor: {error:#}"));
+                            } else {
+                                // Never deduplicate until the resource-local write succeeds.
+                                recorded_native_anchors.insert(key);
                             }
                         }
                     }
@@ -934,8 +956,29 @@ async fn prepare_scope(
     } else {
         None
     };
-    let known = if scope.whole() && scope.project.is_some() && has_new {
-        scope.anchors(repo, canonical_transaction).await?
+    let native_exports = if let Some(project) =
+        scope.project.as_ref().filter(|_| scope.whole() && has_new)
+    {
+        let known = scope.anchors(repo, canonical_transaction).await?;
+        let mut seen = HashSet::new();
+        let mut heads = Vec::new();
+        for (index, _) in updates {
+            if let Some(target) = canonical[*index].targets.after {
+                let id = CommitId::from_bytes(peel_commit(git, target)?.as_bytes());
+                if seen.insert(id.clone()) {
+                    heads.push(repo.store().get_commit_async(&id).await?);
+                }
+            }
+        }
+        let exports =
+            crate::native_project::export::export_projects(repo, &project.mount, &heads, &known)
+                .await
+                .map_err(user_error)?;
+        heads
+            .into_iter()
+            .zip(exports)
+            .map(|(head, exported)| (head.id().clone(), exported))
+            .collect()
     } else {
         HashMap::new()
     };
@@ -945,7 +988,7 @@ async fn prepare_scope(
         let canonical = &canonical[*index];
         let expected =
             crate::remote_refs::observation(canonical_transaction, push_endpoint, destination)?;
-        let mut publications = Vec::new();
+        let mut native_export = None;
         let mut resolved_base = None;
         let mut generation = None;
         let mut publication_generation = None;
@@ -967,13 +1010,14 @@ async fn prepare_scope(
                 .store()
                 .get_commit_async(&CommitId::from_bytes(canonical_oid.as_bytes()))
                 .await?;
-            if let Some(project) = scope.project.as_ref().filter(|_| scope.whole()) {
-                let (raw, deltas) =
-                    crate::native_project::export_project(repo, &project.mount, &head, &known)
-                        .await
-                        .map_err(user_error)?;
-                publications = deltas;
-                Some(gix::ObjectId::try_from(raw.as_bytes()).map_err(user_error)?)
+            if scope.whole() && scope.project.is_some() {
+                let exported = native_exports
+                    .get(head.id())
+                    .expect("prepared native head")
+                    .clone();
+                let raw = gix::ObjectId::try_from(exported.id().as_bytes()).map_err(user_error)?;
+                native_export = Some(exported);
+                Some(raw)
             } else {
                 crate::interop::check_projectable_repo_history(repo, &head).await?;
                 let filter = filter.expect("non-native transformed scope has a filter");
@@ -1135,7 +1179,7 @@ async fn prepare_scope(
                     expected,
                     new,
                 },
-                publications,
+                native_export,
                 scope: Some(scope_index),
                 evidence: Some(scope.evidence(
                     destination_connection,
