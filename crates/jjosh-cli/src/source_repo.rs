@@ -1,13 +1,22 @@
 use std::borrow::Cow;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
+use std::collections::HashMap;
+use std::collections::HashSet;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::Context;
+use anyhow::Result;
+use anyhow::bail;
+use anyhow::ensure;
 use gix::ObjectId;
 use gix::bstr::ByteSlice as _;
-use gix::refs::transaction::{PreviousValue, RefEdit};
-use gix_object::{Find as _, Write as _};
+use gix::refs::transaction::PreviousValue;
+use gix::refs::transaction::RefEdit;
+use gix_object::Find as _;
+use gix_object::Write as _;
 use josh_core::cache::Transaction;
 use josh_core::objects::CommitData;
 
@@ -198,7 +207,8 @@ impl SourceRepo {
         let retained = tx.resolve_ref(&format!("refs/jjosh/generations/{input}"))?;
         ensure!(
             retained == Some(input),
-            "Observed source generation is unavailable; fetch cannot replace historical conversion evidence"
+            "Observed source generation is unavailable; fetch cannot replace historical \
+             conversion evidence"
         );
         let mut visited = HashSet::new();
         let mut pending = vec![input];
@@ -558,30 +568,48 @@ impl SourceRepo {
         if inverse.keys().copied().collect::<BTreeSet<_>>() == retained {
             return Ok(Vec::new());
         }
-        let inputs: BTreeSet<_> = inverse.keys().copied().chain(retained.iter().copied()).collect();
+        let inputs: BTreeSet<_> = inverse
+            .keys()
+            .copied()
+            .chain(retained.iter().copied())
+            .collect();
         let raw_refs: BTreeSet<_> = inverse.keys().copied().collect();
         // Exported descendants need not carry a provenance header. Reconstruct
         // their raw IDs from retained parent relations, children only after parents.
-        let mut pending: Vec<_> = retained.difference(&raw_refs).map(|&input| (input, false)).collect();
+        let mut pending: Vec<_> = retained
+            .difference(&raw_refs)
+            .map(|&input| (input, false))
+            .collect();
         let mut active = HashSet::new();
         while let Some((input, finish)) = pending.pop() {
             if inverse.contains_key(&input) {
                 continue;
             }
             let object = self.git.find_object(input)?;
-            ensure!(object.kind == gix_object::Kind::Commit, "Normalization input is not a commit");
+            ensure!(
+                object.kind == gix_object::Kind::Commit,
+                "Normalization input is not a commit"
+            );
             let commit = gix_object::CommitRef::from_bytes(&object.data, input.kind())?;
-            let mut provenance = commit.extra_headers.iter().filter(|(key, _)| *key == PROVENANCE);
+            let mut provenance = commit
+                .extra_headers
+                .iter()
+                .filter(|(key, _)| *key == PROVENANCE);
             if let Some((_, value)) = provenance.next() {
-                ensure!(provenance.next().is_none(), "Ambiguous source normalization provenance");
+                ensure!(
+                    provenance.next().is_none(),
+                    "Ambiguous source normalization provenance"
+                );
                 inverse.insert(input, ObjectId::from_hex(value.as_ref())?);
             } else if finish {
-                let parents: Vec<_> = commit.parents()
+                let parents: Vec<_> = commit
+                    .parents()
                     .map(|parent| inverse.get(&parent).copied().unwrap_or(parent))
                     .collect();
                 ensure!(
                     !commit.parents().eq(parents.iter().copied()),
-                    "Missing raw normalization ref has no retained provenance or changed parent relation"
+                    "Missing raw normalization ref has no retained provenance or changed parent \
+                     relation"
                 );
                 let parent_hex: Vec<_> = parents.iter().map(ToString::to_string).collect();
                 let raw_commit = rewritten_commit(commit, &parent_hex, None);
@@ -591,15 +619,26 @@ impl SourceRepo {
                 inverse.insert(input, raw);
                 active.remove(&input);
             } else {
-                ensure!(active.insert(input), "Cycle in source normalization provenance");
+                ensure!(
+                    active.insert(input),
+                    "Cycle in source normalization provenance"
+                );
                 pending.push((input, true));
-                pending.extend(commit.parents().filter(|parent| inputs.contains(parent) && !inverse.contains_key(parent)).map(|parent| (parent, false)));
+                pending.extend(
+                    commit
+                        .parents()
+                        .filter(|parent| inputs.contains(parent) && !inverse.contains_key(parent))
+                        .map(|parent| (parent, false)),
+                );
             }
         }
         let mut edits = Vec::new();
         for &input in &inputs {
             let raw = inverse[&input];
-            ensure!(input != raw && raw.kind() == self.git.object_hash(), "Invalid source normalization identity");
+            ensure!(
+                input != raw && raw.kind() == self.git.object_hash(),
+                "Invalid source normalization identity"
+            );
             for (suffix, target, exists) in [
                 ("raw", raw, raw_refs.contains(&input)),
                 ("normalized", input, retained.contains(&input)),
@@ -608,7 +647,12 @@ impl SourceRepo {
                 edits.push(if exists {
                     RefEdit::verify(name, PreviousValue::MustExistAndMatch(target.into()))
                 } else {
-                    RefEdit::update(name, target, PreviousValue::MustNotExist, "repair source normalization retention")
+                    RefEdit::update(
+                        name,
+                        target,
+                        PreviousValue::MustNotExist,
+                        "repair source normalization retention",
+                    )
                 });
             }
         }
@@ -619,25 +663,31 @@ impl SourceRepo {
             let input_object = self.git.find_object(input)?;
             let raw_object = self.git.find_object(raw)?;
             ensure!(
-                input_object.kind == gix_object::Kind::Commit && raw_object.kind == gix_object::Kind::Commit,
+                input_object.kind == gix_object::Kind::Commit
+                    && raw_object.kind == gix_object::Kind::Commit,
                 "Normalization relation must identify commits"
             );
             let input_commit = gix_object::CommitRef::from_bytes(&input_object.data, input.kind())?;
             let raw_commit = gix_object::CommitRef::from_bytes(&raw_object.data, raw.kind())?;
-            let parents: Vec<_> = input_commit.parents().map(|parent| {
-                inverse.get(&parent).copied().unwrap_or_else(|| {
-                    identity_parents.insert(parent);
-                    parent
+            let parents: Vec<_> = input_commit
+                .parents()
+                .map(|parent| {
+                    inverse.get(&parent).copied().unwrap_or_else(|| {
+                        identity_parents.insert(parent);
+                        parent
+                    })
                 })
-            }).collect();
+                .collect();
             let same_parents = raw_commit.parents().eq(parents.iter().copied());
 
             let mut expected_input = raw_commit.clone();
             expected_input.parents = input_commit.parents.clone();
             strip_rewritten_headers(&mut expected_input);
-            expected_input.extra_headers.push((PROVENANCE.as_bstr(), Cow::Owned(raw.to_string().into())));
-            let normalized = expected_input == input_commit
-                && (input_commit.parents.is_empty() || same_parents);
+            expected_input
+                .extra_headers
+                .push((PROVENANCE.as_bstr(), Cow::Owned(raw.to_string().into())));
+            let normalized =
+                expected_input == input_commit && (input_commit.parents.is_empty() || same_parents);
 
             let mut expected_raw = input_commit.clone();
             expected_raw.parents = raw_commit.parents.clone();
@@ -660,8 +710,20 @@ impl SourceRepo {
                 ));
             }
         }
-        copy_objects(&self.git, None, &inputs.into_iter().collect::<Vec<_>>(), &HashSet::new(), false)?;
-        copy_objects(&self.git, None, &inverse.values().copied().collect::<Vec<_>>(), &boundaries, false)?;
+        copy_objects(
+            &self.git,
+            None,
+            &inputs.into_iter().collect::<Vec<_>>(),
+            &HashSet::new(),
+            false,
+        )?;
+        copy_objects(
+            &self.git,
+            None,
+            &inverse.values().copied().collect::<Vec<_>>(),
+            &boundaries,
+            false,
+        )?;
         Ok(edits)
     }
 
@@ -688,7 +750,10 @@ impl SourceRepo {
                 .split_once('/')
                 .context("Invalid normalization ref name")?;
             let input = ObjectId::from_hex(input.as_bytes())?;
-            ensure!(input.kind() == self.git.object_hash() && !input.is_null(), "Invalid normalization input identity");
+            ensure!(
+                input.kind() == self.git.object_hash() && !input.is_null(),
+                "Invalid normalization input identity"
+            );
             let gix::refs::TargetRef::Object(target) = reference.target() else {
                 bail!("Normalization ref {name} must not be symbolic");
             };
@@ -765,8 +830,8 @@ fn rewrite(
         .map_err(|error| anyhow::anyhow!("Writing source history commit: {error}"))
 }
 
-fn rewritten_commit<'a>(
-    commit: gix_object::CommitRef<'a>,
+fn rewritten_commit<'a, 'input: 'a>(
+    commit: gix_object::CommitRef<'input>,
     parent_hex: &'a [String],
     raw: Option<ObjectId>,
 ) -> gix_object::CommitRef<'a> {
@@ -936,19 +1001,29 @@ pub(crate) fn copy_objects(
 mod tests {
     use super::*;
 
-    fn normalization_fixture() -> Result<(tempfile::TempDir, gix::Repository, SourceRepo, ObjectId, ObjectId)> {
+    fn normalization_fixture() -> Result<(
+        tempfile::TempDir,
+        gix::Repository,
+        SourceRepo,
+        ObjectId,
+        ObjectId,
+    )> {
         let temporary = tempfile::tempdir()?;
         let main = gix::init_bare(temporary.path().join("main.git"))?;
         let source = SourceRepo::open(&main, "test-source")?;
-        let tree = source.git.write_buf(gix_object::Kind::Tree, b"")?;
-        let parent = source.git.write_buf(
-            gix_object::Kind::Commit,
-            format!("tree {tree}\nauthor A <a@example.org> 1 +0000\ncommitter A <a@example.org> 1 +0000\n\nparent\n").as_bytes(),
-        )?;
-        let raw = source.git.write_buf(
-            gix_object::Kind::Commit,
-            format!("tree {tree}\nparent {parent}\nauthor A <a@example.org> 2 +0000\ncommitter A <a@example.org> 2 +0000\ngpgsig retained signature\n\nraw\n").as_bytes(),
-        )?;
+        let tree = source.git.write_buf(gix_object::Kind::Tree, b"").map_err(anyhow::Error::from_boxed)?;
+        let parent = source.git.write_buf(gix_object::Kind::Commit,
+        format!(
+            "tree {tree}\nauthor A <a@example.org> 1 +0000\ncommitter A <a@example.org> 1 \
+             +0000\n\nparent\n"
+        )
+        .as_bytes(),).map_err(anyhow::Error::from_boxed)?;
+        let raw = source.git.write_buf(gix_object::Kind::Commit,
+        format!(
+            "tree {tree}\nparent {parent}\nauthor A <a@example.org> 2 +0000\ncommitter A \
+             <a@example.org> 2 +0000\ngpgsig retained signature\n\nraw\n"
+        )
+        .as_bytes(),).map_err(anyhow::Error::from_boxed)?;
         fs::write(source.path().join("shallow"), format!("{raw}\n"))?;
         let tx = crate::interop::open_josh_transaction(source.path(), false)
             .map_err(|error| anyhow::anyhow!(error.error))?;
@@ -960,7 +1035,12 @@ mod tests {
         Ok((temporary, main, source, raw, input))
     }
 
-    fn remove_partner(source: &SourceRepo, input: ObjectId, suffix: &str, target: ObjectId) -> Result<()> {
+    fn remove_partner(
+        source: &SourceRepo,
+        input: ObjectId,
+        suffix: &str,
+        target: ObjectId,
+    ) -> Result<()> {
         source.git.edit_reference(RefEdit::delete(
             format!("{MAP_PREFIX}{input}/{suffix}").try_into()?,
             PreviousValue::MustExistAndMatch(target.into()),
@@ -978,15 +1058,30 @@ mod tests {
             remove_partner(&source, input, suffix, target)?;
             let captured = SourceRepo::open_existing(&main, "test-source")?.unwrap();
             assert!(captured.import_boundaries().is_err());
-            assert!(source.git.try_find_reference(format!("{MAP_PREFIX}{input}/{suffix}"))?.is_none());
+            assert!(
+                source
+                    .git
+                    .try_find_reference(format!("{MAP_PREFIX}{input}/{suffix}").as_str())?
+                    .is_none()
+            );
 
             let writer = SourceRepo::open(&main, "test-source")?;
             assert_eq!(writer.persisted_inverse()?, BTreeMap::from([(input, raw)]));
             assert_eq!(writer.git.find_object(raw)?.data, bytes);
-            assert_eq!(writer.git.find_reference(format!("refs/jjosh/generations/{input}"))?.id().detach(), input);
+            assert_eq!(
+                writer
+                    .git
+                    .find_reference(format!("refs/jjosh/generations/{input}").as_str())?
+                    .id()
+                    .detach(),
+                input
+            );
             let tx = crate::interop::open_josh_transaction(writer.path(), false)
                 .map_err(|error| anyhow::anyhow!(error.error))?;
-            assert_eq!(writer.witnessed_generation(&tx, raw, input)?.tips[&raw], input);
+            assert_eq!(
+                writer.witnessed_generation(&tx, raw, input)?.tips[&raw],
+                input
+            );
             writer.retain_raw(&tx, &[raw])?;
         }
         Ok(())
@@ -997,34 +1092,97 @@ mod tests {
         let (_temporary, main, source, raw, input) = normalization_fixture()?;
         remove_partner(&source, input, "normalized", input)?;
         let raw_ref = format!("{MAP_PREFIX}{input}/raw");
-        let unrelated = source.git.find_object(raw)?.into_commit().parent_ids().next().unwrap().detach();
-        source.git.reference(raw_ref.as_str(), unrelated, PreviousValue::MustExistAndMatch(raw.into()), "conflicting writer")?;
+        let unrelated = source
+            .git
+            .find_object(raw)?
+            .into_commit()
+            .parent_ids()
+            .next()
+            .unwrap()
+            .detach();
+        source.git.reference(
+            raw_ref.as_str(),
+            unrelated,
+            PreviousValue::MustExistAndMatch(raw.into()),
+            "conflicting writer",
+        )?;
         assert!(SourceRepo::open(&main, "test-source").is_err());
-        assert!(source.git.try_find_reference(format!("{MAP_PREFIX}{input}/normalized"))?.is_none());
-        assert_eq!(source.git.find_reference(raw_ref.as_str())?.id().detach(), unrelated);
+        assert!(
+            source
+                .git
+                .try_find_reference(format!("{MAP_PREFIX}{input}/normalized").as_str())?
+                .is_none()
+        );
+        assert_eq!(
+            source.git.find_reference(raw_ref.as_str())?.id().detach(),
+            unrelated
+        );
 
         let missing = ObjectId::from_hex(b"1111111111111111111111111111111111111111")?;
-        source.git.reference(raw_ref.as_str(), missing, PreviousValue::MustExistAndMatch(unrelated.into()), "missing raw object")?;
+        source.git.reference(
+            raw_ref.as_str(),
+            missing,
+            PreviousValue::MustExistAndMatch(unrelated.into()),
+            "missing raw object",
+        )?;
         assert!(SourceRepo::open(&main, "test-source").is_err());
-        assert!(source.git.try_find_reference(format!("{MAP_PREFIX}{input}/normalized"))?.is_none());
-        assert_eq!(source.git.find_reference(raw_ref.as_str())?.id().detach(), missing);
+        assert!(
+            source
+                .git
+                .try_find_reference(format!("{MAP_PREFIX}{input}/normalized").as_str())?
+                .is_none()
+        );
+        assert_eq!(
+            source.git.find_reference(raw_ref.as_str())?.id().detach(),
+            missing
+        );
         Ok(())
     }
 
     #[test]
-    fn repair_verifies_surviving_witness_and_does_not_absorb_concurrent_creation() -> Result<()> {
+    fn repair_preserves_concurrent_ref_updates() -> Result<()> {
         let (_temporary, _main, source, raw, input) = normalization_fixture()?;
         remove_partner(&source, input, "normalized", input)?;
         let edits = source.normalization_repairs()?;
         remove_partner(&source, input, "raw", raw)?;
         assert!(source.git.edit_references(edits).is_err());
-        assert!(source.git.try_find_reference(format!("{MAP_PREFIX}{input}/normalized"))?.is_none());
+        assert!(
+            source
+                .git
+                .try_find_reference(format!("{MAP_PREFIX}{input}/normalized").as_str())?
+                .is_none()
+        );
 
-        source.git.reference(format!("{MAP_PREFIX}{input}/raw"), raw, PreviousValue::MustNotExist, "restore test witness")?;
+        source.git.reference(
+            format!("{MAP_PREFIX}{input}/raw"),
+            raw,
+            PreviousValue::MustNotExist,
+            "restore test witness",
+        )?;
         let edits = source.normalization_repairs()?;
-        source.git.reference(format!("{MAP_PREFIX}{input}/normalized"), input, PreviousValue::MustNotExist, "concurrent repair")?;
-        assert!(source.git.edit_references(edits).is_err());
+        source.git.reference(
+            format!("{MAP_PREFIX}{input}/normalized"),
+            input,
+            PreviousValue::MustNotExist,
+            "concurrent repair",
+        )?;
+        source.git.edit_references(edits)?;
         assert_eq!(source.persisted_inverse()?, BTreeMap::from([(input, raw)]));
+
+        remove_partner(&source, input, "normalized", input)?;
+        let edits = source.normalization_repairs()?;
+        let counterpart = format!("{MAP_PREFIX}{input}/normalized");
+        source.git.reference(
+            counterpart.as_str(),
+            raw,
+            PreviousValue::MustNotExist,
+            "concurrent contradictory update",
+        )?;
+        assert!(source.git.edit_references(edits).is_err());
+        assert_eq!(
+            source.git.find_reference(counterpart.as_str())?.id().detach(),
+            raw
+        );
         Ok(())
     }
     #[test]
@@ -1037,22 +1195,36 @@ mod tests {
             "unproven normalization input",
         )?;
         assert!(SourceRepo::open(&main, "test-source").is_err());
-        assert!(source.git.try_find_reference(format!("{MAP_PREFIX}{raw}/raw"))?.is_none());
+        assert!(
+            source
+                .git
+                .try_find_reference(format!("{MAP_PREFIX}{raw}/raw").as_str())?
+                .is_none()
+        );
         Ok(())
     }
 
     #[test]
     fn writer_reconstructs_exported_raw_partners_from_retained_parent_relations() -> Result<()> {
         let (_temporary, main, source, boundary_raw, boundary_input) = normalization_fixture()?;
-        let tree = source.git.find_object(boundary_input)?.into_commit().tree_id()?.detach();
-        let child = source.git.write_buf(
-            gix_object::Kind::Commit,
-            format!("tree {tree}\nparent {boundary_input}\nauthor A <a@example.org> 3 +0000\ncommitter A <a@example.org> 3 +0000\ngpgsig export signature\n\nchild\n").as_bytes(),
-        )?;
-        let tip = source.git.write_buf(
-            gix_object::Kind::Commit,
-            format!("tree {tree}\nparent {child}\nauthor A <a@example.org> 4 +0000\ncommitter A <a@example.org> 4 +0000\n\ntip\n").as_bytes(),
-        )?;
+        let tree = source
+            .git
+            .find_object(boundary_input)?
+            .into_commit()
+            .tree_id()?
+            .detach();
+        let child = source.git.write_buf(gix_object::Kind::Commit,
+        format!(
+            "tree {tree}\nparent {boundary_input}\nauthor A <a@example.org> 3 \
+             +0000\ncommitter A <a@example.org> 3 +0000\ngpgsig export signature\n\nchild\n"
+        )
+        .as_bytes(),).map_err(anyhow::Error::from_boxed)?;
+        let tip = source.git.write_buf(gix_object::Kind::Commit,
+        format!(
+            "tree {tree}\nparent {child}\nauthor A <a@example.org> 4 +0000\ncommitter A \
+             <a@example.org> 4 +0000\n\ntip\n"
+        )
+        .as_bytes(),).map_err(anyhow::Error::from_boxed)?;
         let tx = crate::interop::open_josh_transaction(source.path(), false)
             .map_err(|error| anyhow::anyhow!(error.error))?;
         let publication = source.denormalize(&tx, tip, &Normalized::default())?;
@@ -1062,7 +1234,8 @@ mod tests {
         let inverse = source.persisted_inverse()?;
         let raw_tip = inverse[&tip];
         let raw_child = inverse[&child];
-        let original_bytes: Vec<_> = [boundary_raw, raw_child, raw_tip].into_iter()
+        let original_bytes: Vec<_> = [boundary_raw, raw_child, raw_tip]
+            .into_iter()
             .map(|id| Ok((id, source.git.find_object(id)?.data.to_vec())))
             .collect::<Result<_>>()?;
         remove_partner(&source, child, "raw", raw_child)?;
@@ -1076,12 +1249,22 @@ mod tests {
         }
         let tx = crate::interop::open_josh_transaction(writer.path(), false)
             .map_err(|error| anyhow::anyhow!(error.error))?;
-        assert_eq!(writer.witnessed_generation(&tx, raw_tip, tip)?.tips[&raw_tip], tip);
-        assert_eq!(writer.witnessed_generation(&tx, boundary_raw, boundary_input)?.tips[&boundary_raw], boundary_input);
-        assert_eq!(writer.denormalize(&tx, tip, &Normalized::default())?.tips, publication.tips);
+        assert_eq!(
+            writer.witnessed_generation(&tx, raw_tip, tip)?.tips[&raw_tip],
+            tip
+        );
+        assert_eq!(
+            writer
+                .witnessed_generation(&tx, boundary_raw, boundary_input)?
+                .tips[&boundary_raw],
+            boundary_input
+        );
+        assert_eq!(
+            writer.denormalize(&tx, tip, &Normalized::default())?.tips,
+            publication.tips
+        );
         Ok(())
     }
-
 
     #[test]
     fn interrupted_cache_population_leaves_no_published_cache_and_can_retry() -> Result<()> {

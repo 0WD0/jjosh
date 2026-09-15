@@ -2619,7 +2619,6 @@ pub fn create_worktree(
         &git_repo,
         gix::refs::transaction::PreviousValue::MustExistAndMatch(unborn_branch),
         None,
-        None,
     )
     .map_err(GitCreateWorktreeError::from_git)
 }

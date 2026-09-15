@@ -1,18 +1,27 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::BTreeMap;
+use std::collections::HashMap;
+use std::collections::HashSet;
 use std::io::Write as _;
 
 use jj_cli::cli_util::CommandHelper;
-use jj_cli::command_error::{CommandError, user_error, user_error_with_message};
+use jj_cli::command_error::CommandError;
+use jj_cli::command_error::user_error;
+use jj_cli::command_error::user_error_with_message;
 use jj_cli::ui::Ui;
 use jj_lib::op_store::View;
-use jj_lib::project::{
-    BindingId, BindingRecord, BindingTarget, ConnectionId, ProjectState, Representation,
-};
+use jj_lib::project::BindingId;
+use jj_lib::project::BindingRecord;
+use jj_lib::project::BindingTarget;
+use jj_lib::project::ConnectionId;
+use jj_lib::project::ProjectState;
+use jj_lib::project::Representation;
 use jj_lib::ref_name::RemoteNameBuf;
 use jj_lib::repo::Repo as _;
-use jj_lib::repo_path::{RepoPath, RepoPathBuf};
+use jj_lib::repo_path::RepoPath;
+use jj_lib::repo_path::RepoPathBuf;
 
-use crate::native_source::{NativeSource, SourceState};
+use crate::native_source::NativeSource;
+use crate::native_source::SourceState;
 
 #[derive(clap::Args, Clone, Debug)]
 #[command(group(clap::ArgGroup::new("sources").args(["nested", "preserve"]).multiple(true).required(true)))]
@@ -95,7 +104,8 @@ pub(crate) async fn run_import(
                 .map_err(|err| user_error_with_message("Invalid import source name", err))?;
             if path.is_empty() || !names.insert(name.clone()) {
                 return Err(user_error(
-                    "Source paths must not be empty and source names must be unique across --nested and --preserve",
+                    "Source paths must not be empty and source names must be unique across \
+                     --nested and --preserve",
                 ));
             }
             specifications.push((name, command.cwd().join(path), mode));
@@ -384,72 +394,74 @@ pub(crate) async fn run_import(
     tx.repo_mut().set_view(view);
     let edits: Vec<_> = edits.into_values().collect();
     let publication = async {
-    git.edit_references(edits).map_err(user_error)?;
-    jj_lib::git::import_remote_configs(tx.repo().store(), &remote_configs)?;
-    let stats = jj_lib::git::export_some_refs(tx.repo_mut(), |kind, symbol| {
-        if symbol.remote == jj_lib::git::REMOTE_NAME_FOR_LOCAL_GIT_REPO {
-            match kind {
-                jj_lib::git::GitRefKind::Bookmark => local_bookmarks.contains(symbol.name),
-                jj_lib::git::GitRefKind::Tag => local_tags.contains(symbol.name),
+        git.edit_references(edits).map_err(user_error)?;
+        jj_lib::git::import_remote_configs(tx.repo().store(), &remote_configs)?;
+        let stats = jj_lib::git::export_some_refs(tx.repo_mut(), |kind, symbol| {
+            if symbol.remote == jj_lib::git::REMOTE_NAME_FOR_LOCAL_GIT_REPO {
+                match kind {
+                    jj_lib::git::GitRefKind::Bookmark => local_bookmarks.contains(symbol.name),
+                    jj_lib::git::GitRefKind::Tag => local_tags.contains(symbol.name),
+                }
+            } else {
+                remotes.contains(symbol.remote)
             }
-        } else {
-            remotes.contains(symbol.remote)
+        })?;
+        jj_cli::git_util::print_git_export_stats(ui, tx.repo().view(), &stats)?;
+        if stats
+            .failed_bookmarks
+            .iter()
+            .chain(&stats.failed_tags)
+            .any(|(_, reason)| {
+                !matches!(
+                    reason,
+                    jj_lib::git::FailedRefExportReason::InvalidGitName
+                        | jj_lib::git::FailedRefExportReason::OnRootCommit
+                )
+            })
+        {
+            return Err(user_error("Cannot install imported Git mirrors"));
         }
-    })?;
-    jj_cli::git_util::print_git_export_stats(ui, tx.repo().view(), &stats)?;
-    if stats
-        .failed_bookmarks
-        .iter()
-        .chain(&stats.failed_tags)
-        .any(|(_, reason)| {
-            !matches!(
-                reason,
-                jj_lib::git::FailedRefExportReason::InvalidGitName
-                    | jj_lib::git::FailedRefExportReason::OnRootCommit
-            )
-        })
-    {
-        return Err(user_error(
-            "Cannot install imported Git mirrors",
-        ));
+        command
+            .maybe_commit_transaction(tx.into_inner(), "import project states")
+            .await?;
+        Ok::<_, CommandError>(())
     }
-    command
-        .maybe_commit_transaction(tx.into_inner(), "import project states")
-        .await?;
-    Ok::<_, CommandError>(())
-    }.await;
-    publication.map_err(|error| user_error_with_message(
-        "Project import stopped after native installation began. Source repositories are unchanged; \
-         copied objects, provenance and any completed destination config/ref changes were retained. \
-         Resolve the reported resource conflict before importing again.",
-        error.error,
-    ))?;
+    .await;
+    publication.map_err(|error| {
+        user_error_with_message(
+            "Project import stopped after native installation began. Source repositories are \
+             unchanged; copied objects, provenance and any completed destination config/ref \
+             changes were retained. Resolve the reported resource conflict before importing again.",
+            error.error,
+        )
+    })?;
     for (source, (projects, commits, signatures)) in witnesses.iter().zip(summaries) {
         if source.provenance.is_some() {
             writeln!(
                 ui.status(),
-                "Imported {}: {projects} preserved projects, {commits} commits, \
-                {signatures} invalidated signatures removed.",
+                "Imported {}: {projects} preserved projects, {commits} commits, {signatures} \
+                 invalidated signatures removed.",
                 source.name
             )?;
         } else {
             writeln!(
                 ui.status(),
-                "Imported {}: new nested project, {commits} commits, {signatures} invalidated signatures removed.",
+                "Imported {}: new nested project, {commits} commits, {signatures} invalidated \
+                 signatures removed.",
                 source.name
             )?;
         }
     }
     writeln!(
         ui.status(),
-        "Projects imported in one transaction; working copy unchanged. \
-        Select imported revisions by their bookmarks or change IDs with jjosh new."
+        "Projects imported in one transaction; working copy unchanged. Select imported revisions \
+         by their bookmarks or change IDs with jjosh new."
     )?;
     if witnesses.iter().any(|source| source.provenance.is_some()) {
         writeln!(
             ui.status(),
-            "Preserved sources retain project identities, connection settings, and conversion evidence. \
-            No remote fetch or push was performed."
+            "Preserved sources retain project identities, connection settings, and conversion \
+             evidence. No remote fetch or push was performed."
         )?;
     }
     Ok(())

@@ -414,11 +414,7 @@ impl From<ResetError> for CommandError {
 
 impl From<TransactionCommitError> for CommandError {
     fn from(err: TransactionCommitError) -> Self {
-        match err {
-            #[cfg(feature = "git")]
-            TransactionCommitError::LocalState(err) => err.into(),
-            err => internal_error(err),
-        }
+        internal_error(err)
     }
 }
 

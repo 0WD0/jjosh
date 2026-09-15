@@ -334,7 +334,10 @@ fn mixed_import_failure_preserves_sources_and_independent_resources() {
     assert_eq!(target.operation_id(), state_before.0);
     fs::remove_file(lock).unwrap();
     assert_eq!(target.state(), state_before);
-    assert_eq!(native_git(&git_dir, &["config", "remote.existing.tagOpt"]).trim(), "--no-tags");
+    assert_eq!(
+        native_git(&git_dir, &["config", "remote.existing.tagOpt"]).trim(),
+        "--no-tags"
+    );
     assert_eq!(
         fs::read(target.path.join(".jj/repo/config.toml")).ok(),
         repo_config_before
@@ -345,7 +348,6 @@ fn mixed_import_failure_preserves_sources_and_independent_resources() {
     }
     assert_eq!(source.state(), source_before);
     assert_eq!(nested.state(), nested_before);
-
 }
 
 #[test]
@@ -412,7 +414,6 @@ fn outer_import_failure_preserves_sources_and_independent_resources() {
         assert!(refs().contains(&reference));
     }
     assert_eq!(source.state(), source_before);
-
 }
 
 #[test]
@@ -2090,24 +2091,79 @@ fn legacy_source_migration_preserves_alias_verbatim_and_retires_malformed_remote
     mono.jj(&["project", "migrate", "--dry-run"]);
     assert_eq!(mono.state(), state);
     assert_eq!(fs::read(&config_path).unwrap(), config);
-    // A native mirror lock fails after publication and config-first rename.
-    // Retrying must reuse those identities, not restore an older operation.
+    // The mirror lock fails after logical publication, before the prepared
+    // native rename changes config. The old endpoint must already be fenced.
     let physical = format!("jjosh-{connection}");
     let canonical = mono.log("main#app", "commit_id");
-    native_git(&git_dir, &["update-ref", "refs/remotes/app-origin/main#app", &canonical]);
+    native_git(
+        &git_dir,
+        &["update-ref", "refs/remotes/app-origin/main#app", &canonical],
+    );
     let mirror_lock = git_dir.join(format!("refs/remotes/{physical}/main#app.lock"));
     fs::create_dir_all(mirror_lock.parent().unwrap()).unwrap();
     fs::write(&mirror_lock, "another writer\n").unwrap();
-    assert!(!mono.unchecked(&["project", "migrate", "--apply"]).status.success());
+    assert!(
+        !mono
+            .unchecked(&["project", "migrate", "--apply"])
+            .status
+            .success()
+    );
     assert_ne!(mono.operation_id(), state.0);
-    assert_eq!(native_git(&git_dir, &["config", &format!("remote.{physical}.jjosh-requiredCapability")]).trim(), "jjosh-v1");
-    assert_eq!(native_git(&git_dir, &["rev-parse", "refs/remotes/app-origin/main#app"]).trim(), canonical);
+    assert_eq!(
+        native_git(
+            &git_dir,
+            &["config", "remote.app-origin.jjosh-requiredCapability"]
+        )
+        .trim(),
+        "jjosh-v1"
+    );
+    assert_eq!(
+        native_git(&git_dir, &["rev-parse", "refs/remotes/app-origin/main#app"]).trim(),
+        canonical
+    );
     fs::remove_file(mirror_lock).unwrap();
+    // Also exercise a crash after native config publication but before its refs:
+    // complete only the config portion, leaving the old mirror for retry.
+    native_git(
+        &git_dir,
+        &[
+            "config",
+            "--rename-section",
+            "remote.app-origin",
+            &format!("remote.{physical}"),
+        ],
+    );
+    native_git(
+        &git_dir,
+        &[
+            "config",
+            "--replace-all",
+            &format!("remote.{physical}.fetch"),
+            &format!("+refs/heads/*:refs/remotes/{physical}/*"),
+        ],
+    );
     let published_operation = mono.operation_id();
     mono.jj(&["project", "migrate", "--apply"]);
     assert_eq!(mono.operation_id(), published_operation);
-    assert_eq!(native_git(&git_dir, &["rev-parse", &format!("refs/remotes/{physical}/main#app")]).trim(), canonical);
-    assert!(!native_git(&git_dir, &["for-each-ref", "--format=%(refname)", "refs/remotes/app-origin/"]).contains("main#app"));
+    assert_eq!(
+        native_git(
+            &git_dir,
+            &["rev-parse", &format!("refs/remotes/{physical}/main#app")]
+        )
+        .trim(),
+        canonical
+    );
+    assert!(
+        !native_git(
+            &git_dir,
+            &[
+                "for-each-ref",
+                "--format=%(refname)",
+                "refs/remotes/app-origin/"
+            ]
+        )
+        .contains("main#app")
+    );
     let physical = mono.physical_remote("app", "app-origin");
     assert_eq!(physical, format!("jjosh-{connection}"));
     let keys = native_git(&git_dir, &["config", "--local", "--name-only", "--list"]);
