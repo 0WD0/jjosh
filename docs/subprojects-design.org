@@ -85,7 +85,7 @@ URL、push URL、认证、未知 per-remote 项和 include/global 配置来源�
 
 ** 引用选取开发版本
 
-当前本地 bookmark/tag 仍以普通名字存储，登记的 label 解释项目后缀：
+本地 bookmark/tag 以普通名字存储，登记的稳定 label 解释项目后缀：
 
 #+begin_example
 topic                         根本地引用
@@ -97,6 +97,12 @@ topic#parser@origin           parser 的 origin 历史记录
 登记检查已有引用，避免重新解释现存名字；
 根或 RepositoryView 来源不能把与活动 label 冲突的 raw ref 当普通根名字写入。
 项目发布的 wire ref 去掉交付 label。
+
+这是当前引用模型的明确限制：登记 =parser= 后，根中的字面 =topic#parser= 与 parser 的交付引用不能作为两个独立本地身份共存。
+当前通过拒绝碰撞处理这种情况。label 参与引用归属，不是纯展示字段；登记和移除都须检查引用依赖，不能静默改变既有名字的归属。
+
+解析、显示、补全、模板和命令选择应复用一致的 label／remote 解析与格式化规则，不在业务层各自拆分显示字符串来判断归属。
+这些是现有 subproject 引用约定的维护要求，不要求改变引用存储格式或增加新的范围语法。
 
 =RefTarget= 保存完整 =Merge<Option<CommitId>>=；remote ref 还保存 tracking 状态。
 不能把冲突简化为一个 OID，也不能把同 change ID 的多个版本当作可随意互换。
