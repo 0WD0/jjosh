@@ -64,8 +64,10 @@ jjosh status
 jjosh project add parser --path libs/parser
 #+end_src
 
-登记不搬文件、不改提交。项目目前各占一个非根目录，目录不能重叠。
+登记不搬文件、不改提交。项目各占一个非根目录，可以严格包含，但不同项目不能占用同一根目录。
 目录也可以尚未出现，随后从来源获取内容。
+
+父项目始终发布完整子树，包括已登记子项目的本地源码；不会自动排除子目录、递归逆转换或向子项目 remote 推送。父子各自使用独立的 =NAME#LABEL= 引用、连接和 lease；移除父项目的登记不删除文件，也不移除子项目。登记父项目与子项目的顺序不限。
 
 ** 从 Git 仓库带入
 
@@ -539,13 +541,13 @@ jjosh project check parser
 
 ** 旧格式仓库
 
-当前项目存储格式是 =simple_op_store_projects_v3=，包含当前与历史连接身份、signed project state 和 conversion observations。
+v3 项目存储包含当前与历史连接身份、signed project state 和 conversion observations。父子项目也继续写入 =simple_op_store_projects_v3=；嵌套只改变合法拓扑约束，不新增存储格式或 metadata version。
 v1/v2 store 仍可读取，因此可以检查旧仓库和历史对象；当前版本不会把它们写回，也没有 =project migrate= 命令。
 
 若一个*当前仓库*仍使用 v1/v2，先备份 jj operation 元数据、Git/backend 对象与配置、来源对象库和 publication ledger，然后使用支持该旧格式迁移的历史 jjosh 版本完成升级。确认仓库已经写成 v3 后，再切换到当前版本。
 不要尝试通过手工修改 =.jj/repo/op_store/type=、删除 legacy sidecar 或复制当前配置来跳过升级；这些标记不是完整的语义状态。
 
-旧 operation 继续按其记录的身份读取。普通根 remote 的物理 Git 名字仍可为 origin，这不表示仓库可由旧版或上游原版 jj 写入；这些 writer 不得写入 v3 存储。
+旧 operation 继续按其记录的身份读取。普通根 remote 的物理 Git 名字仍可为 origin，这不表示仓库可由旧版或上游原版 jj 写入；不兼容 writer 不得写入项目存储。
 若当前版本检测到旧 =jjosh-readOnly=、旧 scoped identity 或 Josh sidecar authority，会拒绝把它当成当前连接；应回到能理解那一代格式的历史 jjosh 完成升级，而不是让当前命令猜测旧状态。
 
 ** 数据与权限边界

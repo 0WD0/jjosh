@@ -8,7 +8,8 @@ jjosh 不把 monorepo 拆成多个 jj 仓库。
 项目本地引用指向完整提交，而不是只有该项目的私有提交图。
 
 项目定义给出完整树中的非根目录。
-活动项目目录不能相等、重叠或互相包含；所有未解决定义的正项候选也参与占用检查。
+不同项目的目录可以互不相交或严格包含，但不能相等；所有未解决定义的正项候选也参与同根、同名占用检查。
+父项目的交付范围始终包含完整子树，不因登记、移除子项目而挖掉子目录。父子关系由当前 canonical 路径推导，不增加父项目 ID 或嵌套引用语法。
 目录暂时为空并不表示项目不存在。
 登记检查已有树中的路径占用，不把普通文件或 symlink 当作可用目录。
 
@@ -18,6 +19,10 @@ jjosh 不把 monorepo 拆成多个 jj 仓库。
 工作副本 sparse/layout 是完整树的检出映射，不改变项目的 canonical 路径。
 把 =libs/parser/= 检出到磁盘根与检出完整 monorepo，仍在操作同一份开发图。
 登记、改名等项目操作记录定义变化，不代替文件移动或源码提交。
+
+父子项目的 ID、label、连接、转换观察和 publication lease 相互独立；移除或改名父项目不级联修改子项目。
+父发布包含内层源码的本地表示，不递归执行内层 binding 的逆转换，也不向子项目 remote 推送。父 fetch 得到内层源码不等于观察到了子项目的服务器；子项目 fetch/push 同样不能更新父项目的观察或 lease。
+同一修改从父、子来源到达时仍按原生版本与转换证据校验和整合，不能只因路径包含就判定同版本、自动覆盖，或授权跨范围发布。
 
 * 四个不能互相推导的领域
 
@@ -194,7 +199,7 @@ main@jjosh-observed-OLD_ID
 三方合并组合 =own - base + other= 的完整表达式，再消去可平凡化的项；不能只对可见正项做集合并集。
 缺失是删除语义的一部分，重复同改动可以收敛，改名冲突和删除／修改冲突必须保留。
 
-按稳定 ID 合并后才推导跨记录约束：同名、目录重叠、多绑定、悬空 label、物理所有者冲突、观察与不可变定义不一致等。
+按稳定 ID 合并后才推导跨记录约束：同名、同根、多绑定、悬空 label、物理所有者冲突、观察与不可变定义不一致等。严格包含不是冲突，父定义冲突也不会使健康子定义自动失效。
 项目记录按整条合并，不从不同分支拼出一个未发生过的定义。
 诊断定位相关项目／绑定／引用，健康项目不因无关坏定义一律停用。
 
@@ -290,6 +295,7 @@ nested 的来源内层连接 =origin#inner= 展平为外层项目内的历史别
 重复历史别名允许共存，以 list 显示的物理选择器区分。
 
 preserve 的项目引用保持原 label，普通根引用加来源名前缀。
+已有的父子项目身份一并保留，只统一增加路径前缀；可以导入现有父项目下的空目录。多个来源的实际导入位置仍须互不包含，且不能覆盖已有文件；这与允许项目交付范围嵌套是两回事。
 保留模式拒绝项目身份复用、名字／目录冲突及不一致转换依据，不静默换 ID。
 来源 RepositoryView 无法在保持整仓库语义的同时挂到子目录；有地址但无活动项目绑定的连接也不能直接续接，所以这两类输入被拒绝，需选择 nested 或保持独立仓库。
 
@@ -316,9 +322,11 @@ raw 历史、浅边界、旧 normalization 代际、原生对应关系和发布 
 备份需覆盖 jj operation 元数据、Git/backend 对象与配置、来源存储及不可重建 provenance。
 普通 Git clone 不承担完整 jj 仓库备份的职责。
 
-** v3 的读写边界
+** 项目格式的读写边界
 
 项目仓库当前使用 =simple_op_store_projects_v3=，编码区分当前逻辑身份与历史 observed 身份，并保留完整 signed terms。
+父子项目仍使用同一套 v3 ProjectRecord、signed project state 和 metadata 编码。允许严格包含只是拓扑约束变化，不新增字段、ID、metadata version 或 operation-store 类型，也不重写旧历史。
+因此嵌套项目不设置额外 writer capability gate；版本兼容仍由 v3 本身的字段／身份合同决定，而不是目录包含关系决定。
 旧 v1/v2 View 可读取，缺少扩展时保留原有内容散列语义；读取本身不合成 observed 字段，身份捕获发生在明确变更／恢复边界，不拿当前配置重新解释历史。
 
 v1/v2 operation-store 类型只保留读取兼容；当前版本不写回，也不提供原地升级入口。
@@ -362,7 +370,7 @@ Git config 与 refs 是独立的原生事务：ref 锁在 config 发布前准备
 | 导入规划 | [[file:../crates/jjosh-cli/src/project_import.rs][project_import.rs]]、[[file:../crates/jjosh-cli/src/native_import.rs][native_import.rs]]、[[file:../crates/jjosh-cli/src/project_preserve.rs][project_preserve.rs]] |
 | projection 与保留根 | [[file:../crates/jjosh-cli/src/projection.rs][projection.rs]]、[[file:../jj/cli/src/commands/util/gc.rs][GC]] |
 
-这些边界不改变 v3 编码。
+嵌套语义属于 v3 ProjectState 的合法拓扑；项目记录字段与引用编码不变，已有 View 字节不重写。
 身份查询保留 Logical／Historical 来源，不要求历史项目处于活动状态；View 在需要当前拓扑时另做验证。
 导入层决定挂载与命名策略，库层统一搬运引用、历史 owner、历史名字和转换依据。
 恢复只复制所选状态，不为提取观察而复制整份历史 View；显示历史名字也不需要先复制 View。

@@ -290,6 +290,57 @@ fn different_versions_of_one_change_have_separate_summaries() {
 }
 
 #[test]
+fn nested_summaries_include_every_touched_scope_without_hiding_parent_edits() {
+    let f = Fixture::new();
+    f.two_projects();
+    f.jj(&["project", "add", "bundle", "--path", "libs"]);
+    f.write("libs/a/file", "a\n");
+    f.write("libs/b/file", "b\n");
+    f.write("libs/glue", "glue\n");
+    let base = f.log("@", "commit_id");
+    assert_eq!(f.touched("@"), ["alpha", "bundle", "zeta"]);
+    f.jj(&["new"]);
+    f.write("libs/a/file", "child edit\n");
+    assert_eq!(f.touched("@"), ["bundle", "zeta"]);
+    f.write("libs/glue", "parent edit\n");
+    assert_eq!(f.touched("@"), ["bundle", "zeta"]);
+    let left = f.log("@", "commit_id");
+    f.jj(&["new", &base]);
+    f.write("libs/b/file", "sibling edit\n");
+    let right = f.log("@", "commit_id");
+    f.jj(&["new", &left, &right]);
+    assert!(f.touched("@").is_empty());
+    f.write("libs/glue", "merge edit\n");
+    assert_eq!(f.touched("@"), ["bundle"]);
+    f.jj(&["sparse", "set", "root:libs/a"]);
+    f.jj(&["sparse", "map", "set", "libs/a=."]);
+    assert_eq!(f.touched(&left), ["bundle", "zeta"]);
+
+    let before = f.operation();
+    f.jj(&["project", "remove", "bundle"]);
+    assert_eq!(f.touched(&left), ["zeta"]);
+    f.jj(&["op", "restore", &before, "--what", "repo"]);
+    f.jj(&["project", "remove", "zeta"]);
+    assert_eq!(f.touched(&left), ["bundle"]);
+    f.jj(&["op", "restore", &before, "--what", "repo"]);
+    f.jj(&["project", "rename", "bundle", "renamed"]);
+    assert_eq!(f.touched(&left), ["renamed", "zeta"]);
+    assert_eq!(
+        f.jj(&[
+            "--at-op",
+            &before,
+            "log",
+            "-r",
+            &left,
+            "--no-graph",
+            "-T",
+            "touched_projects.join(',')"
+        ]),
+        "bundle,zeta"
+    );
+}
+
+#[test]
 fn default_log_adds_only_nonempty_summaries_and_respects_overrides() {
     let f = Fixture::new();
     let plain = f.jj(&["log", "-r", "@ | root()"]);
