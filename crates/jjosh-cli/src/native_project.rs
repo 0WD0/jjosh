@@ -178,7 +178,7 @@ pub(crate) async fn commit_path_occupied(commit: &Commit, path: &RepoPath) -> Re
     Ok(false)
 }
 
-async fn commit_has_project_tree(commit: &Commit, mount: &RepoPath) -> Result<bool> {
+pub(crate) async fn commit_has_project_tree(commit: &Commit, mount: &RepoPath) -> Result<bool> {
     let store = commit.store().as_ref();
     let mut present = false;
     for id in commit.tree_ids().iter() {
