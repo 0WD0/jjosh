@@ -1,5 +1,8 @@
+pub(crate) mod export;
+
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::sync::Arc;
 
 use anyhow::Context as _;
 use anyhow::Result;
@@ -50,7 +53,7 @@ pub(crate) fn binding_ref_prefix(binding: &BindingId) -> String {
     format!("refs/jjosh/native-bindings/{}/", binding.hex())
 }
 
-/// Materialize only immutable objects; the importer journals and publishes the refs.
+/// Materialize only immutable objects; the importer owns ref installation and publication.
 pub(crate) fn prepare_offline_import(
     git: &gix::Repository,
     binding: &BindingId,
@@ -143,7 +146,7 @@ pub(crate) fn check_mounts_disjoint<'a>(
 }
 
 async fn value_at_path(
-    store: &Store,
+    store: &Arc<Store>,
     tree_id: &TreeId,
     path: &RepoPath,
 ) -> Result<Option<TreeValue>> {
@@ -152,16 +155,19 @@ async fn value_at_path(
         "Project mount cannot be the repository root"
     );
     let mut current = tree_id.clone();
+    let mut directory = RepoPathBuf::root();
     let components: Vec<_> = path.components().collect();
     for (index, component) in components.iter().enumerate() {
-        let tree = store
-            .backend()
-            .read_tree(RepoPath::root(), &current)
-            .await?;
+        // Go through Store's bounded tree cache. Git histories share subtrees across
+        // many commits; reading Backend directly repeatedly decodes those same objects.
+        let tree = store.get_tree(directory.clone(), &current).await?;
         match tree.value(component) {
             None => return Ok(None),
             Some(value) if index + 1 == components.len() => return Ok(Some(value.clone())),
-            Some(TreeValue::Tree(id)) => current = id.clone(),
+            Some(TreeValue::Tree(id)) => {
+                current = id.clone();
+                directory = directory.join(component);
+            }
             Some(value) => return Ok(Some(value.clone())),
         }
     }
@@ -169,7 +175,7 @@ async fn value_at_path(
 }
 
 pub(crate) async fn commit_path_occupied(commit: &Commit, path: &RepoPath) -> Result<bool> {
-    let store = commit.store().as_ref();
+    let store = commit.store();
     for id in commit.tree_ids().iter() {
         if value_at_path(store, id, path).await?.is_some() {
             return Ok(true);
@@ -179,7 +185,7 @@ pub(crate) async fn commit_path_occupied(commit: &Commit, path: &RepoPath) -> Re
 }
 
 pub(crate) async fn commit_has_project_tree(commit: &Commit, mount: &RepoPath) -> Result<bool> {
-    let store = commit.store().as_ref();
+    let store = commit.store();
     let mut present = false;
     for id in commit.tree_ids().iter() {
         match value_at_path(store, id, mount).await? {
@@ -195,7 +201,7 @@ pub(crate) async fn commit_has_project_tree(commit: &Commit, mount: &RepoPath) -
     Ok(present)
 }
 
-async fn tree_id_at_path(store: &Store, tree_id: &TreeId, path: &RepoPath) -> Result<TreeId> {
+async fn tree_id_at_path(store: &Arc<Store>, tree_id: &TreeId, path: &RepoPath) -> Result<TreeId> {
     match value_at_path(store, tree_id, path).await? {
         Some(TreeValue::Tree(id)) => Ok(id),
         None => Ok(store.empty_tree_id().clone()),
@@ -521,10 +527,7 @@ pub(crate) async fn project_tree(commit: &Commit, mount: &RepoPath) -> Result<Me
         if terms.contains_key(id) {
             continue;
         }
-        terms.insert(
-            id.clone(),
-            tree_id_at_path(store.as_ref(), id, mount).await?,
-        );
+        terms.insert(id.clone(), tree_id_at_path(store, id, mount).await?);
     }
     Ok(MergedTree::new(
         store.clone(),
@@ -533,132 +536,4 @@ pub(crate) async fn project_tree(commit: &Commit, mount: &RepoPath) -> Result<Me
     )
     .resolve()
     .await?)
-}
-
-struct Projected {
-    raw: CommitId,
-    tree: Merge<TreeId>,
-}
-
-enum Visit {
-    Read(CommitId),
-    Write(Commit),
-}
-
-pub(crate) async fn export_project(
-    repo: &dyn Repo,
-    mount: &RepoPath,
-    head: &Commit,
-    known: &HashMap<CommitId, CommitId>,
-) -> Result<(CommitId, Vec<(CommitId, CommitId)>)> {
-    ensure!(
-        !project_tree(head, mount).await?.has_conflict(),
-        "Project mount {} has unresolved conflicts at the publication revision",
-        mount.as_internal_file_string()
-    );
-    let mut reverse = HashMap::new();
-    for (raw, canonical) in known {
-        if let Some(previous) = reverse.insert(canonical.clone(), raw.clone()) {
-            ensure!(
-                previous == *raw,
-                "Project has ambiguous reverse history correspondence at {canonical}"
-            );
-        }
-    }
-    let backend = jj_lib::git::get_git_backend(repo.store())?;
-    let root = repo.store().root_commit_id();
-    let mut mapped = HashMap::from([(
-        root.clone(),
-        Projected {
-            raw: root.clone(),
-            tree: Merge::resolved(repo.store().empty_tree_id().clone()),
-        },
-    )]);
-    let mut pending = vec![Visit::Read(head.id().clone())];
-    let mut publications = Vec::new();
-    let mut published_ids = HashSet::new();
-    while let Some(visit) = pending.pop() {
-        match visit {
-            Visit::Read(id) => {
-                if mapped.contains_key(&id) {
-                    continue;
-                }
-                let commit = repo.store().get_commit_async(&id).await?;
-                if let Some(raw) = reverse.get(&id) {
-                    mapped.insert(
-                        id,
-                        Projected {
-                            raw: raw.clone(),
-                            tree: project_tree(&commit, mount).await?.tree_ids().clone(),
-                        },
-                    );
-                    continue;
-                }
-                let parents = commit.parent_ids().to_vec();
-                pending.push(Visit::Write(commit));
-                pending.extend(parents.into_iter().map(Visit::Read));
-            }
-            Visit::Write(commit) => {
-                let tree = project_tree(&commit, mount).await?;
-                let mut seen = HashSet::new();
-                let mut parents: Vec<_> = commit
-                    .parent_ids()
-                    .iter()
-                    .map(|id| mapped[id].raw.clone())
-                    .filter(|id| seen.insert(id.clone()))
-                    .collect();
-                if parents.len() > 1 {
-                    parents.retain(|id| id != root);
-                }
-                let same_parent = if parents.len() == 1 {
-                    commit.parent_ids().iter().find(|id| {
-                        mapped[*id].raw == parents[0] && mapped[*id].tree == *tree.tree_ids()
-                    })
-                } else {
-                    None
-                };
-                if let Some(parent) = same_parent {
-                    mapped.insert(
-                        commit.id().clone(),
-                        Projected {
-                            raw: mapped[parent].raw.clone(),
-                            tree: tree.tree_ids().clone(),
-                        },
-                    );
-                    continue;
-                }
-                if parents.is_empty() {
-                    parents.push(root.clone());
-                }
-                let mut contents = commit.store_commit().as_ref().clone();
-                contents.parents = parents;
-                contents.root_tree = tree.tree_ids().clone();
-                contents.conflict_labels = tree.labels().as_merge().clone();
-                contents.predecessors.clear();
-                contents.secure_sig = None;
-                let (raw, exported) = backend.write_commit_for_export(contents.clone())?;
-                ensure!(
-                    exported == contents,
-                    "Backend changed metadata while projecting {}",
-                    commit.id()
-                );
-                if !known.contains_key(&raw) && published_ids.insert(raw.clone()) {
-                    publications.push((raw.clone(), commit.id().clone()));
-                }
-                mapped.insert(
-                    commit.id().clone(),
-                    Projected {
-                        raw,
-                        tree: tree.tree_ids().clone(),
-                    },
-                );
-            }
-        }
-    }
-    let result = mapped.remove(head.id()).unwrap().raw;
-    ensure!(
-        &result != root,
-        "Selected history contains no project content to publish"
-    );
-    Ok((result, publications))
 }
