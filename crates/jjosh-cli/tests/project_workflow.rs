@@ -2,10 +2,15 @@
 #![cfg(unix)]
 
 use std::fs;
+use std::os::unix::fs::PermissionsExt as _;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 use std::process::Output;
+use std::process::Stdio;
+use std::thread;
+use std::time::Duration;
+use std::time::Instant;
 
 fn run(cwd: &Path, program: &Path, args: &[&str]) -> Output {
     Command::new(program)
@@ -160,6 +165,150 @@ fn create_client(root: &Path, colocated: bool) -> PathBuf {
         jjosh(&client, &["new", "-m", "local overlay"]);
     }
     client
+}
+
+#[test]
+fn slow_project_fetch_does_not_block_read_only_log() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    let (_work, remote, _tip) = create_remote(root, "slow-fetch");
+    let client = create_client(root, true);
+    jjosh(&client, &["project", "add", "p", "--path", "p"]);
+    let remote_url = format!("ssh://dummy{}", remote.display());
+    jjosh(
+        &client,
+        &[
+            "git",
+            "remote",
+            "add",
+            "upstream",
+            &remote_url,
+            "--whole",
+            "--project",
+            "p",
+            "--base",
+            "main",
+        ],
+    );
+
+    let gate = root.join("fetch-gate");
+    fs::create_dir(&gate).unwrap();
+    let ssh = root.join("fake-ssh");
+    fs::write(
+        &ssh,
+        r#"#!/bin/sh
+set -eu
+case " $* " in *" -G "*) exit 0 ;; esac
+: > "$GATE_DIR/ready"
+while [ ! -e "$GATE_DIR/go" ]; do sleep 0.02; done
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    "git-upload-pack")
+      shift
+      path=$1
+      path=${path#\'}
+      path=${path%\'}
+      exec git-upload-pack "$path"
+      ;;
+    "git-upload-pack "*) exec sh -c "$1" ;;
+  esac
+  shift
+done
+exit 2
+"#,
+    )
+    .unwrap();
+    let mut permissions = fs::metadata(&ssh).unwrap().permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&ssh, permissions).unwrap();
+
+    let program = Path::new(env!("CARGO_BIN_EXE_jjosh"));
+    let mut fetch = Command::new(program)
+        .args([
+            "--no-pager",
+            "--color=never",
+            "git",
+            "fetch",
+            "--project",
+            "p",
+            "--remote",
+            "upstream",
+            "--branch",
+            "main",
+        ])
+        .current_dir(&client)
+        .env("GATE_DIR", &gate)
+        .env("GIT_SSH_COMMAND", &ssh)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !gate.join("ready").exists() {
+        if let Some(status) = fetch.try_wait().unwrap() {
+            panic!("fetch exited before reaching upload-pack gate: {status}");
+        }
+        assert!(
+            Instant::now() < deadline,
+            "fetch did not reach upload-pack gate"
+        );
+        thread::sleep(Duration::from_millis(10));
+    }
+
+    let mut log = Command::new(program)
+        .args([
+            "--no-pager",
+            "--color=never",
+            "log",
+            "-r",
+            "@",
+            "--no-graph",
+            "-T",
+            "commit_id",
+        ])
+        .current_dir(&client)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let log_status = loop {
+        if let Some(status) = log.try_wait().unwrap() {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            fs::write(gate.join("go"), b"").unwrap();
+            let _ = fetch.wait();
+            let _ = log.kill();
+            panic!("jjosh log blocked behind network fetch");
+        }
+        thread::sleep(Duration::from_millis(10));
+    };
+    assert!(
+        log_status.success(),
+        "jjosh log failed while fetch was blocked"
+    );
+    assert!(
+        fetch.try_wait().unwrap().is_none(),
+        "fetch should still be blocked at upload-pack gate"
+    );
+
+    fs::write(gate.join("go"), b"").unwrap();
+    let output = fetch.wait_with_output().unwrap();
+    assert_success(
+        &output,
+        program,
+        &[
+            "git",
+            "fetch",
+            "--project",
+            "p",
+            "--remote",
+            "upstream",
+            "--branch",
+            "main",
+        ],
+    );
 }
 
 fn import_project(client: &Path, project: &str, mount: &str, source: &Path, filter: &str) {
