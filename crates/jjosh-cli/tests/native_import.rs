@@ -2458,6 +2458,153 @@ fn native_project_names_are_jj_symbols() {
 }
 
 #[test]
+fn native_push_batch_reuses_history_without_recording_rejected_siblings() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    for colocated in [false, true] {
+        let repo = NativeRepo::with_colocation(colocated);
+        let remote = repo.temp.path().join("batch.git");
+        native_git(
+            repo.temp.path(),
+            &["init", "--bare", remote.to_str().unwrap()],
+        );
+        repo.jj(&["project", "add", "pkg", "--path", "pkg"]);
+        repo.add_project_remote("origin", &remote, "pkg");
+        repo.write("pkg/base.txt", "shared ancestry\n");
+        repo.jj(&["describe", "-m", "shared project base"]);
+        let base = repo.log("@", "commit_id");
+        repo.jj(&["new", "-m", "accepted project branch"]);
+        repo.write("pkg/left.txt", "left\n");
+        repo.bookmark("accepted#pkg");
+        repo.jj(&["tag", "set", "v1#pkg"]);
+        let accepted = repo.log("@", "commit_id");
+        repo.jj(&["new", &base, "-m", "rejected project branch"]);
+        repo.write("pkg/right.txt", "right\n");
+        repo.bookmark("rejected#pkg");
+        let rejected = repo.log("@", "commit_id");
+
+        let raw_targets = |args: &[&str]| {
+            let output = repo.unchecked(args);
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            String::from_utf8(output.stderr)
+                .unwrap()
+                .lines()
+                .filter_map(|line| {
+                    line.trim()
+                        .strip_prefix("New raw target: ")
+                        .map(str::to_owned)
+                })
+                .collect::<Vec<_>>()
+        };
+        let before = repo.operation_id();
+        let left_raw = raw_targets(&[
+            "--ignore-working-copy",
+            "git",
+            "push",
+            "--bookmark",
+            "accepted#pkg",
+            "--dry-run",
+        ]);
+        let right_raw = raw_targets(&[
+            "--ignore-working-copy",
+            "git",
+            "push",
+            "--bookmark",
+            "rejected#pkg",
+            "--dry-run",
+        ]);
+        assert_eq!(left_raw.len(), 1);
+        assert_eq!(right_raw.len(), 1);
+        let mut combined = raw_targets(&[
+            "--ignore-working-copy",
+            "git",
+            "push",
+            "--bookmark",
+            "accepted#pkg",
+            "--bookmark",
+            "rejected#pkg",
+            "--tag",
+            "v1#pkg",
+            "--dry-run",
+        ]);
+        let mut individual = vec![
+            left_raw[0].clone(),
+            right_raw[0].clone(),
+            left_raw[0].clone(),
+        ];
+        combined.sort();
+        individual.sort();
+        assert_eq!(combined, individual);
+        assert_eq!(repo.operation_id(), before);
+        assert!(native_git(&remote, &["for-each-ref"]).is_empty());
+
+        // One server ref is rejected after all heads have been converted together.
+        let hook = remote.join("hooks/update");
+        fs::write(&hook, "#!/bin/sh\n[ \"$1\" != refs/heads/rejected ]\n").unwrap();
+        fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
+        let partial = repo.unchecked(&[
+            "git",
+            "push",
+            "--bookmark",
+            "accepted#pkg",
+            "--bookmark",
+            "rejected#pkg",
+            "--tag",
+            "v1#pkg",
+        ]);
+        assert!(!partial.status.success());
+        assert_eq!(
+            native_git(&remote, &["rev-parse", "refs/heads/accepted"]).trim(),
+            left_raw[0]
+        );
+        assert_eq!(
+            native_git(&remote, &["rev-parse", "refs/tags/v1"]).trim(),
+            left_raw[0]
+        );
+        assert!(
+            !native_git(&remote, &["for-each-ref", "--format=%(refname)"])
+                .contains("refs/heads/rejected")
+        );
+        let project = repo.project("pkg");
+        let binding = project["bindings"][0]["id"].as_str().unwrap();
+        let prefix = format!("refs/jjosh/native-bindings/{binding}/published/");
+        let git_dir = if colocated {
+            repo.path.join(".git")
+        } else {
+            repo.path.join(".jj/repo/store/git")
+        };
+        let anchors = native_git(
+            &git_dir,
+            &["for-each-ref", "--format=%(objectname)", &prefix],
+        );
+        assert!(anchors.lines().any(|id| id == accepted));
+        assert!(!anchors.lines().any(|id| id == rejected));
+        repo.jj(&["project", "check"]);
+
+        // Retrying the rejected branch must recover the same raw result, then record it.
+        fs::remove_file(&hook).unwrap();
+        repo.jj(&["git", "push", "--bookmark", "rejected#pkg"]);
+        assert_eq!(
+            native_git(&remote, &["rev-parse", "refs/heads/rejected"]).trim(),
+            right_raw[0]
+        );
+        let anchors = native_git(
+            &git_dir,
+            &["for-each-ref", "--format=%(objectname)", &prefix],
+        );
+        assert!(anchors.lines().any(|id| id == rejected));
+        repo.jj(&["git", "fetch", "--project", "pkg"]);
+        assert_eq!(repo.log("accepted#pkg@origin", "commit_id"), accepted);
+        assert_eq!(repo.log("rejected#pkg@origin", "commit_id"), rejected);
+        repo.jj(&["project", "check"]);
+    }
+}
+
+#[test]
 fn preserve_projects_import_retains_scopes_and_active_remote_identity() {
     let seed = NativeRepo::new();
     seed.write("value.txt", "upstream\n");
