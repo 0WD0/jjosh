@@ -2830,8 +2830,15 @@ fn all_formatted_ref_symbols<'a>(
                     || !remote_ref.is_tracked()
                     || remote_ref.target != *local_target
             })
-            .filter(move |&(remote, _)| remote_ref_is_visible(view, name.to_remote_symbol(remote)).unwrap_or(false))
-            .map(move |(remote, _)| format_remote_symbol(name.as_str(), &view.remote_ref_remote_name(name.to_remote_symbol(remote))));
+            .filter(move |&(remote, _)| {
+                remote_ref_is_visible(view, name.to_remote_symbol(remote)).unwrap_or(false)
+            })
+            .map(move |(remote, _)| {
+                format_remote_symbol(
+                    name.as_str(),
+                    &view.remote_ref_remote_name(name.to_remote_symbol(remote)),
+                )
+            });
         local_symbol.into_iter().chain(remote_symbols)
     })
 }

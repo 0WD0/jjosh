@@ -2238,3 +2238,144 @@ fn test_run_copies_sparse_rules_and_mappings() {
     assert!(!work_dir.root().join("visible/hidden.txt").exists());
     assert!(!work_dir.root().join("project").exists());
 }
+
+#[test]
+fn test_run_failed_mapped_cleanup_preserves_canonical_spelling_artifact() {
+    let test_env = TestEnvironment::default();
+    test_env
+        .run_jj_in(".", ["git", "init", "--no-colocate", "repo"])
+        .success();
+    let work_dir = test_env.work_dir("repo");
+    let fake_formatter = assert_cmd::cargo::cargo_bin("fake-formatter");
+    let fake_formatter_path = fake_formatter.to_string_lossy();
+    work_dir.write_file("project/main", "seed");
+    work_dir
+        .run_jj(["sparse", "map", "set", "project=visible"])
+        .success();
+    work_dir
+        .run_jj(["run", "--jobs=1", "-r=@", "--", &fake_formatter_path])
+        .success();
+
+    let run_wc = work_dir.root().join(".jj/run/default/1/working_copy");
+    fs::create_dir_all(run_wc.join("project")).unwrap();
+    fs::write(run_wc.join("project/oversize"), "retained artifact").unwrap();
+    // This file exceeds the pool's new-file size limit, so the failed command's
+    // snapshot reports it as untracked at canonical path project/oversize.
+    fs::write(run_wc.join("visible/oversize"), vec![b'x'; 64_001]).unwrap();
+    let output = work_dir.run_jj([
+        "run",
+        "--jobs=1",
+        "-r=@",
+        "--",
+        &fake_formatter_path,
+        "--tee=visible/oversize",
+        "--fail",
+    ]);
+    assert!(!output.status.success());
+    assert!(!run_wc.join("visible/oversize").exists());
+    assert_eq!(
+        fs::read_to_string(run_wc.join("project/oversize")).unwrap(),
+        "retained artifact"
+    );
+    assert_eq!(
+        fs::read_to_string(run_wc.join("visible/main")).unwrap(),
+        "seed"
+    );
+}
+
+#[test]
+fn test_run_reused_mapped_cleanup_preserves_canonical_spelling_artifact() {
+    let test_env = TestEnvironment::default();
+    test_env
+        .run_jj_in(".", ["git", "init", "--no-colocate", "repo"])
+        .success();
+    let work_dir = test_env.work_dir("repo");
+    let fake_formatter = assert_cmd::cargo::cargo_bin("fake-formatter");
+    let fake_formatter_path = fake_formatter.to_string_lossy();
+    work_dir.write_file("project/main", "seed");
+    work_dir.write_file("project/.gitignore", "generated\n");
+    work_dir
+        .run_jj(["sparse", "map", "set", "project=visible"])
+        .success();
+    work_dir
+        .run_jj([
+            "run",
+            "--jobs=1",
+            "-r=@",
+            "--",
+            &fake_formatter_path,
+            "--stdout=generated",
+            "--tee=visible/generated",
+        ])
+        .success();
+
+    let run_wc = work_dir.root().join(".jj/run/default/1/working_copy");
+    fs::create_dir_all(run_wc.join("project")).unwrap();
+    fs::write(run_wc.join("project/generated"), "retained artifact").unwrap();
+    assert_eq!(
+        fs::read_to_string(run_wc.join("visible/generated")).unwrap(),
+        "generated"
+    );
+
+    // Changing the target revision's ignore rules makes the next acquisition
+    // discover visible/generated as an added canonical project/generated file.
+    work_dir.write_file("visible/.gitignore", "");
+    work_dir
+        .run_jj(["run", "--jobs=1", "-r=@", "--", &fake_formatter_path])
+        .success();
+    assert!(!run_wc.join("visible/generated").exists());
+    assert_eq!(
+        fs::read_to_string(run_wc.join("project/generated")).unwrap(),
+        "retained artifact"
+    );
+    assert_eq!(
+        fs::read_to_string(run_wc.join("visible/main")).unwrap(),
+        "seed"
+    );
+}
+
+#[test]
+fn test_run_reused_slot_changes_tree_and_layout_together() {
+    let test_env = TestEnvironment::default();
+    test_env
+        .run_jj_in(".", ["git", "init", "--no-colocate", "repo"])
+        .success();
+    let work_dir = test_env.work_dir("repo");
+    let fake_formatter = assert_cmd::cargo::cargo_bin("fake-formatter");
+    let fake_formatter_path = fake_formatter.to_string_lossy();
+    work_dir.write_file("project/obsolete/file", "old tree only");
+    work_dir.write_file("project/main", "old contents");
+    work_dir
+        .run_jj(["sparse", "map", "set", "project=old"])
+        .success();
+    work_dir
+        .run_jj(["run", "--jobs=1", "-r=@", "--", &fake_formatter_path])
+        .success();
+
+    let run_wc = work_dir.root().join(".jj/run/default/1/working_copy");
+    fs::create_dir_all(run_wc.join("visible")).unwrap();
+    fs::write(run_wc.join("visible/obsolete"), "retained artifact").unwrap();
+
+    fs::remove_file(work_dir.root().join("old/obsolete/file")).unwrap();
+    work_dir.write_file("old/main", "new contents");
+    work_dir.write_file("old/.gitignore", "obsolete\n");
+    work_dir
+        .run_jj(["sparse", "map", "set", "project=visible"])
+        .success();
+    // Applying the new layout to the cached old tree would try to create
+    // visible/obsolete/file through an unrelated physical file. The final
+    // tree/layout pair has no such path and must preserve the ignored artifact.
+    work_dir
+        .run_jj(["run", "--jobs=1", "-r=@", "--", &fake_formatter_path])
+        .success();
+    assert_eq!(
+        fs::read_to_string(run_wc.join("visible/main")).unwrap(),
+        "new contents"
+    );
+    assert_eq!(
+        fs::read_to_string(run_wc.join("visible/obsolete")).unwrap(),
+        "retained artifact"
+    );
+    assert!(!run_wc.join("old/main").exists());
+    assert!(!run_wc.join("old/obsolete/file").exists());
+}

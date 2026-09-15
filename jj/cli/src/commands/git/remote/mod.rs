@@ -20,7 +20,6 @@ mod set_url;
 
 use clap::Subcommand;
 use jj_lib::git;
-use jj_lib::local_state;
 use jj_lib::merge::Merge;
 use jj_lib::object_id::ObjectId as _;
 use jj_lib::project::BindingId;
@@ -86,15 +85,6 @@ pub struct GitRemoteAttachArgs {
     binding: GitRemoteBindingArgs,
 }
 
-fn require_integrated_local_state(command: &CommandHelper) -> Result<(), CommandError> {
-    if command.global_args().no_integrate_operation {
-        return Err(user_error(
-            "Local state changes require operation integration; omit --no-integrate-operation",
-        ));
-    }
-    Ok(())
-}
-
 /// Parse a new logical name without accepting physical handles as aliases.
 fn new_remote_name(
     workspace: &WorkspaceCommandHelper,
@@ -152,8 +142,17 @@ fn ensure_available_remote_name(
         )));
     }
     for remote in view.store_view().remote_connections.keys() {
-        match view.remote_in_scope(remote, project) {
-            Ok(true) if view.remote_local_name(remote) == name => {
+        match jj_lib::view::remote_identity::resolve(view.store_view(), remote) {
+            Ok(identity)
+                if identity
+                    .and_then(|identity| identity.scoped_name)
+                    .map(|identity| &identity.project)
+                    == project
+                    && identity
+                        .and_then(|identity| identity.scoped_name)
+                        .map_or(remote.as_ref(), |identity| identity.name.as_ref())
+                        == name =>
+            {
                 return Err(user_error(format!(
                     "Remote {} already exists in this scope",
                     name.as_symbol()
@@ -184,11 +183,8 @@ fn resolve_management_remote(
     selector: &str,
     project: Option<&str>,
 ) -> Result<RemoteNameBuf, CommandError> {
+    let (name, project) = management_remote_name(workspace, RemoteName::new(selector), project)?;
     let view = workspace.repo().view();
-    let project = project
-        .map(|name| view.project_state().project_by_name(name).map(|(id, _)| id))
-        .transpose()
-        .map_err(user_error)?;
     let mut candidates: Vec<RemoteNameBuf> = git::get_git_repo(workspace.repo().store())?
         .remote_names()
         .into_iter()
@@ -204,42 +200,109 @@ fn resolve_management_remote(
     );
     candidates.sort();
     candidates.dedup();
-    crate::git_remote::resolve_remote_selector_in_view(
-        view,
-        &candidates,
-        selector,
-        project.as_ref(),
-    )
-}
-
-/// Validate the logical binding without requiring a local endpoint or consulting
-/// another connection's configuration at the same physical alias.
-fn check_management_binding(
-    command: &CommandHelper,
-    workspace: &WorkspaceCommandHelper,
-    remote: &RemoteName,
-    connection: Option<&ConnectionId>,
-) -> Result<(), CommandError> {
-    let view = workspace.repo().view();
-    view.remote_identity(remote).map_err(user_error)?;
-    if let Some(connection) = connection
-        && let Some((_, binding)) = view
-            .project_state()
-            .binding_for_connection(connection)
-            .map_err(user_error)?
-    {
-        if !crate::git_remote::capabilities(command).contains(&"jjosh-v1") {
+    let mut found = None;
+    for remote in candidates {
+        let identity = jj_lib::view::remote_identity::resolve(view.store_view(), &remote);
+        let identity = match identity {
+            Ok(identity) => identity,
+            Err(error) => {
+                let relevant = remote == name
+                    || view
+                        .store_view()
+                        .remote_connections
+                        .get(&remote)
+                        .is_some_and(|owners| {
+                            owners.iter().flatten().any(|owner| {
+                                view.project_state()
+                                    .remote_names
+                                    .get(owner)
+                                    .is_some_and(|names| {
+                                        names.iter().flatten().any(|identity| {
+                                            Some(&identity.project) == project.as_ref()
+                                                && identity.name == name
+                                        })
+                                    })
+                            })
+                        });
+                if relevant {
+                    return Err(user_error(error));
+                }
+                continue;
+            }
+        };
+        // Historical-only observations never become a live management alias.
+        let scoped = identity
+            .filter(|identity| {
+                identity.source == jj_lib::view::remote_identity::IdentitySource::Logical
+            })
+            .and_then(|identity| identity.scoped_name);
+        let local = scoped.map_or(remote.as_ref(), |identity| identity.name.as_ref());
+        if scoped.map(|identity| &identity.project) != project.as_ref() || local != name {
+            continue;
+        }
+        if found.is_some() {
             return Err(user_error(
-                "Remote requires unavailable capability jjosh-v1",
+                "Remote name is duplicated in the selected scope",
             ));
         }
-        if let BindingTarget::Project(project) = &binding.target {
-            view.project_state()
-                .validate_project(project)
-                .map_err(user_error)?;
-        }
+        found = Some(remote);
     }
-    Ok(())
+    found.ok_or_else(|| git::GitRemoteManagementError::NoSuchRemote(name).into())
+}
+
+/// Resolve only the scope's recorded identity, not its transport or project health.
+fn management_remote_name(
+    workspace: &WorkspaceCommandHelper,
+    name: &RemoteName,
+    project: Option<&str>,
+) -> Result<(RemoteNameBuf, Option<ProjectId>), CommandError> {
+    let state = workspace.repo().view().project_state();
+    let mut scope = project
+        .map(|name| {
+            let mut matches = state
+                .projects
+                .iter()
+                .filter(|(_, records)| records.iter().flatten().any(|record| record.name == name));
+            let (id, _) = matches
+                .next()
+                .ok_or_else(|| user_error(format!("No project named {name:?}")))?;
+            if matches.next().is_some() {
+                return Err(user_error(format!("Project name {name:?} is conflicted")));
+            }
+            Ok(id.clone())
+        })
+        .transpose()?;
+    let local = if let Some(local) = name.as_str().strip_suffix('#') {
+        if scope.is_some() {
+            return Err(user_error(
+                "Root remote selector and selected project scopes disagree",
+            ));
+        }
+        local
+    } else if let Some((local, label)) = name.as_str().rsplit_once('#')
+        && let Some(target) = state.labels.get(label)
+    {
+        let target = target
+            .as_resolved()
+            .and_then(Option::as_ref)
+            .ok_or_else(|| {
+                user_error(format!(
+                    "Project label {label:?} is unavailable or unresolved"
+                ))
+            })?;
+        if scope.as_ref().is_some_and(|scope| scope != target) {
+            return Err(user_error(
+                "Remote selector and selected project scopes disagree",
+            ));
+        }
+        scope = Some(target.clone());
+        local
+    } else {
+        name.as_str()
+    };
+    let local = RemoteNameBuf::from(local);
+    git::validate_remote_name(&local).map_err(user_error)?;
+    Ok((local, scope))
 }
 
 fn binding_scope(binding: &BindingRecord) -> Option<&ProjectId> {
@@ -285,11 +348,10 @@ async fn cmd_attach(
     command: &CommandHelper,
     args: &GitRemoteAttachArgs,
 ) -> Result<(), CommandError> {
-    require_integrated_local_state(command)?;
     let mut workspace = command.workspace_helper_no_snapshot(ui).await?;
     let (local_name, requested_scope) =
         new_remote_name(&workspace, &args.remote, args.binding.project.as_deref())?;
-    let remote = crate::git_remote::resolve_remote_selector(&workspace, local_name.as_str(), None)?;
+    let remote = resolve_management_remote(&workspace, local_name.as_str(), None)?;
     let mut binding_args = args.binding.clone();
     if let Some(project) = &requested_scope {
         binding_args.project = Some(
@@ -302,30 +364,40 @@ async fn cmd_attach(
         );
     }
     let git_lock = workspace.lock_git_import_export()?;
-    let extra_paths: Vec<_> = command.config_env().maybe_repo_config_path(ui)?.into_iter().collect();
-    let journal = local_state::begin(workspace.repo(), &extra_paths).await?;
-    crate::git_remote::check_repo_config_unchanged(command.raw_config())?;
-    crate::git_remote::check_remote(command, &workspace, &remote)?;
     let mut git_repo = git::get_git_repo(workspace.repo().store())?;
     git_repo.reload().map_err(user_error)?;
-    if git::try_find_active_remote(&git_repo, &remote)?.is_none() {
+    let inspection = git::inspect_remote_management(workspace.repo().view(), &git_repo, &remote)?;
+    if !inspection.has_config {
         return Err(git::GitRemoteManagementError::NoSuchRemote(local_name.clone()).into());
     }
-    if git::remote_required_capability(&git_repo, &remote).is_some() {
+    if !inspection.owns_config() {
         return Err(user_error(
-            "Connection already has a binding; create a new connection instead",
+            "Remote configuration is owned by another connection",
+        ));
+    }
+    if git::remote_required_capability(&git_repo, &remote).is_some_and(|value| value != "jjosh-v1")
+    {
+        return Err(user_error(
+            "Remote requires a different conversion capability",
         ));
     }
     let connection = git::remote_connection_id(&git_repo, &remote)
         .map_err(user_error)?
         .unwrap_or_else(ConnectionId::generate);
+    git::check_remote_owner(workspace.repo().view(), &remote, Some(&connection))
+        .map_err(user_error)?;
     if workspace
         .repo()
         .view()
         .project_state()
-        .binding_for_connection(&connection)
-        .map_err(user_error)?
-        .is_some()
+        .bindings
+        .values()
+        .any(|bindings| {
+            bindings
+                .iter()
+                .flatten()
+                .any(|binding| binding.connection_id == connection)
+        })
     {
         return Err(user_error("Connection already has an active binding"));
     }
@@ -346,6 +418,12 @@ async fn cmd_attach(
             .project_observations
             .keys()
             .any(|key| key.remote == remote)
+        || workspace
+            .repo()
+            .view()
+            .store_view()
+            .observed_remote_connections
+            .contains_key(&remote)
     {
         return Err(user_error(
             "Attach requires an unused remote; deliberately remove and recreate the remote with \
@@ -368,46 +446,48 @@ async fn cmd_attach(
     } else {
         old_remote.clone()
     };
-    let mut options = git::GitRemoteManagementOptions {
+    let options = git::GitRemoteManagementOptions {
         extra_config_keys: git::MANAGED_REMOTE_KEYS,
+        expected_connection: Some(Some(connection.clone())),
         ..Default::default()
     };
-    if let Some(project) = &scope {
+    let repo_config = if let Some(project) = &scope {
         let labels = project_config_labels(workspace.repo().view(), project);
         let label = labels
             .first()
             .ok_or_else(|| user_error("Project has no registered stable label"))?;
-        options.repo_config = super::prepare_remote_settings_scope(
+        super::prepare_remote_settings_scope(
             command.raw_config(),
             &[(
                 old_remote.clone(),
                 Some(format!("{}#{label}", local_name.as_str())),
             )],
-        )?;
-    }
+        )?
+    } else {
+        None
+    };
     let mut tx = workspace.start_transaction();
-    tx.bind_local_state(&journal)?;
-    if remote != old_remote {
-        // Scope attachment is an explicit identity transition. Retire the root
-        // physical key so the root alias can be reused independently.
-        git::rename_remote_with_options(tx.repo_mut(), &old_remote, &remote, &options)?;
-    }
+    // Mark conversion before a physical rename: interruption must never expose
+    // this connection as an ordinary raw transport.
     git::set_remote_config_keys(
         tx.repo().store(),
         &[
             (
-                remote.clone(),
+                old_remote.clone(),
                 "jjosh-connectionId".into(),
                 Some(connection.hex()),
             ),
             (
-                remote.clone(),
+                old_remote.clone(),
                 "jjosh-requiredCapability".into(),
                 Some("jjosh-v1".into()),
             ),
         ],
-        Some(&journal),
+        &git_repo.config_snapshot(),
     )?;
+    if remote != old_remote {
+        git::rename_remote_with_options(tx.repo_mut(), &old_remote, &remote, &options)?;
+    }
     if let Some(project) = scope {
         tx.repo_mut()
             .view_mut()
@@ -438,6 +518,17 @@ async fn cmd_attach(
         &git_lock,
     )
     .await?;
-    journal.complete().await?;
+    if command.should_commit_transaction()
+        && let Some(updated) = repo_config
+    {
+        crate::git_remote::commit_repo_config_update(command.raw_config(), &updated).map_err(
+            |err| {
+                crate::command_error::user_error_with_message(
+                    "Remote attached, but repository settings were not updated",
+                    err,
+                )
+            },
+        )?;
+    }
     Ok(())
 }

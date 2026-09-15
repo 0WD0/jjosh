@@ -516,9 +516,196 @@ fn migration_inputs(
     Ok((config, refs, sidecars))
 }
 
+/// Reconcile only physical names belonging to an existing, resolved connection.
+/// This is an in-memory plan: interrupted cutovers never publish an operation
+/// merely to make their old physical name current again.
+fn reconcile_remote_names(
+    git: &gix::Repository,
+    view: &mut jj_lib::op_store::View,
+    inventory: &mut Inventory,
+) -> Result<BTreeMap<String, String>, CommandError> {
+    let mut aliases = BTreeMap::new();
+    let configured: BTreeSet<_> = git
+        .remote_names()
+        .iter()
+        .map(|name| std::str::from_utf8(name).map(str::to_owned))
+        .collect::<std::result::Result<_, _>>()
+        .map_err(user_error)?;
+    let mut owners = BTreeMap::new();
+    for name in &configured {
+        let remote = jj_lib::ref_name::RemoteName::new(name);
+        let connection = jj_lib::git::remote_connection_id(git, remote).map_err(user_error)?;
+        let connection = connection.or_else(|| {
+            view.remote_connections
+                .get(remote)
+                .and_then(Merge::as_resolved)
+                .and_then(Option::as_ref)
+                .cloned()
+        }).or_else(|| {
+            let mut matches = view.project_state.remote_names.iter().filter_map(|(id, alias)| {
+                alias.as_resolved().and_then(Option::as_ref)
+                    .filter(|alias| alias.name == remote)
+                    .map(|_| id.clone())
+            });
+            let first = matches.next();
+            first.filter(|_| matches.next().is_none())
+        });
+        let Some(connection) = connection else { continue };
+        if let Some(other) = owners.insert(connection.clone(), name.clone()) {
+            return Err(user_error(format!(
+                "Connection {} is configured at both {other} and {name}; resolve ownership before migration",
+                connection.hex()
+            )));
+        }
+        let logical: Vec<_> = view.remote_connections.iter()
+            .filter(|(_, owner)| owner.as_resolved().and_then(Option::as_ref) == Some(&connection))
+            .map(|(name, _)| name.clone())
+            .collect();
+        if logical.len() > 1 {
+            return Err(user_error("Migration connection has multiple logical physical owners"));
+        }
+        if let Some(old) = logical.first()
+            && old != remote
+        {
+            if configured.contains(old.as_str()) {
+                return Err(user_error(format!("Remote {} still has independent configuration", old.as_str())));
+            }
+            if !view.project_state.remote_names.contains_key(&connection)
+                && let Some((_, binding)) = view.project_state.binding_for_connection(&connection).map_err(user_error)?
+                && let BindingTarget::Project(project) = &binding.target
+            {
+                view.project_state.remote_names.insert(connection.clone(), Merge::resolved(Some(ScopedRemoteName {
+                    project: project.clone(),
+                    name: old.clone(),
+                })));
+            }
+            rekey_view(view, old, remote).map_err(user_error)?;
+        }
+        if let Some(alias) = view.project_state.remote_names.get(&connection)
+            .and_then(Merge::as_resolved).and_then(Option::as_ref)
+        {
+            aliases.insert(alias.name.as_str().to_owned(), name.clone());
+        }
+    }
+    // Sidecars are deliberately retained under their original spelling until
+    // every new reference is installed. A completed physical rename can leave
+    // such a sidecar beside the new opaque handle.
+    let mut moved = Vec::new();
+    for (old, new) in &aliases {
+        if old == new || configured.contains(old) { continue }
+        if let Some(index) = inventory.remotes.iter().position(|remote| &remote.name == old) {
+            moved.push((new.clone(), inventory.remotes.remove(index)));
+        }
+    }
+    for (new, old) in moved {
+        let remote = inventory.remotes.iter_mut().find(|remote| remote.name == new)
+            .ok_or_else(|| user_error("Migrated sidecar has no configured connection"))?;
+        if remote.filter.is_some() && remote.filter != old.filter {
+            return Err(user_error("Old and rekeyed remote sidecars disagree"));
+        }
+        remote.filter = old.filter;
+    }
+    for remote in &mut inventory.remotes {
+        if remote.filter.is_none() { continue }
+        if remote.project.is_none() {
+            let Some(connection) = jj_lib::git::remote_connection_id(git, jj_lib::ref_name::RemoteName::new(&remote.name))
+                .map_err(user_error)? else { continue };
+            let Some((_, binding)) = view.project_state.binding_for_connection(&connection).map_err(user_error)?
+                else { continue };
+            if let BindingTarget::Project(project) = &binding.target {
+                let record = view.project_state.projects.get(project)
+                    .and_then(Merge::as_resolved).and_then(Option::as_ref)
+                    .ok_or_else(|| user_error("Resolve the migrated sidecar's project first"))?;
+                remote.project = Some(record.name.clone());
+                remote.mount = Some(record.canonical_root.as_internal_file_string().to_owned());
+                if !inventory.projects.iter().any(|project| project.name == record.name) {
+                    inventory.projects.push(ProjectInfo {
+                        name: record.name.clone(),
+                        mount: remote.mount.clone(),
+                        native: false,
+                        registered: false,
+                        remotes: vec![remote.name.clone()],
+                    });
+                }
+            }
+        }
+    }
+    Ok(aliases)
+}
+
+fn retire_sidecar(path: &Path, expected: &[u8]) -> Result<(), CommandError> {
+    let _lock = gix::lock::File::acquire_to_update_resource(
+        path,
+        gix::lock::acquire::Fail::Immediately,
+        None,
+    ).map_err(user_error)?;
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) => {
+            if !metadata.file_type().is_file() || std::fs::read(path)? != expected {
+                return Err(user_error(format!("Legacy sidecar {} changed; retained for explicit resolution", path.display())));
+            }
+            std::fs::remove_file(path)?;
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    Ok(())
+}
+
+/// Finish a config-first native rename interrupted before its mirror ref edits.
+/// Exact identity and expected targets are the proof; no saved transaction is needed.
+fn finish_rekeyed_mirrors(git: &gix::Repository, view: &jj_lib::op_store::View) -> Result<(), CommandError> {
+    use gix::refs::transaction::{Change, LogChange, PreviousValue, RefEdit, RefLog};
+    let _config_lock = gix::lock::Marker::acquire_to_hold_resource(
+        git.common_dir().join("config"),
+        gix::lock::acquire::Fail::Immediately,
+        None,
+    ).map_err(user_error)?;
+    let git = gix::open(git.path()).map_err(user_error)?;
+    for (connection, alias) in &view.project_state.remote_names {
+        let Some(alias) = alias.as_resolved().and_then(Option::as_ref) else { continue };
+        let new: RemoteNameBuf = format!("jjosh-{}", connection.hex()).into();
+        if alias.name == new || git.try_find_remote(alias.name.as_str()).is_some()
+            || jj_lib::git::remote_connection_id(&git, &new).map_err(user_error)?.as_ref() != Some(connection)
+        {
+            continue;
+        }
+        let mut edits = Vec::new();
+        for namespace in ["refs/remotes/", jj_lib::git::REMOTE_TAG_REF_NAMESPACE] {
+            let old_prefix = format!("{namespace}{}/", alias.name.as_str());
+            for reference in git.references().map_err(user_error)?.prefixed(old_prefix.as_str()).map_err(user_error)? {
+                let reference = reference.map_err(user_error)?;
+                let target = reference.target().into_owned();
+                let full_name = std::str::from_utf8(reference.name().as_bstr()).map_err(user_error)?;
+                let new_name = format!("{namespace}{}/{}", new.as_str(), &full_name[old_prefix.len()..]);
+                let existing = git.try_find_reference(&new_name).map_err(user_error)?;
+                if existing.as_ref().is_some_and(|reference| reference.target().into_owned() != target) {
+                    return Err(user_error(format!("Interrupted migration mirror {new_name} has changed; both targets retained")));
+                }
+                edits.push(RefEdit {
+                    name: new_name.try_into().map_err(user_error)?,
+                    change: Change::Update {
+                        log: LogChange { mode: RefLog::AndReference, force_create_reflog: false, message: "finish project migration rename".into() },
+                        expected: existing.map_or(PreviousValue::MustNotExist, |_| PreviousValue::MustExistAndMatch(target.clone())),
+                        new: target.clone(),
+                    },
+                    deref: false,
+                });
+                edits.push(RefEdit {
+                    name: reference.name().to_owned(),
+                    change: Change::Delete { expected: PreviousValue::MustExistAndMatch(target), log: RefLog::AndReference },
+                    deref: false,
+                });
+            }
+        }
+        git.edit_references(edits).map_err(user_error)?;
+    }
+    Ok(())
+}
+
 /// Explicit migration is the only reader of the previous configuration model.
-/// Preparation is read-only; all physical mutations are covered by the core
-/// journal before the operation commit makes the new semantic state authoritative.
+/// Planning is read-only. Stage additive evidence and inactive transport markers,
+/// publish logical identities, then rekey and retire with resource-local checks.
 pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result<(), CommandError> {
     if !command.is_at_head_operation()
         || (args.apply && command.global_args().no_integrate_operation)
@@ -530,13 +717,25 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
     let mut workspace = crate::project::recorded_workspace(ui, command).await?;
     let git_path = crate::interop::sha1_git_repo_path(&workspace)?;
     let git = jj_lib::git::get_git_backend(workspace.repo().store())?.git_repo();
-    jj_lib::local_state::ensure_no_pending(&git)?;
     let planned_inputs = migration_inputs(&git).map_err(user_error)?;
-    let inventory = inspect(&git_path).map_err(user_error)?;
+    let mut inventory = inspect(&git_path).map_err(user_error)?;
     let mut explicit = mappings(&args.representation).map_err(user_error)?;
     let mut native_sources = mappings(&args.native_source).map_err(user_error)?;
     let mut clear: BTreeSet<_> = args.clear_observations.iter().cloned().collect();
     let mut view = workspace.repo().view().store_view().clone();
+    let aliases = reconcile_remote_names(&git, &mut view, &mut inventory)?;
+    for (old, new) in &aliases {
+        if old == new { continue }
+        if let Some(value) = explicit.remove(old) {
+            if explicit.insert(new.clone(), value).is_some() {
+                return Err(user_error("Representation specified by both physical and scoped name"));
+            }
+        }
+        if clear.remove(old) { clear.insert(new.clone()); }
+        for source in native_sources.values_mut() {
+            if source == old { *source = new.clone(); }
+        }
+    }
     let store_upgrade = workspace
         .repo()
         .op_store()
@@ -1013,6 +1212,7 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
         if remote.project.is_none()
             && remote.filter.is_none()
             && !explicit.contains_key(&remote.name)
+            && !clear.contains(&remote.name)
         {
             continue;
         }
@@ -1025,8 +1225,19 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
             continue;
         }
         let specified = explicit.remove(&remote.name);
+        let connection = jj_lib::git::remote_connection_id(&git, &name)
+            .map_err(user_error)?
+            .or_else(|| view.remote_connections.get(&name)
+                .and_then(Merge::as_resolved).and_then(Option::as_ref).cloned())
+            .unwrap_or_else(ConnectionId::generate);
+        let existing_binding = view.project_state.binding_for_connection(&connection)
+            .map_err(user_error)?.map(|(id, binding)| (id, binding.clone()));
         let representation = if let Some(value) = &specified {
             crate::binding_config::parse_mapping(value).map_err(user_error)?
+        } else if remote.project.is_none() && remote.filter.is_none()
+            && let Some((_, binding)) = &existing_binding
+        {
+            binding.representation.clone()
         } else {
             match legacy_representations
                 .remove(&remote.name)
@@ -1052,35 +1263,33 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
             .project
             .as_ref()
             .map(|project| BindingTarget::Project(projects[project].clone()))
+            .or_else(|| existing_binding.as_ref().map(|(_, binding)| binding.target.clone()))
             .unwrap_or(BindingTarget::RepositoryView);
-        let connection = jj_lib::git::remote_connection_id(&git, &name)
-            .map_err(user_error)?
-            .unwrap_or_else(ConnectionId::generate);
-        if view
-            .project_state
-            .binding_for_connection(&connection)
-            .map_err(user_error)?
-            .is_some()
-        {
-            return Err(user_error(format!(
-                "Remote {} is already bound; do not reinterpret it through legacy migration",
-                remote.name
-            )));
-        }
         let base =
             crate::git_remote::config_string(&git, &format!("remote.{}.jjosh-base", remote.name))
                 .map_err(user_error)?
                 .as_deref()
                 .map(crate::binding_config::parse_base)
                 .transpose()
-                .map_err(user_error)?;
+                .map_err(user_error)?
+                .or_else(|| existing_binding.as_ref().and_then(|(_, binding)| binding.base.clone()));
         let binding = BindingRecord {
             target,
             connection_id: connection.clone(),
             representation,
             base,
         };
-        let id = BindingId::generate();
+        let id = if let Some((id, existing)) = existing_binding {
+            if existing != binding {
+                return Err(user_error(format!(
+                    "Remote {} legacy inputs disagree with its retained binding; resolve them explicitly before retrying",
+                    remote.name
+                )));
+            }
+            id
+        } else {
+            BindingId::generate()
+        };
         writeln!(
             ui.status(),
             "Bind {}: {:?}; base={:?}; endpoints/refspec/auth unchanged",
@@ -1120,19 +1329,19 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
         view.remote_connections
             .insert(name.clone(), Merge::resolved(Some(connection.clone())));
         if let BindingTarget::Project(project) = &binding.target {
-            view.project_state.remote_names.insert(
-                connection.clone(),
+            view.project_state.remote_names.entry(connection.clone()).or_insert_with(|| {
                 Merge::resolved(Some(ScopedRemoteName {
                     project: project.clone(),
                     name: name.clone(),
-                })),
-            );
+                }))
+            });
             alias_remotes.insert(name.clone(), connection.clone());
             writeln!(
                 ui.status(),
                 "Adopt scoped remote {}#{}; existing name preserved verbatim",
                 name.as_str(),
-                remote.project.as_deref().expect("project binding")
+                view.project_state.projects[project].as_resolved().and_then(Option::as_ref)
+                    .ok_or_else(|| user_error("Resolve the migrated binding's project first"))?.name
             )?;
         }
         view.project_state
@@ -1153,11 +1362,12 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
             updates.push((name.clone(), key.to_owned(), None));
         }
         if remote.filter.is_some() {
-            sidecars.push(
-                git.common_dir()
-                    .join("josh/remotes")
-                    .join(format!("{}.josh", remote.name)),
-            );
+            for sidecar in planned_inputs.2.keys() {
+                let Some(stem) = Path::new(sidecar).file_stem().and_then(|name| name.to_str()) else { continue };
+                if stem == remote.name || aliases.get(stem) == Some(&remote.name) {
+                    sidecars.push(git.common_dir().join("josh/remotes").join(sidecar));
+                }
+            }
         }
     }
     if !explicit.is_empty() || !clear.is_empty() {
@@ -1166,6 +1376,28 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
             explicit.keys()
         )));
     }
+    // Explicit arguments remain valid after the legacy roots have been retired,
+    // but only if a retained native binding proves this was an adopted source.
+    let retained_native = crate::interop::open_josh_transaction(&git_path, true)?;
+    for name in native_sources.keys() {
+        if native_projects.contains(name) { continue }
+        let Ok((project, _)) = view.project_state.project_by_name(name) else { continue };
+        let mut has_native = false;
+        for (id, binding) in &view.project_state.bindings {
+            if binding.as_resolved().and_then(Option::as_ref)
+                .is_some_and(|binding| binding.target == BindingTarget::Project(project.clone()))
+            {
+                retained_native.for_each_ref_prefixed(&native_project::binding_ref_prefix(id), |_, _| {
+                    has_native = true;
+                    Ok(())
+                }).map_err(user_error)?;
+            }
+        }
+        if has_native {
+            projects.insert(name.clone(), project);
+            native_projects.insert(name.clone());
+        }
+    }
     let mut native_bindings = BTreeMap::new();
     let mut offline_bindings = Vec::new();
     for name in &native_projects {
@@ -1173,16 +1405,29 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
             .remove(name)
             .unwrap_or_else(|| "detached".to_owned());
         let id = if source == "detached" {
-            let id = BindingId::generate();
-            let binding = BindingRecord {
-                target: BindingTarget::Project(projects[name].clone()),
-                connection_id: ConnectionId::generate(),
-                representation: Representation::Whole,
-                base: None,
+            let candidates: Vec<_> = view.project_state.bindings.iter().filter_map(|(id, value)| {
+                let binding = value.as_resolved().and_then(Option::as_ref)?;
+                (binding.target == BindingTarget::Project(projects[name].clone())
+                    && binding.representation == Representation::Whole
+                    && binding.base.is_none()
+                    && !view.remote_connections.values().any(|owner| owner.iter().flatten()
+                        .any(|connection| connection == &binding.connection_id)))
+                    .then(|| id.clone())
+            }).collect();
+            let id = match candidates.as_slice() {
+                [id] => id.clone(),
+                [] => {
+                    let id = BindingId::generate();
+                    view.project_state.bindings.insert(id.clone(), Merge::resolved(Some(BindingRecord {
+                        target: BindingTarget::Project(projects[name].clone()),
+                        connection_id: ConnectionId::generate(),
+                        representation: Representation::Whole,
+                        base: None,
+                    })));
+                    id
+                }
+                _ => return Err(user_error(format!("Project {name} has multiple disconnected whole bindings; choose an explicit native source before retrying"))),
             };
-            view.project_state
-                .bindings
-                .insert(id.clone(), Merge::resolved(Some(binding)));
             offline_bindings.push(id.clone());
             id
         } else {
@@ -1249,8 +1494,7 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
             blockers.push(diagnostic.to_string());
         }
     }
-    // Match the core journal's ownership rule during read-only planning, before
-    // any provenance copying or operation publication.
+    // Check ownership during read-only planning, before any operation publication.
     let updated_remotes: BTreeSet<_> = updates
         .iter()
         .map(|(remote, _, _)| remote)
@@ -1294,8 +1538,7 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
             .map_err(user_error)?;
     }
     // Logical retirement belongs to the new operation. Physical mirrors remain
-    // intact until its semantic witness commits, then retire through the same
-    // CAS-checked journal as the obsolete private authority.
+    // until replacement native evidence is available, then retire by expected value.
     for remote in cleared.iter().chain(legacy_remotes.iter()) {
         for prefix in [
             format!("refs/remotes/{}/", remote.as_str()),
@@ -1331,7 +1574,7 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
     for reference in &retire_refs {
         writeln!(
             ui.status(),
-            "Retire legacy authority {reference} under the migration journal"
+            "Retire legacy authority {reference} after installing replacement evidence"
         )?;
     }
     for path in &sidecars {
@@ -1353,6 +1596,20 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
     }
     let mut rekeys = Vec::new();
     let mut settings_aliases = Vec::new();
+    for (connection, alias) in &view.project_state.remote_names {
+        if let Some(alias) = alias.as_resolved().and_then(Option::as_ref)
+            && let Some((label, _)) = view.project_state.labels.iter().find(|(_, target)| {
+                target.as_resolved().and_then(Option::as_ref) == Some(&alias.project)
+            })
+        {
+            settings_aliases.push((alias.name.clone(), Some(format!("{}#{label}", alias.name.as_str()))));
+            // Retry local settings after an already-completed physical rekey.
+            let physical: RemoteNameBuf = format!("jjosh-{}", connection.hex()).into();
+            if physical != alias.name {
+                settings_aliases.push((physical, Some(format!("{}#{label}", alias.name.as_str()))));
+            }
+        }
+    }
     let has_config = |remote: &str| {
         config
             .sections_by_name("remote")
@@ -1472,7 +1729,7 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
         rekeys.push((old.clone(), new, connection.clone(), exists));
     }
     // Explicitly cleared mirrors must not be carried to the new physical key.
-    // Journal the before-image and delete each mirror with an expected-value check.
+    // Delete each selected mirror only with its captured expected value.
     let mut clear_edits = Vec::new();
     for (old, _, _, exists) in &rekeys {
         if !*exists || !cleared.iter().any(|remote| remote == old) {
@@ -1507,6 +1764,18 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
             .iter()
             .any(|edit| edit.name.as_bstr() == reference.as_bytes())
     });
+    settings_aliases.sort();
+    settings_aliases.dedup();
+    let mut pending_settings = Vec::new();
+    for mapping in settings_aliases {
+        let mut present = false;
+        for layer in command.raw_config().as_ref().layers() {
+            present |= layer.look_up_item(["remotes", mapping.0.as_str()])
+                .map_err(|_| user_error("Remote settings parent must be a table"))?.is_some();
+        }
+        if present { pending_settings.push(mapping); }
+    }
+    let settings_aliases = pending_settings;
     let repo_config =
         jj_cli::git_remote::prepare_remote_settings_scope(command.raw_config(), &settings_aliases)?;
     if repo_config.is_some() {
@@ -1519,16 +1788,6 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
                     .as_deref()
                     .expect("scope mapping has a destination")
             )?;
-        }
-        if !alias_remotes
-            .keys()
-            .any(|remote| has_config(remote.as_str()))
-        {
-            blockers.push(
-                "Disconnected adopted remotes have repo-local settings; scope those settings \
-                 manually before migration"
-                    .to_owned(),
-            );
         }
     }
     for (old, new, _, _) in &rekeys {
@@ -1567,10 +1826,6 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
             "Stop incompatible writers, then rerun project migrate --apply --exclusive",
         ));
     }
-    let _git_lock = workspace.lock_git_import_export()?;
-    let mut journal_paths = sidecars.clone();
-    journal_paths.extend(repo_config.iter().map(|file| file.path().to_owned()));
-    let journal = jj_lib::local_state::begin(workspace.repo(), &journal_paths).await?;
     jj_cli::git_remote::check_repo_config_unchanged(command.raw_config())?;
     let mut current_git = jj_lib::git::get_git_repo(workspace.repo().store())?;
     current_git.reload().map_err(user_error)?;
@@ -1579,7 +1834,6 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
             "Migration's Git inputs changed while planning; retry",
         ));
     }
-    journal.register_retirements(&sidecars, &retire_refs)?;
     if store_upgrade {
         workspace
             .repo()
@@ -1607,11 +1861,36 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
         .map_err(user_error)?;
     }
     transaction.flush_mem_odb().map_err(user_error)?;
-    if !updates.is_empty() {
-        jj_lib::git::set_remote_config_keys(workspace.repo().store(), &updates, Some(&journal))?;
+    let mut markers: Vec<_> = updates.iter().filter(|(_, _, value)| value.is_some()).cloned().collect();
+    for (remote, connection) in &alias_remotes {
+        if git.try_find_remote(remote.as_str()).is_none() { continue }
+        for (key, value) in [
+            ("jjosh-connectionId", connection.hex()),
+            ("jjosh-requiredCapability", "jjosh-v1".to_owned()),
+        ] {
+            if !markers.iter().any(|(name, existing, _)| name == remote && existing == key) {
+                markers.push((remote.clone(), key.to_owned(), Some(value)));
+            }
+        }
     }
+    if !markers.is_empty() {
+        jj_lib::git::set_remote_config_keys(workspace.repo().store(), &markers, &config)?;
+    }
+    // Required evidence and inactive transport markers are already available.
+    // Publish final logical identities before physical rekey/settings/retirement;
+    // failures after this boundary never restore an older operation.
     let mut tx = workspace.start_transaction();
-    tx.bind_local_state(&journal)?;
+    tx.repo_mut().set_view(view.clone());
+    let published = if tx.repo().view().store_view() == tx.base_repo().view().store_view() {
+        tx.base_repo().clone()
+    } else {
+        command.maybe_commit_transaction(
+            tx.into_inner(),
+            "migrate projects, immutable source bindings and scoped remote names",
+        ).await?
+    };
+    let cutover = (|| -> Result<(), CommandError> {
+    let mut tx = published.start_transaction();
     if !clear_edits.is_empty() {
         let prepared = git
             .refs
@@ -1622,59 +1901,96 @@ pub(crate) async fn run(ui: &Ui, command: &CommandHelper, args: &Args) -> Result
                 gix::lock::acquire::Fail::Immediately,
             )
             .map_err(user_error)?;
-        journal.record_ref_edits(&git, &clear_edits)?;
         prepared
             .commit(git.committer().transpose().map_err(user_error)?)
             .map_err(user_error)?;
     }
-    // Planning and journaling use the final namespace. Stage configured remotes
-    // back at their old keys so the Git lifecycle performs the same complete
-    // forward rename, including ownership, without colliding with our plan.
+    // The published operation already uses the final namespace. A scratch
+    // transaction stages old keys solely for the native lifecycle; it is never
+    // published as another operation.
     for (old, new, _, exists) in &rekeys {
         if *exists {
             rekey_view(&mut view, new, old).map_err(user_error)?;
         }
     }
     tx.repo_mut().set_view(view);
-    for (old, new, _, exists) in &rekeys {
+    for (old, new, connection, exists) in &rekeys {
         if *exists {
             jj_lib::git::rename_remote_with_options(
                 tx.repo_mut(),
                 old,
                 new,
                 &jj_lib::git::GitRemoteManagementOptions {
-                    extra_config_keys: jj_lib::git::MANAGED_REMOTE_KEYS,
-                    ..Default::default()
+                    extra_config_keys: &[
+                        "jjosh-project", "jjosh-mount", "jjosh-base", "jjosh-readOnly",
+                    ],
+                    expected_connection: Some(Some(connection.clone())),
                 },
             )?;
         }
     }
+    current_git.reload().map_err(user_error)?;
+    finish_rekeyed_mirrors(&current_git, published.view().store_view())?;
     if let Some(config) = &repo_config {
-        let remote = rekeys
-            .iter()
-            .find(|(_, _, _, exists)| *exists)
-            .map(|(_, new, _, _)| new)
-            .or_else(|| {
-                alias_remotes
-                    .keys()
-                    .find(|remote| has_config(remote.as_str()))
-            })
-            .ok_or_else(|| {
-                user_error("Cannot journal scoped settings without a configured adopted remote")
-            })?;
-        jj_lib::git::commit_remote_management_config(
-            tx.repo().store(),
-            remote,
-            Some(config),
-            Some(&journal),
-        )?;
+        jj_cli::git_remote::commit_repo_config_update(command.raw_config(), config)?;
     }
-    tx.into_inner()
-        .commit("migrate projects, immutable source bindings and scoped remote names")
-        .await?;
-    // Completion and `util recover` perform the same idempotent post-publication
-    // retirement. The journal remains until every retirement succeeds.
-    journal.complete().await?;
+    // All new evidence and physical handles are available. Retire only the
+    // values read during planning; a changed value remains for explicit review.
+    let mut retirement_edits = Vec::new();
+    for name in &retire_refs {
+        let expected = planned_inputs.1.get(&gix::refs::FullName::try_from(name.as_str()).map_err(user_error)?)
+            .ok_or_else(|| user_error(format!("Legacy reference {name} was not captured")))?;
+        if let Some(reference) = current_git.try_find_reference(name).map_err(user_error)? {
+            if reference.target().into_owned() != *expected {
+                return Err(user_error(format!("Legacy reference {name} changed; retained")));
+            }
+            retirement_edits.push(gix::refs::transaction::RefEdit {
+                name: reference.name().to_owned(),
+                change: gix::refs::transaction::Change::Delete {
+                    expected: gix::refs::transaction::PreviousValue::MustExistAndMatch(expected.clone()),
+                    log: gix::refs::transaction::RefLog::AndReference,
+                },
+                deref: false,
+            });
+        }
+    }
+    let retirement_config = current_git.config_snapshot();
+    let mut retire_config = Vec::new();
+    for (old, key, value) in updates.into_iter().filter(|(_, _, value)| value.is_none()) {
+        let remote = rekeys.iter().find(|(source, _, _, exists)| *exists && source == &old)
+            .map_or(old.clone(), |(_, new, _, _)| new.clone());
+        let old_key = format!("remote.{}.{key}", old.as_str());
+        let new_key = format!("remote.{}.{key}", remote.as_str());
+        if config.raw_values(old_key.as_str()).unwrap_or_default()
+            != retirement_config.raw_values(new_key.as_str()).unwrap_or_default()
+        {
+            return Err(user_error(format!("Legacy setting {new_key} changed during migration; retained")));
+        }
+        let expected_owner = published.view().store_view().remote_connections.get(&remote)
+            .and_then(Merge::as_resolved).and_then(Option::as_ref).cloned()
+            .or(jj_lib::git::remote_connection_id(&git, &old).map_err(user_error)?);
+        if jj_lib::git::remote_connection_id(&current_git, &remote).map_err(user_error)? != expected_owner {
+            return Err(user_error(format!("Remote {} changed ownership during migration; configuration retained", remote.as_str())));
+        }
+        retire_config.push((remote, key, value));
+    }
+    if !retire_config.is_empty() {
+        jj_lib::git::set_remote_config_keys(published.store(), &retire_config, &retirement_config)?;
+    }
+    for path in &sidecars {
+        let expected = planned_inputs.2.get(path.file_name().expect("sidecar has filename"))
+            .ok_or_else(|| user_error("Legacy sidecar was not captured"))?;
+        retire_sidecar(path, expected)?;
+    }
+    current_git.edit_references(retirement_edits).map_err(user_error)?;
+    Ok(())
+    })();
+    cutover.map_err(|error| jj_cli::command_error::user_error_with_message(
+        "Project migration metadata is published, but local cutover/retirement is incomplete. \
+         Existing source material and completed native changes were retained; rerun project migrate \
+         --apply with the same mappings to finish after resolving the reported resource conflict.",
+        error.error,
+    ))?;
     writeln!(
         ui.status(),
         "Migrated {} projects and {} remote bindings; adopted {} existing scoped remote names; \

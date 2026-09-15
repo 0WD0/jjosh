@@ -436,7 +436,7 @@ impl CommandHelper {
         !self.global_args().no_integrate_operation
     }
 
-    async fn maybe_commit_transaction(
+    pub async fn maybe_commit_transaction(
         &self,
         tx: Transaction,
         description: impl Into<String>,
@@ -1261,7 +1261,6 @@ pub struct GitImportExportLock {
     _lock: Option<FileLock>,
 }
 
-
 /// Provides utilities for writing a command that works on a [`Workspace`]
 /// (which most commands do).
 pub struct WorkspaceCommandHelper {
@@ -1368,12 +1367,6 @@ impl WorkspaceCommandHelper {
         assert!(self.may_snapshot_working_copy);
         #[cfg(feature = "git")]
         if self.env.working_copy_shared_with_git {
-            let git_repo = jj_lib::git::get_git_repo(self.repo().store())
-                .map_err(CommandError::from)
-                .map_err(snapshot_command_error)?;
-            jj_lib::local_state::ensure_no_pending(&git_repo)
-                .map_err(CommandError::from)
-                .map_err(snapshot_command_error)?;
             for remote in jj_lib::git::get_all_remote_names(self.repo().store())
                 .map_err(CommandError::from)
                 .map_err(snapshot_command_error)?
@@ -3039,21 +3032,6 @@ impl WorkspaceCommandTransaction<'_> {
         self.tx.repo_mut()
     }
 
-    /// Enrolls this operation in a recoverable local-state transaction.
-    #[cfg(feature = "git")]
-    pub fn bind_local_state(
-        &mut self,
-        journal: &jj_lib::local_state::LocalStateTransaction,
-    ) -> Result<(), CommandError> {
-        if !self.helper.env.command.should_commit_transaction() {
-            return Err(user_error(
-                "Local-state changes cannot use --no-integrate-operation",
-            ));
-        }
-        journal.bind_transaction(&mut self.tx)?;
-        Ok(())
-    }
-
     pub fn check_out(&mut self, commit: &Commit) -> Result<Commit, CheckOutCommitError> {
         let name = self.helper.workspace_name().to_owned();
         self.id_prefix_context.take(); // invalidate
@@ -3178,54 +3156,6 @@ pub fn find_workspace_dir(cwd: &Path) -> &Path {
     cwd.ancestors()
         .find(|path| path.join(".jj").is_dir())
         .unwrap_or(cwd)
-}
-
-#[cfg(feature = "git")]
-async fn recover_local_state_before_dispatch(
-    ui: &Ui,
-    loader: &dyn WorkspaceLoader,
-    settings: &UserSettings,
-    config_env: &ConfigEnv,
-    store_factories: &StoreFactories,
-    working_copy_factories: &WorkingCopyFactories,
-) -> Result<bool, CommandError> {
-    let store_path = loader.repo_path().join("store");
-    if !store_path
-        .join("git_target")
-        .try_exists()
-        .map_err(user_error)?
-    {
-        return Ok(false);
-    }
-    let git_path =
-        jj_lib::git_backend::GitBackend::resolve_git_repo_path(&store_path).map_err(user_error)?;
-    let git_repo = gix::open(git_path).map_err(user_error)?;
-    if !jj_lib::local_state::has_pending(&git_repo)? {
-        return Ok(false);
-    }
-    // Recovery tries the journal lease without waiting. A live local-state
-    // transaction must not stall unrelated JJ commands.
-    let workspace = loader
-        .load(settings, store_factories, working_copy_factories)
-        .map_err(|err| map_workspace_load_error(err, None))?;
-    let extra_paths: Vec<_> = config_env.maybe_repo_config_path(ui)?.into_iter().collect();
-    match jj_lib::local_state::recover(workspace.repo_loader(), &extra_paths).await {
-        Err(jj_lib::local_state::LocalStateError::Busy) => return Ok(false),
-        Err(err) => return Err(err.into()),
-        Ok(jj_lib::local_state::RecoveryOutcome::NoPending) => {}
-        Ok(jj_lib::local_state::RecoveryOutcome::RolledBack) => {
-            writeln!(
-                ui.status(),
-                "Rolled back an interrupted local-state change."
-            )?;
-        }
-        Ok(jj_lib::local_state::RecoveryOutcome::Completed) => {
-            writeln!(ui.status(), "Completed an interrupted local-state change.")?;
-        }
-    }
-    // Another process may have finished after the initial check. Reload even
-    // then: the original settings could have observed intermediate config.
-    Ok(true)
 }
 
 fn map_workspace_load_error(err: WorkspaceLoadError, user_wc_path: Option<&str>) -> CommandError {
@@ -5106,37 +5036,6 @@ impl<'a> CliRunner<'a> {
         }
 
         let settings = UserSettings::from_config(config)?;
-        #[cfg(feature = "git")]
-        let settings = if !args.global_args.ignore_working_copy
-            && !args.global_args.no_integrate_operation
-            && args
-                .global_args
-                .at_operation
-                .as_deref()
-                .is_none_or(|op| op == "@")
-            && !matches.subcommand().is_some_and(|(name, sub)| {
-                name == "util" && sub.subcommand_name() == Some("recover")
-            })
-            && let Ok(loader) = &maybe_workspace_loader
-            && recover_local_state_before_dispatch(
-                ui,
-                loader.as_ref(),
-                &settings,
-                &config_env,
-                &self.store_factories,
-                &self.working_copy_factories,
-            )
-            .await?
-        {
-            config_env.reload_repo_config(ui, &mut raw_config)?;
-            config_env.reload_workspace_config(ui, &mut raw_config)?;
-            let mut config = config_env.resolve_config(&raw_config)?;
-            migrate_config(&mut config)?;
-            ui.reset(&config)?;
-            UserSettings::from_config(config)?
-        } else {
-            settings
-        };
         let command_helper_data = CommandHelperData {
             app: self.app,
             cwd,

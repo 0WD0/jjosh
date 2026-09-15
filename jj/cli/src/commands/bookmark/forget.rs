@@ -107,13 +107,18 @@ pub async fn cmd_bookmark_forget(
         }
         for (remote, _) in &bookmark_target.remote_refs {
             let symbol = name.to_remote_symbol(remote);
-            if !jj_lib::revset::remote_ref_is_visible(repo.view(), symbol).map_err(crate::command_error::user_error)? {
+            if !jj_lib::revset::remote_ref_is_visible(repo.view(), symbol)
+                .map_err(crate::command_error::user_error)?
+            {
                 continue;
             }
             // An explicitly forgotten entry may also match the local pattern.
-            if !tx.repo().view().get_remote_view(remote).is_some_and(|remote_view| {
-                remote_view.bookmarks.contains_key(symbol.name)
-            }) {
+            if !tx
+                .repo()
+                .view()
+                .get_remote_view(remote)
+                .is_some_and(|remote_view| remote_view.bookmarks.contains_key(symbol.name))
+            {
                 continue;
             }
             // If `--include-remotes` is specified, we forget the corresponding
@@ -194,7 +199,10 @@ fn find_remote_bookmarks<'a>(
         writeln!(
             ui.warning_default(),
             "No matching remote bookmarks for names: {}",
-            unmatched.iter().map(|symbol| view.remote_ref_symbol(*symbol)).join(", ")
+            unmatched
+                .iter()
+                .map(|symbol| view.remote_ref_symbol(*symbol))
+                .join(", ")
         )?;
     }
     Ok(matched)

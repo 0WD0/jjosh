@@ -344,9 +344,10 @@ async fn cmd_git_colocation_disable(
 fn set_git_repo_bare(path: &std::path::Path, bare: bool) -> Result<(), CommandError> {
     let bare_str = if bare { "true" } else { "false" };
     let config_path = path.join("config");
-    let mut config_file =
-        gix::config::File::from_path_no_includes(config_path.clone(), gix::config::Source::Local)
-            .map_err(|err| user_error_with_message("Failed to open Git config file.", err))?;
+    let git_repo = gix::open(path).map_err(user_error)?;
+    let mut config_file = git_repo
+        .config_file_mut(config_path.clone())
+        .map_err(|err| user_error_with_message("Failed to lock Git config file.", err))?;
 
     config_file
         .set_raw_value("core.bare", bare_str)
@@ -357,7 +358,7 @@ fn set_git_repo_bare(path: &std::path::Path, bare: bool) -> Result<(), CommandEr
             )
         })?;
 
-    git::save_git_config(&config_file).map_err(|err| {
+    config_file.commit().map_err(|err| {
         user_error_with_message(
             format!(
                 "Failed to write to Git config file at {}.",

@@ -119,6 +119,11 @@ pub enum GitBackendInitError {
     Config(ConfigGetError),
     #[error(transparent)]
     Path(PathError),
+    #[error(
+        "Legacy local-state journal exists at {0}; recover it using the version that created it \
+         before opening this repository"
+    )]
+    LegacyJournal(PathBuf),
 }
 
 impl From<Box<GitBackendInitError>> for BackendInitError {
@@ -137,6 +142,11 @@ pub enum GitBackendLoadError {
     Config(ConfigGetError),
     #[error(transparent)]
     Path(PathError),
+    #[error(
+        "Legacy local-state journal exists at {0}; recover it using the version that created it \
+         before opening this repository"
+    )]
+    LegacyJournal(PathBuf),
 }
 
 impl From<Box<GitBackendLoadError>> for BackendLoadError {
@@ -310,6 +320,20 @@ impl GitBackend {
         repo: gix::ThreadSafeRepository,
         git_settings: GitSettings,
     ) -> Result<Self, Box<GitBackendInitError>> {
+        let journal_path = repo
+            .to_thread_local()
+            .common_dir()
+            .join("jj-remote-journal");
+        match fs::symlink_metadata(&journal_path) {
+            Ok(_) => return Err(Box::new(GitBackendInitError::LegacyJournal(journal_path))),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(source) => {
+                return Err(Box::new(GitBackendInitError::Path(PathError {
+                    path: journal_path,
+                    source,
+                })));
+            }
+        }
         let extra_path = store_path.join("extra");
         fs::create_dir(&extra_path)
             .context(&extra_path)
@@ -364,6 +388,20 @@ impl GitBackend {
             gix_open_opts_from_settings(settings),
         )
         .map_err(GitBackendLoadError::OpenRepository)?;
+        let journal_path = repo
+            .to_thread_local()
+            .common_dir()
+            .join("jj-remote-journal");
+        match fs::symlink_metadata(&journal_path) {
+            Ok(_) => return Err(Box::new(GitBackendLoadError::LegacyJournal(journal_path))),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(source) => {
+                return Err(Box::new(GitBackendLoadError::Path(PathError {
+                    path: journal_path,
+                    source,
+                })));
+            }
+        }
         let extra_metadata_store = TableStore::load(
             store_path.join("extra"),
             repo.to_thread_local().object_hash().len_in_bytes(),

@@ -14,7 +14,6 @@
 
 use clap_complete::ArgValueCandidates;
 use jj_lib::git;
-use jj_lib::local_state;
 use jj_lib::ref_name::RemoteNameBuf;
 use jj_lib::repo::Repo as _;
 
@@ -45,12 +44,8 @@ pub async fn cmd_git_remote_remove(
     command: &CommandHelper,
     args: &GitRemoteRemoveArgs,
 ) -> Result<(), CommandError> {
-    super::require_integrated_local_state(command)?;
     let mut workspace_command = command.workspace_helper_no_snapshot(ui).await?;
     let git_lock = workspace_command.lock_git_import_export()?;
-    let extra_paths: Vec<_> = command.config_env().maybe_repo_config_path(ui)?.into_iter().collect();
-    let journal = local_state::begin(workspace_command.repo(), &extra_paths).await?;
-    crate::git_remote::check_repo_config_unchanged(command.raw_config())?;
     let remote = super::resolve_management_remote(
         &workspace_command,
         args.remote.as_str(),
@@ -58,25 +53,23 @@ pub async fn cmd_git_remote_remove(
     )?;
     let view = workspace_command.repo().view();
     let mut git_repo = git::get_git_repo(workspace_command.repo().store())?;
-    git_repo.reload().map_err(crate::command_error::user_error)?;
+    git_repo
+        .reload()
+        .map_err(crate::command_error::user_error)?;
     let inspection = git::inspect_remote_management(view, &git_repo, &remote)?;
     let connection = inspection.connection();
-    super::check_management_binding(command, &workspace_command, &remote, connection)?;
-    if inspection.owns_config() {
-        crate::git_remote::check_remote(command, &workspace_command, &remote)?;
-    }
-    let identity = view
-        .remote_identity(&remote)
+    let identity = jj_lib::view::remote_identity::resolve(view.store_view(), &remote)
         .map_err(crate::command_error::user_error)?
         .and_then(|identity| identity.scoped_name);
     let labels = identity.map(|identity| super::project_config_labels(view, &identity.project));
-    let local_name = view.remote_local_name(&remote);
+    let local_name = identity.map_or(remote.as_ref(), |identity| identity.name.as_ref());
     let display_name = view.remote_qualified_name(&remote);
-    let mut options = git::GitRemoteManagementOptions {
+    let options = git::GitRemoteManagementOptions {
         extra_config_keys: git::MANAGED_REMOTE_KEYS,
+        expected_connection: Some(inspection.configured_connection.clone()),
         ..Default::default()
     };
-    options.repo_config = remove_remote_from_repo_config(
+    let repo_config = remove_remote_from_repo_config(
         ui,
         command.raw_config(),
         view,
@@ -84,7 +77,6 @@ pub async fn cmd_git_remote_remove(
         labels.as_deref(),
     )?;
     let mut tx = workspace_command.start_transaction();
-    tx.bind_local_state(&journal)?;
     git::remove_remote_with_options(tx.repo_mut(), &remote, &options)?;
     if let Some(connection) = connection {
         tx.repo_mut()
@@ -112,10 +104,18 @@ pub async fn cmd_git_remote_remove(
             &git_lock,
         )
         .await?;
-    } else {
-        // Do not print "Nothing changed." for the remote named "git".
-        journal.commit_local()?;
     }
-    journal.complete().await?;
+    if command.should_commit_transaction()
+        && let Some(updated) = repo_config
+    {
+        crate::git_remote::commit_repo_config_update(command.raw_config(), &updated).map_err(
+            |err| {
+                crate::command_error::user_error_with_message(
+                    "Remote removed, but repository settings were not updated",
+                    err,
+                )
+            },
+        )?;
+    }
     Ok(())
 }

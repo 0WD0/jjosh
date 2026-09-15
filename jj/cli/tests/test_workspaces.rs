@@ -377,7 +377,11 @@ fn test_workspaces_add_deferred_unregistered_sparse_patterns(sparse_patterns: &s
     assert!(!secondary_dir.root().join("excluded").exists());
     // Excluded files remain in the canonical commit, not silently deleted.
     assert_eq!(
-        secondary_dir.run_jj(["file", "list"]).success().stdout.raw(),
+        secondary_dir
+            .run_jj(["file", "list"])
+            .success()
+            .stdout
+            .raw(),
         "excluded\ntracked\n",
     );
 }

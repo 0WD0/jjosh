@@ -637,12 +637,6 @@ jj currently does not support partial clones. To use jj with this repository, tr
         }
     }
 
-    impl From<jj_lib::local_state::LocalStateError> for CommandError {
-        fn from(err: jj_lib::local_state::LocalStateError) -> Self {
-            user_error(err)
-        }
-    }
-
     impl From<GitCreateWorktreeError> for CommandError {
         fn from(err: GitCreateWorktreeError) -> Self {
             user_error(err)

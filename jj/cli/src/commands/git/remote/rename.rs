@@ -14,7 +14,6 @@
 
 use clap_complete::ArgValueCandidates;
 use jj_lib::git;
-use jj_lib::local_state;
 use jj_lib::ref_name::RemoteNameBuf;
 use jj_lib::repo::Repo as _;
 
@@ -44,35 +43,26 @@ pub async fn cmd_git_remote_rename(
     command: &CommandHelper,
     args: &GitRemoteRenameArgs,
 ) -> Result<(), CommandError> {
-    super::require_integrated_local_state(command)?;
     let mut workspace_command = command.workspace_helper_no_snapshot(ui).await?;
     let git_lock = workspace_command.lock_git_import_export()?;
-    let extra_paths: Vec<_> = command.config_env().maybe_repo_config_path(ui)?.into_iter().collect();
-    let journal = local_state::begin(workspace_command.repo(), &extra_paths).await?;
-    crate::git_remote::check_repo_config_unchanged(command.raw_config())?;
     let old = super::resolve_management_remote(
         &workspace_command,
         args.old.as_str(),
         args.project.as_deref(),
     )?;
     let mut git_repo = git::get_git_repo(workspace_command.repo().store())?;
-    git_repo.reload().map_err(crate::command_error::user_error)?;
+    git_repo
+        .reload()
+        .map_err(crate::command_error::user_error)?;
     let inspection =
         git::inspect_remote_management(workspace_command.repo().view(), &git_repo, &old)?;
-    let connection = inspection.connection();
-    super::check_management_binding(command, &workspace_command, &old, connection)?;
-    if inspection.owns_config() {
-        crate::git_remote::check_remote(command, &workspace_command, &old)?;
-    }
-    let identity = workspace_command
-        .repo()
-        .view()
-        .remote_identity(&old)
-        .map_err(crate::command_error::user_error)?
-        .and_then(|identity| identity.scoped_name)
-        .cloned();
+    let identity =
+        jj_lib::view::remote_identity::resolve(workspace_command.repo().view().store_view(), &old)
+            .map_err(crate::command_error::user_error)?;
+    let connection = identity.map(|identity| identity.connection.clone());
+    let identity = identity.and_then(|identity| identity.scoped_name).cloned();
     let (new, specified_scope) =
-        super::new_remote_name(&workspace_command, &args.new, args.project.as_deref())?;
+        super::management_remote_name(&workspace_command, &args.new, args.project.as_deref())?;
     let scope = identity.as_ref().map(|identity| &identity.project);
     if specified_scope
         .as_ref()
@@ -83,19 +73,19 @@ pub async fn cmd_git_remote_rename(
         ));
     }
     super::ensure_available_remote_name(&workspace_command, &new, scope)?;
-    let local_old = workspace_command
-        .repo()
-        .view()
-        .remote_local_name(&old)
+    let local_old = identity
+        .as_ref()
+        .map_or(old.as_ref(), |identity| identity.name.as_ref())
         .to_owned();
     let display_old = workspace_command.repo().view().remote_qualified_name(&old);
     let labels =
         scope.map(|project| super::project_config_labels(workspace_command.repo().view(), project));
-    let mut options = git::GitRemoteManagementOptions {
+    let options = git::GitRemoteManagementOptions {
         extra_config_keys: git::MANAGED_REMOTE_KEYS,
+        expected_connection: Some(inspection.configured_connection.clone()),
         ..Default::default()
     };
-    options.repo_config = rename_remote_in_repo_config(
+    let repo_config = rename_remote_in_repo_config(
         ui,
         command.raw_config(),
         workspace_command.repo().view(),
@@ -104,7 +94,6 @@ pub async fn cmd_git_remote_rename(
         labels.as_deref(),
     )?;
     let mut tx = workspace_command.start_transaction();
-    tx.bind_local_state(&journal)?;
     if let Some(mut identity) = identity {
         let connection = connection.ok_or_else(|| {
             crate::command_error::user_error("Scoped remote has no logical connection")
@@ -113,12 +102,6 @@ pub async fn cmd_git_remote_rename(
             .view_mut()
             .archive_remote_observations(&old)
             .map_err(crate::command_error::user_error)?;
-        git::commit_remote_management_config(
-            tx.repo().store(),
-            &old,
-            options.repo_config.as_ref(),
-            Some(&journal),
-        )?;
         identity.name = new.clone();
         tx.repo_mut()
             .view_mut()
@@ -142,10 +125,18 @@ pub async fn cmd_git_remote_rename(
             &git_lock,
         )
         .await?;
-    } else {
-        // Do not print "Nothing changed."
-        journal.commit_local()?;
     }
-    journal.complete().await?;
+    if command.should_commit_transaction()
+        && let Some(updated) = repo_config
+    {
+        crate::git_remote::commit_repo_config_update(command.raw_config(), &updated).map_err(
+            |err| {
+                crate::command_error::user_error_with_message(
+                    "Remote renamed, but repository settings were not updated",
+                    err,
+                )
+            },
+        )?;
+    }
     Ok(())
 }

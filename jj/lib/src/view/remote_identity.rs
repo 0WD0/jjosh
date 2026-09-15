@@ -179,9 +179,8 @@ pub(super) fn may_be_in_scope(
 
 #[cfg(test)]
 mod tests {
-    use crate::backend::CommitId;
-
     use super::*;
+    use crate::backend::CommitId;
 
     #[test]
     fn historical_names_do_not_borrow_current_aliases_or_require_live_projects() {

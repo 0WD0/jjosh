@@ -130,7 +130,6 @@ This document contains the help content for the `jj` command-line program.
 * [`jj util gc`↴](#jj-util-gc)
 * [`jj util install-man-pages`↴](#jj-util-install-man-pages)
 * [`jj util markdown-help`↴](#jj-util-markdown-help)
-* [`jj util recover`↴](#jj-util-recover)
 * [`jj util snapshot`↴](#jj-util-snapshot)
 * [`jj version`↴](#jj-version)
 * [`jj workspace`↴](#jj-workspace)
@@ -3817,7 +3816,6 @@ Infrequently used commands such as for generating shell completions
 * `gc` — Run backend-dependent garbage collection
 * `install-man-pages` — Install Jujutsu's manpages to the provided path
 * `markdown-help` — Print the CLI help for all subcommands in Markdown
-* `recover` — Recover an interrupted local state change without network access
 * `snapshot` — Snapshot the working copy if needed
 
 
@@ -4002,16 +4000,6 @@ Install Jujutsu's manpages to the provided path
 Print the CLI help for all subcommands in Markdown
 
 **Usage:** `jj util markdown-help`
-
-
-
-## `jj util recover`
-
-Recover an interrupted local state change without network access
-
-Published operations determine whether to complete the change or restore its saved local state. The selected operation does not determine recovery.
-
-**Usage:** `jj util recover`
 
 
 

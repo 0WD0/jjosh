@@ -158,15 +158,20 @@ impl View {
     /// ownership and scoped name; live membership always shadows history.
     pub fn is_historical_remote_ref(&self, symbol: RemoteRefSymbol<'_>) -> Result<bool, String> {
         if self.data.remote_connections.contains_key(symbol.remote)
-            || !self.data.remote_views.get(symbol.remote).is_some_and(|remote| {
-                remote.bookmarks.contains_key(symbol.name) || remote.tags.contains_key(symbol.name)
-            })
+            || !self
+                .data
+                .remote_views
+                .get(symbol.remote)
+                .is_some_and(|remote| {
+                    remote.bookmarks.contains_key(symbol.name)
+                        || remote.tags.contains_key(symbol.name)
+                })
         {
             return Ok(false);
         }
-        Ok(self.remote_identity(symbol.remote)?.is_some_and(|identity| {
-            identity.source == remote_identity::IdentitySource::Historical
-        }))
+        Ok(self
+            .remote_identity(symbol.remote)?
+            .is_some_and(|identity| identity.source == remote_identity::IdentitySource::Historical))
     }
 
     /// Display-only alias lookup. Operations must validate `remote_identity`.
@@ -224,7 +229,8 @@ impl View {
                         if local == name || (!logical && remote.as_str() == name.as_str()) {
                             if found.as_ref().is_some_and(|previous| previous != remote) {
                                 return Err(format!(
-                                    "Remote name {name:?} is duplicated in the selected scope; select a historical physical key explicitly"
+                                    "Remote name {name:?} is duplicated in the selected scope; \
+                                     select a historical physical key explicitly"
                                 ));
                             }
                             found = Some(remote.clone());
@@ -284,9 +290,13 @@ impl View {
                 ..
             }))
         ) && scoped_name.is_some_and(|name| {
-            symbol.name.as_str().rsplit_once('#').and_then(|(_, label)| {
-                self.data.project_state.resolve_label(label).ok().flatten()
-            }).as_ref() != Some(&name.project)
+            symbol
+                .name
+                .as_str()
+                .rsplit_once('#')
+                .and_then(|(_, label)| self.data.project_state.resolve_label(label).ok().flatten())
+                .as_ref()
+                != Some(&name.project)
         }) {
             return Cow::Borrowed(symbol.remote.as_str());
         }
@@ -378,7 +388,8 @@ impl View {
             });
         if occupied {
             return Err(format!(
-                "Project label {label:?} would adopt existing literal references; migrate them explicitly"
+                "Project label {label:?} would adopt existing literal references; migrate them \
+                 explicitly"
             ));
         }
         Ok(())
@@ -836,11 +847,13 @@ impl View {
         if let Some(remote_view) = self.data.remote_views.get_mut(symbol.remote) {
             remote_view.bookmarks.remove(symbol.name);
         }
-        self.data.project_observations.remove(&crate::project::ObservationKey {
-            remote: symbol.remote.to_owned(),
-            name: symbol.name.to_owned(),
-            kind: crate::project::ObservationKind::Bookmark,
-        });
+        self.data
+            .project_observations
+            .remove(&crate::project::ObservationKey {
+                remote: symbol.remote.to_owned(),
+                name: symbol.name.to_owned(),
+                kind: crate::project::ObservationKind::Bookmark,
+            });
     }
 
     /// Iterates over `(name, {local_ref, remote_ref})`s for every bookmark
@@ -1515,7 +1528,8 @@ mod tests {
 
     #[test]
     fn historical_alias_never_shadows_new_logical_owner_before_fetch() {
-        use crate::project::{ConnectionId, ProjectRecord};
+        use crate::project::ConnectionId;
+        use crate::project::ProjectRecord;
         use crate::repo_path::RepoPathBuf;
         let mut view = View::new(op_store::View::make_root(CommitId::from_hex("00")), true);
         let project = ProjectId::generate();
@@ -1619,34 +1633,54 @@ mod tests {
     #[test]
     fn historical_physical_refs_require_recorded_unambiguous_ownership() {
         use crate::project::ConnectionId;
-        use crate::revset::{remote_ref_is_visible, resolve_remote_ref_symbol};
+        use crate::revset::remote_ref_is_visible;
+        use crate::revset::resolve_remote_ref_symbol;
 
         let mut view = View::new(op_store::View::make_root(CommitId::from_hex("00")), true);
         let owner = ConnectionId::generate();
         let project = ProjectId::generate();
         let symbol = remote_symbol("main#lib", "physical");
-        view.data.observed_remote_connections.insert("physical".into(), Merge::normal(owner.clone()));
-        view.data.observed_remote_names.insert(owner.clone(), Merge::normal(ScopedRemoteName {
-            project,
-            name: "origin".into(),
-        }));
-        view.set_remote_bookmark(symbol, RemoteRef {
-            target: RefTarget::normal(CommitId::from_hex("11")),
-            state: RemoteRefState::New,
-        });
+        view.data
+            .observed_remote_connections
+            .insert("physical".into(), Merge::normal(owner.clone()));
+        view.data.observed_remote_names.insert(
+            owner.clone(),
+            Merge::normal(ScopedRemoteName {
+                project,
+                name: "origin".into(),
+            }),
+        );
+        view.set_remote_bookmark(
+            symbol,
+            RemoteRef {
+                target: RefTarget::normal(CommitId::from_hex("11")),
+                state: RemoteRefState::New,
+            },
+        );
         assert!(remote_ref_is_visible(&view, symbol).unwrap());
         assert_eq!(resolve_remote_ref_symbol(&view, symbol).unwrap(), symbol);
         assert_eq!(view.remote_ref_remote_name(symbol), "physical");
-        assert!(resolve_remote_ref_symbol(&view, remote_symbol("missing#lib", "physical")).is_err());
+        assert!(
+            resolve_remote_ref_symbol(&view, remote_symbol("missing#lib", "physical")).is_err()
+        );
 
-        view.data.observed_remote_connections.insert("physical".into(), Merge::from_vec(vec![
-            Some(owner.clone()), None, Some(ConnectionId::generate()),
-        ]));
+        view.data.observed_remote_connections.insert(
+            "physical".into(),
+            Merge::from_vec(vec![
+                Some(owner.clone()),
+                None,
+                Some(ConnectionId::generate()),
+            ]),
+        );
         assert!(remote_ref_is_visible(&view, symbol).is_err());
         assert!(resolve_remote_ref_symbol(&view, symbol).is_err());
         // A current deleted owner shadows otherwise readable historical state.
-        view.data.observed_remote_connections.insert("physical".into(), Merge::normal(owner));
-        view.data.remote_connections.insert("physical".into(), Merge::absent());
+        view.data
+            .observed_remote_connections
+            .insert("physical".into(), Merge::normal(owner));
+        view.data
+            .remote_connections
+            .insert("physical".into(), Merge::absent());
         assert!(resolve_remote_ref_symbol(&view, symbol).is_err());
     }
 }
