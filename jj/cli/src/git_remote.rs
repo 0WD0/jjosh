@@ -20,6 +20,10 @@ use std::io::Write as _;
 use std::num::NonZeroU32;
 use std::pin::Pin;
 
+use futures::StreamExt as _;
+use futures::stream::LocalBoxStream;
+use jj_lib::backend::CommitId;
+use jj_lib::commit::Commit;
 use jj_lib::config::ConfigGetResultExt as _;
 use jj_lib::git::GitFetchRefExpression;
 use jj_lib::git::GitPushOptions;
@@ -34,8 +38,9 @@ use jj_lib::ref_name::RefNameBuf;
 use jj_lib::ref_name::RemoteName;
 use jj_lib::ref_name::RemoteNameBuf;
 use jj_lib::repo::MutableRepo;
-use jj_lib::repo_path::RepoPathBuf;
 use jj_lib::repo::Repo as _;
+use jj_lib::revset::RevsetEvaluationError;
+use jj_lib::revset::RevsetStreamExt as _;
 use jj_lib::settings::UserSettings;
 use jj_lib::str_util::StringExpression;
 use jj_lib::view::View;
@@ -47,6 +52,84 @@ use crate::command_error::user_error;
 use crate::ui::Ui;
 
 pub type RemoteFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, CommandError>> + 'a>>;
+
+/// Original commit for authorship, description, private-revset checks, and diagnostics.
+/// A conversion may restrict conflict checks to the tree content it actually publishes.
+pub struct GitPushValidationCommit {
+    pub commit: Commit,
+    pub has_conflict: bool,
+}
+
+pub type GitPushValidationStream<'a> =
+    LocalBoxStream<'a, Result<GitPushValidationCommit, CommandError>>;
+
+/// Ordinary push validation stays ordered and bounded by the backend's concurrency.
+/// Do not collect the revset or load all commits before the caller can reject the first one.
+pub fn default_push_validation_commits<'a>(
+    repo: &'a dyn jj_lib::repo::Repo,
+    candidates: LocalBoxStream<'a, Result<CommitId, RevsetEvaluationError>>,
+) -> GitPushValidationStream<'a> {
+    candidates
+        .commits(repo.store())
+        .map(|result| {
+            let commit = result?;
+            Ok(GitPushValidationCommit {
+                has_conflict: commit.has_conflict(),
+                commit,
+            })
+        })
+        .boxed_local()
+}
+
+#[cfg(test)]
+mod validation_tests {
+    use std::cell::Cell;
+
+    use futures::TryStreamExt as _;
+    use pollster::FutureExt as _;
+    use testutils::TestRepo;
+
+    use super::*;
+
+    #[test]
+    fn default_validation_does_not_collect_the_candidate_history() {
+        let test_repo = TestRepo::init();
+        let repo = test_repo.repo.as_ref();
+        let consumed = Cell::new(0);
+        let count = repo.store().concurrency() + 10_000;
+        let candidates = futures::stream::iter((0..count).map(|_| {
+            consumed.set(consumed.get() + 1);
+            Ok(repo.store().root_commit_id().clone())
+        }))
+        .boxed_local();
+        let mut stream = default_push_validation_commits(repo, candidates);
+        assert_eq!(consumed.get(), 0);
+        let first = stream.try_next().block_on().unwrap().unwrap();
+        assert_eq!(first.commit.id(), repo.store().root_commit_id());
+        assert!(!first.has_conflict);
+        assert!(consumed.get() <= repo.store().concurrency());
+        // A caller rejecting this item can drop the stream; no background work remains.
+        let before_drop = consumed.get();
+        drop(stream);
+        assert_eq!(consumed.get(), before_drop);
+    }
+
+    #[test]
+    fn default_validation_preserves_error_order() {
+        let test_repo = TestRepo::init();
+        let repo = test_repo.repo.as_ref();
+        let candidates = futures::stream::iter([
+            Ok(repo.store().root_commit_id().clone()),
+            Err(RevsetEvaluationError::Other(
+                "later history is unreadable".into(),
+            )),
+        ])
+        .boxed_local();
+        let mut stream = default_push_validation_commits(repo, candidates);
+        assert!(stream.try_next().block_on().unwrap().is_some());
+        assert!(stream.try_next().block_on().is_err());
+    }
+}
 
 /// Prepare repo-local settings for renamed/scoped aliases.
 pub fn prepare_remote_settings_scope(
@@ -509,9 +592,15 @@ pub trait GitRemoteSession {
         local.as_str()
     }
 
-    /// Canonical subtree whose projected history is published by this session.
-    fn push_validation_root(&self) -> Option<RepoPathBuf> {
-        None
+    /// Adapt the candidate history to the representation being published. Implementations
+    /// must preserve original commits for policy checks and must not perform network writes,
+    /// publish observations, or grant leases. The default is ordinary streaming validation.
+    fn push_validation_commits<'a>(
+        &'a self,
+        repo: &'a dyn jj_lib::repo::Repo,
+        candidates: LocalBoxStream<'a, Result<CommitId, RevsetEvaluationError>>,
+    ) -> GitPushValidationStream<'a> {
+        default_push_validation_commits(repo, candidates)
     }
 
     fn default_fetch_bookmarks(&self) -> Result<(IgnoredRefspecs, StringExpression), CommandError>;

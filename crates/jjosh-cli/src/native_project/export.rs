@@ -7,9 +7,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use anyhow::{Result, ensure};
-use jj_lib::backend::{CommitId, TreeId};
+use jj_lib::backend::CommitId;
 use jj_lib::commit::Commit;
-use jj_lib::merge::Merge;
 use jj_lib::repo::Repo;
 use jj_lib::repo_path::RepoPath;
 
@@ -56,17 +55,6 @@ impl ExportedProject {
     }
 }
 
-#[derive(Clone)]
-struct Projected {
-    node: usize,
-    tree: Merge<TreeId>,
-}
-
-enum Visit {
-    Read(CommitId),
-    Write(Commit),
-}
-
 /// Project several heads using one ancestry walk and one immutable correspondence snapshot.
 /// Results follow HEADS order, including duplicates; empty history cannot be published.
 pub(crate) async fn export_projects(
@@ -92,115 +80,44 @@ pub(crate) async fn export_projects(
         }
     }
     let backend = jj_lib::git::get_git_backend(repo.store())?;
-    let root = repo.store().root_commit_id();
-    let mut nodes = vec![ExportNode {
-        raw: root.clone(),
-        canonical: None,
-        parents: Vec::new(),
-    }];
-    let mut mapped = HashMap::from([(
-        root.clone(),
-        Projected {
-            node: 0,
-            tree: Merge::resolved(repo.store().empty_tree_id().clone()),
-        },
-    )]);
-    let mut pending: Vec<_> = heads
-        .iter()
-        .rev()
-        .map(|head| Visit::Read(head.id().clone()))
-        .collect();
-    while let Some(visit) = pending.pop() {
-        match visit {
-            Visit::Read(id) => {
-                if mapped.contains_key(&id) {
-                    continue;
-                }
-                let commit = repo.store().get_commit_async(&id).await?;
-                if let Some(raw) = reverse.get(&id) {
-                    let tree = super::project_tree(&commit, mount).await?;
-                    mapped.insert(
-                        id,
-                        Projected {
-                            node: nodes.len(),
-                            tree: tree.tree_ids().clone(),
-                        },
-                    );
-                    nodes.push(ExportNode {
-                        raw: raw.clone(),
-                        canonical: None,
-                        parents: Vec::new(),
-                    });
-                    continue;
-                }
-                let parents = commit.parent_ids().to_vec();
-                pending.push(Visit::Write(commit));
-                pending.extend(parents.into_iter().map(Visit::Read));
-            }
-            Visit::Write(commit) => {
-                let tree = super::project_tree(&commit, mount).await?;
-                let mut seen = HashSet::new();
-                let mut parents: Vec<_> = commit
-                    .parent_ids()
-                    .iter()
-                    .map(|id| mapped[id].node)
-                    .filter(|&index| seen.insert(&nodes[index].raw))
-                    .collect();
-                if parents.len() > 1 {
-                    parents.retain(|&index| nodes[index].raw != *root);
-                }
-                let same_parent = if let [parent] = parents.as_slice() {
-                    commit.parent_ids().iter().find(|id| {
-                        nodes[mapped[*id].node].raw == nodes[*parent].raw
-                            && mapped[*id].tree == *tree.tree_ids()
-                    })
-                } else {
-                    None
-                };
-                if let Some(parent) = same_parent {
-                    mapped.insert(commit.id().clone(), mapped[parent].clone());
-                    continue;
-                }
-                if parents.is_empty() {
-                    parents.push(0);
-                }
-                let mut contents = commit.store_commit().as_ref().clone();
-                contents.parents = parents
-                    .iter()
-                    .map(|&index| nodes[index].raw.clone())
-                    .collect();
-                contents.root_tree = tree.tree_ids().clone();
-                contents.conflict_labels = tree.labels().as_merge().clone();
-                contents.predecessors.clear();
-                contents.secure_sig = None;
-                let (raw, exported) = backend.write_commit_for_export(contents.clone())?;
-                ensure!(
-                    exported == contents,
-                    "Backend changed metadata while projecting {}",
-                    commit.id()
-                );
-                mapped.insert(
-                    commit.id().clone(),
-                    Projected {
-                        node: nodes.len(),
-                        tree: tree.tree_ids().clone(),
-                    },
-                );
-                nodes.push(ExportNode {
-                    canonical: (!known.contains_key(&raw)).then(|| commit.id().clone()),
-                    raw,
-                    parents,
-                });
-            }
-        }
-    }
-    let history: Arc<[ExportNode]> = nodes.into();
-    heads
-        .iter()
-        .map(|head| {
-            let head = mapped[head.id()].node;
+    let heads: Vec<_> = heads.iter().map(|head| head.id().clone()).collect();
+    let projected = super::history::project(
+        repo,
+        mount,
+        &heads,
+        |id| reverse.get(id).cloned(),
+        |commit, tree, parents| {
+            let mut contents = commit.store_commit().as_ref().clone();
+            contents.parents = parents;
+            contents.root_tree = tree.tree_ids().clone();
+            contents.conflict_labels = tree.labels().as_merge().clone();
+            contents.predecessors.clear();
+            contents.secure_sig = None;
+            let (raw, exported) = backend.write_commit_for_export(contents.clone())?;
             ensure!(
-                history[head].raw != *root,
+                exported == contents,
+                "Backend changed metadata while projecting {}",
+                commit.id()
+            );
+            Ok((raw, commit.id().clone()))
+        },
+    )
+    .await?;
+    let history: Arc<[ExportNode]> = projected
+        .nodes
+        .into_iter()
+        .map(|node| ExportNode {
+            canonical: node.value.filter(|_| !known.contains_key(&node.id)),
+            raw: node.id,
+            parents: node.parents,
+        })
+        .collect();
+    projected
+        .heads
+        .into_iter()
+        .map(|head| {
+            ensure!(
+                &history[head].raw != repo.store().root_commit_id(),
                 "Selected history contains no project content to publish"
             );
             Ok(ExportedProject {
