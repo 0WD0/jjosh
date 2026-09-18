@@ -980,9 +980,11 @@ impl View {
         remote_observations::RemoteObservations::new(&mut self.data).capture_identity(remote);
     }
 
-    /// Archive historical observations without changing logical membership.
-    pub fn archive_remote_observations(&mut self, remote: &RemoteName) -> Result<(), String> {
-        remote_observations::RemoteObservations::new(&mut self.data).archive(remote)
+    /// Drop stale tracking/evidence for this physical remote from the current
+    /// operation before the name is reused. Older operations remain the only
+    /// source of historical state; no synthetic historical remote is created.
+    pub fn clear_remote_observations(&mut self, remote: &RemoteName) {
+        remote_observations::RemoteObservations::new(&mut self.data).remove(remote)
     }
 
     /// Relocate observations only; logical ownership and Git mirrors stay put.
@@ -1588,7 +1590,7 @@ mod tests {
     }
 
     #[test]
-    fn archiving_root_tracking_keeps_old_owner_separate_from_reused_alias() {
+    fn clearing_root_tracking_removes_old_owner_before_alias_reuse() {
         use crate::project::ConnectionId;
         let mut view = View::new(op_store::View::make_root(CommitId::from_hex("00")), true);
         let old = ConnectionId::generate();
@@ -1605,29 +1607,18 @@ mod tests {
             state: RemoteRefState::Tracked,
         };
         view.set_remote_bookmark(symbol, target.clone());
-        view.archive_remote_observations("origin".as_ref()).unwrap();
+        view.clear_remote_observations("origin".as_ref());
         view.data
             .remote_connections
             .insert("origin".into(), Merge::normal(new));
-        let archived: RemoteNameBuf = format!("jjosh-observed-{old}").into();
-        assert_eq!(
-            view.get_remote_bookmark(RemoteRefSymbol {
-                remote: &archived,
-                name: "main".as_ref()
-            }),
-            &target
-        );
         assert!(view.get_remote_bookmark(symbol).is_absent());
-        assert_eq!(
-            view.resolve_remote_name(&[archived.clone()], None, "origin".as_ref())
-                .unwrap(),
-            "origin"
+        assert!(
+            !view
+                .data
+                .observed_remote_connections
+                .contains_key(RemoteName::new("origin"))
         );
-        assert_eq!(
-            view.resolve_remote_name(&[archived.clone()], None, &archived)
-                .unwrap(),
-            archived
-        );
+        assert!(!view.data.observed_remote_names.contains_key(&old));
     }
 
     #[test]

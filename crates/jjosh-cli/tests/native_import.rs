@@ -189,6 +189,16 @@ impl NativeRepo {
     fn physical_remote(&self, project: &str, alias: &str) -> String {
         let state: serde_json::Value =
             serde_json::from_str(&self.jj(&["project", "show", project, "--json"])).unwrap();
+        let labels: Vec<_> = state["projects"][0]["labels"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|label| label["resolved"] == true)
+            .filter_map(|label| label["label"].as_str())
+            .collect();
+        let [label] = labels.as_slice() else {
+            panic!("expected exactly one stable label for project {project}: {state}");
+        };
         let identity = state["projects"][0]["remotes"]
             .as_array()
             .unwrap()
@@ -198,7 +208,7 @@ impl NativeRepo {
             .as_str()
             .unwrap();
         let git_dir = self.path.join(".jj/repo/store/git");
-        native_git(&git_dir, &["remote"])
+        let remote = native_git(&git_dir, &["remote"])
             .lines()
             .find(|name| {
                 native_git(
@@ -213,7 +223,9 @@ impl NativeRepo {
                     == identity
             })
             .unwrap()
-            .to_owned()
+            .to_owned();
+        assert_eq!(remote, format!("{alias}#{label}"));
+        remote
     }
 
     fn project(&self, name: &str) -> serde_json::Value {
@@ -419,7 +431,7 @@ fn outer_import_failure_preserves_sources_and_independent_resources() {
 }
 
 #[test]
-fn local_import_preserves_root_and_nested_scoped_aliases_without_activating_endpoints() {
+fn nested_import_keeps_local_refs_without_importing_source_remotes() {
     let seed = NativeRepo::new();
     seed.write("value.txt", "portable source\n");
     seed.jj(&["describe", "-m", "portable source"]);
@@ -434,6 +446,7 @@ fn local_import_preserves_root_and_nested_scoped_aliases_without_activating_endp
         seed.path.join(".jj/repo/store/git").to_str().unwrap(),
     ]);
     source.jj(&["git", "fetch", "--remote", "origin", "--branch", "main"]);
+    source.jj(&["bookmark", "track", "main@origin"]);
     source.jj(&["project", "add", "inner", "--path", "inner"]);
     source.add_project_remote("origin", &seed.path, "inner");
     source.jj(&["git", "fetch", "--project", "inner", "--branch", "main"]);
@@ -447,7 +460,7 @@ fn local_import_preserves_root_and_nested_scoped_aliases_without_activating_endp
         &format!("outer={}", source.path.display()),
     ]);
     assert_eq!(
-        target.jj(&["file", "show", "-r", "main#outer@origin", "outer/value.txt"]),
+        target.jj(&["file", "show", "-r", "main#outer", "outer/value.txt"]),
         "portable source\n"
     );
     assert_eq!(
@@ -455,26 +468,18 @@ fn local_import_preserves_root_and_nested_scoped_aliases_without_activating_endp
             "file",
             "show",
             "-r",
-            "main#inner#outer@\"origin@inner\"",
+            "main#inner#outer",
             "outer/inner/value.txt"
         ]),
         "portable source\n"
     );
     let state: serde_json::Value =
         serde_json::from_str(&target.jj(&["project", "show", "outer", "--json"])).unwrap();
-    let aliases: std::collections::BTreeSet<_> = state["projects"][0]["observed_remotes"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|remote| {
-            remote["candidates"][0]["definition"]["name"]
-                .as_str()
-                .unwrap()
-        })
-        .collect();
-    assert_eq!(
-        aliases,
-        std::collections::BTreeSet::from(["origin", "origin@inner"])
+    assert!(
+        state["projects"][0]["observed_remotes"]
+            .as_array()
+            .unwrap()
+            .is_empty()
     );
     assert!(target.jj(&["git", "remote", "list"]).is_empty());
     assert!(
@@ -490,7 +495,7 @@ fn local_import_preserves_root_and_nested_scoped_aliases_without_activating_endp
             "file",
             "show",
             "-r",
-            "main#inner#outer@\"origin@inner\"",
+            "main#inner#outer",
             "outer/inner/value.txt"
         ]),
         "portable source\n"
@@ -630,7 +635,14 @@ fn assert_import_excludes_divergent_source_git_observations(mode: &str) {
                     .unwrap()
             })
             .collect();
-            assert_eq!(aliases, [alias]);
+            assert_eq!(
+                aliases,
+                if mode == "--preserve" {
+                    vec![alias]
+                } else {
+                    vec![]
+                }
+            );
             if mode == "--preserve" {
                 assert_eq!(imported["id"], source_project["id"]);
                 assert_eq!(imported["remotes"], source_project["remotes"]);
@@ -678,12 +690,19 @@ fn assert_import_excludes_divergent_source_git_observations(mode: &str) {
                     .collect::<Vec<_>>()
                 })
             };
-            let expected = [
-                vec![(bookmarks[0].to_owned(), alias.to_owned())],
-                vec![(tags[0].to_owned(), alias.to_owned())],
-            ];
+            let expected = if mode == "--preserve" {
+                [
+                    vec![(bookmarks[0].to_owned(), alias.to_owned())],
+                    vec![(tags[0].to_owned(), alias.to_owned())],
+                ]
+            } else {
+                [vec![], vec![]]
+            };
             assert_eq!(observations(), expected);
-            for name in [bookmarks[0], tags[0]] {
+            for name in [bookmarks[0], tags[0]]
+                .into_iter()
+                .filter(|_| mode == "--preserve")
+            {
                 assert_eq!(
                     target.change_id(&format!("{name}@\"{alias}\"")),
                     upstream_change
@@ -1450,14 +1469,12 @@ fn scope_suffix_convention_uses_native_tracking_and_project_publication() {
         mono.log("bookmarks(exact:\"workspace/default#alpha\")", "change_id")
             .is_empty()
     );
-    assert_eq!(
-        mono.log("main#alpha@origin", "commit_id"),
-        mono.log(scoped, "commit_id")
-    );
-    assert_eq!(
-        mono.log("v1#alpha@origin", "commit_id"),
-        mono.log(scoped, "commit_id")
-    );
+    // A nested history import is not a fetch from any destination remote.
+    // Local branch/tag identities survive, but no transport or tracking does.
+    for name in ["main#alpha@origin", "v1#alpha@origin"] {
+        assert!(!mono.unchecked(&["log", "-r", name]).status.success());
+    }
+    assert!(mono.jj(&["git", "remote", "list"]).is_empty());
     assert_eq!(mono.log("main", "commit_id"), root_main);
     mono.jj(&["new", "@", scoped, "-m", "composition"]);
 

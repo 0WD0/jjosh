@@ -80,7 +80,7 @@ View.remote_connections:
 
 ** 本地配置与物理兼容
 
-Git remote section 是扁平的。项目连接用 =jjosh-<ConnectionId>= 作为物理 handle，普通根 remote 仍使用 origin 等原有名字。Git config 中的显式身份／能力元数据证明 section 的所有权；不能根据前缀猜测或接管用户配置。创建、重命名及导入都会检查有效配置中的碰撞。
+Git remote section 是扁平的。项目连接的物理名字是 =REMOTE#LABEL=，例如 =origin#parser=；普通根 remote 仍使用 origin。ConnectionId 只存储为显式身份元数据，不编码成 remote 名。创建、重命名和导入都检查配置碰撞；同名 section 不证明连接身份相同。
 
 URL、push URL、认证、未知 per-remote 项和 include/global 配置来源继续由 Git 配置管理，不展平为 operation 状态。原生 Git 能看见物理 handle，但直接访问远端不经过 jjosh 的项目历史转换。
 
@@ -161,35 +161,17 @@ annotated tag 必须比较直接 tag 对象 ID，而非只比较 peeled commit�
 operation restore 不回退 ledger，也不能撤销服务器上的发布。
 保存了来源材料不代表可以覆盖目标；有 lease 也不证明转换结果正确。
 
-* 历史 remote 身份与名称解析
+* Remote 观察只属于所选 operation
 
-remote-tracking 状态独立保存当时的身份：
+当前 remote-tracking 保存引用、tracking、ConnectionId 和转换依据。
+这些字段支持恢复时验证身份，不是额外的历史 remote 命名空间。
+停用连接的观察不再复制成 =jjosh-*= 或 =jjosh-observed-*= 引用；旧状态通过 =--at-op OP= 查阅。
 
-#+begin_example
-remote_views:                 physical key -> RemoteView
-project_observations:         ObservationKey -> signed conversion evidence
-observed_remote_connections:  physical key -> Merge<Option<ConnectionId>>
-observed_remote_names:        ConnectionId -> Merge<Option<ScopedRemoteName>>
-#+end_example
-
-=RemoteView= 包含 remote bookmarks/tags 和 tracking。
-两个 observed 映射只说明历史归属，不占用当前逻辑别名，不创建 Git config，也不恢复当前 remote 所有权。
-历史范围读取无需重新激活旧项目或绑定；若保留的元数据本身冲突或相互矛盾，仍会明确报错。
-
-名称解析先查当前逻辑拓扑，再查历史。
-当前 origin=B 时，即使 B 从未 fetch，=main#parser@origin= 也只能选择 B，不能借 A 的旧记录补空。
-历史同名可以共存；存在歧义或被当前别名遮蔽时，显示层提供可再次解析的显式物理选择器。
-
-下列是选择器形状，=OLD_ID= 须换成 list 显示的实际 ID；不是可直接粘贴的固定 ID：
-
-#+begin_example
-main#parser@jjosh-OLD_ID
-main@jjosh-observed-OLD_ID
-#+end_example
-
-项目 handle 已随 ConnectionId 隔离。
-根物理名可能先后由 A、B 占用，恢复 A 的旧观察时会归档到 =jjosh-observed-<A>=，不把它写到 B 的根 refs 或 tracking 上。
-已有归档目的地碰撞会拒绝覆盖。
+当前 origin=B 时，=main#parser@origin= 只能选择 B。
+恢复 A 时代的 tracking 不会给 B 补授 A 的身份、tracking 或覆盖授权。
+相同 ConnectionId 且不可变 binding 相同的改名可以重定位观察；同名重建属于不同实例，不能接续。
+旧的 name-only 快照在没有身份冲突时保留，内置 =@git= 仍是本地 backend 镜像；它们不是停用的外部连接。
+旧 operation 的原始编码仍可读取，但读取不会创建新 remote 或修改配置。
 
 * 操作合并与部分恢复
 
@@ -217,7 +199,7 @@ main@jjosh-observed-OLD_ID
 | heads、本地引用、workspace 目标及 sparse/layout | 历史 | 当前 | 历史 |
 | projects、bindings、labels、remote_names | 历史 | 当前 | 历史 |
 | 当前 remote_connections | 历史 | 当前 | 历史 |
-| remote_views、project_observations | 当前观察，必要时归档 | 历史观察，必要时归档 | 历史观察 |
+| remote_views、project_observations | 当前有效连接的观察 | 仍对应所选逻辑连接的历史观察 | 历史观察 |
 | observed_remote_connections、observed_remote_names | 随所保留观察 | 随所恢复观察 | 随历史观察 |
 | Git mirror 同步基线 git_refs / git_heads | 当前 | 当前 | 当前 |
 | URL、认证、实际本地配置与默认值 | 不回退 | 不回退 | 不回退 |
@@ -226,7 +208,7 @@ main@jjosh-observed-OLD_ID
 组合不同部分时，先按 ConnectionId 与相同的不可变绑定对齐同一实例：
 根 remote 改名后，只恢复 tracking 会把同一连接的旧观察接到当前物理键，保留当前别名，不改 Git config。
 名字互换也按身份重定位，不互换 tracking 的归属。
-不同实例的旧观察移到历史键；不能按同名或同 URL 接续。
+不同实例的旧观察退出当前 View；不能按同名或同 URL 接续。
 旧的纯名字快照不能证明属于当前实例时，也必须隔离，不能补授当前连接身份。
 只恢复 tracking 不需要“修复当前名字”，也不会把旧表示绑定到重建后的同名连接。
 
@@ -234,9 +216,9 @@ main@jjosh-observed-OLD_ID
 
 删除 A、以同名创建 B，再恢复旧 operation，可得到以下不同结果：
 
-- 只恢复 tracking：B 仍是当前逻辑连接，继续使用 B 的表示和配置；A 只作为历史观察存在，B 不继承 A 的 tracking。
+- 只恢复 tracking：B 仍是当前逻辑连接，继续使用 B 的表示和配置；A 的观察只留在旧 operation，B 不继承 A 的 tracking。
 - 恢复 repo 或完整状态：逻辑 A 可以重新出现，但 A 的旧 URL／认证不会复活。如果本地已经没有 A 的配置，A 就是断开的当前连接。
-- scoped A 与 B 的配置键不同，不得借 B 的配置接通 A。根名若仍被 B 的本地 section 占用，也不能因恢复了 A 就覆盖它。
+- A 与 B 可以使用同一个可读配置键，但 ConnectionId 不同；若该 section 仍属于 B，恢复 A 不能覆盖或借用它。
 
 =git remote remove= 支持离线移除当前逻辑连接及其当前引用／元数据，不要求先能传输；旧 operation 仍保留过去的历史，不删除他人所有的配置。
 =git remote set-url NAME URL= 可显式接通没有本地配置的当前连接，保留 ConnectionId 和 binding，不产生 fetch 观察或修改 tracking。
@@ -289,14 +271,13 @@ JJ CLI 只消费 remote 扩展提供的校验流，不实现项目剪枝。普�
 |------+--------+----------|
 | 项目布局 | 创建新外层项目，整体挂载来源图 | 保留来源项目身份，只增加路径前缀，不建外层项目 |
 | 来源内部定义 | 不激活内部项目／绑定 | 保留项目、绑定、稳定 label 和当前逻辑连接 |
-| 来源 remote | 仅安装历史身份与观察 | 保留当前连接及历史身份；历史项仍不激活 |
+| 来源 remote | 不导入 remote 身份、tracking 或传输配置 | 保留来源明确记录的连接与转换状态，不生成 opaque 名字 |
 | 本地连接配置 | 不复制来源连接配置 | 复制受支持项目连接的 URL、push URL 和 remote 设置 |
 | 网络行为 | 不 fetch / push | 不 fetch / push，不复制全局凭据配置 |
 
-nested 的来源内层连接 =origin#inner= 展平为外层项目内的历史别名 =origin@inner=；作为 revset remote 组件使用时须加引号。
-它只写 observed 身份，不写当前 remote_names、当前 owner 或 config。
-因此随后正常添加同名 origin 不需要先清除旧观察。
-重复历史别名允许共存，以 list 显示的物理选择器区分。
+nested 只导入来源已记录开发图、本地 bookmarks/tags 及所需祖先。
+来源 remote、remote tracking、endpoint lease 和 Git config 不变成目标连接。
+导入后显式 add remote 并 fetch，才获得该目标 endpoint 的观察和自动 push lease。
 
 preserve 的项目引用保持原 label，普通根引用加来源名前缀。
 已有的父子项目身份一并保留，只统一增加路径前缀；可以导入现有父项目下的空目录。多个来源的实际导入位置仍须互不包含，且不能覆盖已有文件；这与允许项目交付范围嵌套是两回事。

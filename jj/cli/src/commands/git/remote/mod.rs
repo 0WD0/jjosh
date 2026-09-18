@@ -320,6 +320,22 @@ fn project_config_labels(view: &jj_lib::view::View, project: &ProjectId) -> Vec<
         .collect()
 }
 
+fn scoped_remote_name(
+    view: &jj_lib::view::View,
+    local: &RemoteName,
+    project: &ProjectId,
+) -> Result<RemoteNameBuf, CommandError> {
+    let labels = project_config_labels(view, project);
+    let [label] = labels.as_slice() else {
+        return Err(user_error(
+            "Project remotes require exactly one registered stable label",
+        ));
+    };
+    let remote = RemoteNameBuf::from(format!("{}#{label}", local.as_str()));
+    git::validate_remote_name(&remote).map_err(user_error)?;
+    Ok(remote)
+}
+
 fn prepare_binding(
     command: &CommandHelper,
     workspace: &WorkspaceCommandHelper,
@@ -440,10 +456,9 @@ async fn cmd_attach(
         ensure_available_remote_name(&workspace, &local_name, Some(project))?;
     }
     let old_remote = remote;
-    let remote = if scope.is_some() {
-        RemoteNameBuf::from(format!("jjosh-{}", connection.hex()))
-    } else {
-        old_remote.clone()
+    let remote = match &scope {
+        Some(project) => scoped_remote_name(workspace.repo().view(), &local_name, project)?,
+        None => old_remote.clone(),
     };
     let options = git::GitRemoteManagementOptions {
         extra_config_keys: git::MANAGED_REMOTE_KEYS,
@@ -521,9 +536,7 @@ async fn cmd_attach(
         && let Some(updated) = repo_config
     {
         crate::git_remote::commit_repo_config_update(command.raw_config(), &updated).map_err(
-            |err| {
-                err.hinted("Remote attached, but repository settings were not updated")
-            },
+            |err| err.hinted("Remote attached, but repository settings were not updated"),
         )?;
     }
     Ok(())

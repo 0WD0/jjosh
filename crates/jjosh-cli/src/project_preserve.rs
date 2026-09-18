@@ -5,7 +5,6 @@ use jj_lib::backend::CommitId;
 use jj_lib::git::ImportedRemoteMapping;
 use jj_lib::git::REMOTE_NAME_FOR_LOCAL_GIT_REPO;
 use jj_lib::merge::Merge;
-use jj_lib::object_id::ObjectId as _;
 use jj_lib::op_store::{RefTarget, View};
 use jj_lib::project::{
     BindingId, BindingRecord, BindingTarget, ConnectionId, ObservationKind, ProjectId,
@@ -211,7 +210,48 @@ pub(crate) fn prepare(
                 binding_definitions(source).any(|(_, binding)| &binding.connection_id == connection)
             });
         let physical: RemoteNameBuf = if project_owned {
-            format!("jjosh-{}", connection.unwrap().hex()).into()
+            let scoped = identity.and_then(|identity| identity.scoped_name);
+            let project = scoped
+                .map(|identity| &identity.project)
+                .or_else(|| {
+                    connection.and_then(|connection| {
+                        binding_definitions(source)
+                            .find_map(|(_, binding)| {
+                                (&binding.connection_id == connection).then_some(&binding.target)
+                            })
+                            .and_then(|target| match target {
+                                BindingTarget::Project(project) => Some(project),
+                                BindingTarget::RepositoryView => None,
+                            })
+                    })
+                })
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Project-owned remote {} has no project-scoped identity",
+                        remote.as_str()
+                    )
+                })?;
+            source
+                .project_state
+                .validate_project(project)
+                .map_err(anyhow::Error::msg)?;
+            let labels: Vec<_> = source
+                .project_state
+                .labels
+                .iter()
+                .filter_map(|(label, target)| {
+                    (target.as_resolved().and_then(Option::as_ref) == Some(project))
+                        .then_some(label.as_str())
+                })
+                .collect();
+            let [label] = labels.as_slice() else {
+                bail!(
+                    "Project-owned remote {} requires exactly one stable project label",
+                    remote.as_str()
+                );
+            };
+            let local = scoped.map_or(remote.as_str(), |identity| identity.name.as_str());
+            format!("{local}#{label}").into()
         } else {
             // Git's remote-ref parser splits the physical remote at the first
             // slash; only the reference name, not this key, may use NAME/path.

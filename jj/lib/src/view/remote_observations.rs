@@ -18,7 +18,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::merge::Merge;
 use crate::op_store;
-use crate::project::{ConnectionId, ConversionObservation, ObservationKey, ObservationKind};
+use crate::project::{ConversionObservation, ObservationKey, ObservationKind};
 use crate::ref_name::{RefNameBuf, RemoteName, RemoteNameBuf};
 
 /// A mutable boundary over the four persisted observation maps. Construction
@@ -248,60 +248,6 @@ impl<'a> RemoteObservations<'a> {
         }
         Ok(())
     }
-
-    /// Preserve a snapshot under an identity-backed historical key before alias
-    /// reuse. All collision and ownership checks precede identity capture.
-    pub fn archive(&mut self, remote: &RemoteName) -> Result<(), String> {
-        #[cfg(feature = "git")]
-        if remote == crate::git::REMOTE_NAME_FOR_LOCAL_GIT_REPO {
-            return Ok(());
-        }
-        if !self.contains(remote) {
-            return Ok(());
-        }
-        let existing = self
-            .view
-            .observed_remote_connections
-            .get(remote)
-            .or_else(|| self.view.remote_connections.get(remote));
-        let connection = match existing {
-            Some(owner) => owner
-                .as_resolved()
-                .and_then(Option::as_ref)
-                .cloned()
-                .ok_or_else(|| format!("Remote {remote:?} has unresolved historical ownership"))?,
-            // A name-only legacy snapshot must not inherit a later connection.
-            None => ConnectionId::generate(),
-        };
-        let opaque = self.view.observed_remote_names.contains_key(&connection)
-            || (!self.view.observed_remote_connections.contains_key(remote)
-                && self.view.remote_connections.contains_key(remote)
-                && self
-                    .view
-                    .project_state
-                    .remote_names
-                    .contains_key(&connection));
-        let archived: RemoteNameBuf = if opaque && remote.as_str() == format!("jjosh-{connection}")
-        {
-            remote.to_owned()
-        } else {
-            format!("jjosh-observed-{connection}").into()
-        };
-        if archived != remote && self.view.remote_connections.contains_key(&archived) {
-            return Err(format!(
-                "Historical remote {archived:?} already exists; refusing to overwrite observations"
-            ));
-        }
-        self.check_relocation(remote, &archived)?;
-        if !self.view.observed_remote_connections.contains_key(remote) {
-            self.capture_identity(remote);
-            self.view
-                .observed_remote_connections
-                .entry(remote.to_owned())
-                .or_insert_with(|| Merge::normal(connection));
-        }
-        self.relocate(remote, &archived)
-    }
 }
 
 /// Whether any observation state occupies a physical remote key.
@@ -331,7 +277,7 @@ pub(super) fn check_relocation(
 mod tests {
     use crate::backend::CommitId;
     use crate::op_store::{RefTarget, RemoteRef, RemoteRefState};
-    use crate::project::{ProjectId, ScopedRemoteName};
+    use crate::project::{ConnectionId, ProjectId, ScopedRemoteName};
     use crate::ref_name::RefName;
 
     use super::*;
@@ -438,21 +384,26 @@ mod tests {
     }
 
     #[test]
-    fn archive_collision_does_not_capture_identity_before_failing() {
+    fn remove_drops_snapshot_and_last_observed_identity() {
         let mut view = op_store::View::make_root(CommitId::from_hex("00"));
         let connection = ConnectionId::generate();
-        view.remote_connections
+        view.observed_remote_connections
             .insert("origin".into(), Merge::normal(connection.clone()));
-        view.remote_views.entry("origin".into()).or_default();
-        view.remote_views
-            .entry(format!("jjosh-observed-{connection}").into())
-            .or_default();
-        let before = view.clone();
-        assert!(
-            RemoteObservations::new(&mut view)
-                .archive(RemoteName::new("origin"))
-                .is_err()
+        view.observed_remote_names.insert(
+            connection.clone(),
+            Merge::normal(ScopedRemoteName {
+                project: ProjectId::generate(),
+                name: "origin".into(),
+            }),
         );
-        assert_eq!(view, before);
+        view.remote_views.entry("origin".into()).or_default();
+        RemoteObservations::new(&mut view).remove(RemoteName::new("origin"));
+        assert!(!view.remote_views.contains_key(RemoteName::new("origin")));
+        assert!(
+            !view
+                .observed_remote_connections
+                .contains_key(RemoteName::new("origin"))
+        );
+        assert!(!view.observed_remote_names.contains_key(&connection));
     }
 }
