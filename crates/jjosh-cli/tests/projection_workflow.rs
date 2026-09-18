@@ -1868,3 +1868,55 @@ fn remote_rename_keeps_branch_fetch_and_push_destinations_independent() {
         "branch.only-push.pushremote primary\n",
     );
 }
+
+#[test]
+fn remote_rename_preserves_literal_helper_urls_and_rewrite_shorthands() {
+    for (url, pushurl) in [
+        (
+            "rad://z4FUGM4AENYkjPk8TpvVqJVwtzvwJ",
+            Some("rad://z4FUGM4AENYkjPk8TpvVqJVwtzvwJ/z6MkoyXnafaWcQ"),
+        ),
+        ("short:User/Repo.git", None),
+    ] {
+        let f = Fixture::new();
+        let source = f.git_init("literal-source");
+        f.write(&source, "file", "source\n");
+        f.commit(&source, "source");
+        let endpoint = f.bare(&source, "literal-source.git");
+        let client = f.init_client("client", false);
+        f.jj(
+            &client,
+            &["git", "remote", "add", "origin", endpoint.to_str().unwrap()],
+        );
+        let git_dir = client.join(".jj/repo/store/git");
+        f.git(&git_dir, &["config", "remote.origin.url", url]);
+        if let Some(pushurl) = pushurl {
+            f.git(&git_dir, &["config", "remote.origin.pushurl", pushurl]);
+        }
+        f.git(
+            &git_dir,
+            &["config", "url.https://example.invalid/.insteadOf", "short:"],
+        );
+        f.jj(&client, &["git", "remote", "rename", "origin", "primary"]);
+        assert_eq!(
+            f.git(&git_dir, &["config", "--get", "remote.primary.url"])
+                .trim(),
+            url
+        );
+        if let Some(pushurl) = pushurl {
+            assert_eq!(
+                f.git(&git_dir, &["config", "--get", "remote.primary.pushurl"])
+                    .trim(),
+                pushurl
+            );
+        } else {
+            assert_eq!(
+                f.git(&git_dir, &["config", "--get-regexp", "^remote.primary\\."])
+                    .lines()
+                    .filter(|line| line.starts_with("remote.primary.pushurl "))
+                    .count(),
+                0,
+            );
+        }
+    }
+}
