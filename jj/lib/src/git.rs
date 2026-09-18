@@ -4092,31 +4092,50 @@ pub fn rename_remote_with_options(
         .ok_or_else(|| GitRemoteManagementError::NoSuchRemote(old_remote_name.to_owned()))?
         .map_err(GitRemoteManagementError::from_git)?;
 
-    match (
-        remote.refspecs(gix::remote::Direction::Fetch),
-        remote.refspecs(gix::remote::Direction::Push),
-    ) {
-        ([refspec], [])
-            if refspec.to_ref().to_bstring()
-                == default_fetch_refspec(old_remote_name).as_bytes() => {}
-        ([], []) if !inspection.has_endpoint => {}
-        _ => {
-            return Err(GitRemoteManagementError::NonstandardConfiguration(
-                old_remote_name.to_owned(),
-            ));
-        }
+    if !remote.refspecs(gix::remote::Direction::Push).is_empty() {
+        return Err(GitRemoteManagementError::NonstandardConfiguration(
+            old_remote_name.to_owned(),
+        ));
     }
 
-    if !remote.refspecs(gix::remote::Direction::Fetch).is_empty() {
+    // Rename only local fetch destinations owned by this remote. Preserve
+    // sources, force/negative markers, ordering, and unrelated destinations
+    // (e.g. refs/pullreqs/*). Replacing the entire list with the default mapping
+    // would lose custom tag fetch rules and provider-specific configuration.
+    let prefixes = [REMOTE_BOOKMARK_REF_NAMESPACE, REMOTE_TAG_REF_NAMESPACE].map(|namespace| {
+        (
+            format!("{namespace}{}/", old_remote_name.as_str()),
+            format!("{namespace}{}/", new_remote_name.as_str()),
+        )
+    });
+    let mut config = git_repo.config_snapshot().clone();
+    let fetches: Vec<_> = config
+        .raw_values_by("remote", old_remote_name.as_str(), "fetch")
+        .unwrap_or_default()
+        .into_iter()
+        .map(|spec| {
+            let bytes = spec;
+            if !bytes.starts_with(b"^")
+                && let Some(colon) = bytes.iter().position(|byte| *byte == b':')
+            {
+                for (old, new) in &prefixes {
+                    if let Some(suffix) = bytes[colon + 1..].strip_prefix(old.as_bytes()) {
+                        return BString::from([&bytes[..=colon], new.as_bytes(), suffix].concat());
+                    }
+                }
+            }
+            bytes
+        })
+        .collect();
+    if !fetches.is_empty() {
         remote
             .replace_refspecs(
-                [default_fetch_refspec(new_remote_name).as_bytes()],
+                fetches.iter().map(|spec| spec.as_slice()),
                 gix::remote::Direction::Fetch,
             )
-            .expect("default refspec to be valid");
+            .map_err(GitRemoteManagementError::from_git)?;
     }
 
-    let mut config = git_repo.config_snapshot().clone();
     let extra_values: Vec<_> = options
         .extra_config_keys
         .iter()
@@ -4133,6 +4152,22 @@ pub fn rename_remote_with_options(
         })
         .collect();
     save_remote(&mut config, new_remote_name, &mut remote)?;
+    // gix sorts/deduplicates parsed refspecs. Keep the configured list in its
+    // original order after validating the rewritten values above.
+    if !fetches.is_empty() {
+        config
+            .raw_values_mut_by("remote", new_remote_name.as_str(), "fetch")
+            .map_err(GitRemoteManagementError::from_git)?
+            .delete_all();
+        let mut section = config
+            .section_mut("remote", new_remote_name.as_str())
+            .map_err(GitRemoteManagementError::from_git)?;
+        for spec in &fetches {
+            section
+                .push("fetch", spec.as_slice())
+                .map_err(GitRemoteManagementError::from_git)?;
+        }
+    }
     for (key, value) in extra_values {
         config
             .section_mut("remote", new_remote_name.as_str())
@@ -4152,6 +4187,7 @@ pub fn rename_remote_with_options(
 
     Ok(())
 }
+
 
 fn rename_remote_git_ref_edits(
     git_repo: &gix::Repository,
