@@ -9,16 +9,10 @@ use jj_lib::backend::CommitId;
 use jj_lib::backend::Signature;
 use jj_lib::backend::TreeId;
 use jj_lib::commit::Commit;
-use jj_lib::git::REMOTE_NAME_FOR_LOCAL_GIT_REPO;
 use jj_lib::merge::Merge;
 use jj_lib::object_id::ObjectId as _;
 use jj_lib::op_store::RefTarget;
 use jj_lib::op_store::View;
-use jj_lib::project::BindingTarget;
-use jj_lib::project::ConnectionId;
-use jj_lib::project::ProjectId;
-use jj_lib::project::ScopedRemoteName;
-use jj_lib::ref_name::RemoteNameBuf;
 use jj_lib::repo::MutableRepo;
 use jj_lib::repo::Repo as _;
 use jj_lib::repo_path::RepoPath;
@@ -162,121 +156,6 @@ fn find_existing_project_version(
         );
     }
     Ok(Some(candidate.id.clone()))
-}
-
-/// Explicitly flatten foreign scopes into disconnected aliases of the outer
-/// project. Source scope is encoded only here, never guessed by remote lookup.
-pub(crate) struct RemoteImport {
-    pub source: RemoteNameBuf,
-    pub physical: RemoteNameBuf,
-    pub connection: ConnectionId,
-    pub alias: ScopedRemoteName,
-}
-
-pub(crate) fn plan_remotes(view: &View, project: &ProjectId) -> Result<Vec<RemoteImport>> {
-    for (key, target) in &view.project_observations {
-        ensure!(
-            key.remote != REMOTE_NAME_FOR_LOCAL_GIT_REPO || target.iter().all(Option::is_none),
-            "Source local Git observation {}@{} cannot own project conversion evidence",
-            key.name.as_str(),
-            key.remote.as_str()
-        );
-    }
-    for (connection, names) in &view.project_state.remote_names {
-        if names.iter().flatten().next().is_some() {
-            ensure!(
-                view.remote_connections.iter().any(|(remote, owner)| {
-                    remote.as_str() != REMOTE_NAME_FOR_LOCAL_GIT_REPO.as_str()
-                        && owner.as_resolved().and_then(Option::as_ref) == Some(connection)
-                }),
-                "Source scoped remote has no resolved physical connection mapping"
-            );
-        }
-    }
-    let remotes: std::collections::BTreeSet<_> = view
-        .remote_views
-        .keys()
-        .chain(view.remote_connections.keys())
-        .chain(view.observed_remote_connections.keys())
-        .filter(|remote| remote.as_str() != REMOTE_NAME_FOR_LOCAL_GIT_REPO.as_str())
-        .collect();
-    let mut result = Vec::new();
-    for remote in remotes {
-        let identity =
-            jj_lib::view::remote_identity::resolve(view, remote).map_err(anyhow::Error::msg)?;
-        let owner = identity.map(|identity| identity.connection);
-        if owner.is_none() && !view.remote_views.contains_key(remote) {
-            continue;
-        }
-        let alias = identity.and_then(|identity| identity.scoped_name);
-        // Older recorded states may lack aliases. Their explicit binding
-        // scope and verbatim physical name are the only adoption evidence.
-        let legacy_project = if alias.is_none() {
-            owner
-                .map(|connection| {
-                    view.project_state
-                        .binding_for_connection(connection)
-                        .map_err(anyhow::Error::msg)
-                })
-                .transpose()?
-                .flatten()
-                .and_then(|(_, binding)| match &binding.target {
-                    BindingTarget::Project(project) => Some(project),
-                    BindingTarget::RepositoryView => None,
-                })
-        } else {
-            None
-        };
-        let local: &jj_lib::ref_name::RemoteName =
-            alias.map_or(remote.as_ref(), |alias| alias.name.as_ref());
-        let source_project = alias.map(|alias| &alias.project).or(legacy_project);
-        let name: RemoteNameBuf = if let Some(source_project) = source_project {
-            if view.project_state.projects.contains_key(source_project) {
-                view.project_state
-                    .validate_project(source_project)
-                    .map_err(anyhow::Error::msg)?;
-            }
-            let label = view
-                .project_state
-                .labels
-                .iter()
-                .find_map(|(label, target)| {
-                    (target.as_resolved().and_then(Option::as_ref) == Some(source_project))
-                        .then(|| label.clone())
-                })
-                .unwrap_or_else(|| source_project.hex());
-            format!("{}@{label}", local.as_str()).into()
-        } else {
-            local.to_owned()
-        };
-        let connection = ConnectionId::generate();
-        result.push(RemoteImport {
-            source: remote.clone(),
-            physical: format!("jjosh-{}", connection.hex()).into(),
-            connection,
-            alias: ScopedRemoteName {
-                project: project.clone(),
-                name,
-            },
-        });
-    }
-    Ok(result)
-}
-
-pub(crate) fn install_remote_names(view: &mut View, remotes: Vec<RemoteImport>) {
-    let mut source_views = std::mem::take(&mut view.remote_views);
-    for remote in remotes {
-        if let Some(observations) = source_views.remove(&remote.source) {
-            view.remote_views
-                .insert(remote.physical.clone(), observations);
-        }
-        view.observed_remote_connections.insert(
-            remote.physical,
-            Merge::resolved(Some(remote.connection.clone())),
-        );
-        view.observed_remote_names
-            .insert(remote.connection, Merge::resolved(Some(remote.alias)));
-    }
 }
 
 /// Rewrite captured native history without selecting or publishing a view.
@@ -452,11 +331,10 @@ pub(crate) fn map_outer_view(
     scope: &str,
     ids: &HashMap<CommitId, CommitId>,
 ) -> View {
-    // @git observes the source's local Git backend, not a second upstream.
-    // Destination @git is generated from the destination's own Git export.
-    view.remote_views.remove(REMOTE_NAME_FOR_LOCAL_GIT_REPO);
-    view.remote_views
-        .retain(|_, remote| !remote.bookmarks.is_empty() || !remote.tags.is_empty());
+    // Remote-tracking state belongs to the source repository. A nested import
+    // imports history and local names only; destination remotes are configured
+    // explicitly after the project is mounted.
+    view.remote_views.clear();
     view.head_ids = view.head_ids.iter().map(|id| ids[id].clone()).collect();
     for refs in [&mut view.local_bookmarks, &mut view.local_tags] {
         *refs = std::mem::take(refs)
@@ -469,25 +347,6 @@ pub(crate) fn map_outer_view(
             })
             .collect();
     }
-    view.remote_views = view
-        .remote_views
-        .into_iter()
-        .map(|(name, mut remote)| {
-            for refs in [&mut remote.bookmarks, &mut remote.tags] {
-                *refs = std::mem::take(refs)
-                    .into_iter()
-                    .map(|(name, mut remote_ref)| {
-                        remote_ref.target = map_reference(&remote_ref.target, ids);
-                        (
-                            crate::ref_names::local_name(scope, name.as_str()).into(),
-                            remote_ref,
-                        )
-                    })
-                    .collect();
-            }
-            (name, remote)
-        })
-        .collect();
     view.wc_commit_ids.clear();
     // These are observations of the foreign backend, not destination Git refs
     // or real destination workspaces.

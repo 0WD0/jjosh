@@ -69,7 +69,6 @@ impl SourceWitness {
 struct OuterPlan {
     metadata: ProjectState,
     binding: BindingId,
-    remotes: Vec<crate::native_import::RemoteImport>,
 }
 
 enum ProjectPlan {
@@ -229,32 +228,7 @@ pub(crate) async fn run_import(
             plan.reserve_into(&mut reserved);
             (ProjectPlan::Preserved(Box::new(plan)), Some(provenance))
         } else {
-            let plan = plan_outer(&source_view, &mut reserved, &name, &mount)?;
-            reserve_remotes(
-                &git,
-                &reserved,
-                plan.remotes.iter().map(|remote| &remote.physical),
-                &mut remotes,
-            )?;
-            for remote in &plan.remotes {
-                let source_name =
-                    jj_lib::view::remote_identity::resolve(&source_view, &remote.source)
-                        .ok()
-                        .flatten()
-                        .map_or_else(
-                            || remote.source.as_str().to_owned(),
-                            |identity| {
-                                identity.qualified_name(&source_view.project_state, &remote.source)
-                            },
-                        );
-                writeln!(
-                    ui.status(),
-                    "Import remote {} -> {}#{} (disconnected)",
-                    source_name,
-                    remote.alias.name.as_str(),
-                    name
-                )?;
-            }
+            let plan = plan_outer(&mut reserved, &name, &mount)?;
             (ProjectPlan::Outer(plan), None)
         };
         let extra_roots = provenance
@@ -312,20 +286,14 @@ pub(crate) async fn run_import(
                     )
                     .map_err(user_error)?,
                 )?;
-                let mut fragment =
+                let fragment =
                     crate::native_import::map_outer_view(graph.view, &witness.name, &imported.ids);
-                crate::native_import::install_remote_names(&mut fragment, plan.remotes);
                 view.project_state.projects.extend(plan.metadata.projects);
                 view.project_state.labels.extend(plan.metadata.labels);
                 view.project_state.bindings.extend(plan.metadata.bindings);
                 view.head_ids.extend(fragment.head_ids);
                 view.local_bookmarks.extend(fragment.local_bookmarks);
                 view.local_tags.extend(fragment.local_tags);
-                view.remote_views.extend(fragment.remote_views);
-                view.observed_remote_connections
-                    .extend(fragment.observed_remote_connections);
-                view.observed_remote_names
-                    .extend(fragment.observed_remote_names);
                 1
             }
             ProjectPlan::Preserved(plan) => {
@@ -468,7 +436,6 @@ pub(crate) async fn run_import(
 }
 
 fn plan_outer(
-    source: &View,
     reserved: &mut View,
     name: &str,
     mount: &RepoPath,
@@ -494,12 +461,7 @@ fn plan_outer(
         .labels
         .insert(name.to_owned(), reserved.project_state.labels[name].clone());
     metadata.bindings.insert(binding.clone(), record);
-    let remotes = crate::native_import::plan_remotes(source, &project).map_err(user_error)?;
-    Ok(OuterPlan {
-        metadata,
-        binding,
-        remotes,
-    })
+    Ok(OuterPlan { metadata, binding })
 }
 
 fn reserve_remotes<'a>(

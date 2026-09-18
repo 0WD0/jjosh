@@ -840,24 +840,17 @@ fn shared_remote_aliases_isolate_defaults_fetch_patterns_and_reference_tracking(
         .stdout,
         b"main#alpha@origin\n"
     );
-    let operation = operation_id(&client);
     assert!(
         !jjosh_unchecked(&client, &["bookmark", "track", "main@origin#alpha"])
             .status
             .success()
     );
     let physical = physical_remote(&client, "alpha", "origin");
-    assert!(
-        !jjosh_unchecked(&client, &["git", "fetch", "--remote", &physical])
-            .status
-            .success()
+    assert_eq!(physical, "origin#alpha");
+    jjosh(
+        &client,
+        &["git", "fetch", "--remote", &physical, "--branch", "main"],
     );
-    assert!(
-        !jjosh_unchecked(&client, &["log", "-r", &format!("main#alpha@{physical}")])
-            .status
-            .success()
-    );
-    assert_eq!(operation_id(&client), operation);
     jjosh(&client, &["bookmark", "track", "main#alpha@origin"]);
     assert_eq!(
         commit_id(
@@ -1535,7 +1528,18 @@ fn shared_alias_rename_updates_only_local_defaults_and_restores_without_changing
     jjosh(&client, &["bookmark", "track", "main#alpha@origin"]);
     let physical = physical_remote(&client, "alpha", "origin");
     let git_dir = client.join(".jj/repo/store/git");
-    let settings = git(&git_dir, &["config", "--local", "--null", "--list"]);
+    let connection = git(
+        &git_dir,
+        &[
+            "config",
+            "--get",
+            &format!("remote.{physical}.jjosh-connectionId"),
+        ],
+    );
+    let url = git(
+        &git_dir,
+        &["config", "--get", &format!("remote.{physical}.url")],
+    );
     let canonical = commit_id(&client, "main#alpha@origin");
     let before = operation_id(&client);
     jjosh(
@@ -1550,10 +1554,35 @@ fn shared_alias_rename_updates_only_local_defaults_and_restores_without_changing
             "alpha",
         ],
     );
-    assert_eq!(physical_remote(&client, "alpha", "primary"), physical);
+    let renamed = physical_remote(&client, "alpha", "primary");
+    assert_eq!(physical, "origin#alpha");
+    assert_eq!(renamed, "primary#alpha");
     assert_eq!(
-        git(&git_dir, &["config", "--local", "--null", "--list"]),
-        settings
+        git(
+            &git_dir,
+            &[
+                "config",
+                "--get",
+                &format!("remote.{renamed}.jjosh-connectionId")
+            ]
+        ),
+        connection
+    );
+    assert_eq!(
+        git(
+            &git_dir,
+            &["config", "--get", &format!("remote.{renamed}.url")]
+        ),
+        url
+    );
+    assert!(
+        !run(
+            &git_dir,
+            Path::new("git"),
+            &["config", "--get", &format!("remote.{physical}.url")]
+        )
+        .status
+        .success()
     );
     assert_eq!(
         commit_id(
@@ -1643,7 +1672,10 @@ fn shared_alias_rename_updates_only_local_defaults_and_restores_without_changing
         &client,
         &["op", "restore", before.trim(), "--what", "remote-tracking"],
     );
-    assert_eq!(physical_remote(&client, "alpha", "primary"), physical);
+    assert_eq!(
+        physical_remote(&client, "alpha", "primary"),
+        "primary#alpha"
+    );
     assert_eq!(commit_id(&client, "main#alpha@primary"), canonical);
     assert!(
         !jjosh_unchecked(&client, &["log", "-r", "main#alpha@origin"])
@@ -1659,7 +1691,10 @@ fn shared_alias_rename_updates_only_local_defaults_and_restores_without_changing
         b"root-v1\n"
     );
     jjosh(&client, &["op", "restore", before.trim(), "--what", "repo"]);
-    assert_eq!(physical_remote(&client, "alpha", "origin"), physical);
+    // Repo-only restore rewinds logical metadata, not external Git config.
+    // The connection is therefore displayed again as origin, while its current
+    // physical Git remote remains the readable name created by the rename.
+    assert_eq!(physical_remote(&client, "alpha", "origin"), "primary#alpha");
     assert_eq!(commit_id(&client, "main#alpha@origin"), canonical);
 }
 
@@ -1729,10 +1764,9 @@ fn pure_project_changes_support_unpublished_and_concurrent_operations_without_sn
         fs::read(client.join("dirty.txt")).unwrap(),
         b"unrecorded user data\n"
     );
-    let recorded = String::from_utf8(
-        jjosh(&client, &["--ignore-working-copy", "file", "list"]).stdout,
-    )
-    .unwrap();
+    let recorded =
+        String::from_utf8(jjosh(&client, &["--ignore-working-copy", "file", "list"]).stdout)
+            .unwrap();
     assert!(!recorded.lines().any(|path| path == "dirty.txt"));
 }
 
@@ -1800,7 +1834,7 @@ fn conflicted_project_metadata_can_be_restored_and_repaired_by_repo_only_restore
 }
 
 #[test]
-fn repo_only_rewind_keeps_historical_project_refs_listed_and_resolvable() {
+fn repo_only_rewind_keeps_retired_remote_history_only_in_its_operation() {
     let temp = tempfile::tempdir().unwrap();
     let (_, source, tip) = create_remote(temp.path(), "source");
     git(&source, &["update-ref", "refs/tags/v1", &tip]);
@@ -1818,9 +1852,11 @@ fn repo_only_rewind_keeps_historical_project_refs_listed_and_resolvable() {
             "v1",
         ],
     );
-    let physical = physical_remote(&client, "api", "api-upstream");
     let canonical = commit_id(&client, "main#api@api-upstream");
     let tag = commit_id(&client, "v1#api@api-upstream");
+    let historical = operation_id(&client);
+    let git_dir = client.join(".jj/repo/store/git");
+    let config = fs::read(git_dir.join("config")).unwrap();
     jjosh(
         &client,
         &["op", "restore", before_project.trim(), "--what", "repo"],
@@ -1828,55 +1864,47 @@ fn repo_only_rewind_keeps_historical_project_refs_listed_and_resolvable() {
     let state: serde_json::Value =
         serde_json::from_slice(&jjosh(&client, &["project", "list", "--json"]).stdout).unwrap();
     assert!(state["projects"].as_array().unwrap().is_empty());
-
+    assert_eq!(fs::read(git_dir.join("config")).unwrap(), config);
     for (kind, name, expected) in [
         ("bookmark", "main#api", canonical.as_str()),
         ("tag", "v1#api", tag.as_str()),
     ] {
-        let symbol = format!("{name}@{physical}");
-        let names = String::from_utf8(
-            jjosh(
-                &client,
-                &[
-                    kind,
-                    "list",
-                    "--all-remotes",
-                    "-T",
-                    r#"if(remote && remote != "git", name ++ "@" ++ remote ++ "\n")"#,
-                ],
-            )
-            .stdout,
-        )
-        .unwrap();
-        assert!(names.lines().any(|line| line == symbol), "{names}");
-        assert_eq!(commit_id(&client, &symbol), expected);
-    }
-    let template_refs = String::from_utf8(
-        jjosh(
+        let names = jjosh(
             &client,
             &[
+                kind,
+                "list",
+                "--all-remotes",
+                "-T",
+                r#"if(remote && remote != "git", name ++ "@" ++ remote ++ "\n")"#,
+            ],
+        );
+        assert!(
+            names.stdout.is_empty(),
+            "{}",
+            String::from_utf8_lossy(&names.stdout)
+        );
+        let symbol = format!("{name}@api-upstream");
+        assert!(
+            !jjosh_unchecked(&client, &["log", "-r", &symbol])
+                .status
+                .success()
+        );
+        let old = jjosh(
+            &client,
+            &[
+                "--at-op",
+                historical.trim(),
                 "log",
                 "--no-graph",
                 "-r",
-                &format!("main#api@{physical}"),
+                &symbol,
                 "-T",
-                r#"remote_bookmarks.map(|ref| ref.name() ++ "@" ++ ref.remote()).join("\n")"#,
+                "commit_id",
             ],
-        )
-        .stdout,
-    )
-    .unwrap();
-    assert!(
-        template_refs
-            .lines()
-            .any(|line| line == format!("main#api@{physical}"))
-    );
-    // No active alias or project scope is invented to expose retained history.
-    assert!(
-        !jjosh_unchecked(&client, &["log", "-r", "main#api@api-upstream"])
-            .status
-            .success()
-    );
+        );
+        assert_eq!(String::from_utf8(old.stdout).unwrap().trim(), expected);
+    }
 }
 
 #[test]
@@ -2252,14 +2280,16 @@ fn project_defaults_survive_display_and_remote_renames_and_clear_on_removal() {
         &client,
         &["git", "remote", "rename", "api-upstream#api", "primary"],
     );
-    assert_eq!(physical_remote(&client, "service", "primary"), physical);
+    let renamed_physical = physical_remote(&client, "service", "primary");
+    assert_eq!(renamed_physical, "primary#api");
+    assert_ne!(renamed_physical, physical);
     assert_eq!(
         git(
             &git_dir,
             &[
                 "config",
                 "--get",
-                &format!("remote.{physical}.jjosh-connectionId")
+                &format!("remote.{renamed_physical}.jjosh-connectionId")
             ]
         ),
         connection,
@@ -2636,6 +2666,15 @@ fn recreated_remote_does_not_inherit_restored_observations() {
     let client = create_client(temp.path(), false);
     import_project(&client, "api", "packages/api", &source, ":/src");
     let original = physical_remote(&client, "api", "api-upstream");
+    let git_dir = client.join(".jj/repo/store/git");
+    let original_connection = git(
+        &git_dir,
+        &[
+            "config",
+            "--get",
+            &format!("remote.{original}.jjosh-connectionId"),
+        ],
+    );
     let original_tip = commit_id(&client, "main#api@api-upstream");
     jjosh(&client, &["bookmark", "create", "local#api"]);
     let local = commit_id(&client, "local#api");
@@ -2655,8 +2694,19 @@ fn recreated_remote_does_not_inherit_restored_observations() {
         ],
     );
     let replacement = physical_remote(&client, "api", "api-upstream");
+    let replacement_connection = git(
+        &git_dir,
+        &[
+            "config",
+            "--get",
+            &format!("remote.{replacement}.jjosh-connectionId"),
+        ],
+    );
+    assert_eq!(original, "api-upstream#api");
+    assert_eq!(replacement, original);
+    assert_ne!(replacement_connection, original_connection);
     let replacement_url = git(
-        &client.join(".jj/repo/store/git"),
+        &git_dir,
         &["config", "--get", &format!("remote.{replacement}.url")],
     );
     jjosh(
@@ -2679,7 +2729,24 @@ fn recreated_remote_does_not_inherit_restored_observations() {
     );
     assert_eq!(physical_remote(&client, "api", "api-upstream"), replacement);
     assert_eq!(
-        commit_id(&client, &format!("main#api@{original}")),
+        String::from_utf8(
+            jjosh(
+                &client,
+                &[
+                    "--at-op",
+                    historical.trim(),
+                    "log",
+                    "-r",
+                    "main#api@api-upstream",
+                    "--no-graph",
+                    "-T",
+                    "commit_id",
+                ],
+            )
+            .stdout,
+        )
+        .unwrap()
+        .trim(),
         original_tip
     );
     jjosh(
@@ -2731,7 +2798,7 @@ fn recreated_remote_does_not_inherit_restored_observations() {
 
     jjosh(&client, &["op", "restore", historical.trim()]);
     let (_, alternate, _) = create_remote(temp.path(), "alternate");
-    jjosh(
+    let rejected = jjosh_unchecked(
         &client,
         &[
             "git",
@@ -2741,20 +2808,11 @@ fn recreated_remote_does_not_inherit_restored_observations() {
             alternate.to_str().unwrap(),
         ],
     );
-    jjosh(
-        &client,
-        &[
-            "git",
-            "fetch",
-            "--remote",
-            "api-upstream#api",
-            "--branch",
-            "main",
-        ],
-    );
-    assert_eq!(
-        file_at_revision(&client, "main#api@api-upstream", "packages/api/value.txt"),
-        b"alternate-v1\n"
+    assert!(!rejected.status.success());
+    assert!(
+        String::from_utf8_lossy(&rejected.stderr).contains("owned by another connection"),
+        "{}",
+        String::from_utf8_lossy(&rejected.stderr)
     );
     assert_eq!(
         git(
@@ -2797,6 +2855,11 @@ fn root_remote_restore_preserves_new_connection_without_inheriting_old_refs() {
             replacement.to_str().unwrap(),
         ],
     );
+    let replacement_connection = git(
+        &client.join(".jj/repo/store/git"),
+        &["config", "--get", "remote.origin.jjosh-connectionId"],
+    );
+    assert_ne!(replacement_connection, original_connection);
     jjosh(
         &client,
         &[
@@ -2819,13 +2882,6 @@ fn root_remote_restore_preserves_new_connection_without_inheriting_old_refs() {
     assert_eq!(commit_id(&client, "main@origin"), new_tip);
     // Tracking belongs to the old instance: B's first fetch must not move main.
     assert_eq!(commit_id(&client, "main"), old_tip);
-    assert_eq!(
-        commit_id(
-            &client,
-            &format!("main@jjosh-observed-{}", original_connection.trim())
-        ),
-        old_tip
-    );
     assert_eq!(
         git(
             &client.join(".jj/repo/store/git"),
