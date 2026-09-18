@@ -180,7 +180,9 @@ pub(crate) fn prepare(
                 "stale lease: expected remote ref at {expected}"
             ))),
             Expected::Unknown => match (old, update.new) {
-                (_, None) => Some(BString::from("deletion requires an explicit lease")),
+                (_, None) => Some(BString::from(
+                    "remote ref has no known lease; fetch it before deleting",
+                )),
                 (None, Some(_)) => None,
                 (Some(old), Some(new)) if old == new => None,
                 (Some(old), Some(new)) if update.name.starts_with(b"refs/heads/") => {
@@ -188,12 +190,12 @@ pub(crate) fn prepare(
                         None
                     } else {
                         Some(BString::from(
-                            "non-fast-forward update requires an explicit lease",
+                            "remote ref has no known lease; fetch it before rewriting history",
                         ))
                     }
                 }
                 _ => Some(BString::from(
-                    "overwriting this ref requires an explicit lease",
+                    "remote ref has no known lease; fetch it before overwriting",
                 )),
             },
             _ => None,
