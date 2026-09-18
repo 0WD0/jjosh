@@ -1645,6 +1645,21 @@ fn attached_remote_lifecycle_preserves_mount_push_endpoint_and_peer() {
     }
     let physical = f.physical_remote(&client, "project", "origin");
     assert_eq!(physical, "origin#project");
+    for spec in [
+        format!("+refs/tags/*:refs/remotes/{physical}/tags/*"),
+        "+refs/pull/*/head:refs/pullreqs/*".to_owned(),
+        "^refs/heads/private/*".to_owned(),
+    ] {
+        f.git(
+            &git_dir,
+            &[
+                "config",
+                "--add",
+                &format!("remote.{physical}.fetch"),
+                &spec,
+            ],
+        );
+    }
     let connection = f.git(
         &git_dir,
         &[
@@ -1675,6 +1690,15 @@ fn attached_remote_lifecycle_preserves_mount_push_endpoint_and_peer() {
     assert_eq!(f.log(&client, "main#project@renamed", "commit_id"), before);
     let renamed = f.physical_remote(&client, "project", "renamed");
     assert_eq!(renamed, "renamed#project");
+    assert_eq!(
+        f.git(
+            &git_dir,
+            &["config", "--get-all", &format!("remote.{renamed}.fetch")]
+        ),
+        format!(
+            "+refs/heads/*:refs/remotes/{renamed}/*\n+refs/tags/*:refs/remotes/{renamed}/tags/*\n+refs/pull/*/head:refs/pullreqs/*\n^refs/heads/private/*\n"
+        ),
+    );
     assert_eq!(
         f.git(
             &git_dir,
