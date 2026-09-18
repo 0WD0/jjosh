@@ -4135,6 +4135,98 @@ fn link_push_rewrites_published_changes_with_independent_destination_leases() {
 }
 
 #[test]
+fn rewritten_project_push_requires_fetch_only_when_no_lease_is_known() {
+    let temp = tempfile::tempdir().unwrap();
+    let (_remote_work, remote_bare, remote_tip) = create_remote(temp.path(), "lease");
+    let client = create_client(temp.path(), false);
+    jjosh(&client, &["project", "add", "p", "--path", "p"]);
+    fs::create_dir(client.join("p")).unwrap();
+    fs::write(client.join("p/value.txt"), "local rewrite\n").unwrap();
+    jjosh(&client, &["status"]);
+    let local = commit_id(&client, "@");
+    jjosh(
+        &client,
+        &[
+            "git",
+            "remote",
+            "add",
+            "upstream",
+            remote_bare.to_str().unwrap(),
+            "--project",
+            "p",
+            "--whole",
+        ],
+    );
+    jjosh(&client, &["bookmark", "create", "main#p", "-r", "@"]);
+
+    // The destination branch exists, but this active connection has never
+    // fetched it. Jujutsu must not turn an unknown remote state into an
+    // unconditional force-push.
+    let unknown = jjosh_unchecked(
+        &client,
+        &[
+            "git",
+            "push",
+            "--remote",
+            "upstream#p",
+            "--bookmark",
+            "main#p",
+        ],
+    );
+    assert!(!unknown.status.success());
+    let stderr = String::from_utf8_lossy(&unknown.stderr);
+    assert!(stderr.contains("no known lease"), "{stderr}");
+    assert!(stderr.contains("fetch"), "{stderr}");
+    assert_eq!(git(&remote_bare, &["rev-parse", "main"]).trim(), remote_tip);
+
+    // Fetch records the raw destination OID used as force-with-lease. Tracking
+    // may reconcile the divergent local/remote bookmark, so explicitly restore
+    // the local rewritten target before publishing it.
+    jjosh(
+        &client,
+        &[
+            "git",
+            "fetch",
+            "--project",
+            "p",
+            "--remote",
+            "upstream",
+            "--branch",
+            "main",
+        ],
+    );
+    jjosh(&client, &["bookmark", "track", "main#p@upstream"]);
+    jjosh(
+        &client,
+        &[
+            "bookmark",
+            "set",
+            "main#p",
+            "-r",
+            &local,
+            "--allow-backwards",
+        ],
+    );
+    jjosh(
+        &client,
+        &[
+            "git",
+            "push",
+            "--remote",
+            "upstream#p",
+            "--bookmark",
+            "main#p",
+        ],
+    );
+    let published = git(&remote_bare, &["rev-parse", "main"]).trim().to_owned();
+    assert_ne!(published, remote_tip);
+    assert_eq!(
+        git(&remote_bare, &["show", "main:value.txt"]),
+        "local rewrite\n"
+    );
+}
+
+#[test]
 fn link_push_rejects_external_advances_without_refreshing_its_lease() {
     let temp = tempfile::tempdir().unwrap();
     let (remote_work, remote_bare, _) = create_remote(temp.path(), "concurrent");
