@@ -152,43 +152,13 @@ pub(crate) fn prepare(
         "receive-pack did not negotiate protocol V1"
     );
 
-    let mut advertised = HashMap::new();
-    let mut remote_objects = HashSet::new();
-    for reference in handshake
-        .refs
-        .as_ref()
-        .context("receive-pack omitted its ref advertisement")?
-    {
-        use protocol::handshake::Ref;
-        let (_, direct, peeled) = reference.unpack();
-        remote_objects.extend(direct.into_iter().chain(peeled).map(ToOwned::to_owned));
-        let (name, id) = match reference {
-            Ref::Direct {
-                full_ref_name,
-                object,
-            } => (full_ref_name, Some(*object)),
-            Ref::Peeled {
-                full_ref_name, tag, ..
-            } => (full_ref_name, Some(*tag)),
-            Ref::Symbolic {
-                full_ref_name,
-                tag,
-                object,
-                ..
-            } => (full_ref_name, Some(tag.unwrap_or(*object))),
-            Ref::Unborn { full_ref_name, .. } => (full_ref_name, None),
-        };
-        if let Some(id) = id {
-            ensure!(
-                id.kind() == hash && !id.is_null(),
-                "remote advertised an incompatible object ID for {name:?}"
-            );
-        }
-        ensure!(
-            advertised.insert(name.as_bstr(), id).is_none(),
-            "remote advertised duplicate ref {name:?}"
-        );
-    }
+    let (advertised, remote_objects) = index_advertisement(
+        handshake
+            .refs
+            .as_ref()
+            .context("receive-pack omitted its ref advertisement")?,
+        hash,
+    )?;
 
     // A separate handle prevents replacement refs from changing raw object identity.
     let mut objects = objects.clone();
@@ -281,6 +251,56 @@ pub(crate) fn prepare(
         }),
         outcome,
     })
+}
+
+fn index_advertisement<'a>(
+    refs: &'a [protocol::handshake::Ref],
+    hash: gix::hash::Kind,
+) -> Result<(
+    HashMap<&'a gix::bstr::BStr, Option<ObjectId>>,
+    HashSet<ObjectId>,
+)> {
+    let mut advertised = HashMap::new();
+    let mut remote_objects = HashSet::new();
+    for reference in refs {
+        use protocol::handshake::Ref;
+        let (_, direct, peeled) = reference.unpack();
+        remote_objects.extend(direct.into_iter().chain(peeled).map(ToOwned::to_owned));
+        let (name, id) = match reference {
+            Ref::Direct {
+                full_ref_name,
+                object,
+            } => (full_ref_name, Some(*object)),
+            Ref::Peeled {
+                full_ref_name, tag, ..
+            } => (full_ref_name, Some(*tag)),
+            Ref::Symbolic {
+                full_ref_name,
+                tag,
+                object,
+                ..
+            } => (full_ref_name, Some(tag.unwrap_or(*object))),
+            Ref::Unborn { full_ref_name, .. } => (full_ref_name, None),
+        };
+        if let Some(id) = id {
+            ensure!(
+                id.kind() == hash && !id.is_null(),
+                "remote advertised an incompatible object ID for {name:?}"
+            );
+        }
+        // receive-pack may advertise multiple pseudo refs named .have for
+        // objects reachable through alternate namespaces or object stores.
+        // They are object-presence hints, not mutable refs: retain their OIDs
+        // for pack pruning, but exclude them from lease/ref-name accounting.
+        if name.as_bstr() == b".have".as_bstr() {
+            continue;
+        }
+        ensure!(
+            advertised.insert(name.as_bstr(), id).is_none(),
+            "remote advertised duplicate ref {name:?}"
+        );
+    }
+    Ok((advertised, remote_objects))
 }
 
 impl PreparedPush {
@@ -496,4 +516,75 @@ fn prepare_pack(
     drop(writer);
     file.rewind().context("rewinding push pack spool")?;
     Ok(file)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gix::protocol::handshake::Ref;
+
+    fn oid(hex: &[u8; 40]) -> ObjectId {
+        ObjectId::from_hex(hex).expect("valid SHA-1")
+    }
+
+    #[test]
+    fn advertisement_accepts_repeated_have_pseudo_refs() {
+        let main = oid(b"1111111111111111111111111111111111111111");
+        let have_a = oid(b"2222222222222222222222222222222222222222");
+        let have_b = oid(b"3333333333333333333333333333333333333333");
+        let refs = vec![
+            Ref::Direct {
+                full_ref_name: "refs/heads/main".into(),
+                object: main,
+            },
+            Ref::Direct {
+                full_ref_name: ".have".into(),
+                object: have_a,
+            },
+            Ref::Direct {
+                full_ref_name: ".have".into(),
+                object: have_b,
+            },
+        ];
+
+        let (advertised, remote_objects) =
+            index_advertisement(&refs, gix::hash::Kind::Sha1).expect("valid advertisement");
+
+        assert_eq!(
+            advertised
+                .get(b"refs/heads/main".as_bstr())
+                .copied()
+                .flatten(),
+            Some(main)
+        );
+        assert!(!advertised.contains_key(b".have".as_bstr()));
+        assert_eq!(
+            remote_objects,
+            HashSet::from([main, have_a, have_b]),
+            "all advertised objects, including .have hints, prune the push pack"
+        );
+    }
+
+    #[test]
+    fn advertisement_still_rejects_duplicate_real_refs() {
+        let refs = vec![
+            Ref::Direct {
+                full_ref_name: "refs/heads/main".into(),
+                object: oid(b"1111111111111111111111111111111111111111"),
+            },
+            Ref::Direct {
+                full_ref_name: "refs/heads/main".into(),
+                object: oid(b"2222222222222222222222222222222222222222"),
+            },
+        ];
+
+        let error = index_advertisement(&refs, gix::hash::Kind::Sha1)
+            .expect_err("duplicate real refs must remain invalid");
+        assert!(
+            error
+                .to_string()
+                .contains("remote advertised duplicate ref"),
+            "{error:#}"
+        );
+    }
 }
