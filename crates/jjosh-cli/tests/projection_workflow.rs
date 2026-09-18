@@ -1825,3 +1825,46 @@ fn rejected_remote_lifecycle_preserves_bindings_and_observations() {
         "local edit\n"
     );
 }
+
+#[test]
+fn remote_rename_keeps_branch_fetch_and_push_destinations_independent() {
+    let f = Fixture::new();
+    let source = f.git_init("branch-source");
+    f.write(&source, "file", "source\n");
+    f.commit(&source, "source");
+    let endpoint = f.bare(&source, "branch-source.git");
+    let client = f.init_client("client", false);
+    f.jj(
+        &client,
+        &["git", "remote", "add", "origin", endpoint.to_str().unwrap()],
+    );
+    let git_dir = client.join(".jj/repo/store/git");
+    for (key, value) in [
+        ("branch.fetch.remote", "origin"),
+        ("branch.fetch.pushRemote", "other"),
+        ("branch.fetch.description", "keep branch notes"),
+        ("branch.push.remote", "other"),
+        ("branch.push.pushRemote", "origin"),
+        ("branch.only-push.pushRemote", "origin"),
+    ] {
+        f.git(&git_dir, &["config", key, value]);
+    }
+    f.jj(&client, &["git", "remote", "rename", "origin", "primary"]);
+    for (key, expected) in [
+        ("branch.fetch.remote", "primary"),
+        ("branch.fetch.pushRemote", "other"),
+        ("branch.fetch.description", "keep branch notes"),
+        ("branch.push.remote", "other"),
+        ("branch.push.pushRemote", "primary"),
+        ("branch.only-push.pushRemote", "primary"),
+    ] {
+        assert_eq!(f.git(&git_dir, &["config", "--get", key]).trim(), expected);
+    }
+    assert_eq!(
+        f.git(
+            &git_dir,
+            &["config", "--get-regexp", "^branch.only-push\\."]
+        ),
+        "branch.only-push.pushremote primary\n",
+    );
+}
