@@ -4107,7 +4107,7 @@ pub fn rename_remote_with_options(
     }
 
     let mut remote = git_repo
-        .try_find_remote(old_remote_name.as_str())
+        .try_find_remote_without_url_rewrite(old_remote_name.as_str())
         .ok_or_else(|| GitRemoteManagementError::NoSuchRemote(old_remote_name.to_owned()))?
         .map_err(GitRemoteManagementError::from_git)?;
 
@@ -4128,6 +4128,18 @@ pub fn rename_remote_with_options(
         )
     });
     let mut config = git_repo.config_snapshot().clone();
+    // Renaming a config section must not serialize normalized URLs back into
+    // the user's configuration. A custom helper may use a case-sensitive ID
+    // where a URL parser expects a DNS host (e.g. rad://...). Keep literal URL
+    // lists, their ordering, and absence of pushurl exactly as configured.
+    let raw_urls = ["url", "pushurl"].map(|key| {
+        (
+            key,
+            config
+                .raw_values_by("remote", old_remote_name.as_str(), key)
+                .unwrap_or_default(),
+        )
+    });
     let fetches: Vec<_> = config
         .raw_values_by("remote", old_remote_name.as_str(), "fetch")
         .unwrap_or_default()
@@ -4171,6 +4183,19 @@ pub fn rename_remote_with_options(
         })
         .collect();
     save_remote(&mut config, new_remote_name, &mut remote)?;
+    for (key, values) in raw_urls {
+        if let Ok(mut written) = config.raw_values_mut_by("remote", new_remote_name.as_str(), key) {
+            written.delete_all();
+        }
+        let mut section = config
+            .section_mut("remote", new_remote_name.as_str())
+            .map_err(GitRemoteManagementError::from_git)?;
+        for value in values {
+            section
+                .push(key, value.as_slice())
+                .map_err(GitRemoteManagementError::from_git)?;
+        }
+    }
     // gix sorts/deduplicates parsed refspecs. Keep the configured list in its
     // original order after validating the rewritten values above.
     if !fetches.is_empty() {
@@ -4206,7 +4231,6 @@ pub fn rename_remote_with_options(
 
     Ok(())
 }
-
 
 fn rename_remote_git_ref_edits(
     git_repo: &gix::Repository,
