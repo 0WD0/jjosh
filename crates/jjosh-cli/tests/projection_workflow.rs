@@ -1644,6 +1644,15 @@ fn attached_remote_lifecycle_preserves_mount_push_endpoint_and_peer() {
         );
     }
     let physical = f.physical_remote(&client, "project", "origin");
+    assert_eq!(physical, "origin#project");
+    let connection = f.git(
+        &git_dir,
+        &[
+            "config",
+            "--get",
+            &format!("remote.{physical}.jjosh-connectionId"),
+        ],
+    );
     f.jj(
         &client,
         &["git", "remote", "add", "origin", remote.to_str().unwrap()],
@@ -1664,7 +1673,19 @@ fn attached_remote_lifecycle_preserves_mount_push_endpoint_and_peer() {
         &["git", "remote", "rename", "origin#project", "renamed"],
     );
     assert_eq!(f.log(&client, "main#project@renamed", "commit_id"), before);
-    assert_eq!(f.physical_remote(&client, "project", "renamed"), physical);
+    let renamed = f.physical_remote(&client, "project", "renamed");
+    assert_eq!(renamed, "renamed#project");
+    assert_eq!(
+        f.git(
+            &git_dir,
+            &[
+                "config",
+                "--get",
+                &format!("remote.{renamed}.jjosh-connectionId")
+            ]
+        ),
+        connection,
+    );
     assert_eq!(f.log(&client, "main@origin", "commit_id"), root_origin);
     f.jj(&client, &["git", "fetch", "--remote", "renamed#project"]);
     assert_eq!(
