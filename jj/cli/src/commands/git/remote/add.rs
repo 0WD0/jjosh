@@ -70,7 +70,6 @@ pub async fn cmd_git_remote_add(
         args.binding.project.as_deref(),
     )?;
     let connection = ConnectionId::generate();
-    let scoped_handle = RemoteNameBuf::from(format!("jjosh-{}", connection.hex()));
     let mut binding_args = args.binding.clone();
     if let Some(project) = &requested_scope {
         binding_args.project = Some(
@@ -83,19 +82,26 @@ pub async fn cmd_git_remote_add(
         );
     }
     let git_lock = workspace_command.lock_git_import_export()?;
+    let preparation_remote = match &requested_scope {
+        Some(project) => {
+            super::scoped_remote_name(workspace_command.repo().view(), &local_name, project)?
+        }
+        None => local_name.clone(),
+    };
     let binding = super::prepare_binding(
         command,
         &workspace_command,
-        &scoped_handle,
+        &preparation_remote,
         &connection,
         &binding_args,
     )?;
     let scope = binding.as_ref().and_then(super::binding_scope).cloned();
     super::ensure_available_remote_name(&workspace_command, &local_name, scope.as_ref())?;
-    let remote = if scope.is_some() {
-        scoped_handle
-    } else {
-        local_name.clone()
+    let remote = match &scope {
+        Some(project) => {
+            super::scoped_remote_name(workspace_command.repo().view(), &local_name, project)?
+        }
+        None => local_name.clone(),
     };
     let mut git_repo = git::get_git_repo(workspace_command.repo().store())?;
     git_repo
@@ -105,10 +111,7 @@ pub async fn cmd_git_remote_add(
         return Err(git::GitRemoteManagementError::RemoteAlreadyExists(local_name.clone()).into());
     }
     let mut tx = workspace_command.start_transaction();
-    tx.repo_mut()
-        .view_mut()
-        .archive_remote_observations(&remote)
-        .map_err(crate::command_error::user_error)?;
+    tx.repo_mut().view_mut().clear_remote_observations(&remote);
     let mut keys = vec![("jjosh-connectionId".into(), connection.hex())];
     if binding.is_some() {
         keys.push(("jjosh-requiredCapability".into(), "jjosh-v1".into()));

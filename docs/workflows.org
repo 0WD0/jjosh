@@ -109,23 +109,17 @@ import 本身不切换、不整合目标工作副本，所以最后显式使用 
 没有书签的版本可以用来源 change ID 选择。
 不会凭空创建 =workspace/*= 或 Git HEAD 书签；用户自己创建的 =workspace/default= 仍是普通书签。
 
-来源真实 remote 只带入*历史身份和观察*，不会激活目标的同名逻辑 remote，也不带入其传输配置。
-因此导入后可以直接建立日常连接，无需先清理旧观察：
+来源的 remote、remote bookmarks/tags、观察、发布 lease 和传输配置不导入。
+本地 bookmarks/tags 与开发图保留；导入不是对目标 remote 的 fetch。
+显式建立目标仓库自己的连接，再获取需要的分支：
 
 #+begin_src sh
 jjosh git remote add origin /path/to/parser-work --project parser --whole
+jjosh git fetch --remote origin#parser --branch main
 #+end_src
 
-指向本地 jj workspace 的 whole 项目连接可继续获取它已记录的原生状态。
-来源根的 origin 保留历史名字；来源的 =origin#inner= 展平为外层项目内的 =origin@inner=。
-remote 名含 =@= 时，revset 内也要引用它，例如：
-
-#+begin_src sh
-jjosh log -r 'main#inner#parser@"origin@inner"'
-#+end_src
-
-命令会报告映射。多个历史连接可以同名；发生歧义时，从 =bookmark list --all-remotes= 的输出选择明确物理身份，不要猜名字。
-一旦创建当前逻辑 origin，它就优先于历史 origin，即使当前连接还没有第一次 fetch。
+指向本地 jj workspace 的 whole 连接可继续获取其已记录的原生状态。
+指向 Git 服务器的连接只有 fetch 或成功 publish 后，才拥有该 endpoint/ref 的旧值观察；track 本身不会赋予覆盖授权。
 
 ** 保留来源已有的多项目组织
 
@@ -221,9 +215,9 @@ jjosh git remote set-url publish#parser /path/to/new-fork.git
 jjosh git remote rename --project parser publish fork
 #+end_src
 
-rename 保留连接与绑定身份，也不改变项目连接的物理 Git handle。
-项目连接的 handle 是 =jjosh-<ConnectionId>=；普通根 Git remote 仍用原来的物理名字。
-日常命令用逻辑名字，不要编辑内部 Git 键来切换项目。
+rename 保留 ConnectionId 和 binding，同时重命名真实 Git remote 及其引用映射。
+项目物理名是 =REMOTE#LABEL=；例如 =origin#parser= 改为 =primary#parser=。
+Git config 不属于 operation history，op restore 不倒放该配置副作用。
 
 读取和发布地址默认相同。创建时可加 =--push-url URL=，以后分别修改：
 
@@ -476,15 +470,15 @@ restore 创建一个新 operation，不删除后来操作，也不撤销已经�
 只恢复 A 时代的 remote-tracking，不会把当前 origin 改回 A；即使 B 尚未首次 fetch，origin 仍选择 B，之后 fetch 使用 B 的表示和独立 tracking。
 不需要用 project resolve 修补名字，也没有独立的公开“忘记观察”命令。
 
-旧历史仍可明确查看：
+旧连接的状态通过原 operation 查看，不再堆积在当前 remote 列表：
 
 #+begin_src sh
-jjosh bookmark list --all-remotes
+jjosh --at-op OP bookmark list --all-remotes
+jjosh --at-op OP log -r 'main#parser@origin'
 #+end_src
 
-照抄列表给出的物理选择器。例如旧项目连接可能显示 =main#parser@jjosh-<旧ConnectionId>=；根的旧 origin 观察会归档为 =main@jjosh-observed-<旧ConnectionId>=。
-将其中身份替换为实际输出后用于 =jjosh log -r '完整引用'=。
-旧根观察不会覆盖 B 的 refs 或 tracking。读取历史范围不要求重新激活当时的项目或绑定。
+只恢复 tracking 时，已停用或已被不同连接替代的观察被丢弃，不会生成历史物理 remote 名。
+同一连接改名的观察可以跟随新名字；这不改变 Git config。
 
 ** 完整恢复后离线移除或重新接线
 
@@ -504,7 +498,7 @@ jjosh git remote set-url origin#parser /path/to/parser.git
 
 随后正常 fetch。若不再需要 A，直接 =jjosh git remote remove origin#parser= 即可离线移除。
 不会借用同名 B 或其他项目的配置。
-普通根 remote 若同一个物理配置已属于 B，重新连接 A 会拒绝覆盖；按诊断明确处理该配置的保留、改名或移除，再重新接线。
+任何 remote 若同一个物理配置已属于 B，重新连接 A 会拒绝覆盖；按诊断明确处理该配置的保留、改名或移除，再重新接线。
 set-url 不是更换 whole/filter/view 的方式；需要不同表示时有意建立新的绑定/remote。
 
 * 项目维护、故障恢复与旧版本仓库

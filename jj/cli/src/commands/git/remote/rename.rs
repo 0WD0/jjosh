@@ -74,6 +74,10 @@ pub async fn cmd_git_remote_rename(
         ));
     }
     super::ensure_available_remote_name(&workspace_command, &new, scope)?;
+    let physical_new = match scope {
+        Some(project) => super::scoped_remote_name(workspace_command.repo().view(), &new, project)?,
+        None => new.clone(),
+    };
     let local_old = identity
         .as_ref()
         .map_or(&old, |identity| &identity.name)
@@ -99,10 +103,7 @@ pub async fn cmd_git_remote_rename(
         let connection = connection.ok_or_else(|| {
             crate::command_error::user_error("Scoped remote has no logical connection")
         })?;
-        tx.repo_mut()
-            .view_mut()
-            .archive_remote_observations(&old)
-            .map_err(crate::command_error::user_error)?;
+        git::rename_remote_with_options(tx.repo_mut(), &old, &physical_new, &options)?;
         identity.name = new.clone();
         tx.repo_mut()
             .view_mut()
@@ -113,11 +114,7 @@ pub async fn cmd_git_remote_rename(
                 jj_lib::merge::Merge::resolved(Some(identity)),
             );
     } else {
-        tx.repo_mut()
-            .view_mut()
-            .archive_remote_observations(&new)
-            .map_err(crate::command_error::user_error)?;
-        git::rename_remote_with_options(tx.repo_mut(), &old, &new, &options)?;
+        git::rename_remote_with_options(tx.repo_mut(), &old, &physical_new, &options)?;
     }
     if tx.repo().has_changes() {
         tx.finish_with_git_import_export_lock(
@@ -131,9 +128,7 @@ pub async fn cmd_git_remote_rename(
         && let Some(updated) = repo_config
     {
         crate::git_remote::commit_repo_config_update(command.raw_config(), &updated).map_err(
-            |err| {
-                err.hinted("Remote renamed, but repository settings were not updated")
-            },
+            |err| err.hinted("Remote renamed, but repository settings were not updated"),
         )?;
     }
     Ok(())

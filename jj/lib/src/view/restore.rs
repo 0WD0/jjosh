@@ -18,7 +18,6 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
 use super::remote_observations::RemoteObservations;
-use crate::merge::Merge;
 use crate::op_store;
 use crate::project::BindingId;
 use crate::project::BindingRecord;
@@ -100,49 +99,72 @@ pub fn restore_view(
         .chain(remote_source.observed_remote_connections.keys())
         .cloned()
         .collect();
-    for remote in remotes {
-        if !restored.observed_remote_connections.contains_key(&remote) {
-            RemoteObservations::new(&mut restored).capture_identity_from(&remote, remote_source);
+    for remote in &remotes {
+        if !restored.observed_remote_connections.contains_key(remote) {
+            RemoteObservations::new(&mut restored)
+                .capture_identity_from(remote.as_ref(), remote_source);
         }
-        if !restored.observed_remote_connections.contains_key(&remote)
-            && current_view.remote_connections.contains_key(&remote)
-        {
-            // Name-only snapshots predate connection metadata and cannot prove
-            // ownership, even when restoring the entire historical repository.
-            restored
-                .observed_remote_connections
-                .insert(remote.clone(), Merge::normal(ConnectionId::generate()));
-            RemoteObservations::new(&mut restored).archive(&remote)?;
+    }
+
+    // Reconcile the selected historical tracking snapshot onto the current
+    // physical names by immutable connection identity. Current-view history is
+    // intentionally not preserved under synthetic aliases: if a connection no
+    // longer exists, its tracking state is dropped. If several historical
+    // physical names claim the same connection, only an exact current-name
+    // match is unambiguous; otherwise discard that connection's observations.
+    let mut historical_by_connection: BTreeMap<_, Vec<_>> = BTreeMap::new();
+    for (remote, owners) in &restored.observed_remote_connections {
+        if let Some(Some(connection)) = owners.as_resolved() {
+            historical_by_connection
+                .entry(connection)
+                .or_default()
+                .push(remote);
+        }
+    }
+    let mut remote_names = BTreeMap::new();
+    for remote in &remotes {
+        // @git is our own backend mirror, not an external connection. Legacy
+        // name-only root snapshots also remain valid if no operation here has
+        // assigned their name to an identified connection.
+        #[cfg(feature = "git")]
+        if remote == crate::git::REMOTE_NAME_FOR_LOCAL_GIT_REPO {
+            remote_names.insert(remote.clone(), remote.clone());
             continue;
         }
-        if let Some(owner) = restored.observed_remote_connections.get(&remote)
-            && (repo_source
-                .remote_connections
-                .get(&remote)
-                .is_some_and(|current| current != owner)
-                || owner
-                    .as_resolved()
-                    .and_then(Option::as_ref)
-                    .and_then(|connection| current_keys.get(connection).copied().flatten())
-                    .is_some_and(|current| current != &remote))
-        {
-            RemoteObservations::new(&mut restored).archive(&remote)?;
+        match restored.observed_remote_connections.get(remote) {
+            Some(owner)
+                if !owner.is_absent()
+                    && repo_source.remote_connections.get(remote) == Some(owner) =>
+            {
+                // Preserve signed conflicts at the same identity and name.
+                // Restoration must not silently resolve them or lose evidence.
+                remote_names.insert(remote.clone(), remote.clone());
+            }
+            None if !repo_source.remote_connections.contains_key(remote)
+                && !current_view.remote_connections.contains_key(remote) =>
+            {
+                remote_names.insert(remote.clone(), remote.clone());
+            }
+            _ => {}
         }
     }
-    // Archive every displaced alias first so swaps cannot overwrite either
-    // connection's complete observation snapshot.
-    let relocations: Vec<_> = restored
-        .observed_remote_connections
-        .iter()
-        .filter_map(|(remote, owners)| {
-            let connection = owners.as_resolved()?.as_ref()?;
-            let current = current_keys.get(connection).copied().flatten()?;
-            (remote != current).then(|| (remote.clone(), current.clone()))
-        })
-        .collect();
-    for (old, new) in relocations {
-        RemoteObservations::new(&mut restored).relocate(&old, &new)?;
+    for (connection, current) in current_keys {
+        let Some(current) = current else {
+            continue;
+        };
+        let Some(candidates) = historical_by_connection.get(connection) else {
+            continue;
+        };
+        let source = candidates
+            .iter()
+            .copied()
+            .find(|candidate| *candidate == current)
+            .or_else(|| (candidates.len() == 1).then_some(candidates[0]));
+        if let Some(source) = source {
+            remote_names.insert(source.clone(), current.clone());
+        }
     }
+    RemoteObservations::new(&mut restored).remap(&remote_names, &BTreeMap::new())?;
     for (remote, observed) in &restored.observed_remote_connections {
         if repo_source
             .remote_connections
@@ -161,14 +183,13 @@ pub fn restore_view(
 mod tests {
     use super::*;
     use crate::backend::CommitId;
+    use crate::merge::Merge;
     use crate::op_store::RefTarget;
     use crate::op_store::RemoteRef;
     use crate::op_store::RemoteRefState;
     use crate::op_store::View;
-    use crate::ref_name::RemoteNameBuf;
-
     #[test]
-    fn tracking_restore_archives_old_root_owner_without_replacing_current_membership() {
+    fn tracking_restore_drops_old_root_owner_without_replacing_current_membership() {
         let mut old = View::make_root(CommitId::from_hex("00"));
         let a = ConnectionId::generate();
         let b = ConnectionId::generate();
@@ -197,16 +218,8 @@ mod tests {
             Merge::normal(b)
         );
         assert_eq!(restored.git_refs, current.git_refs);
-        let archived: RemoteNameBuf = format!("jjosh-observed-{a}").into();
-        assert_eq!(
-            restored.remote_views[&archived].bookmarks[crate::ref_name::RefName::new("main")],
-            target
-        );
-        assert!(
-            !restored
-                .remote_views
-                .contains_key(crate::ref_name::RemoteName::new("origin"))
-        );
+        assert!(restored.remote_views.is_empty());
+        assert!(restored.observed_remote_connections.is_empty());
         let complete = restore_view(&old, &old, &current).unwrap();
         assert_eq!(complete.remote_connections, old.remote_connections);
         assert_eq!(complete.git_refs, current.git_refs);
@@ -232,19 +245,8 @@ mod tests {
             .insert("origin".into(), current_owner.clone());
         for repo_source in [&current, &old] {
             let restored = restore_view(repo_source, &old, &current).unwrap();
-            assert!(
-                !restored
-                    .remote_views
-                    .contains_key(crate::ref_name::RemoteName::new("origin"))
-            );
-            let (historical_name, historical_refs) = restored.remote_views.iter().next().unwrap();
-            assert_eq!(
-                historical_refs.bookmarks[crate::ref_name::RefName::new("main")],
-                target
-            );
-            let historical_owner = &restored.observed_remote_connections[historical_name];
-            assert!(historical_owner.as_resolved().unwrap().is_some());
-            assert_ne!(historical_owner, &current_owner);
+            assert!(restored.remote_views.is_empty());
+            assert!(restored.observed_remote_connections.is_empty());
         }
     }
 
@@ -338,7 +340,7 @@ mod tests {
     }
 
     #[test]
-    fn ambiguous_immutable_binding_preserves_observations_without_relocation() {
+    fn ambiguous_immutable_binding_does_not_relocate_observations_to_another_name() {
         use crate::project::BindingTarget;
         use crate::project::Representation;
 
@@ -385,11 +387,62 @@ mod tests {
             ]),
         );
         let restored = restore_view(&current, &old, &current).unwrap();
-        assert_eq!(restored.remote_views, old.remote_views);
-        assert_eq!(
-            restored.observed_remote_connections,
-            old.observed_remote_connections
-        );
+        assert!(restored.remote_views.is_empty());
+        assert!(restored.observed_remote_connections.is_empty());
         assert_eq!(restored.project_state, current.project_state);
+    }
+
+    #[test]
+    fn unchanged_legacy_and_local_git_tracking_survive_restore() {
+        let mut old = View::make_root(CommitId::from_hex("00"));
+        for remote in ["origin", "git"] {
+            old.remote_views
+                .entry(remote.into())
+                .or_default()
+                .bookmarks
+                .insert(
+                    "main".into(),
+                    RemoteRef {
+                        target: RefTarget::normal(CommitId::from_hex("11")),
+                        state: RemoteRefState::Tracked,
+                    },
+                );
+        }
+        assert_eq!(restore_view(&old, &old, &old).unwrap(), old);
+    }
+
+    #[test]
+    fn self_restore_removes_detached_observations_without_changing_live_state() {
+        let mut view = View::make_root(CommitId::from_hex("00"));
+        let live = ConnectionId::generate();
+        let retired = ConnectionId::generate();
+        let target = RemoteRef {
+            target: RefTarget::normal(CommitId::from_hex("11")),
+            state: RemoteRefState::Tracked,
+        };
+        view.local_bookmarks
+            .insert("work".into(), target.target.clone());
+        view.remote_connections
+            .insert("origin".into(), Merge::normal(live.clone()));
+        for (name, owner) in [("origin", live), ("retired-import", retired)] {
+            view.observed_remote_connections
+                .insert(name.into(), Merge::normal(owner));
+            view.remote_views
+                .entry(name.into())
+                .or_default()
+                .bookmarks
+                .insert("work".into(), target.clone());
+        }
+        let restored = restore_view(&view, &view, &view).unwrap();
+        assert_eq!(restored.head_ids, view.head_ids);
+        assert_eq!(restored.local_bookmarks, view.local_bookmarks);
+        assert_eq!(restored.remote_connections, view.remote_connections);
+        assert_eq!(restored.project_state, view.project_state);
+        assert_eq!(restored.git_refs, view.git_refs);
+        assert_eq!(restored.remote_views.len(), 1);
+        assert_eq!(
+            restored.remote_views[crate::ref_name::RemoteName::new("origin")],
+            view.remote_views[crate::ref_name::RemoteName::new("origin")]
+        );
     }
 }
