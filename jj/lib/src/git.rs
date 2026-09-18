@@ -3319,15 +3319,34 @@ fn rename_remote_in_git_branch_config_sections(
     old_remote_name: &RemoteName,
     new_remote_name: &RemoteName,
 ) -> Result<(), GitRemoteManagementError> {
-    for id in git_config_branch_section_ids_by_remote(config, old_remote_name)? {
+    // Fetch and push destinations are independent. In particular, a branch
+    // whose pushRemote matches must not acquire a different fetch remote.
+    // Keep unrelated branch settings intact instead of reconstructing sections.
+    let mut edits = Vec::new();
+    for section in config.sections_by_name("branch").into_iter().flatten() {
+        for key in ["remote", "pushRemote"] {
+            let values = section.values(key);
+            if !values.iter().any(|value| value == old_remote_name.as_str()) {
+                continue;
+            }
+            if values.len() != 1 || section.meta() != config.meta() {
+                return Err(GitRemoteManagementError::NonstandardConfiguration(
+                    old_remote_name.to_owned(),
+                ));
+            }
+            edits.push((section.id(), key));
+        }
+    }
+    for (id, key) in edits {
         config
             .section_mut_by_id(id)
             .expect("found section to exist")
-            .set("remote", new_remote_name.as_str())
-            .expect("'remote' to be a valid value name");
+            .set(key, new_remote_name.as_str())
+            .expect("branch remote keys to be valid value names");
     }
     Ok(())
 }
+
 
 fn remove_remote_git_branch_config_sections(
     config: &mut gix::config::File,
