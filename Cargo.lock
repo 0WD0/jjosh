@@ -3301,8 +3301,11 @@ dependencies = [
 name = "jj-core"
 version = "0.45.1"
 dependencies = [
+ "async-trait",
  "blake2",
  "bstr",
+ "chrono",
+ "clru",
  "digest 0.11.3",
  "either",
  "etcetera",
@@ -3374,6 +3377,7 @@ dependencies = [
  "thiserror 2.0.19",
  "toml_edit",
  "tracing",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
