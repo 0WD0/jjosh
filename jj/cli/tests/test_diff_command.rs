@@ -4271,6 +4271,31 @@ fn test_diff_rename_in_merge_commit() {
 }
 
 #[test]
+fn test_diff_merge_does_not_detect_copy_from_other_parent() {
+    let test_env = TestEnvironment::default();
+    test_env.run_jj_in(".", ["git", "init", "repo"]).success();
+    let work_dir = test_env.work_dir("repo");
+
+    work_dir.run_jj(["describe", "-m", "base"]).success();
+    work_dir.run_jj(["new", "-m", "first branch"]).success();
+    work_dir.write_file("a.txt", "same contents\n");
+    work_dir
+        .run_jj(["new", "@-", "-m", "second branch"])
+        .success();
+    work_dir.write_file("b.txt", "same contents\n");
+    work_dir.run_jj(["new", "@-+", "-m", "merge"]).success();
+    work_dir.remove_file("a.txt");
+
+    // b.txt came from the second parent, so deleting a.txt in the merge is not
+    // a rename from a.txt to b.txt.
+    let output = work_dir.run_jj(["diff", "-s"]);
+    insta::assert_snapshot!(output, @"
+    D a.txt
+    [EOF]
+    ");
+}
+
+#[test]
 fn test_diff_stat_max_bar_width() {
     let test_env = TestEnvironment::default();
     test_env.add_config(

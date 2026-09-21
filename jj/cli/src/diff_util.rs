@@ -15,7 +15,6 @@
 use std::borrow::Cow;
 use std::cmp::max;
 use std::cmp::min;
-use std::future;
 use std::io;
 use std::iter;
 use std::ops::Range;
@@ -27,6 +26,7 @@ use bstr::BString;
 use clap_complete::ArgValueCandidates;
 use futures::StreamExt as _;
 use futures::TryStreamExt as _;
+use futures::future;
 use futures::stream::BoxStream;
 use itertools::Itertools as _;
 use jj_lib::backend::BackendError;
@@ -76,6 +76,7 @@ use jj_lib::merged_tree::MergedTree;
 use jj_lib::repo::Repo;
 use jj_lib::repo_path::InvalidRepoPathError;
 use jj_lib::repo_path::RepoPath;
+use jj_lib::repo_path::RepoPathBuf;
 use jj_lib::rewrite::rebase_to_dest_parent;
 use jj_lib::settings::UserSettings;
 use jj_lib::store::Store;
@@ -652,10 +653,17 @@ impl<'a> DiffRenderer<'a> {
     ) -> Result<(), DiffRenderError> {
         let from_tree = commit.parent_tree(self.repo).await?;
         let to_tree = commit.tree();
+        let copy_record_targets =
+            get_copy_record_targets(Diff::new(&from_tree, &to_tree), matcher).await?;
         let mut copy_records = CopyRecords::default();
         for parent_id in commit.parent_ids() {
-            let records =
-                get_copy_records(self.repo.store(), parent_id, commit.id(), matcher).await?;
+            let records = get_copy_records(
+                self.repo.store(),
+                parent_id,
+                commit.id(),
+                &copy_record_targets,
+            )
+            .await?;
             copy_records.add_records(records);
         }
         self.show_diff(
@@ -674,13 +682,30 @@ pub async fn get_copy_records(
     store: &Store,
     root: &CommitId,
     head: &CommitId,
-    matcher: &dyn Matcher,
+    target_paths: &[RepoPathBuf],
 ) -> BackendResult<Vec<CopyRecord>> {
-    // TODO: teach backend about matching path prefixes?
-    let stream = store.get_copy_records(None, root, head)?;
-    // TODO: test record.source as well? should be AND-ed or OR-ed?
-    stream
-        .try_filter(|record| future::ready(matcher.matches(&record.target)))
+    if target_paths.is_empty() {
+        return Ok(Vec::new());
+    }
+    store
+        .get_copy_records(Some(target_paths), root, head)?
+        .try_collect()
+        .await
+}
+
+/// Collects added file-like paths which can be copy or rename destinations.
+pub async fn get_copy_record_targets(
+    trees: Diff<&MergedTree>,
+    matcher: &dyn Matcher,
+) -> BackendResult<Vec<RepoPathBuf>> {
+    trees
+        .before
+        .diff_stream(trees.after, matcher)
+        .map(|entry| {
+            let values = entry.values?;
+            Ok((values.before.is_absent() && values.after.is_file_like()).then_some(entry.path))
+        })
+        .try_filter_map(|path| future::ready(Ok(path)))
         .try_collect()
         .await
 }

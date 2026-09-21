@@ -120,6 +120,7 @@ pub(super) fn collect(
             gix_diff::tree_with_rewrites::Options {
                 location: Some(Location::Path),
                 rewrites,
+                rewrite_destination_paths: None,
             },
         )?;
     }

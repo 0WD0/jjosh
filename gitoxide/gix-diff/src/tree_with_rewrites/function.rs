@@ -40,6 +40,7 @@ where
         location: options.location,
         objects,
         tracked: options.rewrites.map(rewrites::Tracker::new),
+        rewrite_destination_paths: options.rewrite_destination_paths,
         err: None,
     };
     match crate::tree(lhs, rhs, tree_diff_state, objects, &mut delegate) {
@@ -65,6 +66,7 @@ struct Delegate<'a, 'old, VisitFn, E, Objects> {
     objects: &'a Objects,
     visit: VisitFn,
     tracked: Option<rewrites::Tracker<crate::tree::visit::Change>>,
+    rewrite_destination_paths: Option<std::collections::HashSet<bstr::BString>>,
     location: Option<crate::tree::recorder::Location>,
     err: Option<E>,
 }
@@ -202,6 +204,14 @@ where
     }
 
     fn visit(&mut self, change: crate::tree::visit::Change) -> crate::tree::visit::Action {
+        if matches!(change, crate::tree::visit::Change::Addition { .. })
+            && self
+                .rewrite_destination_paths
+                .as_ref()
+                .is_some_and(|paths| !paths.contains(self.recorder.path()))
+        {
+            return Self::emit_change(change, self.recorder.path(), &mut self.visit, &mut self.err);
+        }
         match self.tracked.as_mut() {
             Some(tracked) => tracked
                 .try_push_change(change, self.recorder.path())

@@ -74,7 +74,8 @@ impl<'old> Platform<'_, 'old> {
             }
             Some(cache) => cache,
         };
-        let opts = self.options.into();
+        let mut opts: gix_diff::tree_with_rewrites::Options = self.options.into();
+        opts.rewrite_destination_paths = self.rewrite_destination_paths.clone();
         Ok(gix_diff::tree_with_rewrites(
             TreeRefIter::from_bytes(&self.lhs.data, self.lhs.id.kind()),
             TreeRefIter::from_bytes(&other.data, other.id.kind()),
