@@ -941,7 +941,8 @@ async fn prepare_scope(
             .as_ref()
             .and_then(|(_, record)| record.base.as_ref())
     });
-    let base = if has_new {
+    // Whole bindings may retain a base, but native export needs no projection context.
+    let base = if has_new && filter.is_some() {
         base_rule
             .map(|_| -> Result<gix::ObjectId, CommandError> {
                 let raw = observation

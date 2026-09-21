@@ -4135,6 +4135,62 @@ fn link_push_rewrites_published_changes_with_independent_destination_leases() {
 }
 
 #[test]
+fn whole_project_push_ignores_configured_source_base() {
+    let temp = tempfile::tempdir().unwrap();
+    let (_work, remote, original) = create_remote(temp.path(), "whole-base");
+    let client = create_client(temp.path(), false);
+    jjosh(&client, &["project", "add", "p", "--path", "p"]);
+    jjosh(
+        &client,
+        &[
+            "git",
+            "remote",
+            "add",
+            "origin",
+            remote.to_str().unwrap(),
+            "--project",
+            "p",
+            "--whole",
+            "--base",
+            "main",
+        ],
+    );
+    jjosh(
+        &client,
+        &["git", "fetch", "--remote", "origin#p", "--branch", "main"],
+    );
+    jjosh(
+        &client,
+        &["new", "main#p@origin", "-m", "update whole project"],
+    );
+    fs::write(client.join("p/src/value.txt"), "published\n").unwrap();
+    jjosh(&client, &["bookmark", "set", "main#p"]);
+    jjosh(&client, &["bookmark", "track", "main#p@origin"]);
+    jjosh(
+        &client,
+        &[
+            "git",
+            "push",
+            "--remote",
+            "origin#p",
+            "--bookmark",
+            "main#p",
+        ],
+    );
+
+    assert_eq!(git(&remote, &["show", "main:src/value.txt"]), "published\n");
+    assert_eq!(
+        git(&remote, &["show", "main:outside.txt"]),
+        "whole-base-outside\n"
+    );
+    assert_eq!(git(&remote, &["rev-parse", "main^"]).trim(), original);
+    assert_eq!(
+        git(&remote, &["ls-tree", "-r", "--name-only", "main"]),
+        "outside.txt\nsrc/value.txt\n"
+    );
+}
+
+#[test]
 fn rewritten_project_push_requires_fetch_only_when_no_lease_is_known() {
     let temp = tempfile::tempdir().unwrap();
     let (_remote_work, remote_bare, remote_tip) = create_remote(temp.path(), "lease");
