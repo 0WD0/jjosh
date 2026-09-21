@@ -1,3 +1,7 @@
+use std::collections::HashSet;
+
+use bstr::BString;
+
 use crate::{Rewrites, tree::recorder::Location};
 
 mod change;
@@ -29,6 +33,10 @@ pub struct Options {
     pub location: Option<Location>,
     /// If not `None`, rename tracking will be performed accordingly.
     pub rewrites: Option<Rewrites>,
+    /// If not `None`, only additions at these paths are considered as rename or
+    /// copy destinations. The set should include parent directories when
+    /// directory rename tracking is desired.
+    pub rewrite_destination_paths: Option<HashSet<BString>>,
 }
 
 pub(super) mod function;

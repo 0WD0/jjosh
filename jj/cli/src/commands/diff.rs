@@ -32,6 +32,7 @@ use crate::command_error::CommandError;
 use crate::command_error::user_error;
 use crate::complete;
 use crate::diff_util::DiffFormatArgs;
+use crate::diff_util::get_copy_record_targets;
 use crate::diff_util::get_copy_records;
 use crate::diff_util::show_templated;
 use crate::ui::Ui;
@@ -126,7 +127,7 @@ pub(crate) async fn cmd_diff(
 
     let from_tree;
     let to_tree;
-    let mut copy_records = CopyRecords::default();
+    let copy_record_ranges;
     if args.from.is_some() || args.to.is_some() {
         let resolve_revision = async |r: &Option<RevisionArg>| {
             workspace_command
@@ -137,9 +138,7 @@ pub(crate) async fn cmd_diff(
         let to = resolve_revision(&args.to).await?;
         from_tree = from.tree();
         to_tree = to.tree();
-
-        let records = get_copy_records(repo.store(), from.id(), to.id(), &matcher).await?;
-        copy_records.add_records(records);
+        copy_record_ranges = vec![(from.id().clone(), to.id().clone())];
     } else {
         let revision_args = args
             .revisions
@@ -183,13 +182,19 @@ pub(crate) async fn cmd_diff(
         let parents = parents.into_iter().collect_vec();
         from_tree = merge_commit_trees(repo.as_ref(), &parents).await?;
         to_tree = merge_commit_trees(repo.as_ref(), &heads).await?;
+        copy_record_ranges = parents
+            .iter()
+            .cartesian_product(&heads)
+            .map(|(parent, head)| (parent.id().clone(), head.id().clone()))
+            .collect();
+    }
 
-        for p in &parents {
-            for to in &heads {
-                let records = get_copy_records(repo.store(), p.id(), to.id(), &matcher).await?;
-                copy_records.add_records(records);
-            }
-        }
+    let copy_record_targets =
+        get_copy_record_targets(Diff::new(&from_tree, &to_tree), &matcher).await?;
+    let mut copy_records = CopyRecords::default();
+    for (root, head) in copy_record_ranges {
+        let records = get_copy_records(repo.store(), &root, &head, &copy_record_targets).await?;
+        copy_records.add_records(records);
     }
 
     // -T disables both short/long rendering formats, but it might be okay to

@@ -1,6 +1,11 @@
+use std::collections::HashSet;
+
 use gix_diff::tree;
 
-use crate::{Id, Tree, bstr::BStr};
+use crate::{
+    Id, Tree,
+    bstr::{BStr, BString},
+};
 
 /// Returned by the `for_each` function to control flow.
 ///
@@ -134,6 +139,7 @@ impl<'repo> Tree<'repo> {
             state: Default::default(),
             lhs: self,
             options: crate::diff::Options::from_configuration(&self.repo.config)?,
+            rewrite_destination_paths: None,
         })
     }
 }
@@ -144,12 +150,20 @@ pub struct Platform<'a, 'repo> {
     state: gix_diff::tree::State,
     lhs: &'a Tree<'repo>,
     options: crate::diff::Options,
+    rewrite_destination_paths: Option<HashSet<BString>>,
 }
 
 impl Platform<'_, '_> {
     /// Adjust diff options with `change_opts`.
     pub fn options(&mut self, change_opts: impl FnOnce(&mut crate::diff::Options)) -> &mut Self {
         change_opts(&mut self.options);
+        self
+    }
+
+    /// Restrict rename and copy destinations to the specified paths. Parent
+    /// directories should be included to retain directory rename detection.
+    pub fn rewrite_destination_paths(&mut self, paths: Option<HashSet<BString>>) -> &mut Self {
+        self.rewrite_destination_paths = paths;
         self
     }
 }

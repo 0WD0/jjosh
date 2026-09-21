@@ -722,6 +722,7 @@ fn tree_diff_with_rewrites_at_file_path(
     let options: gix_diff::tree_with_rewrites::Options = gix_diff::tree_with_rewrites::Options {
         location: Some(gix_diff::tree::recorder::Location::Path),
         rewrites: Some(rewrites),
+        rewrite_destination_paths: None,
     };
     let result = gix_diff::tree_with_rewrites(
         parent_tree_iter,

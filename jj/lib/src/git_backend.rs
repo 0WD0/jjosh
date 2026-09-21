@@ -1402,6 +1402,13 @@ impl Backend for GitBackend {
         let repo = self.git_repo();
         let root_tree = self.read_tree_for_commit(&repo, root_id)?;
         let head_tree = self.read_tree_for_commit(&repo, head_id)?;
+        let rewrite_destination_paths = paths.map(|paths| {
+            paths
+                .iter()
+                .flat_map(|path| path.ancestors())
+                .map(|path| BString::from(path.as_internal_file_string()))
+                .collect::<HashSet<_>>()
+        });
 
         let change_to_copy_record =
             |change: gix::object::tree::diff::Change| -> BackendResult<Option<CopyRecord>> {
@@ -1456,6 +1463,7 @@ impl Backend for GitBackend {
                     track_empty: false,
                 }));
             })
+            .rewrite_destination_paths(rewrite_destination_paths)
             .for_each_to_obtain_tree_with_cache(
                 &head_tree,
                 &mut self.new_diff_platform()?,

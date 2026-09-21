@@ -41,6 +41,7 @@ impl From<Options> for gix_diff::tree_with_rewrites::Options {
             location: opts.location,
             #[cfg(feature = "blob-diff")]
             rewrites: opts.rewrites,
+            rewrite_destination_paths: None,
         }
     }
 }

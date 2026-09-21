@@ -37,6 +37,7 @@ use crate::cli_util::print_snapshot_stats;
 use crate::cli_util::print_unmatched_explicit_paths;
 use crate::command_error::CommandError;
 use crate::diff_util::DiffFormat;
+use crate::diff_util::get_copy_record_targets;
 use crate::diff_util::get_copy_records;
 use crate::formatter::FormatterExt as _;
 use crate::ui::Ui;
@@ -96,11 +97,18 @@ pub(crate) async fn cmd_status(
             writeln!(formatter, "The working copy has no changes.")?;
         } else {
             if status.has_any_tracked_changes() {
+                let copy_record_targets =
+                    get_copy_record_targets(Diff::new(&status.parent_tree, &status.tree), &matcher)
+                        .await?;
                 let mut copy_records = CopyRecords::default();
                 for parent in &status.parents {
-                    let records =
-                        get_copy_records(repo.store(), parent.id(), status.commit.id(), &matcher)
-                            .await?;
+                    let records = get_copy_records(
+                        repo.store(),
+                        parent.id(),
+                        status.commit.id(),
+                        &copy_record_targets,
+                    )
+                    .await?;
                     copy_records.add_records(records);
                 }
                 let diff_renderer = workspace_command.diff_renderer(vec![DiffFormat::Summary]);
