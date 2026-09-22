@@ -21,6 +21,7 @@ use std::future;
 use std::io;
 use std::iter;
 use std::ops::Range;
+use std::path;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -699,6 +700,11 @@ pub fn show_diff_bytes<T: AsRef<[u8]> + Eq>(
     if !contents.is_changed() {
         return Ok(());
     }
+    let language = paths
+        .after
+        .rsplit(path::is_separator)
+        .next()
+        .and_then(SourceLanguage::from_file_name);
     for format in formats {
         match format {
             // Omit diff from "short" formats. Printing dummy file path wouldn't
@@ -725,6 +731,7 @@ pub fn show_diff_bytes<T: AsRef<[u8]> + Eq>(
                 }
                 show_color_words_diff_hunks(
                     *formatter,
+                    language,
                     contents,
                     Diff::new(&ConflictLabels::unlabeled(), &ConflictLabels::unlabeled()),
                     options,
@@ -812,6 +819,7 @@ impl ColorWordsDiffOptions {
 
 fn show_color_words_diff_hunks<T: AsRef<[u8]>>(
     formatter: &mut dyn Formatter,
+    language: Option<SourceLanguage>,
     contents: Diff<&Merge<T>>,
     conflict_labels: Diff<&ConflictLabels>,
     options: &ColorWordsDiffOptions,
@@ -822,7 +830,14 @@ fn show_color_words_diff_hunks<T: AsRef<[u8]>>(
     if let (Some(left), Some(right)) = (contents.before.as_resolved(), contents.after.as_resolved())
     {
         let contents = Diff::new(left, right).map(BStr::new);
-        show_color_words_resolved_hunks(formatter, contents, line_number, labels, options)?;
+        show_color_words_resolved_hunks(
+            formatter,
+            language,
+            contents,
+            line_number,
+            labels,
+            options,
+        )?;
         return Ok(());
     }
     match options.conflict {
@@ -832,6 +847,7 @@ fn show_color_words_diff_hunks<T: AsRef<[u8]>>(
             });
             show_color_words_resolved_hunks(
                 formatter,
+                language,
                 contents.as_ref().map(BStr::new),
                 line_number,
                 labels,
@@ -842,6 +858,7 @@ fn show_color_words_diff_hunks<T: AsRef<[u8]>>(
             let contents = contents.map(|side| files::merge(side, &materialize_options.merge));
             show_color_words_conflict_hunks(
                 formatter,
+                language,
                 contents.as_ref(),
                 line_number,
                 labels,
@@ -854,6 +871,7 @@ fn show_color_words_diff_hunks<T: AsRef<[u8]>>(
 
 fn show_color_words_conflict_hunks(
     formatter: &mut dyn Formatter,
+    language: Option<SourceLanguage>,
     contents: Diff<&Merge<BString>>,
     mut line_number: DiffLineNumber,
     labels: Diff<&str>,
@@ -882,12 +900,12 @@ fn show_color_words_conflict_hunks(
                 let num_before = options.context;
                 line_number = show_color_words_context_lines(
                     formatter,
+                    language,
                     &contexts,
                     line_number,
                     labels,
                     options,
-                    num_after,
-                    num_before,
+                    (num_after, num_before),
                 )?;
                 contexts.clear();
                 emitted = true;
@@ -904,6 +922,7 @@ fn show_color_words_conflict_hunks(
                 } else {
                     show_color_words_unresolved_hunk(
                         formatter,
+                        language,
                         &hunk,
                         line_number,
                         labels,
@@ -918,17 +937,18 @@ fn show_color_words_conflict_hunks(
     let num_before = 0;
     show_color_words_context_lines(
         formatter,
+        None, // no source symbol at the end
         &contexts,
         line_number,
         labels,
         options,
-        num_after,
-        num_before,
+        (num_after, num_before),
     )
 }
 
 fn show_color_words_unresolved_hunk(
     formatter: &mut dyn Formatter,
+    language: Option<SourceLanguage>,
     hunk: &ConflictDiffHunk,
     line_number: DiffLineNumber,
     labels: Diff<&str>,
@@ -974,8 +994,14 @@ fn show_color_words_unresolved_hunk(
             false => labels.invert(),
         };
         // Individual hunk pair may be largely the same, so diff it again.
-        let new_line_number =
-            show_color_words_resolved_hunks(formatter, contents, line_number, labels, options)?;
+        let new_line_number = show_color_words_resolved_hunks(
+            formatter,
+            language,
+            contents,
+            line_number,
+            labels,
+            options,
+        )?;
         // Take max to assign unique line numbers to trailing hunks. The line
         // numbers can't be real anyway because preceding conflict hunks might
         // have been resolved.
@@ -989,6 +1015,7 @@ fn show_color_words_unresolved_hunk(
 
 fn show_color_words_resolved_hunks(
     formatter: &mut dyn Formatter,
+    language: Option<SourceLanguage>,
     contents: Diff<&BStr>,
     mut line_number: DiffLineNumber,
     labels: Diff<&str>,
@@ -1013,12 +1040,12 @@ fn show_color_words_resolved_hunks(
                 let num_before = options.context;
                 line_number = show_color_words_context_lines(
                     formatter,
+                    language,
                     context.as_slice(),
                     line_number,
                     labels,
                     options,
-                    num_after,
-                    num_before,
+                    (num_after, num_before),
                 )?;
                 context = None;
                 emitted = true;
@@ -1037,24 +1064,24 @@ fn show_color_words_resolved_hunks(
     let num_before = 0;
     show_color_words_context_lines(
         formatter,
+        None, // no source symbol at the end
         context.as_slice(),
         line_number,
         labels,
         options,
-        num_after,
-        num_before,
+        (num_after, num_before),
     )
 }
 
 /// Prints `num_after` lines, ellipsis, and `num_before` lines.
 fn show_color_words_context_lines(
     formatter: &mut dyn Formatter,
+    _language: Option<SourceLanguage>,
     contexts: &[Diff<&BStr>],
     mut line_number: DiffLineNumber,
     labels: Diff<&str>,
     options: &ColorWordsDiffOptions,
-    num_after: usize,
-    num_before: usize,
+    (num_after, num_before): (usize, usize),
 ) -> io::Result<DiffLineNumber> {
     const SKIPPED_CONTEXT_LINE: &str = "    ...\n";
     let extract = |after: bool| -> (Vec<&[u8]>, Vec<&[u8]>, u32) {
@@ -1428,6 +1455,10 @@ pub async fn show_color_words_diff(
         let right_path = path.target();
         let left_ui_path = path_converter.format_file_path(left_path);
         let right_ui_path = path_converter.format_file_path(right_path);
+        let language = right_path
+            .components()
+            .next_back()
+            .and_then(|name| SourceLanguage::from_file_name(name.as_internal_str()));
         let Diff {
             before: left_value,
             after: right_value,
@@ -1466,6 +1497,7 @@ pub async fn show_color_words_diff(
             } else {
                 show_color_words_diff_hunks(
                     formatter,
+                    language,
                     Diff::new(&empty_content(), &right_content.contents.file_content),
                     Diff::new(
                         &ConflictLabels::unlabeled(),
@@ -1537,6 +1569,7 @@ pub async fn show_color_words_diff(
             } else if left_content.contents != right_content.contents {
                 show_color_words_diff_hunks(
                     formatter,
+                    language,
                     Diff::new(
                         &left_content.contents.file_content,
                         &right_content.contents.file_content,
@@ -1563,6 +1596,7 @@ pub async fn show_color_words_diff(
             } else {
                 show_color_words_diff_hunks(
                     formatter,
+                    language,
                     Diff::new(&left_content.contents.file_content, &empty_content()),
                     Diff::new(
                         &left_content.contents.conflict_labels,
