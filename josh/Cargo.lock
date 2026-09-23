@@ -1854,13 +1854,13 @@ name = "gix-attributes"
 version = "0.35.0"
 dependencies = [
  "bstr",
+ "gix-error",
  "gix-features",
  "gix-glob",
  "gix-path",
  "gix-quote",
  "gix-trace",
  "smallvec",
- "thiserror 2.0.19",
  "unicode-bom",
 ]
 
@@ -2018,10 +2018,10 @@ name = "gix-fs"
 version = "0.22.1"
 dependencies = [
  "bstr",
+ "gix-error",
  "gix-features",
  "gix-path",
  "gix-utils",
- "thiserror 2.0.19",
 ]
 
 [[package]]
@@ -2032,6 +2032,7 @@ dependencies = [
  "bstr",
  "gix-features",
  "gix-path",
+ "gix-utils",
 ]
 
 [[package]]
@@ -2039,9 +2040,9 @@ name = "gix-hash"
 version = "0.26.2"
 dependencies = [
  "faster-hex",
+ "gix-error",
  "gix-features",
- "sha1-checked",
- "thiserror 2.0.19",
+ "sha1dc",
 ]
 
 [[package]]
@@ -2102,9 +2103,9 @@ dependencies = [
 name = "gix-lock"
 version = "24.0.0"
 dependencies = [
+ "gix-error",
  "gix-tempfile",
  "gix-utils",
- "thiserror 2.0.19",
 ]
 
 [[package]]
@@ -2171,6 +2172,7 @@ name = "gix-odb"
 version = "0.84.0"
 dependencies = [
  "arc-swap",
+ "gix-error",
  "gix-features",
  "gix-fs",
  "gix-hash",
@@ -2224,9 +2226,9 @@ name = "gix-path"
 version = "0.12.6"
 dependencies = [
  "bstr",
+ "gix-error",
  "gix-trace",
  "gix-validate",
- "thiserror 2.0.19",
 ]
 
 [[package]]
@@ -2273,6 +2275,7 @@ name = "gix-ref"
 version = "0.67.1"
 dependencies = [
  "gix-actor",
+ "gix-error",
  "gix-features",
  "gix-fs",
  "gix-hash",
@@ -2371,6 +2374,7 @@ version = "0.59.2"
 dependencies = [
  "bstr",
  "gix-command",
+ "gix-error",
  "gix-features",
  "gix-packetline",
  "gix-path",
@@ -2400,10 +2404,10 @@ name = "gix-url"
 version = "0.38.0"
 dependencies = [
  "bstr",
+ "gix-error",
  "gix-path",
  "gix-utils",
  "percent-encoding",
- "thiserror 2.0.19",
 ]
 
 [[package]]
@@ -2460,7 +2464,7 @@ dependencies = [
 name = "gix-zlib"
 version = "0.1.0"
 dependencies = [
- "thiserror 2.0.19",
+ "gix-error",
  "zlib-rs",
 ]
 
@@ -5423,14 +5427,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "sha1-checked"
-version = "0.10.0"
+name = "sha1dc"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "89f599ac0c323ebb1c6082821a54962b839832b03984598375bff3975b804423"
-dependencies = [
- "digest 0.10.7",
- "sha1 0.10.7",
-]
+checksum = "1fdf1713fb0547b120571e5f7b37dc2650dc03d2abf46a18928f54372000947f"
 
 [[package]]
 name = "sha2"
