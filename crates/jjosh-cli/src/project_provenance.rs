@@ -214,6 +214,7 @@ impl Cache {
             gix::lock::acquire::Fail::Immediately,
             None,
         )
+        .map_err(|error| error.into_error())
         .context("Locking destination source cache shallow boundaries")?;
         // An initialized cache with no refs or shallow file has no history to
         // conflict with. Never replace a populated cache's boundary policy.
