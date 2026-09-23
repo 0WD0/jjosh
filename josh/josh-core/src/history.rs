@@ -347,6 +347,8 @@ pub enum OrphansMode {
 pub struct UnapplyOptions {
     pub orphans: OrphansMode,
     pub reparent_orphans: Option<gix_hash::ObjectId>,
+    /// Surrounding tree for embedded histories, without changing their parent OIDs.
+    pub base_tree: Option<gix_hash::ObjectId>,
     /// Drop new commits with no exported tree changes, regardless of their
     /// original contents or message. Existing upstream history is untouched.
     pub prune_empty: bool,
@@ -557,13 +559,20 @@ pub fn unapply_filter(
             original_parents
                 .iter()
                 .map(|commit| -> anyhow::Result<_> {
+                    // An explicit base supplies the surrounding tree for every rewritten commit
+                    // without changing its parent OID. Otherwise preserve the mapped parent's
+                    // surrounding tree, which is the normal reverse-apply behavior.
+                    let parent_tree = match options.base_tree {
+                        Some(tree) => tree,
+                        None => commit.tree_id()?,
+                    };
                     // Pass the commit context so a `:rev(...)` cutoff in the filter is resolved
                     // per commit (current vs this parent) rather than collapsed uniformly.
                     filter::unapply(
                         transaction,
                         filter,
                         tree,
-                        commit.tree_id()?,
+                        parent_tree,
                         Some((module_commit.id(), commit.id())),
                     )
                 })
@@ -599,13 +608,15 @@ pub fn unapply_filter(
             // dealing with either a force push or a push with the "merge" option set.
             0 => {
                 tracing::debug!("unrelated history");
-                // Unrelated history has no original parent; there is no `<=SHA` baseline, so a
-                // `:rev(...)` cutoff resolves against `module_commit` on both sides.
+                // A supplied base tree seeds unapply without becoming a commit parent, so the
+                // rewritten history retains the filtered history's topology. There is still no
+                // `<=SHA` parent context, so a `:rev(...)` cutoff resolves against
+                // `module_commit` on both sides.
                 filter::unapply(
                     transaction,
                     filter,
                     tree,
-                    filter::tree::empty_id(),
+                    options.base_tree.unwrap_or_else(filter::tree::empty_id),
                     Some((module_commit.id(), module_commit.id())),
                 )?
             }
