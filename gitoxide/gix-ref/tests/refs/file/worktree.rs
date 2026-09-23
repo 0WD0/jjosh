@@ -239,7 +239,8 @@ mod writable {
             )?;
             assert!(matches!(
                 gix_lock::File::acquire_to_update_resource(&head_path, Fail::Immediately, None),
-                Err(gix_lock::acquire::Error::PermanentlyLocked { .. })
+                Err(err) if err.downcast_any_ref::<std::io::Error>()
+                    .is_some_and(|source| source.kind() == std::io::ErrorKind::AlreadyExists)
             ));
             let main_head_lock = gix_lock::File::acquire_to_update_resource(
                 store.common_dir().expect("linked worktree").join("HEAD"),

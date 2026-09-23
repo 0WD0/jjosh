@@ -39,6 +39,7 @@ mod config {
     #[test]
     #[serial]
     fn globals_from_open_options_match_repository_opening() -> gix_testtools::Result {
+        let _environment = gix_testtools::isolate_git_environment()?;
         let temp = gix_testtools::tempfile::TempDir::new()?;
         let _cwd = gix_testtools::set_current_dir(temp.path())?;
 
@@ -64,7 +65,7 @@ mod config {
                 included = included.display().to_string().replace('\\', "/"),
             ),
         )?;
-        let _env = gix_testtools::Env::new().set("GIT_CONFIG_GLOBAL", global.display().to_string());
+        let _environment = _environment.set("GIT_CONFIG_GLOBAL", global.display().to_string());
 
         let mut permissions = gix::open::Permissions::isolated();
         permissions.config.user = true;
@@ -134,6 +135,7 @@ mod config_mut {
     #[test]
     #[serial]
     fn path_lookup_does_not_open_configuration() -> Result {
+        let _environment = gix_testtools::isolate_git_environment()?;
         let temp = gix_testtools::tempfile::tempdir()?;
         let _cwd = gix_testtools::set_current_dir(temp.path())?;
         let path = std::env::current_dir()?.join("missing/global.config");
@@ -178,6 +180,7 @@ mod config_mut {
     #[test]
     #[serial]
     fn edits_one_physical_file_losslessly_without_a_repository() -> Result {
+        let _environment = gix_testtools::isolate_git_environment()?;
         let temp = gix_testtools::tempfile::tempdir()?;
         let _cwd = gix_testtools::set_current_dir(temp.path())?;
         let path = std::env::current_dir()?.join("global.config");
@@ -194,7 +197,7 @@ mod config_mut {
 ";
         std::fs::write(&path, original)?;
         std::fs::write(&included, included_contents)?;
-        let _env = Env::new().set("GIT_CONFIG_GLOBAL", path.display().to_string());
+        let _environment = _environment.set("GIT_CONFIG_GLOBAL", path.display().to_string());
         let mut options = options_for(Source::User)
             .lossy_config(true)
             .cli_overrides(["marker.cli=transient"])
@@ -261,12 +264,13 @@ mod config_mut {
     #[test]
     #[serial]
     fn source_paths_match_standalone_reads() -> Result {
+        let _environment = gix_testtools::isolate_git_environment()?;
         let temp = gix_testtools::tempfile::tempdir()?;
         let home = temp.path();
         let xdg = home.join("xdg");
         std::fs::create_dir_all(xdg.join("git"))?;
         std::fs::create_dir_all(home.join(".config/git"))?;
-        let _env = Env::new()
+        let _environment = _environment
             .set("HOME", home.display().to_string())
             .set("XDG_CONFIG_HOME", xdg.display().to_string());
         let installation = home.join("installation.config");
@@ -335,11 +339,12 @@ mod config_mut {
     #[test]
     #[serial]
     fn honors_environment_and_explicit_path_overrides() -> Result {
+        let _environment = gix_testtools::isolate_git_environment()?;
         let temp = gix_testtools::tempfile::tempdir()?;
         let global = temp.path().join("global.config");
         let system = temp.path().join("system.config");
         let explicit = temp.path().join("explicit.config");
-        let _env = Env::new()
+        let _environment = _environment
             .set("GIT_CONFIG_GLOBAL", global.display().to_string())
             .set("GIT_CONFIG_SYSTEM", system.display().to_string())
             .set("GIT_CONFIG_NOSYSTEM", "false");
@@ -441,7 +446,12 @@ mod config_mut {
         let path = temp.path().join("missing/global.config");
         let options = options_for(Source::System).system_config_path(&path);
         assert!(
-            matches!(gix::config_mut(Source::System, &options), Err(Error::AcquireLock(gix::lock::acquire::Error::Io(err))) if err.kind() == std::io::ErrorKind::NotFound),
+            matches!(
+                gix::config_mut(Source::System, &options),
+                Err(Error::AcquireLock(err)) if err
+                    .downcast_any_ref::<std::io::Error>()
+                    .is_some_and(|err| err.kind() == std::io::ErrorKind::NotFound)
+            ),
             "the parent directory must already exist"
         );
         assert!(
@@ -487,8 +497,6 @@ mod config_mut {
     #[test]
     #[serial]
     fn lock_timeout_uses_global_configuration_and_option_precedence() -> Result {
-        use gix::lock::acquire::{Error as LockError, Fail};
-
         let temp = gix_testtools::tempfile::tempdir()?;
         let global_config_path = temp.path().join("global.config");
         std::fs::write(
@@ -506,10 +514,9 @@ mod config_mut {
         assert!(
             matches!(
                 gix::config_mut(Source::System, &options),
-                Err(Error::AcquireLock(LockError::PermanentlyLocked {
-                    mode: Fail::Immediately,
-                    ..
-                }))
+                Err(Error::AcquireLock(err))
+                    if err.downcast_any_ref::<gix::error::RetryableError>().is_some()
+                        && err.to_string().contains("immediately")
             ),
             "API overrides take precedence over CLI and disk values"
         );
@@ -520,7 +527,12 @@ mod config_mut {
         );
         let options = options.strict_config(false);
         assert!(
-            matches!(gix::config_mut(Source::System, &options), Err(Error::AcquireLock(LockError::PermanentlyLocked { mode: Fail::AfterDurationWithBackoff(duration), .. })) if duration == std::time::Duration::from_millis(1000)),
+            matches!(
+                gix::config_mut(Source::System, &options),
+                Err(Error::AcquireLock(err))
+                    if err.downcast_any_ref::<gix::error::RetryableError>().is_some()
+                        && err.to_string().contains("after 1.00s")
+            ),
             "lenient invalid timeouts use the one-second default"
         );
 
@@ -545,10 +557,9 @@ mod config_mut {
         assert!(
             matches!(
                 gix::config_mut(Source::System, &options),
-                Err(Error::AcquireLock(LockError::PermanentlyLocked {
-                    mode: Fail::Immediately,
-                    ..
-                }))
+                Err(Error::AcquireLock(err))
+                    if err.downcast_any_ref::<gix::error::RetryableError>().is_some()
+                        && err.to_string().contains("immediately")
             ),
             "expanded global includes can supply the lock timeout"
         );
@@ -563,6 +574,7 @@ mod config_mut {
     #[test]
     #[serial]
     fn relative_paths_remain_anchored_when_the_current_directory_changes() -> Result {
+        let _environment = gix_testtools::isolate_git_environment()?;
         let temp = gix_testtools::tempfile::tempdir()?;
         let _cwd = gix_testtools::set_current_dir(temp.path())?;
         let root = std::env::current_dir()?;
@@ -646,16 +658,20 @@ mod config_mut {
 }
 
 mod with_overrides {
-    use crate::named_subrepo_opts;
     use gix_sec::Permission;
-    use gix_testtools::Env;
     use serial_test::serial;
 
     #[test]
     #[serial]
     fn order_from_api_and_cli_and_environment() -> gix_testtools::Result {
+        let _environment = gix_testtools::isolate_git_environment()?;
+        let repo_path = gix_testtools::scripted_fixture_read_only("make_config_repos.sh")?
+            .join("http-config")
+            .canonicalize()?;
+        let temp = gix_testtools::tempfile::tempdir()?;
+        let _cwd = gix_testtools::set_current_dir(temp.path())?;
         let default_date = "42 +0030";
-        let _env = Env::new()
+        let _environment = _environment
             .set("GIT_HTTP_USER_AGENT", "agent-from-env")
             .set("GIT_HTTP_LOW_SPEED_LIMIT", "1")
             .set("GIT_HTTP_LOW_SPEED_TIME", "1")
@@ -734,7 +750,7 @@ mod with_overrides {
         opts.permissions.env.http_transport = Permission::Allow;
         opts.permissions.env.identity = Permission::Allow;
         opts.permissions.env.objects = Permission::Allow;
-        let repo = named_subrepo_opts("make_config_repos.sh", "http-config", opts)?;
+        let repo = gix::open_opts(repo_path, opts)?;
         assert_eq!(
             repo.config_snapshot().meta().source,
             gix::config::Source::Local,
@@ -879,7 +895,9 @@ mod with_overrides {
 #[test]
 #[serial]
 fn git_worktree_and_strict_config() -> gix_testtools::Result {
-    let _restore_env_on_drop = gix_testtools::Env::new().set("GIT_WORK_TREE", ".");
+    let _environment = gix_testtools::isolate_git_environment()?;
+    let worktree = gix_testtools::tempfile::tempdir()?;
+    let _environment = _environment.set("GIT_WORK_TREE", worktree.path().to_string_lossy());
     let _repo = named_subrepo_opts(
         "make_empty_repo.sh",
         "",
@@ -897,10 +915,16 @@ fn git_worktree_and_strict_config() -> gix_testtools::Result {
 #[test]
 #[serial]
 fn git_worktree_overrides_core_worktree_and_bare() -> gix_testtools::Result {
+    let _environment = gix_testtools::isolate_git_environment()?;
     use std::io::Write;
 
     let bare = gix_testtools::tempfile::TempDir::new()?;
-    gix::init_bare(bare.path())?;
+    gix::ThreadSafeRepository::init_opts(
+        bare.path(),
+        gix::create::Kind::Bare,
+        Default::default(),
+        gix::open::Options::isolated(),
+    )?;
     let worktree = gix_testtools::tempfile::TempDir::new()?;
     let configured_worktree = gix_testtools::tempfile::TempDir::new()?;
     writeln!(
@@ -910,7 +934,7 @@ fn git_worktree_overrides_core_worktree_and_bare() -> gix_testtools::Result {
         "\n[core]\n\tworktree = {wt_path}",
         wt_path = configured_worktree.path().to_string_lossy().replace('\\', "/")
     )?;
-    let _env = gix_testtools::Env::new()
+    let _environment = _environment
         .unset("GIT_DIR")
         .set("GIT_WORK_TREE", worktree.path().to_string_lossy());
 
@@ -951,10 +975,16 @@ fn git_worktree_overrides_core_worktree_and_bare() -> gix_testtools::Result {
 #[test]
 #[serial]
 fn git_worktree_overrides_discovered_worktree() -> gix_testtools::Result {
+    let _environment = gix_testtools::isolate_git_environment()?;
     let repository = gix_testtools::tempfile::TempDir::new()?;
-    gix::init(repository.path())?;
+    gix::ThreadSafeRepository::init_opts(
+        repository.path(),
+        gix::create::Kind::WithWorktree,
+        Default::default(),
+        gix::open::Options::isolated(),
+    )?;
     let worktree = gix_testtools::tempfile::TempDir::new()?;
-    let _env = gix_testtools::Env::new()
+    let _environment = _environment
         .unset("GIT_DIR")
         .set("GIT_WORK_TREE", worktree.path().to_string_lossy());
 
@@ -972,6 +1002,7 @@ fn git_worktree_overrides_discovered_worktree() -> gix_testtools::Result {
 #[serial]
 #[cfg(unix)]
 fn git_worktree_over_root_overrides_bare() -> gix_testtools::Result {
+    let _environment = gix_testtools::isolate_git_environment()?;
     let fixture = gix_testtools::scripted_fixture_read_only("make_config_repos.sh")?;
     let worktree = gix_testtools::tempfile::TempDir::new()?;
     let current_dir = std::env::current_dir()?;
@@ -984,7 +1015,7 @@ fn git_worktree_over_root_overrides_bare() -> gix_testtools::Result {
     // The absolute worktree path, without its leading `/`, is appended after those excess `..` components.
     // Thus Git ignores the excess parents at `/` and then resolves this suffix back to `worktree`.
     relative_worktree.push(worktree.path().strip_prefix("/")?);
-    let _env = gix_testtools::Env::new()
+    let _environment = _environment
         .unset("GIT_DIR")
         .set("GIT_WORK_TREE", relative_worktree.to_string_lossy());
 
@@ -1026,12 +1057,13 @@ fn git_worktree_over_root_overrides_bare() -> gix_testtools::Result {
 #[serial]
 #[cfg(unix)]
 fn git_worktree_absolute_over_root_overrides_bare() -> gix_testtools::Result {
+    let _environment = gix_testtools::isolate_git_environment()?;
     let fixture = gix_testtools::scripted_fixture_read_only("make_config_repos.sh")?;
     let worktree = gix_testtools::tempfile::TempDir::new()?;
     let mut absolute_worktree = std::path::PathBuf::from("/");
     absolute_worktree.push("..");
     absolute_worktree.push(worktree.path().strip_prefix("/")?);
-    let _env = gix_testtools::Env::new()
+    let _environment = _environment
         .unset("GIT_DIR")
         .set("GIT_WORK_TREE", absolute_worktree.to_string_lossy());
 
@@ -1048,6 +1080,7 @@ fn git_worktree_absolute_over_root_overrides_bare() -> gix_testtools::Result {
 #[test]
 #[serial]
 fn repository_transitions_do_not_inherit_repository_environment_overrides() -> gix_testtools::Result {
+    let _environment = gix_testtools::isolate_git_environment()?;
     fn assert_paths(
         repo: &Repository,
         git_dir: &Path,
@@ -1080,7 +1113,7 @@ fn repository_transitions_do_not_inherit_repository_environment_overrides() -> g
     let git_dir_override = main_git_dir.clone();
     let worktree_override = fixture.to_owned();
     let index_override = main.join(".git/temporary-index");
-    let _env = gix_testtools::Env::new()
+    let _environment = _environment
         .set("GIT_DIR", git_dir_override.to_string_lossy())
         .set("GIT_WORK_TREE", worktree_override.to_string_lossy())
         .set("GIT_INDEX_FILE", index_override.to_string_lossy());
@@ -1196,10 +1229,11 @@ fn repository_transitions_do_not_inherit_repository_environment_overrides() -> g
 #[serial]
 #[cfg(feature = "attributes")]
 fn git_index_file_override_is_not_inherited_by_opened_submodules() -> gix_testtools::Result {
+    let _environment = gix_testtools::isolate_git_environment()?;
     let fixture = gix_testtools::scripted_fixture_read_only("make_submodules.sh")?;
     let superproject = std::fs::canonicalize(fixture.join("with-submodules"))?;
     let index_file = superproject.join(".git/index");
-    let _env = gix_testtools::Env::new().set("GIT_INDEX_FILE", index_file.to_string_lossy());
+    let _environment = _environment.set("GIT_INDEX_FILE", index_file.to_string_lossy());
     let mut options = gix::open::Options::isolated();
     options.permissions.env.git_prefix = Permission::Allow;
     let repo = gix::open_opts(superproject, options)?;
@@ -1228,11 +1262,10 @@ fn git_index_file_override_is_not_inherited_by_opened_submodules() -> gix_testto
 #[test]
 #[serial]
 fn git_index_file_relative_paths_use_the_cwd_when_opening() -> gix_testtools::Result {
+    let _environment = gix_testtools::isolate_git_environment()?;
     let repository = gix_testtools::scripted_fixture_writable("make_basic_repo.sh")?;
     let _cwd = gix_testtools::set_current_dir(repository.path())?;
-    let _env = gix_testtools::Env::new()
-        .unset("GIT_DIR")
-        .set("GIT_INDEX_FILE", "temporary-index");
+    let _environment = _environment.unset("GIT_DIR").set("GIT_INDEX_FILE", "temporary-index");
     std::fs::copy(repository.path().join(".git/index"), "temporary-index")?;
 
     let repo = discover_with_environment_overrides_isolated(repository.path())?;

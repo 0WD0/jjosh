@@ -9,17 +9,8 @@ use crate::Stack;
 
 ///
 pub mod to_normal_path_components {
-    use std::path::PathBuf;
-
     /// The error used in [`ToNormalPathComponents::to_normal_path_components()`](super::ToNormalPathComponents::to_normal_path_components()).
-    #[derive(Debug, thiserror::Error)]
-    #[expect(missing_docs)]
-    pub enum Error {
-        #[error("Input path \"{path}\" contains relative or absolute components", path = .0.display())]
-        NotANormalComponent(PathBuf),
-        #[error("Could not convert to UTF8 or from UTF8 due to ill-formed input")]
-        IllegalUtf8,
-    }
+    pub type Error = gix_error::ValidationError;
 }
 
 /// Obtain an iterator over `OsStr`-components which are normal, none-relative and not absolute.
@@ -46,9 +37,10 @@ fn component_to_os_str<'a>(
 ) -> Result<&'a OsStr, to_normal_path_components::Error> {
     match component {
         Component::Normal(os_str) => Ok(os_str),
-        _ => Err(to_normal_path_components::Error::NotANormalComponent(
-            path_with_component.to_owned(),
-        )),
+        _ => Err(to_normal_path_components::Error::new(format!(
+            "Input path \"{}\" contains relative or absolute components",
+            path_with_component.display()
+        ))),
     }
 }
 
@@ -80,9 +72,7 @@ fn bytes_component_to_os_str<'a>(
     if component.is_empty() {
         return None;
     }
-    let component = match gix_path::try_from_byte_slice(component.as_bstr())
-        .map_err(|_| to_normal_path_components::Error::IllegalUtf8)
-    {
+    let component = match gix_path::try_from_byte_slice(component.as_bstr()) {
         Ok(c) => c,
         Err(err) => return Some(Err(err)),
     };
@@ -120,7 +110,8 @@ pub trait Delegate {
     /// Use [`Stack::current()`] to see the directory.
     fn push_directory(&mut self, stack: &Stack) -> std::io::Result<()>;
 
-    /// Called after any component was pushed, with the path available at [`Stack::current()`].
+    /// Called after any component was pushed, and for every requested terminal component even if it was cached,
+    /// with the path available at [`Stack::current()`].
     ///
     /// `is_last_component` is `true` if the path is completely built, which typically means it's not a directory.
     fn push(&mut self, is_last_component: bool, stack: &Stack) -> std::io::Result<()>;
@@ -145,12 +136,14 @@ impl Stack {
         }
     }
 
-    /// Set the current stack to point to the `relative` path and call `push_comp()` each time a new path component is popped
-    /// along with the stacks state for inspection to perform an operation that produces some data.
+    /// Set the current stack to point to the `relative` path, calling [`Delegate::push()`] for new components
+    /// and for the terminal component, even when the latter was cached.
     ///
-    /// The full path to `relative` will be returned along with the data returned by `push_comp`.
-    /// Note that this only works correctly for the delegate's `push_directory()` and `pop_directory()` methods if
-    /// `relative` paths are terminal, so point to their designated file or directory.
+    /// Only leading directories remain cached. The caller may replace the terminal entry without invalidating the
+    /// stack: using it as a leading directory later will validate it again. Shared leading directories are reused
+    /// without additional delegate calls and must not be changed by the caller or other actors.
+    /// Directory push/pop calls remain balanced even when a previously leading directory becomes a terminal entry.
+    ///
     /// The path is also expected to be normalized, and should not contain extra separators, and must not contain `..`
     /// or have leading or trailing slashes (or additionally backslashes on Windows).
     pub fn make_relative_path_current(
@@ -191,6 +184,15 @@ impl Stack {
             self.current_is_directory = true;
         }
         self.valid_components = matching_components;
+
+        if matching_components != 0 && components.peek().is_none() {
+            // The caller may replace this entry, so it must no longer be cached as a leading directory.
+            if self.current_is_directory {
+                delegate.pop_directory();
+                self.current_is_directory = false;
+            }
+            return delegate.push(true, self);
+        }
 
         if !self.current_is_directory && components.peek().is_some() {
             delegate.push(false, self)?;
