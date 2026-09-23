@@ -11,6 +11,10 @@ use crate::{
 };
 use gix_error::{Exn, ResultExt};
 
+/// The widest timezone offset git reads, as `match_tz()` in `date.c` takes the four digits as a
+/// clock time: hours below 24 and minutes below 60, so `+2359` is the last offset it accepts.
+const MAX_OFFSET_IN_SECONDS: i32 = 23 * 3600 + 59 * 60;
+
 /// Parse `input` as any time that Git can parse when inputting a date.
 ///
 /// ## Examples
@@ -43,9 +47,13 @@ use gix_error::{Exn, ResultExt};
 ///
 /// ### 6. UNIX Timestamp (Seconds Since Epoch)
 ///
+/// Bare numbers must be at least `100000000`, matching Git's epoch threshold. Smaller numbers
+/// like `20080214` are ambiguous with compact dates and are rejected. Prefix smaller or negative
+/// values with `@` to explicitly request epoch seconds.
+///
 /// *   `123456789`
-/// *   `0` (January 1, 1970 UTC)
-/// *   `-1000`
+/// *   `@0` (January 1, 1970 UTC)
+/// *   `@-1000`
 /// *   `1700000000`
 ///
 /// ### 7. Commit Header Format
@@ -90,10 +98,11 @@ use gix_error::{Exn, ResultExt};
 ///
 /// Note that there is no way to name a time in the future: Git has none either, so `1 hour from
 /// now` is an hour in the past to it, and to this function.
+///
+/// In any of these formats, a timezone offset wider than `±23:59` is not a timezone to Git, so it
+/// is not accepted here either.
 pub fn parse(input: &str, now: Option<Zoned>) -> Result<Time, Exn<Error>> {
-    // Git accepts a leading `@` before a commit-header date: `match_object_header_date()` in
-    // `date.c` takes `<seconds> ±HHMM`, while an offsetless `@<seconds>` arrives at the same
-    // result through the generic loop, which skips the `@` and reads the digits as an epoch.
+    // A leading `@` explicitly names epoch seconds, including small and negative values.
     if let Some(rest) = input.strip_prefix('@') {
         if let Some(val) = parse_raw(rest) {
             return Ok(val);
@@ -102,7 +111,7 @@ pub fn parse(input: &str, now: Option<Zoned>) -> Result<Time, Exn<Error>> {
             return Ok(Time::new(seconds, 0));
         }
     }
-    Ok(if let Ok(val) = Date::strptime(SHORT.0, input) {
+    let time = if let Ok(val) = Date::strptime(SHORT.0, input) {
         let val = val
             .to_zoned(TimeZone::UTC)
             .or_raise(|| Error::new_with_input("Timezone conversion failed", input))?;
@@ -117,18 +126,28 @@ pub fn parse(input: &str, now: Option<Zoned>) -> Result<Time, Exn<Error>> {
         Time::new(val.timestamp().as_second(), val.offset().seconds())
     } else if let Ok(val) = strptime_relaxed(DEFAULT.0, input) {
         Time::new(val.timestamp().as_second(), val.offset().seconds())
-    } else if let Ok(val) = SecondsSinceUnixEpoch::from_str(input) {
+    } else if let Ok(val) = SecondsSinceUnixEpoch::from_str(input)
+        && val >= 100_000_000
+    {
         Time::new(val, 0)
     } else if let Some(val) = parse_git_date_format(input) {
         val
     } else if let Some(val) = relative::parse(input, now).transpose()? {
-        Time::new(val.timestamp().as_second(), val.offset().seconds())
+        // The offset is inherited from `now`, not parsed from the input, so Git's
+        // textual offset limit does not apply.
+        return Ok(Time::new(val.timestamp().as_second(), val.offset().seconds()));
     } else if let Some(val) = parse_raw(input) {
         // Format::Raw
         val
     } else {
         return Err(Error::new_with_input("Unknown date format", input))?;
-    })
+    };
+
+    // Jiff parses textual offsets up to 25:59:59, beyond Git's accepted range.
+    if time.offset.abs() > MAX_OFFSET_IN_SECONDS {
+        Err(Error::new_with_input("Unknown date format", input))?;
+    }
+    Ok(time)
 }
 
 /// Unlike [`parse()`] which handles all kinds of input, this function only parses the commit-header format

@@ -38,6 +38,7 @@ mod access {
                 password,
                 oauth_refresh_token,
                 password_expiry_utc: _,
+                www_authenticate: _,
                 url: _,
                 quit: _,
             } = self;
@@ -56,6 +57,7 @@ mod access {
                 password,
                 oauth_refresh_token,
                 password_expiry_utc: _,
+                www_authenticate: _,
                 url: _,
                 quit: _,
             } = &mut self;
@@ -114,7 +116,8 @@ mod mutate {
                 self.url = Some(self.to_url().ok_or(protocol::Error::UrlMissing)?);
             }
 
-            let url = gix_url::parse(self.url.as_ref().expect("URL is present after check above"))?;
+            let url = gix_url::parse(self.url.as_ref().expect("URL is present after check above"))
+                .map_err(gix_error::Exn::into_error)?;
             self.protocol = Some(url.scheme.as_str().into());
             self.username = url.user().map(ToOwned::to_owned);
             self.password = url.password().map(ToOwned::to_owned);

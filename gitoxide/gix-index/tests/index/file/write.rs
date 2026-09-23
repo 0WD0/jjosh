@@ -114,7 +114,8 @@ fn write_with_inspects_staged_bytes_and_can_reject_commit() -> crate::Result {
                     gix_lock::acquire::Fail::Immediately,
                     None,
                 ),
-                Err(gix_lock::acquire::Error::PermanentlyLocked { .. })
+                Err(err) if err.downcast_any_ref::<std::io::Error>()
+                    .is_some_and(|source| source.kind() == std::io::ErrorKind::AlreadyExists)
             ));
             let staged = gix_index::File::at(lock.lock_path(), object_hash, false, Default::default())?;
             assert_eq!(staged.version(), Version::V3);

@@ -16,7 +16,8 @@ use crate::file::{
 fn assert_locked(path: impl AsRef<Path>) {
     assert!(matches!(
         gix_lock::File::acquire_to_update_resource(path, Fail::Immediately, None),
-        Err(gix_lock::acquire::Error::PermanentlyLocked { .. })
+        Err(err) if err.downcast_any_ref::<std::io::Error>()
+            .is_some_and(|source| source.kind() == std::io::ErrorKind::AlreadyExists)
     ));
 }
 
