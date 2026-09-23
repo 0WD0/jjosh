@@ -113,13 +113,15 @@ fn try_read_remote_config_from_repo(
     ) {
         Ok(lock) => lock,
         // No remotes directory means there cannot yet be a published sidecar.
-        Err(gix::lock::acquire::Error::Io(error))
-            if error.kind() == std::io::ErrorKind::NotFound =>
+        Err(error)
+            if error
+                .downcast_any_ref::<std::io::Error>()
+                .is_some_and(|source| source.kind() == std::io::ErrorKind::NotFound) =>
         {
             return Ok(None);
         }
         Err(error) => {
-            return Err(error).with_context(|| {
+            return Err(error.into_error()).with_context(|| {
                 format!("Failed to lock remote config file: {}", remote_file.display())
             });
         }
@@ -156,7 +158,9 @@ fn try_read_remote_config_from_repo(
     }
     let url = config_string(repo, &format!("remote.{remote_name}.url"))?
         .with_context(|| format!("Missing Git remote.{remote_name}.url"))?;
-    gix::url::parse(url.as_str()).context("Invalid Git remote URL")?;
+    gix::url::parse(url.as_str())
+        .map_err(|error| error.into_error())
+        .context("Invalid Git remote URL")?;
 
     let forge = filter
         .get_meta("forge")
@@ -169,7 +173,9 @@ fn try_read_remote_config_from_repo(
 
     let push_url = config_string(repo, &format!("remote.{remote_name}.pushurl"))?;
     if let Some(push_url) = &push_url {
-        gix::url::parse(push_url.as_str()).context("Invalid Git remote push URL")?;
+        gix::url::parse(push_url.as_str())
+            .map_err(|error| error.into_error())
+            .context("Invalid Git remote push URL")?;
     }
 
     let gerrit_mode = filter
@@ -210,13 +216,17 @@ pub fn write_remote_config(
 ) -> anyhow::Result<()> {
     validate_remote_name(remote_name)?;
     anyhow::ensure!(!url.contains('\0'), "Git remote URL must not contain NUL");
-    gix::url::parse(url).context("Invalid Git remote URL")?;
+    gix::url::parse(url)
+        .map_err(|error| error.into_error())
+        .context("Invalid Git remote URL")?;
     if let Some(push_url) = push_url {
         anyhow::ensure!(
             !push_url.contains('\0'),
             "Git remote push URL must not contain NUL"
         );
-        gix::url::parse(push_url).context("Invalid Git remote push URL")?;
+        gix::url::parse(push_url)
+            .map_err(|error| error.into_error())
+            .context("Invalid Git remote push URL")?;
     }
     for (index, (key, value)) in extra_remote_settings.iter().enumerate() {
         anyhow::ensure!(
@@ -334,6 +344,7 @@ pub fn write_remote_config(
         gix::lock::acquire::Fail::Immediately,
         None,
     )
+    .map_err(|error| error.into_error())
     .with_context(|| {
         format!(
             "Failed to lock remote config file: {}",
