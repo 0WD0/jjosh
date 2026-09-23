@@ -255,13 +255,12 @@ pub(crate) fn prepare(
     })
 }
 
-fn index_advertisement<'a>(
-    refs: &'a [protocol::handshake::Ref],
+type AdvertisedRefs<'a> = HashMap<&'a gix::bstr::BStr, Option<ObjectId>>;
+
+fn index_advertisement(
+    refs: &[protocol::handshake::Ref],
     hash: gix::hash::Kind,
-) -> Result<(
-    HashMap<&'a gix::bstr::BStr, Option<ObjectId>>,
-    HashSet<ObjectId>,
-)> {
+) -> Result<(AdvertisedRefs<'_>, HashSet<ObjectId>)> {
     let mut advertised = HashMap::new();
     let mut remote_objects = HashSet::new();
     for reference in refs {
