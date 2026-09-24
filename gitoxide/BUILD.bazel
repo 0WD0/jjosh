@@ -1,5 +1,4 @@
-load("//build/bazel:libraries.bzl", "pilot_gitoxide_libraries")
-
-pilot_gitoxide_libraries()
-
-exports_files(["Cargo.toml"] + glob(["gix-*/Cargo.toml"]), visibility = ["//visibility:public"])
+exports_files([
+    "Cargo.toml",
+    "Cargo.lock",
+] + glob(["gix-*/Cargo.toml"]), visibility = ["//visibility:public"])
