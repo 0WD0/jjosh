@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::assert_matches;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -27,7 +28,6 @@ use std::sync::Barrier;
 use std::sync::mpsc;
 use std::thread;
 
-use assert_matches::assert_matches;
 use gix::remote::Direction;
 use itertools::Itertools as _;
 use jj_lib::backend::BackendError;
@@ -189,6 +189,7 @@ fn init_external_git_repo(test_repo: &TestRepo, name: &Path) -> TestResult<Arc<R
             Ok(Box::new(backend))
         },
         signer_from_settings(settings).unwrap(),
+        ReadonlyRepo::default_workspace_store_initializer(),
         ReadonlyRepo::default_op_store_initializer(),
         ReadonlyRepo::default_op_heads_store_initializer(),
         ReadonlyRepo::default_index_store_initializer(),
@@ -2722,6 +2723,7 @@ impl GitRepoData {
                 )?))
             },
             signer_from_settings(&settings).unwrap(),
+            ReadonlyRepo::default_workspace_store_initializer(),
             ReadonlyRepo::default_op_store_initializer(),
             ReadonlyRepo::default_op_heads_store_initializer(),
             ReadonlyRepo::default_index_store_initializer(),
@@ -4449,6 +4451,7 @@ fn test_init() -> TestResult {
             )?))
         },
         signer_from_settings(&settings)?,
+        ReadonlyRepo::default_workspace_store_initializer(),
         ReadonlyRepo::default_op_store_initializer(),
         ReadonlyRepo::default_op_heads_store_initializer(),
         ReadonlyRepo::default_index_store_initializer(),
@@ -4993,7 +4996,7 @@ fn test_fetch_no_such_remote() -> TestResult {
     let mut tx = test_data.repo.start_transaction();
     let mut fetcher = GitFetch::new(tx.repo_mut(), subprocess_options, &import_options)?;
     let result = fetch_all_with(&mut fetcher, "invalid-remote".as_ref());
-    assert!(matches!(result, Err(GitFetchError::NoSuchRemote(_))));
+    assert_matches!(result, Err(GitFetchError::NoSuchRemote(_)));
     Ok(())
 }
 
@@ -5374,6 +5377,7 @@ fn set_up_push_repos(settings: &UserSettings, temp_dir: &TempDir) -> PushTestSet
             )?))
         },
         signer_from_settings(settings).unwrap(),
+        ReadonlyRepo::default_workspace_store_initializer(),
         ReadonlyRepo::default_op_store_initializer(),
         ReadonlyRepo::default_op_heads_store_initializer(),
         ReadonlyRepo::default_index_store_initializer(),
@@ -6522,7 +6526,7 @@ fn test_push_updates_no_such_remote() -> TestResult {
         &mut NullCallback,
         &GitPushOptions::default(),
     );
-    assert!(matches!(result, Err(GitPushError::NoSuchRemote(_))));
+    assert_matches!(result, Err(GitPushError::NoSuchRemote(_)));
     Ok(())
 }
 
@@ -6544,7 +6548,7 @@ fn test_push_updates_invalid_remote() -> TestResult {
         &mut NullCallback,
         &GitPushOptions::default(),
     );
-    assert!(matches!(result, Err(GitPushError::NoSuchRemote(_))));
+    assert_matches!(result, Err(GitPushError::NoSuchRemote(_)));
     Ok(())
 }
 

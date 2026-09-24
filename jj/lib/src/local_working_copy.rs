@@ -916,7 +916,8 @@ fn remove_old_file(disk_path: &Path) -> Result<bool, CheckoutError> {
     match fs::remove_file(disk_path) {
         Ok(()) => Ok(true),
         Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(false),
-        // TODO: Use io::ErrorKind::IsADirectory if it gets stabilized
+        // Not checking io::ErrorKind::IsADirectory because unlink() of a
+        // directory fails with EPERM on macOS (as allowed by POSIX.)
         Err(_) if disk_path.symlink_metadata().is_ok_and(|m| m.is_dir()) => Ok(false),
         Err(err) => Err(CheckoutError::Other {
             message: format!("Failed to remove file {}", disk_path.display()),
@@ -1465,7 +1466,7 @@ impl TreeState {
             Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(()),
             Err(err) => return Err(wrap_err(err)),
         };
-        if current_type == LocalWorkingCopy::name().as_bytes()
+        if current_type == LocalWorkingCopy::NAME.as_bytes()
             || current_type == LocalWorkingCopy::fileset_name().as_bytes()
         {
             let mut temp_file = NamedTempFile::new_in(&self.state_path).map_err(wrap_err)?;
@@ -3252,9 +3253,7 @@ impl WorkingCopy for LocalWorkingCopy {
 }
 
 impl LocalWorkingCopy {
-    pub fn name() -> &'static str {
-        "local"
-    }
+    pub const NAME: &str = "local";
 
     /// Type identifier that prevents older binaries from reading sparse filesets.
     pub fn fileset_name() -> &'static str {

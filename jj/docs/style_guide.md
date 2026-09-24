@@ -56,6 +56,54 @@ Also try not to put periods right after any printed IDs or symbols (such as
 commit IDs), since users may double click to copy the value, which may include
 the period.
 
+### Plural forms
+
+Do not special-case singular vs. plural forms in messages with a "number
+object(s)" format; always use the plural form, regardless of the number being
+used:
+
+```rust
+// CORRECT:
+writeln!(ui.status(), "Rebased {num_rebased} descendant commits.")?;
+// INCORRECT:
+writeln!(ui.status(), "Rebased {num_rebased} descendant commit(s).")?;
+writeln!(
+  ui.status(),
+  "Rebased {num_rebased} descendant commit{}.",
+  if num_rebased == 1 { "" } else { "s" }
+)?;
+```
+
+If a message is only referring to a single specific object without any numbers
+involved, use the singular form.
+
+## Rust
+
+- Prefer Itertools `collect_vec()` and `try_collect()` over annotated
+  `.collect::<Vec<...>>()` calls.
+
+    ```rust
+    // CORRECT:
+
+    let commits = workspace_helper.parse_union_revsets(&revs)
+      .ids()
+      .collect_vec();
+
+    let fallible_commits = commits.iter().map(|c| store.get(c))
+      .try_collect()?;
+    ```
+
+    ```rust
+    // INCORRECT: The annotation is used
+
+    let commits: Vec<_> = workspace_helper.parse_union_revsets(&revs)
+      .ids()
+      .collect();
+
+    let fallible_commits = commits.iter().map(|c| store.get(c))
+      .collect::<Vec<_, CommandError>>()?;
+    ```
+
 ## Documentation comments
 
 ### General
@@ -100,30 +148,6 @@ important points are:
   complete sentences. But use your own judgment too; for example a sentence that
   says "Returns blah blah." would be fine.
 
-- Prefer Itertools `collect_vec()` and `try_collect()` over annotated
-  `.collect::<Vec<...>>()` calls.
-
-    ```rust
-    // CORRECT:
-
-    let commits = workspace_helper.parse_union_revsets(&revs)
-      .ids()
-      .collect_vec();
-
-    let fallible_commits = commits.iter().map(|c| store.get(c))
-      .try_collect()?;
-    ```
-
-    ```rust
-    // INCORRECT: The annotation is used
-
-    let commits: Vec<_> = workspace_helper.parse_union_revsets(&revs)
-      .ids()
-      .collect();
-
-    let fallible_commits = commits.iter().map(|c| store.get(c))
-      .collect::<Vec<_, CommandError>>()?;
-    ```
 [rust-lang/rfcs-1574]:
   https://github.com/rust-lang/rfcs/blob/master/text/1574-more-api-documentation-conventions.md
 
@@ -383,3 +407,38 @@ methods.)
 - For type methods in the templating language, try to document every method,
   even if obvious. This will give you the chance to mention any edge cases,
   default behaviors, or differences from other methods.
+
+## TOML
+
+Try to wrap lines and comments to 80 columns. We don't have a formatter yet.
+
+For TOML that gets compiled into the binary (in `cli/src/config`):
+
+- For `[revsets]` and `[templates]`, prefer to delegate to a function alias
+  (named `builtin_...`) if the definition is a little longer or more complex.
+  This allows users to reference the existing default in their own aliases; this
+  is not possible with the values from the `[revsets]` or `[templates]` tables
+  directly.
+
+- For `[revset-aliases]`, do not define any non-function aliases, since they may
+  conflict with user symbols such as bookmarks or tags. Historically we have not
+  added many default revset aliases, so there isn't much else to say.
+
+- For `[template-aliases]`, all non-function aliases (that are not 'constants')
+  must be prefixed with `builtin_`, and they should preferably have a
+  corresponding function overload that the non-function alias calls with `self`.
+  Non-function aliases are provided for CLI convenience since they don't require
+  shell quoting, so only add one if it makes sense to (for example, if it is a
+  complete value for a `--template` flag).
+
+- For `[template-aliases]`, prefer to name functions with the prefix `format_`.
+
+- For `[colors]`, prefer to define colors for labels rather than for the color
+  or style. That is, do not add a `colors.red = "red"` entry, since this makes
+  it harder for users to customize a specific label in a specific output.
+  Instead, make sure labels reflect their context or purpose, such as `prefix`,
+  `author`, `conflict`, etc.
+
+- For `[colors]`, avoid the `"bright yellow"` color as a default; it is
+  difficult to read on xterm's default theme. See
+  [#528](https://github.com/jj-vcs/jj/issues/528).

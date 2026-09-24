@@ -78,6 +78,7 @@ async fn run_custom_command(
                 wc_path,
                 &backend_initializer,
                 signer_from_settings(&settings).map_err(WorkspaceInitError::SignInit)?,
+                &ReadonlyRepo::default_workspace_store_initializer(),
                 &ReadonlyRepo::default_op_store_initializer(),
                 &ReadonlyRepo::default_op_heads_store_initializer(),
                 &ReadonlyRepo::default_index_store_initializer(),
@@ -94,7 +95,7 @@ async fn run_custom_command(
 fn main() -> std::process::ExitCode {
     let mut working_copy_factories = WorkingCopyFactories::new();
     working_copy_factories.insert(
-        ConflictsWorkingCopy::name().to_owned(),
+        ConflictsWorkingCopy::NAME.to_owned(),
         Box::new(ConflictsWorkingCopyFactory {}),
     );
     CliRunner::init()
@@ -117,11 +118,8 @@ struct ConflictsWorkingCopy {
 }
 
 impl ConflictsWorkingCopy {
-    fn name() -> &'static str {
-        // Wrappers must fence old readers themselves; the inner local backend
-        // deliberately does not overwrite a custom working-copy type marker.
-        "conflicts-working-copy-patterns"
-    }
+    // Keep the wrapper's marker distinct from older readers of sparse patterns.
+    const NAME: &str = "conflicts-working-copy-patterns";
 
     fn init(
         store: Arc<Store>,
@@ -163,7 +161,7 @@ impl ConflictsWorkingCopy {
 #[async_trait(?Send)]
 impl WorkingCopy for ConflictsWorkingCopy {
     fn name(&self) -> &str {
-        Self::name()
+        Self::NAME
     }
 
     fn workspace_name(&self) -> &WorkspaceName {
