@@ -4,21 +4,31 @@ load("@rules_rust//rust:defs.bzl", "rust_library")
 
 _CRATE = DEP_DATA[package_name()]
 
-exports_files([
-    "Cargo.toml",
-], visibility = ["//visibility:public"])
+exports_files(
+    [
+        "Cargo.toml",
+    ],
+    visibility = ["//visibility:public"],
+)
 
 rust_library(
     name = "gix-utils",
+    srcs = glob(["src/**/*.rs"]),
+    aliases = aliases(),
+    compile_data = glob(
+        ["src/**"],
+        allow_empty = True,
+        exclude = ["src/**/*.rs"],
+    ),
+    crate_features = all_crate_features(),
     crate_name = _CRATE["crate_name"],
     crate_root = "src/lib.rs",
-    srcs = glob(["src/**/*.rs"]),
-    compile_data = glob(["src/**"], exclude = ["src/**/*.rs"], allow_empty = True),
     edition = _CRATE["edition"],
+    target_compatible_with = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+    ],
     version = _CRATE["version"],
-    crate_features = all_crate_features(),
-    deps = all_crate_deps(normal = True),
-    aliases = aliases(),
-    target_compatible_with = ["@platforms//os:linux", "@platforms//cpu:x86_64"],
     visibility = ["//visibility:public"],
+    deps = all_crate_deps(normal = True),
 )

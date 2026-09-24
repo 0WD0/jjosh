@@ -1,4 +1,7 @@
-exports_files([
-    "Cargo.toml",
-    "Cargo.lock",
-] + glob(["gix-*/Cargo.toml"]), visibility = ["//visibility:public"])
+exports_files(
+    [
+        "Cargo.toml",
+        "Cargo.lock",
+    ] + glob(["gix-*/Cargo.toml"]),
+    visibility = ["//visibility:public"],
+)
