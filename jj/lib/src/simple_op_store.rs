@@ -96,9 +96,7 @@ pub struct SimpleOpStore {
 }
 
 impl SimpleOpStore {
-    pub fn name() -> &'static str {
-        "simple_op_store"
-    }
+    pub const NAME: &str = "simple_op_store";
 
     /// Type identifier fencing off readers that discard versioned sparse state.
     pub fn sparse_name() -> &'static str {
@@ -186,7 +184,7 @@ impl SimpleOpStore {
             Err(err) => return Err(err).context(&type_path),
         };
         if ![
-            Self::name(),
+            Self::NAME,
             Self::sparse_name(),
             Self::legacy_project_name(),
             Self::scoped_project_name(),
@@ -228,7 +226,7 @@ impl SimpleOpStore {
         } else if current == Self::sparse_name().as_bytes() || sparse {
             Self::sparse_name()
         } else {
-            Self::name()
+            Self::NAME
         };
         if current != required.as_bytes() {
             if projects {

@@ -207,7 +207,7 @@ impl TestEnvironment {
             Box::new(move |_settings, store_path| Ok(Box::new(factory.load(store_path))))
         });
         factories.add_backend(
-            SecretBackend::name(),
+            SecretBackend::NAME,
             Box::new(|settings, store_path| {
                 Ok(Box::new(SecretBackend::load(settings, store_path)?))
             }),
@@ -287,6 +287,7 @@ impl TestRepo {
             &repo_dir,
             &|settings, store_path| backend.init_backend(&env, settings, store_path),
             signer_from_settings(settings).unwrap(),
+            ReadonlyRepo::default_workspace_store_initializer(),
             ReadonlyRepo::default_op_store_initializer(),
             ReadonlyRepo::default_op_heads_store_initializer(),
             ReadonlyRepo::default_index_store_initializer(),

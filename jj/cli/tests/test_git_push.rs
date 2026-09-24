@@ -286,6 +286,64 @@ fn test_git_push_tag_in_default_target() {
 }
 
 #[test]
+fn test_git_push_configured_revset() {
+    let test_env = TestEnvironment::default();
+    test_env
+        .run_jj_in(".", ["git", "init", "--colocate", "origin"])
+        .success();
+    let origin_dir = test_env.work_dir("origin");
+    origin_dir.run_jj(["new"]).success();
+    origin_dir.run_jj(["new"]).success();
+    origin_dir
+        .run_jj(["bookmark", "set", "-r@-", "bookmark2"])
+        .success();
+    origin_dir
+        .run_jj(["bookmark", "set", "-r@--", "bookmark1"])
+        .success();
+    test_env
+        .run_jj_in(".", ["git", "clone", "origin", "local"])
+        .success();
+    let work_dir = test_env.work_dir("local");
+
+    work_dir.run_jj(["bookmark", "track", "*"]).success();
+    work_dir
+        .run_jj(["bookmark", "move", "--to=bookmark2@origin", "bookmark1"])
+        .success();
+    insta::assert_snapshot!(work_dir.run_jj(["log", "-r.."]), @"
+    @  nppvrztz test.user@example.com 2001-02-03 08:05:12 5593c659
+    │  (empty) (no description set)
+    ◆  rlvkpnrz test.user@example.com 2001-02-03 08:05:08 bookmark1* bookmark2 43444d88
+    │  (empty) (no description set)
+    ◆  qpvuntsm test.user@example.com 2001-02-03 08:05:07 bookmark1@origin e8849ae1
+    │  (empty) (no description set)
+    ~
+    [EOF]
+    ");
+
+    // Sanity check for the current default: bookmark1 is excluded
+    let output = work_dir.run_jj(["git", "push", "--dry-run"]);
+    insta::assert_snapshot!(output, @"
+    ------- stderr -------
+    Warning: No bookmarks/tags found in revsets.git-push: remote_bookmarks(remote=exact:remote)..@ (remote=origin)
+    Nothing changed.
+    [EOF]
+    ");
+    let output = work_dir.run_jj([
+        "git",
+        "push",
+        "--dry-run",
+        "--config=revsets.git-push=remote_bookmarks(bookmark1, exact:remote)..@",
+    ]);
+    insta::assert_snapshot!(output, @"
+    ------- stderr -------
+    Changes to push to origin:
+      bookmark: bookmark1 [move forward from e8849ae12c70 to 43444d88b009]
+    Dry-run requested, not pushing.
+    [EOF]
+    ");
+}
+
+#[test]
 fn test_git_push_no_matching_bookmark() {
     let test_env = TestEnvironment::default();
     set_up(&test_env);
@@ -356,7 +414,7 @@ fn test_git_push_other_remote_has_bookmark() {
     let operation_id = work_dir.current_operation_id();
     work_dir.run_jj(["git", "push"]).success();
     assert_eq!(work_dir.current_operation_id(), operation_id);
-// The bookmark was moved on the "other" remote as well (since it's actually the
+    // The bookmark was moved on the "other" remote as well (since it's actually the
     // same remote), but `jj` is not aware of that since it thinks this is a
     // different remote. So, the push should fail.
     //

@@ -23,6 +23,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and that the working copy does go from bad to good over the provided revset.
   Use the new flag `--trust-endpoints` to disable these checks.
 
+* `jj split` now opens a single editor session to edit descriptions for the
+  split commits.
+
 ### Deprecations
 
 ### New features
@@ -59,11 +62,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   or array of string patterns, or with the repeatable `--remote` flag,
   which also accepts string patterns.
 
+* The default target revisions for `jj git push` can now be configured via
+  `revsets.git-push`.
+
 * `jj run` now uses the sparse patterns from the workspace it's run from.
   Use the `--sparse-patterns` option to control this behavior (evaluated
   per each `jj run` invocation).
 
 * `jj util diff <path1> <path2>` to compare files on disk.
+
+* Aliases now support setting `aliases.<name>.enabled = false`, which will
+  disable them. This can be used to disable built-in aliases or disable aliases
+  in later layers (such as repo config files).
 
 ### Fixed bugs
 

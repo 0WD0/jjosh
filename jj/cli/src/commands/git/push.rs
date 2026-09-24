@@ -47,9 +47,10 @@ use jj_lib::refs::LocalAndRemoteRef;
 use jj_lib::refs::RefPushAction;
 use jj_lib::refs::classify_ref_push_action;
 use jj_lib::repo::Repo;
-use jj_lib::revset::RemoteRefSymbolExpression;
+use jj_lib::revset;
 use jj_lib::revset::ResolvedRevsetExpression;
 use jj_lib::revset::RevsetContainingFn;
+use jj_lib::revset::RevsetDiagnostics;
 use jj_lib::revset::RevsetExpression;
 use jj_lib::revset::UserRevsetExpression;
 use jj_lib::rewrite::CommitRewriter;
@@ -69,6 +70,7 @@ use crate::cli_util::short_commit_hash;
 use crate::command_error::CommandError;
 use crate::command_error::cli_error;
 use crate::command_error::cli_error_with_message;
+use crate::command_error::print_parse_diagnostics;
 use crate::command_error::user_error;
 use crate::command_error::user_error_with_message;
 use crate::complete;
@@ -86,10 +88,10 @@ use crate::ui::Ui;
 /// Push to a Git remote
 ///
 /// By default, pushes tracking bookmarks and tags pointing to
-/// `remote_bookmarks(remote=<remote>)..@`. Use `--bookmark`/`--tag` to push
-/// specific bookmarks or tags. Use `--all` to push all bookmarks and tags. Use
-/// `--change` to generate bookmark names based on the change IDs of specific
-/// commits.
+/// `remote_bookmarks(remote=<remote>)..@`. The default can be configured via
+/// `revsets.git-push`. Use `--bookmark`/`--tag` to push specific bookmarks or
+/// tags. Use `--all` to push all bookmarks and tags. Use `--change` to generate
+/// bookmark names based on the change IDs of specific commits.
 ///
 /// When pushing a bookmark or tag, the command pushes all commits in the range
 /// from the remote's current position up to and including its target
@@ -593,7 +595,6 @@ pub async fn cmd_git_push(
                 .default_revisions
                 .get(remote)
                 .unwrap_or(&selection.revisions);
-
             let params = ClassifyParams {
                 allow_new: false,
                 allow_delete: false,
@@ -908,6 +909,9 @@ async fn resolve_push_routes<'a>(
         && args.change.is_empty()
         && args.revisions.is_empty()
         && args.named.is_empty();
+    let default_revset_text = use_default_revset
+        .then(|| workspace.settings().get_string("revsets.git-push"))
+        .transpose()?;
     let revisions = find_target_revisions(ui, workspace, &args.revisions).await?;
     let mut default_revisions_by_remote = HashMap::new();
     let mut tracked_names = HashMap::new();
@@ -920,8 +924,8 @@ async fn resolve_push_routes<'a>(
         .chain(iter::once(DEFAULT_REMOTE))
         .unique()
     {
-        let default_revisions = if use_default_revset {
-            find_default_target_revisions(workspace, remote).await?
+        let default_revisions = if let Some(text) = &default_revset_text {
+            find_default_target_revisions(ui, workspace, text, remote).await?
         } else {
             HashSet::new()
         };
@@ -1062,8 +1066,8 @@ async fn resolve_push_routes<'a>(
             {
                 writeln!(
                     ui.warning_default(),
-                    "No bookmarks/tags found in the default push revset: \
-                     remote_bookmarks(remote={remote})..@",
+                    "No bookmarks/tags found in revsets.git-push: {text} (remote={remote})",
+                    text = default_revset_text.as_deref().expect("default revset selected"),
                     remote = view.remote_qualified_name(remote),
                 )?;
             }
@@ -1828,20 +1832,21 @@ fn find_tags_to_push<'a>(
 }
 
 async fn find_default_target_revisions(
+    ui: &Ui,
     workspace_command: &WorkspaceCommandHelper,
+    revset_text: &str,
     remote: &RemoteName,
 ) -> Result<HashSet<CommitId>, CommandError> {
-    // remote_bookmarks(remote=<remote>)..@
-    let workspace_name = workspace_command.workspace_name();
-    let expression = RevsetExpression::remote_bookmarks(
-        RemoteRefSymbolExpression {
-            name: StringExpression::all(),
-            remote: StringExpression::exact(workspace_command.repo().view().remote_qualified_name(remote)),
-        },
-        None,
-    )
-    .range(&RevsetExpression::working_copy(workspace_name.to_owned()))
-    .intersection(
+    let remote_name = workspace_command.repo().view().remote_qualified_name(remote);
+    let mut context = workspace_command.env().revset_parse_context();
+    context
+        .local_variables
+        .insert("remote", revset::new_string_node(&remote_name));
+    let mut diagnostics = RevsetDiagnostics::default();
+    let expression = revset::parse(&mut diagnostics, revset_text, &context)?;
+    print_parse_diagnostics(ui, "In revsets.git-push", &diagnostics)?;
+    // Exclude uninteresting revisions
+    let expression = expression.intersection(
         &RevsetExpression::bookmarks(StringExpression::all())
             .union(&RevsetExpression::tags(StringExpression::all())),
     );
