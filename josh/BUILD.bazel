@@ -1,10 +1,30 @@
-load("//build/bazel:libraries.bzl", "pilot_josh_libraries")
+load("//build/bazel:libraries.bzl", "PILOT_DEPS", "pilot_josh_libraries")
+load("@rules_rust//rust:defs.bzl", "rust_test")
 
 pilot_josh_libraries()
 
 exports_files([
     "Cargo.toml",
     "josh-git-serde/Cargo.toml",
-    "josh-git-serde/tests/ser.rs",
-    "josh-git-serde/tests/de.rs",
 ], visibility = ["//visibility:public"])
+
+# Unmodified upstream serialization tests.
+rust_test(
+    name = "josh_serde_ser_test",
+    srcs = ["josh-git-serde/tests/ser.rs"],
+    crate_root = "josh-git-serde/tests/ser.rs",
+    size = "small",
+    edition = "2024",
+    deps = [PILOT_DEPS[d] for d in ["josh_git_serde", "serde", "anyhow"]],
+    visibility = ["//visibility:public"],
+)
+
+rust_test(
+    name = "josh_serde_de_test",
+    srcs = ["josh-git-serde/tests/de.rs"],
+    crate_root = "josh-git-serde/tests/de.rs",
+    size = "small",
+    edition = "2024",
+    deps = [PILOT_DEPS[d] for d in ["josh_git_serde", "serde", "anyhow"]],
+    visibility = ["//visibility:public"],
+)
