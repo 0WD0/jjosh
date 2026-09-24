@@ -1,30 +1,37 @@
-load("//build/bazel:libraries.bzl", "PILOT_DEPS", "pilot_josh_libraries")
+load("@josh_crates//:data.bzl", "DEP_DATA")
+load("@josh_crates//:defs.bzl", "aliases", "all_crate_deps", "all_crate_features")
 load("@rules_rust//rust:defs.bzl", "rust_test")
 
-pilot_josh_libraries()
+_SERDE_PACKAGE = "jjosh/josh/josh-git-serde"
 
 exports_files([
     "Cargo.toml",
-    "josh-git-serde/Cargo.toml",
+    "Cargo.lock",
 ], visibility = ["//visibility:public"])
 
 # Unmodified upstream serialization tests.
 rust_test(
     name = "josh_serde_ser_test",
-    srcs = ["josh-git-serde/tests/ser.rs"],
-    crate_root = "josh-git-serde/tests/ser.rs",
+    srcs = ["//jjosh/josh/josh-git-serde:tests/ser.rs"],
+    crate_root = "//jjosh/josh/josh-git-serde:tests/ser.rs",
     size = "small",
-    edition = "2024",
-    deps = [PILOT_DEPS[d] for d in ["josh_git_serde", "serde", "anyhow"]],
+    edition = DEP_DATA[_SERDE_PACKAGE]["edition"],
+    crate_features = all_crate_features(package_name = _SERDE_PACKAGE),
+    deps = ["//jjosh/josh/josh-git-serde:josh-git-serde"] + all_crate_deps(normal = True, package_name = _SERDE_PACKAGE),
+    aliases = aliases(package_name = _SERDE_PACKAGE),
+    target_compatible_with = ["@platforms//os:linux", "@platforms//cpu:x86_64"],
     visibility = ["//visibility:public"],
 )
 
 rust_test(
     name = "josh_serde_de_test",
-    srcs = ["josh-git-serde/tests/de.rs"],
-    crate_root = "josh-git-serde/tests/de.rs",
+    srcs = ["//jjosh/josh/josh-git-serde:tests/de.rs"],
+    crate_root = "//jjosh/josh/josh-git-serde:tests/de.rs",
     size = "small",
-    edition = "2024",
-    deps = [PILOT_DEPS[d] for d in ["josh_git_serde", "serde", "anyhow"]],
+    edition = DEP_DATA[_SERDE_PACKAGE]["edition"],
+    crate_features = all_crate_features(package_name = _SERDE_PACKAGE),
+    deps = ["//jjosh/josh/josh-git-serde:josh-git-serde"] + all_crate_deps(normal = True, package_name = _SERDE_PACKAGE),
+    aliases = aliases(package_name = _SERDE_PACKAGE),
+    target_compatible_with = ["@platforms//os:linux", "@platforms//cpu:x86_64"],
     visibility = ["//visibility:public"],
 )
