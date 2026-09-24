@@ -1447,6 +1447,7 @@ name = "gix-attributes"
 version = "0.35.0"
 dependencies = [
  "bstr",
+ "gix-error",
  "gix-features",
  "gix-glob",
  "gix-path",
@@ -1454,7 +1455,6 @@ dependencies = [
  "gix-trace",
  "serde",
  "smallvec",
- "thiserror 2.0.20",
  "unicode-bom",
 ]
 
@@ -1531,6 +1531,7 @@ dependencies = [
  "gix-command",
  "gix-config-value",
  "gix-date",
+ "gix-error",
  "gix-path",
  "gix-prompt",
  "gix-quote",
@@ -1653,10 +1654,10 @@ name = "gix-fs"
 version = "0.22.1"
 dependencies = [
  "bstr",
+ "gix-error",
  "gix-features",
  "gix-path",
  "gix-utils",
- "thiserror 2.0.20",
 ]
 
 [[package]]
@@ -1667,6 +1668,7 @@ dependencies = [
  "bstr",
  "gix-features",
  "gix-path",
+ "gix-utils",
  "serde",
 ]
 
@@ -1675,11 +1677,11 @@ name = "gix-hash"
 version = "0.26.2"
 dependencies = [
  "faster-hex",
+ "gix-error",
  "gix-features",
  "serde",
- "sha1-checked",
+ "sha1dc",
  "sha2 0.11.0",
- "thiserror 2.0.20",
 ]
 
 [[package]]
@@ -1742,9 +1744,9 @@ dependencies = [
 name = "gix-lock"
 version = "24.0.0"
 dependencies = [
+ "gix-error",
  "gix-tempfile",
  "gix-utils",
- "thiserror 2.0.20",
 ]
 
 [[package]]
@@ -1802,6 +1804,7 @@ name = "gix-odb"
 version = "0.84.0"
 dependencies = [
  "arc-swap",
+ "gix-error",
  "gix-features",
  "gix-fs",
  "gix-hash",
@@ -1854,9 +1857,9 @@ name = "gix-path"
 version = "0.12.6"
 dependencies = [
  "bstr",
+ "gix-error",
  "gix-trace",
  "gix-validate",
- "thiserror 2.0.20",
 ]
 
 [[package]]
@@ -1915,6 +1918,7 @@ name = "gix-ref"
 version = "0.67.1"
 dependencies = [
  "gix-actor",
+ "gix-error",
  "gix-features",
  "gix-fs",
  "gix-hash",
@@ -2021,6 +2025,7 @@ version = "0.34.0"
 dependencies = [
  "bstr",
  "gix-config",
+ "gix-error",
  "gix-path",
  "gix-pathspec",
  "gix-refspec",
@@ -2050,6 +2055,7 @@ version = "0.59.2"
 dependencies = [
  "bstr",
  "gix-command",
+ "gix-error",
  "gix-features",
  "gix-packetline",
  "gix-path",
@@ -2080,11 +2086,11 @@ name = "gix-url"
 version = "0.38.0"
 dependencies = [
  "bstr",
+ "gix-error",
  "gix-path",
  "gix-utils",
  "percent-encoding",
  "serde",
- "thiserror 2.0.20",
 ]
 
 [[package]]
@@ -2158,8 +2164,8 @@ dependencies = [
 name = "gix-zlib"
 version = "0.1.0"
 dependencies = [
+ "gix-error",
  "serde",
- "thiserror 2.0.20",
  "zlib-rs",
 ]
 
@@ -4243,25 +4249,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "sha1"
-version = "0.10.7"
+name = "sha1dc"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a978451301f4db1d02937a4ab3ccce137717b81826e79b7d49ffe3244a13c3b8"
-dependencies = [
- "cfg-if",
- "cpufeatures 0.2.17",
- "digest 0.10.7",
-]
-
-[[package]]
-name = "sha1-checked"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "89f599ac0c323ebb1c6082821a54962b839832b03984598375bff3975b804423"
-dependencies = [
- "digest 0.10.7",
- "sha1",
-]
+checksum = "1fdf1713fb0547b120571e5f7b37dc2650dc03d2abf46a18928f54372000947f"
 
 [[package]]
 name = "sha2"
