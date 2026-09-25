@@ -41,8 +41,10 @@ impl Proxy<'_> {
     /// Read the absolute location of the checkout, the base of the work tree.
     /// Relative registrations are resolved against the private Git directory.
     /// Note that the location might not exist.
-    pub fn base(&self) -> std::io::Result<PathBuf> {
-        Ok(gix_discover::path::without_dot_git_dir(self.dot_git()?))
+    pub fn base(&self) -> Result<PathBuf> {
+        Ok(gix_discover::path::without_dot_git_dir(
+            self.dot_git().map_err(Error::from_error)?,
+        ))
     }
 
     /// The absolute git directory for the work tree, typically contained within the parent git dir.
