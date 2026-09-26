@@ -14,6 +14,7 @@ use gix::{
     odb::{loose, pack},
     prelude::Write,
 };
+use gix_error_for_configuration_only::OptionExt;
 
 #[derive(Default, Clone, Eq, PartialEq, Debug)]
 pub enum SafetyCheck {
@@ -220,11 +221,10 @@ pub fn pack_or_pack_index(
                                     "The recently written file for loose object {written_id} could not be read"
                                 )
                             })?
-                            .ok_or_else(|| {
+                            .ok_or_raise(|| {
                                 gix::error::not_found(format!(
                                     "The recently written file for loose object {written_id} could not be found"
                                 ))
-                                .raise_erased()
                             })?;
                         obj.verify_checksum(&written_id)?;
                     }
