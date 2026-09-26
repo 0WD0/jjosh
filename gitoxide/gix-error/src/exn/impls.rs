@@ -815,9 +815,7 @@ fn flatten_error_nodes(root: Frame) -> Vec<OwnedErrorNode> {
                 logical_parent,
             } => {
                 let error = ErrorHandle::new(unerase(error));
-                if !error.error().is::<crate::Error>()
-                    && let Some(source) = error.source()
-                {
+                if let Some(source) = error.source() {
                     queue.push_back(Pending::Source {
                         error: source,
                         location,
@@ -839,9 +837,7 @@ fn flatten_error_nodes(root: Frame) -> Vec<OwnedErrorNode> {
                 location,
                 logical_parent,
             } => {
-                if !error.error().is::<crate::Error>()
-                    && let Some(source) = error.source()
-                {
+                if let Some(source) = error.source() {
                     queue.push_back(Pending::Source {
                         error: source,
                         location,
