@@ -1,5 +1,3 @@
-#![allow(clippy::result_large_err)]
-
 use std::borrow::Cow;
 
 use gix_error::{ResultExt, bail};

@@ -1,4 +1,3 @@
-#![allow(clippy::result_large_err)]
 use gix_config::file::Metadata;
 use gix_error::{ErrorExt, ResultExt, bail, not_found, validation};
 use gix_features::threading::OwnShared;

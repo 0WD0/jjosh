@@ -1,4 +1,4 @@
-#![allow(clippy::join_absolute_paths)]
+#![expect(clippy::join_absolute_paths)]
 use crate::Result;
 use std::path::{Path, PathBuf};
 

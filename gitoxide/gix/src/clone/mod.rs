@@ -1,4 +1,3 @@
-#![allow(clippy::result_large_err)]
 use gix_error::ResultExt;
 
 use crate::{Result, bstr::BString, remote};

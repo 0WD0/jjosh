@@ -1,5 +1,3 @@
-#![allow(clippy::result_large_err)]
-
 use super::util;
 #[cfg(not(feature = "sha1"))]
 use crate::Error;

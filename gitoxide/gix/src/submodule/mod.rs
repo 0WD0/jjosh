@@ -1,4 +1,3 @@
-#![allow(clippy::result_large_err)]
 //! Submodule plumbing and abstractions
 //!
 use std::{
@@ -10,7 +9,7 @@ use gix_error::{ResultExt, bail};
 pub use gix_submodule::*;
 
 use crate::{
-    Error, Repository, Result, Submodule,
+    Repository, Result, Submodule,
     bstr::{BStr, BString},
     is_dir_to_mode,
     worktree::IndexPersistedOrInMemory,
@@ -96,7 +95,7 @@ impl Submodule<'_> {
 
     /// Return the submodule's name after validating it for safe use in paths like `.git/modules/<name>`.
     pub fn validated_name(&self) -> Result<&BStr> {
-        gix_validate::submodule::name(self.name()).map_err(Error::from_error)
+        gix_validate::submodule::name(self.name()).or_error()
     }
     /// Return the path at which the submodule can be found, relative to the repository.
     ///

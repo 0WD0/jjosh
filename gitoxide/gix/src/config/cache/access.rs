@@ -1,4 +1,3 @@
-#![allow(clippy::result_large_err)]
 use std::{path::PathBuf, time::Duration};
 
 use gix_config::file::Metadata;

@@ -1,4 +1,3 @@
-#![allow(clippy::result_large_err)]
 use gix_error::ResultExt;
 use gix_object::Exists;
 use gix_ref::{

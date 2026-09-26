@@ -1,4 +1,3 @@
-#![allow(clippy::result_large_err)]
 use std::any::Any;
 
 use crate::{Result, bstr::BStr};

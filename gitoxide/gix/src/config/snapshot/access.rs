@@ -1,4 +1,3 @@
-#![allow(clippy::result_large_err)]
 use std::ffi::OsString;
 
 use gix_error::bail;

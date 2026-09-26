@@ -1,11 +1,9 @@
-#![allow(clippy::result_large_err)]
-
 use std::path::{Path, PathBuf};
 
-use gix_error::bail;
+use gix_error::{ResultExt, bail};
 
 use crate::{
-    Error, Repository, Result, ThreadSafeRepository,
+    Repository, Result, ThreadSafeRepository,
     bstr::{BStr, BString, ByteSlice},
     worktree::Proxy,
 };
@@ -43,9 +41,7 @@ impl Proxy<'_> {
     /// Relative registrations are resolved against the private Git directory.
     /// Note that the location might not exist.
     pub fn base(&self) -> Result<PathBuf> {
-        Ok(gix_discover::path::without_dot_git_dir(
-            self.dot_git().map_err(Error::from_error)?,
-        ))
+        Ok(gix_discover::path::without_dot_git_dir(self.dot_git().or_error()?))
     }
 
     /// The absolute git directory for the work tree, typically contained within the parent git dir.

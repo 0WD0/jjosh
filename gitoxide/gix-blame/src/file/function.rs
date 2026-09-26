@@ -926,7 +926,7 @@ struct InitialState {
     first_suspect: Option<ObjectId>,
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn initial_state(
     odb: &impl gix_object::Find,
     start: Start<'_>,

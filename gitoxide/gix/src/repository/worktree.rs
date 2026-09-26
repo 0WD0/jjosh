@@ -1,7 +1,7 @@
 use std::{collections::BTreeMap, path::PathBuf};
 
 use crate::{
-    Error, Result, Worktree,
+    Result, Worktree,
     bstr::{BStr, ByteSlice},
     worktree,
 };
@@ -64,7 +64,7 @@ impl crate::Repository {
             Err(err) => bail!(err),
         };
         for entry in iter {
-            let entry = entry.map_err(Error::from_error)?;
+            let entry = entry.or_error()?;
             let worktree_git_dir = entry.path();
             res.extend(worktree::Proxy::new_if_gitdir_file_exists(self, worktree_git_dir));
         }
