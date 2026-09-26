@@ -6,7 +6,7 @@ use std::{
 };
 
 use bstr::{BStr, ByteSlice};
-use gix_error::{ErrorExt, ExnMessageResult, ResultExt, message, not_found};
+use gix_error::{ResultExt, bail, message, not_found};
 use gix_filter::{
     driver::apply::{Delay, MaybeDelayed},
     pipeline::convert::{ToGitOutcome, ToWorktreeOutcome, to_worktree},
@@ -203,11 +203,9 @@ impl Pipeline {
             EntryKind::Link => true,
             EntryKind::Blob | EntryKind::BlobExecutable => false,
             _ => {
-                return Err(
-                    message!("Entry at '{rela_path}' must be regular file or symlink, but was {mode:?}")
-                        .raise()
-                        .into(),
-                );
+                bail!(message!(
+                    "Entry at '{rela_path}' must be regular file or symlink, but was {mode:?}"
+                ));
             }
         };
 
@@ -234,11 +232,9 @@ impl Pipeline {
                 self.path.push(gix_path::from_bstr(rela_path));
                 let data = if is_symlink {
                     if !self.options.fs.symlink {
-                        return Err(message!(
+                        bail!(message!(
                             "Entry at '{rela_path}' is declared as symlink but symlinks are disabled via core.symlinks"
-                        )
-                        .raise()
-                        .into());
+                        ));
                     }
                     let target = none_if_missing(std::fs::read_link(&self.path))
                         .or_raise(|| message!("Entry at '{rela_path}' could not be read as symbolic link"))?;
@@ -365,7 +361,7 @@ impl Pipeline {
                         .try_header(id)
                         .or_raise(|| message!("Could not find object {id}"))?
                         .ok_or_else(|| not_found(format!("An object with id {id} could not be found")))
-                        .or_raise(|| message!("Could not find object {id}"))?;
+                        .or_error()?;
                     if is_binary.is_none()
                         && self.options.large_file_threshold_bytes > 0
                         && header.size > self.options.large_file_threshold_bytes
@@ -379,7 +375,7 @@ impl Pipeline {
                             .try_find(id, out)
                             .or_raise(|| message!("Could not find object {id}"))?
                             .ok_or_else(|| not_found(format!("An object with id {id} could not be found")))
-                            .or_raise(|| message!("Could not find object {id}"))?;
+                            .or_error()?;
                         let mut is_derived = false;
                         if matches!(mode, EntryKind::Blob | EntryKind::BlobExecutable)
                             && convert == Mode::ToWorktreeAndBinaryToText
@@ -504,17 +500,16 @@ fn none_if_missing<T>(res: std::io::Result<T>) -> std::io::Result<Option<T>> {
     }
 }
 
-fn run_cmd(rela_path: &BStr, mut cmd: Command, out: &mut Vec<u8>) -> ExnMessageResult {
+fn run_cmd(rela_path: &BStr, mut cmd: Command, out: &mut Vec<u8>) -> Result {
     gix_trace::debug!(cmd = ?cmd, "Running binary-to-text command");
     let mut res = cmd
         .output()
         .or_raise(|| message!("Failed to run '{cmd:?}' for binary-to-text conversion of entry at {rela_path}"))?;
     if !res.status.success() {
-        return Err(message!(
+        bail!(message!(
             "Binary-to-text conversion '{cmd:?}' for entry at {rela_path} failed with: {}",
             BStr::new(&res.stderr)
-        )
-        .raise());
+        ));
     }
     out.append(&mut res.stdout);
     Ok(())

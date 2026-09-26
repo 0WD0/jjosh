@@ -1,4 +1,3 @@
-use gix_error::ExnMessageResult;
 use gix_error::Result;
 use std::{collections::HashMap, ops::DerefMut};
 
@@ -76,7 +75,7 @@ impl MultiValueMut<'_> {
         }
 
         if values.is_empty() {
-            return Err(lookup::existing::key_missing().into());
+            return Err(lookup::existing::key_missing());
         }
 
         Ok(values)
@@ -114,7 +113,7 @@ impl MultiValueMut<'_> {
             section_id,
             offset_index,
         } = self.indices_and_sizes[index];
-        (MultiValueMut::set_value_inner(
+        MultiValueMut::set_value_inner(
             &self.key,
             &mut self.offsets,
             &mut self.section.get_mut(&section_id).expect("known section id").body,
@@ -122,8 +121,7 @@ impl MultiValueMut<'_> {
             section_id,
             offset_index,
             value.as_bstr(),
-        ))
-        .map_err(Into::into)
+        )
     }
 
     /// Sets all values to the provided ones. Note that this follows [`zip`]
@@ -189,7 +187,7 @@ impl MultiValueMut<'_> {
         section_id: SectionId,
         offset_index: usize,
         value: &BStr,
-    ) -> ExnMessageResult {
+    ) -> Result {
         let (offset, size) = MultiValueMut::index_and_size(offsets, section_id, offset_index);
         let whitespace = Whitespace::from_body(section, backing);
         let value = crate::parse::Span::append(backing, &escape_value(value))?;

@@ -840,12 +840,7 @@ mod blocking_and_async_io {
             .await
             .unwrap_err();
 
-        insta::assert_debug_snapshot!(err, "fetching a missing explicit ref fails even if ls refs returns nothing", @r#"
-        Message {
-            message: "None of the refspec(s) refs/heads/does-not-exist matched any of the 0 refs on the remote",
-            class: Validation,
-        }
-        "#);
+        insta::assert_debug_snapshot!(err, "fetching a missing explicit ref fails even if ls refs returns nothing", @"None of the refspec(s) refs/heads/does-not-exist matched any of the 0 refs on the remote");
         Ok(())
     }
 

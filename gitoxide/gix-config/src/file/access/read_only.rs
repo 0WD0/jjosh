@@ -275,10 +275,8 @@ impl File {
 
     /// Returns the last found immutable section with a given `name` and optional `subsection_name`.
     pub fn section(&self, name: impl AsRef<str>, subsection_name: impl AsBStrOpt) -> Result<file::SectionRef<'_>> {
-        (self
-            .section_filter(name, subsection_name, |_| true)?
-            .ok_or_else(lookup::existing::section_missing))
-        .map_err(Into::into)
+        self.section_filter(name, subsection_name, |_| true)?
+            .ok_or_else(lookup::existing::section_missing)
     }
 
     /// Returns the last found immutable section with a given `section_key`, identifying the name and subsection name like `core`

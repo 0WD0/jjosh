@@ -49,13 +49,7 @@ mod bare {
         std::fs::write(tmp.path().join("existing.txt"), b"I was here before you")?;
 
         insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&(gix::init_bare(tmp.path())
-                .expect_err("init into non empty directory is not allowed")), &[(&(tmp.path()).to_string_lossy(), "<destination>")]), "init into non empty directory is not allowed", @r#"
-        Message {
-            message: "Refusing to initialize the non-empty directory as",
-            class: Validation,
-            values: {"input": Bytes("<destination>")},
-        }
-        "#);
+                .expect_err("init into non empty directory is not allowed")), &[(&(tmp.path()).to_string_lossy(), "<destination>")]), "init into non empty directory is not allowed", @r#"Refusing to initialize the non-empty directory as, "input"="<destination>""#);
         Ok(())
     }
 }
@@ -224,13 +218,7 @@ mod non_bare {
             gix::open::Options::isolated(),
         )
         .unwrap_err();
-        insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&(err), &[(&(tmp.path()).to_string_lossy(), "<destination>")]), "init into non empty directory is not allowed if option is true", @r#"
-        Message {
-            message: "Refusing to initialize the non-empty directory as",
-            class: Validation,
-            values: {"input": Bytes("<destination>")},
-        }
-        "#);
+        insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&(err), &[(&(tmp.path()).to_string_lossy(), "<destination>")]), "init into non empty directory is not allowed if option is true", @r#"Refusing to initialize the non-empty directory as, "input"="<destination>""#);
         Ok(())
     }
 }

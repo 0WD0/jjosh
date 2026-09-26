@@ -1,5 +1,5 @@
 use gix_error::Result;
-use gix_error::{ErrorExt, ExnResult, ResultExt};
+use gix_error::{ResultExt, bail};
 
 use crate::{
     data,
@@ -83,7 +83,7 @@ where
                                 "Pack entry is truncated: an ofs-delta base distance pointing before pack start",
                             )
                         })
-                        .or_erased()?;
+                        .or_error()?;
                     entry = self.entry(offset)?;
                 }
                 RefDelta { base_id } => {
@@ -103,7 +103,7 @@ where
                                 num_deltas: origin_num_deltas.unwrap_or_default() + num_deltas,
                             });
                         }
-                        None => return Err(DeltaBaseUnresolved(base_id).raise().into()),
+                        None => bail!(DeltaBaseUnresolved(base_id)),
                     }
                 }
             }
@@ -120,27 +120,25 @@ where
     /// decompression through `decode_entry()` must still validate that the stream length matches
     /// the pack entry header.
     #[inline]
-    fn decode_delta_object_size(&self, inflate: &mut gix_zlib::Inflate, entry: &data::Entry) -> ExnResult<u64> {
+    fn decode_delta_object_size(&self, inflate: &mut gix_zlib::Inflate, entry: &data::Entry) -> Result<u64> {
         let mut buf = [0_u8; 20];
         let max_size = entry.decompressed_size.min(buf.len() as u64) as usize;
         let (status, _consumed_in, consumed_out) =
             self.decompress_entry_from_data_offset_unchecked(entry.data_offset, inflate, &mut buf[..max_size])?;
         if status == gix_zlib::Status::StreamEnd {
             if consumed_out as u64 != entry.decompressed_size {
-                return Err(gix_error::corruption(
+                bail!(gix_error::corruption(
                     "Pack entry is truncated: pack entry decompressed to fewer bytes than declared in the entry header",
-                )
-                .raise_erased());
+                ));
             }
         } else if entry.decompressed_size == max_size as u64 {
-            return Err(gix_error::corruption(
+            bail!(gix_error::corruption(
                 "Pack entry is truncated: pack entry decompressed to more bytes than declared in the entry header",
-            )
-            .raise_erased());
+            ));
         }
         let buf = &buf[..consumed_out];
-        let (_base_size, offset) = delta::decode_header_size(buf).or_erased()?;
-        let (result_size, _offset) = delta::decode_header_size(&buf[offset..]).or_erased()?;
+        let (_base_size, offset) = delta::decode_header_size(buf)?;
+        let (result_size, _offset) = delta::decode_header_size(&buf[offset..])?;
         Ok(result_size)
     }
 }

@@ -151,7 +151,7 @@ where
                     input
                         .lines()
                         .map(|hex_id| {
-                            let hex_id = hex_id.or_erased()?;
+                            let hex_id = hex_id.or_error()?;
                             ObjectId::from_hex(hex_id.as_bytes())
                         })
                         .inspect(move |_| progress.inc()),

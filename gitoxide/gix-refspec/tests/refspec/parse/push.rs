@@ -80,20 +80,12 @@ fn revspecs_with_ref_name_destination() {
 
 #[test]
 fn destinations_must_be_ref_names() {
-    insta::assert_debug_snapshot!(assert_reference_error("a~1:b~1", Operation::Push), "destinations must be ref names", @r#"
-    Reference name contains invalid byte: "~"
-    |
-    └─ Reference name contains invalid byte: "~"
-    "#);
+    insta::assert_debug_snapshot!(assert_reference_error("a~1:b~1", Operation::Push), "destinations must be ref names", @r#"Reference name contains invalid byte: "~""#);
 }
 
 #[test]
 fn single_refs_must_be_refnames() {
-    insta::assert_debug_snapshot!(assert_reference_error("a~1", Operation::Push), "single refs must be refnames", @r#"
-    Reference name contains invalid byte: "~"
-    |
-    └─ Reference name contains invalid byte: "~"
-    "#);
+    insta::assert_debug_snapshot!(assert_reference_error("a~1", Operation::Push), "single refs must be refnames", @r#"Reference name contains invalid byte: "~""#);
 }
 
 #[test]

@@ -1,7 +1,6 @@
-use gix_error::Result;
 use std::{fmt::Formatter, ops::Index};
 
-use gix_error::{ErrorExt, ExnResult, ResultExt};
+use gix_error::{ErrorExt, Result};
 use gix_hash::oid;
 use smallvec::SmallVec;
 
@@ -151,9 +150,7 @@ impl<'cache, T> Graph<'_, 'cache, T> {
         let parents: SmallVec<[_; 2]> = commit.iter_parents().collect();
         for parent_id in parents {
             let parent_id = parent_id.map_err(E::from)?;
-            let parent = match try_lookup(&parent_id, &*self.find, self.cache, &mut self.parent_buf)
-                .map_err(|err| E::from(err.into_error()))?
-            {
+            let parent = match try_lookup(&parent_id, &*self.find, self.cache, &mut self.parent_buf).map_err(E::from)? {
                 Some(p) => p,
                 None => continue, // skip missing objects, this is due to shallow clones for instance.
             };
@@ -316,14 +313,13 @@ impl<'cache, T> Graph<'_, 'cache, T> {
     ///
     /// It's possible that commits don't exist if the repository is shallow.
     pub fn try_lookup(&mut self, id: &gix_hash::oid) -> Result<Option<LazyCommit<'_, 'cache>>> {
-        try_lookup(id, &*self.find, self.cache, &mut self.buf).map_err(Into::into)
+        try_lookup(id, &*self.find, self.cache, &mut self.buf)
     }
 
     /// Lookup `id` and return a handle to it, or fail if it doesn't exist or is no commit.
     pub fn lookup(&mut self, id: &gix_hash::oid) -> Result<LazyCommit<'_, 'cache>> {
-        Ok(self
-            .try_lookup(id)?
-            .ok_or_else(|| gix_error::not_found(format!("An object with id {id} could not be found")).raise_erased())?)
+        self.try_lookup(id)?
+            .ok_or_else(|| gix_error::not_found(format!("An object with id {id} could not be found")).raise())
     }
 }
 
@@ -332,7 +328,7 @@ fn try_lookup<'graph, 'cache>(
     objects: &dyn gix_object::Find,
     cache: Option<&'cache gix_commitgraph::Graph>,
     buf: &'graph mut Vec<u8>,
-) -> ExnResult<Option<LazyCommit<'graph, 'cache>>> {
+) -> Result<Option<LazyCommit<'graph, 'cache>>> {
     if let Some(cache) = cache
         && let Some(pos) = cache.lookup(id)
     {
@@ -341,7 +337,7 @@ fn try_lookup<'graph, 'cache>(
             backing: Either::Right((cache, pos)),
         }));
     }
-    Ok(match objects.try_find(id, buf).or_erased()? {
+    Ok(match objects.try_find(id, buf)? {
         Some(data) => data.kind.is_commit().then_some(LazyCommit {
             object_hash: data.object_hash,
             backing: Either::Left(buf),

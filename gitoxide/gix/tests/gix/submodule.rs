@@ -50,8 +50,7 @@ mod open {
         └─ path is missing
         "#);
         assert!(
-            err.error()
-                .downcast_ref::<gix_error::Message>()
+            err.downcast_any_ref::<gix_error::Message>()
                 .is_some_and(|error| error.class == Some(gix_error::Class::Validation)),
             "the failure is classified as invalid configuration: {err:?}"
         );
@@ -387,12 +386,7 @@ mod open {
             let err = sm
                 .status(gix::submodule::config::Ignore::None, false)
                 .expect_err("ignore=none fails as some submodules can't be opened");
-            insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[(&work_dir.to_string_lossy(), "<repository>")]), "status reports the invalid submodule gitdir target", @r#"
-            Message {
-                message: "The gitdir file at '<repository>/m1/.git' contains an invalid gitdir target: '<repository>/m1/../missing'",
-                class: Validation,
-            }
-            "#);
+            insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[(&work_dir.to_string_lossy(), "<repository>")]), "status reports the invalid submodule gitdir target", @"The gitdir file at '<repository>/m1/.git' contains an invalid gitdir target: '<repository>/m1/../missing'");
             assert!(err.is_validation());
         }
 
@@ -411,22 +405,13 @@ mod open {
             );
         }
 
-        insta::assert_debug_snapshot!(error_snapshots, "broken gitlink target is reported", @r#"
+        insta::assert_debug_snapshot!(error_snapshots, "broken gitlink target is reported", @"
         [
-            Message {
-                message: "The gitdir file at '<repository>/m1/.git' contains an invalid gitdir target: '<repository>/m1/../missing'",
-                class: Validation,
-            },
-            Message {
-                message: "The gitdir file at '<repository>/m1/.git' contains an invalid gitdir target: '<repository>/m1/../missing'",
-                class: Validation,
-            },
-            Message {
-                message: "The gitdir file at '<repository>/m1/.git' contains an invalid gitdir target: '<repository>/m1/../missing'",
-                class: Validation,
-            },
+            The gitdir file at '<repository>/m1/.git' contains an invalid gitdir target: '<repository>/m1/../missing',
+            The gitdir file at '<repository>/m1/.git' contains an invalid gitdir target: '<repository>/m1/../missing',
+            The gitdir file at '<repository>/m1/.git' contains an invalid gitdir target: '<repository>/m1/../missing',
         ]
-        "#);
+        ");
         Ok(())
     }
 

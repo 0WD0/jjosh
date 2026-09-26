@@ -1,10 +1,11 @@
 #![allow(clippy::result_large_err)]
 use std::ffi::OsString;
 
+use gix_error::bail;
 use gix_features::threading::OwnShared;
 
 use crate::{
-    Error, Result,
+    Result,
     bstr::{BString, ByteSlice},
     config::{CommitAutoRollback, Snapshot, SnapshotMut},
 };
@@ -62,7 +63,7 @@ impl Snapshot<'_> {
     /// path couldn't be accessed. Note also that this is different from Git, which ignores it only if
     /// it doesn't exist.
     pub fn trusted_path(&self, key: impl gix_config::AsKey) -> Result<Option<std::path::PathBuf>> {
-        self.repo.config.trusted_file_path(key).map_err(Into::into)
+        self.repo.config.trusted_file_path(key)
     }
 
     /// Return the trusted string at `key` for launching using [command::prepare()](gix_command::prepare()),
@@ -119,9 +120,9 @@ impl<'repo> SnapshotMut<'repo> {
         new_value: impl gix_utils::AsBStr,
     ) -> Result<Option<BString>> {
         if let Some(crate::config::tree::SubSectionRequirement::Parameter(_)) = key.subsection_requirement() {
-            return Err(Error::from_error(gix_error::validation(
+            bail!(gix_error::validation(
                 "The key needs a subsection parameter to be valid.",
-            )));
+            ));
         }
         let value = new_value.as_bstr();
         key.validate(value)?;
@@ -144,9 +145,7 @@ impl<'repo> SnapshotMut<'repo> {
         new_value: impl gix_utils::AsBStr,
     ) -> Result<Option<BString>> {
         if let Some(crate::config::tree::SubSectionRequirement::Never) = key.subsection_requirement() {
-            return Err(Error::from_error(gix_error::validation(
-                "The key must not be used with a subsection",
-            )));
+            bail!(gix_error::validation("The key must not be used with a subsection"));
         }
         let value = new_value.as_bstr();
         key.validate(value)?;

@@ -48,7 +48,9 @@ mod algorithm {
             &'static self,
             name: impl gix_utils::AsBStr,
         ) -> Result<crate::remote::fetch::negotiate::Algorithm> {
-            use crate::{Error, bstr::ByteSlice, remote::fetch::negotiate::Algorithm};
+            use gix_error::bail;
+
+            use crate::{bstr::ByteSlice, remote::fetch::negotiate::Algorithm};
 
             let name = name.as_bstr();
             Ok(match name.as_bstr().as_bytes() {
@@ -56,11 +58,11 @@ mod algorithm {
                 b"consecutive" | b"default" => Algorithm::Consecutive,
                 b"skipping" => Algorithm::Skipping,
                 _ => {
-                    return Err(Error::from_error(crate::config::key::error_with_value(
+                    bail!(crate::config::key::error_with_value(
                         self,
                         "Invalid configuration value",
                         name,
-                    )));
+                    ));
                 }
             })
         }
@@ -86,8 +88,6 @@ mod algorithm {
 
 mod validate {
     use crate::{Result, bstr::BStr, config::tree::keys};
-    #[cfg(any(feature = "credentials", feature = "attributes"))]
-    use gix_error::ResultExt;
 
     #[derive(Clone, Copy)]
     pub struct NegotiationAlgorithm;
@@ -95,9 +95,7 @@ mod validate {
         #[cfg_attr(not(feature = "credentials"), allow(unused_variables))]
         fn validate(&self, value: &BStr) -> Result {
             #[cfg(feature = "credentials")]
-            crate::config::tree::Fetch::NEGOTIATION_ALGORITHM
-                .try_into_negotiation_algorithm(value)
-                .or_erased()?;
+            crate::config::tree::Fetch::NEGOTIATION_ALGORITHM.try_into_negotiation_algorithm(value)?;
             Ok(())
         }
     }
@@ -110,9 +108,7 @@ mod validate {
         fn validate(&self, value: &BStr) -> Result {
             {
                 let boolean = gix_config::Boolean::try_from(value).map(|b| Some(b.0));
-                crate::config::tree::Fetch::RECURSE_SUBMODULES
-                    .try_into_recurse_submodules(boolean)
-                    .or_erased()?;
+                crate::config::tree::Fetch::RECURSE_SUBMODULES.try_into_recurse_submodules(boolean)?;
             }
             Ok(())
         }

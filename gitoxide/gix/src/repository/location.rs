@@ -1,4 +1,4 @@
-use gix_error::ResultExt;
+use gix_error::{ResultExt, bail};
 use gix_path::realpath::MAX_SYMLINKS;
 use std::{
     borrow::Cow,
@@ -168,10 +168,10 @@ impl crate::Repository {
             }
             Cow::Owned(path) => {
                 if gix_path::normalize_and_clean(Cow::Borrowed(path.as_path()), Path::new("")).is_none() {
-                    return Err(Error::from_error(gix_error::validation(format!(
+                    bail!(gix_error::validation(format!(
                         "The path '{}' leaves the repository",
                         path.display()
-                    ))));
+                    )));
                 }
                 gix_path::normalize_and_clean(Cow::Owned(path), Path::new(""))
                     .expect("path was just validated as normalizable")

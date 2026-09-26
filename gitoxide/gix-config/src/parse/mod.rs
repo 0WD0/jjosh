@@ -11,7 +11,7 @@
 //! [`File`]: crate::File
 
 use bstr::{BStr, BString, ByteSlice};
-use gix_error::ExnMessageResult;
+use gix_error::{OptionExt, Result, bail};
 
 mod from_bytes;
 
@@ -78,11 +78,11 @@ impl MaybeDecoded {
             .map_or_else(|| self.raw.as_bstr_in(backing), |value| value.as_bstr())
     }
 
-    pub(crate) fn rebase(&mut self, offset: usize) -> ExnMessageResult {
+    pub(crate) fn rebase(&mut self, offset: usize) -> Result {
         self.raw.rebase(offset)
     }
 
-    pub(crate) fn copy_to_backing_in(&self, source: &[u8], target: &mut Vec<u8>) -> ExnMessageResult<Self> {
+    pub(crate) fn copy_to_backing_in(&self, source: &[u8], target: &mut Vec<u8>) -> Result<Self> {
         Ok(Self {
             raw: self.raw.copy_to_backing_in(source, target)?,
             decoded: self.decoded.clone(),
@@ -91,17 +91,17 @@ impl MaybeDecoded {
 }
 
 impl Span {
-    pub(crate) fn append(backing: &mut Vec<u8>, bytes: &[u8]) -> ExnMessageResult<Self> {
+    pub(crate) fn append(backing: &mut Vec<u8>, bytes: &[u8]) -> Result<Self> {
         let start = backing.len();
         let span = Self::range(start, bytes.len())?;
-        backing.len().checked_add(bytes.len()).ok_or_else(span::error)?;
+        backing.len().checked_add(bytes.len()).ok_or_raise(span::error)?;
         backing.extend_from_slice(bytes);
         Ok(span)
     }
 
-    pub(crate) fn range(start: usize, len: usize) -> ExnMessageResult<Self> {
+    pub(crate) fn range(start: usize, len: usize) -> Result<Self> {
         if start > u32::MAX as usize || len > u32::MAX as usize {
-            return Err(span::error().into());
+            bail!(span::error());
         }
         Ok(Span {
             start: start as u32,
@@ -139,15 +139,15 @@ impl Span {
         self.as_slice_in(backing).into()
     }
 
-    pub(crate) fn copy_to_backing_in(&self, source: &[u8], target: &mut Vec<u8>) -> ExnMessageResult<Self> {
+    pub(crate) fn copy_to_backing_in(&self, source: &[u8], target: &mut Vec<u8>) -> Result<Self> {
         Span::append(target, self.as_slice_in(source))
     }
 
-    pub(crate) fn rebase(&mut self, offset: usize) -> ExnMessageResult {
+    pub(crate) fn rebase(&mut self, offset: usize) -> Result {
         self.start = (self.start as usize)
             .checked_add(offset)
             .and_then(|start| start.try_into().ok())
-            .ok_or_else(span::error)?;
+            .ok_or_raise(span::error)?;
         Ok(())
     }
 }

@@ -1,6 +1,5 @@
 use crate::extension::{Link, Signature};
-use gix_error::ResultExt;
-use gix_error::{ExnMessageResult, ExnResult};
+use gix_error::{Result, bail};
 
 /// The signature of the link extension.
 pub const SIGNATURE: Signature = *b"link";
@@ -14,8 +13,8 @@ pub struct Bitmaps {
     pub replace: gix_bitmap::ewah::Vec,
 }
 
-pub(crate) fn decode(data: &[u8], object_hash: gix_hash::Kind) -> ExnMessageResult<Link> {
-    use gix_error::{ErrorExt, OptionExt, ResultExt};
+pub(crate) fn decode(data: &[u8], object_hash: gix_hash::Kind) -> Result<Link> {
+    use gix_error::{OptionExt, ResultExt};
 
     let (id, data) = data
         .split_at_checked(object_hash.len_in_bytes())
@@ -34,7 +33,7 @@ pub(crate) fn decode(data: &[u8], object_hash: gix_hash::Kind) -> ExnMessageResu
         gix_bitmap::ewah::decode(data).or_raise(|| gix_error::corruption("replace bitmap corrupt"))?;
 
     if !data.is_empty() {
-        return Err(gix_error::corruption("garbage trailing link extension").raise());
+        bail!(gix_error::corruption("garbage trailing link extension"));
     }
 
     Ok(Link {
@@ -50,10 +49,10 @@ impl Link {
         object_hash: gix_hash::Kind,
         skip_hash: bool,
         options: crate::decode::Options,
-    ) -> ExnResult {
+    ) -> Result {
         use gix_error::ErrorExt;
 
-        let corrupt = |message| gix_error::corruption(message).raise_erased();
+        let corrupt = |message| gix_error::corruption(message).raise();
         let shared_index_path = split_index
             .path
             .parent()
@@ -67,8 +66,7 @@ impl Link {
                 expected_checksum: self.shared_index_checksum.into(),
                 ..options
             },
-        )
-        .or_erased()?;
+        )?;
 
         if let Some(bitmaps) = self.bitmaps {
             let mut split_entry_index = 0;

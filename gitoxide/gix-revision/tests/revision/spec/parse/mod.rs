@@ -1,5 +1,4 @@
-use gix_error::Result;
-use gix_error::{ErrorExt, ExnResult, bail, message};
+use gix_error::{Result, bail, message};
 use gix_object::bstr::{BStr, BString};
 use gix_revision::{
     spec,
@@ -84,7 +83,7 @@ impl Recorder {
     }
 }
 
-fn set_val<T: std::fmt::Debug>(fn_name: &str, store: &mut [Option<T>; 2], val: T) -> ExnResult {
+fn set_val<T: std::fmt::Debug>(fn_name: &str, store: &mut [Option<T>; 2], val: T) -> Result {
     for entry in store.iter_mut() {
         if entry.is_none() {
             *entry = Some(val);
@@ -97,13 +96,13 @@ fn set_val<T: std::fmt::Debug>(fn_name: &str, store: &mut [Option<T>; 2], val: T
 impl delegate::Revision for Recorder {
     fn find_ref(&mut self, input: &BStr) -> Result {
         self.called(Call::FindRef);
-        (set_val("find_ref", &mut self.find_ref, input.into())).map_err(Into::into)
+        set_val("find_ref", &mut self.find_ref, input.into())
     }
 
     fn disambiguate_prefix(&mut self, input: gix_hash::Prefix, hint: Option<delegate::PrefixHint<'_>>) -> Result {
         self.called(Call::DisambiguatePrefix);
         if self.opts.reject_prefix {
-            bail!(message!("disambiguate_prefix rejected").raise_erased());
+            bail!(message("disambiguate_prefix rejected"));
         }
         set_val("disambiguate_prefix", &mut self.prefix, input)?;
         if let Some(hint) = hint {
@@ -124,7 +123,7 @@ impl delegate::Revision for Recorder {
 
     fn reflog(&mut self, entry: delegate::ReflogLookup) -> Result {
         self.called(Call::Reflog);
-        (set_val(
+        set_val(
             "current_branch_reflog",
             &mut self.current_branch_reflog_entry,
             match entry {
@@ -135,19 +134,18 @@ impl delegate::Revision for Recorder {
                     BString::from(buf).to_string()
                 }
             },
-        ))
-        .map_err(Into::into)
+        )
     }
 
     fn nth_checked_out_branch(&mut self, branch: usize) -> Result {
         assert_ne!(branch, 0);
         self.called(Call::NthCheckedOutBranch);
-        (set_val("nth_checked_out_branch", &mut self.nth_checked_out_branch, branch)).map_err(Into::into)
+        set_val("nth_checked_out_branch", &mut self.nth_checked_out_branch, branch)
     }
 
     fn sibling_branch(&mut self, kind: delegate::SiblingBranch) -> Result {
         self.called(Call::SiblingBranch);
-        (set_val("sibling_branch", &mut self.sibling_branch, format!("{kind:?}"))).map_err(Into::into)
+        set_val("sibling_branch", &mut self.sibling_branch, format!("{kind:?}"))
     }
 }
 
@@ -186,7 +184,7 @@ impl delegate::Kind for Recorder {
     fn kind(&mut self, kind: spec::Kind) -> Result {
         self.called(Call::Kind);
         if self.opts.reject_kind {
-            bail!(message!("kind() was rejected").raise_erased());
+            bail!(message("kind() was rejected"));
         }
         if self.kind.is_none() {
             self.kind = Some(kind);

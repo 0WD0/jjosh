@@ -1,6 +1,6 @@
 use crate::{File, Graph, MAX_COMMITS};
 use gix_error::Result;
-use gix_error::{ErrorExt, OptionExt, ResultExt, message};
+use gix_error::{ErrorExt, OptionExt, ResultExt, bail, message};
 use std::{
     io::{BufRead, BufReader},
     path::Path,
@@ -58,23 +58,21 @@ impl Graph {
             .ok_or_raise(|| message!("Commit-graph must contain at least one file"))?;
         let num_commits: u64 = files.iter().map(|f| u64::from(f.num_commits())).sum();
         if num_commits > u64::from(MAX_COMMITS) {
-            return Err(message!(
+            bail!(message!(
                 "Commit-graph files contain {num_commits} commits altogether, but only {MAX_COMMITS} commits are allowed"
-            ).raise().into());
+            ));
         }
 
         let mut f1 = files.first();
         for f2 in files.tail() {
             if f1.object_hash() != f2.object_hash() {
-                return Err(message!(
+                bail!(message!(
                     "Commit-graph files mismatch: '{path1}' uses hash {hash1:?}, but '{path2}' uses hash {hash2:?}",
                     path1 = f1.path().display(),
                     hash1 = f1.object_hash(),
                     path2 = f2.path().display(),
                     hash2 = f2.object_hash(),
-                )
-                .raise()
-                .into());
+                ));
             }
             f1 = f2;
         }
@@ -105,8 +103,7 @@ impl TryFrom<&Path> for Graph {
                 "Did not find any files that look like commit graphs at '{}'",
                 path.display()
             )
-            .raise()
-            .into())
+            .raise())
         }
     }
 }

@@ -2,7 +2,7 @@
 pub const MAX_SYMLINKS: u8 = 32;
 
 pub(crate) mod function {
-    use gix_error::{ErrorExt, Result, ResultExt};
+    use gix_error::{Result, ResultExt, bail};
     #[cfg(windows)]
     use std::path::Prefix as PathPrefix;
     use std::path::{
@@ -25,7 +25,7 @@ pub(crate) mod function {
             .is_relative()
             .then(std::env::current_dir)
             .unwrap_or_else(|| Ok(PathBuf::default()))
-            .or_erased()?;
+            .or_error()?;
         realpath_opts(path, &cwd, MAX_SYMLINKS)
     }
 
@@ -37,7 +37,7 @@ pub(crate) mod function {
     /// the CWD from the operating system independently.
     pub fn realpath_opts(path: &Path, cwd: &Path, max_symlinks: u8) -> Result<PathBuf> {
         if path.as_os_str().is_empty() {
-            return Err(gix_error::validation("Empty is not a valid path").raise().into());
+            bail!(gix_error::validation("Empty is not a valid path"));
         }
 
         let mut real_path = PathBuf::new();
@@ -64,18 +64,16 @@ pub(crate) mod function {
                             if prefix.kind() == PathPrefix::Disk(drive)));
                     if !same_drive || !real_path.is_absolute() {
                         // Resolve only the drive, preserving subsequent `..` for symlink resolution.
-                        real_path = std::path::absolute(prefix.as_os_str()).or_erased()?;
+                        real_path = std::path::absolute(prefix.as_os_str()).or_error()?;
                     }
                 }
                 part @ (RootDir | Prefix(_)) => real_path.push(part),
                 CurDir => {}
                 ParentDir => {
                     if !real_path.pop() {
-                        return Err(gix_error::validation(
+                        bail!(gix_error::validation(
                             "Ran out of path components while following parent component '..'",
-                        )
-                        .raise()
-                        .into());
+                        ));
                     }
                 }
                 Normal(part) => {
@@ -84,13 +82,11 @@ pub(crate) mod function {
                     if real_path.is_symlink() {
                         num_symlinks += 1;
                         if num_symlinks > max_symlinks {
-                            return Err(gix_error::validation(format!(
+                            bail!(gix_error::validation(format!(
                                 "The maximum allowed number {max_symlinks} of symlinks in path is exceeded"
-                            ))
-                            .raise()
-                            .into());
+                            )));
                         }
-                        let mut link_destination = std::fs::read_link(real_path.as_path()).or_erased()?;
+                        let mut link_destination = std::fs::read_link(real_path.as_path()).or_error()?;
                         if link_destination.is_absolute() {
                             // pushing absolute path to real_path resets it to the pushed absolute path
                         } else {
@@ -101,10 +97,9 @@ pub(crate) mod function {
                         components = path_backing.components();
                     }
                     if symlink_checks > MAX_SYMLINK_CHECKS {
-                        return Err(gix_error::validation(format!(
+                        bail!(gix_error::validation(format!(
                             "Cannot resolve symlinks in path with more than {MAX_SYMLINK_CHECKS} components (takes too long)"
-                        ))
-                        .raise().into());
+                        )));
                     }
                 }
             }

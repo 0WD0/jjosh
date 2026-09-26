@@ -1,5 +1,4 @@
-use gix_error::Result;
-use gix_error::{ErrorExt, Exn, Message, ResultExt, message};
+use gix_error::{ErrorExt, Message, Result, ResultExt, bail, message};
 
 use gix_hash::ObjectId;
 use gix_object::bstr::BString;
@@ -12,26 +11,23 @@ enum MaybeUnsafeState {
 }
 
 impl TryFrom<MaybeUnsafeState> for Target {
-    type Error = Exn;
+    type Error = gix_error::Error;
 
     /// Invalid symbolic targets include [metadata](gix_error::Error::metadata()) `target` (bytes), as read from the
     /// reference contents.
-    fn try_from(v: MaybeUnsafeState) -> std::result::Result<Self, Self::Error> {
+    fn try_from(v: MaybeUnsafeState) -> Result<Self> {
         Ok(match v {
             MaybeUnsafeState::Id(id) => Target::Object(id),
             MaybeUnsafeState::UnvalidatedPath(name) => {
                 Target::Symbolic(match gix_validate::reference::name(name.as_ref()) {
                     Ok(_) => FullName(name),
                     Err(_) if name == "refs/heads/.invalid" => {
-                        return Err(
-                            message("This reference uses an unsupported storage backend, such as reftable")
-                                .raise_erased(),
-                        );
+                        bail!(message(
+                            "This reference uses an unsupported storage backend, such as reftable"
+                        ));
                     }
                     Err(err) => {
-                        return Err(err
-                            .and_raise(Message::new("Invalid symbolic reference target").with("target", name))
-                            .erased());
+                        bail!(err.and_raise(Message::new("Invalid symbolic reference target").with("target", name)));
                     }
                 })
             }
@@ -50,9 +46,9 @@ impl Reference {
             target: Target::try_from(parse(path_contents, object_hash).map_err(|()| {
                 gix_error::corruption("Reference content could not be parsed")
                     .with("input", path_contents)
-                    .raise_erased()
+                    .raise()
             })?)
-            .or_raise_erased(|| Message::new("Could not decode reference").with("input", path_contents))?,
+            .or_raise(|| Message::new("Could not decode reference").with("input", path_contents))?,
         })
     }
 }

@@ -38,10 +38,9 @@ impl file::Store {
     {
         let name = name
             .try_into()
-            .or_raise_erased(|| message("The reflog name or path is not a valid ref name"))?;
-        Ok(self
-            .reflog_iter_rev_inner(name, buf)
-            .or_raise_erased(|| read_reflog_error(self.reflog_path(name)))?)
+            .or_raise(|| message("The reflog name or path is not a valid ref name"))?;
+        self.reflog_iter_rev_inner(name, buf)
+            .or_raise(|| read_reflog_error(self.reflog_path(name)))
     }
 
     pub(crate) fn reflog_iter_rev_inner<'b>(
@@ -77,10 +76,9 @@ impl file::Store {
     {
         let name = name
             .try_into()
-            .or_raise_erased(|| message("The reflog name or path is not a valid ref name"))?;
-        Ok(self
-            .reflog_iter_inner(name, buf)
-            .or_raise_erased(|| read_reflog_error(self.reflog_path(name)))?)
+            .or_raise(|| message("The reflog name or path is not a valid ref name"))?;
+        self.reflog_iter_inner(name, buf)
+            .or_raise(|| read_reflog_error(self.reflog_path(name)))
     }
 
     pub(crate) fn reflog_iter_inner<'b>(
@@ -127,7 +125,7 @@ pub mod create_or_update {
         path::{Path, PathBuf},
     };
 
-    use gix_error::{ErrorExt, ExnResult, Message, ResultExt};
+    use gix_error::{ErrorExt, Message, OptionExt, Result, ResultExt};
     use gix_hash::{ObjectId, oid};
     use gix_object::bstr::BStr;
 
@@ -145,7 +143,7 @@ pub mod create_or_update {
             committer: Option<gix_actor::SignatureRef<'_>>,
             message: &BStr,
             mut force_create_reflog: bool,
-        ) -> ExnResult {
+        ) -> Result {
             let (reflog_base, full_name) = self.reflog_base_and_relative_path(name);
             match self.write_reflog {
                 WriteReflog::Normal | WriteReflog::Always => {
@@ -158,9 +156,8 @@ pub mod create_or_update {
 
                     if force_create_reflog || self.should_autocreate_reflog(&full_name) {
                         let parent_dir = log_path.parent().expect("always with parent directory");
-                        gix_tempfile::create_dir::all(parent_dir, Default::default(), 0).or_raise_erased(|| {
-                            Message::new("Could not create reflog directory").with("path", parent_dir)
-                        })?;
+                        gix_tempfile::create_dir::all(parent_dir, Default::default(), 0)
+                            .or_raise(|| Message::new("Could not create reflog directory").with("path", parent_dir))?;
                         options.create(true);
                     }
 
@@ -173,15 +170,15 @@ pub mod create_or_update {
                                 gix_tempfile::remove_dir::empty_depth_first(log_path.clone())
                                     .and_then(|_| options.open(&log_path))
                                     .map(Some)
-                                    .or_raise_erased(|| open_reflog_for_appending_error(log_path.as_path()))?
+                                    .or_raise(|| open_reflog_for_appending_error(log_path.as_path()))?
                             } else {
-                                return Err(err.and_raise(open_reflog_for_appending_error(log_path)).erased());
+                                return Err(err.and_raise(open_reflog_for_appending_error(log_path)));
                             }
                         }
                     };
 
                     if let Some(mut file) = file_for_appending {
-                        let committer = committer.ok_or_else(|| MissingCommitter.raise_erased())?;
+                        let committer = committer.ok_or_raise(|| MissingCommitter)?;
                         write!(file, "{} {} ", previous_oid.unwrap_or_else(|| new.kind().null()), new)
                             .and_then(|_| committer.trim().write_to(&mut file))
                             .and_then(|_| {
@@ -191,7 +188,7 @@ pub mod create_or_update {
                                     writeln!(file)
                                 }
                             })
-                            .or_raise_erased(|| {
+                            .or_raise(|| {
                                 Message::new("Could not append reflog entry").with("path", log_path.as_path())
                             })?;
                     }

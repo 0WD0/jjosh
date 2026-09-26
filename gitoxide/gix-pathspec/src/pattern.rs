@@ -1,5 +1,4 @@
-use gix_error::ErrorExt;
-use gix_error::Result;
+use gix_error::{Result, bail};
 use std::path::{Component, Path, PathBuf};
 
 use bstr::{BStr, BString, ByteSlice, ByteVec};
@@ -69,13 +68,10 @@ impl Pattern {
             let rela_path = match path.strip_prefix(root) {
                 Ok(path) => path,
                 Err(_) => {
-                    return Err(gix_error::validation(format!(
-                        "The path is not inside of the worktree '{}'",
-                        root.display()
-                    ))
-                    .with("input", gix_path::into_bstr(path.into_owned()).into_owned())
-                    .raise()
-                    .into());
+                    bail!(
+                        gix_error::validation(format!("The path is not inside of the worktree '{}'", root.display()))
+                            .with("input", gix_path::into_bstr(path.into_owned()).into_owned())
+                    );
                 }
             };
             path = rela_path.to_owned().into();
@@ -110,10 +106,10 @@ impl Pattern {
                 path
             }
             None => {
-                return Err(gix_error::validation("The path leaves the repository")
-                    .with("input", gix_path::into_bstr(path.into_owned()).into_owned())
-                    .raise()
-                    .into());
+                bail!(
+                    gix_error::validation("The path leaves the repository")
+                        .with("input", gix_path::into_bstr(path.into_owned()).into_owned())
+                );
             }
         };
 

@@ -2,7 +2,7 @@ use gix_error::Result;
 use std::cmp::Ordering;
 
 use bstr::ByteSlice;
-use gix_error::{ErrorExt, ExnMessageResult, ResultExt};
+use gix_error::{ErrorExt, ResultExt, bail};
 use gix_object::FindExt;
 
 use crate::extension::Tree;
@@ -15,7 +15,7 @@ impl Tree {
             children: &[Tree],
             mut object_buf: Option<&mut Vec<u8>>,
             objects: &impl gix_object::Find,
-        ) -> ExnMessageResult<Option<u32>> {
+        ) -> Result<Option<u32>> {
             if children.is_empty() {
                 return Ok(None);
             }
@@ -28,12 +28,11 @@ impl Tree {
                 if let Some(prev) = prev
                     && prev.name.cmp(&child.name) != Ordering::Less
                 {
-                    return Err(gix_error::corruption(format!(
+                    bail!(gix_error::corruption(format!(
                         "Parent tree '{parent_id}' contained out-of order trees prev = '{}' and next = '{}'",
                         prev.name.as_bstr(),
                         child.name.as_bstr()
-                    ))
-                    .raise());
+                    )));
                 }
                 prev = Some(child);
             }
@@ -61,11 +60,10 @@ impl Tree {
                 }
 
                 if num_entries != children.len() {
-                    return Err(gix_error::corruption(format!(
+                    bail!(gix_error::corruption(format!(
                         "The tree with id {parent_id} should have {num_entries} children, but its cached representation had {} of them",
                         children.len()
-                    ))
-                    .raise());
+                    )));
                 }
             }
             for child in children {
@@ -75,10 +73,9 @@ impl Tree {
                 if let Some((actual, num_entries)) = actual_num_entries.zip(child.num_entries)
                     && actual > num_entries
                 {
-                    return Err(gix_error::corruption(format!(
+                    bail!(gix_error::corruption(format!(
                         "Expected not more than {num_entries} entries to be reachable from the top-level, but actual count was {actual}"
-                    ))
-                    .raise());
+                    )));
                 }
             }
             Ok(entries.into())
@@ -86,12 +83,10 @@ impl Tree {
         let _span = gix_features::trace::coarse!("gix_index::extension::Tree::verify()");
 
         if !self.name.is_empty() {
-            return Err(gix_error::corruption(format!(
+            bail!(gix_error::corruption(format!(
                 "The root tree was named '{}', even though it should be empty",
                 self.name.as_bstr()
-            ))
-            .raise()
-            .into());
+            )));
         }
 
         let mut buf = Vec::new();
@@ -99,10 +94,9 @@ impl Tree {
         if let Some((actual, num_entries)) = declared_entries.zip(self.num_entries)
             && actual > num_entries
         {
-            return Err(gix_error::corruption(format!(
+            bail!(gix_error::corruption(format!(
                 "Expected not more than {num_entries} entries to be reachable from the top-level, but actual count was {actual}"
-            ))
-            .raise().into());
+            )));
         }
 
         Ok(())
@@ -112,15 +106,14 @@ impl Tree {
     ///
     /// This is a cheap heuristic: it doesn't prove each cached subtree count matches its actual path range,
     /// but no TREE node can describe more entries than the entire index contains.
-    pub(crate) fn verify_entries_count(&self, num_index_entries: usize) -> ExnMessageResult {
+    pub(crate) fn verify_entries_count(&self, num_index_entries: usize) -> Result {
         if let Some(actual) = self.num_entries
             && actual as usize > num_index_entries
         {
-            return Err(gix_error::corruption(format!(
+            bail!(gix_error::corruption(format!(
                 "TREE entry '{}' declared {actual} entries, but the index only contains {num_index_entries} entries",
                 self.name.as_bstr()
-            ))
-            .raise());
+            )));
         }
 
         for child in &self.children {

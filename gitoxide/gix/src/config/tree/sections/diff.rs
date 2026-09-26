@@ -80,6 +80,8 @@ pub type Renames = keys::Any<validate::Renames>;
 pub type Binary = keys::Any<validate::Binary>;
 
 mod algorithm {
+    use gix_error::bail;
+
     use crate::{
         Error, Result,
         bstr::ByteSlice,
@@ -115,9 +117,9 @@ mod algorithm {
             } else if name.eq_ignore_ascii_case(b"histogram") {
                 gix_diff::blob::Algorithm::Histogram
             } else if name.eq_ignore_ascii_case(b"patience") {
-                return Err(Error::from_error(algorithm::Error::Unimplemented { name: name.into() }));
+                bail!(algorithm::Error::Unimplemented { name: name.into() });
             } else {
-                return Err(Error::from_error(algorithm::Error::Unknown { name: name.into() }));
+                bail!(algorithm::Error::Unknown { name: name.into() });
             };
             Ok(algo)
         }
@@ -165,7 +167,7 @@ mod renames {
         },
         diff::rename::Tracking,
     };
-    use gix_error::ErrorExt;
+    use gix_error::{ErrorExt, bail};
 
     impl Renames {
         /// Create a new instance.
@@ -189,7 +191,7 @@ mod renames {
                         b"copy" | b"copies" => Some(Tracking::RenamesAndCopies),
                         _ => {
                             let context = key::error_with_value(self, "Invalid configuration value", value.as_bstr());
-                            return Err(err.and_raise(context).into());
+                            bail!(err.and_raise(context));
                         }
                     }
                 }
@@ -199,7 +201,7 @@ mod renames {
 }
 
 pub(super) mod validate {
-    use gix_error::{ErrorExt, ResultExt, message};
+    use gix_error::{ErrorExt, message};
 
     use crate::{
         Result,
@@ -221,7 +223,7 @@ pub(super) mod validate {
     pub struct Algorithm;
     impl keys::Validate for Algorithm {
         fn validate(&self, value: &BStr) -> Result {
-            Diff::ALGORITHM.try_into_algorithm(value).or_erased()?;
+            Diff::ALGORITHM.try_into_algorithm(value)?;
             Ok(())
         }
     }
@@ -231,7 +233,7 @@ pub(super) mod validate {
     impl keys::Validate for Renames {
         fn validate(&self, value: &BStr) -> Result {
             let boolean = gix_config::Boolean::try_from(value).map(|b| Some(b.0));
-            Diff::RENAMES.try_into_renames(boolean).or_erased()?;
+            Diff::RENAMES.try_into_renames(boolean)?;
             Ok(())
         }
     }
@@ -240,7 +242,7 @@ pub(super) mod validate {
     pub struct Binary;
     impl keys::Validate for Binary {
         fn validate(&self, value: &BStr) -> Result {
-            Diff::DRIVER_BINARY.try_into_binary(Some(value)).or_erased()?;
+            Diff::DRIVER_BINARY.try_into_binary(Some(value))?;
             Ok(())
         }
     }

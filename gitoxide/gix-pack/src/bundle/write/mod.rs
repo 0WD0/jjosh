@@ -7,7 +7,7 @@ use std::{
     sync::{Arc, atomic::AtomicBool},
 };
 
-use gix_error::{ExnResult, ResultExt, message};
+use gix_error::{ResultExt, message};
 use gix_features::{interrupt, progress, progress::Progress};
 use gix_tempfile::{AutoRemove, ContainingDirectory};
 
@@ -81,9 +81,9 @@ impl crate::Bundle {
             64 * 1024,
             match directory.as_ref() {
                 Some(directory) => gix_tempfile::new(directory, ContainingDirectory::Exists, AutoRemove::Tempfile)
-                    .or_raise_erased(|| message("Could not create temporary pack file"))?,
+                    .or_raise(|| message("Could not create temporary pack file"))?,
                 None => gix_tempfile::new(std::env::temp_dir(), ContainingDirectory::Exists, AutoRemove::Tempfile)
-                    .or_raise_erased(|| message("Could not create temporary pack file"))?,
+                    .or_raise(|| message("Could not create temporary pack file"))?,
             },
         )));
         let (pack_entries_iter, pack_version): (Box<dyn Iterator<Item = Result<data::input::Entry>>>, _) =
@@ -192,9 +192,9 @@ impl crate::Bundle {
 
         let data_file = Arc::new(parking_lot::Mutex::new(io::BufWriter::new(match directory.as_ref() {
             Some(directory) => gix_tempfile::new(directory, ContainingDirectory::Exists, AutoRemove::Tempfile)
-                .or_raise_erased(|| message("Could not create temporary pack file"))?,
+                .or_raise(|| message("Could not create temporary pack file"))?,
             None => gix_tempfile::new(std::env::temp_dir(), ContainingDirectory::Exists, AutoRemove::Tempfile)
-                .or_raise_erased(|| message("Could not create temporary pack file"))?,
+                .or_raise(|| message("Could not create temporary pack file"))?,
         })));
         let eight_pages = 4096 * 8;
         let (pack_entries_iter, pack_version): (
@@ -285,7 +285,7 @@ impl crate::Bundle {
         mut pack_entries_iter: Box<dyn Iterator<Item = Result<data::input::Entry>> + 'a>,
         should_interrupt: &AtomicBool,
         pack_version: data::Version,
-    ) -> ExnResult<WriteOutcome> {
+    ) -> Result<WriteOutcome> {
         let mut indexing_progress = progress.add_child_with_id(
             "create index file".into(),
             ProgressId::IndexingSteps(Default::default()).into(),
@@ -294,7 +294,7 @@ impl crate::Bundle {
             Some(directory) => {
                 let directory = directory.as_ref();
                 let mut index_file = gix_tempfile::new(directory, ContainingDirectory::Exists, AutoRemove::Tempfile)
-                    .or_raise_erased(|| message("Could not create temporary index file"))?;
+                    .or_raise(|| message("Could not create temporary index file"))?;
 
                 let outcome = crate::index::write_data_iter_to_stream(
                     index_kind,
@@ -310,8 +310,7 @@ impl crate::Bundle {
                     object_hash,
                     alloc_limit_bytes,
                     pack_version,
-                )
-                .or_erased()?;
+                )?;
                 drop(pack_entries_iter);
 
                 if outcome.num_objects == 0 {
@@ -331,15 +330,14 @@ impl crate::Bundle {
                     } else {
                         let keep_path = data_path.with_extension("keep");
 
-                        std::fs::write(&keep_path, b"")
-                            .or_raise_erased(|| message("Could not create pack keep file"))?;
+                        std::fs::write(&keep_path, b"").or_raise(|| message("Could not create pack keep file"))?;
                         Arc::try_unwrap(data_file)
                             .expect("only one handle left after pack was consumed")
                             .into_inner()
                             .into_inner()
-                            .or_erased()?
+                            .or_error()?
                             .persist(&data_path)
-                            .or_raise_erased(|| message("Could not persist pack file"))?;
+                            .or_raise(|| message("Could not persist pack file"))?;
                         Some(keep_path)
                     };
                     if !index_path.is_file() {
@@ -348,7 +346,7 @@ impl crate::Bundle {
                             .inspect_err(|_err| {
                                 gix_features::trace::warn!("pack file at \"{}\" is retained despite failing to move the index file into place. You can use plumbing to make it usable.",data_path.display());
                             })
-                            .or_raise_erased(|| message("Could not persist pack index"))?;
+                            .or_raise(|| message("Could not persist pack index"))?;
                     }
                     WriteOutcome {
                         outcome,
@@ -370,8 +368,7 @@ impl crate::Bundle {
                     object_hash,
                     alloc_limit_bytes,
                     pack_version,
-                )
-                .or_erased()?,
+                )?,
                 data_path: None,
                 index_path: None,
                 keep_path: None,

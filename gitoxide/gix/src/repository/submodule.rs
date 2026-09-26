@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
-use crate::{Error, Repository, Result, submodule};
-use gix_error::ResultExt;
+use crate::{Repository, Result, submodule};
+use gix_error::{ResultExt, bail};
 
 impl Repository {
     /// Open the `.gitmodules` file as present in the worktree, or return `None` if no such file is available.
@@ -22,7 +22,7 @@ impl Repository {
         let metadata = match std::fs::symlink_metadata(&path) {
             Ok(metadata) => metadata,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(err) => return Err(Error::from_error(err)),
+            Err(err) => bail!(err),
         };
         if metadata.file_type().is_symlink() {
             return Ok(None);
@@ -47,17 +47,13 @@ impl Repository {
     ///
     // TODO(submodule): make it use an updated snapshot instead once we have `config()`.
     pub fn modules(&self) -> Result<Option<submodule::ModulesSnapshot>> {
-        match self
-            .modules
-            .recent_snapshot(
-                || {
-                    self.modules_path()
-                        .and_then(|path| path.metadata().and_then(|m| m.modified()).ok())
-                },
-                || self.open_modules_file(),
-            )
-            .or_erased()?
-        {
+        match self.modules.recent_snapshot(
+            || {
+                self.modules_path()
+                    .and_then(|path| path.metadata().and_then(|m| m.modified()).ok())
+            },
+            || self.open_modules_file(),
+        )? {
             Some(m) => Ok(Some(m)),
             None => {
                 let id = match self.try_index()?.and_then(|index| {
@@ -67,8 +63,7 @@ impl Repository {
                 }) {
                     Some(id) => id,
                     None => match self
-                        .head()
-                        .or_erased()?
+                        .head()?
                         .try_peel_to_id()?
                         .map(|id| -> Result<Option<_>> {
                             Ok(id

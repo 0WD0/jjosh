@@ -1,5 +1,4 @@
-use gix_error::Result;
-use gix_error::{ExnResult, ResultExt, message};
+use gix_error::{Result, ResultExt, message};
 
 use gix_object::bstr::ByteSlice;
 use gix_path::RelativePath;
@@ -73,19 +72,19 @@ impl<'p> LooseThenPacked<'p, '_> {
 
     /// Read failures include [metadata](gix_error::Error::metadata()) `path` (native path), the loose reference being
     /// visited.
-    fn convert_loose(&mut self, res: std::io::Result<(PathBuf, FullName)>) -> ExnResult<Reference> {
+    fn convert_loose(&mut self, res: std::io::Result<(PathBuf, FullName)>) -> Result<Reference> {
         let buf = &mut self.buf;
         let git_dir = self.git_dir;
         let common_dir = self.common_dir;
-        let (refpath, name) = res.or_raise_erased(|| message("Could not traverse reference directory"))?;
+        let (refpath, name) = res.or_raise(|| message("Could not traverse reference directory"))?;
         std::fs::File::open(&refpath)
             .and_then(|mut f| {
                 buf.clear();
                 f.read_to_end(buf)
             })
-            .or_raise_erased(|| file::find::read_reference_error(refpath.as_path()))?;
+            .or_raise(|| file::find::read_reference_error(refpath.as_path()))?;
         loose::Reference::try_from_path(name, buf, self.object_hash)
-            .or_raise_erased(|| {
+            .or_raise(|| {
                 let relative_path = refpath
                     .strip_prefix(git_dir)
                     .ok()
@@ -149,17 +148,17 @@ impl Iterator for LooseThenPacked<'_, '_> {
                 }
                 (Some((_, kind)), None) | (Some((Err(_), kind)), Some(_)) => {
                     let res = self.loose_iter(kind).next().expect("prior peek");
-                    Some(self.convert_loose(res).map_err(Into::into))
+                    Some(self.convert_loose(res))
                 }
                 (Some((Ok((_, loose_name)), kind)), Some(Ok(packed))) => match loose_name.as_ref().cmp(packed.name) {
                     Ordering::Less => {
                         let res = self.loose_iter(kind).next().expect("prior peek");
-                        Some(self.convert_loose(res).map_err(Into::into))
+                        Some(self.convert_loose(res))
                     }
                     Ordering::Equal => {
                         drop(packed_iter.next());
                         let res = self.loose_iter(kind).next().expect("prior peek");
-                        Some(self.convert_loose(res).map_err(Into::into))
+                        Some(self.convert_loose(res))
                     }
                     Ordering::Greater => {
                         let res = packed_iter.next().expect("name retrieval configured");
@@ -169,10 +168,7 @@ impl Iterator for LooseThenPacked<'_, '_> {
             },
             None => match peek_loose(&mut self.iter_git_dir, self.iter_common_dir.as_mut()) {
                 None => None,
-                Some((_, kind)) => self
-                    .loose_iter(kind)
-                    .next()
-                    .map(|res| self.convert_loose(res).map_err(Into::into)),
+                Some((_, kind)) => self.loose_iter(kind).next().map(|res| self.convert_loose(res)),
             },
         }
     }

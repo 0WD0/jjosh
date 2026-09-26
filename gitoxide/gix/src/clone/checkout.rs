@@ -91,10 +91,7 @@ pub mod main_worktree {
                 }
             };
 
-            let protect_options = repo
-                .config
-                .protect_options()
-                .or_raise(|| gix_error::message("Couldn't obtain configuration for core.protect*"))?;
+            let protect_options = repo.config.protect_options()?;
             let index = gix_index::State::from_tree(&root_tree, &repo.objects, protect_options)
                 .or_raise(|| gix_error::message!("Could not create index from tree at {root_tree}"))?;
             let mut index = gix_index::File::from_state(index, repo.index_path());

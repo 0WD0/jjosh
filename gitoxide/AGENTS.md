@@ -37,17 +37,20 @@ Plumbing crates are migrating from `thiserror` enums to `gix-error`. Check wheth
 uses `gix-error` (look at its `Cargo.toml`); if it does, follow the patterns below. If it still uses
 `thiserror`, keep using `thiserror` for consistency within that crate.
 
-- **Public exception APIs**: use `gix_error::Result<T>` and `gix_error::Error` for erased or
+- **Public error APIs**: use `gix_error::Result<T>` and `gix_error::Error` for erased or
   message-based errors at public plumbing boundaries. Preserve concrete error types already exposed
   by public signatures, including `ExnResult<T, Specific>` and `Exn<Specific>`. This includes public
   traits, callbacks, iterator items, associated errors, and re-exported APIs.
-  Keep native `io::Result`, standalone concrete-error results, and generic
-  error adapters when they do not expose exceptions. Do not introduce public crate-specific or
+  Keep native `io::Result`, standalone concrete-error results, and generic error adapters when they do
+  not expose exceptions. This exemption covers native or operation-specific recovery errors, not
+  shared diagnostics like `Message`. Public message-based errors use `Error` even without an `Exn`
+  wrapper, including `FromStr::Err` and `TryFrom::Error`. Do not introduce public crate-specific or
   operation-specific forwarding aliases or renamed error exports.
-- **Internal results**: private and `pub(crate)` code should retain specific error types where
-  practical. Use `ExnResult<T, E>` for `Exn<E>` errors and `ExnMessageResult<T>` for message
-  contexts. Both default to unit success; `ExnResult` also defaults to an erased error type.
-  These aliases and the typed construction helpers remain available.
+- **Internal results**: use `Result<T>` for erased or message-based errors in private and
+  `pub(crate)` helpers too. Retain concrete error types when callers benefit from typed recovery
+  or payload access. Use `ExnResult<T, E>` or `ExnMessageResult<T>` when a specific exception type
+  or exception-tree manipulation is actually needed; being private alone is not a reason to
+  introduce an exception-returning wrapper. These aliases and typed construction helpers remain available.
 - **Imports**: import `Result`, `ExnResult`, and `ExnMessageResult` under their canonical names
   directly from `gix_error` (or their `gix` re-exports), and use their bare names in signatures.
 - **Porcelain errors**: use the central `gix::Error` and `gix::Result` re-exports at public
@@ -55,13 +58,19 @@ uses `gix-error` (look at its `Cargo.toml`); if it does, follow the patterns bel
 - **Static messages**: `gix_error::message("something failed")`
 - **Formatted messages**: `gix_error::message!("failed to read {path}")`
 - **Wrapping callee errors with context**: `.or_raise(|| message("context about what failed"))?`
-- **Standalone error (no callee)**: `Err(message("something went wrong").raise().into())` at a
-  boundary returning `Result`, or `.raise()` alone for a message exception result.
+- **Standalone error (no callee)**: use `bail!(error)` for an early return with a concrete
+  error or message, such as `bail!(message("something went wrong"))`. For a result expression
+  at a boundary returning `Result`, use `Err(error.raise())`.
 - **Wrapping an `impl Error` with context**: `err.and_raise(message("context"))`
+- **Typed exceptions**: use `.raise_typed()`, `.and_raise_typed(...)`, `.or_raise_typed(...)`, or
+  `.ok_or_raise_typed(...)` when an `Exn<E>` is required; the default helpers return `Error` or `Result`.
+- **Conversion without context**: `.or_error()` converts native errors and exceptions to `Result`.
+  Propagate existing `Result` values directly when the callee already provides enough context.
 - **Closure/callback bounds**: preserve concrete callback errors; use `Result<T>` for erased or
-  message-based errors in public exception APIs. Private callbacks may
-  use `ExnResult<T>` or a specific error when useful. Add context with `.or_raise(...)` and use
-  `.or_erased()` when an internal callback requires an erased exception.
+  message-based errors in public and private APIs. Private callbacks may use `ExnResult<T>`
+  when they need exception-tree operations, or a specific error when useful. Use
+  `.or_raise_erased(...)` to add context or `.or_erased()` to convert when an internal callback
+  requires an erased exception.
 - **`Exn<E>` does NOT implement `std::error::Error`** — this is by design.
   Convert with `?`, `.into()`, or `.into_error()` when a boundary returns `Error`. Conversion retains
   the original error types, causes, metadata, and locations; erased errors support downcasting for recovery.

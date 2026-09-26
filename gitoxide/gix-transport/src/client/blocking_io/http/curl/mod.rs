@@ -1,4 +1,3 @@
-use gix_error::Result;
 use std::{
     sync::{
         Arc,
@@ -7,7 +6,7 @@ use std::{
     thread,
 };
 
-use gix_error::{ExnMessageResult, ResultExt, message};
+use gix_error::{Error, Result, ResultExt, message};
 use gix_features::io;
 use parking_lot::Mutex;
 
@@ -41,13 +40,13 @@ pub(crate) fn curl_is_retryable(err: &curl::Error) -> bool {
 pub struct Curl {
     req: SyncSender<remote::Request>,
     res: Receiver<remote::Response>,
-    handle: Option<thread::JoinHandle<ExnMessageResult>>,
+    handle: Option<thread::JoinHandle<Result>>,
     config: http::Options,
     redirected_base_url: Arc<Mutex<Option<String>>>,
 }
 
 impl Curl {
-    fn restore_thread_after_failure(&mut self) -> gix_error::Exn<gix_error::Message> {
+    fn restore_thread_after_failure(&mut self) -> Error {
         let err_that_brought_thread_down = self
             .handle
             .take()
@@ -69,7 +68,7 @@ impl Curl {
         base_url: &str,
         headers: impl IntoIterator<Item = impl AsRef<str>>,
         upload_body_kind: Option<PostBodyDataKind>,
-    ) -> ExnMessageResult<http::PostResponse<io::pipe::Reader, io::pipe::Reader, io::pipe::Writer>> {
+    ) -> Result<http::PostResponse<io::pipe::Reader, io::pipe::Reader, io::pipe::Writer>> {
         let mut list = curl::easy::List::new();
         for header in headers {
             list.append(header.as_ref())
@@ -138,9 +137,7 @@ impl http::Http for Curl {
         base_url: &str,
         headers: impl IntoIterator<Item = impl AsRef<str>>,
     ) -> Result<http::GetResponse<Self::Headers, Self::ResponseBody>> {
-        self.make_request(url, base_url, headers, None)
-            .map(Into::into)
-            .map_err(Into::into)
+        self.make_request(url, base_url, headers, None).map(Into::into)
     }
 
     fn post(
@@ -150,7 +147,7 @@ impl http::Http for Curl {
         headers: impl IntoIterator<Item = impl AsRef<str>>,
         body: PostBodyDataKind,
     ) -> Result<http::PostResponse<Self::Headers, Self::ResponseBody, Self::PostBody>> {
-        (self.make_request(url, base_url, headers, Some(body))).map_err(Into::into)
+        self.make_request(url, base_url, headers, Some(body))
     }
 
     fn configure(&mut self, config: &dyn std::any::Any) -> Result {

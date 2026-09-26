@@ -1,5 +1,4 @@
 use bstr::{BStr, BString, ByteSlice};
-use gix_error::ExnMessageResult;
 use gix_error::Result;
 use smallvec::SmallVec;
 
@@ -74,8 +73,8 @@ impl<'file> SectionRef<'file> {
 
 impl Section {
     /// Create an owned section with an empty body.
-    /// Invalid section or subsection name bytes are stored as `input` in [`gix_error::Message::values`].
-    /// After [wrapping](gix_error::Error::from_error()), inspect them with [metadata](gix_error::Error::metadata()).
+    /// Invalid section or subsection name bytes are stored as `input` [metadata](gix_error::Error::metadata())
+    /// on validation errors.
     pub fn new(
         name: impl AsRef<str>,
         subsection: impl IntoBStringOpt,
@@ -111,7 +110,7 @@ impl Section {
         Section { backing, data }
     }
 
-    pub(crate) fn into_data(self, target: &mut Vec<u8>) -> ExnMessageResult<SectionData> {
+    pub(crate) fn into_data(self, target: &mut Vec<u8>) -> Result<SectionData> {
         self.data.copy_to_backing_in(&self.backing, target)
     }
 }
@@ -123,7 +122,7 @@ impl SectionData {
         subsection: impl Into<Option<BString>>,
         meta: impl Into<OwnShared<file::Metadata>>,
         backing: &mut Vec<u8>,
-    ) -> ExnMessageResult<Self> {
+    ) -> Result<Self> {
         Ok(SectionData {
             header: parse::section::HeaderData::new_in(name, subsection, backing)?,
             body: Default::default(),
@@ -146,7 +145,7 @@ impl SectionData {
         &self.meta
     }
 
-    pub(crate) fn copy_to_backing_in(&self, source: &[u8], target: &mut Vec<u8>) -> ExnMessageResult<Self> {
+    pub(crate) fn copy_to_backing_in(&self, source: &[u8], target: &mut Vec<u8>) -> Result<Self> {
         Ok(SectionData {
             header: self.header.copy_to_backing_in(source, target)?,
             body: self.body.copy_to_backing_in(source, target)?,

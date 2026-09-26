@@ -1,12 +1,9 @@
 use bstr::{BStr, BString, ByteSlice, ByteVec};
-use gix_error::{ExnMessageResult, ResultExt};
+use gix_error::{ErrorExt, OptionExt, Result, ResultExt, bail};
 
 pub(crate) const NL: &[u8] = b"\n";
 pub(crate) const SPACE: &[u8] = b" ";
 const SPACE_OR_NL: &[u8] = b" \n";
-
-/// The result type shared by object parsers.
-pub(crate) type ParseResult<T> = ExnMessageResult<T>;
 
 /// Parse any multi-line object header field.
 ///
@@ -19,31 +16,31 @@ pub(crate) type ParseResult<T> = ExnMessageResult<T>;
 ///
 /// On success, `i` is advanced to the first byte after the final continuation
 /// line.
-pub(crate) fn any_header_field_multi_line<'a>(i: &mut &'a [u8]) -> ParseResult<(&'a [u8], BString)> {
+pub(crate) fn any_header_field_multi_line<'a>(i: &mut &'a [u8]) -> Result<(&'a [u8], BString)> {
     let mut c = *i;
     let input = c;
     let name_end = c
         .find_byteset(SPACE_OR_NL)
         .filter(|pos| *pos > 0)
-        .ok_or_else(crate::decode::empty_error)?;
+        .ok_or_raise(crate::decode::empty_error)?;
     if c.get(name_end) != Some(&b' ') {
-        return Err(crate::decode::empty_error().into());
+        bail!(crate::decode::empty_error());
     }
 
     c = &c[name_end + 1..];
-    let first_line_end = c.find_byte(b'\n').ok_or_else(crate::decode::empty_error)?;
+    let first_line_end = c.find_byte(b'\n').ok_or_raise(crate::decode::empty_error)?;
     c = &c[first_line_end + 1..];
 
     let mut continuation_end = name_end + 1 + first_line_end + 1;
     let mut continuation_count = 0usize;
     while c.first() == Some(&b' ') {
-        let line_end = c.find_byte(b'\n').ok_or_else(crate::decode::empty_error)?;
+        let line_end = c.find_byte(b'\n').ok_or_raise(crate::decode::empty_error)?;
         continuation_end += line_end + 1;
         c = &c[line_end + 1..];
         continuation_count += 1;
     }
     if continuation_count == 0 {
-        return Err(crate::decode::empty_error().into());
+        bail!(crate::decode::empty_error());
     }
 
     let bytes = input[name_end + 1..continuation_end].as_bstr();
@@ -69,14 +66,14 @@ pub(crate) fn any_header_field_multi_line<'a>(i: &mut &'a [u8]) -> ParseResult<(
 pub(crate) fn header_field<'a, T>(
     i: &mut &'a [u8],
     name: &'static [u8],
-    parse_value: impl FnOnce(&'a [u8]) -> ParseResult<T>,
-) -> ParseResult<T> {
+    parse_value: impl FnOnce(&'a [u8]) -> Result<T>,
+) -> Result<T> {
     let c = *i;
     let Some(rest) = c.strip_prefix(name).and_then(|rest| rest.strip_prefix(SPACE)) else {
-        return Err(crate::decode::empty_error().into());
+        bail!(crate::decode::empty_error());
     };
     let Some(nl) = rest.find_byte(b'\n') else {
-        return Err(crate::decode::empty_error().into());
+        bail!(crate::decode::empty_error());
     };
     let value = parse_value(&rest[..nl])?;
     *i = &rest[nl + 1..];
@@ -89,15 +86,15 @@ pub(crate) fn header_field<'a, T>(
 /// field name and the value bytes without the trailing newline.
 ///
 /// On success, `i` is advanced past the newline.
-pub(crate) fn any_header_field<'a>(i: &mut &'a [u8]) -> ParseResult<(&'a [u8], &'a [u8])> {
+pub(crate) fn any_header_field<'a>(i: &mut &'a [u8]) -> Result<(&'a [u8], &'a [u8])> {
     let mut c = *i;
     let input = c;
     let name_end = c
         .find_byteset(SPACE_OR_NL)
         .filter(|pos| *pos > 0)
-        .ok_or_else(crate::decode::empty_error)?;
+        .ok_or_raise(crate::decode::empty_error)?;
     if c.get(name_end) != Some(&b' ') {
-        return Err(crate::decode::empty_error().into());
+        bail!(crate::decode::empty_error());
     }
     c = &c[name_end + 1..];
     if let Some(value_end) = c.find_byte(b'\n') {
@@ -106,7 +103,7 @@ pub(crate) fn any_header_field<'a>(i: &mut &'a [u8]) -> ParseResult<(&'a [u8], &
         *i = rest;
         Ok((&input[..name_end], value))
     } else {
-        Err(crate::decode::empty_error().into())
+        Err(crate::decode::empty_error().raise())
     }
 }
 
@@ -115,9 +112,9 @@ pub(crate) fn any_header_field<'a>(i: &mut &'a [u8]) -> ParseResult<(&'a [u8], &
 /// Typical input is a 40-byte SHA-1 hex id or a 64-byte SHA-256 hex id,
 /// depending on `object_hash`. The entire input slice must be ASCII hex and
 /// match the expected object hash length.
-pub fn hex_hash(i: &[u8], hash_kind: gix_hash::Kind) -> ParseResult<&BStr> {
+pub fn hex_hash(i: &[u8], hash_kind: gix_hash::Kind) -> Result<&BStr> {
     if i.len() != hash_kind.len_in_hex() || !i.iter().all(u8::is_ascii_hexdigit) {
-        return Err(crate::decode::empty_error().into());
+        bail!(crate::decode::empty_error());
     }
     Ok(i.as_bstr())
 }
@@ -127,13 +124,13 @@ pub fn hex_hash(i: &[u8], hash_kind: gix_hash::Kind) -> ParseResult<&BStr> {
 /// Typical input is `Name <name@example.com> 1700000000 +0000`.
 /// The entire input slice must be consumed by
 /// `gix_actor`'s signature parser; trailing bytes cause an error.
-pub(crate) fn signature(mut i: &[u8]) -> ParseResult<gix_actor::SignatureRef<'_>> {
+pub(crate) fn signature(mut i: &[u8]) -> Result<gix_actor::SignatureRef<'_>> {
     let signature = gix_actor::SignatureRef::from_bytes_consuming(&mut i)
         .or_raise(|| gix_error::validation("Invalid actor signature"))?;
     if i.is_empty() {
         Ok(signature)
     } else {
-        Err(crate::decode::empty_error().into())
+        Err(crate::decode::empty_error().raise())
     }
 }
 
@@ -141,7 +138,7 @@ pub(crate) fn signature(mut i: &[u8]) -> ParseResult<gix_actor::SignatureRef<'_>
 ///
 /// Typical input is `Name <name@example.com> 1700000000 +0000`. On success, the
 /// returned [`BStr`] borrows all of `i`.
-pub(crate) fn signature_raw(i: &[u8]) -> ParseResult<&BStr> {
+pub(crate) fn signature_raw(i: &[u8]) -> Result<&BStr> {
     signature(i).map(|_| i.as_bstr())
 }
 
@@ -149,6 +146,6 @@ pub(crate) fn signature_raw(i: &[u8]) -> ParseResult<&BStr> {
 ///
 /// This is a convenience wrapper around [`signature`] for callers that already
 /// hold byte-string data.
-pub(crate) fn parse_signature(raw: &BStr) -> ExnMessageResult<gix_actor::SignatureRef<'_>> {
+pub(crate) fn parse_signature(raw: &BStr) -> Result<gix_actor::SignatureRef<'_>> {
     signature(raw.as_ref())
 }

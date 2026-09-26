@@ -1,12 +1,10 @@
-use gix_error::ResultExt;
 use std::{
     cmp::{Ordering, Reverse},
     collections::VecDeque,
 };
 
-use gix_error::ExnResult;
-
 use gix_date::SecondsSinceUnixEpoch;
+use gix_error::Result;
 use gix_hash::ObjectId;
 use smallvec::SmallVec;
 
@@ -71,7 +69,7 @@ pub enum Sorting {
     },
 }
 
-use Result as Either;
+use std::result::Result as Either;
 
 type QueueKey<T> = Either<T, Reverse<T>>;
 type CommitDateQueue = gix_revwalk::PriorityQueue<QueueKey<SecondsSinceUnixEpoch>, ObjectId>;
@@ -171,25 +169,21 @@ fn compute_hidden_frontier(
     hidden_tips: &[ObjectId],
     objects: &impl gix_object::Find,
     cache: Option<&gix_commitgraph::Graph>,
-) -> ExnResult<gix_revwalk::graph::IdMap<()>> {
+) -> Result<gix_revwalk::graph::IdMap<()>> {
     let mut graph = gix_revwalk::Graph::<gix_revwalk::graph::Commit<PaintFlags>>::new(objects, cache);
     let mut queue = gix_revwalk::PriorityQueue::<GenThenTime, ObjectId>::new();
 
     for &visible in visible_tips {
-        graph
-            .get_or_insert_full_commit(visible, |commit| {
-                commit.data |= PaintFlags::VISIBLE;
-                queue.insert(GenThenTime::from(&*commit), visible);
-            })
-            .or_erased()?;
+        graph.get_or_insert_full_commit(visible, |commit| {
+            commit.data |= PaintFlags::VISIBLE;
+            queue.insert(GenThenTime::from(&*commit), visible);
+        })?;
     }
     for &hidden in hidden_tips {
-        graph
-            .get_or_insert_full_commit(hidden, |commit| {
-                commit.data |= PaintFlags::HIDDEN;
-                queue.insert(GenThenTime::from(&*commit), hidden);
-            })
-            .or_erased()?;
+        graph.get_or_insert_full_commit(hidden, |commit| {
+            commit.data |= PaintFlags::HIDDEN;
+            queue.insert(GenThenTime::from(&*commit), hidden);
+        })?;
     }
 
     while queue.iter_unordered().any(|id| {
@@ -208,14 +202,12 @@ fn compute_hidden_frontier(
         }
 
         for parent_id in commit.parents.clone() {
-            graph
-                .get_or_insert_full_commit(parent_id, |parent| {
-                    if (parent.data & flags) != flags {
-                        parent.data |= flags;
-                        queue.insert(GenThenTime::from(&*parent), parent_id);
-                    }
-                })
-                .or_erased()?;
+            graph.get_or_insert_full_commit(parent_id, |parent| {
+                if (parent.data & flags) != flags {
+                    parent.data |= flags;
+                    queue.insert(GenThenTime::from(&*parent), parent_id);
+                }
+            })?;
         }
     }
 
@@ -238,10 +230,7 @@ mod init {
     };
     use crate::commit::{Either, Info, ParentIds, Parents, Simple};
     use gix_date::SecondsSinceUnixEpoch;
-    use gix_error::ErrorExt;
-    use gix_error::ExnResult;
-    use gix_error::Result;
-    use gix_error::ResultExt;
+    use gix_error::{ErrorExt, Result, ResultExt};
     use gix_hash::{ObjectId, oid};
     use gix_object::{CommitRefIter, FindExt};
     use std::{cmp::Reverse, collections::VecDeque};
@@ -369,7 +358,7 @@ mod init {
             out
         }
 
-        fn compute_hidden_frontier(&mut self, hidden_tips: Vec<ObjectId>) -> ExnResult {
+        fn compute_hidden_frontier(&mut self, hidden_tips: Vec<ObjectId>) -> Result {
             self.state.hidden.clear();
             if hidden_tips.is_empty() {
                 return Ok(());
@@ -396,11 +385,11 @@ mod init {
         queue: &mut CommitDateQueue,
         objects: &impl gix_object::Find,
         buf: &mut Vec<u8>,
-    ) -> ExnResult {
-        let commit_iter = objects.find_commit_iter(&commit_id, buf).or_erased()?;
+    ) -> Result {
+        let commit_iter = objects.find_commit_iter(&commit_id, buf)?;
         let time = commit_iter
             .committer()
-            .or_raise_erased(|| gix_error::corruption("A commit could not be decoded during traversal"))?
+            .or_raise(|| gix_error::corruption("A commit could not be decoded during traversal"))?
             .seconds();
         let key = to_queue_key(time, order);
         match (cutoff_time, order) {
@@ -497,20 +486,16 @@ mod init {
                 if let Err(err) = self.compute_hidden_frontier(hidden_tips) {
                     self.state.queue.clear();
                     self.state.next.clear();
-                    return Some(Err(err.into()));
+                    return Some(Err(err));
                 }
             }
             if matches!(self.parents, Parents::First) {
-                self.next_by_topology().map(|res| res.map_err(Into::into))
+                self.next_by_topology()
             } else {
                 match self.sorting {
-                    Sorting::BreadthFirst => self.next_by_topology().map(|res| res.map_err(Into::into)),
-                    Sorting::ByCommitTime(order) => {
-                        self.next_by_commit_date(order, None).map(|res| res.map_err(Into::into))
-                    }
-                    Sorting::ByCommitTimeCutoff { seconds, order } => self
-                        .next_by_commit_date(order, seconds.into())
-                        .map(|res| res.map_err(Into::into)),
+                    Sorting::BreadthFirst => self.next_by_topology(),
+                    Sorting::ByCommitTime(order) => self.next_by_commit_date(order, None),
+                    Sorting::ByCommitTimeCutoff { seconds, order } => self.next_by_commit_date(order, seconds.into()),
                 }
             }
         }
@@ -526,7 +511,7 @@ mod init {
             &mut self,
             order: CommitTimeOrder,
             cutoff: Option<SecondsSinceUnixEpoch>,
-        ) -> Option<ExnResult<Info>> {
+        ) -> Option<Result<Info>> {
             let state = &mut self.state;
             let next = &mut state.queue;
 
@@ -591,16 +576,14 @@ mod init {
                                 }
                                 Ok(_unused_token) => break,
                                 Err(err) => {
-                                    return Some(Err(err
-                                        .and_raise(gix_error::corruption(
-                                            "A commit could not be decoded during traversal",
-                                        ))
-                                        .erased()));
+                                    return Some(Err(err.and_raise(gix_error::corruption(
+                                        "A commit could not be decoded during traversal",
+                                    ))));
                                 }
                             }
                         }
                     }
-                    Err(err) => return Some(Err(err.raise_erased())),
+                    Err(err) => return Some(Err(err)),
                 }
 
                 return Some(Ok(Info {
@@ -612,7 +595,7 @@ mod init {
             }
         }
 
-        fn next_by_topology(&mut self) -> Option<ExnResult<Info>> {
+        fn next_by_topology(&mut self) -> Option<Result<Info>> {
             let state = &mut self.state;
             let next = &mut state.next;
 
@@ -662,16 +645,14 @@ mod init {
                                 }
                                 Ok(_a_token_past_the_parents) => break,
                                 Err(err) => {
-                                    return Some(Err(err
-                                        .and_raise(gix_error::corruption(
-                                            "A commit could not be decoded during traversal",
-                                        ))
-                                        .erased()));
+                                    return Some(Err(err.and_raise(gix_error::corruption(
+                                        "A commit could not be decoded during traversal",
+                                    ))));
                                 }
                             }
                         }
                     }
-                    Err(err) => return Some(Err(err.raise_erased())),
+                    Err(err) => return Some(Err(err)),
                 }
 
                 return Some(Ok(Info {

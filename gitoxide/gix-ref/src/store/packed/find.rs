@@ -1,5 +1,4 @@
-use gix_error::Result;
-use gix_error::{ErrorExt, ExnResult, Message, ResultExt, message};
+use gix_error::{ErrorExt, Message, OptionExt, Result, ResultExt, message};
 
 use gix_object::bstr::{BStr, BString};
 
@@ -18,7 +17,7 @@ impl packed::Buffer {
     {
         let name = name
             .try_into()
-            .or_raise_erased(|| message("The ref name or path is not a valid ref name"))?;
+            .or_raise(|| message("The ref name or path is not a valid ref name"))?;
         let mut buf = BString::default();
         for inbetween in &["", "tags", "heads", "remotes"] {
             let (name, was_absolute) = if name.looks_like_full_name(false) {
@@ -43,7 +42,7 @@ impl packed::Buffer {
 
     /// Look up a resolved name. Decode failures include [metadata](gix_error::Error::metadata()) `name` (bytes), the
     /// requested full name.
-    pub(crate) fn try_find_full_name(&self, name: &FullNameRef) -> ExnResult<Option<packed::Reference<'_>>> {
+    pub(crate) fn try_find_full_name(&self, name: &FullNameRef) -> Result<Option<packed::Reference<'_>>> {
         match self.binary_search_by(name.as_bstr()) {
             Ok(line_start) => {
                 let mut input = &self.as_ref()[line_start..];
@@ -57,7 +56,7 @@ impl packed::Buffer {
                 }
             }
         }
-        .or_raise_erased(|| Message::new("Could not decode packed reference").with("name", name.as_bstr()))
+        .or_raise(|| Message::new("Could not decode packed reference").with("name", name.as_bstr()))
     }
 
     /// Find a reference with the given `name` and return it.
@@ -68,13 +67,11 @@ impl packed::Buffer {
     {
         let name = name
             .try_into()
-            .or_raise_erased(|| message("The ref name or path is not a valid ref name"))?;
-        Ok(self.try_find::<_, std::convert::Infallible>(name)?.ok_or_else(|| {
-            crate::file::find::NotFound {
+            .or_raise(|| message("The ref name or path is not a valid ref name"))?;
+        self.try_find::<_, std::convert::Infallible>(name)?
+            .ok_or_raise(|| crate::file::find::NotFound {
                 name: name.to_partial_path().to_owned(),
-            }
-            .raise_erased()
-        })?)
+            })
     }
 
     /// Perform a binary search where `Ok(pos)` is the beginning of the line that matches `name` perfectly and `Err(pos)`

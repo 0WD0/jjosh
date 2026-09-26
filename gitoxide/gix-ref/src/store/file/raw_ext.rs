@@ -1,7 +1,7 @@
 use gix_error::Result;
 use std::collections::BTreeSet;
 
-use gix_error::{ErrorExt, Message, ResultExt, corruption, not_found};
+use gix_error::{ErrorExt, Message, OptionExt, ResultExt, bail, corruption, not_found};
 use gix_hash::ObjectId;
 
 use crate::{
@@ -146,16 +146,15 @@ impl ReferenceExt for Reference {
                         object_hash: hash_kind,
                     } = objects
                         .try_find(&object_id, &mut buf)
-                        .or_raise_erased(|| {
+                        .or_raise(|| {
                             Message::new("Could not peel reference to an object")
                                 .with("object_id", object_id.to_string())
                                 .with("reference", self.name.as_bstr())
                         })?
-                        .ok_or_else(|| {
+                        .ok_or_raise(|| {
                             not_found("Could not peel reference to an object: object could not be found")
                                 .with("object_id", object_id.to_string())
                                 .with("reference", self.name.as_bstr())
-                                .raise_erased()
                         })?;
                     match kind {
                         gix_object::Kind::Tag => {
@@ -166,8 +165,7 @@ impl ReferenceExt for Reference {
                                         "Could not decode tag {object_id} as referred to by {:?}",
                                         self.name.0
                                     ))
-                                })
-                                .or_erased()?;
+                                })?;
                         }
                         _ => break object_id,
                     }
@@ -198,19 +196,16 @@ impl ReferenceExt for Reference {
                 while let Some(next) = cursor.follow_packed(store, packed) {
                     let next = next?;
                     if seen.contains(&next.name) {
-                        return Err(corruption("Aborting symbolic reference cycle")
-                            .with("path", store.reference_path(cursor.name.as_ref()))
-                            .raise()
-                            .into());
+                        bail!(
+                            corruption("Aborting symbolic reference cycle")
+                                .with("path", store.reference_path(cursor.name.as_ref()))
+                        );
                     }
                     *cursor = next;
                     seen.insert(cursor.name.clone());
                     const MAX_REF_DEPTH: usize = 5;
                     if seen.len() == MAX_REF_DEPTH {
-                        return Err(Message::new("Symbolic reference depth limit exceeded")
-                            .with("max_depth", MAX_REF_DEPTH)
-                            .raise()
-                            .into());
+                        bail!(Message::new("Symbolic reference depth limit exceeded").with("max_depth", MAX_REF_DEPTH));
                     }
                 }
                 let oid = self.target.try_id().expect("peeled ref").to_owned();
@@ -222,7 +217,7 @@ impl ReferenceExt for Reference {
     fn follow(&self, store: &file::Store) -> Option<Result<Reference>> {
         let packed = match store.assure_packed_refs_uptodate() {
             Ok(packed) => packed,
-            Err(err) => return Some(Err(err.into())),
+            Err(err) => return Some(Err(err)),
         };
         self.follow_packed(store, packed.as_ref().map(|b| &***b))
     }
@@ -235,8 +230,7 @@ impl ReferenceExt for Reference {
                 Ok(None) => Some(Err(file::find::NotFound {
                     name: full_name.to_path().to_owned(),
                 }
-                .raise()
-                .into())),
+                .raise())),
                 Err(err) => Some(Err(err)),
             },
         }

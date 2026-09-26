@@ -15,11 +15,7 @@ pub mod ref_iter;
 impl<'a> TagRef<'a> {
     /// Deserialize a tag from `data`.
     pub fn from_bytes(mut data: &'a [u8], hash_kind: gix_hash::Kind) -> Result<TagRef<'a>> {
-        let input = &mut data;
-        match decode::git_tag(input, hash_kind) {
-            Ok(tag) => Ok(tag),
-            Err(err) => Err(err.into()),
-        }
+        decode::git_tag(&mut data, hash_kind)
     }
     /// The object this tag points to as `Id`.
     pub fn target(&self) -> gix_hash::ObjectId {

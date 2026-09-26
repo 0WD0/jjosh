@@ -1,7 +1,9 @@
+#[cfg(any(feature = "tar", feature = "tar_gz"))]
+use gix_error::ErrorExt;
 use gix_error::Result;
-use gix_error::{ErrorExt, message};
 #[cfg(any(feature = "tar", feature = "tar_gz", feature = "zip"))]
-use gix_error::{ExnMessageResult, ResultExt};
+use gix_error::ResultExt;
+use gix_error::{bail, message};
 use gix_worktree_stream::{Entry, Stream};
 
 use crate::{Format, Options};
@@ -28,11 +30,9 @@ where
     NextFn: FnMut(&mut Stream) -> Result<Option<Entry<'_>>>,
 {
     if opts.format == Format::InternalTransientNonPersistable {
-        return Err(
-            message("The internal format cannot be used as an archive, it's merely a debugging tool")
-                .raise()
-                .into(),
-        );
+        bail!(message(
+            "The internal format cannot be used as an archive, it's merely a debugging tool"
+        ));
     }
     #[cfg(any(feature = "tar", feature = "tar_gz"))]
     {
@@ -44,7 +44,7 @@ where
         }
 
         impl<W: std::io::Write> State<W> {
-            pub fn new(format: Format, mtime: gix_date::SecondsSinceUnixEpoch, out: W) -> ExnMessageResult<Self> {
+            pub fn new(format: Format, mtime: gix_date::SecondsSinceUnixEpoch, out: W) -> Result<Self> {
                 match format {
                     Format::InternalTransientNonPersistable => unreachable!("handled earlier"),
                     Format::Zip { .. } => {
@@ -134,11 +134,10 @@ where
     #[cfg(not(any(feature = "tar", feature = "tar_gz")))]
     {
         let _ = (next_entry, out);
-        return Err(
-            message!("Support for the format '{:?}' was not compiled in", opts.format)
-                .raise()
-                .into(),
-        );
+        bail!(message!(
+            "Support for the format '{:?}' was not compiled in",
+            opts.format
+        ));
     }
     #[allow(
         unreachable_code,
@@ -188,18 +187,12 @@ where
     #[cfg(not(feature = "zip"))]
     {
         let _ = compression_level;
-        #[expect(
-            clippy::needless_return,
-            reason = "the explicit return keeps feature-dependent branches structurally consistent"
-        )]
-        return Err(message!(
+        bail!(message!(
             "Support for the format '{:?}' was not compiled in",
             Format::Zip {
                 compression_level: None
             }
-        )
-        .raise()
-        .into());
+        ));
     }
 
     #[cfg(feature = "zip")]
@@ -214,7 +207,7 @@ fn append_zip_entry<W: std::io::Write + std::io::Seek>(
     mtime: rawzip::time::UtcDateTime,
     compression_level: Option<i64>,
     tree_prefix: Option<&bstr::BString>,
-) -> ExnMessageResult {
+) -> Result {
     use bstr::ByteSlice;
     let path = add_prefix(entry.relative_path(), tree_prefix).into_owned();
     let unix_permissions = if entry.mode.is_executable() { 0o755 } else { 0o644 };
@@ -309,7 +302,7 @@ fn append_tar_entry<W: std::io::Write>(
     mut entry: gix_worktree_stream::Entry<'_>,
     mtime_seconds_since_epoch: i64,
     opts: &Options,
-) -> ExnMessageResult {
+) -> Result {
     let mut header = tar::Header::new_gnu();
     header.set_mtime(mtime_seconds_since_epoch as u64);
     header.set_entry_type(tar_entry_type(entry.mode));

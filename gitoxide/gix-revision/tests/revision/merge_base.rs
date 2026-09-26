@@ -6,7 +6,7 @@ use crate::odb_at;
 #[test]
 fn lookup_failures_retain_their_causes() {
     let mut error_snapshots = Vec::new();
-    use gix_error::{ErrorExt, ResultExt};
+    use gix_error::ErrorExt;
 
     struct FailingLookup(std::io::ErrorKind);
 
@@ -16,7 +16,7 @@ fn lookup_failures_retain_their_causes() {
             _id: &gix_hash::oid,
             _buffer: &'a mut Vec<u8>,
         ) -> gix_error::Result<Option<gix_object::Data<'a>>> {
-            Err(std::io::Error::from(self.0).raise().into())
+            Err(std::io::Error::from(self.0).raise())
         }
     }
 
@@ -24,9 +24,7 @@ fn lookup_failures_retain_their_causes() {
         let mut graph = gix_revision::Graph::new(FailingLookup(kind), None);
         let hash = gix_testtools::object_hash();
         let err = merge_base(hash.null(), &[hash.empty_blob()], &mut graph)
-            .or_erased()
-            .expect_err("the custom object store always fails")
-            .into_error();
+            .expect_err("the custom object store always fails");
         error_snapshots.push(gix_testtools::redact_debug_snapshot(&(err), &[]));
         assert_eq!(
             err.downcast_any_ref::<std::io::Error>().map(std::io::Error::kind),

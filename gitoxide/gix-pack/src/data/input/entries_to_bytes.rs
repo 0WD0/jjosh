@@ -1,8 +1,8 @@
 use gix_error::Result;
-use gix_error::ResultExt;
+
 use std::iter::Peekable;
 
-use gix_error::{ExnResult, message};
+use gix_error::{ErrorExt, message};
 
 use crate::data::input;
 
@@ -56,20 +56,18 @@ where
         self.trailer
     }
 
-    fn next_inner(&mut self, entry: input::Entry) -> ExnResult<input::Entry> {
+    fn next_inner(&mut self, entry: input::Entry) -> Result<input::Entry> {
         if self.num_entries == 0 {
             let header_bytes = crate::data::header::encode(self.data_version, 0);
             self.output
                 .write_all(&header_bytes[..])
-                .map_err(gix_hash::io::from_std_io)
-                .or_erased()?;
+                .map_err(gix_hash::io::from_std_io)?;
         }
         self.num_entries += 1;
         entry
             .header
             .write_to(entry.decompressed_size, &mut self.output)
-            .map_err(gix_hash::io::from_std_io)
-            .or_erased()?;
+            .map_err(gix_hash::io::from_std_io)?;
         self.output
             .write_all(
                 entry
@@ -77,29 +75,24 @@ where
                     .as_deref()
                     .expect("caller must configure generator to keep compressed bytes"),
             )
-            .map_err(gix_hash::io::from_std_io)
-            .or_erased()?;
+            .map_err(gix_hash::io::from_std_io)?;
         Ok(entry)
     }
 
-    fn write_header_and_digest(&mut self, last_entry: Option<&mut input::Entry>) -> ExnResult {
+    fn write_header_and_digest(&mut self, last_entry: Option<&mut input::Entry>) -> Result {
         let header_bytes = crate::data::header::encode(self.data_version, self.num_entries);
         let num_bytes_written = if last_entry.is_some() {
-            self.output
-                .stream_position()
-                .map_err(gix_hash::io::from_std_io)
-                .or_erased()?
+            self.output.stream_position().map_err(gix_hash::io::from_std_io)?
         } else {
             header_bytes.len() as u64
         };
-        self.output.rewind().map_err(gix_hash::io::from_std_io).or_erased()?;
+        self.output.rewind().map_err(gix_hash::io::from_std_io)?;
         self.output
             .write_all(&header_bytes[..])
-            .map_err(gix_hash::io::from_std_io)
-            .or_erased()?;
-        self.output.flush().map_err(gix_hash::io::from_std_io).or_erased()?;
+            .map_err(gix_hash::io::from_std_io)?;
+        self.output.flush().map_err(gix_hash::io::from_std_io)?;
 
-        self.output.rewind().map_err(gix_hash::io::from_std_io).or_erased()?;
+        self.output.rewind().map_err(gix_hash::io::from_std_io)?;
         let interrupt_never = std::sync::atomic::AtomicBool::new(false);
         let digest = gix_hash::bytes(
             &mut self.output,
@@ -107,13 +100,11 @@ where
             self.object_hash,
             &mut gix_features::progress::Discard,
             &interrupt_never,
-        )
-        .or_erased()?;
+        )?;
         self.output
             .write_all(digest.as_slice())
-            .map_err(gix_hash::io::from_std_io)
-            .or_erased()?;
-        self.output.flush().map_err(gix_hash::io::from_std_io).or_erased()?;
+            .map_err(gix_hash::io::from_std_io)?;
+        self.output.flush().map_err(gix_hash::io::from_std_io)?;
 
         self.is_done = true;
         if let Some(last_entry) = last_entry {
@@ -139,7 +130,7 @@ where
 
         match self.input.next() {
             Some(res) => Some(match res {
-                Ok(entry) => (self
+                Ok(entry) => self
                     .next_inner(entry)
                     .and_then(|mut entry| {
                         if self.input.peek().is_none() {
@@ -148,8 +139,7 @@ where
                             Ok(entry)
                         }
                     })
-                    .map_err(hash_io_error))
-                .map_err(Into::into),
+                    .map_err(hash_io_error),
                 Err(err) => {
                     self.is_done = true;
                     Err(err)
@@ -157,7 +147,7 @@ where
             }),
             None => match self.write_header_and_digest(None) {
                 Ok(_) => None,
-                Err(err) => Some(Err(hash_io_error(err).into())),
+                Err(err) => Some(Err(hash_io_error(err))),
             },
         }
     }
@@ -167,7 +157,6 @@ where
     }
 }
 
-fn hash_io_error(err: gix_error::Exn) -> gix_error::Exn {
-    err.raise(message("An IO operation failed while streaming an entry"))
-        .erased()
+fn hash_io_error(err: gix_error::Error) -> gix_error::Error {
+    err.and_raise(message("An IO operation failed while streaming an entry"))
 }

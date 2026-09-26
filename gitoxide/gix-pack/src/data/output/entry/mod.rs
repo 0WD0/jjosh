@@ -1,7 +1,7 @@
 use gix_error::Result;
 use std::io::Write;
 
-use gix_error::{ErrorExt, ResultExt, message};
+use gix_error::{ErrorExt, ResultExt, bail, message};
 use gix_hash::ObjectId;
 
 use crate::{data, data::output, find};
@@ -87,8 +87,7 @@ impl output::Entry {
                     return Some(Err(gix_error::corruption(
                         "an ofs-delta base distance pointing before pack start",
                     )
-                    .raise()
-                    .into()));
+                    .raise()));
                 };
                 potential_bases
                     .binary_search_by(|e| {
@@ -147,13 +146,13 @@ impl output::Entry {
                 if let Err(err) = std::io::copy(&mut &*obj.data, &mut out) {
                     match err.kind() {
                         std::io::ErrorKind::Other => {
-                            return Err(err.and_raise(message("Failed to compress pack entry")).into());
+                            bail!(err.and_raise(message("Failed to compress pack entry")));
                         }
                         err => unreachable!("Should never see other errors than zlib, but got {:?}", err),
                     }
                 }
                 out.flush()
-                    .or_raise_erased(|| message("Failed to finish compressing pack entry"))?;
+                    .or_raise(|| message("Failed to finish compressing pack entry"))?;
                 out.into_inner()
             },
         })

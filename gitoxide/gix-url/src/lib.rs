@@ -28,7 +28,7 @@ use gix_error::Result;
 use std::{borrow::Cow, path::PathBuf};
 
 use bstr::{BStr, BString, ByteSlice};
-use gix_error::ErrorExt;
+use gix_error::bail;
 use gix_utils::AsBStr;
 
 const HTTP_PATH_ENCODE_SET: &percent_encoding::AsciiSet = &percent_encoding::CONTROLS
@@ -81,12 +81,10 @@ pub fn parse(input: impl AsBStr) -> Result<Url> {
     let input = input.as_bstr();
     match parse::find_scheme(input) {
         InputScheme::RemoteHelper { helper_end } => Ok(parse::remote_helper(input, helper_end)),
-        InputScheme::Local => Ok(parse::local(input)?),
-        InputScheme::Url { protocol_end } if input[..protocol_end] == *b"file" => {
-            Ok(parse::file_url(input, protocol_end)?)
-        }
-        InputScheme::Url { protocol_end } => Ok(parse::url(input, protocol_end)?),
-        InputScheme::Scp { colon } => Ok(parse::scp(input, colon)?),
+        InputScheme::Local => parse::local(input),
+        InputScheme::Url { protocol_end } if input[..protocol_end] == *b"file" => parse::file_url(input, protocol_end),
+        InputScheme::Url { protocol_end } => parse::url(input, protocol_end),
+        InputScheme::Scp { colon } => parse::scp(input, colon),
     }
 }
 
@@ -335,10 +333,7 @@ impl Url {
         if let Scheme::Helper(name) = &scheme
             && !parse::is_valid_remote_helper_name(name.as_bytes())
         {
-            return Err(gix_error::validation("Invalid remote-helper name")
-                .with("input", name.as_bytes())
-                .raise()
-                .into());
+            bail!(gix_error::validation("Invalid remote-helper name").with("input", name.as_bytes()));
         }
         let is_http = matches!(scheme, Scheme::Http | Scheme::Https);
         let mut parsed = parse(

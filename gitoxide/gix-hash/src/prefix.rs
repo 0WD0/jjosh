@@ -1,5 +1,5 @@
 use gix_error::ErrorExt;
-use gix_error::Result;
+use gix_error::{Result, bail};
 use std::cmp::Ordering;
 
 use crate::{ChangeId, ObjectId, Prefix, change_id::ReverseHexDisplay, oid};
@@ -19,15 +19,13 @@ impl Prefix {
                 id.kind(),
                 id.kind().len_in_hex()
             ))
-            .raise()
-            .into())
+            .raise())
         } else if hex_len < Self::MIN_HEX_LEN {
             Err(gix_error::validation(format!(
                 "The minimum hex length of a short object id is {}, got {hex_len}",
                 Self::MIN_HEX_LEN
             ))
-            .raise()
-            .into())
+            .raise())
         } else {
             let mut prefix = ObjectId::null(id.kind());
             let b = prefix.as_mut_slice();
@@ -104,12 +102,10 @@ impl Prefix {
     pub fn from_hex(value: &str) -> Result<Self> {
         let hex_len = value.len();
         if hex_len < Self::MIN_HEX_LEN {
-            return Err(gix_error::validation(format!(
+            bail!(gix_error::validation(format!(
                 "The minimum hex length of a short object id is {}, got {hex_len}",
                 Self::MIN_HEX_LEN
-            ))
-            .raise()
-            .into());
+            )));
         }
         Self::from_hex_nonempty(value)
     }
@@ -120,19 +116,15 @@ impl Prefix {
         let hex_len = value.len();
 
         if hex_len > crate::Kind::longest().len_in_hex() {
-            return Err(gix_error::validation(format!(
+            bail!(gix_error::validation(format!(
                 "An id cannot be larger than {} chars in hex, but {hex_len} was requested",
                 crate::Kind::longest().len_in_hex()
-            ))
-            .raise()
-            .into());
+            )));
         } else if hex_len == 0 {
-            return Err(gix_error::validation(format!(
+            bail!(gix_error::validation(format!(
                 "The minimum hex length of a short object id is {}, got {hex_len}",
                 Self::MIN_HEX_LEN
-            ))
-            .raise()
-            .into());
+            )));
         }
 
         let kind = crate::Kind::from_hex_len(hex_len).expect("hex-len is already checked");
@@ -160,12 +152,10 @@ impl Prefix {
     pub fn from_reverse_hex(value: &str) -> Result<Self> {
         let hex_len = value.len();
         if hex_len < Self::MIN_HEX_LEN {
-            return Err(gix_error::validation(format!(
+            bail!(gix_error::validation(format!(
                 "The minimum hex length of a short object id is {}, got {hex_len}",
                 Self::MIN_HEX_LEN
-            ))
-            .raise()
-            .into());
+            )));
         }
         Self::from_reverse_hex_nonempty(value)
     }
@@ -174,19 +164,15 @@ impl Prefix {
     pub fn from_reverse_hex_nonempty(value: &str) -> Result<Self> {
         let hex_len = value.len();
         if hex_len > crate::Kind::longest().len_in_hex() {
-            return Err(gix_error::validation(format!(
+            bail!(gix_error::validation(format!(
                 "An id cannot be larger than {} chars in hex, but {hex_len} was requested",
                 crate::Kind::longest().len_in_hex()
-            ))
-            .raise()
-            .into());
+            )));
         } else if hex_len == 0 {
-            return Err(gix_error::validation(format!(
+            bail!(gix_error::validation(format!(
                 "The minimum hex length of a short object id is {}, got {hex_len}",
                 Self::MIN_HEX_LEN
-            ))
-            .raise()
-            .into());
+            )));
         }
 
         let mut hex = crate::Kind::hex_buf();

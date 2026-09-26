@@ -1773,6 +1773,7 @@ dependencies = [
  "gix-error",
  "gix-path",
  "gix-testtools",
+ "gix-utils",
  "insta",
  "libc",
  "serde",

@@ -3,11 +3,10 @@ use std::sync::LazyLock;
 static BASELINE: LazyLock<baseline::Baseline> = LazyLock::new(|| baseline::parse().unwrap());
 
 pub mod baseline {
-    use crate::Result;
     use std::{borrow::Borrow, collections::HashMap};
 
     use bstr::{BString, ByteSlice, ByteVec};
-    use gix_error::{Exn, ExnResult};
+    use gix_error::{Error, Result};
     use gix_hash::ObjectId;
     use gix_refspec::{
         MatchGroup,
@@ -92,9 +91,7 @@ pub mod baseline {
         check_fetch_remote(specs, Mode::Normal).expect("refspec mappings agree with Git");
     }
 
-    pub fn agrees_with_fetch_specs_validation_error<'a>(
-        specs: impl IntoIterator<Item = &'a str> + Clone,
-    ) -> Exn<gix_refspec::match_group::validate::Error> {
+    pub fn agrees_with_fetch_specs_validation_error<'a>(specs: impl IntoIterator<Item = &'a str> + Clone) -> Error {
         check_fetch_remote(specs, Mode::Normal).expect_err("conflicting refspecs fail validation")
     }
 
@@ -111,10 +108,7 @@ pub mod baseline {
         Custom { expected: Vec<Mapping>, fixes: Vec<Fix> },
     }
 
-    fn check_fetch_remote<'a>(
-        specs: impl IntoIterator<Item = &'a str> + Clone,
-        mode: Mode,
-    ) -> ExnResult<(), gix_refspec::match_group::validate::Error> {
+    fn check_fetch_remote<'a>(specs: impl IntoIterator<Item = &'a str> + Clone, mode: Mode) -> Result {
         let match_group = MatchGroup::from_fetch_specs(
             specs
                 .clone()
@@ -189,7 +183,7 @@ pub mod baseline {
         }
     }
 
-    fn parse_input() -> Result<Vec<Ref>> {
+    fn parse_input() -> crate::Result<Vec<Ref>> {
         let dir = gix_testtools::scripted_fixture_read_only("match_baseline.sh")?;
         let refs_buf = std::fs::read(dir.join("clone").join("remote-refs.list"))?;
         let mut out = Vec::new();
@@ -213,7 +207,7 @@ pub mod baseline {
         Ok(out)
     }
 
-    pub(crate) fn parse() -> Result<Baseline> {
+    pub(crate) fn parse() -> crate::Result<Baseline> {
         let dir = gix_testtools::scripted_fixture_read_only("match_baseline.sh")?;
         let buf = std::fs::read(dir.join("clone").join("baseline.git"))?;
 

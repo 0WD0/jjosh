@@ -1,5 +1,4 @@
-use gix_error::Result;
-use gix_error::{ErrorExt, ExnResult, Message, ResultExt, message};
+use gix_error::{ErrorExt, Message, Result, ResultExt, bail, message};
 
 use crate::{
     FullName, FullNameRef, Reference, Target, packed,
@@ -23,18 +22,15 @@ impl Transaction<'_, '_> {
         store: &file::Store,
         name: &FullNameRef,
         packed: Option<&packed::Buffer>,
-    ) -> ExnResult<Option<Reference>> {
+    ) -> Result<Option<Reference>> {
         let loose = store
             .ref_contents(name)
-            .or_raise_erased(|| message("Could not read existing reference"))?
+            .or_raise(|| message("Could not read existing reference"))?
             // Git permits replacing malformed loose references, but I/O errors must propagate.
             .and_then(|buf| loose::Reference::try_from_path(name.to_owned(), &buf, store.object_hash).ok())
             .map(Reference::from);
         match (loose, packed) {
-            (None, Some(packed)) => packed
-                .try_find(name)
-                .map(|reference| reference.map(Into::into))
-                .or_erased(),
+            (None, Some(packed)) => packed.try_find(name).map(|reference| reference.map(Into::into)),
             (reference, _) => Ok(reference),
         }
     }
@@ -45,7 +41,7 @@ impl Transaction<'_, '_> {
         packed: Option<&packed::Buffer>,
         change: &mut Edit,
         direct_to_packed_refs: bool,
-    ) -> ExnResult {
+    ) -> Result {
         use std::io::Write;
         assert!(
             change.lock.is_none(),
@@ -58,7 +54,7 @@ impl Transaction<'_, '_> {
         // returning the configured validation error.
         store
             .check_windows_device_name(change.update.name.as_ref())
-            .or_raise_erased(|| message("Invalid reference filename"))?;
+            .or_raise(|| message("Invalid reference filename"))?;
 
         let lock = match &mut change.update.change {
             Change::Delete { expected, .. } => {
@@ -68,8 +64,7 @@ impl Transaction<'_, '_> {
                     lock_fail_mode,
                     Some(base.clone().into_owned()),
                     0,
-                )
-                .or_erased()?;
+                )?;
 
                 let existing_ref = Self::read_existing_ref(store, change.update.name.as_ref(), packed)?;
 
@@ -80,7 +75,7 @@ impl Transaction<'_, '_> {
                     (PreviousValue::ExistingMustMatch(_) | PreviousValue::Any, None)
                     | (PreviousValue::MustExist | PreviousValue::Any, Some(_)) => {}
                     (PreviousValue::MustExist | PreviousValue::MustExistAndMatch(_), None) => {
-                        return Err(gix_error::not_found("The reference to delete must exist").raise_erased());
+                        bail!(gix_error::not_found("The reference to delete must exist"));
                     }
                     (
                         PreviousValue::MustExistAndMatch(previous) | PreviousValue::ExistingMustMatch(previous),
@@ -93,8 +88,7 @@ impl Transaction<'_, '_> {
                                 full_name: change.name(),
                                 actual,
                             }
-                            .and_raise(context)
-                            .erased());
+                            .and_raise(context));
                         }
                     }
                 }
@@ -116,7 +110,7 @@ impl Transaction<'_, '_> {
                         0,
                     )
                 };
-                let mut lock = obtain_lock().or_erased()?;
+                let mut lock = obtain_lock()?;
 
                 let existing_ref = Self::read_existing_ref(store, change.update.name.as_ref(), packed)?;
 
@@ -125,7 +119,7 @@ impl Transaction<'_, '_> {
                     | (PreviousValue::MustExist, Some(_))
                     | (PreviousValue::MustNotExist | PreviousValue::ExistingMustMatch(_), None) => {}
                     (PreviousValue::MustExist, None) => {
-                        return Err(gix_error::not_found("The reference to update must exist").raise_erased());
+                        bail!(gix_error::not_found("The reference to update must exist"));
                     }
                     (PreviousValue::MustNotExist, Some(existing)) => {
                         if existing.target != *new {
@@ -134,8 +128,7 @@ impl Transaction<'_, '_> {
                                 full_name: change.name(),
                                 actual: existing.target.clone(),
                             }
-                            .and_raise(context)
-                            .erased());
+                            .and_raise(context));
                         }
                     }
                     (
@@ -149,16 +142,14 @@ impl Transaction<'_, '_> {
                                 full_name: change.name(),
                                 actual,
                             }
-                            .and_raise(context)
-                            .erased());
+                            .and_raise(context));
                         }
                     }
 
                     (PreviousValue::MustExistAndMatch(previous), None) => {
-                        return Err(
-                            gix_error::not_found(format!("The reference must exist with content {previous}"))
-                                .raise_erased(),
-                        );
+                        bail!(gix_error::not_found(format!(
+                            "The reference must exist with content {previous}"
+                        )));
                     }
                 }
 
@@ -185,16 +176,10 @@ impl Transaction<'_, '_> {
                         Target::Object(oid) => writeln!(file, "{oid}"),
                         Target::Symbolic(name) => writeln!(file, "ref: {}", name.0),
                     })
-                    .or_raise_erased(|| message("Could not write loose reference"))?;
-                    Some(
-                        lock.close()
-                            .or_raise_erased(|| message("Could not close reference lock"))?,
-                    )
+                    .or_raise(|| message("Could not write loose reference"))?;
+                    Some(lock.close().or_raise(|| message("Could not close reference lock"))?)
                 } else if keep_lock_for_loose_source_delete {
-                    Some(
-                        lock.close()
-                            .or_raise_erased(|| message("Could not close reference lock"))?,
-                    )
+                    Some(lock.close().or_raise(|| message("Could not close reference lock"))?)
                 } else {
                     None
                 }
@@ -221,11 +206,11 @@ impl Transaction<'_, '_> {
         ref_files_lock_fail_mode: gix_lock::acquire::Fail,
         packed_refs_lock_fail_mode: gix_lock::acquire::Fail,
     ) -> Result<Self> {
-        Ok(self.prepare_inner(
+        self.prepare_inner(
             &mut edits.into_iter(),
             ref_files_lock_fail_mode,
             packed_refs_lock_fail_mode,
-        )?)
+        )
     }
 
     /// Failed edits include [metadata](gix_error::Error::metadata()) `reference` (requested name bytes) and `referent`
@@ -235,7 +220,7 @@ impl Transaction<'_, '_> {
         edits: &mut dyn Iterator<Item = RefEdit>,
         ref_files_lock_fail_mode: gix_lock::acquire::Fail,
         packed_refs_lock_fail_mode: gix_lock::acquire::Fail,
-    ) -> ExnResult<Self> {
+    ) -> Result<Self> {
         assert!(self.updates.is_none(), "BUG: Must not call prepare(…) multiple times");
         let store = self.store;
         let mut updates: Vec<_> = edits
@@ -262,7 +247,7 @@ impl Transaction<'_, '_> {
                     leaf_referent_previous_oid: None,
                 },
             )
-            .or_raise_erased(|| message("Could not preprocess reference edits"))?;
+            .or_raise(|| message("Could not preprocess reference edits"))?;
 
         let mut maybe_updates_for_packed_refs = match self.packed_refs {
             PackedRefs::DeletionsAndNonSymbolicUpdates(_)
@@ -375,13 +360,11 @@ impl Transaction<'_, '_> {
                     ref_name = parent.name();
                     cursor = parent.parent_index;
                 }
-                return Err(err
-                    .raise(
-                        Message::new("Could not prepare reference edit")
-                            .with("reference", ref_name)
-                            .with("referent", referent),
-                    )
-                    .erased());
+                return Err(err.and_raise(
+                    Message::new("Could not prepare reference edit")
+                        .with("reference", ref_name)
+                        .with("referent", referent),
+                ));
             }
 
             // traverse parent chain from leaf/peeled ref and set the leaf previous oid accordingly

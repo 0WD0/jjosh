@@ -1,7 +1,7 @@
 pub(crate) mod function {
     use encoding_rs::EncoderResult;
 
-    use gix_error::Result;
+    use gix_error::{Result, bail};
 
     /// Encode `src_utf8`, which is assumed to be UTF-8 encoded, according to `worktree_encoding` for placement in the working directory,
     /// and write it to `buf`, possibly resizing it.
@@ -40,12 +40,10 @@ pub(crate) mod function {
                 unreachable!("we assure that the output buffer is big enough as per the encoder's estimate")
             }
             EncoderResult::Unmappable(c) => {
-                return Err(gix_error::validation(format!(
+                bail!(gix_error::validation(format!(
                     "The character '{c}' could not be mapped to the {}",
                     worktree_encoding.name()
-                ))
-                .raise()
-                .into());
+                )));
             }
         }
         Ok(())

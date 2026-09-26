@@ -97,6 +97,32 @@ mod name {
     }
 
     #[test]
+    fn conversion_errors_retain_validation_and_input() {
+        for input in [b"".as_slice(), b"a.2", b"\"", b"##", "🤗".as_bytes(), b"\xff"] {
+            let mut errors: Vec<gix_error::Error> = vec![
+                Name::try_from(bstr::BStr::new(input)).expect_err("invalid borrowed name bytes must be rejected"),
+                Name::try_from(bstr::BString::from(input)).expect_err("invalid owned name bytes must be rejected"),
+            ];
+            if let Ok(input) = std::str::from_utf8(input) {
+                errors.push(Name::try_from(input).expect_err("invalid borrowed names must be rejected"));
+                errors.push(Name::try_from(input.to_owned()).expect_err("invalid owned names must be rejected"));
+            }
+            for err in errors {
+                assert!(err.is_validation(), "invalid section names are validation errors");
+                assert_eq!(
+                    err.metadata().find_map(|metadata| metadata.get("input")),
+                    Some(&gix_error::MetadataValue::Bytes(input.into())),
+                    "every name conversion retains the original invalid bytes"
+                );
+                assert!(
+                    err.downcast_any_ref::<gix_error::Message>().is_some(),
+                    "the validation message remains available for recovery"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn case_insensitive_eq() {
         assert_eq!(name("Co-Re"), name("cO-rE"));
     }

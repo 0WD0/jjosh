@@ -5,7 +5,7 @@ use std::{
     sync::Arc,
 };
 
-use gix_error::{ExnMessageResult, Result, ResultExt, message};
+use gix_error::{Error, ErrorExt, Result, ResultExt, message};
 use gix_features::io::pipe;
 use parking_lot::Mutex;
 
@@ -40,7 +40,7 @@ impl Default for Remote {
         let (res_send, res_recv) = std::sync::mpsc::sync_channel(0);
         let redirected_base_url_shared = Arc::new(Mutex::new(None));
         let redirected_base_url_shared_for_field = redirected_base_url_shared.clone();
-        let handle = std::thread::spawn(move || -> ExnMessageResult {
+        let handle = std::thread::spawn(move || -> Result {
             let mut follow = None;
             let redirect_action = Arc::new(Mutex::new(RedirectAction::Stop));
             let redirect_tail = Arc::new(Mutex::new(String::new()));
@@ -256,7 +256,7 @@ impl Default for Remote {
 
 /// utilities
 impl Remote {
-    fn restore_thread_after_failure(&mut self) -> gix_error::Exn<gix_error::Message> {
+    fn restore_thread_after_failure(&mut self) -> Error {
         let err_that_brought_thread_down = self
             .handle
             .take()
@@ -265,7 +265,7 @@ impl Remote {
             .expect("handler thread should never panic")
             .expect_err("something should have gone wrong with curl (we join on error only)");
         *self = Remote::default();
-        err_that_brought_thread_down.raise(message("Could not initialize the http client"))
+        err_that_brought_thread_down.and_raise(message("Could not initialize the http client"))
     }
 
     fn make_request(
@@ -274,7 +274,7 @@ impl Remote {
         base_url: &str,
         headers: impl IntoIterator<Item = impl AsRef<str>>,
         upload_body_kind: Option<PostBodyDataKind>,
-    ) -> ExnMessageResult<http::PostResponse<pipe::Reader, pipe::Reader, pipe::Writer>> {
+    ) -> Result<http::PostResponse<pipe::Reader, pipe::Reader, pipe::Writer>> {
         let mut header_map = reqwest::header::HeaderMap::new();
         for header_line in headers {
             insert_header(&mut header_map, header_line.as_ref());
@@ -345,9 +345,7 @@ impl http::Http for Remote {
         base_url: &str,
         headers: impl IntoIterator<Item = impl AsRef<str>>,
     ) -> Result<http::GetResponse<Self::Headers, Self::ResponseBody>> {
-        self.make_request(url, base_url, headers, None)
-            .map(Into::into)
-            .map_err(Into::into)
+        self.make_request(url, base_url, headers, None).map(Into::into)
     }
 
     fn post(
@@ -358,7 +356,6 @@ impl http::Http for Remote {
         post_body_kind: PostBodyDataKind,
     ) -> Result<http::PostResponse<Self::Headers, Self::ResponseBody, Self::PostBody>> {
         self.make_request(url, base_url, headers, Some(post_body_kind))
-            .map_err(Into::into)
     }
 
     fn configure(&mut self, config: &dyn Any) -> Result {

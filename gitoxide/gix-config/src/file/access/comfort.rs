@@ -1,6 +1,5 @@
-use bstr::{BStr, BString};
+use bstr::BString;
 use gix_error::Result;
-use gix_error::{ErrorExt, validation};
 
 use crate::{AsBStrOpt, AsKey, File, file::Metadata};
 
@@ -177,13 +176,7 @@ impl File {
         else {
             return Ok(None);
         };
-        crate::Integer::try_from(BStr::new(&int))
-            .and_then(|b| {
-                (b.to_decimal()
-                    .ok_or_else(|| validation("Integer overflow").with("input", BStr::new(&int)).raise()))
-                .map_err(Into::into)
-            })
-            .map(Some)
+        crate::Integer::from_bytes(int).map(Some)
     }
 
     /// Like [`strings_by()`](File::strings_by()), but suitable for statically known `key`s like `remote.origin.url`.
@@ -262,13 +255,7 @@ impl File {
         };
         values
             .into_iter()
-            .map(|v| {
-                crate::Integer::try_from(BStr::new(&v)).and_then(|int| {
-                    (int.to_decimal()
-                        .ok_or_else(|| validation("Integer overflow").with("input", BStr::new(&v)).raise()))
-                    .map_err(Into::into)
-                })
-            })
+            .map(crate::Integer::from_bytes)
             .collect::<std::result::Result<Vec<_>, _>>()
             .map(Some)
     }

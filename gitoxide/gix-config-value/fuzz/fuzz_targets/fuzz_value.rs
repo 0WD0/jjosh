@@ -36,8 +36,8 @@ fn fuzz(ctx: Ctx) -> Result<()> {
     let name = Name::from_str(ctx.name_str)?;
     _ = black_box(write!(&mut buf, "{name}"));
 
-    let i = Integer::try_from(BStr::new(ctx.integer_str))?;
-    _ = black_box(i.to_decimal());
+    _ = black_box(Integer::from_bytes::<i64>(ctx.integer_str))?;
+    _ = black_box(Integer::from_bytes::<usize>(ctx.integer_str))?;
 
     let p = Path::from(BStr::new(ctx.path_str));
     _ = black_box(p.interpolate(Context::default()));

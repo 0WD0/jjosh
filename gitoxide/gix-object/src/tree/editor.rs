@@ -1,4 +1,3 @@
-use gix_error::{Result, ResultExt};
 use std::{
     cmp::Ordering,
     collections::{HashMap, hash_map},
@@ -6,7 +5,7 @@ use std::{
 };
 
 use bstr::{BStr, BString, ByteSlice, ByteVec};
-use gix_error::{ErrorExt, ExnResult, validation};
+use gix_error::{Result, bail, validation};
 use gix_hash::ObjectId;
 
 use crate::{
@@ -86,7 +85,7 @@ impl Editor<'_> {
         C: AsRef<BStr>,
     {
         self.path_buf.borrow_mut().clear();
-        Ok(self.upsert_or_remove_at_pathbuf(rela_path, EditMode::Remove(RemoveMode::Any))?)
+        self.upsert_or_remove_at_pathbuf(rela_path, EditMode::Remove(RemoveMode::Any))
     }
 
     /// Remove a non-tree entry at `rela_path`, loading all trees on the path accordingly.
@@ -101,7 +100,7 @@ impl Editor<'_> {
         C: AsRef<BStr>,
     {
         self.path_buf.borrow_mut().clear();
-        Ok(self.upsert_or_remove_at_pathbuf(rela_path, EditMode::Remove(RemoveMode::LeafOnly))?)
+        self.upsert_or_remove_at_pathbuf(rela_path, EditMode::Remove(RemoveMode::LeafOnly))
     }
 
     /// Remove the entry at `rela_path` only if it is not a tree, loading trees along the path as needed.
@@ -115,7 +114,7 @@ impl Editor<'_> {
         C: AsRef<BStr>,
     {
         self.path_buf.borrow_mut().clear();
-        Ok(self.upsert_or_remove_at_pathbuf(rela_path, EditMode::Remove(RemoveMode::IfLeaf))?)
+        self.upsert_or_remove_at_pathbuf(rela_path, EditMode::Remove(RemoveMode::IfLeaf))
     }
 
     /// Obtain the entry at `rela_path` or return `None` if none was found, or the tree wasn't yet written
@@ -152,7 +151,7 @@ impl Editor<'_> {
         C: AsRef<BStr>,
     {
         self.path_buf.borrow_mut().clear();
-        Ok(self.upsert_or_remove_at_pathbuf(rela_path, EditMode::Upsert(kind, id, UpsertMode::Normal))?)
+        self.upsert_or_remove_at_pathbuf(rela_path, EditMode::Upsert(kind, id, UpsertMode::Normal))
     }
 
     fn get_inner<I, C>(&self, rela_path: I) -> Option<&tree::Entry>
@@ -273,7 +272,7 @@ impl Editor<'_> {
         unreachable!("we exit as soon as everything is consumed")
     }
 
-    fn upsert_or_remove_at_pathbuf<I, C>(&mut self, rela_path: I, edit: EditMode) -> ExnResult<&mut Self>
+    fn upsert_or_remove_at_pathbuf<I, C>(&mut self, rela_path: I, edit: EditMode) -> Result<&mut Self>
     where
         I: IntoIterator<Item = C>,
         C: AsRef<BStr>,
@@ -285,7 +284,7 @@ impl Editor<'_> {
         while let Some(name) = rela_path.next() {
             let name = name.as_ref();
             if name.is_empty() {
-                return Err(validation("Empty path components are not allowed").raise_erased());
+                bail!(validation("Empty path components are not allowed"));
             }
             let is_last = rela_path.peek().is_none();
             let mut needs_sorting = false;
@@ -316,10 +315,9 @@ impl Editor<'_> {
                                         RemoveMode::IfLeaf => break,
                                         RemoveMode::LeafOnly => {
                                             let rela_path = path_with_component(path_buf.as_bstr(), name);
-                                            return Err(validation(format!(
+                                            bail!(validation(format!(
                                                 "Cannot remove '{rela_path}' as leaf entry because it is a tree"
-                                            ))
-                                            .raise_erased());
+                                            )));
                                         }
                                     }
                                 }
@@ -385,7 +383,7 @@ impl Editor<'_> {
                 hash_map::Entry::Vacant(_) if stop_at_unedited_empty_tree => break,
                 hash_map::Entry::Vacant(e) => e.insert(
                     if let Some(tree_id) = tree_to_lookup.filter(|tree_id| !tree_id.is_empty_tree()) {
-                        self.find.find_tree(&tree_id, &mut self.tree_buf).or_erased()?.into()
+                        self.find.find_tree(&tree_id, &mut self.tree_buf)?.into()
                     } else {
                         Tree::default()
                     },

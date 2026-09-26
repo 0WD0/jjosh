@@ -1,4 +1,4 @@
-use gix_error::Result;
+use gix_error::{Result, bail};
 use std::cmp::Ordering;
 
 use crate::State;
@@ -6,23 +6,19 @@ use crate::State;
 impl State {
     /// Assure our entries are consistent.
     pub fn verify_entries(&self) -> Result {
-        use gix_error::ErrorExt;
-
         let _span = gix_features::trace::coarse!("gix_index::File::verify_entries()");
         let mut previous = None::<&crate::Entry>;
         for (idx, entry) in self.entries.iter().enumerate() {
             if let Some(prev) = previous
                 && prev.cmp(entry, self) != Ordering::Less
             {
-                return Err(gix_error::corruption(format!(
+                bail!(gix_error::corruption(format!(
                     "Entry '{}' (stage = {}) at index {idx} should order after prior entry '{}' (stage = {})",
                     entry.path(self),
                     entry.flags.stage() as u8,
                     prev.path(self),
                     prev.flags.stage() as u8
-                ))
-                .raise()
-                .into());
+                )));
             }
             previous = Some(entry);
         }

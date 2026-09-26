@@ -1,8 +1,9 @@
 ///
 pub mod set_target_id {
+    use gix_error::bail;
     use gix_ref::{Target, transaction::PreviousValue};
 
-    use crate::{Error, Reference, Result, bstr::BString};
+    use crate::{Reference, Result, bstr::BString};
 
     impl Reference<'_> {
         /// Set the id of this direct reference to `id` and use `reflog_message` for the reflog (if enabled in the repository).
@@ -19,9 +20,9 @@ pub mod set_target_id {
         ) -> Result<()> {
             match &self.inner.target {
                 Target::Symbolic(name) => {
-                    return Err(Error::from_error(gix_error::message!(
+                    bail!(gix_error::message!(
                         "Cannot change symbolic reference {name:?} into a direct one by setting it to an id"
-                    )));
+                    ));
                 }
                 Target::Object(current_id) => {
                     let changed = self.repo.reference(

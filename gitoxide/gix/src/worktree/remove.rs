@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use gix_error::{ClassificationMarker, ErrorExt, ResultExt, message};
+use gix_error::{ClassificationMarker, ErrorExt, ResultExt, bail, message};
 
 use crate::{Result, bstr::BString};
 use gix_features::progress::{Count, NestedProgress, Progress};
@@ -118,20 +118,16 @@ impl Target<'_> {
         let ignore_case = proxy.parent.config.ignore_case;
 
         if force != Force::OverrideLock && proxy.is_locked() {
-            return Err(Error::Locked {
+            bail!(Error::Locked {
                 path: work_dir,
                 reason: proxy.lock_reason(),
-            }
-            .raise()
-            .into());
+            });
         }
 
         match std::fs::symlink_metadata(&work_dir) {
             Err(err) if gix_fs::io_err::is_not_found(err.kind(), err.raw_os_error()) => {}
             Err(err) => {
-                return Err(err
-                    .and_raise(message("Could not read the location of a linked worktree"))
-                    .into());
+                bail!(err.and_raise(message("Could not read the location of a linked worktree")));
             }
             Ok(_) => {
                 validate_backlink(&work_dir, &git_dir, ignore_case)?;
@@ -140,7 +136,7 @@ impl Target<'_> {
                         .into_repo_with_possibly_inaccessible_worktree()
                         .or_raise(|| message("Could not open the linked worktree repository"))?;
                     if has_populated_submodule(&linked_repo)? {
-                        return Err(Error::ContainsSubmodule { path: work_dir }.raise().into());
+                        bail!(Error::ContainsSubmodule { path: work_dir });
                     }
                     let dirwalk_options = linked_repo
                         .dirwalk_options()
@@ -163,7 +159,7 @@ impl Target<'_> {
                         .or_raise(|| message("Could not inspect a linked worktree status item"))?
                         .is_some()
                     {
-                        return Err(Error::Dirty { path: work_dir }.raise().into());
+                        bail!(Error::Dirty { path: work_dir });
                     }
                 }
             }
@@ -313,7 +309,7 @@ fn resolve<'repo>(repo: &'repo crate::Repository, target: &Path) -> Result<Targe
         Linked(Target<'repo>),
     }
     if target.as_os_str().is_empty() {
-        return Err(Error::EmptyTarget.raise().into());
+        bail!(Error::EmptyTarget);
     }
     let main = repo
         .main_repo()
@@ -351,7 +347,7 @@ fn resolve<'repo>(repo: &'repo crate::Repository, target: &Path) -> Result<Targe
     }
     if suffix_matches.len() == 1 {
         return match suffix_matches.pop().expect("exactly one match") {
-            Match::Main(path) => Err(Error::MainWorktree { path }.raise().into()),
+            Match::Main(path) => Err(Error::MainWorktree { path }.raise()),
             Match::Linked(candidate) => Ok(candidate),
         };
     }
@@ -378,8 +374,7 @@ fn resolve<'repo>(repo: &'repo crate::Repository, target: &Path) -> Result<Targe
         0 if suffix_matches.is_empty() => Err(Error::NotFound {
             target: target.to_owned(),
         }
-        .raise()
-        .into()),
+        .raise()),
         0 => Err(Error::Ambiguous {
             target: target.to_owned(),
             candidates: suffix_matches
@@ -390,10 +385,9 @@ fn resolve<'repo>(repo: &'repo crate::Repository, target: &Path) -> Result<Targe
                 })
                 .collect(),
         }
-        .raise()
-        .into()),
+        .raise()),
         1 => match exact_matches.pop().expect("exactly one match") {
-            Match::Main(path) => Err(Error::MainWorktree { path }.raise().into()),
+            Match::Main(path) => Err(Error::MainWorktree { path }.raise()),
             Match::Linked(candidate) => Ok(candidate),
         },
         _ => Err(Error::Ambiguous {
@@ -406,8 +400,7 @@ fn resolve<'repo>(repo: &'repo crate::Repository, target: &Path) -> Result<Targe
                 })
                 .collect(),
         }
-        .raise()
-        .into()),
+        .raise()),
     }
 }
 
@@ -420,7 +413,7 @@ fn validate_backlink(work_dir: &Path, git_dir: &Path, ignore_case: bool) -> Resu
     let expected = gix_path::realpath(git_dir)
         .or_raise(|| message!("Could not resolve the private Git directory '{}'", git_dir.display()))?;
     if !path_eq(&actual, &expected, ignore_case) {
-        return Err(Error::BacklinkMismatch { path, expected, actual }.raise().into());
+        bail!(Error::BacklinkMismatch { path, expected, actual });
     }
     Ok(())
 }

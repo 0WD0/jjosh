@@ -2132,11 +2132,7 @@ fn run_assertions(main_repo: gix::Repository, should_be_bare: bool) {
         } else {
             let err = actual.clone().into_repo().expect_err("the worktree base is missing");
             insta::allow_duplicates! {
-                insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[(&base.to_string_lossy(), "<worktree>")]), "opening a worktree reports its inaccessible base", @r#"
-                Message {
-                    message: "Worktree at '<worktree>' is inaccessible",
-                }
-                "#);
+                insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[(&base.to_string_lossy(), "<worktree>")]), "opening a worktree reports its inaccessible base", @"Worktree at '<worktree>' is inaccessible");
             }
             actual.clone().into_repo_with_possibly_inaccessible_worktree().unwrap()
         };

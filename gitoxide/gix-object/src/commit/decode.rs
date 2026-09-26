@@ -1,8 +1,9 @@
 use std::borrow::Cow;
 
+use gix_error::{ErrorExt, Result};
 use smallvec::SmallVec;
 
-use crate::{BStr, ByteSlice, CommitRef, parse, parse::ParseResult};
+use crate::{BStr, ByteSlice, CommitRef, parse};
 
 /// Parse the commit message after the header/message separator.
 ///
@@ -11,12 +12,12 @@ use crate::{BStr, ByteSlice, CommitRef, parse, parse::ParseResult};
 /// separator newline and borrows all remaining bytes from `i`.
 ///
 /// On success, `i` is advanced to the empty suffix as commits end with a message.
-pub fn message<'a>(i: &mut &'a [u8]) -> ParseResult<&'a BStr> {
+pub fn message<'a>(i: &mut &'a [u8]) -> Result<&'a BStr> {
     if let Some(rest) = i.strip_prefix(parse::NL) {
         *i = &[];
         Ok(rest.as_bstr())
     } else {
-        Err(crate::decode::empty_error().into())
+        Err(crate::decode::empty_error().raise())
     }
 }
 
@@ -37,7 +38,7 @@ pub fn message<'a>(i: &mut &'a [u8]) -> ParseResult<&'a BStr> {
 /// This parser is not transactional as a whole: if a later required field or
 /// the final message parse fails, `i` may already have been advanced past
 /// earlier successfully parsed fields.
-pub fn commit<'a>(i: &mut &'a [u8], object_hash: gix_hash::Kind) -> ParseResult<CommitRef<'a>> {
+pub fn commit<'a>(i: &mut &'a [u8], object_hash: gix_hash::Kind) -> Result<CommitRef<'a>> {
     let tree = parse::header_field(i, b"tree", |value| parse::hex_hash(value, object_hash))?;
 
     let mut parents = SmallVec::new();
@@ -83,7 +84,7 @@ pub fn commit<'a>(i: &mut &'a [u8], object_hash: gix_hash::Kind) -> ParseResult<
 
     let message = message(i)?;
     if !i.is_empty() {
-        return Err(crate::decode::empty_error().into());
+        gix_error::bail!(crate::decode::empty_error());
     }
 
     Ok(CommitRef {

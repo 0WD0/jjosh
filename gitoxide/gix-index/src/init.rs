@@ -4,7 +4,7 @@ pub mod from_tree {
     use std::collections::VecDeque;
 
     use bstr::{BStr, BString, ByteSlice, ByteVec};
-    use gix_error::{ErrorExt, validation};
+    use gix_error::{ErrorExt, bail, validation};
     use gix_object::{tree, tree::EntryKind};
     use gix_traverse::tree::{Visit, depthfirst, visit::Action};
 
@@ -62,9 +62,7 @@ pub mod from_tree {
             let traversal = depthfirst(tree.to_owned(), depthfirst::State::default(), &objects, &mut delegate);
 
             if let Some((path, err)) = delegate.invalid_path.take() {
-                return Err(err
-                    .and_raise(validation(format!("The path \"{path}\" is invalid")))
-                    .into());
+                bail!(err.and_raise(validation(format!("The path \"{path}\" is invalid"))));
             }
             traversal?;
 

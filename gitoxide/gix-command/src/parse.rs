@@ -1,7 +1,7 @@
 use std::ffi::OsString;
 
 use bstr::{BStr, BString};
-use gix_error::{ExnResult, ResultExt};
+use gix_error::{ExnResult, Result, ResultExt};
 
 /// The result of [`command_line()`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -92,18 +92,19 @@ pub fn command_line(input: &BStr) -> ExnResult<Outcome, Error> {
     Ok(Outcome {
         env,
         command,
-        args: args.map(into_os_string).collect::<Result<_, _>>()?,
+        args: args.map(into_os_string).collect::<ExnResult<_, Error>>()?,
     })
 }
 
-pub(crate) fn arguments(input: &BStr) -> ExnResult<Vec<OsString>, Error> {
-    parse_words(input)?
+pub(crate) fn arguments(input: &BStr) -> Result<Vec<OsString>> {
+    parse_words(input)
+        .or_error()?
         .into_iter()
-        .map(|word| into_os_string(word.value))
+        .map(|word| into_os_string(word.value).or_error())
         .collect()
 }
 
-fn parse_words(input: &BStr) -> Result<Vec<Word>, Error> {
+fn parse_words(input: &BStr) -> std::result::Result<Vec<Word>, Error> {
     let mut words = Vec::new();
     let mut value = BString::default();
     let mut assignment_possible = true;
@@ -199,5 +200,5 @@ fn push_unquoted(
 fn into_os_string(value: BString) -> ExnResult<OsString, Error> {
     gix_path::try_from_bstring(value)
         .map(std::path::PathBuf::into_os_string)
-        .or_raise(|| Error::UnrepresentableOsString)
+        .or_raise_typed(|| Error::UnrepresentableOsString)
 }

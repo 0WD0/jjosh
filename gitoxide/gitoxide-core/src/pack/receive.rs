@@ -116,7 +116,7 @@ where
     gix::protocol::fetch(
         &mut negotiate,
         |read_pack, progress, should_interrupt| {
-            (receive_pack_blocking(
+            receive_pack_blocking(
                 directory,
                 refs_directory,
                 read_pack,
@@ -128,9 +128,8 @@ where
                 ctx.object_hash,
                 ctx.format,
             )
-            .or_raise_erased(|| message("Failed to receive the pack"))
-            .map(|_| true))
-            .map_err(Into::into)
+            .or_raise(|| message("Failed to receive the pack"))
+            .map(|_| true)
         },
         progress,
         &ctx.should_interrupt,

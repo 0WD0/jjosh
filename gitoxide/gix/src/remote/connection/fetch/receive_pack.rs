@@ -1,6 +1,6 @@
 use std::{ops::DerefMut, path::PathBuf, sync::atomic::AtomicBool};
 
-use gix_error::{ResultExt, message};
+use gix_error::{ResultExt, bail, message};
 use gix_odb::store::RefreshMode;
 use gix_protocol::fetch::{Arguments, negotiate};
 #[cfg(feature = "async-network-client")]
@@ -9,7 +9,7 @@ use gix_transport::client::async_io::Transport;
 use gix_transport::client::blocking_io::Transport;
 
 use crate::{
-    Error, Result,
+    Result,
     config::{
         cache::util::ApplyLeniency,
         tree::{Clone, Fetch},
@@ -101,7 +101,7 @@ where
         if ref_map.is_missing_required_mapping() {
             let mut specs = ref_map.refspecs.clone();
             specs.extend(ref_map.extra_refspecs.clone());
-            return Err(Error::from_error(gix_error::validation(format!(
+            bail!(gix_error::validation(format!(
                 "None of the refspec(s) {} matched any of the {} refs on the remote",
                 specs
                     .iter()
@@ -109,7 +109,7 @@ where
                     .collect::<Vec<_>>()
                     .join(", "),
                 ref_map.remote_refs.len()
-            ))));
+            )));
         }
 
         let mut con = self.con.take().expect("receive() can only be called once");
@@ -117,10 +117,10 @@ where
 
         let expected_object_hash = repo.object_hash();
         if ref_map.object_hash != expected_object_hash {
-            return Err(Error::from_error(gix_error::validation(format!(
+            bail!(gix_error::validation(format!(
                 "Cannot fetch from a remote that uses {} while local repository uses {expected_object_hash} for object hashes",
                 ref_map.object_hash
-            ))));
+            )));
         }
 
         let fetch_options = gix_protocol::fetch::Options {

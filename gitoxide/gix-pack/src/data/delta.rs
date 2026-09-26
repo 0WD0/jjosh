@@ -1,4 +1,4 @@
-use gix_error::ExnMessageResult;
+use gix_error::{ErrorExt, OptionExt, Result, bail};
 
 fn corrupt(message: &'static str) -> gix_error::Message {
     gix_error::corruption(format!("Corrupt delta data: {message}"))
@@ -6,13 +6,13 @@ fn corrupt(message: &'static str) -> gix_error::Message {
 
 /// Given the decompressed pack delta `d`, decode a size in bytes (either the base object size or the result object size)
 /// Equivalent to [this canonical git function](https://github.com/git/git/blob/311531c9de557d25ac087c1637818bd2aad6eb3a/delta.h#L89)
-pub(crate) fn decode_header_size(d: &[u8]) -> ExnMessageResult<(u64, usize)> {
+pub(crate) fn decode_header_size(d: &[u8]) -> Result<(u64, usize)> {
     let mut shift = 0;
     let mut size = 0u64;
     let mut consumed = 0;
     for cmd in d.iter() {
         if shift >= u64::BITS {
-            return Err(corrupt("delta header size uses more bits than fit into u64").into());
+            bail!(corrupt("delta header size uses more bits than fit into u64"));
         }
         consumed += 1;
         size |= (u64::from(*cmd) & 0x7f) << shift;
@@ -21,14 +21,14 @@ pub(crate) fn decode_header_size(d: &[u8]) -> ExnMessageResult<(u64, usize)> {
             return Ok((size, consumed));
         }
     }
-    Err(corrupt("delta header size is truncated").into())
+    Err(corrupt("delta header size is truncated").raise())
 }
 
-pub(crate) fn apply(base: &[u8], mut target: &mut [u8], data: &[u8]) -> ExnMessageResult {
-    fn next_byte(data: &[u8], i: &mut usize) -> ExnMessageResult<u8> {
+pub(crate) fn apply(base: &[u8], mut target: &mut [u8], data: &[u8]) -> Result {
+    fn next_byte(data: &[u8], i: &mut usize) -> Result<u8> {
         let byte = *data
             .get(*i)
-            .ok_or_else(|| corrupt("delta copy instruction is truncated"))?;
+            .ok_or_raise(|| corrupt("delta copy instruction is truncated"))?;
         *i += 1;
         Ok(byte)
     }
@@ -66,27 +66,27 @@ pub(crate) fn apply(base: &[u8], mut target: &mut [u8], data: &[u8]) -> ExnMessa
                 let ofs = ofs as usize;
                 let end = ofs
                     .checked_add(size as usize)
-                    .ok_or_else(|| corrupt("delta copy range overflows"))?;
+                    .ok_or_raise(|| corrupt("delta copy range overflows"))?;
                 base.get(ofs..end)
-                    .ok_or_else(|| corrupt("delta copy range exceeds base object size"))?
+                    .ok_or_raise(|| corrupt("delta copy range exceeds base object size"))?
             }
             0 => {
-                return Err(corrupt("delta command 0 is reserved and invalid").into());
+                bail!(corrupt("delta command 0 is reserved and invalid"));
             }
             size => {
                 let end = i
                     .checked_add(*size as usize)
-                    .ok_or_else(|| corrupt("delta insert range overflows"))?;
+                    .ok_or_raise(|| corrupt("delta insert range overflows"))?;
                 let bytes = data
                     .get(i..end)
-                    .ok_or_else(|| corrupt("delta insert data is truncated"))?;
+                    .ok_or_raise(|| corrupt("delta insert data is truncated"))?;
                 i = end;
                 bytes
             }
         };
         let (out, rest) = target
             .split_at_mut_checked(bytes.len())
-            .ok_or_else(|| corrupt("delta instructions produced more bytes than promised"))?;
+            .ok_or_raise(|| corrupt("delta instructions produced more bytes than promised"))?;
         out.copy_from_slice(bytes);
         target = rest;
     }
@@ -96,7 +96,7 @@ pub(crate) fn apply(base: &[u8], mut target: &mut [u8], data: &[u8]) -> ExnMessa
         "delta instructions were not consumed completely, should be impossible"
     );
     if !target.is_empty() {
-        return Err(corrupt("delta instructions produced fewer bytes than promised").into());
+        bail!(corrupt("delta instructions produced fewer bytes than promised"));
     }
 
     Ok(())
@@ -110,7 +110,7 @@ mod tests {
         for instructions in [b"\x90\x02".as_slice(), b"\x02ab".as_slice()] {
             let err = super::apply(b"ab", &mut [0], instructions)
                 .expect_err("neither copying nor inserting may truncate the result");
-            error_snapshots.push(gix_testtools::redact_debug_snapshot(&(err), &[]));
+            error_snapshots.push(gix_testtools::redact_debug_snapshot(&err, &[]));
         }
         insta::assert_debug_snapshot!(error_snapshots, "instructions cannot exceed the declared result size", @"
         [

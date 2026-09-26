@@ -31,7 +31,6 @@ impl std::error::Error for DeltaBaseUnresolved {
 }
 
 #[cold]
-pub(super) fn allocation_error(kind: gix_error::ResourceExhaustionKind) -> gix_error::Exn {
-    use gix_error::ErrorExt;
-    gix_error::resource_exhaustion(kind, "Entry too large to fit in memory").raise_erased()
+pub(super) fn allocation_error(kind: gix_error::ResourceExhaustionKind) -> gix_error::Message {
+    gix_error::resource_exhaustion(kind, "Entry too large to fit in memory")
 }

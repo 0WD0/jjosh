@@ -3,7 +3,7 @@
 #![deny(missing_docs)]
 
 use gix_error::Result;
-use gix_error::{ErrorExt, ExnResult, ResultExt, corruption, message, validation};
+use gix_error::{ResultExt, bail, corruption, message, validation};
 use gix_hash::{ObjectId, oid};
 use gix_object::{
     Find, FindExt, Tree, Write,
@@ -90,7 +90,7 @@ impl State {
     /// are ignored.
     pub fn get(&mut self, annotated_object_id: &oid, objects: &impl Find) -> Result<Option<ObjectId>> {
         validate_annotated_hash_kind(self.root_tree_id.kind(), annotated_object_id)?;
-        Ok(self.reset_on_error(|state| state.root.get(annotated_object_id, 0, objects, &mut state.non_notes))?)
+        self.reset_on_error(|state| state.root.get(annotated_object_id, 0, objects, &mut state.non_notes))
     }
 
     /// Associate `note_blob_id` with `annotated_object_id`, replacing any existing note.
@@ -153,7 +153,7 @@ impl State {
         } else {
             validate_annotated_hash_kind(self.root_tree_id.kind(), &annotated_object_id)?;
         }
-        Ok(self.reset_on_error(|state| {
+        self.reset_on_error(|state| {
             let previous_note_blob_id = state
                 .root
                 .remove(&annotated_object_id, 0, objects, &mut state.non_notes)?;
@@ -170,7 +170,7 @@ impl State {
             }
             state.dirty |= note_blob_id.is_some() || previous_note_blob_id.is_some();
             Ok(previous_note_blob_id)
-        })?)
+        })
     }
 
     /// Write all staged edits to `objects` and return the resulting root tree ID.
@@ -183,16 +183,16 @@ impl State {
         if !self.dirty {
             return Ok(self.root_tree_id);
         }
-        Ok(self.reset_on_error(|state| {
+        self.reset_on_error(|state| {
             state.root_tree_id = state
                 .root
                 .write(&mut state.non_notes, state.root_tree_id.kind(), objects)?;
             state.dirty = false;
             Ok(state.root_tree_id)
-        })?)
+        })
     }
 
-    fn reset_on_error<T>(&mut self, operation: impl FnOnce(&mut Self) -> ExnResult<T>) -> ExnResult<T> {
+    fn reset_on_error<T>(&mut self, operation: impl FnOnce(&mut Self) -> Result<T>) -> Result<T> {
         let result = operation(self);
         if result.is_err() {
             let root_tree_id = self.root_tree_id;
@@ -214,18 +214,20 @@ fn validate_replace_hash_kinds(
     root: gix_hash::Kind,
     annotated_object: gix_hash::Kind,
     note_blob: gix_hash::Kind,
-) -> ExnResult {
+) -> Result {
     if annotated_object != root || note_blob != root {
-        return Err(
-            validation("Notes, annotated objects, and their root tree must use the same hash kind").raise_erased(),
-        );
+        bail!(validation(
+            "Notes, annotated objects, and their root tree must use the same hash kind"
+        ));
     }
     Ok(())
 }
 
-fn validate_annotated_hash_kind(root: gix_hash::Kind, annotated_object_id: &oid) -> ExnResult {
+fn validate_annotated_hash_kind(root: gix_hash::Kind, annotated_object_id: &oid) -> Result {
     if annotated_object_id.kind() != root {
-        return Err(validation("The annotated object and notes root tree must use the same hash kind").raise_erased());
+        bail!(validation(
+            "The annotated object and notes root tree must use the same hash kind"
+        ));
     }
     Ok(())
 }
@@ -299,7 +301,7 @@ impl InternalNode {
         nibble: usize,
         objects: &impl Find,
         non_notes: &mut Vec<TreeEntry>,
-    ) -> ExnResult<Option<ObjectId>> {
+    ) -> Result<Option<ObjectId>> {
         if self.load_matching_subtree(annotated_object_id, nibble, objects, non_notes)? {
             return self.get(annotated_object_id, nibble, objects, non_notes);
         }
@@ -323,7 +325,7 @@ impl InternalNode {
         }
     }
 
-    fn insert(&mut self, entry: Node, nibble: usize, objects: &impl Find, non_notes: &mut Vec<TreeEntry>) -> ExnResult {
+    fn insert(&mut self, entry: Node, nibble: usize, objects: &impl Find, non_notes: &mut Vec<TreeEntry>) -> Result {
         if self.load_matching_subtree(entry.key(), nibble, objects, non_notes)? {
             return self.insert(entry, nibble, objects, non_notes);
         }
@@ -342,9 +344,10 @@ impl InternalNode {
             }
             Node::Note(note) => {
                 if matches!(&entry, Node::Note(incoming) if incoming.annotated_object_id == note.annotated_object_id) {
-                    return Err(
-                        corruption(format!("Multiple notes map to object {}", note.annotated_object_id)).raise_erased(),
-                    );
+                    bail!(corruption(format!(
+                        "Multiple notes map to object {}",
+                        note.annotated_object_id
+                    )));
                 }
                 if let Node::Subtree(subtree) = &entry
                     && subtree.contains(&note.annotated_object_id)
@@ -373,7 +376,7 @@ impl InternalNode {
         nibble: usize,
         objects: &impl Find,
         non_notes: &mut Vec<TreeEntry>,
-    ) -> ExnResult {
+    ) -> Result {
         let mut child = InternalNode::default();
         child.insert(existing, nibble + 1, objects, non_notes)?;
         child.insert(entry, nibble + 1, objects, non_notes)?;
@@ -387,7 +390,7 @@ impl InternalNode {
         nibble: usize,
         objects: &impl Find,
         non_notes: &mut Vec<TreeEntry>,
-    ) -> ExnResult<Option<ObjectId>> {
+    ) -> Result<Option<ObjectId>> {
         if self.load_matching_subtree(annotated_object_id, nibble, objects, non_notes)? {
             return self.remove(annotated_object_id, nibble, objects, non_notes);
         }
@@ -428,7 +431,7 @@ impl InternalNode {
         nibble: usize,
         objects: &impl Find,
         non_notes: &mut Vec<TreeEntry>,
-    ) -> ExnResult<bool> {
+    ) -> Result<bool> {
         let is_match = self.children[0]
             .as_deref()
             .is_some_and(|node| matches!(node, Node::Subtree(subtree) if subtree.contains(key)));
@@ -472,11 +475,11 @@ fn load_subtree(
     nibble: usize,
     objects: &impl Find,
     non_notes: &mut Vec<TreeEntry>,
-) -> ExnResult {
+) -> Result {
     let mut buf = Vec::new();
     let tree = objects
         .find_tree(&subtree.tree_id, &mut buf)
-        .or_raise_erased(|| message!("Could not load notes tree {}", subtree.tree_id))?;
+        .or_raise(|| message!("Could not load notes tree {}", subtree.tree_id))?;
     let hex_len = subtree.tree_id.kind().len_in_hex();
     let prefix_hex_len = subtree.prefix_len * 2;
     let mut prefix_hex = gix_hash::Kind::hex_buf();
@@ -537,7 +540,7 @@ impl InternalNode {
         non_notes: &mut Vec<TreeEntry>,
         hash: gix_hash::Kind,
         objects: &(impl Find + Write),
-    ) -> ExnResult<ObjectId> {
+    ) -> Result<ObjectId> {
         let mut notes = Vec::new();
         self.collect_for_write(0, 0, objects, non_notes, &mut notes)?;
         if non_notes.is_empty() {
@@ -548,16 +551,16 @@ impl InternalNode {
         for entry in non_notes.iter() {
             editor
                 .upsert(entry.path.split_str("/"), entry.mode.kind(), entry.object_id)
-                .or_raise_erased(|| message("Could not restore a non-note tree entry"))?;
+                .or_raise(|| message("Could not restore a non-note tree entry"))?;
         }
         for entry in notes {
             editor
                 .upsert(entry.path.split_str("/"), entry.mode.kind(), entry.object_id)
-                .or_raise_erased(|| message("Could not add a note tree entry"))?;
+                .or_raise(|| message("Could not add a note tree entry"))?;
         }
         editor
             .write(|tree| objects.write(tree))
-            .or_raise_erased(|| message("Could not write the notes tree"))
+            .or_raise(|| message("Could not write the notes tree"))
     }
 
     /// Collect entries for writing while determining the fanout below `nibble` from the current tree shape.
@@ -571,7 +574,7 @@ impl InternalNode {
         objects: &impl Find,
         non_notes: &mut Vec<TreeEntry>,
         notes: &mut Vec<TreeEntry>,
-    ) -> ExnResult {
+    ) -> Result {
         let fanout = if nibble.is_multiple_of(2)
             && nibble <= 2 * fanout
             && self
@@ -622,7 +625,7 @@ impl InternalNode {
 
 /// This is faster than going through the tree editor, whose characteristics are useful enough
 /// to bear worse performance in the uncommon case where non-note entries are present.
-fn write_note_entries(notes: &[TreeEntry], level: usize, objects: &impl Write) -> ExnResult<ObjectId> {
+fn write_note_entries(notes: &[TreeEntry], level: usize, objects: &impl Write) -> Result<ObjectId> {
     let mut entries = Vec::new();
     let mut start = 0;
     while start < notes.len() {
@@ -653,7 +656,7 @@ fn write_note_entries(notes: &[TreeEntry], level: usize, objects: &impl Write) -
 
     objects
         .write(&Tree { entries })
-        .or_raise_erased(|| message("Could not write the notes tree"))
+        .or_raise(|| message("Could not write the notes tree"))
 }
 
 fn nibble_at(id: &oid, nibble: usize) -> usize {

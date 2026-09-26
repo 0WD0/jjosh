@@ -177,12 +177,7 @@ mod branch_remote {
         let err = repo
             .upstream_branch_and_remote_for_tracking_branch("refs/remotes/with/two/slashes/main".try_into()?)
             .expect_err("both remotes reverse-map the tracking branch");
-        insta::assert_debug_snapshot!(err, "the name is ambiguous because both remotes have fetch refspecs mapping to it", @r#"
-        Message {
-            message: "Found ambiguous remotes without 1:1 mapping or more than one match: with/two, with/two/slashes",
-            class: Validation,
-        }
-        "#);
+        insta::assert_debug_snapshot!(err, "the name is ambiguous because both remotes have fetch refspecs mapping to it", @"Found ambiguous remotes without 1:1 mapping or more than one match: with/two, with/two/slashes");
 
         let (upstream, remote) = repo
             .upstream_branch_and_remote_for_tracking_branch("refs/remotes/with/two/special".try_into()?)?
@@ -222,12 +217,7 @@ mod branch_remote {
         let err = repo
             .upstream_branch_and_remote_for_tracking_branch("refs/remotes/prefix/main".try_into()?)
             .expect_err("multiple remotes are ambiguous");
-        insta::assert_debug_snapshot!(err, "all remotes mapping the same tracking branch are reported", @r#"
-        Message {
-            message: "Found ambiguous remotes without 1:1 mapping or more than one match: also-fallback, fallback",
-            class: Validation,
-        }
-        "#);
+        insta::assert_debug_snapshot!(err, "all remotes mapping the same tracking branch are reported", @"Found ambiguous remotes without 1:1 mapping or more than one match: also-fallback, fallback");
         Ok(())
     }
 

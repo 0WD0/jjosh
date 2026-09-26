@@ -57,11 +57,9 @@ impl crate::Repository {
                 })?
             }
             _ => {
-                return Err(
-                    message!("Configuration source {source:?} requires a repository or has no physical file")
-                        .raise()
-                        .into(),
-                );
+                gix_error::bail!(message!(
+                    "Configuration source {source:?} requires a repository or has no physical file"
+                ));
             }
         };
         Ok(self.current_dir().join(path))

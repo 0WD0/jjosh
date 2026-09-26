@@ -49,11 +49,7 @@ impl<'a> CommitRef<'a> {
     /// Deserialize a commit from the given `data` bytes while avoiding most allocations, using `object_hash` to know
     /// what kind of hash to expect for validation.
     pub fn from_bytes(mut data: &'a [u8], object_hash: gix_hash::Kind) -> Result<CommitRef<'a>> {
-        let input = &mut data;
-        match decode::commit(input, object_hash) {
-            Ok(tag) => Ok(tag),
-            Err(err) => Err(err.into()),
-        }
+        decode::commit(&mut data, object_hash)
     }
 }
 
@@ -83,14 +79,14 @@ impl<'a> CommitRef<'a> {
     ///
     /// This is different from the `author` field which may contain whitespace.
     pub fn author(&self) -> Result<gix_actor::SignatureRef<'a>> {
-        Ok(parse_signature(self.author).map(|signature| signature.trim())?)
+        parse_signature(self.author).map(|signature| signature.trim())
     }
 
     /// Return the committer, with whitespace trimmed.
     ///
     /// This is different from the `committer` field which may contain whitespace.
     pub fn committer(&self) -> Result<gix_actor::SignatureRef<'a>> {
-        Ok(parse_signature(self.committer).map(|signature| signature.trim())?)
+        parse_signature(self.committer).map(|signature| signature.trim())
     }
 
     /// Returns a partially parsed message from which more information can be derived.
@@ -100,7 +96,7 @@ impl<'a> CommitRef<'a> {
 
     /// Returns the time at which this commit was created, or a default time if it could not be parsed.
     pub fn time(&self) -> Result<gix_date::Time> {
-        Ok(parse_signature(self.committer).map(|signature| signature.time().unwrap_or_default())?)
+        parse_signature(self.committer).map(|signature| signature.time().unwrap_or_default())
     }
 }
 

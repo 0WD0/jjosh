@@ -1,7 +1,5 @@
 use gix_date::SecondsSinceUnixEpoch;
-use gix_error::ExnResult;
 use gix_error::Result;
-use gix_error::ResultExt;
 use gix_hash::ObjectId;
 
 use crate::{Flags, Negotiator};
@@ -22,7 +20,7 @@ impl Default for Algorithm {
 
 impl Algorithm {
     /// Add `id` to our priority queue and *add* `flags` to it.
-    fn add_to_queue(&mut self, id: ObjectId, mark: Flags, graph: &mut crate::Graph<'_, '_>) -> ExnResult {
+    fn add_to_queue(&mut self, id: ObjectId, mark: Flags, graph: &mut crate::Graph<'_, '_>) -> Result {
         let mut is_common = false;
         let mut has_mark = false;
         if let Some(commit) = graph
@@ -30,8 +28,7 @@ impl Algorithm {
                 has_mark = data.flags.intersects(mark);
                 data.flags |= mark;
                 is_common = data.flags.contains(Flags::COMMON);
-            })
-            .or_erased()?
+            })?
             .filter(|_| !has_mark)
         {
             self.revs.insert(commit.commit_time, id);
@@ -48,11 +45,10 @@ impl Algorithm {
         mode: Mark,
         ancestors: Ancestors,
         graph: &mut crate::Graph<'_, '_>,
-    ) -> ExnResult {
+    ) -> Result {
         let mut is_common = false;
         if let Some(commit) = graph
-            .get_or_insert_commit(id, |data| is_common = data.flags.contains(Flags::COMMON))
-            .or_erased()?
+            .get_or_insert_commit(id, |data| is_common = data.flags.contains(Flags::COMMON))?
             .filter(|_| !is_common)
         {
             let mut queue = gix_revwalk::PriorityQueue::from_iter(Some((commit.commit_time, (id, 0_usize))));
@@ -69,7 +65,7 @@ impl Algorithm {
                 {
                     self.add_to_queue(id, Flags::SEEN, graph)?;
                 } else if (matches!(ancestors, Ancestors::AllUnseen) || generation < 2)
-                    && let Some(commit) = graph.get_or_insert_commit(id, |_| {}).or_erased()?
+                    && let Some(commit) = graph.get_or_insert_commit(id, |_| {})?
                 {
                     for parent_id in commit.parents.clone() {
                         let mut prev_flags = Flags::default();
@@ -77,8 +73,7 @@ impl Algorithm {
                             .get_or_insert_commit(parent_id, |data| {
                                 prev_flags = data.flags;
                                 data.flags |= Flags::COMMON;
-                            })
-                            .or_erased()?
+                            })?
                             .filter(|_| !prev_flags.contains(Flags::COMMON))
                         {
                             if prev_flags.contains(Flags::SEEN) && !prev_flags.contains(Flags::POPPED) {
@@ -107,7 +102,7 @@ impl Negotiator for Algorithm {
     }
 
     fn add_tip(&mut self, id: ObjectId, graph: &mut crate::Graph<'_, '_>) -> Result<()> {
-        (self.add_to_queue(id, Flags::SEEN, graph)).map_err(Into::into)
+        self.add_to_queue(id, Flags::SEEN, graph)
     }
 
     fn next_have(&mut self, graph: &mut crate::Graph<'_, '_>) -> Option<Result<ObjectId>> {
@@ -135,12 +130,12 @@ impl Negotiator for Algorithm {
                     .is_none_or(|commit| !commit.data.flags.contains(Flags::SEEN))
                     && let Err(err) = self.add_to_queue(parent_id, mark, graph)
                 {
-                    return Some(Err(err.into()));
+                    return Some(Err(err));
                 }
                 if mark.contains(Flags::COMMON)
                     && let Err(err) = self.mark_common(parent_id, Mark::AncestorsOnly, Ancestors::AllUnseen, graph)
                 {
-                    return Some(Err(err.into()));
+                    return Some(Err(err));
                 }
             }
 

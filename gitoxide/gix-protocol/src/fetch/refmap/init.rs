@@ -1,7 +1,5 @@
 use bstr::ByteSlice;
-use gix_error::ExnResult;
-use gix_error::Result;
-use gix_error::{ErrorExt, ResultExt, message};
+use gix_error::{ErrorExt, Result, ResultExt, message};
 use gix_transport::client::Capabilities;
 
 use crate::{
@@ -56,7 +54,7 @@ impl RefMap {
                 }
             }))
             .validated()
-            .or_raise_erased(|| message("Failed to validate mappings between remote and local references"))?;
+            .or_raise(|| message("Failed to validate mappings between remote and local references"))?;
 
         let mappings = res.mappings;
         let mappings = mappings
@@ -97,9 +95,9 @@ impl RefMap {
 /// don't advertise it at all, and even newer ones may omit it for empty repositories.
 /// In builds whose `gix-hash` lacks the `sha1` feature, it's treated as unknown object format error.
 /// Errors include the object format bytes as `input` [metadata](gix_error::Error::metadata()).
-fn extract_object_hash(capabilities: &Capabilities) -> ExnResult<gix_hash::Kind> {
+fn extract_object_hash(capabilities: &Capabilities) -> Result<gix_hash::Kind> {
     let object_format = match capabilities.capability("object-format").and_then(|c| c.value()) {
-        Some(object_format) => object_format.to_str().or_raise_erased(|| {
+        Some(object_format) => object_format.to_str().or_raise(|| {
             gix_error::validation("The object format used by the remote isn't valid UTF-8")
                 .with("input", object_format.as_bytes())
         })?,
@@ -110,7 +108,7 @@ fn extract_object_hash(capabilities: &Capabilities) -> ExnResult<gix_hash::Kind>
         Err(err) => Err(
             gix_error::validation(format!("The object format used by the remote is unsupported: {err}"))
                 .with("input", object_format.as_bytes())
-                .raise_erased(),
+                .raise(),
         ),
     }
 }

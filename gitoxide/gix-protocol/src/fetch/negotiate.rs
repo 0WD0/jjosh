@@ -5,11 +5,10 @@
 //! 1. [`mark_complete_and_common_ref()`] - initialize the [`negotiator`](gix_negotiate::Negotiator) with all state known on the remote.
 //! 2. [`add_wants()`] is called if the call at 1) returned [`Action::MustNegotiate`].
 //! 3. [`one_round()`] is called for each negotiation round, providing information if the negotiation is done.
-use gix_error::Result;
 use std::borrow::Cow;
 
 use gix_date::SecondsSinceUnixEpoch;
-use gix_error::{ExnMessageResult, ResultExt, message};
+use gix_error::{ErrorExt, Result, ResultExt, message};
 use gix_negotiate::Flags;
 use gix_ref::file::ReferenceExt;
 
@@ -198,7 +197,7 @@ where
         Cow::Borrowed(&queue)
     };
 
-    gix_trace::detail!("mark known_common").into_scope(|| -> ExnMessageResult<_> {
+    gix_trace::detail!("mark known_common").into_scope(|| -> Result {
         // mark all complete advertised refs as common refs.
         for mapping in ref_map
             .mappings
@@ -223,7 +222,7 @@ where
 
     // As negotiators currently may rely on getting `known_common` calls first and tips after, we adhere to that which is the only
     // reason we cached the set of tips.
-    gix_trace::detail!("mark tips", num_tips = tips.len()).into_scope(|| -> ExnMessageResult<_> {
+    gix_trace::detail!("mark tips", num_tips = tips.len()).into_scope(|| -> Result {
         for tip in tips.iter_unordered() {
             negotiator
                 .add_tip(*tip, graph)
@@ -324,7 +323,7 @@ fn mark_recent_complete_commits(
     queue: &mut Queue,
     graph: &mut gix_negotiate::Graph<'_, '_>,
     cutoff: SecondsSinceUnixEpoch,
-) -> ExnMessageResult {
+) -> Result {
     let _span = gix_trace::detail!("mark_recent_complete", queue_len = queue.len());
     while let Some(id) = queue
         .peek()
@@ -355,7 +354,7 @@ fn mark_all_refs_in_repo(
     graph: &mut gix_negotiate::Graph<'_, '_>,
     queue: &mut Queue,
     mark: Flags,
-) -> ExnMessageResult {
+) -> Result {
     let _span = gix_trace::detail!("mark_all_refs");
     for local_ref in store
         .iter()
@@ -370,7 +369,7 @@ fn mark_all_refs_in_repo(
         let id = match local_ref.peel_to_id_packed(store, objects, packed.as_ref().map(|b| &***b)) {
             Ok(id) => id,
             Err(err) if err.downcast_any_ref::<gix_ref::file::find::NotFound>().is_some() => continue,
-            Err(err) => return Err(err).or_raise(|| message("Could not peel reference to ID")),
+            Err(err) => return Err(err.and_raise(message("Could not peel reference to ID"))),
         };
         let mut is_complete = false;
         if let Some(commit) = graph

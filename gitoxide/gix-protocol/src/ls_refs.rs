@@ -119,7 +119,7 @@ pub(crate) mod function {
                         &self.arguments,
                         &self.features,
                     )
-                    .or_raise_erased(|| message("Invalid ls-refs arguments or capabilities"))?;
+                    .or_raise(|| message("Invalid ls-refs arguments or capabilities"))?;
 
                 progress.step();
                 progress.set_name("list refs".into());
@@ -135,7 +135,7 @@ pub(crate) mod function {
                         trace,
                     )
                     .await
-                    .or_raise_erased(|| message("Could not invoke ls-refs"))?;
+                    .or_raise(|| message("Could not invoke ls-refs"))?;
                 $from_v2_refs(&mut remote_refs).await
             }
         };

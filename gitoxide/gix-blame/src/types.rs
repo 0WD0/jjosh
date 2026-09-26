@@ -1,6 +1,5 @@
-use gix_error::ExnMessageResult;
 use gix_error::Result;
-use gix_error::validation;
+use gix_error::{bail, validation};
 use gix_hash::ObjectId;
 use gix_object::bstr::BString;
 use smallvec::SmallVec;
@@ -84,11 +83,11 @@ impl BlameRanges {
     }
 
     /// Convert a 1-based inclusive range to a 0-based exclusive range.
-    fn inclusive_to_zero_based_exclusive(range: RangeInclusive<u32>) -> ExnMessageResult<Range<u32>> {
+    fn inclusive_to_zero_based_exclusive(range: RangeInclusive<u32>) -> Result<Range<u32>> {
         if range.start() == &0 {
-            return Err(validation(
+            bail!(validation(
                 "Invalid line range was given, line range is expected to be a 1-based inclusive range in the format '<start>,<end>'",
-            ).into());
+            ));
         }
         let start = range.start() - 1;
         let end = *range.end();

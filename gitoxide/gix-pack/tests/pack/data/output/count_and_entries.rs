@@ -1,8 +1,5 @@
 use crate::Result;
-use gix_error::ResultExt;
 use std::sync::atomic::AtomicBool;
-
-use gix_error::ExnResult;
 
 use gix_features::{
     parallel::{InOrderIter, reduce::Finalize},
@@ -491,6 +488,7 @@ fn tree_additions_from_each_merge_parent_are_kept() -> Result {
 /// configured level, defaulting to what `git` uses.
 #[test]
 fn entry_sizes_depend_on_compression_level() -> Result {
+    use gix_error::Result;
     use gix_object::WriteTo;
     let (tree_id, buf) = {
         // Deterministic pseudo-random bytes (xorshift64*), so tree content is stable across runs.
@@ -533,13 +531,12 @@ fn entry_sizes_depend_on_compression_level() -> Result {
         (tree_id, buf)
     };
 
-    let entry_size = |compression| -> ExnResult<usize> {
+    let entry_size = |compression| -> Result<usize> {
         Ok(output::Entry::from_data(
             &output::Count::from_data(tree_id, None),
             &gix_object::Data::new(&buf, gix_object::Kind::Tree, gix_hash::Kind::Sha1),
             compression,
-        )
-        .or_erased()?
+        )?
         .compressed_data
         .len())
     };

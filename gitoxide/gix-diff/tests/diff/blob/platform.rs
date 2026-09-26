@@ -521,6 +521,11 @@ fn resource_setup_errors_retain_paths_causes_and_clear_the_failed_side() -> Resu
                         err.downcast_any_ref::<gix_error::Message>().is_some(),
                         "the conversion failure retains the callee's diagnostic"
                     );
+                    assert_eq!(
+                        err.iter_errors().count(),
+                        2,
+                        "only the resource context and the original missing-object diagnostic remain"
+                    );
                 }
                 other => panic!("unexpected resource setup error: {other:?}"),
             }

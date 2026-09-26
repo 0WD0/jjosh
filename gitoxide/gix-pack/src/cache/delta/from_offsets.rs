@@ -6,7 +6,7 @@ use std::{
     time::Instant,
 };
 
-use gix_error::{ErrorExt, ExnResult, ResultExt, message, retryable};
+use gix_error::{ErrorExt, ResultExt, bail, message, retryable};
 use gix_features::progress::{self, Progress};
 
 use crate::{cache::delta::Tree, data};
@@ -35,7 +35,7 @@ impl<T> Tree<T> {
     ) -> Result<Self> {
         let mut r = io::BufReader::with_capacity(
             8192 * 8, // this value directly corresponds to performance, 8k (default) is about 4x slower than 64k
-            fs::File::open(pack_path).or_raise_erased(|| message("open pack path"))?,
+            fs::File::open(pack_path).or_raise(|| message("open pack path"))?,
         );
 
         let anticipated_num_objects = data_sorted_by_offsets
@@ -50,9 +50,8 @@ impl<T> Tree<T> {
         {
             // safety check - assure ourselves it's a pack we can handle
             let mut buf = [0u8; data::header::SIZE];
-            r.read_exact(&mut buf).or_raise_erased(|| {
-                message("reading header buffer with at least 12 bytes failed - pack file truncated?")
-            })?;
+            r.read_exact(&mut buf)
+                .or_raise(|| message("reading header buffer with at least 12 bytes failed - pack file truncated?"))?;
             crate::data::header::decode(&buf)?;
         }
 
@@ -67,7 +66,7 @@ impl<T> Tree<T> {
                 Self::advance_cursor_to_pack_offset(&mut r, pack_offset, previous_offset)?;
             }
             let entry = crate::data::Entry::from_read(&mut r, pack_offset, hash_len)
-                .or_raise_erased(|| message("EOF while parsing header"))?;
+                .or_raise(|| message("EOF while parsing header"))?;
             previous_cursor_position = Some(pack_offset + entry.header_size() as u64);
 
             use crate::data::entry::Header::*;
@@ -80,7 +79,7 @@ impl<T> Tree<T> {
                         gix_error::not_found(format!(
                             "Could find object with id {base_id} in this pack. Thin packs are not supported"
                         ))
-                        .raise_erased()
+                        .raise()
                     })?;
                     tree.add_child(base_pack_offset, pack_offset, data)?;
                 }
@@ -88,18 +87,16 @@ impl<T> Tree<T> {
                     let Some(base_pack_offset) =
                         crate::data::entry::Header::verified_base_pack_offset(pack_offset, base_distance)
                     else {
-                        return Err(gix_error::corruption(format!(
+                        bail!(gix_error::corruption(format!(
                             "OFS_DELTA base distance {base_distance} is invalid for pack offset {pack_offset}"
-                        ))
-                        .raise()
-                        .into());
+                        )));
                     };
                     tree.add_child(base_pack_offset, pack_offset, data)?;
                 }
             }
             progress.inc();
             if idx % 10_000 == 0 && should_interrupt.load(Ordering::SeqCst) {
-                return Err(retryable("Interrupted").raise().into());
+                bail!(retryable("Interrupted"));
             }
         }
 
@@ -111,14 +108,14 @@ impl<T> Tree<T> {
         r: &mut io::BufReader<fs::File>,
         pack_offset: u64,
         previous_offset: u64,
-    ) -> ExnResult {
+    ) -> Result {
         let bytes_to_skip: u64 = pack_offset
             .checked_sub(previous_offset)
             .expect("continuously ascending pack offsets");
         if bytes_to_skip == 0 {
             return Ok(());
         }
-        let buf = r.fill_buf().or_raise_erased(|| message("skip bytes"))?;
+        let buf = r.fill_buf().or_raise(|| message("skip bytes"))?;
         if buf.is_empty() {
             // This means we have reached the end of file and can't make progress anymore, before we have satisfied our need
             // for more
@@ -126,15 +123,14 @@ impl<T> Tree<T> {
                 io::ErrorKind::UnexpectedEof,
                 "ran out of bytes before reading desired amount of bytes",
             )
-            .and_raise(message("index file is damaged or corrupt"))
-            .erased());
+            .and_raise(message("index file is damaged or corrupt")));
         }
         if bytes_to_skip <= u64::try_from(buf.len()).expect("sensible buffer size") {
             // SAFETY: bytes_to_skip <= buf.len() <= usize::MAX
             r.consume(bytes_to_skip as usize);
         } else {
             r.seek(SeekFrom::Start(pack_offset))
-                .or_raise_erased(|| message("seek to next entry"))?;
+                .or_raise(|| message("seek to next entry"))?;
         }
         Ok(())
     }

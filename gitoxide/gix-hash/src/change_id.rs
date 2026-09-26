@@ -1,5 +1,5 @@
 use gix_error::ErrorExt;
-use gix_error::Result;
+use gix_error::{Result, bail};
 use std::{borrow::Borrow, ops::Deref, str::FromStr};
 
 use crate::{ChangeId, Kind, ObjectId, oid};
@@ -11,11 +11,9 @@ impl ChangeId {
     pub fn from_reverse_hex(buffer: &[u8]) -> Result<Self> {
         let len = buffer.len();
         if crate::Kind::from_hex_len(len).is_none_or(|kind| kind.len_in_hex() != len) {
-            return Err(
-                gix_error::validation(format!("A hash sized {len} hexadecimal characters is invalid"))
-                    .raise()
-                    .into(),
-            );
+            bail!(gix_error::validation(format!(
+                "A hash sized {len} hexadecimal characters is invalid"
+            )));
         }
 
         let mut hex = Kind::hex_buf();

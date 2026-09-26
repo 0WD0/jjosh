@@ -2,7 +2,7 @@ use gix_error::Result;
 use std::{borrow::Cow, cell::RefCell, cmp::Ordering};
 
 use bstr::BStr;
-use gix_error::{ErrorExt, ExnMessageResult, message};
+use gix_error::{ErrorExt, bail, message};
 use gix_filter::attributes::glob::pattern::Case;
 
 use super::{Action, ChangeRef, RewriteOptions};
@@ -40,20 +40,16 @@ where
     Find: gix_object::FindObjectOrHeader,
 {
     if lhs.is_sparse() || rhs.is_sparse() {
-        return Err(message("Cannot diff indices that contain sparse entries")
-            .raise()
-            .into());
+        bail!(message("Cannot diff indices that contain sparse entries"));
     }
     if lhs
         .entries()
         .iter()
         .any(|e| e.stage() != gix_index::entry::Stage::Unconflicted)
     {
-        return Err(
-            message("Unmerged entries aren't allowed in the left-hand index, only in the right-hand index")
-                .raise()
-                .into(),
-        );
+        bail!(message(
+            "Unmerged entries aren't allowed in the left-hand index, only in the right-hand index"
+        ));
     }
 
     let lhs_range = lhs
@@ -218,7 +214,7 @@ where
         )?;
 
         if let Some(err) = cb_err {
-            Err(err.into())
+            Err(err)
         } else {
             Ok(Some(out))
         }
@@ -231,7 +227,7 @@ fn emit_deletion<'rhs, 'lhs: 'rhs>(
     (idx, path, entry): (usize, &'lhs BStr, &'lhs gix_index::Entry),
     mut cb: impl FnMut(ChangeRef<'lhs, 'rhs>) -> Result<Action>,
     tracker: Option<&mut rewrites::Tracker<ChangeRef<'lhs, 'rhs>>>,
-) -> ExnMessageResult<Action> {
+) -> Result<Action> {
     let change = ChangeRef::Deletion {
         location: Cow::Borrowed(path),
         index: idx,
@@ -254,7 +250,7 @@ fn emit_addition<'rhs, 'lhs: 'rhs>(
     (idx, path, entry): (usize, &'rhs BStr, &'rhs gix_index::Entry),
     mut cb: impl FnMut(ChangeRef<'lhs, 'rhs>) -> Result<Action>,
     tracker: Option<&mut rewrites::Tracker<ChangeRef<'lhs, 'rhs>>>,
-) -> ExnMessageResult<Action> {
+) -> Result<Action> {
     if ignore_unmerged_and_intent_to_add((idx, path, entry)) {
         return Ok(std::ops::ControlFlow::Continue(()));
     }
@@ -277,7 +273,7 @@ fn emit_addition<'rhs, 'lhs: 'rhs>(
     cb(change).map_err(callback_error)
 }
 
-fn callback_error(err: gix_error::Error) -> gix_error::Exn<gix_error::Message> {
+fn callback_error(err: gix_error::Error) -> gix_error::Error {
     err.and_raise(message("The callback indicated failure"))
 }
 

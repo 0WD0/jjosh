@@ -1,6 +1,6 @@
 use std::ffi::OsString;
 
-use gix_error::{Message, validation};
+use gix_error::{Result, bail, validation};
 
 /// The action passed to the credential helper implementation in [`main()`][crate::program::main()].
 #[derive(Debug, Copy, Clone)]
@@ -14,20 +14,21 @@ pub enum Action {
 }
 
 impl TryFrom<OsString> for Action {
-    type Error = Message;
+    type Error = gix_error::Error;
 
-    /// Invalid action bytes are stored as `input` in [`Message::values`].
-    /// After [wrapping](gix_error::Error::from_error()), inspect them with [metadata](gix_error::Error::metadata()).
-    fn try_from(value: OsString) -> Result<Self, Self::Error> {
+    /// Invalid actions return a [`gix_error::Class::Validation`] error.
+    /// The action's [encoded bytes](std::ffi::OsStr::as_encoded_bytes) are retained as `input`
+    /// [metadata](gix_error::Error::metadata()).
+    fn try_from(value: OsString) -> Result<Self> {
         Ok(match value.to_str() {
             Some("fill" | "get") => Action::Get,
             Some("approve" | "store") => Action::Store,
             Some("reject" | "erase") => Action::Erase,
             _ => {
-                return Err(validation(
-                    "Action is invalid, need 'get', 'store', 'erase' or 'fill', 'approve', 'reject'",
-                )
-                .with("input", value.as_encoded_bytes()));
+                bail!(
+                    validation("Action is invalid, need 'get', 'store', 'erase' or 'fill', 'approve', 'reject'",)
+                        .with("input", value.as_encoded_bytes())
+                );
             }
         })
     }
@@ -48,7 +49,7 @@ pub(crate) mod function {
     use gix_error::Result;
     use std::ffi::OsString;
 
-    use gix_error::{ErrorExt, ResultExt, validation};
+    use gix_error::{ErrorExt, ResultExt, bail, validation};
 
     use crate::{
         program::main::Action,
@@ -77,16 +78,14 @@ pub(crate) mod function {
             .into_iter()
             .next()
             .ok_or_else(|| validation("The first argument must be the action to perform").raise_erased())?;
-        let action = Action::try_from(action).or_erased()?;
+        let action = Action::try_from(action)?;
         let mut buf = Vec::<u8>::with_capacity(512);
-        stdin.read_to_end(&mut buf).or_erased()?;
-        let ctx = Context::from_bytes(&buf, options).or_erased()?;
+        stdin.read_to_end(&mut buf).or_error()?;
+        let ctx = Context::from_bytes(&buf, options)?;
         if ctx.url.is_none() && (ctx.protocol.is_none() || ctx.host.is_none()) {
-            return Err(
-                validation("Either 'url' field or both 'protocol' and 'host' fields must be provided")
-                    .raise()
-                    .into(),
-            );
+            bail!(validation(
+                "Either 'url' field or both 'protocol' and 'host' fields must be provided"
+            ));
         }
         let res = credentials(action, ctx.clone())?;
         match (action, res) {
@@ -97,15 +96,13 @@ pub(crate) mod function {
                     .clone()
                     .or_else(|| ctx_for_error.to_url())
                     .expect("URL is available either directly or via protocol+host which we checked for");
-                return Err(
-                    gix_error::not_found(format!("Credentials for {url:?} could not be obtained"))
-                        .raise()
-                        .into(),
-                );
+                bail!(gix_error::not_found(format!(
+                    "Credentials for {url:?} could not be obtained"
+                )));
             }
             (Action::Get, Some(mut ctx)) => {
                 ctx.options = options;
-                ctx.write_to(stdout).or_erased()?;
+                ctx.write_to(stdout).or_error()?;
             }
             (Action::Erase | Action::Store, None) => {}
             (Action::Erase | Action::Store, Some(_)) => {

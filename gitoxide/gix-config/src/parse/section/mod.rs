@@ -21,14 +21,14 @@ pub(crate) struct HeaderData {
 
 mod types {
     use bstr::ByteSlice;
+    use gix_error::{ErrorExt, Result};
 
     macro_rules! generate_case_insensitive {
         ($name:ident, $err_doc:literal, $validate:ident, $cow_inner_type:ty, $comment:literal) => {
             #[doc = $comment]
             ///
-            /// Conversion errors store invalid name bytes as `input` in [`gix_error::Message::values`].
-            /// After [wrapping](gix_error::Error::from_error()), inspect them with
-            /// [metadata](gix_error::Error::metadata()).
+            /// Invalid names produce a [validation error](gix_error::Error::is_validation()),
+            /// with the original bytes stored as `input` [metadata](gix_error::Error::metadata()).
             #[derive(Clone, Eq, Debug, Default)]
             pub struct $name(pub(crate) bstr::BString);
 
@@ -78,41 +78,41 @@ mod types {
             }
 
             impl std::convert::TryFrom<&str> for $name {
-                type Error = gix_error::Message;
+                type Error = gix_error::Error;
 
-                fn try_from(s: &str) -> Result<Self, Self::Error> {
+                fn try_from(s: &str) -> Result<Self> {
                     Self::try_from(bstr::ByteSlice::as_bstr(s.as_bytes()))
                 }
             }
 
             impl std::convert::TryFrom<String> for $name {
-                type Error = gix_error::Message;
+                type Error = gix_error::Error;
 
-                fn try_from(s: String) -> Result<Self, Self::Error> {
+                fn try_from(s: String) -> Result<Self> {
                     Self::try_from(bstr::BString::from(s))
                 }
             }
 
             impl std::convert::TryFrom<bstr::BString> for $name {
-                type Error = gix_error::Message;
+                type Error = gix_error::Error;
 
-                fn try_from(s: bstr::BString) -> Result<Self, Self::Error> {
+                fn try_from(s: bstr::BString) -> Result<Self> {
                     if $validate(s.as_slice().as_bstr()) {
                         Ok(Self(s.into()))
                     } else {
-                        Err(gix_error::validation($err_doc).with("input", s))
+                        Err(gix_error::validation($err_doc).with("input", s).raise())
                     }
                 }
             }
 
             impl std::convert::TryFrom<&bstr::BStr> for $name {
-                type Error = gix_error::Message;
+                type Error = gix_error::Error;
 
-                fn try_from(s: &bstr::BStr) -> Result<Self, Self::Error> {
+                fn try_from(s: &bstr::BStr) -> Result<Self> {
                     if $validate(s) {
                         Ok(Self(s.into()))
                     } else {
-                        Err(gix_error::validation($err_doc).with("input", s))
+                        Err(gix_error::validation($err_doc).with("input", s).raise())
                     }
                 }
             }

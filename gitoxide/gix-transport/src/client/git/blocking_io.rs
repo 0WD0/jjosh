@@ -172,16 +172,15 @@ where
 
 ///
 pub mod connect {
-    use gix_error::Result;
     use std::net::{TcpStream, ToSocketAddrs};
 
     use bstr::BString;
-    use gix_error::{ExnMessageResult, ResultExt, message};
+    use gix_error::{Result, ResultExt, message};
 
     use super::Connection;
     use crate::client::git;
 
-    fn parse_host(input: String) -> ExnMessageResult<(String, Option<u16>)> {
+    fn parse_host(input: String) -> Result<(String, Option<u16>)> {
         let mut tokens = input.splitn(2, ':');
         Ok(match (tokens.next(), tokens.next()) {
             (Some(host), None) => (host.to_owned(), None),

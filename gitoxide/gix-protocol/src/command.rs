@@ -17,9 +17,8 @@ impl Command {
 #[cfg(any(test, feature = "async-client", feature = "blocking-client"))]
 mod with_io {
     use bstr::{BString, ByteSlice};
-    use gix_error::ErrorExt;
 
-    use gix_error::Result;
+    use gix_error::{Result, bail};
     use gix_transport::client::Capabilities;
 
     use crate::{Command, command::Feature};
@@ -184,12 +183,10 @@ mod with_io {
                 if allowed.iter().any(|allowed| arg.starts_with(allowed.as_bytes())) {
                     continue;
                 }
-                return Err(gix_error::validation(format!(
+                bail!(gix_error::validation(format!(
                     "{}: argument {arg} is not known or allowed",
                     self.as_str()
-                ))
-                .raise()
-                .into());
+                )));
             }
             match version {
                 gix_transport::Protocol::V0 | gix_transport::Protocol::V1 => {
@@ -200,12 +197,10 @@ mod with_io {
                         {
                             continue;
                         }
-                        return Err(gix_error::validation(format!(
+                        bail!(gix_error::validation(format!(
                             "{}: capability {feature} is not supported",
                             self.as_str()
-                        ))
-                        .raise()
-                        .into());
+                        )));
                     }
                 }
                 gix_transport::Protocol::V2 => {
@@ -226,12 +221,10 @@ mod with_io {
                         match *feature {
                             "agent" | "object-format" => {}
                             _ => {
-                                return Err(gix_error::validation(format!(
+                                bail!(gix_error::validation(format!(
                                     "{}: capability {feature} is not supported",
                                     self.as_str()
-                                ))
-                                .raise()
-                                .into());
+                                )));
                             }
                         }
                     }

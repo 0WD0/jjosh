@@ -1,5 +1,5 @@
-use gix_error::ExnResult;
-use gix_error::ResultExt;
+use gix_error::Result;
+
 pub(crate) struct TreeEntry {
     pub id: gix_hash::ObjectId,
     pub crc32: u32,
@@ -57,7 +57,7 @@ pub(super) mod function {
     use gix_error::Result;
     use std::{io, sync::atomic::AtomicBool};
 
-    use gix_error::{ErrorExt, OptionExt, ResultExt};
+    use gix_error::{OptionExt, ResultExt, bail};
     use gix_features::progress::{self, Count, Progress, prodash::DynNestedProgress};
 
     use crate::cache::delta::{Tree, traverse};
@@ -114,13 +114,11 @@ pub(super) mod function {
         F2: for<'r> Fn(crate::data::EntryRange, &'r R) -> Option<&'r [u8]> + Send + Clone,
     {
         if version != crate::index::Version::default() {
-            return Err(gix_error::validation(format!(
+            bail!(gix_error::validation(format!(
                 "Indices of type {} cannot be written, only {} are supported",
                 version as usize,
                 crate::index::Version::default() as usize
-            ))
-            .raise()
-            .into());
+            )));
         }
         let mut num_objects: usize = 0;
         let mut last_seen_trailer = None;
@@ -179,12 +177,13 @@ pub(super) mod function {
                 }
                 OfsDelta { base_distance } => {
                     let base_pack_offset =
-                        crate::data::entry::Header::verified_base_pack_offset(pack_offset, base_distance)
-                            .ok_or_raise_erased(|| {
+                        crate::data::entry::Header::verified_base_pack_offset(pack_offset, base_distance).ok_or_raise(
+                            || {
                                 gix_error::validation(format!(
                                     "{pack_offset} is not a valid offset for pack offset {base_distance}"
                                 ))
-                            })?;
+                            },
+                        )?;
                     tree.add_child(
                         base_pack_offset,
                         pack_offset,
@@ -199,7 +198,7 @@ pub(super) mod function {
             num_objects += 1;
             objects_progress.inc();
         }
-        let num_objects = u32::try_from(num_objects).or_raise_erased(|| {
+        let num_objects = u32::try_from(num_objects).or_raise(|| {
             gix_error::validation(format!(
                 "Only u32::MAX objects can be stored in a pack, found {num_objects}"
             ))
@@ -224,7 +223,7 @@ pub(super) mod function {
                      entry,
                      decompressed: bytes,
                      ..
-                 }| { (modify_base(data, entry, bytes, object_hash)).map_err(Into::into) },
+                 }| modify_base(data, entry, bytes, object_hash),
                 traverse::Options {
                     object_progress: Box::new(
                         root_progress.add_child_with_id("Resolving".into(), ProgressId::ResolveObjects.into()),
@@ -260,11 +259,9 @@ pub(super) mod function {
                 hasher.try_finalize()?
             }
             None => {
-                return Err(gix_error::validation(
+                bail!(gix_error::validation(
                     "The iterator failed to set a trailing hash over all prior pack entries in the last provided entry",
-                )
-                .raise()
-                .into());
+                ));
             }
         };
         let index_hash = crate::index::encode::write_to(
@@ -295,9 +292,9 @@ fn modify_base(
     pack_entry: &crate::data::Entry,
     decompressed: &[u8],
     hash: gix_hash::Kind,
-) -> ExnResult {
+) -> Result {
     let object_kind = pack_entry.header.as_kind().expect("base object as source of iteration");
-    let id = gix_object::compute_hash(hash, object_kind, decompressed).or_erased()?;
+    let id = gix_object::compute_hash(hash, object_kind, decompressed)?;
     entry.id = id;
     Ok(())
 }

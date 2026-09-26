@@ -248,7 +248,9 @@ mod filter {
     }
 
     mod eol {
-        use crate::{Error, Result, bstr::ByteSlice, config, config::tree::core::Eol};
+        use gix_error::bail;
+
+        use crate::{Result, bstr::ByteSlice, config, config::tree::core::Eol};
 
         impl Eol {
             /// Convert `value` into the default end-of-line mode.
@@ -263,11 +265,11 @@ mod filter {
                     "crlf" => gix_filter::eol::Mode::CrLf,
                     "native" => gix_filter::eol::Mode::default(),
                     _ => {
-                        return Err(Error::from_error(config::key::error_with_value(
+                        bail!(config::key::error_with_value(
                             self,
                             "Invalid configuration value",
                             value,
-                        )));
+                        ));
                     }
                 })
             }
@@ -326,9 +328,9 @@ mod filter {
 pub use filter::*;
 
 mod repository_format_version {
-    use gix_error::ResultExt;
+    use gix_error::{ResultExt, bail};
 
-    use crate::{Error, Result, config, config::tree::core::RepositoryFormatVersion, repository::FormatVersion};
+    use crate::{Result, config, config::tree::core::RepositoryFormatVersion, repository::FormatVersion};
 
     impl RepositoryFormatVersion {
         /// Convert an integer into a supported repository format version, preserving an absent value as `None`.
@@ -345,11 +347,11 @@ mod repository_format_version {
                 0 => FormatVersion::V0,
                 1 => FormatVersion::V1,
                 _ => {
-                    return Err(Error::from_error(config::key::error_with_value(
+                    bail!(config::key::error_with_value(
                         self,
                         "Unsupported repository format version; only versions 0 and 1 are supported",
                         value,
-                    )));
+                    ));
                 }
             }))
         }
@@ -391,17 +393,19 @@ mod shared_repository {
                 };
             }
 
-            Ok(gix_config::Boolean::try_from(value)
+            gix_config::Boolean::try_from(value)
                 .map(|value| if value.0 { 0o660 } else { 0 })
-                .or_raise(|| config::key::error_with_value(self, "Invalid configuration value", value))?)
+                .or_raise(|| config::key::error_with_value(self, "Invalid configuration value", value))
         }
     }
 }
 
 #[cfg(feature = "revision")]
 mod disambiguate {
+    use gix_error::bail;
+
     use crate::{
-        Error, Result, bstr::ByteSlice, config, config::tree::core::Disambiguate, revision::spec::parse::ObjectKindHint,
+        Result, bstr::ByteSlice, config, config::tree::core::Disambiguate, revision::spec::parse::ObjectKindHint,
     };
 
     impl Disambiguate {
@@ -419,11 +423,11 @@ mod disambiguate {
                 b"treeish" => ObjectKindHint::Treeish,
                 b"blob" => ObjectKindHint::Blob,
                 _ => {
-                    return Err(Error::from_error(config::key::error_with_value(
+                    bail!(config::key::error_with_value(
                         self,
                         "Invalid configuration value",
                         value,
-                    )));
+                    ));
                 }
             };
             Ok(Some(hint))
@@ -460,7 +464,7 @@ mod log_all_ref_updates {
                     } else {
                         let context =
                             config::key::error_with_value(self, "Invalid configuration value", value.as_bstr());
-                        Err(err.and_raise(context).into())
+                        Err(err.and_raise(context))
                     }
                 }
                 Ok(None) => Ok(None),
@@ -470,7 +474,9 @@ mod log_all_ref_updates {
 }
 
 mod check_stat {
-    use crate::{Error, Result, bstr::ByteSlice, config, config::tree::core::CheckStat};
+    use gix_error::bail;
+
+    use crate::{Result, bstr::ByteSlice, config, config::tree::core::CheckStat};
 
     impl CheckStat {
         /// Returns true if the full set of stat entries should be checked, and it's just as lenient as git.
@@ -480,11 +486,11 @@ mod check_stat {
                 b"minimal" => false,
                 b"default" => true,
                 _ => {
-                    return Err(Error::from_error(config::key::error_with_value(
+                    bail!(config::key::error_with_value(
                         self,
                         "Invalid configuration value",
                         value,
-                    )));
+                    ));
                 }
             })
         }
@@ -521,14 +527,11 @@ mod abbrev {
                 if let Ok(false) = gix_config::Boolean::try_from(value_bytes).map(Into::into) {
                     Ok(object_hash.len_in_hex().into())
                 } else {
-                    let value = gix_config::Integer::try_from(value_bytes)
-                        .or_raise(invalid)?
-                        .to_decimal()
-                        .ok_or_else(&invalid)?;
-                    if value < 4 || value as usize > object_hash.len_in_hex() {
+                    let value = gix_config::Integer::from_bytes::<usize>(value_bytes).or_raise(invalid)?;
+                    if value < 4 || value > object_hash.len_in_hex() {
                         return Err(invalid());
                     }
-                    Ok(Some(value as usize))
+                    Ok(Some(value))
                 }
             }
         }
@@ -537,26 +540,13 @@ mod abbrev {
 
 mod validate {
     use crate::{Result, bstr::BStr, config::tree::keys};
-    use gix_error::{ErrorExt, ResultExt};
 
     #[derive(Clone, Copy)]
     pub struct RepositoryFormatVersion;
     impl keys::Validate for RepositoryFormatVersion {
         fn validate(&self, value: &BStr) -> Result {
             super::Core::REPOSITORY_FORMAT_VERSION
-                .try_into_repository_format_version(
-                    gix_config::Integer::try_from(value)
-                        .and_then(|int| {
-                            int.to_decimal().ok_or_else(|| {
-                                gix_error::validation("integer for repository format version out of range")
-                                    .with("input", value)
-                                    .raise()
-                                    .into()
-                            })
-                        })
-                        .map(Some),
-                )
-                .or_erased()?;
+                .try_into_repository_format_version(gix_config::Integer::from_bytes::<i64>(value).map(Some))?;
             Ok(())
         }
     }
@@ -566,9 +556,7 @@ mod validate {
     impl keys::Validate for Disambiguate {
         fn validate(&self, _value: &BStr) -> Result {
             #[cfg(feature = "revision")]
-            super::Core::DISAMBIGUATE
-                .try_into_object_kind_hint(_value)
-                .or_erased()?;
+            super::Core::DISAMBIGUATE.try_into_object_kind_hint(_value)?;
             Ok(())
         }
     }
@@ -578,8 +566,7 @@ mod validate {
     impl keys::Validate for LogAllRefUpdates {
         fn validate(&self, value: &BStr) -> Result {
             super::Core::LOG_ALL_REF_UPDATES
-                .try_into_ref_updates(gix_config::Boolean::try_from(value).map(|b| Some(b.0)))
-                .or_erased()?;
+                .try_into_ref_updates(gix_config::Boolean::try_from(value).map(|b| Some(b.0)))?;
             Ok(())
         }
     }
@@ -588,7 +575,7 @@ mod validate {
     pub struct CheckStat;
     impl keys::Validate for CheckStat {
         fn validate(&self, value: &BStr) -> Result {
-            super::Core::CHECK_STAT.try_into_checkstat(value).or_erased()?;
+            super::Core::CHECK_STAT.try_into_checkstat(value)?;
             Ok(())
         }
     }
@@ -601,9 +588,7 @@ mod validate {
             // would touch ~50 impl sites. The repo-aware check with the actual hash runs in
             // config::cache::util::parse_core_abbrev, so here we just use Kind::longest()
             // to allow the most permissive upper bound.
-            super::Core::ABBREV
-                .try_into_abbreviation(value, gix_hash::Kind::longest())
-                .or_erased()?;
+            super::Core::ABBREV.try_into_abbreviation(value, gix_hash::Kind::longest())?;
             Ok(())
         }
     }
@@ -612,9 +597,7 @@ mod validate {
     pub struct SharedRepository;
     impl keys::Validate for SharedRepository {
         fn validate(&self, value: &BStr) -> Result {
-            super::Core::SHARED_REPOSITORY
-                .try_into_shared_repository(Some(value))
-                .or_erased()?;
+            super::Core::SHARED_REPOSITORY.try_into_shared_repository(Some(value))?;
             Ok(())
         }
     }
@@ -625,7 +608,7 @@ mod validate {
     #[cfg(feature = "attributes")]
     impl keys::Validate for SafeCrlf {
         fn validate(&self, value: &BStr) -> Result {
-            super::Core::SAFE_CRLF.try_into_safecrlf(value).or_erased()?;
+            super::Core::SAFE_CRLF.try_into_safecrlf(value)?;
             Ok(())
         }
     }
@@ -636,7 +619,7 @@ mod validate {
     #[cfg(feature = "attributes")]
     impl keys::Validate for AutoCrlf {
         fn validate(&self, value: &BStr) -> Result {
-            super::Core::AUTO_CRLF.try_into_autocrlf(value).or_erased()?;
+            super::Core::AUTO_CRLF.try_into_autocrlf(value)?;
             Ok(())
         }
     }
@@ -647,7 +630,7 @@ mod validate {
     #[cfg(feature = "attributes")]
     impl keys::Validate for Eol {
         fn validate(&self, value: &BStr) -> Result {
-            super::Core::EOL.try_into_eol(value).or_erased()?;
+            super::Core::EOL.try_into_eol(value)?;
             Ok(())
         }
     }
@@ -658,9 +641,7 @@ mod validate {
     #[cfg(feature = "attributes")]
     impl keys::Validate for CheckRoundTripEncoding {
         fn validate(&self, value: &BStr) -> Result {
-            super::Core::CHECK_ROUND_TRIP_ENCODING
-                .try_into_encodings(Some(value))
-                .or_erased()?;
+            super::Core::CHECK_ROUND_TRIP_ENCODING.try_into_encodings(Some(value))?;
             Ok(())
         }
     }

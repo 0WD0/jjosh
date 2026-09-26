@@ -1,7 +1,7 @@
 use gix_error::Result;
 use std::ops::DerefMut;
 
-use gix_error::{ErrorExt, ResultExt};
+use gix_error::{ResultExt, bail};
 use gix_hash::ObjectId;
 use gix_object::Exists;
 
@@ -111,7 +111,7 @@ impl From<crate::Repository> for crate::ThreadSafeRepository {
 impl gix_object::Write for crate::Repository {
     fn write(&self, object: &dyn gix_object::WriteTo) -> Result<gix_hash::ObjectId> {
         let mut buf = self.empty_reusable_buffer();
-        object.write_to(buf.deref_mut()).or_erased()?;
+        object.write_to(buf.deref_mut()).or_error()?;
         self.write_buf(object.kind(), &buf)
     }
 
@@ -130,13 +130,11 @@ impl gix_object::Write for crate::Repository {
         from: &mut dyn std::io::Read,
     ) -> Result<gix_hash::ObjectId> {
         let mut buf = self.empty_reusable_buffer();
-        let bytes = std::io::copy(from, buf.deref_mut()).or_erased()?;
+        let bytes = std::io::copy(from, buf.deref_mut()).or_error()?;
         if size != bytes {
-            return Err(
-                gix_error::message!("Found {bytes} bytes in stream, but had {size} bytes declared")
-                    .raise()
-                    .into(),
-            );
+            bail!(gix_error::message!(
+                "Found {bytes} bytes in stream, but had {size} bytes declared"
+            ));
         }
         self.write_buf(kind, &buf)
     }
@@ -161,13 +159,11 @@ impl gix_object::Write for crate::Repository {
         id: gix_hash::ObjectId,
     ) -> Result<gix_hash::ObjectId> {
         let mut buf = self.empty_reusable_buffer();
-        let bytes = std::io::copy(from, buf.deref_mut()).or_erased()?;
+        let bytes = std::io::copy(from, buf.deref_mut()).or_error()?;
         if size != bytes {
-            return Err(
-                gix_error::message!("Found {bytes} bytes in stream, but had {size} bytes declared")
-                    .raise()
-                    .into(),
-            );
+            bail!(gix_error::message!(
+                "Found {bytes} bytes in stream, but had {size} bytes declared"
+            ));
         }
         self.write_buf_with_known_id(kind, &buf, id)
     }

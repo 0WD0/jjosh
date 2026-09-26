@@ -1,5 +1,7 @@
+use gix_error::bail;
+
 use crate::{
-    Error, Result,
+    Result,
     bstr::{BString, ByteSlice},
     config,
     config::tree::{Key, Notes, Section, keys},
@@ -43,18 +45,17 @@ impl DisplayRef {
             pattern.has_wildcard() || <&gix_ref::FullNameRef>::try_from(reference.as_bstr()).is_ok()
         });
         if !is_valid {
-            return Err(Error::from_error(config::key::error_with_value(
+            bail!(config::key::error_with_value(
                 self,
                 "Invalid configuration value",
                 value,
-            )));
+            ));
         }
         Ok(refs)
     }
 }
 
 mod validate {
-    use gix_error::ResultExt;
 
     use crate::{Result, bstr::BStr, config::tree::keys::Validate};
 
@@ -63,7 +64,7 @@ mod validate {
 
     impl Validate for DisplayRef {
         fn validate(&self, value: &BStr) -> Result {
-            super::Notes::DISPLAY_REF.try_into_display_refs(value).or_erased()?;
+            super::Notes::DISPLAY_REF.try_into_display_refs(value)?;
             Ok(())
         }
     }

@@ -212,11 +212,7 @@ mod edit_tree {
             )?
             .write()
             .unwrap_err();
-        insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&(err), &[]), "each entry to be written is checked for existence", @r#"
-        Message {
-            message: "The object Oid(1) (100644) at 'non-existing' could not be found",
-        }
-        "#);
+        insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&(err), &[]), "each entry to be written is checked for existence", @"The object Oid(1) (100644) at 'non-existing' could not be found");
 
         let this_id = hex_to_id("317e9677c3bcffd006f9fc84bbb0a54ef1676197");
         let err = editor

@@ -3,7 +3,7 @@ use std::{
     time::Instant,
 };
 
-use gix_error::{ErrorExt, ExnResult, retryable};
+use gix_error::{Result, bail, retryable};
 use gix_features::{
     parallel,
     progress::Progress,
@@ -63,12 +63,12 @@ impl<P> parallel::Reduce for Reducer<'_, P>
 where
     P: Progress,
 {
-    type Input = ExnResult<Vec<data::decode::entry::Outcome>>;
+    type Input = Result<Vec<data::decode::entry::Outcome>>;
     type FeedProduce = ();
     type Output = traverse::Statistics;
-    type Error = gix_error::Exn;
+    type Error = gix_error::Error;
 
-    fn feed(&mut self, input: Self::Input) -> Result<(), Self::Error> {
+    fn feed(&mut self, input: Self::Input) -> Result {
         let chunk_stats = input?;
         self.entries_seen += chunk_stats.len();
 
@@ -95,12 +95,12 @@ where
         lock(&self.progress).set(self.entries_seen);
 
         if self.should_interrupt.load(Ordering::SeqCst) {
-            return Err(retryable("Interrupted").raise_erased());
+            bail!(retryable("Interrupted"));
         }
         Ok(())
     }
 
-    fn finalize(mut self) -> Result<Self::Output, Self::Error> {
+    fn finalize(mut self) -> Result<Self::Output> {
         div_decode_result(&mut self.stats.average, self.entries_seen);
 
         let elapsed_s = self.then.elapsed().as_secs_f32();

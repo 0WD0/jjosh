@@ -1,6 +1,6 @@
-use gix_error::ResultExt;
-
 use std::collections::BTreeMap;
+
+use gix_error::bail;
 
 use crate::{
     Error, Result,
@@ -39,9 +39,7 @@ impl TryFrom<&BStr> for Allow {
             b"always" => Allow::Always,
             b"user" => Allow::User,
             _ => {
-                return Err(Error::from_error(
-                    gix_error::validation(format!("Unknown protocol permission {v:?}")).with("input", v),
-                ));
+                bail!(gix_error::validation(format!("Unknown protocol permission {v:?}")).with("input", v));
             }
         })
     }
@@ -99,8 +97,7 @@ impl SchemePermission {
         };
 
         let user_allowed = gitoxide::Allow::PROTOCOL_FROM_USER
-            .enrich_error(config.boolean_filter(gitoxide::Allow::PROTOCOL_FROM_USER, &mut filter))
-            .or_erased()?;
+            .enrich_error(config.boolean_filter(gitoxide::Allow::PROTOCOL_FROM_USER, &mut filter))?;
         Ok(SchemePermission {
             allow,
             allow_per_scheme,

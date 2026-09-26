@@ -128,11 +128,10 @@ impl Default for Options<'_> {
 }
 
 pub(crate) mod function {
-    use gix_error::Result;
     use std::{borrow::Cow, cmp::Ordering};
 
     use bstr::BStr;
-    use gix_error::{ExnMessageResult, ResultExt, message};
+    use gix_error::{Result, ResultExt, message};
     use gix_hash::oid;
 
     use super::Outcome;
@@ -297,7 +296,7 @@ pub(crate) mod function {
         commit: gix_hash::ObjectId,
         commit_flags: Flags,
         first_parent: bool,
-    ) -> ExnMessageResult {
+    ) -> Result {
         graph
             .insert_parents(
                 &commit,
@@ -317,7 +316,7 @@ pub(crate) mod function {
         graph: &mut Graph<'_, '_, Flags>,
         best_candidate: &mut Candidate<'_>,
         first_parent: bool,
-    ) -> ExnMessageResult<u32> {
+    ) -> Result<u32> {
         let mut commits_seen = 0;
         while let Some(commit) = queue.pop_value() {
             commits_seen += 1;

@@ -54,7 +54,7 @@ impl File {
     ///
     /// [issue #2421]: https://github.com/GitoxideLabs/gitoxide/issues/2421
     pub fn write(&mut self, options: write::Options) -> Result {
-        use gix_error::{ErrorExt, ResultExt, message};
+        use gix_error::{ErrorExt, ResultExt, bail, message};
 
         let _span = gix_features::trace::detail!("gix_index::File::write()", path = ?self.path);
         let mut lock = std::io::BufWriter::with_capacity(
@@ -70,10 +70,10 @@ impl File {
                 .commit()
                 .or_raise(|| message("Could not commit lock for index file"))?,
             Err(err) => {
-                return Err(err
-                    .into_error()
-                    .and_raise(message("Could not flush buffered index data"))
-                    .into());
+                bail!(
+                    err.into_error()
+                        .and_raise(message("Could not flush buffered index data"))
+                );
             }
         };
         self.state.version = version;

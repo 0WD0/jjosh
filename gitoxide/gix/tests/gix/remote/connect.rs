@@ -66,11 +66,7 @@ mod http_authentication {
             .with_credentials(|action| {
                 obtained = Some(authenticate(action));
                 // Stop after credential lookup, before the transport sends these dummy credentials.
-                Err(
-                    gix_error::message("The handler asked to stop trying to obtain credentials")
-                        .raise()
-                        .into(),
-                )
+                Err(gix_error::message("The handler asked to stop trying to obtain credentials").raise())
             })
             .ref_map(gix::progress::Discard, Default::default());
         server.join().expect("the HTTP fixture thread does not panic")?;
@@ -131,16 +127,8 @@ mod blocking_io {
             }
             insta::assert_debug_snapshot!(error_snapshots, "deny", @r#"
             [
-                Message {
-                    message: "Protocol File is denied per configuration",
-                    class: Validation,
-                    values: {"input": Bytes("<fixture>/base")},
-                },
-                Message {
-                    message: "Protocol File is denied per configuration",
-                    class: Validation,
-                    values: {"input": Bytes("<fixture>/base")},
-                },
+                Protocol File is denied per configuration, "input"="<fixture>/base",
+                Protocol File is denied per configuration, "input"="<fixture>/base",
             ]
             "#);
         }

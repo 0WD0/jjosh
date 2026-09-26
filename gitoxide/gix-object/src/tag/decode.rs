@@ -1,7 +1,7 @@
 use bstr::ByteSlice;
-use gix_error::ResultExt;
+use gix_error::{OptionExt, Result, ResultExt, bail};
 
-use crate::{BStr, Kind, TagRef, parse, parse::ParseResult};
+use crate::{BStr, Kind, TagRef, parse};
 
 /// Parse a complete annotated tag object body.
 ///
@@ -15,7 +15,7 @@ use crate::{BStr, Kind, TagRef, parse, parse::ParseResult};
 /// This parser is not transactional as a whole: if a later field fails, `i` may
 /// already have been advanced past earlier successfully parsed fields. Individual
 /// field parsers document their own cursor behaviour.
-pub fn git_tag<'a>(i: &mut &'a [u8], hash_kind: gix_hash::Kind) -> ParseResult<TagRef<'a>> {
+pub fn git_tag<'a>(i: &mut &'a [u8], hash_kind: gix_hash::Kind) -> Result<TagRef<'a>> {
     let target = target(i, hash_kind)?;
     let kind = kind(i)?;
     let tag_version = name(i)?;
@@ -23,7 +23,7 @@ pub fn git_tag<'a>(i: &mut &'a [u8], hash_kind: gix_hash::Kind) -> ParseResult<T
 
     let (message, signature) = message(i)?;
     if !i.is_empty() {
-        return Err(crate::decode::empty_error().into());
+        bail!(crate::decode::empty_error());
     }
 
     Ok(TagRef {
@@ -41,7 +41,7 @@ pub fn git_tag<'a>(i: &mut &'a [u8], hash_kind: gix_hash::Kind) -> ParseResult<T
 /// Typical input is `object 0123456789012345678901234567890123456789\n`.
 /// The hash must match `object_hash`. Uppercase ASCII hex is also valid.
 /// On success, `i` is advanced past the entire header line.
-pub(crate) fn target<'a>(i: &mut &'a [u8], hash_kind: gix_hash::Kind) -> ParseResult<&'a BStr> {
+pub(crate) fn target<'a>(i: &mut &'a [u8], hash_kind: gix_hash::Kind) -> Result<&'a BStr> {
     parse::header_field(i, b"object", |value| parse::hex_hash(value, hash_kind))
 }
 
@@ -49,7 +49,7 @@ pub(crate) fn target<'a>(i: &mut &'a [u8], hash_kind: gix_hash::Kind) -> ParseRe
 ///
 /// Typical inputs are `type commit\n`, `type tree\n`, `type blob\n`, and
 /// `type tag\n`. On success, `i` is advanced past the entire header line.
-pub(crate) fn kind(i: &mut &[u8]) -> ParseResult<Kind> {
+pub(crate) fn kind(i: &mut &[u8]) -> Result<Kind> {
     parse::header_field(i, b"type", |value| {
         Kind::from_bytes(value).or_raise(|| gix_error::validation("Invalid tag object kind"))
     })
@@ -60,11 +60,11 @@ pub(crate) fn kind(i: &mut &[u8]) -> ParseResult<Kind> {
 /// A typical input is `tag v1.0.0\n`. The returned name excludes both the
 /// `tag ` prefix and the trailing newline, and must be non-empty. On success,
 /// `i` is advanced past the entire header line.
-pub(crate) fn name<'a>(i: &mut &'a [u8]) -> ParseResult<&'a BStr> {
+pub(crate) fn name<'a>(i: &mut &'a [u8]) -> Result<&'a BStr> {
     parse::header_field(i, b"tag", |value| {
-        Ok((!value.is_empty())
+        (!value.is_empty())
             .then(|| value.as_bstr())
-            .ok_or_else(crate::decode::empty_error)?)
+            .ok_or_raise(crate::decode::empty_error)
     })
 }
 
@@ -74,7 +74,7 @@ pub(crate) fn name<'a>(i: &mut &'a [u8]) -> ParseResult<&'a BStr> {
 /// the `tagger ` prefix is absent, this returns `Ok(None)`. On success, it
 /// returns the signature bytes without the prefix or newline and advances `i`
 /// past the entire header line.
-pub(crate) fn tagger_raw<'a>(i: &mut &'a [u8]) -> ParseResult<Option<&'a BStr>> {
+pub(crate) fn tagger_raw<'a>(i: &mut &'a [u8]) -> Result<Option<&'a BStr>> {
     if !i.starts_with(b"tagger ") {
         return Ok(None);
     }
@@ -93,7 +93,7 @@ pub(crate) fn tagger_raw<'a>(i: &mut &'a [u8]) -> ParseResult<Option<&'a BStr>> 
 /// the `tagger ` prefix is absent, this returns `Ok(None)`. On success, it
 /// returns the parsed [`gix_actor::SignatureRef`] and advances `i` past the
 /// entire header line.
-pub(crate) fn tagger<'a>(i: &mut &'a [u8]) -> ParseResult<Option<gix_actor::SignatureRef<'a>>> {
+pub(crate) fn tagger<'a>(i: &mut &'a [u8]) -> Result<Option<gix_actor::SignatureRef<'a>>> {
     if !i.starts_with(b"tagger ") {
         return Ok(None);
     }
@@ -117,7 +117,7 @@ pub(crate) fn tagger<'a>(i: &mut &'a [u8]) -> ParseResult<Option<gix_actor::Sign
 /// and consumed entirely. In that case, the newlines are returned as part of
 /// the message to preserve roundtrips for tags whose body is only the
 /// header/message separator.
-pub fn message<'a>(i: &mut &'a [u8]) -> ParseResult<(&'a BStr, Option<&'a BStr>)> {
+pub fn message<'a>(i: &mut &'a [u8]) -> Result<(&'a BStr, Option<&'a BStr>)> {
     if i.iter().all(|b| *b == b'\n') {
         let message = i.as_bstr();
         *i = &[];
@@ -125,7 +125,7 @@ pub fn message<'a>(i: &mut &'a [u8]) -> ParseResult<(&'a BStr, Option<&'a BStr>)
     }
 
     let Some(rest) = i.strip_prefix(parse::NL) else {
-        return Err(crate::decode::empty_error().into());
+        bail!(crate::decode::empty_error());
     };
 
     *i = &[];

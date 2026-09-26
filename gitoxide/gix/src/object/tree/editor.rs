@@ -1,9 +1,9 @@
-use gix_error::{ErrorExt, ResultExt};
+use gix_error::{ResultExt, bail};
 use gix_hash::ObjectId;
 use gix_object::tree::EntryKind;
 
 use crate::{
-    Error, Id, Repository, Result,
+    Id, Repository, Result,
     bstr::{BStr, BString},
     prelude::ObjectIdExt,
 };
@@ -21,7 +21,7 @@ impl<'repo> super::Editor<'repo> {
     pub fn new(tree: &crate::Tree<'repo>) -> Result<Self> {
         let tree_ref = tree.decode()?;
         let repo = tree.repo;
-        let validate = repo.config.protect_options().or_erased()?;
+        let validate = repo.config.protect_options()?;
         Ok(super::Editor {
             inner: gix_object::tree::Editor::new(tree_ref.into(), &repo.objects, repo.object_hash()),
             validate,
@@ -264,21 +264,21 @@ fn write_cursor<'repo>(cursor: &mut Cursor<'_, 'repo>) -> Result<Id<'repo>> {
                         .then_some(gix_validate::path::component::Mode::Symlink),
                     cursor.validate,
                 )
-                .map_err(|err| {
-                    err.and_raise(gix_error::message!(
+                .or_raise(|| {
+                    gix_error::message!(
                         "The object {} ({}) has an invalid filename: '{}'",
                         entry.oid,
                         kind.as_octal_str(),
                         entry.filename
-                    ))
+                    )
                 })?;
                 if !entry.mode.is_commit() && !cursor.repo.has_object(entry.oid) {
-                    return Err(Error::from_error(gix_error::message!(
+                    bail!(gix_error::message!(
                         "The object {} ({}) at '{}' could not be found",
                         entry.oid,
                         kind.as_octal_str(),
                         entry.filename
-                    )));
+                    ));
                 }
             }
             Ok(cursor.repo.write_object(tree)?.detach())

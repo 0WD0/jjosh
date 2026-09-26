@@ -1,5 +1,5 @@
 use crate::Kind;
-use gix_error::{ErrorExt, Result};
+use gix_error::{Result, bail};
 
 /// Initialization
 impl Kind {
@@ -13,10 +13,7 @@ impl Kind {
             b"commit" => Kind::Commit,
             b"tag" => Kind::Tag,
             _ => {
-                return Err(gix_error::validation("Unknown object kind")
-                    .with("input", s)
-                    .raise()
-                    .into());
+                bail!(gix_error::validation("Unknown object kind").with("input", s));
             }
         })
     }

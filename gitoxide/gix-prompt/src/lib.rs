@@ -19,10 +19,9 @@ use unix::imp;
 #[cfg(not(unix))]
 mod imp {
     use crate::Options;
-    use gix_error::ExnMessageResult;
-    use gix_error::{ErrorExt, message};
+    use gix_error::{ErrorExt, Result, message};
 
-    pub(crate) fn ask(_prompt: &str, _opts: &Options) -> ExnMessageResult<String> {
+    pub(crate) fn ask(_prompt: &str, _opts: &Options) -> Result<String> {
         Err(message("The current platform has no implementation for prompting in the terminal").raise())
     }
 }
@@ -52,31 +51,31 @@ pub fn ask(prompt: &str, opts: &Options) -> Result<String> {
             ),
         }
     }
-    Ok(imp::ask(prompt, opts)?)
+    imp::ask(prompt, opts)
 }
 
 /// Ask for information typed by the user into the terminal after showing the prompt, like `"Username: `.
 ///
 /// Use [`ask()`] for more control.
 pub fn openly(prompt: impl AsRef<str>) -> Result<String> {
-    Ok(imp::ask(
+    imp::ask(
         prompt.as_ref(),
         &Options {
             mode: Mode::Visible,
             askpass: None,
         },
-    )?)
+    )
 }
 
 /// Ask for information _securely_ after showing the `prompt` (like `"password: "`) by not showing what's typed.
 ///
 /// Use [`ask()`] for more control.
 pub fn securely(prompt: impl AsRef<str>) -> Result<String> {
-    Ok(imp::ask(
+    imp::ask(
         prompt.as_ref(),
         &Options {
             mode: Mode::Hidden,
             askpass: None,
         },
-    )?)
+    )
 }

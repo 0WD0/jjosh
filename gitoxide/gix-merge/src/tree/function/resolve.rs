@@ -7,7 +7,6 @@ use std::borrow::Cow;
 
 use bstr::{BString, ByteSlice};
 use gix_diff::tree_with_rewrites::Change;
-use gix_error::ExnResult;
 use gix_hash::ObjectId;
 use gix_object::{
     FindExt, tree,
@@ -2037,7 +2036,7 @@ fn apply_change_and_mark(
     editor: &mut tree::Editor<'_>,
     change: &Change,
     disposition: &mut ChangeDisposition,
-) -> ExnResult {
+) -> Result {
     apply_change(editor, change, None)?;
     *disposition = ChangeDisposition::Applied;
     Ok(())
@@ -2050,7 +2049,7 @@ fn apply_our_resolution(
     editor: &mut gix_object::tree::Editor<'_>,
     local_ours_disposition: &mut ChangeDisposition,
     local_theirs_disposition: &mut ChangeDisposition,
-) -> ExnResult {
+) -> Result {
     let (ours, disposition) = match outer_side {
         Original => (local_ours, local_ours_disposition),
         Swapped => (local_theirs, local_theirs_disposition),

@@ -1,6 +1,5 @@
 use bstr::{BStr, BString, ByteSlice};
-use gix_error::ExnMessageResult;
-use gix_error::{ErrorExt, ResultExt};
+use gix_error::{Result, ResultExt, bail};
 
 use crate::Scheme;
 
@@ -114,7 +113,7 @@ pub(crate) fn remote_helper(input: &BStr, helper_end: usize) -> crate::Url {
     }
 }
 
-pub(crate) fn url(input: &BStr, protocol_end: usize) -> ExnMessageResult<crate::Url> {
+pub(crate) fn url(input: &BStr, protocol_end: usize) -> Result<crate::Url> {
     const MAX_LEN: usize = 1024;
     let input_after_protocol = &input[protocol_end + "://".len()..];
     let scheme = &input[..protocol_end];
@@ -127,13 +126,14 @@ pub(crate) fn url(input: &BStr, protocol_end: usize) -> ExnMessageResult<crate::
         .unwrap_or(input_after_protocol.len());
     if bytes_to_path > MAX_LEN || protocol_end > MAX_LEN {
         let truncated_url = &input[..(protocol_end + "://".len() + MAX_LEN).min(input.len())];
-        return Err(gix_error::validation(format!(
-            "The host portion of the URL is too long ({} bytes shown, {} bytes total)",
-            truncated_url.len(),
-            input.len()
-        ))
-        .with("input", truncated_url)
-        .raise());
+        bail!(
+            gix_error::validation(format!(
+                "The host portion of the URL is too long ({} bytes shown, {} bytes total)",
+                truncated_url.len(),
+                input.len()
+            ))
+            .with("input", truncated_url)
+        );
     }
     let (input, url) = input_to_utf8_and_url(input, UrlKind::Url)?;
     if url.scheme == "ext" {
@@ -153,12 +153,13 @@ pub(crate) fn url(input: &BStr, protocol_end: usize) -> ExnMessageResult<crate::
     let scheme = Scheme::from(url.scheme.as_str());
 
     if matches!(scheme, Scheme::Git | Scheme::Ssh) && url.path.is_empty() {
-        return Err(gix_error::validation(format!(
-            "{} does not specify a path to a repository",
-            UrlKind::Url.as_str()
-        ))
-        .with("input", input.as_bytes())
-        .raise());
+        bail!(
+            gix_error::validation(format!(
+                "{} does not specify a path to a repository",
+                UrlKind::Url.as_str()
+            ))
+            .with("input", input.as_bytes())
+        );
     }
 
     // Normalize empty path to "/" for http/https URLs only
@@ -219,7 +220,7 @@ pub(crate) fn url(input: &BStr, protocol_end: usize) -> ExnMessageResult<crate::
     })
 }
 
-pub(crate) fn scp(input: &BStr, colon: usize) -> ExnMessageResult<crate::Url> {
+pub(crate) fn scp(input: &BStr, colon: usize) -> Result<crate::Url> {
     let input = input_to_utf8(input, UrlKind::Scp)?;
 
     // TODO: this incorrectly splits at IPv6 addresses, check for `[]` before splitting
@@ -228,12 +229,13 @@ pub(crate) fn scp(input: &BStr, colon: usize) -> ExnMessageResult<crate::Url> {
     let path = &path[1..];
 
     if path.is_empty() {
-        return Err(gix_error::validation(format!(
-            "{} does not specify a path to a repository",
-            UrlKind::Scp.as_str()
-        ))
-        .with("input", input.as_bytes())
-        .raise());
+        bail!(
+            gix_error::validation(format!(
+                "{} does not specify a path to a repository",
+                UrlKind::Scp.as_str()
+            ))
+            .with("input", input.as_bytes())
+        );
     }
 
     // The path returned by the parsed url often has the wrong number of leading `/` characters but
@@ -279,7 +281,7 @@ pub(crate) fn scp(input: &BStr, colon: usize) -> ExnMessageResult<crate::Url> {
     })
 }
 
-pub(crate) fn file_url(input: &BStr, protocol_colon: usize) -> ExnMessageResult<crate::Url> {
+pub(crate) fn file_url(input: &BStr, protocol_colon: usize) -> Result<crate::Url> {
     let input = input_to_utf8(input, UrlKind::Url)?;
     let input_after_protocol = &input[protocol_colon + "://".len()..];
 
@@ -287,12 +289,13 @@ pub(crate) fn file_url(input: &BStr, protocol_colon: usize) -> ExnMessageResult<
         .find('/')
         .or_else(|| cfg!(windows).then(|| input_after_protocol.find('\\')).flatten())
     else {
-        return Err(gix_error::validation(format!(
-            "{} does not specify a path to a repository",
-            UrlKind::Url.as_str()
-        ))
-        .with("input", input.as_bytes())
-        .raise());
+        bail!(
+            gix_error::validation(format!(
+                "{} does not specify a path to a repository",
+                UrlKind::Url.as_str()
+            ))
+            .with("input", input.as_bytes())
+        );
     };
 
     // We cannot use the url crate to parse host and path because it special cases Windows
@@ -339,14 +342,15 @@ pub(crate) fn file_url(input: &BStr, protocol_colon: usize) -> ExnMessageResult<
     })
 }
 
-pub(crate) fn local(input: &BStr) -> ExnMessageResult<crate::Url> {
+pub(crate) fn local(input: &BStr) -> Result<crate::Url> {
     if input.is_empty() {
-        return Err(gix_error::validation(format!(
-            "{} is empty and does not specify a path to a repository",
-            UrlKind::Local.as_str()
-        ))
-        .with("input", input.as_bytes())
-        .raise());
+        bail!(
+            gix_error::validation(format!(
+                "{} is empty and does not specify a path to a repository",
+                UrlKind::Local.as_str()
+            ))
+            .with("input", input.as_bytes())
+        );
     }
 
     Ok(crate::Url {
@@ -361,13 +365,13 @@ pub(crate) fn local(input: &BStr) -> ExnMessageResult<crate::Url> {
     })
 }
 
-fn input_to_utf8(input: &BStr, kind: UrlKind) -> ExnMessageResult<&str> {
+fn input_to_utf8(input: &BStr, kind: UrlKind) -> Result<&str> {
     let kind = kind.as_str();
     std::str::from_utf8(input)
         .or_raise(|| gix_error::validation(format!("{kind} is not valid UTF-8")).with("input", input.as_bytes()))
 }
 
-fn input_to_utf8_and_url(input: &BStr, kind: UrlKind) -> ExnMessageResult<(&str, crate::simple_url::ParsedUrl)> {
+fn input_to_utf8_and_url(input: &BStr, kind: UrlKind) -> Result<(&str, crate::simple_url::ParsedUrl)> {
     let input = input_to_utf8(input, kind)?;
     crate::simple_url::ParsedUrl::parse(input)
         .map(|url| (input, url))

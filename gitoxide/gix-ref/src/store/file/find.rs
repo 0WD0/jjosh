@@ -1,5 +1,4 @@
-use gix_error::Result;
-use gix_error::{ErrorExt, ExnResult, Message, ResultExt, message};
+use gix_error::{ErrorExt, Message, Result, ResultExt, message};
 
 use std::{
     borrow::Cow,
@@ -41,12 +40,12 @@ impl file::Store {
         std::result::Result<&'a PartialNameRef, E>: ResultExt<Success = &'a PartialNameRef>,
     {
         let packed = self.assure_packed_refs_uptodate()?;
-        Ok(self.find_one_with_verified_input(
+        self.find_one_with_verified_input(
             partial
                 .try_into()
-                .or_raise_erased(|| message("The ref name or path is not a valid ref name"))?,
+                .or_raise(|| message("The ref name or path is not a valid ref name"))?,
             packed.as_ref().map(|b| &***b),
-        )?)
+        )
     }
 
     /// Like [`file::Store::try_find()`], returning `None` for a non-existing reference.
@@ -59,14 +58,13 @@ impl file::Store {
         Name: TryInto<&'a PartialNameRef, Error = E>,
         std::result::Result<&'a PartialNameRef, E>: ResultExt<Success = &'a PartialNameRef>,
     {
-        Ok(self
-            .find_one_with_verified_input(
-                partial
-                    .try_into()
-                    .or_raise_erased(|| message("The ref name or path is not a valid ref name"))?,
-                None,
-            )
-            .map(|r| r.map(Into::into))?)
+        self.find_one_with_verified_input(
+            partial
+                .try_into()
+                .or_raise(|| message("The ref name or path is not a valid ref name"))?,
+            None,
+        )
+        .map(|r| r.map(Into::into))
     }
 
     /// Similar to [`file::Store::find()`], but allows to pass a snapshotted packed buffer instead.
@@ -79,19 +77,19 @@ impl file::Store {
         Name: TryInto<&'a PartialNameRef, Error = E>,
         std::result::Result<&'a PartialNameRef, E>: ResultExt<Success = &'a PartialNameRef>,
     {
-        Ok(self.find_one_with_verified_input(
+        self.find_one_with_verified_input(
             partial
                 .try_into()
-                .or_raise_erased(|| message("The ref name or path is not a valid ref name"))?,
+                .or_raise(|| message("The ref name or path is not a valid ref name"))?,
             packed,
-        )?)
+        )
     }
 
     pub(crate) fn find_one_with_verified_input(
         &self,
         partial_name: &PartialNameRef,
         packed: Option<&packed::Buffer>,
-    ) -> ExnResult<Option<Reference>> {
+    ) -> Result<Option<Reference>> {
         let mut buf = BString::default();
         let mut precomposed_partial_name_storage = packed.filter(|_| self.precompose_unicode).and_then(|_| {
             use gix_object::bstr::ByteSlice;
@@ -163,7 +161,7 @@ impl file::Store {
         packed: Option<&packed::Buffer>,
         path_buf: &mut BString,
         consider_pseudo_ref: bool,
-    ) -> ExnResult<Option<Reference>> {
+    ) -> Result<Option<Reference>> {
         let full_name = precomposed_partial_name
             .unwrap_or(partial_name)
             .construct_full_name_ref(inbetween, path_buf, consider_pseudo_ref);
@@ -181,9 +179,7 @@ impl file::Store {
             Ok(content_buf) => content_buf,
             Err(err) if err.kind() == io::ErrorKind::NotADirectory => return Ok(None),
             Err(err) => {
-                return Err(err
-                    .and_raise(read_reference_error(self.reference_path(full_name)))
-                    .erased());
+                return Err(err.and_raise(read_reference_error(self.reference_path(full_name))));
             }
         };
 
@@ -232,7 +228,7 @@ impl file::Store {
                             }
                             r
                         })
-                        .or_raise_erased(|| ReferenceDecode {
+                        .or_raise(|| ReferenceDecode {
                             relative_path: full_name.to_path().to_owned(),
                         })?,
                 ))
@@ -382,7 +378,7 @@ impl file::Store {
         std::result::Result<&'a PartialNameRef, E>: ResultExt<Success = &'a PartialNameRef>,
     {
         let packed = self.assure_packed_refs_uptodate()?;
-        Ok(self.find_existing_inner(partial, packed.as_ref().map(|b| &***b))?)
+        self.find_existing_inner(partial, packed.as_ref().map(|b| &***b))
     }
 
     /// Similar to [`file::Store::find()`], but supports a stable packed buffer.
@@ -391,7 +387,7 @@ impl file::Store {
         Name: TryInto<&'a PartialNameRef, Error = E>,
         std::result::Result<&'a PartialNameRef, E>: ResultExt<Success = &'a PartialNameRef>,
     {
-        Ok(self.find_existing_inner(partial, packed)?)
+        self.find_existing_inner(partial, packed)
     }
 
     /// Similar to [`file::Store::find()`] won't handle packed-refs.
@@ -400,9 +396,7 @@ impl file::Store {
         Name: TryInto<&'a PartialNameRef, Error = E>,
         std::result::Result<&'a PartialNameRef, E>: ResultExt<Success = &'a PartialNameRef>,
     {
-        self.find_existing_inner(partial, None)
-            .map(Into::into)
-            .map_err(Into::into)
+        self.find_existing_inner(partial, None).map(Into::into)
     }
 
     /// Similar to [`file::Store::find()`] but a non-existing ref is treated as error.
@@ -410,20 +404,20 @@ impl file::Store {
         &self,
         partial: Name,
         packed: Option<&packed::Buffer>,
-    ) -> ExnResult<Reference>
+    ) -> Result<Reference>
     where
         Name: TryInto<&'a PartialNameRef, Error = E>,
         std::result::Result<&'a PartialNameRef, E>: ResultExt<Success = &'a PartialNameRef>,
     {
         let path = partial
             .try_into()
-            .or_raise_erased(|| message("The ref name or path is not a valid ref name"))?;
+            .or_raise(|| message("The ref name or path is not a valid ref name"))?;
         match self.find_one_with_verified_input(path, packed) {
             Ok(Some(r)) => Ok(r),
             Ok(None) => Err(NotFound {
                 name: path.to_partial_path().to_owned(),
             }
-            .raise_erased()),
+            .raise()),
             Err(err) => Err(err),
         }
     }

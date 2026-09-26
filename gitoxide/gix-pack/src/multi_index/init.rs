@@ -4,12 +4,12 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use gix_error::{ErrorExt, ExnResult, ResultExt, message};
+use gix_error::{ErrorExt, ResultExt, bail, message};
 
 use crate::multi_index::{File, Version, chunk};
 
-fn corrupt(message: impl Into<Cow<'static, str>>) -> gix_error::Exn {
-    gix_error::corruption(message).raise_erased()
+fn corrupt(message: impl Into<Cow<'static, str>>) -> gix_error::Error {
+    gix_error::corruption(message).raise()
 }
 
 /// Initialization
@@ -19,13 +19,13 @@ impl File<crate::MMap> {
     /// `alloc_limit_bytes` bounds each allocation caused by user-controlled on-disk data, useful for untrusted input.
     /// Use `None` to disable the limit.
     pub fn at(path: impl AsRef<Path>, alloc_limit_bytes: Option<usize>) -> Result<Self> {
-        (Self::at_inner(path.as_ref(), alloc_limit_bytes)).map_err(Into::into)
+        Self::at_inner(path.as_ref(), alloc_limit_bytes)
     }
 
-    fn at_inner(path: &Path, alloc_limit_bytes: Option<usize>) -> ExnResult<Self> {
+    fn at_inner(path: &Path, alloc_limit_bytes: Option<usize>) -> Result<Self> {
         let data = crate::mmap::read_only(path)
-            .or_raise_erased(|| message!("Could not open multi-index file at '{}'", path.display()))?;
-        Self::from_data(data, path.to_owned(), alloc_limit_bytes).or_erased()
+            .or_raise(|| message!("Could not open multi-index file at '{}'", path.display()))?;
+        Self::from_data(data, path.to_owned(), alloc_limit_bytes)
     }
 }
 
@@ -48,29 +48,27 @@ where
                 + chunk::fanout::SIZE
                 + TRAILER_LEN
         {
-            return Err(corrupt("multi-index file is truncated and too short").into());
+            return Err(corrupt("multi-index file is truncated and too short"));
         }
 
         let (version, object_hash, num_chunks, num_indices) = {
             let (signature, data) = data.split_at(4);
             if signature != Self::SIGNATURE {
-                return Err(corrupt("Invalid signature").into());
+                return Err(corrupt("Invalid signature"));
             }
             let (version, data) = data.split_at(1);
             let version = match version[0] {
                 1 => Version::V1,
                 version => {
-                    return Err(
-                        gix_error::validation(format!("Unsupported multi-index version: {version}"))
-                            .raise()
-                            .into(),
-                    );
+                    bail!(gix_error::validation(format!(
+                        "Unsupported multi-index version: {version}"
+                    )));
                 }
             };
 
             let (object_hash, data) = data.split_at(1);
             let object_hash = gix_hash::Kind::try_from(object_hash[0])
-                .map_err(|unknown| gix_error::validation(format!("Unsupported hash kind: {unknown}")).raise_erased())?;
+                .map_err(|unknown| gix_error::validation(format!("Unsupported hash kind: {unknown}")).raise())?;
             let (num_chunks, data) = data.split_at(1);
             let num_chunks = num_chunks[0];
 
@@ -83,16 +81,16 @@ where
         };
 
         let chunks = gix_chunk::file::Index::from_bytes(&data, Self::HEADER_LEN, u32::from(num_chunks))
-            .or_raise_erased(|| gix_error::corruption("Could not decode multi-index chunk table"))?;
+            .or_raise(|| gix_error::corruption("Could not decode multi-index chunk table"))?;
 
         let index_names = chunks
             .data_by_id(&data, chunk::index_names::ID)
-            .or_raise_erased(|| gix_error::corruption("Could not read multi-index pack names"))?;
+            .or_raise(|| gix_error::corruption("Could not read multi-index pack names"))?;
         let index_names = chunk::index_names::from_bytes(index_names, num_indices, alloc_limit_bytes)?;
 
         let fan = chunks
             .data_by_id(&data, chunk::fanout::ID)
-            .or_raise_erased(|| gix_error::corruption("Could not read multi-index fan"))?;
+            .or_raise(|| gix_error::corruption("Could not read multi-index fan"))?;
         let fan = chunk::fanout::from_bytes(fan)
             .ok_or_else(|| corrupt("The multi-index fan doesn't have the correct size of 256 * 4 bytes"))?;
         let num_objects = fan[255];
@@ -106,14 +104,14 @@ where
                         corrupt("The chunk with alphabetically ordered object ids doesn't have the correct size")
                     })
             })
-            .or_raise_erased(|| gix_error::corruption("Could not find the multi-index object-id lookup chunk"))??;
+            .or_raise(|| gix_error::corruption("Could not find the multi-index object-id lookup chunk"))??;
         let offsets = chunks
             .validated_usize_offset_by_id(chunk::offsets::ID, |offset| {
                 chunk::offsets::is_valid(&offset, num_objects)
                     .then_some(offset)
                     .ok_or_else(|| corrupt("The chunk with offsets into the pack doesn't have the correct size"))
             })
-            .or_raise_erased(|| gix_error::corruption("Could not find the multi-index pack-offset chunk"))??;
+            .or_raise(|| gix_error::corruption("Could not find the multi-index pack-offset chunk"))??;
         let large_offsets = chunks
             .validated_usize_offset_by_id(chunk::large_offsets::ID, |offset| {
                 chunk::large_offsets::is_valid(&offset)
@@ -128,8 +126,7 @@ where
         if trailer.len() != object_hash.len_in_bytes() {
             return Err(corrupt(
                 "Trailing checksum didn't have the expected size or there were unknown bytes after the checksum.",
-            )
-            .into());
+            ));
         }
 
         Ok(File {
@@ -150,7 +147,7 @@ where
     }
 }
 
-fn validate_fan(fan: &[u32; 256]) -> ExnResult {
+fn validate_fan(fan: &[u32; 256]) -> Result {
     if !crate::fan_is_monotonically_increasing(fan) {
         return Err(corrupt("multi-index fan-out table must be monotonically increasing"));
     }

@@ -58,7 +58,7 @@ where
     let seen_objs = gix_hashtable::sync::ObjectIdMap::default();
     let objects = objects.counter();
 
-    (parallel::in_parallel(
+    parallel::in_parallel(
         chunks,
         thread_limit,
         {
@@ -87,8 +87,7 @@ where
             }
         },
         reduce::Statistics::new(),
-    ))
-    .map_err(Into::into)
+    )
 }
 
 /// Like [`objects()`] but using a single thread only to mostly save on the otherwise required overhead.
@@ -102,7 +101,7 @@ pub fn objects_unthreaded(
     let seen_objs = RefCell::new(gix_hashtable::HashSet::default());
 
     let (mut buf1, mut buf2) = (Vec::new(), Vec::new());
-    (expand::this(
+    expand::this(
         db,
         input_object_expansion,
         &seen_objs,
@@ -112,8 +111,7 @@ pub fn objects_unthreaded(
         &objects.counter(),
         should_interrupt,
         false, /*allow pack lookups*/
-    ))
-    .map_err(Into::into)
+    )
 }
 
 mod expand {
@@ -123,7 +121,7 @@ mod expand {
         sync::atomic::{AtomicBool, Ordering},
     };
 
-    use gix_error::{ErrorExt, ExnResult, ResultExt, message, retryable};
+    use gix_error::{ResultExt, bail, message, retryable};
     use gix_hash::{ObjectId, oid};
     use gix_object::{CommitRefIter, TagRefIter};
 
@@ -148,7 +146,7 @@ mod expand {
         objects: &gix_features::progress::AtomicStep,
         should_interrupt: &AtomicBool,
         allow_pack_lookups: bool,
-    ) -> ExnResult<(Vec<output::Count>, Outcome)> {
+    ) -> Result<(Vec<output::Count>, Outcome)> {
         use ObjectExpansion::*;
 
         let mut out = Vec::new();
@@ -162,11 +160,11 @@ mod expand {
         let stats = &mut outcome;
         for id in oids {
             if should_interrupt.load(Ordering::Relaxed) {
-                return Err(retryable("Operation interrupted").raise_erased());
+                bail!(retryable("Operation interrupted"));
             }
 
-            let id = id.or_raise_erased(|| message("Could not iterate input objects"))?;
-            let (obj, location) = db.find(&id, buf1).or_erased()?;
+            let id = id.or_raise(|| message("Could not iterate input objects"))?;
+            let (obj, location) = db.find(&id, buf1)?;
             stats.input_objects += 1;
             match input_object_expansion {
                 TreeAdditionsComparedToAncestor => {
@@ -183,7 +181,7 @@ mod expand {
                                 id = TagRefIter::from_bytes(obj.data, obj.object_hash)
                                     .target_id()
                                     .expect("every tag has a target");
-                                let tmp = db.find(&id, buf1).or_erased()?;
+                                let tmp = db.find(&id, buf1)?;
 
                                 obj = tmp.0;
                                 location = tmp.1;
@@ -202,10 +200,10 @@ mod expand {
                                                 parent_commit_ids.push(id);
                                             }
                                             Ok(_) => break,
-                                            Err(err) => return Err(err.raise_erased()),
+                                            Err(err) => return Err(err),
                                         }
                                     }
-                                    let (obj, location) = db.find(&tree_id, buf1).or_erased()?;
+                                    let (obj, location) = db.find(&tree_id, buf1)?;
                                     push_obj_count_unique(
                                         &mut out, seen_objs, &tree_id, location, objects, stats, true,
                                     );
@@ -220,15 +218,14 @@ mod expand {
                                         &mut tree_traversal_state,
                                         &objects,
                                         &mut traverse_delegate,
-                                    )
-                                    .or_erased()?;
+                                    )?;
                                     out = objects.dissolve(stats);
                                     &traverse_delegate.non_trees
                                 } else {
                                     changes_delegate.clear();
                                     for commit_id in &parent_commit_ids {
                                         let parent_tree_id = {
-                                            let (parent_commit_obj, location) = db.find(commit_id, buf2).or_erased()?;
+                                            let (parent_commit_obj, location) = db.find(commit_id, buf2)?;
 
                                             push_obj_count_unique(
                                                 &mut out, seen_objs, commit_id, location, objects, stats, true,
@@ -241,8 +238,7 @@ mod expand {
                                             .expect("every commit has a tree")
                                         };
                                         let parent_tree = {
-                                            let (parent_tree_obj, location) =
-                                                db.find(&parent_tree_id, buf2).or_erased()?;
+                                            let (parent_tree_obj, location) = db.find(&parent_tree_id, buf2)?;
                                             push_obj_count_unique(
                                                 &mut out,
                                                 seen_objs,
@@ -266,7 +262,7 @@ mod expand {
                                             &objects,
                                             &mut changes_delegate,
                                         )
-                                        .or_raise_erased(|| message("Could not compare trees while generating pack"))?;
+                                        .or_raise(|| message("Could not compare trees while generating pack"))?;
                                         stats.decoded_objects += objects.into_count();
                                     }
                                     &changes_delegate.objects
@@ -295,8 +291,7 @@ mod expand {
                                         &mut tree_traversal_state,
                                         &objects,
                                         &mut traverse_delegate,
-                                    )
-                                    .or_erased()?;
+                                    )?;
                                     out = objects.dissolve(stats);
                                 }
                                 for id in &traverse_delegate.non_trees {
@@ -309,7 +304,7 @@ mod expand {
                                     .tree_id()
                                     .expect("every commit has a tree");
                                 stats.expanded_objects += 1;
-                                obj = db.find(&id, buf1).or_erased()?;
+                                obj = db.find(&id, buf1)?;
                                 continue;
                             }
                             Blob => break,
@@ -318,7 +313,7 @@ mod expand {
                                     .target_id()
                                     .expect("every tag has a target");
                                 stats.expanded_objects += 1;
-                                obj = db.find(&id, buf1).or_erased()?;
+                                obj = db.find(&id, buf1)?;
                                 continue;
                             }
                         }

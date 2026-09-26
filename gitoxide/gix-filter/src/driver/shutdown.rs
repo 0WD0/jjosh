@@ -1,6 +1,5 @@
 use bstr::BString;
-use gix_error::ErrorExt;
-use gix_error::Result;
+use gix_error::{Result, bail};
 
 use crate::driver::State;
 
@@ -24,9 +23,7 @@ impl Outcome {
                 .filter(|status| !status.success())
                 .map(|status| (command, status))
         }) {
-            return Err(gix_error::message!("Filter process {command:?} failed with {status}")
-                .raise()
-                .into());
+            bail!(gix_error::message!("Filter process {command:?} failed with {status}"));
         }
         Ok(self)
     }

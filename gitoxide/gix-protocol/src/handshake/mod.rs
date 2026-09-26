@@ -108,7 +108,7 @@ pub(crate) mod hero {
                     let remote_refs = cmd
                         .$invoke(transport, &mut progress, trace_packetlines)
                         .await
-                        .or_raise_erased(|| message("Failed to list references on the remote"))?;
+                        .or_raise(|| message("Failed to list references on the remote"))?;
                     RefMap::from_refs(remote_refs, capabilities, cx)
                 }
             };

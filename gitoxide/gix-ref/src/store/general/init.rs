@@ -1,4 +1,4 @@
-use gix_error::{ExnResult, Message, ResultExt};
+use gix_error::{Message, Result, ResultExt};
 
 use std::path::PathBuf;
 
@@ -14,7 +14,7 @@ impl crate::Store {
     ///
     /// Note that if [`precompose_unicode`](crate::store::init::Options::precompose_unicode) is set in the options,
     /// the `git_dir` is also expected to use precomposed unicode, or else some operations that strip prefixes will fail.
-    pub fn at(git_dir: PathBuf, object_hash: gix_hash::Kind) -> ExnResult<Self> {
+    pub fn at(git_dir: PathBuf, object_hash: gix_hash::Kind) -> Result<Self> {
         Self::at_opts(git_dir, object_hash, Default::default())
     }
 
@@ -25,14 +25,10 @@ impl crate::Store {
     /// the `git_dir` is also expected to use precomposed unicode, or else some operations that strip prefixes will fail.
     ///
     /// Errors include [metadata](gix_error::Error::metadata()) `path` (native path), the reference store directory.
-    pub fn at_opts(
-        git_dir: PathBuf,
-        object_hash: gix_hash::Kind,
-        opts: crate::store::init::Options,
-    ) -> ExnResult<Self> {
+    pub fn at_opts(git_dir: PathBuf, object_hash: gix_hash::Kind, opts: crate::store::init::Options) -> Result<Self> {
         // for now, just try to read the directory - later we will do that naturally as we have to figure out if it's a ref-table or not.
         std::fs::read_dir(&git_dir)
-            .or_raise_erased(|| Message::new("Could not access reference store").with("path", git_dir.as_path()))?;
+            .or_raise(|| Message::new("Could not access reference store").with("path", git_dir.as_path()))?;
         Ok(crate::Store {
             inner: crate::store::State::Loose {
                 store: file::Store::at_opts(git_dir, object_hash, opts),

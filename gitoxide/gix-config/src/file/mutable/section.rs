@@ -1,8 +1,5 @@
-use gix_error::ExnMessageResult;
-use gix_error::{ErrorExt, Result};
+use gix_error::Result;
 use std::{collections::HashMap, ops::Range};
-
-use gix_error::ExnResult;
 
 use bstr::{BStr, BString, ByteSlice, ByteVec};
 use gix_sec::Trust;
@@ -51,7 +48,7 @@ impl SectionMut<'_> {
     /// Adds an entry to the end of this section name `value_name` and `value`. If `value` is `None`, no equal sign will be written leaving
     /// just the key. This is useful for boolean values which are true if merely the key exists.
     pub fn push(&mut self, value_name: impl AsRef<str>, value: impl AsBStrOpt) -> Result<&mut Self> {
-        let value_name = ValueName::try_from(value_name.as_ref()).map_err(ErrorExt::raise)?;
+        let value_name = ValueName::try_from(value_name.as_ref())?;
         self.push_with_comment_inner(value_name, value.as_bstr_opt(), None)?;
         Ok(self)
     }
@@ -66,7 +63,7 @@ impl SectionMut<'_> {
         value: impl AsBStrOpt,
         comment: impl crate::AsBStr,
     ) -> Result<&mut Self> {
-        let value_name = ValueName::try_from(value_name.as_ref()).map_err(ErrorExt::raise)?;
+        let value_name = ValueName::try_from(value_name.as_ref())?;
         self.push_with_comment_inner(value_name, value.as_bstr_opt(), Some(comment.as_bstr()))?;
         Ok(self)
     }
@@ -76,7 +73,7 @@ impl SectionMut<'_> {
         value_name: ValueName,
         value: Option<&BStr>,
         comment: Option<&BStr>,
-    ) -> ExnMessageResult {
+    ) -> Result {
         let mut events = Vec::new();
         if let Some(ws) = &self.whitespace.pre_key {
             events.push(Event::Whitespace(Span::append(self.backing, ws)?));
@@ -166,11 +163,11 @@ impl SectionMut<'_> {
     /// Returns the previous value if it replaced a value, or None if it adds
     /// the value.
     pub fn set(&mut self, value_name: impl AsRef<str>, value: impl crate::AsBStr) -> Result<Option<BString>> {
-        let value_name = ValueName::try_from(value_name.as_ref()).map_err(ErrorExt::raise)?;
-        (self.set_inner(value_name, value.as_bstr())).map_err(Into::into)
+        let value_name = ValueName::try_from(value_name.as_ref())?;
+        self.set_inner(value_name, value.as_bstr())
     }
 
-    pub(crate) fn set_inner(&mut self, value_name: ValueName, value: &BStr) -> ExnMessageResult<Option<BString>> {
+    pub(crate) fn set_inner(&mut self, value_name: ValueName, value: &BStr) -> Result<Option<BString>> {
         match self.section.body.key_and_value_range_by_in(self.backing, &value_name) {
             None => {
                 self.push_with_comment_inner(value_name, Some(value), None)?;
@@ -382,7 +379,7 @@ impl<'a> SectionMut<'a> {
         }
     }
 
-    pub(crate) fn get(&self, key: &ValueName, start: Index, end: Index) -> ExnResult<BString> {
+    pub(crate) fn get(&self, key: &ValueName, start: Index, end: Index) -> Result<BString> {
         let mut expect_value = false;
         let mut concatenated_value = BString::default();
 
@@ -442,7 +439,7 @@ impl<'a> SectionMut<'a> {
         }
     }
 
-    pub(crate) fn set_internal(&mut self, index: Index, key: ValueName, value: &BStr) -> ExnMessageResult<Size> {
+    pub(crate) fn set_internal(&mut self, index: Index, key: ValueName, value: &BStr) -> Result<Size> {
         let mut size = 0;
         let value = Span::append(self.backing, &escape_value(value))?;
         let sep_events = self.whitespace.key_value_separators(self.backing)?;

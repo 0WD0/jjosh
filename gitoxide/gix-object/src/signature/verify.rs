@@ -1,4 +1,3 @@
-use gix_error::Result;
 use std::{
     // defensive, as we rely on English when parsing output.
     ffi::{OsStr, OsString},
@@ -8,7 +7,7 @@ use std::{
 };
 
 use bstr::{BStr, BString, ByteSlice};
-use gix_error::{ErrorExt, ExnResult, OptionExt, ResultExt, corruption, message, validation};
+use gix_error::{ErrorExt, OptionExt, Result, ResultExt, corruption, message, validation};
 
 use super::SignedData;
 
@@ -165,35 +164,35 @@ impl Outcome {
 impl SignedData<'_> {
     /// Verify `signature` over these exact object bytes with fully resolved `options`.
     pub fn verify(&self, signature: &BStr, options: Options) -> Result<Outcome> {
-        let format = Format::from_signature(signature)
-            .ok_or_raise_erased(|| corruption("The signature format is unsupported"))?;
+        let format =
+            Format::from_signature(signature).ok_or_raise(|| corruption("The signature format is unsupported"))?;
         match options {
             Options::OpenPgp {
                 program,
                 program_arguments,
                 environment,
                 minimum_trust,
-            } if format == Format::OpenPgp => Ok(self.verify_gpg(
+            } if format == Format::OpenPgp => self.verify_gpg(
                 signature,
                 Format::OpenPgp,
                 program,
                 program_arguments,
                 environment,
                 minimum_trust,
-            )?),
+            ),
             Options::X509 {
                 program,
                 program_arguments,
                 environment,
                 minimum_trust,
-            } if format == Format::X509 => Ok(self.verify_gpg(
+            } if format == Format::X509 => self.verify_gpg(
                 signature,
                 Format::X509,
                 program,
                 program_arguments,
                 environment,
                 minimum_trust,
-            )?),
+            ),
             Options::Ssh {
                 program,
                 program_arguments,
@@ -202,7 +201,7 @@ impl SignedData<'_> {
                 revocation_file,
                 verify_time,
                 minimum_trust,
-            } if format == Format::Ssh => Ok(self.verify_ssh(
+            } if format == Format::Ssh => self.verify_ssh(
                 signature,
                 program,
                 program_arguments,
@@ -211,25 +210,22 @@ impl SignedData<'_> {
                 revocation_file,
                 verify_time,
                 minimum_trust,
-            )?),
+            ),
             Options::OpenPgp { .. } => Err(validation(format!(
                 "The configured program format {:?} does not match signature format {format:?}",
                 Format::OpenPgp
             ))
-            .raise()
-            .into()),
+            .raise()),
             Options::X509 { .. } => Err(validation(format!(
                 "The configured program format {:?} does not match signature format {format:?}",
                 Format::X509
             ))
-            .raise()
-            .into()),
+            .raise()),
             Options::Ssh { .. } => Err(validation(format!(
                 "The configured program format {:?} does not match signature format {format:?}",
                 Format::Ssh
             ))
-            .raise()
-            .into()),
+            .raise()),
         }
     }
 
@@ -241,7 +237,7 @@ impl SignedData<'_> {
         program_arguments: Vec<OsString>,
         environment: Vec<(OsString, OsString)>,
         minimum_trust: TrustLevel,
-    ) -> ExnResult<Outcome> {
+    ) -> Result<Outcome> {
         let mut signature_file = signature_file(signature)?;
         let path = signature_path(&mut signature_file)?;
         let mut command = prepare(&program, program_arguments, &environment);
@@ -287,10 +283,10 @@ impl SignedData<'_> {
         revocation_file: Option<PathBuf>,
         verify_time: gix_date::Time,
         minimum_trust: TrustLevel,
-    ) -> ExnResult<Outcome> {
+    ) -> Result<Outcome> {
         let verify_time = verify_time
             .format(gix_date::time::CustomFormat::new("%Y%m%d%H%M%S"))
-            .or_raise_erased(|| message("Signature time could not be formatted for SSH verification"))?;
+            .or_raise(|| message("Signature time could not be formatted for SSH verification"))?;
         let verify_time = format!("-Overify-time={verify_time}");
         let mut signature_file = signature_file(signature)?;
         let signature_path = super::ssh_path_argument(&signature_path(&mut signature_file)?);
@@ -380,32 +376,30 @@ impl SignedData<'_> {
         Ok(outcome)
     }
 
-    fn run(&self, command: gix_command::Prepare, program: &OsStr) -> ExnResult<std::process::Output> {
+    fn run(&self, command: gix_command::Prepare, program: &OsStr) -> Result<std::process::Output> {
         let mut child = command
             .spawn()
-            .or_raise_erased(|| message!("Could not execute signature verifier {program:?}"))?;
+            .or_raise(|| message!("Could not execute signature verifier {program:?}"))?;
         let mut stdin = child.stdin.take().expect("configured as piped");
         let [before, after] = self.segments();
         if let Err(source) = stdin.write_all(before).and_then(|_| stdin.write_all(after)) {
             // A verifier may reject the invocation and exit without consuming all input. Its status and output are
             // still authoritative, whereas other write failures indicate an actual communication problem.
             if source.kind() != std::io::ErrorKind::BrokenPipe {
-                return Err(source
-                    .and_raise(message!("Could not communicate with signature verifier {program:?}"))
-                    .erased());
+                return Err(source.and_raise(message!("Could not communicate with signature verifier {program:?}")));
             }
         }
         drop(stdin);
         child
             .wait_with_output()
-            .or_raise_erased(|| message!("Could not communicate with signature verifier {program:?}"))
+            .or_raise(|| message!("Could not communicate with signature verifier {program:?}"))
     }
 
     fn run_prepared(
         &self,
         common: (&OsStr, &[OsString], &[(OsString, OsString)]),
         args: impl IntoIterator<Item = OsString>,
-    ) -> ExnResult<std::process::Output> {
+    ) -> Result<std::process::Output> {
         let (program, program_arguments, environment) = common;
         self.run(
             prepare(program, program_arguments.iter().cloned(), environment)
@@ -433,7 +427,7 @@ fn run_prepared(
     common: (&OsStr, &[OsString], &[(OsString, OsString)]),
     args: impl IntoIterator<Item = OsString>,
     input: &[u8],
-) -> ExnResult<std::process::Output> {
+) -> Result<std::process::Output> {
     let (program, program_arguments, environment) = common;
     let command = prepare(program, program_arguments.iter().cloned(), environment)
         .args(args)
@@ -442,53 +436,53 @@ fn run_prepared(
         .stderr(Stdio::piped());
     let mut child = command
         .spawn()
-        .or_raise_erased(|| message!("Could not execute signature verifier {program:?}"))?;
+        .or_raise(|| message!("Could not execute signature verifier {program:?}"))?;
     child
         .stdin
         .take()
         .expect("configured as piped")
         .write_all(input)
-        .or_raise_erased(|| message!("Could not communicate with signature verifier {program:?}"))?;
+        .or_raise(|| message!("Could not communicate with signature verifier {program:?}"))?;
     child
         .wait_with_output()
-        .or_raise_erased(|| message!("Could not communicate with signature verifier {program:?}"))
+        .or_raise(|| message!("Could not communicate with signature verifier {program:?}"))
 }
 
-fn signature_file(signature: &BStr) -> ExnResult<gix_tempfile::Handle<gix_tempfile::handle::Writable>> {
+fn signature_file(signature: &BStr) -> Result<gix_tempfile::Handle<gix_tempfile::handle::Writable>> {
     temporary_file([signature.as_ref()])
 }
 
 fn temporary_file<'a>(
     data: impl IntoIterator<Item = &'a [u8]>,
-) -> ExnResult<gix_tempfile::Handle<gix_tempfile::handle::Writable>> {
+) -> Result<gix_tempfile::Handle<gix_tempfile::handle::Writable>> {
     let mut file = gix_tempfile::new(
         std::env::temp_dir(),
         gix_tempfile::ContainingDirectory::Exists,
         gix_tempfile::AutoRemove::Tempfile,
     )
-    .or_raise_erased(|| message("Could not create or write the temporary signature file"))?;
+    .or_raise(|| message("Could not create or write the temporary signature file"))?;
     file.with_mut(|file| {
         for data in data {
             file.write_all(data)?;
         }
         Ok::<_, std::io::Error>(())
     })
-    .or_raise_erased(|| message("Could not create or write the temporary signature file"))?
-    .or_raise_erased(|| message("Could not create or write the temporary signature file"))?;
+    .or_raise(|| message("Could not create or write the temporary signature file"))?
+    .or_raise(|| message("Could not create or write the temporary signature file"))?;
     Ok(file)
 }
 
-fn signature_path(file: &mut gix_tempfile::Handle<gix_tempfile::handle::Writable>) -> ExnResult<PathBuf> {
+fn signature_path(file: &mut gix_tempfile::Handle<gix_tempfile::handle::Writable>) -> Result<PathBuf> {
     file.with_mut(|file| file.path().to_owned())
-        .or_raise_erased(|| message("Could not create or write the temporary signature file"))
+        .or_raise(|| message("Could not create or write the temporary signature file"))
 }
 
-fn run_without_input(command: gix_command::Prepare, program: &OsStr) -> ExnResult<std::process::Output> {
+fn run_without_input(command: gix_command::Prepare, program: &OsStr) -> Result<std::process::Output> {
     command
         .spawn()
-        .or_raise_erased(|| message!("Could not execute signature verifier {program:?}"))?
+        .or_raise(|| message!("Could not execute signature verifier {program:?}"))?
         .wait_with_output()
-        .or_raise_erased(|| message!("Could not communicate with signature verifier {program:?}"))
+        .or_raise(|| message!("Could not communicate with signature verifier {program:?}"))
 }
 
 fn parse_gpg_output(format: Format, output: BString, raw_output: BString) -> Outcome {
@@ -578,7 +572,7 @@ fn parse_ssh_output(output: BString, signer: Option<BString>, trust_level: Trust
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gix_error::ExnResult;
+    use gix_error::Result;
 
     #[test]
     fn parses_gpg_status() {
@@ -656,7 +650,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_good_ssh_output_from_a_failed_verifier() -> ExnResult {
+    fn rejects_good_ssh_output_from_a_failed_verifier() -> Result {
         let signed = SignedData::new(b"payloadsignature", 7..16);
         let outcome = signed.verify(
             BStr::new(b"-----BEGIN SSH SIGNATURE-----\n"),
@@ -673,7 +667,7 @@ mod tests {
                 verify_time: gix_date::Time::default(),
                 minimum_trust: TrustLevel::Undefined,
             },
-        ).or_erased()?;
+        )?;
         assert_eq!(outcome.status, Status::Good, "the verifier's text is retained");
         assert!(!outcome.is_valid(), "a failed verifier cannot produce a valid outcome");
         Ok(())

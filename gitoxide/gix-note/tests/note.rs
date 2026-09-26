@@ -5,7 +5,7 @@ use std::{
     io::{self, Read},
 };
 
-use gix_error::{ErrorExt, ExnResult};
+use gix_error::bail;
 use gix_hash::{Kind, ObjectId, oid};
 use gix_object::{
     FindExt, Tree, Write,
@@ -67,9 +67,9 @@ impl CountingObjectDb {
         }
     }
 
-    fn maybe_fail_write(&self) -> ExnResult {
+    fn maybe_fail_write(&self) -> Result {
         if self.fail_next_write.replace(false) {
-            return Err(io::Error::other("injected write failure").raise_erased());
+            bail!(io::Error::other("injected write failure"));
         }
         Ok(())
     }
@@ -79,7 +79,7 @@ impl gix_object::Find for CountingObjectDb {
     fn try_find<'a>(&self, id: &gix_hash::oid, buffer: &'a mut Vec<u8>) -> Result<Option<gix_object::Data<'a>>> {
         self.reads.set(self.reads.get() + 1);
         if self.fail_next_read.replace(false) {
-            return Err(io::Error::other("injected read failure").raise().into());
+            bail!(io::Error::other("injected read failure"));
         }
         self.inner.try_find(id, buffer)
     }
@@ -366,9 +366,16 @@ fn state_recovers_after_failed_operations() -> gix_testtools::Result {
     let mut state = gix_note::State::new(root, &objects)?;
 
     objects.fail_next_read.set(true);
-    state
+    let err = state
         .get(&annotated, &objects)
         .expect_err("the injected subtree read fails");
+    assert_eq!(
+        err.downcast_any_ref::<io::Error>()
+            .expect("the injected read error remains available for downcasting")
+            .to_string(),
+        "injected read failure",
+        "resetting the state preserves the original read error"
+    );
     assert_eq!(state.root_tree_id(), root, "a failed lookup retains the current root");
     assert_eq!(
         state.get(&annotated, &objects)?,
@@ -377,9 +384,16 @@ fn state_recovers_after_failed_operations() -> gix_testtools::Result {
     );
 
     objects.fail_next_write.set(true);
-    state
+    let err = state
         .replace(annotated, replacement, &objects)
         .expect_err("the injected tree write fails");
+    assert_eq!(
+        err.downcast_any_ref::<io::Error>()
+            .expect("the injected write error remains available for downcasting")
+            .to_string(),
+        "injected write failure",
+        "resetting the state preserves the original write error"
+    );
     assert_eq!(state.root_tree_id(), root, "a failed edit retains the current root");
     assert_eq!(
         state.get(&annotated, &objects)?,

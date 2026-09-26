@@ -1,6 +1,5 @@
 use crate::data;
-use gix_error::ErrorExt;
-use gix_error::Result;
+use gix_error::{Result, bail};
 
 pub(crate) const N32_SIZE: usize = std::mem::size_of::<u32>();
 
@@ -11,16 +10,14 @@ pub const SIZE: usize = b"PACK".len() + N32_SIZE * 2;
 pub fn decode(data: &[u8; SIZE]) -> Result<(data::Version, u32)> {
     let mut ofs = 0;
     if &data[ofs..ofs + b"PACK".len()] != b"PACK" {
-        return Err(gix_error::corruption("Pack data type not recognized").raise().into());
+        bail!(gix_error::corruption("Pack data type not recognized"));
     }
     ofs += N32_SIZE;
     let kind = match crate::read_u32(&data[ofs..ofs + N32_SIZE]) {
         2 => data::Version::V2,
         3 => data::Version::V3,
         v => {
-            return Err(gix_error::validation(format!("Unsupported pack version: {v}"))
-                .raise()
-                .into());
+            bail!(gix_error::validation(format!("Unsupported pack version: {v}")));
         }
     };
     ofs += N32_SIZE;

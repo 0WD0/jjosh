@@ -6,15 +6,16 @@
 //! use bstr::ByteSlice;
 //! use gix_config_value::{Boolean, Integer, Path};
 //!
-//! let auto_crlf: bool = Boolean::try_from("true").unwrap().into();
+//! let auto_crlf: bool = Boolean::try_from("true")?.into();
 //! assert!(auto_crlf);
 //!
-//! let packed_limit = Integer::try_from("10m".as_bytes().as_bstr()).unwrap();
-//! assert_eq!(packed_limit.to_decimal(), Some(10 * 1024 * 1024));
+//! let packed_limit: usize = Integer::from_bytes("10m")?;
+//! assert_eq!(packed_limit, 10 * 1024 * 1024);
 //!
 //! let ignore_revs = Path::from(":(optional)~/.git-blame-ignore-revs");
 //! assert!(ignore_revs.is_optional);
 //! assert_eq!(ignore_revs.value.as_bstr(), "~/.git-blame-ignore-revs");
+//! # Ok::<(), gix_error::Error>(())
 //! ```
 //!
 //! ## Feature Flags

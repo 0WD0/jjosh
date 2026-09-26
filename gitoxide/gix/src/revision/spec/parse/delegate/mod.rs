@@ -5,7 +5,7 @@ use crate::{
     ext::{ObjectIdExt, ReferenceExt},
 };
 use gix_error::Result;
-use gix_error::{ErrorExt, Exn, ExnResult, ResultExt, message};
+use gix_error::{ErrorExt, Exn, ExnResult, ResultExt, bail, message};
 use gix_hash::ObjectId;
 use gix_revision::spec::{parse, parse::delegate};
 use smallvec::SmallVec;
@@ -90,9 +90,8 @@ impl<'repo> Delegate<'repo> {
                         }
                         _ => {
                             let err =
-                                error::ambiguous(candidates, prefix.expect("set when obtaining candidates"), repo)
-                                    .raise_erased();
-                            return Err(err);
+                                error::ambiguous(candidates, prefix.expect("set when obtaining candidates"), repo);
+                            bail!(err.raise_erased());
                         }
                     },
                 }
@@ -105,7 +104,7 @@ impl<'repo> Delegate<'repo> {
             [first, second]: [Option<ObjectId>; 2],
         ) -> ExnMessageResult<gix_revision::Spec> {
             pub fn malformed() -> Exn<gix_error::Message> {
-                message!("The rev-spec is malformed and misses a ref name").raise()
+                message!("The rev-spec is malformed and misses a ref name").raise_typed()
             }
             use gix_revision::spec::Kind::*;
             Ok(match kind.unwrap_or_default() {

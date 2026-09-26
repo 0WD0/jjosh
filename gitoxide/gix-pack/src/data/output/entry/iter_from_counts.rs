@@ -211,9 +211,10 @@ pub(crate) mod function {
                                         entry
                                     }
                                     None => {
-                                        match db.try_find(&count.id, buf).or_raise_erased(|| {
-                                            message("Could not find object while generating pack")
-                                        })? {
+                                        match db
+                                            .try_find(&count.id, buf)
+                                            .or_raise(|| message("Could not find object while generating pack"))?
+                                        {
                                             Some((obj, _location)) => {
                                                 stats.decoded_and_recompressed_objects += 1;
                                                 output::Entry::from_data(count, &obj, compression)
@@ -228,7 +229,7 @@ pub(crate) mod function {
                             }
                             None => match db
                                 .try_find(&count.id, buf)
-                                .or_raise_erased(|| message("Could not find object while generating pack"))?
+                                .or_raise(|| message("Could not find object while generating pack"))?
                             {
                                 Some((obj, _location)) => {
                                     stats.decoded_and_recompressed_objects += 1;

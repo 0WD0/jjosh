@@ -2,7 +2,7 @@ use gix_error::Result;
 use std::{borrow::Cow, io::Read};
 
 use bstr::{BStr, BString, ByteSlice};
-use gix_error::{ErrorExt, ExnMessageResult, OptionExt, ResultExt};
+use gix_error::{OptionExt, ResultExt, bail};
 
 /// Quote `input` using Git's C-style quotation rules.
 ///
@@ -59,17 +59,13 @@ pub fn undo(input: &BStr) -> Result<(Cow<'_, BStr>, usize)> {
         return Ok((input.into(), input.len()));
     }
     if input.len() < 2 {
-        return Err(gix_error::validation("Input must be surrounded by double quotes")
-            .with("input", input)
-            .raise()
-            .into());
+        bail!(gix_error::validation("Input must be surrounded by double quotes").with("input", input));
     }
     let original = input.as_bstr();
     let mut input = &input[1..];
     let mut consumed = 1;
     let mut out = BString::default();
-    fn consume_one_past(input: &mut &BStr, position: usize) -> ExnMessageResult<u8> {
-        use gix_error::OptionExt;
+    fn consume_one_past(input: &mut &BStr, position: usize) -> Result<u8> {
         *input = input
             .get(position + 1..)
             .ok_or_raise(|| gix_error::validation("Unexpected end of input").with("input", *input))?
@@ -120,10 +116,10 @@ pub fn undo(input: &BStr) -> Result<(Cow<'_, BStr>, usize)> {
                                 consumed += 2;
                             }
                             _ => {
-                                return Err(gix_error::validation(format!("Invalid escaped value {next}"))
-                                    .with("input", original)
-                                    .raise()
-                                    .into());
+                                bail!(
+                                    gix_error::validation(format!("Invalid escaped value {next}"))
+                                        .with("input", original)
+                                );
                             }
                         }
                     }
@@ -131,10 +127,7 @@ pub fn undo(input: &BStr) -> Result<(Cow<'_, BStr>, usize)> {
                 }
             }
             None => {
-                return Err(gix_error::validation("Missing closing quote in quoted string")
-                    .with("input", original)
-                    .raise()
-                    .into());
+                bail!(gix_error::validation("Missing closing quote in quoted string").with("input", original));
             }
         }
     }

@@ -10,7 +10,7 @@ use std::collections::HashMap;
 
 use bstr::{BStr, BString, ByteSlice, ByteVec};
 use gix_diff::tree_with_rewrites::{Change, ChangeRef};
-use gix_error::{ExnResult, OptionExt, ResultExt, message};
+use gix_error::{OptionExt, ResultExt, message};
 use gix_hash::ObjectId;
 use gix_object::{
     tree,
@@ -78,7 +78,7 @@ pub fn unique_path_in_tree(
     editor: &tree::Editor<'_>,
     tree: &TreeNodes,
     side_name: &BStr,
-) -> ExnResult<BString> {
+) -> Result<BString> {
     let mut qualifier = BString::from("~");
     qualifier.extend(
         side_name
@@ -132,7 +132,7 @@ pub fn perform_blob_merge(
     (previous_location, previous_id, previous_mode): (&BString, ObjectId, EntryMode),
     (extra_markers, outer_side): (u8, ConflictMapping),
     options: &Options,
-) -> ExnResult<(ObjectId, crate::blob::Resolution)> {
+) -> Result<(ObjectId, crate::blob::Resolution)> {
     if our_id == their_id {
         // This can happen if the merge modes are different.
         debug_assert_ne!(
@@ -158,27 +158,21 @@ pub fn perform_blob_merge(
         ConflictMapping::Original => (ResourceKind::CurrentOrOurs, ResourceKind::OtherOrTheirs),
         ConflictMapping::Swapped => (ResourceKind::OtherOrTheirs, ResourceKind::CurrentOrOurs),
     };
-    blob_merge
-        .set_resource(our_id, our_mode.kind(), our_location.as_bstr(), our_kind, objects)
-        .or_erased()?;
-    blob_merge
-        .set_resource(
-            their_id,
-            their_mode.kind(),
-            their_location.as_bstr(),
-            their_kind,
-            objects,
-        )
-        .or_erased()?;
-    blob_merge
-        .set_resource(
-            previous_id,
-            previous_mode.kind(),
-            previous_location.as_bstr(),
-            ResourceKind::CommonAncestorOrBase,
-            objects,
-        )
-        .or_erased()?;
+    blob_merge.set_resource(our_id, our_mode.kind(), our_location.as_bstr(), our_kind, objects)?;
+    blob_merge.set_resource(
+        their_id,
+        their_mode.kind(),
+        their_location.as_bstr(),
+        their_kind,
+        objects,
+    )?;
+    blob_merge.set_resource(
+        previous_id,
+        previous_mode.kind(),
+        previous_location.as_bstr(),
+        ResourceKind::CommonAncestorOrBase,
+        objects,
+    )?;
 
     fn combined(side: &BStr, location: &BString) -> BString {
         let mut buf = side.to_owned();
@@ -207,17 +201,17 @@ pub fn perform_blob_merge(
             other: other.as_ref().map(|n| n.as_bstr()),
         }
     };
-    let mut prep = blob_merge.prepare_merge(objects, options.blob_merge).or_erased()?;
+    let mut prep = blob_merge.prepare_merge(objects, options.blob_merge)?;
     if let crate::blob::builtin_driver::text::Conflict::Keep { marker_size, .. } = &mut prep.options.text.conflict {
         *marker_size =
             marker_size.saturating_add(extra_markers.saturating_add(options.marker_size_multiplier.saturating_mul(2)));
     }
-    let (pick, resolution) = prep.merge(buf, labels, &options.blob_merge_command_ctx).or_erased()?;
+    let (pick, resolution) = prep.merge(buf, labels, &options.blob_merge_command_ctx)?;
 
     let merged_blob_id = prep
         .id_by_pick(pick, buf, write_blob_to_odb)
-        .or_raise_erased(|| message("Failed to write merged blob content as blob to the object database"))?
-        .ok_or_raise_erased(|| crate::tree::Error::MissingBinaryMergeResult)?;
+        .or_raise(|| message("Failed to write merged blob content as blob to the object database"))?
+        .ok_or_raise(|| crate::tree::Error::MissingBinaryMergeResult)?;
     Ok((merged_blob_id, resolution))
 }
 
@@ -380,11 +374,7 @@ pub fn track(change: ChangeRef<'_>, changes: &mut ChangeList) {
 }
 
 /// Unconditionally apply `change` to `editor`.
-pub fn apply_change(
-    editor: &mut tree::Editor<'_>,
-    change: &Change,
-    alternative_location: Option<&BString>,
-) -> ExnResult {
+pub fn apply_change(editor: &mut tree::Editor<'_>, change: &Change, alternative_location: Option<&BString>) -> Result {
     use to_components_bstring_ref as to_components;
     if change.entry_mode().is_tree() {
         return Ok(());
@@ -404,9 +394,7 @@ pub fn apply_change(
             ..
         } => (location, entry_mode, id),
         Change::Deletion { location, .. } => {
-            editor
-                .remove_if_leaf(to_components(alternative_location.unwrap_or(location)))
-                .or_erased()?;
+            editor.remove_if_leaf(to_components(alternative_location.unwrap_or(location)))?;
             return Ok(());
         }
         Change::Rewrite {
@@ -418,19 +406,17 @@ pub fn apply_change(
             ..
         } => {
             if !*copy {
-                editor.remove_if_leaf(to_components(source_location)).or_erased()?;
+                editor.remove_if_leaf(to_components(source_location))?;
             }
             (location, entry_mode, id)
         }
     };
 
-    editor
-        .upsert(
-            to_components(alternative_location.unwrap_or(location)),
-            mode.kind(),
-            *id,
-        )
-        .or_erased()?;
+    editor.upsert(
+        to_components(alternative_location.unwrap_or(location)),
+        mode.kind(),
+        *id,
+    )?;
     Ok(())
 }
 
@@ -760,7 +746,7 @@ impl Conflict {
 #[cfg(test)]
 mod tree_nodes_tests {
     use super::*;
-    use gix_error::ExnResult;
+    use gix_error::Result;
 
     #[test]
     fn removing_an_absent_nested_change_does_not_remove_a_matching_root_suffix() {
@@ -862,7 +848,7 @@ mod tree_nodes_tests {
     }
 
     #[test]
-    fn unique_path_qualifies_a_non_tree_parent_instead_of_looping_over_child_names() -> ExnResult {
+    fn unique_path_qualifies_a_non_tree_parent_instead_of_looping_over_child_names() -> Result {
         let mut tree = TreeNodes::new();
         tree.track_change(
             &Change::Addition {

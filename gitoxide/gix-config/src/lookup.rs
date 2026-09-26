@@ -49,20 +49,20 @@ impl<E> From<gix_error::Exn> for Error<E> {
 ///
 pub mod existing {
 
-    pub(crate) fn section_missing() -> gix_error::Exn {
+    pub(crate) fn section_missing() -> gix_error::Error {
         not_found("The requested section does not exist")
     }
 
-    pub(crate) fn subsection_missing() -> gix_error::Exn {
+    pub(crate) fn subsection_missing() -> gix_error::Error {
         not_found("The requested subsection does not exist")
     }
 
-    pub(crate) fn key_missing() -> gix_error::Exn {
+    pub(crate) fn key_missing() -> gix_error::Error {
         not_found("The key does not exist in the requested section")
     }
 
-    fn not_found(message: &'static str) -> gix_error::Exn {
+    fn not_found(message: &'static str) -> gix_error::Error {
         use gix_error::ErrorExt;
-        gix_error::not_found(message).raise_erased()
+        gix_error::not_found(message).raise()
     }
 }

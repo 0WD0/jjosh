@@ -1,15 +1,17 @@
 #![allow(clippy::result_large_err)]
 
 use super::util;
+#[cfg(not(feature = "sha1"))]
+use crate::Error;
 use crate::{
-    Error, Result,
+    Result,
     config::{
         cache::util::{ApplyLeniency, ApplyLeniencyDefaultValue},
         tree::{Core, Extensions, gitoxide},
     },
     repository::FormatVersion,
 };
-use gix_error::ErrorExt;
+use gix_error::{ErrorExt, bail};
 
 /// A utility to deal with the cyclic dependency between the ref store and the configuration. The ref-store needs the
 /// object hash kind, and the configuration needs the current branch name to resolve conditional includes with `onbranch`.
@@ -52,9 +54,9 @@ impl StageOne {
             // objectFormat is a repository format version 1 extension.
             (FormatVersion::V1, Some(format)) => Extensions::OBJECT_FORMAT.try_into_object_format(format)?,
             (FormatVersion::V0, Some(_)) => {
-                return Err(Error::from_error(gix_error::validation(
+                bail!(gix_error::validation(
                     "extensions.objectFormat is a v1-only extension, but the repository format version is 0; set core.repositoryFormatVersion=1 to use it, or remove extensions.objectFormat to fall back to the default Sha1 format (if supported by this build)",
-                )));
+                ));
             }
             (FormatVersion::V0 | FormatVersion::V1, None) => legacy_object_hash()?,
         };
@@ -63,9 +65,9 @@ impl StageOne {
         let relative_worktrees =
             Extensions::RELATIVE_WORKTREES.enrich_error(config.boolean(Extensions::RELATIVE_WORKTREES))?;
         if repo_format_version == FormatVersion::V0 && relative_worktrees.is_some() {
-            return Err(Error::from_error(gix_error::validation(
+            bail!(gix_error::validation(
                 "extensions.relativeWorktrees requires core.repositoryFormatVersion=1",
-            )));
+            ));
         }
         let extension_worktree = util::config_bool(
             &config,
@@ -143,10 +145,10 @@ fn load_config(
         Ok(f) => f,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(gix_config::File::new(metadata)),
         Err(err) => {
-            let err = Error::from(err.and_raise(gix_error::message!(
+            let err = err.and_raise(gix_error::message!(
                 "Could not read configuration file at \"{}\"",
                 config_path.display()
-            )));
+            ));
             if lenient {
                 gix_trace::warn!("ignoring: {err:#?}");
                 return Ok(gix_config::File::new(metadata));
@@ -158,10 +160,10 @@ fn load_config(
 
     buf.clear();
     if let Err(err) = std::io::copy(&mut file, buf) {
-        let err = Error::from(err.and_raise(gix_error::message!(
+        let err = err.and_raise(gix_error::message!(
             "Could not read configuration file at \"{}\"",
             config_path.display()
-        )));
+        ));
         if lenient {
             gix_trace::warn!("ignoring: {err:#?}");
             buf.clear();

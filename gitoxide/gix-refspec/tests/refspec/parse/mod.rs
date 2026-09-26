@@ -98,6 +98,15 @@ mod util {
             err.downcast_any_ref::<gix_validate::reference::name::Error>().is_some(),
             "the original reference-name validation error is retained"
         );
+        assert!(
+            err.is_validation(),
+            "reference-name errors retain their validation classification"
+        );
+        assert_eq!(
+            err.iter_errors().count(),
+            1,
+            "reference-name validation contributes one diagnostic, without a duplicate message wrapper"
+        );
         err
     }
 

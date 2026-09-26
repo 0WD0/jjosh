@@ -1,5 +1,4 @@
-use gix_error::Result;
-use gix_error::{ExnResult, ResultExt, message};
+use gix_error::{Result, ResultExt, message};
 
 use std::path::PathBuf;
 
@@ -8,9 +7,9 @@ use crate::store_impl::{file, packed};
 impl file::Store {
     /// Return a packed transaction ready to receive updates. Use this to create or update `packed-refs`.
     /// Note that if you already have a [`packed::Buffer`] then use its [`packed::Buffer::into_transaction()`] method instead.
-    pub(crate) fn packed_transaction(&self, lock_mode: gix_lock::acquire::Fail) -> ExnResult<packed::Transaction> {
+    pub(crate) fn packed_transaction(&self, lock_mode: gix_lock::acquire::Fail) -> Result<packed::Transaction> {
         let lock = gix_lock::File::acquire_to_update_resource(self.packed_refs_path(), lock_mode, None, 0)
-            .or_raise_erased(|| message("Could not lock packed refs"))?;
+            .or_raise(|| message("Could not lock packed refs"))?;
         // We 'steal' the possibly existing packed buffer which may safe time if it's already there and fresh.
         // If nothing else is happening, nobody will get to see the soon stale buffer either, but if so, they will pay
         // for reloading it. That seems preferred over always loading up a new one.
@@ -44,7 +43,7 @@ impl file::Store {
     /// Use this to make successive calls to [`file::Store::try_find_packed()`]
     /// or obtain iterators using [`file::Store::iter_packed()`] in a way that assures the packed-refs content won't change.
     pub fn cached_packed_buffer(&self) -> Result<Option<file::packed::SharedBufferSnapshot>> {
-        Ok(self.assure_packed_refs_uptodate()?)
+        self.assure_packed_refs_uptodate()
     }
 
     /// Return the path at which packed-refs would usually be stored
@@ -63,11 +62,10 @@ impl file::Store {
 pub type SharedBufferSnapshot = gix_fs::SharedFileSnapshot<packed::Buffer>;
 
 pub(crate) mod modifiable {
-    use gix_error::Result;
+    use gix_error::{Message, Result, ResultExt};
     use gix_features::threading::OwnShared;
 
     use crate::{file, packed};
-    use gix_error::{ExnResult, Message, ResultExt};
 
     pub(crate) type MutableSharedBuffer = OwnShared<gix_fs::SharedFileSnapshotMut<packed::Buffer>>;
 
@@ -88,19 +86,15 @@ pub(crate) mod modifiable {
                 let modified = path
                     .metadata()
                     .and_then(|metadata| metadata.modified())
-                    .or_raise_erased(|| {
-                        Message::new("Could not read packed refs modification time").with("path", path)
-                    })?;
+                    .or_raise(|| Message::new("Could not read packed refs modification time").with("path", path))?;
                 self.open_packed_buffer().map(|packed| Some(modified).zip(packed))
             })
         }
-        pub(crate) fn assure_packed_refs_uptodate(&self) -> ExnResult<Option<super::SharedBufferSnapshot>> {
-            self.packed
-                .recent_snapshot(
-                    || self.packed_refs_path().metadata().and_then(|m| m.modified()).ok(),
-                    || self.open_packed_buffer(),
-                )
-                .or_erased()
+        pub(crate) fn assure_packed_refs_uptodate(&self) -> Result<Option<super::SharedBufferSnapshot>> {
+            self.packed.recent_snapshot(
+                || self.packed_refs_path().metadata().and_then(|m| m.modified()).ok(),
+                || self.open_packed_buffer(),
+            )
         }
     }
 }

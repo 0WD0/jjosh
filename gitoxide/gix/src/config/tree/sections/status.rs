@@ -26,7 +26,9 @@ impl Status {
 pub type ShowUntrackedFiles = keys::Any<validate::ShowUntrackedFiles>;
 
 mod show_untracked_files {
-    use crate::{Error, Result, bstr::ByteSlice, config, config::tree::status::ShowUntrackedFiles, status};
+    use gix_error::bail;
+
+    use crate::{Result, bstr::ByteSlice, config, config::tree::status::ShowUntrackedFiles, status};
 
     impl ShowUntrackedFiles {
         pub fn try_into_show_untracked_files(
@@ -39,11 +41,11 @@ mod show_untracked_files {
                 b"normal" => status::UntrackedFiles::Collapsed,
                 b"all" => status::UntrackedFiles::Files,
                 _ => {
-                    return Err(Error::from_error(config::key::error_with_value(
+                    bail!(config::key::error_with_value(
                         self,
                         "Invalid configuration value",
                         value,
-                    )));
+                    ));
                 }
             })
         }
@@ -62,15 +64,12 @@ impl Section for Status {
 
 mod validate {
     use crate::{Result, bstr::BStr, config::tree::keys};
-    use gix_error::ResultExt;
 
     #[derive(Clone, Copy)]
     pub struct ShowUntrackedFiles;
     impl keys::Validate for ShowUntrackedFiles {
         fn validate(&self, value: &BStr) -> Result {
-            super::Status::SHOW_UNTRACKED_FILES
-                .try_into_show_untracked_files(value)
-                .or_erased()?;
+            super::Status::SHOW_UNTRACKED_FILES.try_into_show_untracked_files(value)?;
             Ok(())
         }
     }

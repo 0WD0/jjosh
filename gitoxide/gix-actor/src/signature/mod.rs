@@ -68,7 +68,7 @@ mod _ref {
         /// Parse the `time` field for access to the passed time since unix epoch, and the time offset.
         /// The format is expected to be [raw](gix_date::parse_header()).
         pub fn time(&self) -> Result<gix_date::Time> {
-            Ok(self.time.parse().map_err(gix_error::ErrorExt::raise)?)
+            self.time.parse().map_err(gix_error::ErrorExt::raise)
         }
     }
 }
@@ -106,7 +106,7 @@ mod convert {
 pub(crate) mod write {
     use bstr::{BStr, ByteSlice};
     use gix_date::parse::TimeBuf;
-    use gix_error::ExnMessageResult;
+    use gix_error::{Result, bail};
 
     use crate::{Signature, SignatureRef};
 
@@ -145,12 +145,10 @@ pub(crate) mod write {
         }
     }
 
-    pub(crate) fn validated_token(name: &BStr) -> ExnMessageResult<&BStr> {
+    pub(crate) fn validated_token(name: &BStr) -> Result<&BStr> {
         if name.find_byteset(b"<>\n").is_some() {
-            return Err(
-                gix_error::validation("Signature name or email must not contain '<', '>' or \\n")
-                    .with("input", name)
-                    .into(),
+            bail!(
+                gix_error::validation("Signature name or email must not contain '<', '>' or \\n").with("input", name)
             );
         }
         Ok(name)

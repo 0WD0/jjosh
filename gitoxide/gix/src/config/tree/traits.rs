@@ -1,5 +1,7 @@
+use gix_error::bail;
+
 use crate::{
-    Error, Result,
+    Result,
     bstr::{BStr, BString, ByteVec},
 };
 
@@ -144,16 +146,16 @@ pub trait Key: std::fmt::Debug {
             None => subsection,
             Some(requirement) => match (requirement, subsection) {
                 (SubSectionRequirement::Never, Some(_)) => {
-                    return Err(Error::from_error(gix_error::validation(format!(
+                    bail!(gix_error::validation(format!(
                         "The key named '{}' cannot be used with non-static subsections.",
                         self.logical_name()
-                    ))));
+                    )));
                 }
                 (SubSectionRequirement::Parameter(_), None) => {
-                    return Err(Error::from_error(gix_error::validation(format!(
+                    bail!(gix_error::validation(format!(
                         "The key named '{}' cannot be used without subsections.",
                         self.logical_name()
-                    ))));
+                    )));
                 }
                 _ => subsection,
             },

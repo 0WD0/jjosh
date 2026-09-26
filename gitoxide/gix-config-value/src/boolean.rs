@@ -43,10 +43,10 @@ impl TryFrom<&BStr> for Boolean {
             Ok(Boolean(true))
         } else if parse_false(value) {
             Ok(Boolean(false))
-        } else if let Some(integer) = Integer::try_from(value).ok().and_then(|integer| integer.to_decimal()) {
+        } else if let Ok(integer) = Integer::from_bytes::<i64>(value) {
             Ok(Boolean(integer != 0))
         } else {
-            Err(bool_err(value).raise().into())
+            Err(bool_err(value).raise())
         }
     }
 }

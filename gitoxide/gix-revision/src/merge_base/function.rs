@@ -1,7 +1,6 @@
-use gix_error::Result;
 use std::cmp::Ordering;
 
-use gix_error::{ExnMessageResult, OptionExt, ResultExt, message, not_found};
+use gix_error::{OptionExt, Result, ResultExt, message, not_found};
 use gix_hash::ObjectId;
 use gix_revwalk::graph;
 
@@ -48,7 +47,7 @@ pub(super) fn insert_input_commits(
     first_commit_id: ObjectId,
     others: &[ObjectId],
     graph: &mut Graph<'_, '_, graph::Commit<Flags>>,
-) -> ExnMessageResult {
+) -> Result {
     for commit_id in std::iter::once(&first_commit_id).chain(others) {
         graph
             .get_or_insert_full_commit(*commit_id, |_| {})
@@ -67,7 +66,7 @@ pub(super) fn insert_input_commits(
 fn remove_redundant(
     commits: &[(ObjectId, GenThenTime)],
     graph: &mut Graph<'_, '_, graph::Commit<Flags>>,
-) -> ExnMessageResult<Vec<ObjectId>> {
+) -> Result<Vec<ObjectId>> {
     if commits.is_empty() {
         return Ok(Vec::new());
     }
@@ -228,7 +227,7 @@ fn paint_down_to_common(
     first: ObjectId,
     others: &[ObjectId],
     graph: &mut Graph<'_, '_, graph::Commit<Flags>>,
-) -> ExnMessageResult<Vec<(ObjectId, GenThenTime)>> {
+) -> Result<Vec<(ObjectId, GenThenTime)>> {
     let mut queue = PaintQueue {
         queue: PriorityQueue::new(),
         non_stale: [0; 2],

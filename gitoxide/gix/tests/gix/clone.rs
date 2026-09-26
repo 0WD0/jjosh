@@ -860,13 +860,7 @@ mod blocking_io {
         )
         .map(drop)
         .expect_err("an existing .git directory must not be reused for clone");
-        insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&(err), &[(&(fixture.path()).to_string_lossy(), "<fixture>")]), "fetch and checkout into non empty directory with existing dot git is rejected", @r#"
-        Message {
-            message: "Refusing to initialize an existing directory",
-            class: Validation,
-            values: {"input": Bytes("<fixture>/non-empty-with-dot-git/.git")},
-        }
-        "#);
+        insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&(err), &[(&(fixture.path()).to_string_lossy(), "<fixture>")]), "fetch and checkout into non empty directory with existing dot git is rejected", @r#"Refusing to initialize an existing directory, "input"="<fixture>/non-empty-with-dot-git/.git""#);
 
         assert!(matches!(
             err.classify().filter(|classification| classification.class() == gix_error::Class::Validation)
@@ -1427,11 +1421,7 @@ fn clone_and_destination_must_be_empty() -> Result {
     }
     insta::assert_debug_snapshot!(error_snapshots, "clone and destination must be empty", @r#"
     [
-        Message {
-            message: "Refusing to initialize the non-empty directory as",
-            class: Validation,
-            values: {"input": Bytes("<destination>")},
-        },
+        Refusing to initialize the non-empty directory as, "input"="<destination>",
     ]
     "#);
     Ok(())
@@ -1450,13 +1440,7 @@ fn clone_with_worktree_and_destination_must_be_empty() -> Result {
     )
     .map(drop)
     .expect_err("this should fail as the directory isn't empty");
-    insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&(err), &[(&(fixture.path()).to_string_lossy(), "<fixture>")]), "clone with worktree and destination must be empty", @r#"
-    Message {
-        message: "Refusing to initialize the non-empty directory as",
-        class: Validation,
-        values: {"input": Bytes("<fixture>/non-empty")},
-    }
-    "#);
+    insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&(err), &[(&(fixture.path()).to_string_lossy(), "<fixture>")]), "clone with worktree and destination must be empty", @r#"Refusing to initialize the non-empty directory as, "input"="<fixture>/non-empty""#);
     assert!(err.is_validation());
     let validation = err
         .classify()

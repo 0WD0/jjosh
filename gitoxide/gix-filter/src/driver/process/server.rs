@@ -1,4 +1,4 @@
-use gix_error::Result;
+use gix_error::{Result, bail};
 use std::{collections::HashSet, io::Write, str::FromStr};
 
 use bstr::{BString, ByteSlice};
@@ -33,7 +33,7 @@ impl Server {
         pick_version: &mut dyn FnMut(&[usize]) -> Option<usize>,
         available_capabilities: &[&str],
     ) -> Result<Self> {
-        use gix_error::{ErrorExt, OptionExt, ResultExt, message};
+        use gix_error::{OptionExt, ResultExt, message};
 
         let mut input = StreamingPeekableIter::new(
             stdin.lock(),
@@ -48,9 +48,7 @@ impl Server {
             .strip_prefix(welcome_prefix)
             .is_none_or(|rest| rest.trim_end() != "-client")
         {
-            return Err(message!("Expected '{welcome_prefix}-client, got '{buf}'")
-                .raise()
-                .into());
+            bail!(message!("Expected '{welcome_prefix}-client, got '{buf}'"));
         }
 
         let mut versions = Vec::new();
@@ -69,7 +67,7 @@ impl Server {
                 {
                     Some(version) => version,
                     None => {
-                        return Err(message!("Expected 'version=<integer>', got '{buf}'").raise().into());
+                        bail!(message!("Expected 'version=<integer>', got '{buf}'"));
                     }
                 },
             );
@@ -146,12 +144,12 @@ impl Server {
         match read.read_line_to_string(&mut buf) {
             Ok(_) => {}
             Err(err) if err.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
-            Err(err) => return Err(err.and_raise(message("Failed to read from the client")).into()),
+            Err(err) => bail!(err.and_raise(message("Failed to read from the client"))),
         }
         let command = match buf.strip_prefix("command=").map(str::trim_end).map(ToOwned::to_owned) {
             Some(cmd) => cmd,
             None => {
-                return Err(message!("Wanted 'command=<name>', got  '{buf}'").raise().into());
+                bail!(message!("Wanted 'command=<name>', got  '{buf}'"));
             }
         };
 

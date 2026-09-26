@@ -144,13 +144,13 @@ fn configured_credentials_for_current_url(repo: crate::Repository) -> Authentica
             let url = action
                 .context()
                 .and_then(|ctx| ctx.url.clone().or_else(|| ctx.to_url()))
-                .ok_or_raise_erased(|| {
+                .ok_or_raise(|| {
                     gix_error::validation("Either 'url' field or both 'protocol' and 'host' fields must be provided")
                 })?;
             let (mut cascade, _action_with_normalized_url, prompt_opts) = repo
                 .config_snapshot()
-                .credential_helpers(gix_url::parse(&url).or_erased()?)
-                .or_raise_erased(|| gix_error::corruption("Credential helper configuration is invalid"))?;
+                .credential_helpers(gix_url::parse(&url)?)
+                .or_raise(|| gix_error::corruption("Credential helper configuration is invalid"))?;
             let outcome = cascade.invoke(action, prompt_opts.clone());
             previous_cascade_and_prompt = Some((cascade, prompt_opts));
             outcome

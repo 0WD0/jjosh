@@ -8,7 +8,7 @@ pub use gix_note as plumbing;
 use gix_error::{ErrorExt, ResultExt, message};
 
 use crate::{
-    Blob, ExnResult, Id, Repository, Result,
+    Blob, Id, Repository, Result,
     bstr::{BStr, BString, ByteSlice, ByteVec},
     config::tree::{Core, Key, Notes},
     ext::ObjectIdExt,
@@ -60,9 +60,7 @@ impl<'repo> Platform<'repo> {
         };
         let mut refs = default_ref.iter().cloned().collect::<Vec<_>>();
         for value in config.plumbing().strings(Notes::DISPLAY_REF).unwrap_or_default() {
-            let display_refs = Notes::DISPLAY_REF
-                .try_into_display_refs(value)
-                .or_raise(|| message("Could not parse notes display references"))?;
+            let display_refs = Notes::DISPLAY_REF.try_into_display_refs(value)?;
             for pattern in display_refs {
                 add_refs(repo, pattern.as_bstr(), &mut refs)?;
             }
@@ -410,10 +408,10 @@ fn add_refs(repo: &Repository, pattern: &BStr, out: &mut Vec<FullName>) -> Resul
     Ok(())
 }
 
-fn expand_notes_ref(name: &PartialNameRef) -> ExnResult<Cow<'_, FullNameRef>, gix_ref::name::Error> {
+fn expand_notes_ref(name: &PartialNameRef) -> Result<Cow<'_, FullNameRef>> {
     let name = name.as_bstr();
     if name.starts_with_str("refs/notes/") {
-        return Ok(Cow::Borrowed(name.try_into()?));
+        return <&FullNameRef>::try_from(name).map(Cow::Borrowed).or_error();
     }
 
     let mut name = name.to_owned();
@@ -422,5 +420,5 @@ fn expand_notes_ref(name: &PartialNameRef) -> ExnResult<Cow<'_, FullNameRef>, gi
     } else {
         name.insert_str(0, "refs/notes/");
     }
-    Ok(Cow::Owned(name.try_into()?))
+    FullName::try_from(name).map(Cow::Owned).or_error()
 }

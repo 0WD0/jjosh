@@ -4,7 +4,7 @@ pub use crate::client::non_io_types::connect::Options;
 pub(crate) mod function {
     use crate::client::{async_io::Transport, git::async_io::Connection};
     use gix_error::Result;
-    use gix_error::{ErrorExt, ResultExt, message};
+    use gix_error::{ResultExt, bail, message};
 
     /// A general purpose connector connecting to a repository identified by the given `url`.
     ///
@@ -21,13 +21,11 @@ pub(crate) mod function {
         Ok(match url.scheme {
             gix_url::Scheme::Git => {
                 if url.user().is_some() {
-                    return Err(message!(
+                    bail!(message!(
                         "The url {:?} contains information that would not be used by the {} protocol",
                         url.to_bstring(),
                         url.scheme
-                    )
-                    .raise()
-                    .into());
+                    ));
                 }
                 let path = std::mem::take(&mut url.path);
                 Box::new(
@@ -43,9 +41,7 @@ pub(crate) mod function {
                 )
             }
             scheme => {
-                return Err(message!("The '{scheme}' protocol is currently unsupported")
-                    .raise()
-                    .into());
+                bail!(message!("The '{scheme}' protocol is currently unsupported"));
             }
         })
     }

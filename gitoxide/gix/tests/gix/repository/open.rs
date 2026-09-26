@@ -507,13 +507,7 @@ fn non_bare_split_worktree_invalid_worktree_path_boolean() -> Result {
     )
     .expect_err("a bare worktree-path key is invalid in strict mode");
     assert!(err.is_validation(), "in strict mode, we fail just like git does");
-    insta::assert_debug_snapshot!(err, "non bare split worktree invalid worktree path boolean", @r#"
-    Message {
-        message: "Invalid configuration value",
-        class: Validation,
-        values: {"environment_override": String("GIT_WORK_TREE"), "key": String("core.worktree")},
-    }
-    "#);
+    insta::assert_debug_snapshot!(err, "non bare split worktree invalid worktree path boolean", @r#"Invalid configuration value, "environment_override"="GIT_WORK_TREE", "key"="core.worktree""#);
     Ok(())
 }
 

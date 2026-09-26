@@ -10,7 +10,7 @@ use crate::{
     parse::relative,
     time::format::{DEFAULT, GITOXIDE, ISO8601, ISO8601_STRICT, SHORT},
 };
-use gix_error::{ErrorExt, ResultExt};
+use gix_error::{ResultExt, bail};
 
 /// The widest timezone offset git reads, as `match_tz()` in `date.c` takes the four digits as a
 /// clock time: hours below 24 and minutes below 60, so `+2359` is the last offset it accepts.
@@ -142,16 +142,12 @@ pub fn parse(input: &str, now: Option<Zoned>) -> Result<Time> {
         // Format::Raw
         val
     } else {
-        return Err(gix_error::validation("Unknown date format")
-            .with("input", input.as_bytes())
-            .raise())?;
+        bail!(gix_error::validation("Unknown date format").with("input", input.as_bytes()));
     };
 
     // Jiff parses textual offsets up to 25:59:59, beyond Git's accepted range.
     if time.offset.abs() > MAX_OFFSET_IN_SECONDS {
-        Err(gix_error::validation("Unknown date format")
-            .with("input", input.as_bytes())
-            .raise())?;
+        bail!(gix_error::validation("Unknown date format").with("input", input.as_bytes()));
     }
     Ok(time)
 }

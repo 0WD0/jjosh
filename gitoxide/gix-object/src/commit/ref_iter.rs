@@ -1,4 +1,3 @@
-use gix_error::ExnMessageResult;
 use gix_error::{OptionExt, Result};
 use std::{borrow::Cow, ops::Range};
 
@@ -85,7 +84,7 @@ impl<'a> CommitRefIter<'a> {
     /// `next()`.
     pub fn tree_id(&mut self) -> Result<ObjectId> {
         let tree_id = self.next().ok_or_raise(missing_field)??;
-        Ok(Token::try_into_id(tree_id).ok_or_raise(missing_field)?)
+        Token::try_into_id(tree_id).ok_or_raise(missing_field)
     }
 
     /// Return all `parent_ids` as iterator.
@@ -153,11 +152,7 @@ fn missing_field() -> gix_error::Message {
 
 impl<'a> CommitRefIter<'a> {
     #[inline]
-    fn next_inner(
-        mut i: &'a [u8],
-        state: &mut State,
-        hash_kind: gix_hash::Kind,
-    ) -> ExnMessageResult<(&'a [u8], Token<'a>)> {
+    fn next_inner(mut i: &'a [u8], state: &mut State, hash_kind: gix_hash::Kind) -> Result<(&'a [u8], Token<'a>)> {
         let input = &mut i;
         match Self::next_inner_(input, state, hash_kind) {
             Ok(token) => Ok((*input, token)),
@@ -165,7 +160,7 @@ impl<'a> CommitRefIter<'a> {
         }
     }
 
-    fn next_inner_(input: &mut &'a [u8], state: &mut State, hash_kind: gix_hash::Kind) -> ExnMessageResult<Token<'a>> {
+    fn next_inner_(input: &mut &'a [u8], state: &mut State, hash_kind: gix_hash::Kind) -> Result<Token<'a>> {
         use State::*;
         Ok(match state {
             Tree => {
@@ -258,7 +253,7 @@ impl<'a> Iterator for CommitRefIter<'a> {
             }
             Err(err) => {
                 self.data = &[];
-                Some(Err(err.into()))
+                Some(Err(err))
             }
         }
     }
@@ -273,7 +268,7 @@ struct CommitRefIterRaw<'a> {
 }
 
 impl<'a> Iterator for CommitRefIterRaw<'a> {
-    type Item = ExnMessageResult<RawToken<'a>>;
+    type Item = Result<RawToken<'a>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.data.is_empty() {

@@ -2,16 +2,53 @@ use gix_error::Result;
 use std::{borrow::Cow, fmt::Display, str::FromStr};
 
 use bstr::{BStr, BString, ByteSlice};
-use gix_error::{ErrorExt, Message, ResultExt, validation};
+use gix_error::{ErrorExt, Message, ResultExt, bail, validation};
 
 use crate::Integer;
 
 impl Integer {
+    /// Parse `input`, apply its optional suffix multiplier, and convert it to the signed or unsigned integer `T`.
+    ///
+    /// Accepts byte strings, UTF-8 strings, and byte containers through [`gix_utils::AsBStr`].
+    /// The suffixes `k`, `m`, and `g` (case-insensitive) multiply the parsed value by 1024, 1048576,
+    /// and 1073741824 respectively. Both the parsed and multiplied values must fit in `i64`,
+    /// even when `T` is an unsigned or wider integer type.
+    ///
+    /// Malformed input, suffix multiplication overflow, and values outside `T`'s range are
+    /// [validation errors](gix_error::Class::Validation). Errors retain the original `input` bytes as
+    /// [metadata](gix_error::Error::metadata()), and target conversion errors retain `T::Error` as a cause.
+    ///
+    /// ```
+    /// use gix_config_value::Integer;
+    ///
+    /// let unsigned: usize = Integer::from_bytes("10m")?;
+    /// assert_eq!(unsigned, 10 * 1024 * 1024);
+    /// let signed: i64 = Integer::from_bytes(b"-2k")?;
+    /// assert_eq!(signed, -2048);
+    /// # Ok::<(), gix_error::Error>(())
+    /// ```
+    pub fn from_bytes<T>(input: impl gix_utils::AsBStr) -> Result<T>
+    where
+        T: TryFrom<i64>,
+        T::Error: std::error::Error + Send + Sync + 'static,
+    {
+        let input = input.as_bstr();
+        let value = Self::try_from(input)?.to_decimal().ok_or_else(|| {
+            validation("integer suffix multiplication overflows `i64`")
+                .with("input", input)
+                .raise()
+        })?;
+        T::try_from(value).or_raise(|| {
+            validation(format!("integer is out of range for `{}`", std::any::type_name::<T>())).with("input", input)
+        })
+    }
+
     /// Canonicalize values as simple decimal numbers.
     /// An optional suffix of k, m, or g (case-insensitive), will cause the
     /// value to be multiplied by 1024 (k), 1048576 (m), or 1073741824 (g) respectively.
     ///
     /// Returns the result if there is no multiplication overflow.
+    /// Prefer [`Self::from_bytes()`] when parsing raw input to obtain classified errors with input metadata.
     pub fn to_decimal(&self) -> Option<i64> {
         match self.suffix {
             None => Some(self.value),
@@ -94,12 +131,12 @@ impl TryFrom<&BStr> for Integer {
         }
 
         if s.len() <= 1 {
-            return Err(int_err(s).raise().into());
+            bail!(int_err(s));
         }
 
         let last_idx = s.len() - 1;
         if !s.is_char_boundary(last_idx) {
-            return Err(int_err(s).raise().into());
+            bail!(int_err(s));
         }
 
         let (number, suffix) = s.split_at(s.len() - 1);
@@ -109,7 +146,7 @@ impl TryFrom<&BStr> for Integer {
                 suffix: Some(suffix),
             })
         } else {
-            Err(int_err(s).raise().into())
+            Err(int_err(s).raise())
         }
     }
 }

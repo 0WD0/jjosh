@@ -1,18 +1,35 @@
 use gix_credentials::program::main;
 use gix_error::Result;
-use std::io::Cursor;
+use std::{ffi::OsString, io::Cursor};
 
 #[test]
-#[cfg(unix)]
-fn invalid_non_utf8_action_is_preserved() {
-    use std::{ffi::OsString, os::unix::ffi::OsStringExt};
+fn action_aliases_are_accepted() -> Result {
+    for (input, expected) in [
+        ("get", "get"),
+        ("fill", "get"),
+        ("store", "store"),
+        ("approve", "store"),
+        ("erase", "erase"),
+        ("reject", "erase"),
+    ] {
+        assert_eq!(
+            main::Action::try_from(OsString::from(input))?.as_str(),
+            expected,
+            "helper and Git action names select the same action"
+        );
+    }
+    Ok(())
+}
 
-    let err = main::Action::try_from(OsString::from_vec(vec![0xff])).expect_err("the action is invalid");
-    assert_eq!(
-        err.values.get("input"),
-        Some(&gix_error::MetadataValue::Bytes(vec![0xff].into())),
-        "the invalid action is retained"
-    );
+#[test]
+fn invalid_actions_are_validation_errors() {
+    for input in ["", "invalid", "Get", "get "] {
+        let err = main::Action::try_from(OsString::from(input)).expect_err("the action is invalid");
+        assert!(
+            err.is_validation(),
+            "invalid actions are classified as validation errors"
+        );
+    }
 }
 
 #[test]

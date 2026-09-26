@@ -10,7 +10,7 @@ pub enum RoundTripCheck {
 pub(crate) mod function {
     use encoding_rs::DecoderResult;
 
-    use gix_error::{ErrorExt, OptionExt, Result};
+    use gix_error::{OptionExt, Result, bail};
 
     use super::RoundTripCheck;
 
@@ -47,12 +47,10 @@ pub(crate) mod function {
                 unreachable!("we assure that the output buffer is big enough as per the encoder's estimate")
             }
             DecoderResult::Malformed(_, _) => {
-                return Err(gix_error::validation(format!(
+                bail!(gix_error::validation(format!(
                     "The input was malformed and could not be decoded as '{}'",
                     src_encoding.name()
-                ))
-                .raise()
-                .into());
+                )));
             }
         }
 
@@ -63,12 +61,10 @@ pub(crate) mod function {
                 let str = unsafe { std::str::from_utf8_unchecked(buf) };
                 let (should_equal_src, _actual_encoding, _had_errors) = src_encoding.encode(str);
                 if should_equal_src != src {
-                    return Err(gix_error::validation(format!(
+                    bail!(gix_error::validation(format!(
                         "Encoding from '{}' to 'UTF-8' and back is not the same",
                         src_encoding.name()
-                    ))
-                    .raise()
-                    .into());
+                    )));
                 }
             }
             RoundTripCheck::Skip => {}

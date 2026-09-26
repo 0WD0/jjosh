@@ -5,7 +5,7 @@ use std::{
 };
 
 use bstr::{BStr, BString, ByteSlice};
-use gix_error::{ErrorExt, ExnMessageResult, validation};
+use gix_error::{ErrorExt, validation};
 
 use crate::Stack;
 
@@ -17,22 +17,17 @@ pub trait ToNormalPathComponents {
 
 impl ToNormalPathComponents for &Path {
     fn to_normal_path_components(&self) -> impl Iterator<Item = Result<&OsStr>> {
-        self.components()
-            .map(|c| component_to_os_str(c, self.display()).map_err(Into::into))
+        self.components().map(|c| component_to_os_str(c, self.display()))
     }
 }
 
 impl ToNormalPathComponents for PathBuf {
     fn to_normal_path_components(&self) -> impl Iterator<Item = Result<&OsStr>> {
-        self.components()
-            .map(|c| component_to_os_str(c, self.display()).map_err(Into::into))
+        self.components().map(|c| component_to_os_str(c, self.display()))
     }
 }
 
-fn component_to_os_str(
-    component: Component<'_>,
-    path_with_component: impl std::fmt::Display,
-) -> ExnMessageResult<&OsStr> {
+fn component_to_os_str(component: Component<'_>, path_with_component: impl std::fmt::Display) -> Result<&OsStr> {
     match component {
         Component::Normal(os_str) => Ok(os_str),
         _ => Err(validation(format!(
@@ -72,7 +67,7 @@ fn bytes_component_to_os_str<'a>(component: &'a [u8], path: &BStr) -> Option<Res
         Err(err) => return Some(Err(err)),
     };
     let component = component.components().next()?;
-    Some(component_to_os_str(component, path).map_err(Into::into))
+    Some(component_to_os_str(component, path))
 }
 
 /// Access

@@ -1,4 +1,4 @@
-use gix_error::{ErrorExt, ExnMessageResult, message};
+use gix_error::{ErrorExt, Result, bail, message};
 
 #[derive(Default, Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Action {
@@ -62,15 +62,14 @@ pub(crate) fn can_reuse_identity(redirect_url: &str, original_url: &str) -> bool
     false
 }
 
-pub(crate) fn base_url(redirect_url: &str, base_url: &str, url: String) -> ExnMessageResult<String> {
+pub(crate) fn base_url(redirect_url: &str, base_url: &str, url: String) -> Result<String> {
     let tail = url
         .strip_prefix(base_url)
         .expect("BUG: caller assures `base_url` is subset of `url`");
     if !scheme_is_safe(redirect_url, base_url) {
-        return Err(message!(
+        bail!(message!(
             "Redirect url {redirect_url:?} could not be reconciled with original url {url} as the scheme is insecure or they don't share the same suffix"
-        )
-        .raise());
+        ));
     }
     redirect_url
         .strip_suffix(tail)

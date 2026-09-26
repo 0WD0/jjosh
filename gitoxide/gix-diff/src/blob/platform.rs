@@ -2,7 +2,7 @@ use gix_error::Result;
 use std::{cmp::Ordering, io::Write, process::Stdio};
 
 use bstr::{BStr, BString, ByteSlice};
-use gix_error::{ErrorExt, ExnMessageResult, ExnResult, OptionExt, ResultExt, message};
+use gix_error::{ExnResult, OptionExt, ResultExt, bail, message};
 
 use super::Algorithm;
 use crate::blob::{Pipeline, Platform, ResourceKind, pipeline};
@@ -522,7 +522,7 @@ impl Platform {
         fn add_resource(
             cmd: &mut std::process::Command,
             res: Resource<'_>,
-        ) -> ExnMessageResult<Option<gix_tempfile::Handle<gix_tempfile::handle::Closed>>> {
+        ) -> Result<Option<gix_tempfile::Handle<gix_tempfile::handle::Closed>>> {
             let tmpfile = match res.data {
                 resource::Data::Missing => {
                     cmd.args(["/dev/null", ".", "."]);
@@ -565,10 +565,9 @@ impl Platform {
                     Some(tmp)
                 }
                 resource::Data::Binary { .. } => {
-                    return Err(message(
+                    bail!(message(
                         "Binary resources can't be diffed with an external command (as we don't have the data anymore)",
-                    )
-                    .raise());
+                    ));
                 }
             };
             Ok(tmpfile)
@@ -657,7 +656,7 @@ impl Platform {
 
         match (old.conversion.data, new.conversion.data) {
             (None, None) => {
-                return Err(prepare_diff::Error::SourceAndDestinationRemoved.raise());
+                bail!(prepare_diff::Error::SourceAndDestinationRemoved);
             }
             (Some(pipeline::Data::Binary { .. }), _) | (_, Some(pipeline::Data::Binary { .. })) => return Ok(out),
             _either_missing_or_non_binary => {
@@ -744,7 +743,7 @@ impl Platform {
             mode,
             gix_object::tree::EntryKind::Commit | gix_object::tree::EntryKind::Tree
         ) {
-            return Err(set_resource::Error::InvalidMode { mode }.raise());
+            bail!(set_resource::Error::InvalidMode { mode });
         }
         let storage = match kind {
             ResourceKind::OldOrSource => &mut self.old,
@@ -763,7 +762,7 @@ impl Platform {
         let entry =
             self.attr_stack
                 .at_entry(rela_path, None, objects)
-                .or_raise(|| set_resource::Error::Attributes {
+                .or_raise_typed(|| set_resource::Error::Attributes {
                     kind,
                     rela_path: rela_path.into(),
                 })?;
@@ -782,7 +781,7 @@ impl Platform {
                 self.filter_mode,
                 &mut buf,
             )
-            .or_raise(|| set_resource::Error::ConvertToDiffable {
+            .or_raise_typed(|| set_resource::Error::ConvertToDiffable {
                 kind,
                 rela_path: rela_path.into(),
             })?;

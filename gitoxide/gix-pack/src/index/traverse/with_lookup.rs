@@ -1,8 +1,6 @@
 use gix_error::Result;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use gix_error::ExnResult;
-
 use gix_features::{
     parallel::{self, in_parallel_if},
     progress::{self, Count, DynNestedProgress, Progress},
@@ -146,7 +144,7 @@ where
                     state_per_thread,
                     move |entries: &[index::Entry],
                           (cache, buf, inflate, progress)|
-                          -> ExnResult<Vec<data::decode::entry::Outcome>> {
+                          -> Result<Vec<data::decode::entry::Outcome>> {
                         progress.init(
                             Some(entries.len()),
                             gix_features::progress::count_with_decimals("objects", 2),

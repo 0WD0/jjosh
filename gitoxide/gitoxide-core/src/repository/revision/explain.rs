@@ -1,6 +1,6 @@
 use anyhow::bail;
 use gix::{
-    ExnResult,
+    Result,
     bstr::{BStr, BString},
     revision::plumbing::{
         spec,
@@ -41,7 +41,7 @@ impl<'a> Explain<'a> {
             err: None,
         }
     }
-    fn prefix(&mut self) -> ExnResult {
+    fn prefix(&mut self) -> Result {
         self.call += 1;
         write!(self.out, "{:02}. ", self.call).ok();
         Ok(())

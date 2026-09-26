@@ -1,7 +1,7 @@
 use gix_error::Result;
 use std::{fs, io};
 
-use gix_error::{ErrorExt, ExnResult, ResultExt, message};
+use gix_error::{ErrorExt, ResultExt, bail, message};
 use gix_hash::{Hasher, ObjectId};
 use gix_zlib::Decompress;
 
@@ -77,7 +77,7 @@ where
         })
     }
 
-    fn next_inner(&mut self) -> ExnResult<input::Entry> {
+    fn next_inner(&mut self) -> Result<input::Entry> {
         self.objects_left -= 1; // even an error counts as objects
 
         // Read header
@@ -116,11 +116,10 @@ where
 
         let bytes_copied = io::copy(&mut decompressed_reader, &mut io::sink()).map_err(io_error)?;
         if bytes_copied != entry.decompressed_size {
-            return Err(gix_error::corruption(format!(
+            bail!(gix_error::corruption(format!(
                 "pack is incomplete: it was decompressed into {bytes_copied} bytes but {} bytes where expected.",
                 entry.decompressed_size
-            ))
-            .raise_erased());
+            )));
         }
 
         let pack_offset = self.offset;
@@ -171,7 +170,7 @@ where
         })
     }
 
-    fn try_read_trailer(&mut self) -> ExnResult<Option<ObjectId>> {
+    fn try_read_trailer(&mut self) -> Result<Option<ObjectId>> {
         Ok(if self.objects_left == 0 {
             let mut id = gix_hash::ObjectId::null(self.object_hash);
             if let Err(err) = self.read.read_exact(id.as_mut_slice())
@@ -187,7 +186,7 @@ where
                 } else {
                     actual_id
                         .verify(&id)
-                        .or_raise_erased(|| message("Failed to verify pack checksum in trailer"))?;
+                        .or_raise(|| message("Failed to verify pack checksum in trailer"))?;
                 }
             }
             Some(id)
@@ -222,7 +221,7 @@ where
         if self.mode == input::Mode::Restore && self.had_error {
             None
         } else {
-            Some((result).map_err(Into::into))
+            Some(result)
         }
     }
 
@@ -288,14 +287,12 @@ where
     }
 }
 
-fn io_error(err: io::Error) -> gix_error::Exn {
+fn io_error(err: io::Error) -> gix_error::Error {
     err.and_raise(message("An IO operation failed while streaming an entry"))
-        .erased()
 }
 
-fn hash_io_error(err: gix_error::Error) -> gix_error::Exn {
+fn hash_io_error(err: gix_error::Error) -> gix_error::Error {
     err.and_raise(message("An IO operation failed while streaming an entry"))
-        .erased()
 }
 
 /// The boxed variant is faster for what we do (moving the decompressor in and out a lot)

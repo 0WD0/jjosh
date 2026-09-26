@@ -46,7 +46,7 @@
 
 use bstr::BStr;
 use gix_error::Result;
-use gix_error::{ErrorExt, OptionExt};
+use gix_error::{OptionExt, bail};
 
 ///
 #[cfg(feature = "async-io")]
@@ -176,11 +176,9 @@ impl<'a> PacketLineRef<'a> {
             2 => BandRef::Progress(d),
             3 => BandRef::Error(d),
             band => {
-                return Err(gix_error::validation(format!(
+                bail!(gix_error::validation(format!(
                     "attempt to decode a non-side channel line or input was malformed: {band}"
-                ))
-                .raise()
-                .into());
+                )));
             }
         })
     }

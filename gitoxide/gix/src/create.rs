@@ -5,14 +5,12 @@ use std::{
 };
 
 use gix_discover::DOT_GIT_DIR;
-use gix_error::{ErrorExt, ResultExt};
+use gix_error::{ErrorExt, ResultExt, bail};
 
 use crate::{Error, Result};
 
 fn io_error(source: std::io::Error, action: &str, path: &Path) -> Error {
-    source
-        .and_raise(gix_error::message!("{action} at '{}'", path.display()))
-        .into()
+    source.and_raise(gix_error::message!("{action} at '{}'", path.display()))
 }
 
 /// The kind of repository to create.
@@ -177,10 +175,10 @@ pub(crate) fn into_with_capabilities(
             .map_err(|err| io_error(err, "Could not open data", &dot_git))?
             .count();
         if num_entries_in_dot_git != 0 {
-            return Err(Error::from_error(
+            bail!(
                 gix_error::validation("Refusing to initialize the non-empty directory as")
-                    .with("input", dot_git.display().to_string().into_bytes()),
-            ));
+                    .with("input", dot_git.display().to_string().into_bytes())
+            );
         }
     }
 
@@ -188,10 +186,10 @@ pub(crate) fn into_with_capabilities(
         dot_git.push(DOT_GIT_DIR);
 
         if dot_git.is_dir() {
-            return Err(Error::from_error(
+            bail!(
                 gix_error::validation("Refusing to initialize an existing directory")
-                    .with("input", dot_git.display().to_string().into_bytes()),
-            ));
+                    .with("input", dot_git.display().to_string().into_bytes())
+            );
         }
     }
     create_dir(&dot_git)?;

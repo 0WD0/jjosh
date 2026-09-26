@@ -24,7 +24,7 @@ impl Stream {
         match res {
             Ok((remaining, mode, id)) => {
                 if let Some(err) = self.err.lock().take() {
-                    return Err(err.into());
+                    return Err(err);
                 }
                 Ok(Some(Entry {
                     path_buf: self.path_buf.take(),
@@ -36,13 +36,13 @@ impl Stream {
             }
             Err(err) => {
                 if let Some(err) = self.err.lock().take() {
-                    return Err(err.into());
+                    return Err(err);
                 }
                 // unexpected EOF means the other side dropped. We handled potential errors already.
                 if err.kind() == ErrorKind::UnexpectedEof {
                     return Ok(None);
                 }
-                Err(err.and_raise(gix_error::message("Could not read stream entry")).into())
+                Err(err.and_raise(gix_error::message("Could not read stream entry")))
             }
         }
     }
@@ -122,7 +122,7 @@ impl std::io::Read for Entry<'_> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         let buf_len = buf.len();
         if let Some(err) = self.parent.err.lock().take() {
-            return Err(std::io::Error::other(err.into_error()));
+            return Err(std::io::Error::other(err));
         }
         let bytes_read = match self.remaining.as_mut() {
             None => {

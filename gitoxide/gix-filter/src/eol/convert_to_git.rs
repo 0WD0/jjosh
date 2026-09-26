@@ -33,7 +33,7 @@ pub type IndexObjectFn<'a> = dyn FnMut(&mut Vec<u8>) -> Result<Option<()>> + 'a;
 pub(crate) mod function {
     use bstr::ByteSlice;
 
-    use gix_error::Result;
+    use gix_error::{Result, bail};
 
     use crate::{
         clear_and_set_capacity,
@@ -62,7 +62,7 @@ pub(crate) mod function {
             config,
         }: Options<'_>,
     ) -> Result<bool> {
-        use gix_error::{ErrorExt, ResultExt, message};
+        use gix_error::{ResultExt, message};
 
         if digest == AttributesDigest::Binary || src.is_empty() {
             return Ok(false);
@@ -106,9 +106,7 @@ pub(crate) mod function {
                 // CRLF would not be restored by checkout
                 match round_trip_check {
                     RoundTripCheck::Fail { rela_path } => {
-                        return Err(message!("CRLF would be replaced by LF in '{}'", rela_path.display())
-                            .raise()
-                            .into());
+                        bail!(message!("CRLF would be replaced by LF in '{}'", rela_path.display()));
                     }
                     #[allow(unused_variables, reason = "Used when tracing is enabled at compile time.")]
                     RoundTripCheck::Warn { rela_path } => {
@@ -122,9 +120,7 @@ pub(crate) mod function {
                 // CRLF would be added by checkout
                 match round_trip_check {
                     RoundTripCheck::Fail { rela_path } => {
-                        return Err(message!("LF would be replaced by CRLF in '{}'", rela_path.display())
-                            .raise()
-                            .into());
+                        bail!(message!("LF would be replaced by CRLF in '{}'", rela_path.display()));
                     }
                     #[allow(unused_variables, reason = "Used when tracing is enabled at compile time.")]
                     RoundTripCheck::Warn { rela_path } => {

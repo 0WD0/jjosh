@@ -1,7 +1,7 @@
 use gix_error::Result;
 use std::ops::Deref;
 
-use gix_error::{ErrorExt, ExnResult, Message, ResultExt, not_found};
+use gix_error::{ErrorExt, Message, ResultExt, bail, not_found};
 use gix_pack::cache::DecodeEntry;
 
 use crate::store::{handle, load_index};
@@ -57,10 +57,13 @@ where
         pack_cache: &mut dyn DecodeEntry,
         snapshot: &mut load_index::Snapshot,
         recursion: Option<DeltaBaseRecursion<'_>>,
-    ) -> ExnResult<Option<(gix_object::Data<'a>, Option<gix_pack::data::entry::Location>)>> {
+    ) -> Result<Option<(gix_object::Data<'a>, Option<gix_pack::data::entry::Location>)>> {
         if let Some(r) = recursion {
             if r.depth >= self.max_recursion_depth {
-                return Err(delta_base_recursion_limit_error(self.max_recursion_depth, r.original_id).raise_erased());
+                bail!(delta_base_recursion_limit_error(
+                    self.max_recursion_depth,
+                    r.original_id
+                ));
             }
         } else if !self.ignore_replacements
             && let Ok(pos) = self
@@ -83,7 +86,7 @@ where
                     {
                         let pack = match possibly_pack {
                             Some(pack) => pack,
-                            None => match self.store.load_pack(pack_id, marker).or_erased()? {
+                            None => match self.store.load_pack(pack_id, marker).or_error()? {
                                 Some(pack) => {
                                     *possibly_pack = Some(pack);
                                     possibly_pack.as_deref().expect("just put it in")
@@ -106,7 +109,7 @@ where
                                 }
                             },
                         };
-                        let entry = pack.entry(pack_offset).or_erased()?;
+                        let entry = pack.entry(pack_offset)?;
                         let header_size = entry.header_size();
                         let res = pack.decode_entry(
                             entry,
@@ -138,7 +141,7 @@ where
                                     .downcast_any_ref::<gix_pack::data::decode::DeltaBaseUnresolved>()
                                     .map(|err| err.0)
                                 else {
-                                    return Err(err.raise_erased());
+                                    return Err(err);
                                 };
                                 // Only with multi-pack indices it's allowed to jump to refer to other packs within this
                                 // multi-pack. Otherwise this would constitute a thin pack which is only allowed in transit.
@@ -164,12 +167,12 @@ where
                                             .map(DeltaBaseRecursion::inc_depth)
                                             .or_else(|| DeltaBaseRecursion::new(id).into()),
                                     )
-                                    .or_raise_erased(context)?
+                                    .or_raise(context)?
                                     .ok_or_else(|| {
                                         not_found("Could not resolve delta base object: delta base object is missing")
                                             .with("base_id", base_id.to_string())
                                             .with("object_id", id.to_string())
-                                            .raise_erased()
+                                            .raise()
                                     })?
                                     .0
                                     .kind;
@@ -200,7 +203,7 @@ where
                                 let pack = possibly_pack
                                     .as_ref()
                                     .expect("pack to still be available like just now");
-                                let entry = pack.entry(pack_offset).or_erased()?;
+                                let entry = pack.entry(pack_offset)?;
                                 let header_size = entry.header_size();
                                 pack.decode_entry(
                                     entry,
@@ -242,7 +245,7 @@ where
                                     )
                                 })
                             }
-                        }.or_erased()?;
+                        }?;
 
                         if idx != 0 {
                             snapshot.indices.swap(0, idx);
@@ -255,10 +258,7 @@ where
             for lodb in snapshot.loose_dbs.iter() {
                 // TODO: remove this double-lookup once the borrow checker allows it.
                 if lodb.contains(id) {
-                    return lodb
-                        .try_find(id, buffer)
-                        .map(|obj| obj.map(|obj| (obj, None)))
-                        .or_erased();
+                    return lodb.try_find(id, buffer).map(|obj| obj.map(|obj| (obj, None)));
                 }
             }
 
@@ -319,7 +319,7 @@ where
     ) -> Result<Option<(gix_object::Data<'a>, Option<gix_pack::data::entry::Location>)>> {
         let mut snapshot = self.snapshot.borrow_mut();
         let mut inflate = self.inflate.borrow_mut();
-        (self.try_find_cached_inner(id, buffer, &mut inflate, pack_cache, &mut snapshot, None)).map_err(Into::into)
+        self.try_find_cached_inner(id, buffer, &mut inflate, pack_cache, &mut snapshot, None)
     }
 
     fn location_by_oid(&self, id: &gix_hash::oid, buf: &mut Vec<u8>) -> Option<gix_pack::data::entry::Location> {
@@ -495,7 +495,6 @@ where
                     size: hdr.size(),
                 })
             })
-            .map_err(Into::into)
     }
 }
 

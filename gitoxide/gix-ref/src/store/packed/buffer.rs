@@ -1,7 +1,6 @@
-use gix_error::Result;
 use std::path::PathBuf;
 
-use gix_error::{ErrorExt, ExnResult, Message, ResultExt, message};
+use gix_error::{ErrorExt, Message, Result, ResultExt, message};
 
 use crate::store_impl::packed;
 
@@ -22,14 +21,14 @@ impl AsRef<[u8]> for packed::Backing {
 
 /// Initialization
 impl packed::Buffer {
-    fn open_with_backing(backing: packed::Backing, path: PathBuf, object_hash: gix_hash::Kind) -> ExnResult<Self> {
+    fn open_with_backing(backing: packed::Backing, path: PathBuf, object_hash: gix_hash::Kind) -> Result<Self> {
         let (backing, offset) = {
             let (offset, sorted) = {
                 let mut input = backing.as_ref();
                 if *input.first().unwrap_or(&b' ') == b'#' {
                     let header = packed::decode::header(&mut input).map_err(|()| {
                         gix_error::corruption("The header could not be parsed, even though first line started with '#'")
-                            .raise_erased()
+                            .raise()
                     })?;
                     let offset = backing.as_ref().len() - input.len();
                     (offset, header.sorted)
@@ -41,9 +40,8 @@ impl packed::Buffer {
             if !sorted {
                 // this implementation is likely slower than what git does, but it's less code, too.
                 let mut entries = packed::Iter::new(&backing.as_ref()[offset..], object_hash)
-                    .or_raise_erased(|| message("Could not iterate unsorted packed refs"))?
-                    .collect::<std::result::Result<Vec<_>, _>>()
-                    .or_erased()?;
+                    .or_raise(|| message("Could not iterate unsorted packed refs"))?
+                    .collect::<Result<Vec<_>>>()?;
                 entries.sort_by_key(|e| e.name.as_bstr());
                 let mut serialized = Vec::<u8>::new();
                 for entry in entries {
@@ -93,8 +91,8 @@ impl packed::Buffer {
                 },
             )
         })()
-        .or_raise_erased(|| Message::new("Could not open packed refs").with("path", path.as_path()))?;
-        Ok(Self::open_with_backing(backing, path, object_hash)?)
+        .or_raise(|| Message::new("Could not open packed refs").with("path", path.as_path()))?;
+        Self::open_with_backing(backing, path, object_hash)
     }
 
     /// Open a buffer from `bytes`, which is the content of a typical `packed-refs` file, parsing object ids as
@@ -104,10 +102,6 @@ impl packed::Buffer {
     /// If that's not the case, they will be sorted on the fly.
     pub fn from_bytes(bytes: &[u8], object_hash: gix_hash::Kind) -> Result<Self> {
         let backing = packed::Backing::InMemory(bytes.into());
-        Ok(Self::open_with_backing(
-            backing,
-            PathBuf::from("<memory>"),
-            object_hash,
-        )?)
+        Self::open_with_backing(backing, PathBuf::from("<memory>"), object_hash)
     }
 }

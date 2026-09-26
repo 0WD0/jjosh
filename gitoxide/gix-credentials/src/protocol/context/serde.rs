@@ -1,5 +1,5 @@
 use bstr::BStr;
-use gix_error::ExnMessageResult;
+use gix_error::{Result, bail};
 
 mod write {
     use bstr::{BStr, BString};
@@ -78,10 +78,8 @@ mod write {
 ///
 pub mod decode {
     use bstr::ByteSlice;
-    use gix_error::ErrorExt;
 
-    use gix_error::Result;
-    use gix_error::validation;
+    use gix_error::{ErrorExt, Result, bail, validation};
 
     use crate::protocol::{Context, ContextOptions, context::serde::validate};
 
@@ -120,17 +118,14 @@ pub mod decode {
                     }
                     _ => Err(validation("Invalid format, expecting key=value")
                         .with("input", line)
-                        .into()),
+                        .raise()),
                 }
             }) {
                 let (key, value) = res?;
                 match key {
                     "protocol" | "host" | "username" | "password" | "oauth_refresh_token" => {
                         if !value.is_utf8() {
-                            return Err(validation(format!("Illformed UTF-8 in value of key {key:?}"))
-                                .with("input", value)
-                                .raise()
-                                .into());
+                            bail!(validation(format!("Illformed UTF-8 in value of key {key:?}")).with("input", value));
                         }
                         let value = value.to_string();
                         *match key {
@@ -161,7 +156,7 @@ pub mod decode {
     }
 }
 
-fn validate(key: &str, value: &BStr, protect_protocol: bool) -> ExnMessageResult {
+fn validate(key: &str, value: &BStr, protect_protocol: bool) -> Result {
     if key.contains('\0')
         || key.contains('\n')
         || key.contains('\r')
@@ -169,11 +164,12 @@ fn validate(key: &str, value: &BStr, protect_protocol: bool) -> ExnMessageResult
         || value.contains(&b'\n')
         || (protect_protocol && value.contains(&b'\r'))
     {
-        return Err(gix_error::validation(format!(
-            "{key:?}={value:?} must not contain null bytes or newlines neither in key nor in value."
-        ))
-        .with("input", value)
-        .into());
+        bail!(
+            gix_error::validation(format!(
+                "{key:?}={value:?} must not contain null bytes or newlines neither in key nor in value."
+            ))
+            .with("input", value)
+        );
     }
     Ok(())
 }

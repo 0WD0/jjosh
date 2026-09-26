@@ -69,12 +69,12 @@ mod ext {
     use gix_error::{ErrorExt, ResultExt};
     use gix_object::{BlobRef, CommitRef, CommitRefIter, Kind, ObjectRef, TagRef, TagRefIter, TreeRef, TreeRefIter};
 
-    fn not_found(id: &gix_hash::oid) -> gix_error::Exn {
-        gix_error::not_found(format!("An object with id {id} could not be found")).raise_erased()
+    fn not_found(id: &gix_hash::oid) -> gix_error::Error {
+        gix_error::not_found(format!("An object with id {id} could not be found")).raise()
     }
 
-    fn wrong_kind(id: &gix_hash::oid, actual: Kind, expected: Kind) -> gix_error::Exn {
-        gix_error::validation(format!("Expected object of kind {expected} but got {actual} at {id}")).raise_erased()
+    fn wrong_kind(id: &gix_hash::oid, actual: Kind, expected: Kind) -> gix_error::Error {
+        gix_error::validation(format!("Expected object of kind {expected} but got {actual} at {id}")).raise()
     }
 
     macro_rules! make_obj_lookup {
@@ -91,14 +91,13 @@ mod ext {
                     .ok_or_else(|| not_found(id))
                     .and_then(|(o, l)| {
                         o.decode()
-                            .or_raise_erased(|| gix_error::corruption(format!("Could not decode object at {id}")))
+                            .or_raise(|| gix_error::corruption(format!("Could not decode object at {id}")))
                             .map(|o| (o, l))
                     })
                     .and_then(|(o, l)| match o {
                         $object_variant(o) => return Ok((o, l)),
                         o => Err(wrong_kind(id, o.kind(), $object_kind)),
                     })
-                    .map_err(Into::into)
             }
         };
     }
@@ -120,7 +119,6 @@ mod ext {
                             .ok_or_else(|| wrong_kind(id, o.kind, $object_kind))
                             .map(|i| (i, l))
                     })
-                    .map_err(Into::into)
             }
         };
     }
@@ -133,7 +131,7 @@ mod ext {
             id: &gix_hash::oid,
             buffer: &'a mut Vec<u8>,
         ) -> Result<(gix_object::Data<'a>, Option<crate::data::entry::Location>)> {
-            self.try_find(id, buffer)?.ok_or_else(|| not_found(id).into())
+            self.try_find(id, buffer)?.ok_or_else(|| not_found(id))
         }
 
         make_obj_lookup!(find_commit, ObjectRef::Commit, Kind::Commit, CommitRef<'a>);

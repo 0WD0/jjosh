@@ -1,7 +1,7 @@
 use gix_error::Result;
 use std::io::Write;
 
-use gix_error::{ExnResult, ResultExt, message};
+use gix_error::{ResultExt, message};
 
 use crate::{data::output, exact_vec};
 
@@ -72,19 +72,18 @@ where
         self.trailer
     }
 
-    fn next_inner(&mut self) -> ExnResult<u64> {
+    fn next_inner(&mut self) -> Result<u64> {
         let previous_written = self.written;
         if let Some((version, num_entries)) = self.header_info.take() {
             let header_bytes = crate::data::header::encode(version, num_entries);
             self.output
                 .write_all(&header_bytes[..])
-                .map_err(gix_hash::io::from_std_io)
-                .or_erased()?;
+                .map_err(gix_hash::io::from_std_io)?;
             self.written += header_bytes.len() as u64;
         }
         match self.input.next() {
             Some(entries) => {
-                for entry in entries.or_raise_erased(|| message("Pack entry input iterator failed"))? {
+                for entry in entries.or_raise(|| message("Pack entry input iterator failed"))? {
                     if entry.is_invalid() {
                         self.pack_offsets_and_validity.push((0, false));
                         continue;
@@ -99,26 +98,19 @@ where
                     });
                     self.written += header
                         .write_to(entry.decompressed_size as u64, &mut self.output)
-                        .map_err(gix_hash::io::from_std_io)
-                        .or_erased()? as u64;
+                        .map_err(gix_hash::io::from_std_io)? as u64;
                     self.written += std::io::copy(&mut &*entry.compressed_data, &mut self.output)
-                        .map_err(gix_hash::io::from_std_io)
-                        .or_erased()?;
+                        .map_err(gix_hash::io::from_std_io)?;
                 }
             }
             None => {
-                let digest = self.output.hash.clone().try_finalize().or_erased()?;
+                let digest = self.output.hash.clone().try_finalize()?;
                 self.output
                     .inner
                     .write_all(digest.as_slice())
-                    .map_err(gix_hash::io::from_std_io)
-                    .or_erased()?;
+                    .map_err(gix_hash::io::from_std_io)?;
                 self.written += digest.as_slice().len() as u64;
-                self.output
-                    .inner
-                    .flush()
-                    .map_err(gix_hash::io::from_std_io)
-                    .or_erased()?;
+                self.output.inner.flush().map_err(gix_hash::io::from_std_io)?;
                 self.is_done = true;
                 self.trailer = Some(digest);
             }
@@ -142,7 +134,7 @@ where
         Some(match self.next_inner() {
             Err(err) => {
                 self.is_done = true;
-                Err(err.into())
+                Err(err)
             }
             Ok(written) => Ok(written),
         })

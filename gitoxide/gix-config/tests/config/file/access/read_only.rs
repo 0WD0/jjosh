@@ -56,6 +56,63 @@ fn typed_lookup_errors_can_be_erased() -> Result {
 }
 
 #[test]
+fn integer_accessors_apply_suffixes() -> Result {
+    let config = File::try_from("[core]\nvalue = -2k\nvalue = 0x10m\n")?;
+    assert_eq!(
+        config.integer("core.value")?,
+        Some(16 * 1024 * 1024),
+        "single-value access parses and multiplies the last value"
+    );
+    assert_eq!(
+        config.integers("core.value")?,
+        Some(vec![-2048, 16 * 1024 * 1024]),
+        "multi-value access parses and multiplies every value"
+    );
+    assert_eq!(config.integer("core.missing")?, None, "missing values are still absent");
+    assert_eq!(config.integers("core.missing")?, None, "missing lists are still absent");
+    assert_eq!(
+        config.integer_filter("core.value", |_| false)?,
+        None,
+        "single-value access still respects metadata filters"
+    );
+    assert_eq!(
+        config.integers_filter("core.value", |_| false)?,
+        None,
+        "multi-value access still respects metadata filters"
+    );
+    Ok(())
+}
+
+#[test]
+fn integer_accessors_retain_classification_and_input() -> Result {
+    for input in [
+        b"invalid".as_slice(),
+        b"9223372036854775808",
+        b"8589934592g",
+        b"-8589934593g",
+        b"\xff",
+    ] {
+        let mut bytes = b"[core]\nvalue = 1\nvalue = ".to_vec();
+        bytes.extend_from_slice(input);
+        let config = File::from_bytes_no_includes(&bytes, Metadata::api(), Default::default())?;
+        for err in [
+            config.integer("core.value").expect_err("the last integer is invalid"),
+            config
+                .integers("core.value")
+                .expect_err("one of the integers is invalid"),
+        ] {
+            assert!(err.is_validation(), "integer accessors preserve parser classification");
+            assert_eq!(
+                err.metadata().find_map(|metadata| metadata.get("input")),
+                Some(&gix_error::MetadataValue::Bytes(input.into())),
+                "integer accessors retain the original invalid value bytes"
+            );
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn parsed_section_header_legacy_check_uses_backing_buffer() -> Result {
     let config = File::try_from(
         "[remote.origin]\n\turl = https://example.com\n[remote \"upstream\"]\n\turl = https://example.com\n",

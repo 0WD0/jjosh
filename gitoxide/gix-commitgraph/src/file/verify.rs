@@ -6,7 +6,7 @@ use std::{
     path::Path,
 };
 
-use gix_error::{ErrorExt, ExnMessageResult, ResultExt, message};
+use gix_error::{ErrorExt, ResultExt, bail, message};
 
 use crate::{File, GENERATION_NUMBER_INFINITY, GENERATION_NUMBER_MAX, file};
 
@@ -58,36 +58,31 @@ impl File {
         for commit in self.iter_commits() {
             if commit.id() <= prev_id {
                 if commit.id() == null_id {
-                    return Err(message!(
+                    bail!(message!(
                         "commit at file position {} has invalid ID {}",
                         commit.position(),
                         commit.id()
-                    )
-                    .raise()
-                    .into());
+                    ));
                 }
-                return Err(message!(
+                bail!(message!(
                     "commit at file position {} with ID {} is out of order relative to its predecessor with ID {prev_id}",
                     commit.position(),
                     commit.id()
-                )
-                .raise().into());
+                ));
             }
             if commit.root_tree_id() == null_id {
-                return Err(message!(
+                bail!(message!(
                     "commit {} has invalid root tree ID {}",
                     commit.id(),
                     commit.root_tree_id()
-                )
-                .raise()
-                .into());
+                ));
             }
             if commit.generation() > GENERATION_NUMBER_MAX {
-                return Err(
-                    message!("commit {} has invalid generation {}", commit.id(), commit.generation())
-                        .raise()
-                        .into(),
-                );
+                bail!(message!(
+                    "commit {} has invalid generation {}",
+                    commit.id(),
+                    commit.generation()
+                ));
             }
 
             processor(&commit).or_raise(|| message!("processor failed on commit {}", commit.id()))?;
@@ -124,7 +119,7 @@ impl File {
 
 /// If the given path's filename matches "graph-{hash}.graph", check that `hash` matches the
 /// expected hash.
-fn verify_split_chain_filename_hash(path: &Path, expected: &gix_hash::oid) -> ExnMessageResult {
+fn verify_split_chain_filename_hash(path: &Path, expected: &gix_hash::oid) -> Result {
     path.file_name()
         .and_then(std::ffi::OsStr::to_str)
         .and_then(|filename| filename.strip_suffix(".graph"))

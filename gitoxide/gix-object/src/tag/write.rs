@@ -2,7 +2,7 @@ use std::io;
 
 use bstr::BStr;
 use gix_date::parse::TimeBuf;
-use gix_error::{ErrorExt, ExnMessageResult, ResultExt, validation};
+use gix_error::{Result, ResultExt, bail, validation};
 
 use crate::{Kind, Tag, TagRef, encode, encode::NL};
 
@@ -12,7 +12,7 @@ impl crate::WriteTo for Tag {
         encode::trusted_header_field(b"type", self.target_kind.as_bytes(), out)?;
         encode::header_field(
             b"tag",
-            validated_name(self.name.as_ref()).map_err(|err| io::Error::other(err.into_error()))?,
+            validated_name(self.name.as_ref()).map_err(io::Error::other)?,
             out,
         )?;
         if let Some(tagger) = &self.tagger {
@@ -52,11 +52,7 @@ impl crate::WriteTo for TagRef<'_> {
     fn write_to(&self, mut out: &mut dyn io::Write) -> io::Result<()> {
         encode::trusted_header_field(b"object", self.target, &mut out)?;
         encode::trusted_header_field(b"type", self.target_kind.as_bytes(), &mut out)?;
-        encode::header_field(
-            b"tag",
-            validated_name(self.name).map_err(|err| io::Error::other(err.into_error()))?,
-            &mut out,
-        )?;
+        encode::header_field(b"tag", validated_name(self.name).map_err(io::Error::other)?, &mut out)?;
         if let Some(tagger) = self.tagger {
             encode::trusted_header_field(b"tagger", tagger.as_ref(), &mut out)?;
         }
@@ -88,10 +84,10 @@ impl crate::WriteTo for TagRef<'_> {
     }
 }
 
-fn validated_name(name: &BStr) -> ExnMessageResult<&BStr> {
+fn validated_name(name: &BStr) -> Result<&BStr> {
     gix_validate::tag::name(name).or_raise(|| validation("The tag name was no valid reference name"))?;
     if name[0] == b'-' {
-        return Err(validation("Tags must not start with a dash: '-'").raise());
+        bail!(validation("Tags must not start with a dash: '-'"));
     }
     Ok(name)
 }

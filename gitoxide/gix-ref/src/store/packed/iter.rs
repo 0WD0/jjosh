@@ -1,5 +1,4 @@
-use gix_error::Result;
-use gix_error::{ErrorExt, ExnMessageResult, Message, corruption};
+use gix_error::{ErrorExt, Message, Result, corruption};
 
 use gix_object::bstr::{BString, ByteSlice};
 
@@ -23,11 +22,11 @@ impl packed::Buffer {
     /// its newline.
     pub fn iter_prefixed(&self, prefix: BString) -> Result<packed::Iter<'_>> {
         let first_record_with_prefix = self.binary_search_by(prefix.as_bstr()).unwrap_or_else(|(_, pos)| pos);
-        Ok(packed::Iter::new_with_prefix(
+        packed::Iter::new_with_prefix(
             &self.as_ref()[first_record_with_prefix..],
             self.object_hash,
             Some(prefix),
-        )?)
+        )
     }
 }
 
@@ -63,13 +62,11 @@ impl<'a> Iterator for packed::Iter<'a> {
                 let line_number = self.current_line;
                 self.current_line += 1;
 
-                Some(Err(err
-                    .raise(
-                        Message::new("Invalid packed reference")
-                            .with("input", failed_line.strip_suffix(b"\n").unwrap_or(failed_line))
-                            .with("line", line_number),
-                    )
-                    .into()))
+                Some(Err(err.and_raise(
+                    Message::new("Invalid packed reference")
+                        .with("input", failed_line.strip_suffix(b"\n").unwrap_or(failed_line))
+                        .with("line", line_number),
+                )))
             }
         }
     }
@@ -81,7 +78,7 @@ impl<'a> packed::Iter<'a> {
     /// Header failures include [metadata](gix_error::Error::metadata()) `input` (bytes), the first line without its
     /// newline.
     pub fn new(packed: &'a [u8], object_hash: gix_hash::Kind) -> Result<Self> {
-        Ok(Self::new_with_prefix(packed, object_hash, None)?)
+        Self::new_with_prefix(packed, object_hash, None)
     }
 
     /// Returns an iterator whose references will only match `prefix`.
@@ -93,7 +90,7 @@ impl<'a> packed::Iter<'a> {
         packed: &'a [u8],
         object_hash: gix_hash::Kind,
         prefix: Option<BString>,
-    ) -> ExnMessageResult<Self> {
+    ) -> Result<Self> {
         if packed.is_empty() {
             Ok(packed::Iter {
                 cursor: packed,

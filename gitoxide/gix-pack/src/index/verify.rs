@@ -1,7 +1,7 @@
 use gix_error::Result;
 use std::sync::atomic::AtomicBool;
 
-use gix_error::{ErrorExt, ExnResult, ResultExt};
+use gix_error::{ResultExt, bail};
 use gix_features::progress::{DynNestedProgress, Progress};
 use gix_object::WriteTo;
 use gix_object::bstr::ByteSlice;
@@ -153,11 +153,9 @@ where
         D: crate::FileData + Send + Sync,
     {
         if let Some(first_invalid) = crate::verify::fan(&self.fan) {
-            return Err(gix_error::corruption(format!(
+            bail!(gix_error::corruption(format!(
                 "The fan at index {first_invalid} is out of order as it's larger then the following value."
-            ))
-            .raise()
-            .into());
+            )));
         }
 
         match pack {
@@ -178,8 +176,7 @@ where
                     {
                         let mut encode_buf = Vec::with_capacity(2048);
                         move |kind, data, index_entry, progress| {
-                            (Self::verify_entry(verify_mode, &mut encode_buf, kind, data, index_entry, progress))
-                                .map_err(Into::into)
+                            Self::verify_entry(verify_mode, &mut encode_buf, kind, data, index_entry, progress)
                         }
                     },
                     index::traverse::Options {
@@ -215,13 +212,13 @@ where
         buf: &[u8],
         index_entry: &index::Entry,
         _progress: &dyn gix_features::progress::Progress,
-    ) -> ExnResult {
+    ) -> Result {
         if let Mode::HashCrc32Decode | Mode::HashCrc32DecodeEncode = verify_mode {
             use gix_object::Kind::*;
             match object_kind {
                 Tree | Commit | Tag => {
-                    let object = gix_object::ObjectRef::from_bytes(buf, object_kind, index_entry.oid.kind())
-                        .or_raise_erased(|| {
+                    let object =
+                        gix_object::ObjectRef::from_bytes(buf, object_kind, index_entry.oid.kind()).or_raise(|| {
                             gix_error::corruption(format!(
                                 "{object_kind} object {} could not be decoded",
                                 index_entry.oid
@@ -231,15 +228,14 @@ where
                         encode_buf.clear();
                         object
                             .write_to(&mut *encode_buf)
-                            .or_raise_erased(|| gix_error::corruption("Reserialization of an object failed"))?;
+                            .or_raise(|| gix_error::corruption("Reserialization of an object failed"))?;
                         if encode_buf.as_slice() != buf {
-                            return Err(gix_error::corruption(format!(
+                            bail!(gix_error::corruption(format!(
                                 "{object_kind} object {} wasn't re-encoded without change, wanted\n{}\n\nGOT\n\n{}",
                                 index_entry.oid,
                                 buf.as_bstr(),
                                 encode_buf.as_bstr()
-                            ))
-                            .raise_erased());
+                            )));
                         }
                     }
                 }
