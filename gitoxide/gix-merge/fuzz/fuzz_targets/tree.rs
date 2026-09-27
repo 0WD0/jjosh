@@ -342,7 +342,12 @@ fn options(configuration: u8) -> Options {
 fn new_diff_resource_cache() -> gix_diff::blob::Platform {
     gix_diff::blob::Platform::new(
         Default::default(),
-        gix_diff::blob::Pipeline::new(Default::default(), Default::default(), Vec::new(), Default::default()),
+        gix_diff::blob::Pipeline::new(
+            Default::default(),
+            gix_filter::Pipeline::new(Default::default(), gix_hash::Kind::Sha1, Default::default()),
+            Vec::new(),
+            Default::default(),
+        ),
         Default::default(),
         gix_worktree::Stack::new(
             FsPath::new("gix-merge-tree-fuzz-no-worktree"),
@@ -370,7 +375,7 @@ fn new_blob_merge_platform() -> gix_merge::blob::Platform {
     gix_merge::blob::Platform::new(
         gix_merge::blob::Pipeline::new(
             Default::default(),
-            gix_filter::Pipeline::default(),
+            gix_filter::Pipeline::new(Default::default(), gix_hash::Kind::Sha1, Default::default()),
             gix_merge::blob::pipeline::Options {
                 large_file_threshold_bytes: 1,
             },

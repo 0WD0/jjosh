@@ -260,7 +260,12 @@ fn basic_merge_options() -> Options {
 fn new_diff_resource_cache(root: &Path) -> gix_diff::blob::Platform {
     gix_diff::blob::Platform::new(
         Default::default(),
-        gix_diff::blob::Pipeline::new(Default::default(), Default::default(), Vec::new(), Default::default()),
+        gix_diff::blob::Pipeline::new(
+            Default::default(),
+            gix_filter::Pipeline::new(Default::default(), gix_testtools::object_hash(), Default::default()),
+            Vec::new(),
+            Default::default(),
+        ),
         Default::default(),
         gix_worktree::Stack::new(
             root,
@@ -290,7 +295,7 @@ fn new_blob_merge_platform(
     );
     let filter = gix_merge::blob::Pipeline::new(
         Default::default(),
-        gix_filter::Pipeline::default(),
+        gix_filter::Pipeline::new(Default::default(), gix_testtools::object_hash(), Default::default()),
         gix_merge::blob::pipeline::Options {
             large_file_threshold_bytes: large_file_threshold_bytes.into().unwrap_or_default(),
         },

@@ -37,7 +37,9 @@ pub struct Outcome {
 }
 
 /// Options to further configure the checkout operation.
-#[derive(Clone, Default)]
+///
+/// Create these with [`Options::new()`] to supply a filter pipeline with the repository's object hash.
+#[derive(Clone)]
 pub struct Options {
     /// capabilities of the file system
     pub fs: gix_fs::Capabilities,
@@ -72,6 +74,24 @@ pub struct Options {
     pub filters: gix_filter::Pipeline,
     /// Control how long-running processes may use the 'delay' capability.
     pub filter_process_delay: gix_filter::driver::apply::Delay,
+}
+
+impl Options {
+    /// Create options with the given `filters` and default settings for the checkout operation.
+    pub fn new(filters: gix_filter::Pipeline) -> Self {
+        Self {
+            fs: Default::default(),
+            validate: Default::default(),
+            thread_limit: None,
+            destination_is_initially_empty: false,
+            overwrite_existing: false,
+            keep_going: false,
+            stat_options: Default::default(),
+            attributes: Default::default(),
+            filters,
+            filter_process_delay: Default::default(),
+        }
+    }
 }
 
 mod chunk;

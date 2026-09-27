@@ -420,7 +420,7 @@ fn new_platform(
             old_root: Some(root.clone()),
             new_root: None,
         },
-        gix_filter::Pipeline::default(),
+        gix_filter::Pipeline::new(Default::default(), gix_testtools::object_hash(), Default::default()),
         drivers.into_iter().collect(),
         default_options(),
     );

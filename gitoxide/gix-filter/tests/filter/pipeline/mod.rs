@@ -7,8 +7,8 @@ mod convert_to_git;
 mod convert_to_worktree;
 
 #[test]
-fn default() -> Result {
-    let mut filters = gix_filter::Pipeline::default();
+fn default_options() -> Result {
+    let mut filters = gix_filter::Pipeline::new(Default::default(), gix_testtools::object_hash(), Default::default());
     let out = filters.convert_to_worktree(
         b"hi",
         "file".into(),
@@ -64,12 +64,12 @@ fn pipeline(
     let (drivers, encodings_with_roundtrip_check, crlf_roundtrip_check, eol_config) = init();
     let pipe = gix_filter::Pipeline::new(
         Default::default(),
+        gix_testtools::object_hash(),
         gix_filter::pipeline::Options {
             drivers,
             eol_config,
             encodings_with_roundtrip_check,
             crlf_roundtrip_check,
-            object_hash: gix_testtools::object_hash(),
         },
     );
     Ok((cache, pipe))

@@ -181,6 +181,7 @@ fn fixture_filtered_detailed(
         stack,
         filter: gix_filter::Pipeline::new(
             Default::default(),
+            gix_testtools::object_hash(),
             gix_filter::pipeline::Options {
                 eol_config: gix_filter::eol::Configuration {
                     auto_crlf,
@@ -1268,7 +1269,7 @@ fn racy_git() {
     let ctx = Context {
         pathspec: default_pathspec(),
         stack,
-        filter: Default::default(),
+        filter: gix_filter::Pipeline::new(Default::default(), gix_testtools::object_hash(), Default::default()),
         should_interrupt: &AtomicBool::default(),
     };
     let out = index_as_worktree(

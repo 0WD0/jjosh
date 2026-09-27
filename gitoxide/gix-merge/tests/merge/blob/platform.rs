@@ -863,7 +863,7 @@ fn new_platform(
             common_ancestor_root: Some(root.clone()),
             ..Default::default()
         },
-        gix_filter::Pipeline::default(),
+        gix_filter::Pipeline::new(Default::default(), gix_testtools::object_hash(), Default::default()),
         Default::default(),
     );
     Platform::new(

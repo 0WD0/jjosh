@@ -257,7 +257,11 @@ fn delayed_symlinks_do_not_reuse_replaced_directory_prefixes() -> gix_testtools:
                     destination_is_initially_empty,
                     overwrite_existing,
                     thread_limit: Some(1),
-                    ..Default::default()
+                    ..gix_worktree_state::checkout::Options::new(gix_filter::Pipeline::new(
+                        Default::default(),
+                        object_hash,
+                        Default::default(),
+                    ))
                 },
             )?;
 
@@ -1059,7 +1063,11 @@ fn opts_from_probe() -> gix_worktree_state::checkout::Options {
         fs: *CAPABILITIES,
         destination_is_initially_empty: true,
         thread_limit: gix_features::parallel::num_threads(None).into(),
-        ..Default::default()
+        ..gix_worktree_state::checkout::Options::new(gix_filter::Pipeline::new(
+            Default::default(),
+            gix_testtools::object_hash(),
+            Default::default(),
+        ))
     }
 }
 

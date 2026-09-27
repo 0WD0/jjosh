@@ -192,7 +192,7 @@ impl Pipeline {
 
         let mut bufs = self.bufs.use_foreign_src(src);
         let (src, dest) = bufs.src_and_dest();
-        if apply_ident_filter && ident::apply(src, self.options.object_hash, dest).or_erased()? {
+        if apply_ident_filter && ident::apply(src, self.object_hash, dest).or_erased()? {
             bufs.swap();
         }
 

@@ -23,7 +23,7 @@ fn binary_diff_with_textconv() -> gix_testtools::Result {
     };
     let pipeline = gix_diff::blob::Pipeline::new(
         WorktreeRoots::default(),
-        gix_filter::Pipeline::default(),
+        gix_filter::Pipeline::new(Default::default(), gix_testtools::object_hash(), Default::default()),
         vec![driver],
         default_options(),
     );

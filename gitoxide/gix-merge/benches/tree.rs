@@ -439,7 +439,12 @@ fn options() -> Options {
 fn new_diff_resource_cache() -> gix_diff::blob::Platform {
     gix_diff::blob::Platform::new(
         Default::default(),
-        gix_diff::blob::Pipeline::new(Default::default(), Default::default(), Vec::new(), Default::default()),
+        gix_diff::blob::Pipeline::new(
+            Default::default(),
+            gix_filter::Pipeline::new(Default::default(), gix_hash::Kind::Sha1, Default::default()),
+            Vec::new(),
+            Default::default(),
+        ),
         Default::default(),
         gix_worktree::Stack::new(
             Path::new("gix-merge-benchmark-no-worktree"),
@@ -465,7 +470,11 @@ fn new_blob_merge_platform() -> gix_merge::blob::Platform {
         Vec::new(),
     );
     gix_merge::blob::Platform::new(
-        gix_merge::blob::Pipeline::new(Default::default(), gix_filter::Pipeline::default(), Default::default()),
+        gix_merge::blob::Pipeline::new(
+            Default::default(),
+            gix_filter::Pipeline::new(Default::default(), gix_hash::Kind::Sha1, Default::default()),
+            Default::default(),
+        ),
         gix_merge::blob::pipeline::Mode::ToGit,
         attributes,
         vec![],

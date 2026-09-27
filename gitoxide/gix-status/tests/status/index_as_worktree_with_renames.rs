@@ -317,7 +317,7 @@ fn fixture_filtered_detailed(
                 old_root: None,
                 new_root: Some(worktree.to_owned()),
             },
-            gix_filter::Pipeline::new(Default::default(), Default::default()),
+            gix_filter::Pipeline::new(Default::default(), gix_testtools::object_hash(), Default::default()),
             vec![],
             gix_diff::blob::pipeline::Options {
                 large_file_threshold_bytes: 0,

@@ -23,7 +23,7 @@ pub(crate) mod convert_to_diffable {
                     old_root: Some(tmp.path().to_owned()),
                     new_root: None,
                 },
-                gix_filter::Pipeline::default(),
+                gix_filter::Pipeline::new(Default::default(), gix_testtools::object_hash(), Default::default()),
                 vec![],
                 default_options(),
             );
@@ -100,7 +100,7 @@ pub(crate) mod convert_to_diffable {
                 old_root: None,
                 new_root: Some(tmp.path().to_owned()),
             },
-            gix_filter::Pipeline::default(),
+            gix_filter::Pipeline::new(Default::default(), gix_testtools::object_hash(), Default::default()),
             vec![],
             gix_diff::blob::pipeline::Options {
                 large_file_threshold_bytes: 5,
@@ -155,7 +155,7 @@ pub(crate) mod convert_to_diffable {
                 old_root: None,
                 new_root: Some(tmp.path().to_owned()),
             },
-            gix_filter::Pipeline::default(),
+            gix_filter::Pipeline::new(Default::default(), gix_testtools::object_hash(), Default::default()),
             vec![],
             gix_diff::blob::pipeline::Options {
                 large_file_threshold_bytes: 4,
@@ -238,7 +238,7 @@ pub(crate) mod convert_to_diffable {
                 old_root: Some(tmp.path().to_owned()),
                 new_root: None,
             },
-            gix_filter::Pipeline::default(),
+            gix_filter::Pipeline::new(Default::default(), gix_testtools::object_hash(), Default::default()),
             vec![],
             default_options(),
         );
@@ -305,6 +305,7 @@ pub(crate) mod convert_to_diffable {
         let tmp = gix_testtools::tempfile::TempDir::new()?;
         let filter = gix_filter::Pipeline::new(
             Default::default(),
+            gix_testtools::object_hash(),
             gix_filter::pipeline::Options {
                 eol_config: eol::Configuration {
                     auto_crlf: AutoCrlf::Enabled,
@@ -445,6 +446,7 @@ pub(crate) mod convert_to_diffable {
             },
             gix_filter::Pipeline::new(
                 Default::default(),
+                gix_testtools::object_hash(),
                 gix_filter::pipeline::Options {
                     eol_config: eol::Configuration {
                         auto_crlf: AutoCrlf::Input,
@@ -504,7 +506,7 @@ pub(crate) mod convert_to_diffable {
                 old_root: Some(tmp.path().to_owned()),
                 new_root: None,
             },
-            gix_filter::Pipeline::default(),
+            gix_filter::Pipeline::new(Default::default(), gix_testtools::object_hash(), Default::default()),
             vec![gix_diff::blob::Driver {
                 name: "c".into(),
                 binary_to_text_command: Some(r"printf '\0'; cat <".into()),
@@ -592,7 +594,7 @@ pub(crate) mod convert_to_diffable {
                 old_root: Some(root.clone()),
                 new_root: None,
             },
-            gix_filter::Pipeline::default(),
+            gix_filter::Pipeline::new(Default::default(), gix_testtools::object_hash(), Default::default()),
             vec![
                 gix_diff::blob::Driver {
                     name: "a".into(),
