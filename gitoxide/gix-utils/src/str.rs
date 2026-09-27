@@ -2,10 +2,13 @@ use std::{borrow::Cow, ffi::OsStr, path::Path};
 
 /// Assure that `s` is precomposed, i.e. `ä` is a single code-point, and not two i.e. `a` and `<umlaut>`.
 ///
+/// Strings containing characters outside the Basic Multilingual Plane are left unchanged, matching Git's
+/// fallback when macOS's `UTF-8-MAC` conversion rejects them.
+///
 /// At the expense of extra-compute, it does nothing if there is no work to be done, returning the original input without allocating.
 pub fn precompose(s: Cow<'_, str>) -> Cow<'_, str> {
     use unicode_normalization::{char, is_nfc};
-    if is_nfc(s.as_ref()) {
+    if is_nfc(s.as_ref()) || s.chars().any(|ch| ch > '\u{ffff}') {
         return s;
     }
 
@@ -70,15 +73,28 @@ pub fn decompose(s: Cow<'_, str>) -> Cow<'_, str> {
 
 /// Return the precomposed version of `path`, or `path` itself if it contained illformed unicode,
 /// or if the unicode version didn't contains decomposed unicode.
-/// Otherwise, similar to [`precompose()`]
+/// Apply [`precompose()`] to each component independently, preserving the path's spelling otherwise.
+/// Thus, a non-BMP character in one filename does not prevent composing unrelated components.
 pub fn precompose_path(path: Cow<'_, Path>) -> Cow<'_, Path> {
-    match path.to_str() {
-        None => path,
-        Some(maybe_decomposed) => match precompose(maybe_decomposed.into()) {
-            Cow::Borrowed(_) => path,
-            Cow::Owned(precomposed) => Cow::Owned(precomposed.into()),
-        },
+    let Some(input) = path.to_str() else {
+        return path;
+    };
+    let mut out: Option<String> = None;
+    let mut offset = 0;
+    for component in input.split_inclusive(std::path::is_separator) {
+        match precompose(component.into()) {
+            Cow::Borrowed(component) => {
+                if let Some(out) = &mut out {
+                    out.push_str(component);
+                }
+            }
+            Cow::Owned(component) => out
+                .get_or_insert_with(|| input[..offset].to_owned())
+                .push_str(&component),
+        }
+        offset += component.len();
     }
+    out.map_or(path, |out| Cow::Owned(out.into()))
 }
 
 /// Return the precomposed version of `name`, or `name` itself if it contained illformed unicode,

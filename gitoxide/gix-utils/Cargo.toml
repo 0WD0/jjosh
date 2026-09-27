@@ -14,6 +14,10 @@ include = ["/src/**/*", "/LICENSE-*"]
 [lib]
 doctest = true
 
+[[bench]]
+name = "precompose"
+harness = false
+
 [features]
 bstr = ["dep:bstr"]
 
@@ -32,3 +36,4 @@ getrandom = "0.4"
 
 [dev-dependencies]
 gix-utils = { path = ".", features = ["bstr" ]}
+criterion = "0.8.2"

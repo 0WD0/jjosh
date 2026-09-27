@@ -2701,6 +2701,7 @@ name = "gix-utils"
 version = "0.4.0"
 dependencies = [
  "bstr",
+ "criterion",
  "fastrand",
  "getrandom 0.4.3",
  "gix-utils",

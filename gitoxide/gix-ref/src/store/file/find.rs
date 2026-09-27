@@ -90,28 +90,13 @@ impl file::Store {
         partial_name: &PartialNameRef,
         packed: Option<&packed::Buffer>,
     ) -> ExnResult<Option<Reference>> {
-        fn decompose_if(mut r: Reference, input_changed_to_precomposed: bool) -> Reference {
-            if input_changed_to_precomposed {
-                use gix_object::bstr::ByteSlice;
-                let decomposed = r
-                    .name
-                    .0
-                    .to_str()
-                    .ok()
-                    .map(|name| gix_utils::str::decompose(name.into()));
-                if let Some(Cow::Owned(decomposed)) = decomposed {
-                    r.name.0 = decomposed.into();
-                }
-            }
-            r
-        }
         let mut buf = BString::default();
         let mut precomposed_partial_name_storage = packed.filter(|_| self.precompose_unicode).and_then(|_| {
             use gix_object::bstr::ByteSlice;
             let precomposed = partial_name.0.to_str().ok()?;
-            let precomposed = gix_utils::str::precompose(precomposed.into());
+            let precomposed = gix_utils::str::precompose_path(Path::new(precomposed).into());
             match precomposed {
-                Cow::Owned(precomposed) => Some(PartialName(precomposed.into())),
+                Cow::Owned(precomposed) => Some(PartialName(gix_path::into_bstr(precomposed).into_owned())),
                 Cow::Borrowed(_) => None,
             }
         });
@@ -131,7 +116,7 @@ impl file::Store {
                     &mut buf,
                     consider_pseudo_ref,
                 ) {
-                    Ok(Some(r)) => return Ok(Some(decompose_if(r, precomposed_partial_name.is_some()))),
+                    Ok(Some(r)) => return Ok(Some(r)),
                     Ok(None) => {
                         if consider_pseudo_ref && is_pseudo_ref(partial_name.as_bstr()) {
                             break 'try_directories;
@@ -161,7 +146,6 @@ impl file::Store {
                 &mut buf,
                 true, /* consider-pseudo-ref */
             )
-            .map(|res| res.map(|r| decompose_if(r, precomposed_partial_name_storage.is_some())))
         } else {
             Ok(None)
         }
@@ -181,6 +165,16 @@ impl file::Store {
         let full_name = precomposed_partial_name
             .unwrap_or(partial_name)
             .construct_full_name_ref(inbetween, path_buf, consider_pseudo_ref);
+        // Canonicalization can turn a Kelvin sign into the ASCII name of a pseudo-ref.
+        let restore_spelling = precomposed_partial_name.is_some()
+            && !matches!(
+                full_name.category(),
+                Some(
+                    crate::Category::PseudoRef
+                        | crate::Category::MainPseudoRef
+                        | crate::Category::LinkedPseudoRef { .. }
+                )
+            );
         let content_buf = match self.ref_contents(full_name) {
             Ok(content_buf) => content_buf,
             Err(err) if err.kind() == io::ErrorKind::NotADirectory => return Ok(None),
@@ -209,24 +203,38 @@ impl file::Store {
                         if let Some(namespace) = &self.namespace {
                             res.strip_namespace(namespace);
                         }
+                        if restore_spelling {
+                            let original =
+                                partial_name.construct_full_name_ref(inbetween, path_buf, consider_pseudo_ref);
+                            res.name = packed::find::transform_full_name_for_lookup(original)
+                                .expect("precomposition does not change the reference category")
+                                .to_owned();
+                        }
                         return Ok(Some(res));
                     }
                 }
                 Ok(None)
             }
-            Some(content) => Ok(Some(
-                loose::Reference::try_from_path(full_name.to_owned(), &content, self.object_hash)
-                    .map(Into::into)
-                    .map(|mut r: Reference| {
-                        if let Some(namespace) = &self.namespace {
-                            r.strip_namespace(namespace);
-                        }
-                        r
-                    })
-                    .or_raise_erased(|| ReferenceDecode {
-                        relative_path: full_name.to_path().to_owned(),
-                    })?,
-            )),
+            Some(content) => {
+                let full_name = if restore_spelling {
+                    partial_name.construct_full_name_ref(inbetween, path_buf, consider_pseudo_ref)
+                } else {
+                    full_name
+                };
+                Ok(Some(
+                    loose::Reference::try_from_path(full_name.to_owned(), &content, self.object_hash)
+                        .map(Into::into)
+                        .map(|mut r: Reference| {
+                            if let Some(namespace) = &self.namespace {
+                                r.strip_namespace(namespace);
+                            }
+                            r
+                        })
+                        .or_raise_erased(|| ReferenceDecode {
+                            relative_path: full_name.to_path().to_owned(),
+                        })?,
+                ))
+            }
         }
     }
 }

@@ -342,6 +342,28 @@ mod into_iter {
     }
 
     #[test]
+    #[cfg_attr(not(target_os = "macos"), ignore = "Needs Git's macOS Unicode precomposition")]
+    fn emoji_with_decomposed_unicode_matches_git() -> Result {
+        let root = gix_testtools::scripted_fixture_read_only_needs_archive("make_emoji_with_decomposed_unicode.sh")?;
+        assert_eq!(
+            gix_testtools::git(&root, "--no-optional-locks status --porcelain=v1 --untracked-files=all")?,
+            "",
+            "the filenames from the report are tracked and clean in Git"
+        );
+
+        let repo = gix::open_opts(root, gix::open::Options::isolated())?;
+        let items = repo
+            .status(gix::progress::Discard)?
+            .into_iter(None)?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        assert!(
+            items.is_empty(),
+            "Unicode precomposition must agree with Git: {items:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn error_during_tree_traversal_causes_failure() -> Result {
         let mut error_snapshots = Vec::new();
         let repo = repo("untracked-only")?;

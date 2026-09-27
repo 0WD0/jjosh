@@ -43,6 +43,18 @@ mod precompose {
     }
 
     #[test]
+    fn non_bmp_characters_prevent_precomposition() {
+        for input in ["📹U\u{308}.md", "U\u{308}📹.md", "U\u{308}\u{10000}.md"] {
+            let actual = gix_utils::str::precompose(input.into());
+            assert_eq!(
+                actual, input,
+                "Git preserves the entire input when UTF-8-MAC conversion fails"
+            );
+            assert!(matches!(actual, Cow::Borrowed(_)), "unchanged input is not copied");
+        }
+    }
+
+    #[test]
     fn noncanonical_combining_mark_order_is_preserved() {
         let input = "ا\u{651}\u{64f}";
         let actual = gix_utils::str::precompose(input.into());
@@ -68,5 +80,32 @@ mod precompose {
     fn canonically_equivalent_starter_is_decomposed_before_composition() {
         let actual = gix_utils::str::precompose("\u{212b}\u{301}".into());
         assert_eq!(actual, "\u{1fa}", "canonical composition must remain complete");
+    }
+}
+
+mod precompose_path {
+    use std::{borrow::Cow, ffi::OsStr, path::Path};
+
+    #[test]
+    fn non_bmp_fallback_is_component_local() {
+        for (input, expected) in [
+            ("📹/U\u{308}", "📹/Ü"),
+            ("U\u{308}/📹U\u{308}", "Ü/📹U\u{308}"),
+            ("//📹//./U\u{308}/", "//📹//./Ü/"),
+            ("📹U\u{308}/plain", "📹U\u{308}/plain"),
+            ("📹\\U\u{308}", if cfg!(windows) { "📹\\Ü" } else { "📹\\U\u{308}" }),
+        ] {
+            let actual = gix_utils::str::precompose_path(Path::new(input).into());
+            assert_eq!(
+                actual.as_os_str(),
+                OsStr::new(expected),
+                "each filename is composed independently while path syntax is preserved"
+            );
+            assert_eq!(
+                matches!(actual, Cow::Borrowed(_)),
+                input == expected,
+                "unchanged paths are borrowed"
+            );
+        }
     }
 }
