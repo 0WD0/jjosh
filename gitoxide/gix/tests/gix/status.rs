@@ -315,6 +315,33 @@ mod into_iter {
     }
 
     #[test]
+    fn uninitialized_submodule_with_files_is_clean() -> Result {
+        let root = gix_testtools::scripted_fixture_read_only("make_uninitialized_submodule.sh")?.join("uninitialized");
+        assert_eq!(
+            gix_testtools::git(&root, "--no-optional-locks status --porcelain=v1 --untracked-files=all")?,
+            "",
+            "Git ignores files in an uninitialized submodule"
+        );
+
+        let repo = gix::open_opts(root, gix::open::Options::isolated())?;
+        for untracked in [
+            gix::status::UntrackedFiles::Collapsed,
+            gix::status::UntrackedFiles::Files,
+        ] {
+            let items = repo
+                .status(gix::progress::Discard)?
+                .untracked_files(untracked)
+                .into_iter(None)?
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            assert!(
+                items.is_empty(),
+                "an uninitialized submodule must stay clean: {items:?}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
     fn error_during_tree_traversal_causes_failure() -> Result {
         let mut error_snapshots = Vec::new();
         let repo = repo("untracked-only")?;

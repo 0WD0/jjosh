@@ -238,8 +238,10 @@ pub fn path(
         )
     };
     if let Some(status) = maybe_status {
-        if kind == Some(entry::Kind::Directory) && index_kind == Some(entry::Kind::Repository) {
-            kind = maybe_upgrade_to_repository(kind, false);
+        if kind == Some(entry::Kind::Directory) && index_kind == Some(entry::Kind::Repository) && !recurse_repositories
+        {
+            // A gitlink remains a repository boundary even when its checkout is missing.
+            kind = Some(entry::Kind::Repository);
         }
         return Ok(out.with_status(status).with_kind(kind, index_kind));
     }
