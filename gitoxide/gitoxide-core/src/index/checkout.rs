@@ -62,11 +62,13 @@ pub fn checkout_exclusive(
         overwrite_existing: false,
         keep_going,
         thread_limit,
-        filters: repo
-            .as_ref()
-            .and_then(|repo| repo.filter_pipeline(None).ok().map(|t| t.0.into_parts().0))
-            .unwrap_or_default(),
-        ..Default::default()
+        ..gix::worktree::state::checkout::Options::new(
+            repo.as_ref()
+                .and_then(|repo| repo.filter_pipeline(None).ok().map(|t| t.0.into_parts().0))
+                .unwrap_or_else(|| {
+                    gix::filter::plumbing::Pipeline::new(Default::default(), index.object_hash(), Default::default())
+                }),
+        )
     };
 
     let mut files = progress.add_child("checkout");

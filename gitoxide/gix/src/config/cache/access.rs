@@ -350,8 +350,11 @@ impl Cache {
         )?;
         let capabilities = self.fs_capabilities()?;
         let filters = {
-            let mut filters =
-                gix_filter::Pipeline::new(repo.command_context()?, crate::filter::Pipeline::options(repo)?);
+            let mut filters = gix_filter::Pipeline::new(
+                repo.command_context()?,
+                repo.object_hash(),
+                crate::filter::Pipeline::options(repo)?,
+            );
             if let Ok(mut head) = repo.head() {
                 let ctx = filters.driver_context_mut();
                 ctx.ref_name = head.referent_name().map(|name| name.as_bstr().to_owned());

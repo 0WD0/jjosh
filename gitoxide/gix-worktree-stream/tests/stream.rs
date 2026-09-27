@@ -351,6 +351,7 @@ mod from_tree {
     fn mutating_pipeline(driver: bool) -> gix_filter::Pipeline {
         gix_filter::Pipeline::new(
             Default::default(),
+            gix_testtools::object_hash(),
             gix_filter::pipeline::Options {
                 drivers: if driver { vec![driver_with_process("")] } else { vec![] },
                 eol_config: gix_filter::eol::Configuration {

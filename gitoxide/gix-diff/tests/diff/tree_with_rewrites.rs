@@ -1923,7 +1923,12 @@ mod util {
 
         let cache = gix_diff::blob::Platform::new(
             Default::default(),
-            gix_diff::blob::Pipeline::new(Default::default(), Default::default(), Vec::new(), Default::default()),
+            gix_diff::blob::Pipeline::new(
+                Default::default(),
+                gix_filter::Pipeline::new(Default::default(), gix_testtools::object_hash(), Default::default()),
+                Vec::new(),
+                Default::default(),
+            ),
             Default::default(),
             gix_worktree::Stack::new(
                 &root,

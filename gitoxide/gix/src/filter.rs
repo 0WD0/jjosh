@@ -60,14 +60,13 @@ impl<'repo> Pipeline<'repo> {
             eol_config: gix_filter::eol::Configuration { auto_crlf, eol },
             encodings_with_roundtrip_check: encodings,
             crlf_roundtrip_check: safe_crlf,
-            object_hash: repo.object_hash(),
         })
     }
 
     /// Create a new instance by extracting all necessary information and configuration from a `repo` along with `cache` for accessing
     /// attributes. The `index` is used for some filters which may access it under very specific circumstances.
     pub fn new(repo: &'repo Repository, cache: gix_worktree::Stack) -> Result<Self> {
-        let pipeline = gix_filter::Pipeline::new(repo.command_context()?, Self::options(repo)?);
+        let pipeline = gix_filter::Pipeline::new(repo.command_context()?, repo.object_hash(), Self::options(repo)?);
         Ok(Pipeline {
             inner: pipeline,
             cache,

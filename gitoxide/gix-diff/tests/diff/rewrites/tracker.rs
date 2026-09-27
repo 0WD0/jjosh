@@ -1249,7 +1249,7 @@ mod util {
         );
         let filter = gix_diff::blob::Pipeline::new(
             Default::default(),
-            gix_filter::Pipeline::default(),
+            gix_filter::Pipeline::new(Default::default(), gix_testtools::object_hash(), Default::default()),
             Vec::new(),
             Default::default(),
         );

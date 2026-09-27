@@ -21,7 +21,7 @@ fn without_transformation() -> Result {
                 common_ancestor_root: Some(tmp.path().to_owned()),
                 ..Default::default()
             },
-            gix_filter::Pipeline::default(),
+            gix_filter::Pipeline::new(Default::default(), gix_testtools::object_hash(), Default::default()),
             default_options(),
         );
 
@@ -131,7 +131,7 @@ fn binary_below_large_file_threshold() -> Result {
             current_root: Some(tmp.path().to_owned()),
             ..Default::default()
         },
-        gix_filter::Pipeline::default(),
+        gix_filter::Pipeline::new(Default::default(), gix_testtools::object_hash(), Default::default()),
         pipeline::Options {
             large_file_threshold_bytes: 5,
         },
@@ -181,7 +181,7 @@ fn above_large_file_threshold() -> Result {
             current_root: Some(tmp.path().to_owned()),
             ..Default::default()
         },
-        gix_filter::Pipeline::default(),
+        gix_filter::Pipeline::new(Default::default(), gix_testtools::object_hash(), Default::default()),
         pipeline::Options {
             large_file_threshold_bytes: 4,
         },
@@ -242,7 +242,7 @@ fn non_existing() -> Result {
             common_ancestor_root: Some(tmp.path().to_owned()),
             ..Default::default()
         },
-        gix_filter::Pipeline::default(),
+        gix_filter::Pipeline::new(Default::default(), gix_testtools::object_hash(), Default::default()),
         default_options(),
     );
 
@@ -315,6 +315,7 @@ fn worktree_filter() -> Result {
     let tmp = gix_testtools::tempfile::TempDir::new()?;
     let filter = gix_filter::Pipeline::new(
         Default::default(),
+        gix_testtools::object_hash(),
         gix_filter::pipeline::Options {
             eol_config: eol::Configuration {
                 auto_crlf: AutoCrlf::Enabled,
