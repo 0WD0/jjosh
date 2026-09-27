@@ -19,8 +19,7 @@ use crate::tree::{
     ContentMerge, Options, Outcome, Resolution, ResolutionFailure, ResolveWith,
     utils::{
         ChangeDisposition, ChangeList, PossibleConflict, TrackedChange, apply_change, perform_blob_merge,
-        possibly_rewritten_location, remove_unless_tree, rewrite_location_with_renamed_directory, to_components,
-        unique_path_in_tree,
+        possibly_rewritten_location, rewrite_location_with_renamed_directory, to_components, unique_path_in_tree,
     },
 };
 
@@ -214,7 +213,7 @@ pub fn tree<'objects>(
                             )) {
                                 break 'outer;
                             }
-                            remove_unless_tree(&mut editor, theirs.location())?;
+                            editor.remove_if_leaf(to_components(theirs.location()))?;
                         }
                         apply_change(&mut editor, theirs, rewritten_location.as_ref().map(|t| &t.0))?;
                         their_changes[theirs_idx].mark_applied();
@@ -435,7 +434,7 @@ pub fn tree<'objects>(
                                         (merged_blob_id, Some(resolution))
                                     };
 
-                                    remove_unless_tree(&mut editor, our_location.as_bstr())?;
+                                    editor.remove_if_leaf(toc(our_location))?;
                                     pick_mut(side, our_tree, their_tree).remove_existing_change(our_location.as_bstr());
                                     let final_location = their_rewritten_location.clone();
                                     let new_change = Change::Addition {
@@ -473,7 +472,7 @@ pub fn tree<'objects>(
                                             editor.upsert(toc(their_location), their_mode.kind(), *their_id)?;
                                         }
                                         Some(ResolveWith::Ours) => {
-                                            remove_unless_tree(&mut editor, source_location.as_bstr())?;
+                                            editor.remove_if_leaf(toc(source_location))?;
                                             if side.to_global(outer_side).is_swapped() {
                                                 editor.upsert(toc(their_location), their_mode.kind(), *their_id)?;
                                             } else {
@@ -698,8 +697,8 @@ pub fn tree<'objects>(
 
                                 match resolve_tree_conflicts {
                                     None => {
-                                        remove_unless_tree(&mut editor, source_location.as_bstr())?;
-                                        remove_unless_tree(&mut editor, blocking_location.as_bstr())?;
+                                        editor.remove_if_leaf(toc(source_location))?;
+                                        editor.remove_if_leaf(toc(blocking_location))?;
                                         our_tree.remove_change(blocking_location.as_bstr());
                                         editor.upsert(toc(&renamed_location), blocking_mode.kind(), *blocking_id)?;
                                         apply_change_and_mark(&mut editor, theirs, &mut theirs_disposition)?;
@@ -759,7 +758,7 @@ pub fn tree<'objects>(
 
                                 match resolve_tree_conflicts {
                                     None => {
-                                        remove_unless_tree(&mut editor, blocking_location.as_bstr())?;
+                                        editor.remove_if_leaf(toc(blocking_location))?;
                                         our_tree.remove_change(blocking_location.as_bstr());
                                         editor.upsert(toc(&renamed_location), blocking_mode.kind(), *blocking_id)?;
                                         apply_change_and_mark(&mut editor, theirs, &mut theirs_disposition)?;
@@ -770,7 +769,7 @@ pub fn tree<'objects>(
                                             apply_change_and_mark(&mut editor, ours, &mut ours_disposition)?;
                                         }
                                         Swapped => {
-                                            remove_unless_tree(&mut editor, blocking_location.as_bstr())?;
+                                            editor.remove_if_leaf(toc(blocking_location))?;
                                             our_tree.remove_change(blocking_location.as_bstr());
                                             apply_change_and_mark(&mut editor, theirs, &mut theirs_disposition)?;
                                         }
@@ -1002,7 +1001,7 @@ pub fn tree<'objects>(
                                                 our_tree,
                                                 label_of_side_to_be_moved,
                                             )?;
-                                            remove_unless_tree(&mut editor, location.as_bstr())?;
+                                            editor.remove_if_leaf(toc(location))?;
                                             our_tree.remove_existing_change(location.as_bstr());
 
                                             let new_change = Change::Addition {
@@ -1034,7 +1033,7 @@ pub fn tree<'objects>(
                                                 }
                                                 Swapped => {
                                                     // ours is deletion
-                                                    remove_unless_tree(&mut editor, location.as_bstr())?;
+                                                    editor.remove_if_leaf(toc(location))?;
                                                 }
                                             }
                                             should_fail_on_conflict(Conflict::without_resolution(
@@ -1072,7 +1071,7 @@ pub fn tree<'objects>(
                                                     editor.upsert(toc(location), entry_mode.kind(), *id)?;
                                                 }
                                                 Change::Deletion { .. } => {
-                                                    remove_unless_tree(&mut editor, location.as_bstr())?;
+                                                    editor.remove_if_leaf(toc(location))?;
                                                 }
                                                 _ => unreachable!("parent-match assures this"),
                                             }
@@ -1171,7 +1170,7 @@ pub fn tree<'objects>(
 
                                 match resolve_tree_conflicts {
                                     None => {
-                                        remove_unless_tree(&mut editor, source_location.as_bstr())?;
+                                        editor.remove_if_leaf(toc(source_location))?;
                                         editor.upsert(toc(&renamed_location), entry_mode.kind(), *id)?;
                                         their_tree.remove_existing_change(location.as_bstr());
                                         ours_disposition = ChangeDisposition::Applied;
@@ -1258,8 +1257,8 @@ pub fn tree<'objects>(
                                 && our_mode == their_mode
                                 && our_id == their_id =>
                             {
-                                remove_unless_tree(&mut editor, our_source_location.as_bstr())?;
-                                remove_unless_tree(&mut editor, their_source_location.as_bstr())?;
+                                editor.remove_if_leaf(toc(our_source_location))?;
+                                editor.remove_if_leaf(toc(their_source_location))?;
                                 our_tree.remove_change(our_source_location.as_bstr());
                                 their_tree.remove_change(their_source_location.as_bstr());
                                 editor.upsert(toc(location), our_mode.kind(), *our_id)?;
@@ -1291,8 +1290,8 @@ pub fn tree<'objects>(
                             {
                                 match resolve_tree_conflicts {
                                     None => {
-                                        remove_unless_tree(&mut editor, our_source_location.as_bstr())?;
-                                        remove_unless_tree(&mut editor, their_source_location.as_bstr())?;
+                                        editor.remove_if_leaf(toc(our_source_location))?;
+                                        editor.remove_if_leaf(toc(their_source_location))?;
                                         our_tree.remove_change(our_source_location.as_bstr());
                                         their_tree.remove_change(their_source_location.as_bstr());
                                         let conflict = if let Some(merged_mode) = merge_modes(*our_mode, *their_mode) {
@@ -1385,7 +1384,7 @@ pub fn tree<'objects>(
                                                     (their_source_location, their_mode, their_id, &mut *their_tree)
                                                 }
                                             };
-                                            remove_unless_tree(&mut editor, source.as_bstr())?;
+                                            editor.remove_if_leaf(toc(source))?;
                                             tree.remove_change(source.as_bstr());
                                             editor.upsert(toc(location), mode.kind(), *id)?;
                                         }
@@ -1446,7 +1445,7 @@ pub fn tree<'objects>(
                                 };
                                 match resolve_tree_conflicts {
                                     None => {
-                                        remove_unless_tree(&mut editor, source_location.as_bstr())?;
+                                        editor.remove_if_leaf(toc(source_location))?;
                                         pick_mut(side, our_tree, their_tree).remove_change(source_location.as_bstr());
                                         editor.upsert(toc(location), our_mode.kind(), *our_id)?;
                                         editor.upsert(toc(add_location), their_mode.kind(), *their_id)?;
@@ -1455,7 +1454,7 @@ pub fn tree<'objects>(
                                     }
                                     Some(ResolveWith::Ours) => match side.to_global(outer_side) {
                                         Original => {
-                                            remove_unless_tree(&mut editor, source_location.as_bstr())?;
+                                            editor.remove_if_leaf(toc(source_location))?;
                                             editor.upsert(toc(location), our_mode.kind(), *our_id)?;
                                             match side {
                                                 Original => ours_disposition = ChangeDisposition::Applied,
@@ -1463,7 +1462,7 @@ pub fn tree<'objects>(
                                             }
                                         }
                                         Swapped => {
-                                            remove_unless_tree(&mut editor, source_location.as_bstr())?;
+                                            editor.remove_if_leaf(toc(source_location))?;
                                             editor.upsert(toc(add_location), their_mode.kind(), *their_id)?;
                                             match side {
                                                 Original => theirs_disposition = ChangeDisposition::Applied,
@@ -1518,8 +1517,8 @@ pub fn tree<'objects>(
 
                                 match resolve_tree_conflicts {
                                     None => {
-                                        remove_unless_tree(&mut editor, blocking_source.as_bstr())?;
-                                        remove_unless_tree(&mut editor, blocking_location.as_bstr())?;
+                                        editor.remove_if_leaf(toc(blocking_source))?;
+                                        editor.remove_if_leaf(toc(blocking_location))?;
                                         our_tree.remove_change(blocking_location.as_bstr());
                                         editor.upsert(toc(&renamed_location), blocking_mode.kind(), *blocking_id)?;
                                         apply_change_and_mark(&mut editor, theirs, &mut theirs_disposition)?;
@@ -1586,7 +1585,7 @@ pub fn tree<'objects>(
                                     merge_modes(*our_mode, *their_mode).expect("this case was assured earlier");
 
                                 if matches!(resolve_tree_conflicts, None | Some(ResolveWith::Ours)) {
-                                    remove_unless_tree(&mut editor, source_location.as_bstr())?;
+                                    editor.remove_if_leaf(toc(source_location))?;
                                     our_tree.remove_change(source_location.as_bstr());
                                     their_tree.remove_change(source_location.as_bstr());
                                 }
@@ -1738,7 +1737,7 @@ pub fn tree<'objects>(
 
                                 match resolve_tree_conflicts {
                                     None | Some(ResolveWith::Ours) => {
-                                        remove_unless_tree(&mut editor, source_location.as_bstr())?;
+                                        editor.remove_if_leaf(toc(source_location))?;
                                         pick_mut(side, our_tree, their_tree).remove_change(source_location.as_bstr());
                                         match side {
                                             Original => ours_disposition = ChangeDisposition::Applied,
@@ -1888,7 +1887,7 @@ pub fn tree<'objects>(
                                         (id, Some(resolution))
                                     };
 
-                                    remove_unless_tree(&mut editor, source_location.as_bstr())?;
+                                    editor.remove_if_leaf(toc(source_location))?;
                                     pick_mut(side, our_tree, their_tree).remove_change(source_location.as_bstr());
 
                                     if let Some(resolution) = resolution
@@ -1917,7 +1916,7 @@ pub fn tree<'objects>(
                                         || ours_is_rename
                                         || add_location != source_location;
                                     if remove_rename_source {
-                                        remove_unless_tree(&mut editor, source_location.as_bstr())?;
+                                        editor.remove_if_leaf(toc(source_location))?;
                                         pick_mut(side, our_tree, their_tree).remove_change(source_location.as_bstr());
                                     }
 
