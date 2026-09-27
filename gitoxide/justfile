@@ -163,7 +163,8 @@ dbg: (query-meta '.target_directory + "/debug"')
 # Run journey tests (`max`)
 [group('Tests')]
 journey-tests:
-    cargo build --features http-client-curl-rustls
+    # Omit `auto-chain-error` so error snapshots don't depend on source locations.
+    cargo build --no-default-features --features max,http-client-curl-rustls
     cargo build -p gix-testtools --bin jtt --features sha1
     dbg="$({{ j }} dbg)" && tests/journey.sh "$dbg/ein" "$dbg/gix" "$dbg/jtt" max
 

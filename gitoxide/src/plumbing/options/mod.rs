@@ -390,6 +390,10 @@ pub mod merge_base {
 }
 
 pub mod worktree {
+    use std::path::PathBuf;
+
+    use gix::bstr::BString;
+
     #[derive(Debug, clap::Parser)]
     #[command(about = "Commands for handling worktrees")]
     pub struct Platform {
@@ -401,6 +405,33 @@ pub mod worktree {
     pub enum SubCommands {
         /// List all worktrees, along with some accompanying information.
         List,
+        /// Add and check out a linked worktree.
+        ///
+        /// Without COMMIT-ISH, reuse the local branch named after PATH or create it from HEAD.
+        /// An explicit local branch is attached; other revisions produce a detached HEAD.
+        /// New branches are retained if subsequent worktree setup fails, like Git.
+        #[clap(visible_alias = "create")]
+        Add {
+            /// Create a new branch at COMMIT-ISH, or HEAD if it is omitted.
+            #[clap(short = 'b', long, value_name = "NEW-BRANCH", value_parser = crate::shared::AsBString, conflicts_with = "detach")]
+            branch: Option<BString>,
+            /// Detach HEAD instead of attaching to or creating a branch.
+            #[clap(short = 'd', long)]
+            detach: bool,
+            /// Where to create the checkout, relative to the current directory.
+            path: PathBuf,
+            /// An existing local branch or a revision that resolves to a commit.
+            #[clap(value_name = "COMMIT-ISH", value_parser = crate::shared::AsBString)]
+            commit_ish: Option<BString>,
+        },
+        /// Remove a linked worktree and its private Git directory, keeping its branch.
+        Remove {
+            /// Discard changes and initialized submodules; repeat to override a worktree lock.
+            #[clap(short, long, action = clap::ArgAction::Count)]
+            force: u8,
+            /// The worktree path or a unique path suffix.
+            worktree: PathBuf,
+        },
     }
 }
 
