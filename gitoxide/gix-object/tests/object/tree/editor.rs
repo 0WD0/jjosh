@@ -336,6 +336,52 @@ fn from_empty_remove_accepts_empty_segments_after_unreachable_paths() -> Result 
 }
 
 #[test]
+fn remove_if_leaf_preserves_trees_and_removes_files() -> Result {
+    let (storage, mut write, _num_writes_and_clear) = new_inmemory_writes();
+    let odb = StorageOdb::new(storage.clone());
+    let mut edit = gix_object::tree::Editor::new(Tree::default(), &odb, hash_kind());
+
+    edit.upsert(["dir", "nested", "keep"], EntryKind::Blob, any_blob())?
+        .upsert(["dir", "remove"], EntryKind::Blob, any_blob())?
+        .upsert(Some("file"), EntryKind::Blob, any_blob())?
+        .upsert(Some("empty-dir"), EntryKind::Tree, empty_tree())?
+        .remove_if_leaf(["dir", "nested"])?;
+    assert!(
+        edit.get(["dir", "nested", "keep"]).is_some(),
+        "a tree and its in-memory descendants must survive conditional leaf removal"
+    );
+    edit.write(&mut write)?;
+
+    edit.remove_if_leaf(["dir", "nested"])?;
+    assert_eq!(
+        odb.access_count_and_clear(),
+        1,
+        "only the parent of an uncached target tree must be loaded"
+    );
+    let actual = edit
+        .remove_if_leaf(["dir"])?
+        .remove_if_leaf(["empty-dir"])?
+        .remove_if_leaf(["empty-dir", "missing"])?
+        .remove_if_leaf(["file", "missing"])?
+        .remove_if_leaf(["missing", "child"])?
+        .remove_if_leaf(["dir", "remove"])?
+        .remove_if_leaf(["file"])?
+        .write(&mut write)?;
+    insta::assert_snapshot!(
+        crate::normalize_tree_snapshot(&display_tree(actual, &storage)),
+        "only leaf targets are removed; existing trees, including unedited empty trees, are preserved",
+        @r#"
+        Oid(1)
+        ├── dir
+        │   └── nested
+        │       └── keep Oid(2).100644
+        └── empty-dir (empty)
+    "#
+    );
+    Ok(())
+}
+
+#[test]
 fn from_empty_remove_leaf_rejects_tree_entries() -> Result {
     let (storage, mut write, _num_writes_and_clear) = new_inmemory_writes();
     let odb = StorageOdb::new(storage.clone());
@@ -343,7 +389,11 @@ fn from_empty_remove_leaf_rejects_tree_entries() -> Result {
 
     edit.upsert(["A", "one"], EntryKind::Blob, any_blob())?;
 
-    let err = edit.remove_leaf(Some("A")).unwrap_err();
+    let err = edit
+        .remove_leaf(Some("A"))
+        .expect_err("a tree cannot be removed as a leaf");
+    assert!(err.is_validation(), "a tree is invalid input for leaf-only removal");
+
     insta::assert_debug_snapshot!(err, "leaf-only removal must reject non-leaf entries", @"Cannot remove 'A' as leaf entry because it is a tree");
 
     edit.remove_leaf(["A", "one"])?;

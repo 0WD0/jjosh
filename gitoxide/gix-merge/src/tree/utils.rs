@@ -407,7 +407,7 @@ pub fn apply_change(
             ..
         } => (location, entry_mode, id),
         Change::Deletion { location, .. } => {
-            editor.remove(to_components(alternative_location.unwrap_or(location)))?;
+            editor.remove_if_leaf(to_components(alternative_location.unwrap_or(location)))?;
             return Ok(());
         }
         Change::Rewrite {
@@ -419,7 +419,7 @@ pub fn apply_change(
             ..
         } => {
             if !*copy {
-                editor.remove(to_components(source_location))?;
+                editor.remove_if_leaf(to_components(source_location))?;
             }
             (location, entry_mode, id)
         }
