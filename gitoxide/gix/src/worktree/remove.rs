@@ -4,6 +4,7 @@ use gix_error::{ClassificationMarker, ErrorExt, ResultExt, message};
 
 use crate::{Result, bstr::BString};
 use gix_features::progress::{Count, NestedProgress, Progress};
+use gix_path::realpath::MAX_SYMLINKS;
 
 pub use gix_worktree::remove::Options;
 
@@ -37,7 +38,7 @@ pub struct Target<'repo> {
 }
 
 impl Target<'_> {
-    /// Return the checkout directory, whether or not it is currently accessible.
+    /// Return the absolute checkout directory, whether or not it is currently accessible.
     pub fn base(&self) -> &Path {
         &self.base
     }
@@ -75,6 +76,8 @@ impl Target<'_> {
     ///
     /// Obtain a target with [`Repository::prepare_remove_worktree()`][crate::Repository::prepare_remove_worktree()],
     /// which accepts an absolute or relative worktree path or a unique suffix of whole path components.
+    /// Relative target paths use the process's current directory, while registered paths use the directory
+    /// captured when the repository was opened.
     /// The returned target can be inspected with [`Target::repository()`] before it is consumed by this method.
     ///
     /// # Examples
@@ -357,14 +360,14 @@ fn resolve<'repo>(repo: &'repo crate::Repository, target: &Path) -> Result<Targe
         gix_path::realpath(target).or_raise(|| message!("Could not resolve worktree path '{}'", target.display()))?;
     let mut exact_matches = Vec::new();
     if let Some(path) = main {
-        let resolved =
-            gix_path::realpath(&path).or_raise(|| message!("Could not resolve worktree path '{}'", path.display()))?;
+        let resolved = gix_path::realpath_opts(&path, repo.current_dir(), MAX_SYMLINKS)
+            .or_raise(|| message!("Could not resolve worktree path '{}'", path.display()))?;
         if path_eq(&resolved, &resolved_target, ignore_case) {
             exact_matches.push(Match::Main(path));
         }
     }
     for candidate in linked {
-        let resolved = gix_path::realpath(&candidate.base)
+        let resolved = gix_path::realpath_opts(&candidate.base, repo.current_dir(), MAX_SYMLINKS)
             .or_raise(|| message!("Could not resolve worktree path '{}'", candidate.base.display()))?;
         if path_eq(&resolved, &resolved_target, ignore_case) {
             exact_matches.push(Match::Linked(candidate));

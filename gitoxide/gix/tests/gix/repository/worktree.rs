@@ -1197,6 +1197,7 @@ mod remove {
             return Ok(());
         }
         let (source, _fixture) = crate::basic_rw_repo()?;
+        let elsewhere = gix_testtools::tempfile::TempDir::new()?;
         let _cwd = gix_testtools::set_current_dir(source.workdir().expect("non-bare fixture"))?;
         let mut repo = gix::open_opts(".", crate::restricted())?;
         let destination = repo.current_dir().join("linked");
@@ -1215,20 +1216,93 @@ mod remove {
             drop(linked);
             let proxy = repo.worktrees()?.pop().expect("one linked worktree was registered");
             assert!(
-                proxy.git_dir().is_relative(),
-                "the private Git directory needs an absolute base"
+                repo.git_dir().is_relative(),
+                "the parent repository's private Git directory needs an absolute base"
             );
+            assert!(
+                proxy.git_dir().is_absolute() && proxy.base()?.is_absolute(),
+                "proxies anchor relative paths to the repository CWD"
+            );
+            std::fs::write(private_git_dir.join("locked"), b"keep this worktree\n")?;
+            let _moved_cwd = gix_testtools::set_current_dir(elsewhere.path())?;
+
             assert_eq!(
-                proxy.base()?.is_relative(),
-                relative_links,
-                "relative backlinks also leave the checkout path relative"
+                repo.worktree_proxy_by_id(proxy.id())
+                    .expect("registration lookup uses the repository CWD")
+                    .git_dir(),
+                proxy.git_dir(),
+                "looking up a proxy before or after changing CWD locates the same registration"
             );
+            let err = proxy
+                .clone()
+                .remove(Force::DiscardChanges, gix::progress::Discard)
+                .expect_err("changing CWD cannot bypass a worktree lock");
+            assert!(
+                matches!(err.downcast_any_ref::<gix::worktree::remove::Error>(), Some(gix::worktree::remove::Error::Locked { reason: Some(reason), .. }) if reason == "keep this worktree"),
+                "the lock and its reason are read relative to the repository CWD: {err:?}"
+            );
+            std::fs::remove_file(private_git_dir.join("locked"))?;
 
             proxy.remove(Force::Never, gix::progress::Discard)?;
 
             assert!(!destination.exists(), "the checkout was removed");
             assert!(!private_git_dir.exists(), "the private Git directory was removed");
         }
+        Ok(())
+    }
+
+    #[test]
+    fn resolves_registered_paths_after_changing_current_directory() -> crate::Result {
+        if gix_testtools::run_in_isolated_process()? {
+            return Ok(());
+        }
+        let (source, _fixture) = crate::basic_rw_repo()?;
+        let _cwd = gix_testtools::set_current_dir(source.workdir().expect("non-bare fixture"))?;
+        let mut repo = gix::open_opts(".", crate::restricted())?;
+        repo.config_snapshot_mut()
+            .set_raw_value("worktree.useRelativePaths", "true")?;
+        let first_path = repo.current_dir().join("one/shared");
+        let second_path = repo.current_dir().join("two/shared");
+        for destination in [&first_path, &second_path] {
+            repo.add_worktree(
+                destination,
+                gix::worktree::add::Head::Detached(repo.head_id()?.detach()),
+                gix::progress::Discard,
+                &AtomicBool::default(),
+            )?;
+        }
+        let linked = gix::open_opts("one/shared", crate::restricted())?;
+        let _moved_cwd = gix_testtools::set_current_dir(first_path.parent().expect("nested checkout"))?;
+
+        for repo in [&repo, &linked] {
+            for target in [first_path.as_path(), std::path::Path::new("shared")] {
+                let target = repo.prepare_remove_worktree(target)?;
+                assert_eq!(
+                    gix_path::realpath(target.base())?,
+                    first_path,
+                    "absolute paths and ambiguous suffixes select the registered checkout after changing CWD"
+                );
+                assert_eq!(
+                    target.repository()?.head_id()?,
+                    source.head_id()?,
+                    "the selected repository remains inspectable after changing CWD"
+                );
+            }
+            let err = repo
+                .remove_worktree(repo.current_dir(), Force::OverrideLock, gix::progress::Discard)
+                .expect_err("the main worktree is still recognized after changing CWD");
+            assert!(
+                matches!(
+                    err.downcast_any_ref::<gix::worktree::remove::Error>(),
+                    Some(gix::worktree::remove::Error::MainWorktree { .. })
+                ),
+                "the main worktree path is resolved against the repository CWD: {err:?}"
+            );
+        }
+
+        repo.remove_worktree("shared", Force::Never, gix::progress::Discard)?;
+        assert!(!first_path.exists(), "the exact match in the process CWD was removed");
+        assert!(second_path.exists(), "the other suffix match remains");
         Ok(())
     }
 
@@ -1882,7 +1956,11 @@ fn linked_worktree_proxy_base_with_relative_linking_files() -> Result {
         linked_repo.workdir().map(gix_path::realpath).transpose()?,
         Some(gix_path::realpath(&linked)?)
     );
-    assert_eq!(linked_repo.git_dir(), private_git_dir);
+    assert_eq!(
+        linked_repo.git_dir(),
+        repo.current_dir().join(private_git_dir),
+        "the private Git directory stays anchored when the parent repository was opened with a relative path"
+    );
 
     Ok(())
 }
