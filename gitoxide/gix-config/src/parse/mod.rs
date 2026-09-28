@@ -11,7 +11,7 @@
 //! [`File`]: crate::File
 
 use bstr::{BStr, BString, ByteSlice};
-use gix_error::{OptionExt, Result, bail};
+use gix_error::{OptionExt, Result, ensure};
 
 mod from_bytes;
 
@@ -100,9 +100,7 @@ impl Span {
     }
 
     pub(crate) fn range(start: usize, len: usize) -> Result<Self> {
-        if start > u32::MAX as usize || len > u32::MAX as usize {
-            bail!(span::error());
-        }
+        ensure!(start <= u32::MAX as usize && len <= u32::MAX as usize, span::error());
         Ok(Span {
             start: start as u32,
             len: len as u32,

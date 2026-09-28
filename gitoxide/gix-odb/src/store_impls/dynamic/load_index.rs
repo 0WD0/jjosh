@@ -10,7 +10,7 @@ use std::{
     time::SystemTime,
 };
 
-use gix_error::{ErrorExt, Message, Result, ResultExt, bail};
+use gix_error::{ErrorExt, Message, OptionExt, Result, ResultExt, bail};
 
 use crate::store::{IndexCtx, RefreshMode, handle, types};
 
@@ -367,11 +367,9 @@ impl super::Store {
         );
 
         let generation = if needs_generation_change {
-            index.generation.checked_add(1).ok_or_else(|| {
+            index.generation.checked_add(1).ok_or_raise(|| {
                 // A wrapped generation could return an object from the wrong pack.
-                Message::new("Cannot advance the object database generation")
-                    .with("limit", Generation::MAX)
-                    .raise()
+                Message::new("Cannot advance the object database generation").with("limit", Generation::MAX)
             })?
         } else {
             index.generation

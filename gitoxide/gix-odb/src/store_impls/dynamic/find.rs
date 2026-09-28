@@ -1,7 +1,7 @@
 use gix_error::Result;
 use std::ops::Deref;
 
-use gix_error::{ErrorExt, Message, ResultExt, bail, not_found};
+use gix_error::{Message, OptionExt, ResultExt, bail, not_found};
 use gix_pack::cache::DecodeEntry;
 
 use crate::store::{handle, load_index};
@@ -168,11 +168,10 @@ where
                                             .or_else(|| DeltaBaseRecursion::new(id).into()),
                                     )
                                     .or_raise(context)?
-                                    .ok_or_else(|| {
+                                    .ok_or_raise(|| {
                                         not_found("Could not resolve delta base object: delta base object is missing")
                                             .with("base_id", base_id.to_string())
                                             .with("object_id", id.to_string())
-                                            .raise()
                                     })?
                                     .0
                                     .kind;

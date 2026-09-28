@@ -3,7 +3,7 @@ use gix_error::Result;
 use std::path::{Path, PathBuf};
 
 use bstr::{BStr, BString, ByteSlice};
-use gix_error::{ErrorExt, ResultExt};
+use gix_error::{OptionExt, ResultExt};
 
 /// The user whose home directory a repository path refers to.
 #[derive(PartialEq, Eq, Debug, Hash, Ord, PartialOrd, Clone)]
@@ -107,12 +107,11 @@ pub fn with(
         .or_raise(|| gix_error::validation("UTF8 conversion on non-unix system failed for path").with("input", path))?;
     Ok(match user {
         Some(user) => home_for_user(user)
-            .ok_or_else(|| {
+            .ok_or_raise(|| {
                 gix_error::not_found(match user {
                     ForUser::Current => "Home directory could not be obtained for current user".into(),
                     ForUser::Name(user) => format!("Home directory could not be obtained for user '{user}'"),
                 })
-                .raise_erased()
             })?
             .join(make_relative(path)),
         None => path.into(),

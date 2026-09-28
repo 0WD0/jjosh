@@ -2,7 +2,7 @@ use gix_error::Result;
 use std::cmp::Ordering;
 
 use bstr::ByteSlice;
-use gix_error::{ErrorExt, ResultExt, bail};
+use gix_error::{ErrorExt, OptionExt, ResultExt, bail};
 use gix_object::FindExt;
 
 use crate::extension::Tree;
@@ -22,8 +22,8 @@ impl Tree {
             let mut entries = 0u32;
             let mut prev = None::<&Tree>;
             for child in children {
-                entries = entries.checked_add(child.num_entries.unwrap_or(0)).ok_or_else(|| {
-                    gix_error::corruption("The combined TREE entry count exceeds the supported maximum").raise()
+                entries = entries.checked_add(child.num_entries.unwrap_or(0)).ok_or_raise(|| {
+                    gix_error::corruption("The combined TREE entry count exceeds the supported maximum")
                 })?;
                 if let Some(prev) = prev
                     && prev.name.cmp(&child.name) != Ordering::Less

@@ -2,7 +2,7 @@ use gix_error::Result;
 use std::{borrow::Cow, fmt::Display, str::FromStr};
 
 use bstr::{BStr, BString};
-use gix_error::{ErrorExt, Message, ResultExt, bail, validation};
+use gix_error::{ErrorExt, Message, ResultExt, bail, ensure, validation};
 
 use crate::Color;
 
@@ -259,9 +259,7 @@ impl FromStr for Name {
             }
         }
 
-        if is_bright {
-            bail!(color_err(s));
-        }
+        ensure!(!is_bright, color_err(s));
 
         if s.eq_ignore_ascii_case("normal") || s == "-1" {
             return Ok(Self::Normal);

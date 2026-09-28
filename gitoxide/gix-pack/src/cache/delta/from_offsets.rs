@@ -6,7 +6,7 @@ use std::{
     time::Instant,
 };
 
-use gix_error::{ErrorExt, ResultExt, bail, message, retryable};
+use gix_error::{ErrorExt, OptionExt, ResultExt, bail, message, retryable};
 use gix_features::progress::{self, Progress};
 
 use crate::{cache::delta::Tree, data};
@@ -75,11 +75,10 @@ impl<T> Tree<T> {
                     tree.add_root(pack_offset, data)?;
                 }
                 RefDelta { base_id } => {
-                    let base_pack_offset = resolve_in_pack_id(base_id.as_ref()).ok_or_else(|| {
+                    let base_pack_offset = resolve_in_pack_id(base_id.as_ref()).ok_or_raise(|| {
                         gix_error::not_found(format!(
                             "Could find object with id {base_id} in this pack. Thin packs are not supported"
                         ))
-                        .raise()
                     })?;
                     tree.add_child(base_pack_offset, pack_offset, data)?;
                 }

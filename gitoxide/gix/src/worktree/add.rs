@@ -3,7 +3,7 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
-use gix_error::{ErrorExt, ResultExt, bail, message};
+use gix_error::{ErrorExt, ResultExt, bail, ensure, message};
 use gix_features::progress::{NestedProgress, Progress};
 
 use crate::{Result, repository::FormatVersion};
@@ -131,9 +131,7 @@ impl crate::Repository {
                 (gix_ref::Target::Object(commit_id), commit_id, root_tree_id)
             }
         };
-        if should_interrupt.load(Ordering::Relaxed) {
-            bail!(Error::Interrupted);
-        }
+        ensure!(!should_interrupt.load(Ordering::Relaxed), Error::Interrupted);
 
         let main_repo = self
             .main_repo()
@@ -282,9 +280,7 @@ impl crate::Repository {
         )?;
         files.show_throughput(started);
         bytes.show_throughput(started);
-        if should_interrupt.load(Ordering::Relaxed) {
-            bail!(Error::Interrupted);
-        }
+        ensure!(!should_interrupt.load(Ordering::Relaxed), Error::Interrupted);
         index
             .write(Default::default())
             .or_raise(|| message("Could not write the linked worktree index"))?;

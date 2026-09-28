@@ -38,7 +38,7 @@ impl crate::Repository {
     /// [`config_file_mut()`](Self::config_file_mut) to edit it.
     pub fn config_path(&self, source: config::Source) -> Result<std::path::PathBuf> {
         use config::Source;
-        use gix_error::{ErrorExt, message};
+        use gix_error::{OptionExt, message};
 
         let path = match source {
             Source::Local => self.common_dir().join("config"),
@@ -52,9 +52,7 @@ impl crate::Repository {
                     options.permissions.config,
                     &mut config::Cache::make_source_env(options.permissions.env),
                 )
-                .ok_or_else(|| {
-                    message!("Configuration source {source:?} has no available path with these options").raise()
-                })?
+                .ok_or_raise(|| message!("Configuration source {source:?} has no available path with these options"))?
             }
             _ => {
                 gix_error::bail!(message!(

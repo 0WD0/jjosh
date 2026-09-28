@@ -5,7 +5,7 @@ use gix_ref::{
 };
 
 use crate::{Reference, Result, bstr::BString, ext::ReferenceExt, reference};
-use gix_error::{ErrorExt, ResultExt};
+use gix_error::ResultExt;
 
 /// Obtain and alter references comfortably
 impl crate::Repository {
@@ -20,11 +20,8 @@ impl crate::Repository {
         constraint: PreviousValue,
     ) -> Result<Reference<'_>> {
         let id = target.into();
-        let name = format!("refs/tags/{}", name.as_ref()).try_into().map_err(
-            |err: gix_validate::reference::name::Error| {
-                err.and_raise(gix_error::validation("The tag reference name is invalid"))
-            },
-        )?;
+        let name = FullName::try_from(format!("refs/tags/{}", name.as_ref()))
+            .or_raise(|| gix_error::validation("The tag reference name is invalid"))?;
         let mut edits = self.edit_reference(RefEdit::update(name, id, constraint, ""))?;
         assert_eq!(edits.len(), 1, "reference splits should ever happen");
         let edit = edits.pop().expect("exactly one item");

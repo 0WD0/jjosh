@@ -1,6 +1,6 @@
 use std::{fmt::Formatter, ops::Index};
 
-use gix_error::{ErrorExt, Result};
+use gix_error::{OptionExt, Result};
 use gix_hash::oid;
 use smallvec::SmallVec;
 
@@ -319,7 +319,7 @@ impl<'cache, T> Graph<'_, 'cache, T> {
     /// Lookup `id` and return a handle to it, or fail if it doesn't exist or is no commit.
     pub fn lookup(&mut self, id: &gix_hash::oid) -> Result<LazyCommit<'_, 'cache>> {
         self.try_lookup(id)?
-            .ok_or_else(|| gix_error::not_found(format!("An object with id {id} could not be found")).raise())
+            .ok_or_raise(|| gix_error::not_found(format!("An object with id {id} could not be found")))
     }
 }
 

@@ -2,7 +2,7 @@ use gix_error::Result;
 use std::{borrow::Cow, fmt::Display, str::FromStr};
 
 use bstr::{BStr, BString, ByteSlice};
-use gix_error::{ErrorExt, Message, ResultExt, bail, validation};
+use gix_error::{ErrorExt, Message, ResultExt, ensure, validation};
 
 use crate::Integer;
 
@@ -130,14 +130,10 @@ impl TryFrom<&BStr> for Integer {
             return Ok(Self { value, suffix: None });
         }
 
-        if s.len() <= 1 {
-            bail!(int_err(s));
-        }
+        ensure!(s.len() > 1, int_err(s));
 
         let last_idx = s.len() - 1;
-        if !s.is_char_boundary(last_idx) {
-            bail!(int_err(s));
-        }
+        ensure!(s.is_char_boundary(last_idx), int_err(s));
 
         let (number, suffix) = s.split_at(s.len() - 1);
         if let (Some(value), Ok(suffix)) = (parse_like_git(number), suffix.parse()) {

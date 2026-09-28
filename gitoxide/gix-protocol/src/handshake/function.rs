@@ -1,6 +1,6 @@
 use crate::bisync::bisync;
 use gix_error::Result;
-use gix_error::{ErrorExt, ResultExt, bail, message};
+use gix_error::{ErrorExt, OptionExt, ResultExt, bail, message};
 use gix_features::{progress, progress::Progress};
 use gix_transport::{Service, client};
 
@@ -56,19 +56,19 @@ where
                 drop(result); // needed to workaround this: https://github.com/rust-lang/rust/issues/76149
                 let url = transport.to_url().into_owned();
                 progress.set_name("authentication".into());
-                let credentials::protocol::Outcome { identity, next } =
-                    authenticate(credentials::helper::Action::Get(credentials::protocol::Context {
+                let credentials::protocol::Outcome { identity, next } = authenticate(credentials::helper::Action::Get(
+                    credentials::protocol::Context {
                         url: Some(url.clone()),
                         www_authenticate,
                         ..Default::default()
-                    }))
-                    .or_raise(|| message("Failed to obtain credentials"))?
-                    .ok_or_else(|| {
-                        message(
+                    },
+                ))
+                .or_raise(|| message("Failed to obtain credentials"))?
+                .ok_or_raise(|| {
+                    message(
                         "No credentials were returned at all as if the credential helper isn't functioning unknowingly",
                     )
-                    .raise()
-                    })?;
+                })?;
                 transport
                     .set_identity(identity)
                     .or_raise(|| message("Could not set transport identity"))?;

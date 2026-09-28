@@ -144,11 +144,10 @@ impl File {
     /// Retrieve the `url` field of the submodule named `name`. It's an error if it doesn't exist or is empty.
     /// Parse failures include the URL bytes as `input` [metadata](gix_error::Error::metadata()).
     pub fn url(&self, name: &BStr) -> Result<gix_url::Url> {
-        let url = self.config.string(&format!("submodule.{name}.url")).ok_or_else(|| {
+        let url = self.config.string(&format!("submodule.{name}.url")).ok_or_raise(|| {
             gix_error::validation(format!(
                 "The submodule '{name}' was missing its 'url' field or it was empty"
             ))
-            .raise()
         })?;
 
         if url.is_empty() {

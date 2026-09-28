@@ -5,7 +5,7 @@ use std::borrow::Cow;
 /// Low-level operations on Git notes trees.
 pub use gix_note as plumbing;
 
-use gix_error::{ErrorExt, ResultExt, message};
+use gix_error::{OptionExt, ResultExt, message};
 
 use crate::{
     Blob, Id, Repository, Result,
@@ -379,7 +379,7 @@ fn add_refs(repo: &Repository, pattern: &BStr, out: &mut Vec<FullName>) -> Resul
         }
     };
     let parsed = gix_glob::Pattern::from_bytes_without_negation(pattern)
-        .ok_or_else(|| message("Notes display references must not be empty").raise())?;
+        .ok_or_raise(|| message("Notes display references must not be empty"))?;
     if parsed
         .mode
         .intersects(gix_glob::pattern::Mode::ABSOLUTE | gix_glob::pattern::Mode::MUST_BE_DIR)

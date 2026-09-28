@@ -1,6 +1,6 @@
 use crate::{DELIMITER_LINE, FLUSH_LINE, MAX_DATA_LEN, MAX_LINE_LEN, PacketLineRef, RESPONSE_END_LINE, U16_HEX_BYTES};
 use gix_error::ErrorExt;
-use gix_error::{Result, bail};
+use gix_error::{Result, bail, ensure};
 
 pub(crate) fn data_length_limit_exceeded(length_in_bytes: usize) -> gix_error::Message {
     gix_error::validation(format!(
@@ -76,9 +76,7 @@ pub fn hex_prefix(four_bytes: &[u8]) -> Result<PacketLineOrWantedSize<'_>> {
 
 /// Obtain a `PacketLine` from `data` after assuring `data` is small enough to fit.
 pub fn to_data_line(data: &[u8]) -> Result<PacketLineRef<'_>> {
-    if data.len() > MAX_LINE_LEN {
-        bail!(data_length_limit_exceeded(data.len()));
-    }
+    ensure!(data.len() <= MAX_LINE_LEN, data_length_limit_exceeded(data.len()));
 
     Ok(PacketLineRef::Data(data))
 }
@@ -100,9 +98,7 @@ pub fn streaming(data: &[u8]) -> Result<Stream<'_>> {
             });
         }
     } + U16_HEX_BYTES;
-    if wanted_bytes > MAX_LINE_LEN {
-        bail!(data_length_limit_exceeded(wanted_bytes));
-    }
+    ensure!(wanted_bytes <= MAX_LINE_LEN, data_length_limit_exceeded(wanted_bytes));
     if data_len < wanted_bytes {
         return Ok(Stream::Incomplete {
             bytes_needed: wanted_bytes - data_len,

@@ -321,7 +321,7 @@ pub mod decode {
     pub(crate) use error::empty_error;
 
     use bstr::ByteSlice;
-    use gix_error::{ErrorExt, ResultExt, validation};
+    use gix_error::{OptionExt, ResultExt, validation};
     /// Decode a loose object header, being `<kind> <size>\0`, returns
     /// ([`kind`](super::Kind), `size`, `consumed bytes`).
     ///
@@ -330,12 +330,12 @@ pub mod decode {
     pub fn loose_header(input: &[u8]) -> Result<(super::Kind, u64, usize)> {
         let kind_end = input
             .find_byte(0x20)
-            .ok_or_else(|| validation("Expected '<type> <size>'").raise())?;
+            .ok_or_raise(|| validation("Expected '<type> <size>'"))?;
         let kind = super::Kind::from_bytes(&input[..kind_end])
             .or_raise(|| validation("The object header contained an unknown object kind."))?;
         let size_end = input
             .find_byte(0x0)
-            .ok_or_else(|| validation("Did not find 0 byte in header").raise())?;
+            .ok_or_raise(|| validation("Did not find 0 byte in header"))?;
         let size_bytes = &input[kind_end + 1..size_end];
         let size = gix_utils::btoi::to_signed(size_bytes)
             .or_raise(|| validation("Object size in header could not be parsed").with("input", size_bytes))?;

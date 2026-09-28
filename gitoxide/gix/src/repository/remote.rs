@@ -193,11 +193,9 @@ impl crate::Repository {
             specs
                 .into_iter()
                 .map(|spec| {
-                    key.try_into_refspec(spec, op).map_err(|err| {
-                        err.and_raise(
-                            gix_error::validation(format!("{kind} ref-spec under `remote.{name_or_url}` was invalid"))
-                                .with("input", name_or_url.to_owned()),
-                        )
+                    key.try_into_refspec(spec, op).or_raise(|| {
+                        gix_error::validation(format!("{kind} ref-spec under `remote.{name_or_url}` was invalid"))
+                            .with("input", name_or_url.to_owned())
                     })
                 })
                 .collect::<std::result::Result<Vec<_>, _>>()
@@ -238,13 +236,11 @@ impl crate::Repository {
                     effective_urls
                         .into_iter()
                         .map(|url| {
-                            key.try_into_url(url).map_err(|err| {
-                                err.and_raise(
-                                    gix_error::validation(format!(
-                                        "The {kind} url under `remote.{name_or_url}` was invalid"
-                                    ))
-                                    .with("input", name_or_url.to_owned()),
-                                )
+                            key.try_into_url(url).or_raise(|| {
+                                gix_error::validation(format!(
+                                    "The {kind} url under `remote.{name_or_url}` was invalid"
+                                ))
+                                .with("input", name_or_url.to_owned())
                             })
                         })
                         .collect()

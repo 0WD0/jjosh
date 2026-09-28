@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use gix_error::{ErrorExt, Message, ResourceExhaustionKind, Result, ResultExt, bail};
+use gix_error::{Message, OptionExt, ResourceExhaustionKind, Result, ResultExt, bail};
 
 use super::Tree;
 
@@ -57,7 +57,7 @@ impl<T> Tree<T> {
         let capacity = num_objects / 2;
         let allocation_bytes = capacity
             .checked_mul(std::mem::size_of::<Item<T>>())
-            .ok_or_else(|| allocation_error(ResourceExhaustionKind::AllocationFailure).raise())?;
+            .ok_or_raise(|| allocation_error(ResourceExhaustionKind::AllocationFailure))?;
         if alloc_limit_bytes.is_some_and(|limit| allocation_bytes > limit) {
             bail!(allocation_error(ResourceExhaustionKind::AllocationLimit));
         }

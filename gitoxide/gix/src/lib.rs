@@ -431,7 +431,7 @@ pub fn config(git_dir: Option<&std::path::Path>, options: &open::Options) -> Res
 /// do not have to exist. No configuration transaction is opened, no lock is acquired, and no directories are created.
 /// Discovering the Git installation path, or the system path on Windows, may invoke Git.
 pub fn config_path(source: config::Source, options: &open::Options) -> Result<std::path::PathBuf> {
-    use gix_error::{ErrorExt, ResultExt, message};
+    use gix_error::{OptionExt, ResultExt, message};
 
     if !matches!(
         source,
@@ -448,7 +448,7 @@ pub fn config_path(source: config::Source, options: &open::Options) -> Result<st
         options.permissions.config,
         &mut config::Cache::make_source_env(options.permissions.env),
     )
-    .ok_or_else(|| message!("Configuration source {source:?} has no available path with these options").raise())?;
+    .ok_or_raise(|| message!("Configuration source {source:?} has no available path with these options"))?;
     Ok(if path.is_absolute() {
         path
     } else {

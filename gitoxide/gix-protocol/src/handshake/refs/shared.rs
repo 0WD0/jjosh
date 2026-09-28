@@ -1,5 +1,5 @@
 use bstr::{BStr, BString, ByteSlice};
-use gix_error::{ErrorExt, Result, ResultExt, bail};
+use gix_error::{ErrorExt, OptionExt, Result, ResultExt, bail};
 
 use crate::{fetch::response::ShallowUpdate, handshake::Ref};
 
@@ -102,11 +102,10 @@ pub(crate) fn from_capabilities<'a>(
         }
     });
     for symref in symref_values {
-        let (left, right) = symref.split_at(symref.find_byte(b':').ok_or_else(|| {
+        let (left, right) = symref.split_at(symref.find_byte(b':').ok_or_raise(|| {
             gix_error::corruption(format!(
                 "{symref:?} could not be parsed. A symref is expected to look like <NAME>:<target>."
             ))
-            .raise()
         })?);
         if left.is_empty() || right.is_empty() {
             bail!(gix_error::corruption(format!(
@@ -131,11 +130,10 @@ pub(in crate::handshake::refs) fn parse_v1(
     line: &BStr,
 ) -> Result {
     let trimmed = line.trim_end();
-    let (hex_hash, path) = trimmed.split_at(trimmed.find(b" ").ok_or_else(|| {
+    let (hex_hash, path) = trimmed.split_at(trimmed.find(b" ").ok_or_raise(|| {
         gix_error::corruption(format!(
             "{trimmed:?} could not be parsed. A V1 ref line should be '<hex-hash> <path>'."
         ))
-        .raise()
     })?);
     let path = &path[1..];
     if path.is_empty() {
@@ -152,7 +150,7 @@ pub(in crate::handshake::refs) fn parse_v1(
             let (previous_path, tag) = out_refs
                 .pop()
                 .and_then(InternalRef::unpack_direct)
-                .ok_or_else(|| gix_error::corruption("Expecting peeled refs to be preceded by direct refs").raise())?;
+                .ok_or_raise(|| gix_error::corruption("Expecting peeled refs to be preceded by direct refs"))?;
             if previous_path != stripped {
                 bail!(gix_error::corruption(
                     "Expecting peeled refs to have the same base path as the previous, unpeeled one",
@@ -265,15 +263,15 @@ pub(in crate::handshake::refs) fn parse_v2(line: &BStr) -> Result<Ref> {
                     b"(null)" => match peeled {
                         None => Ref::Direct {
                             full_ref_name: path.into(),
-                            object: id.ok_or_else(|| {
-                                gix_error::corruption("got 'unborn' while (null) was a symref target").raise()
+                            object: id.ok_or_raise(|| {
+                                gix_error::corruption("got 'unborn' while (null) was a symref target")
                             })?,
                         },
                         Some(peeled) => Ref::Peeled {
                             full_ref_name: path.into(),
                             object: peeled,
-                            tag: id.ok_or_else(|| {
-                                gix_error::corruption("got 'unborn' while (null) was a symref target").raise()
+                            tag: id.ok_or_raise(|| {
+                                gix_error::corruption("got 'unborn' while (null) was a symref target")
                             })?,
                         },
                     },
@@ -293,11 +291,11 @@ pub(in crate::handshake::refs) fn parse_v2(line: &BStr) -> Result<Ref> {
                 (None, Some(peeled)) => Ref::Peeled {
                     full_ref_name: path.into(),
                     object: peeled,
-                    tag: id.ok_or_else(|| gix_error::corruption("got 'unborn' as tag target").raise())?,
+                    tag: id.ok_or_raise(|| gix_error::corruption("got 'unborn' as tag target"))?,
                 },
                 (None, None) => Ref::Direct {
-                    object: id.ok_or_else(|| {
-                        gix_error::corruption("got 'unborn' as object name of direct reference").raise()
+                    object: id.ok_or_raise(|| {
+                        gix_error::corruption("got 'unborn' as object name of direct reference")
                     })?,
                     full_ref_name: path.into(),
                 },

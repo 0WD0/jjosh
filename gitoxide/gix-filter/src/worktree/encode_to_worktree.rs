@@ -11,17 +11,16 @@ pub(crate) mod function {
         worktree_encoding: &'static encoding_rs::Encoding,
         buf: &mut Vec<u8>,
     ) -> Result {
-        use gix_error::{ErrorExt, ResultExt};
+        use gix_error::{OptionExt, ResultExt};
 
         let mut encoder = worktree_encoding.new_encoder();
         let buf_len = encoder
             .max_buffer_length_from_utf8_if_no_unmappables(src_utf8.len())
-            .ok_or_else(|| {
+            .ok_or_raise(|| {
                 gix_error::validation(format!(
                     "Cannot convert input of {} UTF-8 bytes to target encoding without overflowing",
                     src_utf8.len()
                 ))
-                .raise()
             })?;
         buf.clear();
         buf.resize(buf_len, 0);

@@ -1,4 +1,4 @@
-use gix_error::{ErrorExt, Result, bail, message};
+use gix_error::{OptionExt, Result, bail, message};
 
 #[derive(Default, Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Action {
@@ -73,11 +73,10 @@ pub(crate) fn base_url(redirect_url: &str, base_url: &str, url: String) -> Resul
     }
     redirect_url
         .strip_suffix(tail)
-        .ok_or_else(|| {
+        .ok_or_raise(|| {
             message!(
                 "Redirect url {redirect_url:?} could not be reconciled with original url {url} as the scheme is insecure or they don't share the same suffix"
             )
-            .raise()
         })
         .map(ToOwned::to_owned)
 }

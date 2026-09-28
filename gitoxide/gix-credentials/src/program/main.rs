@@ -49,7 +49,7 @@ pub(crate) mod function {
     use gix_error::Result;
     use std::ffi::OsString;
 
-    use gix_error::{ErrorExt, ResultExt, bail, validation};
+    use gix_error::{OptionExt, ResultExt, bail, validation};
 
     use crate::{
         program::main::Action,
@@ -77,7 +77,7 @@ pub(crate) mod function {
         let action = args
             .into_iter()
             .next()
-            .ok_or_else(|| validation("The first argument must be the action to perform").raise_erased())?;
+            .ok_or_raise(|| validation("The first argument must be the action to perform"))?;
         let action = Action::try_from(action)?;
         let mut buf = Vec::<u8>::with_capacity(512);
         stdin.read_to_end(&mut buf).or_error()?;

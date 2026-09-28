@@ -1,7 +1,7 @@
 use gix_error::Result;
 use std::ops::Deref;
 
-use gix_error::{ErrorExt, ResultExt, bail, not_found};
+use gix_error::{OptionExt, ResultExt, bail, not_found};
 use gix_hash::oid;
 
 use crate::{
@@ -107,11 +107,10 @@ where
                                             .or_else(|| DeltaBaseRecursion::new(id).into()),
                                     )
                                     .or_raise(context)?
-                                    .ok_or_else(|| {
+                                    .ok_or_raise(|| {
                                         not_found("Could not resolve delta base object: delta base object is missing")
                                             .with("base_id", base_id.to_string())
                                             .with("object_id", id.to_string())
-                                            .raise()
                                     })?;
                                 let handle::index_lookup::Outcome {
                                     object_index:

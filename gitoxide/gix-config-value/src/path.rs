@@ -2,7 +2,7 @@ use gix_error::Result;
 use std::{borrow::Cow, path::PathBuf};
 
 use bstr::{BStr, BString, ByteSlice};
-use gix_error::{OptionExt, ResultExt, bail, not_found, validation};
+use gix_error::{OptionExt, ResultExt, ensure, not_found, validation};
 
 use crate::Path;
 
@@ -155,9 +155,7 @@ impl Path {
             home_for_user,
         }: interpolate::Context<'_>,
     ) -> Result<PathBuf> {
-        if self.is_empty() {
-            bail!(not_found("path is missing"));
-        }
+        ensure!(!self.is_empty(), not_found("path is missing"));
 
         const PREFIX: &[u8] = b"%(prefix)/";
         if self.starts_with(PREFIX) {

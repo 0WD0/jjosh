@@ -305,7 +305,7 @@ mod lock_timeout {
 }
 
 mod compression {
-    use gix_error::{ErrorExt, ResultExt};
+    use gix_error::{OptionExt, ResultExt};
 
     use crate::{
         Result, config,
@@ -333,7 +333,7 @@ mod compression {
                     .ok()
                     .and_then(gix_zlib::Compression::new)
                     .map(Some)
-                    .ok_or_else(|| config::key::error_with_value(self, "Invalid compression level", level).raise()),
+                    .ok_or_raise(|| config::key::error_with_value(self, "Invalid compression level", level)),
             }
         }
     }

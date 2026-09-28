@@ -187,7 +187,7 @@ impl Object {
 }
 
 use crate::{BlobRef, CommitRef, Kind, ObjectRef, TagRef, TreeRef, decode::loose_header};
-use gix_error::{ErrorExt, ResultExt, validation};
+use gix_error::{OptionExt, ResultExt, validation};
 
 impl<'a> ObjectRef<'a> {
     /// Deserialize an object from a loose serialisation given `data`, parsing with the provided `object_hash`.
@@ -201,7 +201,7 @@ impl<'a> ObjectRef<'a> {
         })?;
         let body = &data[offset..]
             .get(..size)
-            .ok_or_else(|| validation("object data was shorter than its size declared in the header").raise())?;
+            .ok_or_raise(|| validation("object data was shorter than its size declared in the header"))?;
 
         Self::from_bytes(body, kind, hash_kind)
     }

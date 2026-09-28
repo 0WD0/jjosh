@@ -63,7 +63,7 @@ impl<'a> From<LineRef<'a>> for Line {
 }
 
 mod decode {
-    use gix_error::{ErrorExt, Message, OptionExt, Result, ResultExt, bail};
+    use gix_error::{ErrorExt, Message, OptionExt, Result, ResultExt, ensure};
     use gix_object::bstr::{BStr, ByteSlice};
 
     use crate::{file::log::LineRef, parse::hex_hash_any};
@@ -112,9 +112,7 @@ mod decode {
         head = head.strip_prefix(b" ").ok_or_raise(invalid)?;
         let signature =
             gix_actor::signature::decode(&mut head).or_raise(|| gix_error::corruption("Invalid reflog signature"))?;
-        if !head.is_empty() {
-            bail!(invalid());
-        }
+        ensure!(head.is_empty(), invalid());
         Ok(LineRef {
             previous_oid: old,
             new_oid: new,

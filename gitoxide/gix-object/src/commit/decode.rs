@@ -83,9 +83,7 @@ pub fn commit<'a>(i: &mut &'a [u8], object_hash: gix_hash::Kind) -> Result<Commi
     }
 
     let message = message(i)?;
-    if !i.is_empty() {
-        gix_error::bail!(crate::decode::empty_error());
-    }
+    gix_error::ensure!(i.is_empty(), crate::decode::empty_error());
 
     Ok(CommitRef {
         tree,

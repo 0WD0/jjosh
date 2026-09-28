@@ -61,7 +61,7 @@ pub(super) mod function {
         time::{Instant, SystemTime},
     };
 
-    use gix_error::{ResourceExhaustionKind, ResultExt, bail, retryable};
+    use gix_error::{ResourceExhaustionKind, ResultExt, ensure, retryable};
     use gix_features::progress::{Count, DynNestedProgress, Progress};
 
     use crate::{MMap, multi_index};
@@ -118,9 +118,7 @@ pub(super) mod function {
                     index_mtime: mtime,
                 }));
                 progress.inc();
-                if should_interrupt.load(Ordering::Relaxed) {
-                    bail!(retryable("Interrupted"));
-                }
+                ensure!(!should_interrupt.load(Ordering::Relaxed), retryable("Interrupted"));
             }
             progress.show_throughput(start);
 
@@ -135,9 +133,7 @@ pub(super) mod function {
             entries.dedup_by_key(|e| e.id);
             progress.inc_by(entries.len());
             progress.show_throughput(start);
-            if should_interrupt.load(Ordering::Relaxed) {
-                bail!(retryable("Interrupted"));
-            }
+            ensure!(!should_interrupt.load(Ordering::Relaxed), retryable("Interrupted"));
             entries
         };
 
@@ -210,9 +206,7 @@ pub(super) mod function {
                 }
                 .map_err(gix_hash::io::from_std_io)?;
                 progress.inc();
-                if should_interrupt.load(Ordering::Relaxed) {
-                    bail!(retryable("Interrupted"));
-                }
+                ensure!(!should_interrupt.load(Ordering::Relaxed), retryable("Interrupted"));
             }
         }
 

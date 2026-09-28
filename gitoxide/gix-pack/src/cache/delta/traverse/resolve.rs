@@ -1,7 +1,7 @@
 use gix_error::Result;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use gix_error::{ErrorExt, ResourceExhaustionKind, ResultExt, bail, message};
+use gix_error::{OptionExt, ResourceExhaustionKind, ResultExt, bail, message};
 use gix_features::{
     progress::Progress,
     threading::{self, OwnShared},
@@ -287,6 +287,7 @@ where
     F: for<'r> Fn(EntryRange, &'r R) -> Option<&'r [u8]> + Send + Clone,
     MBFN: FnMut(&mut T, &dyn Progress, Context<'_>) -> Result + Send + Clone,
 {
+    use gix_error::ErrorExt;
     use std::sync::atomic::AtomicUsize;
 
     if num_threads == 0 {
@@ -612,12 +613,11 @@ fn decompress_from_resolver<F, R>(
 where
     F: for<'r> Fn(EntryRange, &'r R) -> Option<&'r [u8]> + Send,
 {
-    let bytes = resolve(slice.clone(), resolve_data).ok_or_else(|| {
+    let bytes = resolve(slice.clone(), resolve_data).ok_or_raise(|| {
         gix_error::message!(
             "The resolver failed to obtain the pack entry bytes for the entry at {}",
             slice.start
         )
-        .raise()
     })?;
     let entry = data::Entry::from_bytes(bytes, slice.start, object_hash)?;
     let compressed = &bytes[entry.header_size()..];

@@ -4,7 +4,7 @@ use std::{
     time::Instant,
 };
 
-use gix_error::{Class, ClassificationMarker, ErrorExt, Message, ResultExt, bail, message, retryable};
+use gix_error::{Class, ClassificationMarker, Message, OptionExt, ResultExt, bail, message, retryable};
 
 use gix_features::progress::{Count, DynNestedProgress, Progress};
 
@@ -60,7 +60,7 @@ impl Store {
                 .or_raise(|| {
                     Message::new("Could not read loose object during verification").with("object_id", id.to_string())
                 })?
-                .ok_or_else(|| retryable("Objects were deleted during iteration - try again").raise_erased())?;
+                .ok_or_raise(|| retryable("Objects were deleted during iteration - try again"))?;
             let context = || {
                 Message::new("Could not verify loose object")
                     .with("object_id", id.to_string())

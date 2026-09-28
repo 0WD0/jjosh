@@ -6,7 +6,7 @@ use std::{
 };
 
 use anyhow::{Result, anyhow};
-use gix::error::{ErrorExt, ResultExt, bail, message};
+use gix::error::{ErrorExt, OptionExt, ResultExt, bail, message};
 use gix::{
     NestedProgress,
     hash::ObjectId,
@@ -14,7 +14,6 @@ use gix::{
     odb::{loose, pack},
     prelude::Write,
 };
-use gix_error_for_configuration_only::OptionExt;
 
 #[derive(Default, Clone, Eq, PartialEq, Debug)]
 pub enum SafetyCheck {

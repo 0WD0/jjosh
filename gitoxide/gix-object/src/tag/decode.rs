@@ -1,5 +1,5 @@
 use bstr::ByteSlice;
-use gix_error::{OptionExt, Result, ResultExt, bail};
+use gix_error::{OptionExt, Result, ResultExt, bail, ensure};
 
 use crate::{BStr, Kind, TagRef, parse};
 
@@ -22,9 +22,7 @@ pub fn git_tag<'a>(i: &mut &'a [u8], hash_kind: gix_hash::Kind) -> Result<TagRef
     let tagger = tagger_raw(i)?;
 
     let (message, signature) = message(i)?;
-    if !i.is_empty() {
-        bail!(crate::decode::empty_error());
-    }
+    ensure!(i.is_empty(), crate::decode::empty_error());
 
     Ok(TagRef {
         target,

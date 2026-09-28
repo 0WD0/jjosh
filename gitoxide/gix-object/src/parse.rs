@@ -1,5 +1,5 @@
 use bstr::{BStr, BString, ByteSlice, ByteVec};
-use gix_error::{ErrorExt, OptionExt, Result, ResultExt, bail};
+use gix_error::{ErrorExt, OptionExt, Result, ResultExt, bail, ensure};
 
 pub(crate) const NL: &[u8] = b"\n";
 pub(crate) const SPACE: &[u8] = b" ";
@@ -23,9 +23,7 @@ pub(crate) fn any_header_field_multi_line<'a>(i: &mut &'a [u8]) -> Result<(&'a [
         .find_byteset(SPACE_OR_NL)
         .filter(|pos| *pos > 0)
         .ok_or_raise(crate::decode::empty_error)?;
-    if c.get(name_end) != Some(&b' ') {
-        bail!(crate::decode::empty_error());
-    }
+    ensure!(c.get(name_end) == Some(&b' '), crate::decode::empty_error());
 
     c = &c[name_end + 1..];
     let first_line_end = c.find_byte(b'\n').ok_or_raise(crate::decode::empty_error)?;
@@ -39,9 +37,7 @@ pub(crate) fn any_header_field_multi_line<'a>(i: &mut &'a [u8]) -> Result<(&'a [
         c = &c[line_end + 1..];
         continuation_count += 1;
     }
-    if continuation_count == 0 {
-        bail!(crate::decode::empty_error());
-    }
+    ensure!(continuation_count != 0, crate::decode::empty_error());
 
     let bytes = input[name_end + 1..continuation_end].as_bstr();
     let mut out = BString::from(Vec::with_capacity(bytes.len()));
@@ -93,9 +89,7 @@ pub(crate) fn any_header_field<'a>(i: &mut &'a [u8]) -> Result<(&'a [u8], &'a [u
         .find_byteset(SPACE_OR_NL)
         .filter(|pos| *pos > 0)
         .ok_or_raise(crate::decode::empty_error)?;
-    if c.get(name_end) != Some(&b' ') {
-        bail!(crate::decode::empty_error());
-    }
+    ensure!(c.get(name_end) == Some(&b' '), crate::decode::empty_error());
     c = &c[name_end + 1..];
     if let Some(value_end) = c.find_byte(b'\n') {
         let value = &c[..value_end];

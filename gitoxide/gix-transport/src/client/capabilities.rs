@@ -1,6 +1,6 @@
 use bstr::{BStr, BString, ByteSlice};
 use gix_error::Result;
-use gix_error::{ErrorExt, bail, message};
+use gix_error::{OptionExt, bail, message};
 
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use crate::{Protocol, client};
@@ -68,7 +68,7 @@ impl Capabilities {
     pub fn from_bytes(bytes: &[u8]) -> Result<(Capabilities, usize)> {
         let delimiter_pos = bytes
             .find_byte(0)
-            .ok_or_else(|| message("Capabilities were missing entirely as there was no 0 byte").raise())?;
+            .ok_or_raise(|| message("Capabilities were missing entirely as there was no 0 byte"))?;
         if delimiter_pos + 1 == bytes.len() {
             bail!(message("there was not a single capability behind the delimiter"));
         }
@@ -92,11 +92,11 @@ impl Capabilities {
         let mut lines = <_ as bstr::ByteSlice>::lines(lines_buf.as_slice().trim());
         let version_line = lines
             .next()
-            .ok_or_else(|| message("a version line was expected, but none was retrieved").raise())?;
+            .ok_or_raise(|| message("a version line was expected, but none was retrieved"))?;
         let (name, value) = version_line.split_at(
             version_line
                 .find(b" ")
-                .ok_or_else(|| message!("expected 'version X', got {version_line:?}").raise())?,
+                .ok_or_raise(|| message!("expected 'version X', got {version_line:?}"))?,
         );
         if name != b"version" {
             bail!(message!("expected 'version X', got {version_line:?}"));
