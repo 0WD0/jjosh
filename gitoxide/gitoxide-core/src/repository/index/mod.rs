@@ -43,10 +43,10 @@ pub fn from_list(
     entries_file: PathBuf,
     index_path: Option<PathBuf>,
     force: bool,
+    object_hash: gix::hash::Kind,
     skip_hash: bool,
 ) -> anyhow::Result<()> {
     use std::io::BufRead;
-    let object_hash = gix::hash::Kind::Sha1;
 
     let mut index = gix::index::State::new(object_hash);
     for path in std::io::BufReader::new(std::fs::File::open(entries_file)?).lines() {
