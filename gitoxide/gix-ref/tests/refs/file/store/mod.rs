@@ -19,6 +19,82 @@ mod iter;
 mod reflog;
 
 #[test]
+#[cfg_attr(not(target_os = "macos"), ignore = "Needs filesystem that folds Unicode composition")]
+fn packed_reference_precomposition_is_component_local() -> Result {
+    let tmp = gix_testtools::tempfile::tempdir()?;
+    let store = gix_ref::file::Store::at_opts(
+        tmp.path().to_owned(),
+        crate::fixture_hash_kind(),
+        gix_ref::store::init::Options {
+            precompose_unicode: true,
+            ..Default::default()
+        },
+    );
+    let mut buf = TimeBuf::default();
+    for (input, precomposed) in [("📹/U\u{308}", "📹/Ü"), ("📹Ü/O\u{308}", "📹Ü/Ö"), ("äO\u{308}", "äÖ")]
+    {
+        let full_name = format!("refs/heads/{input}");
+        store
+            .transaction()
+            .packed_refs(PackedRefs::DeletionsAndNonSymbolicUpdatesRemoveLooseSourceReference(
+                Box::new(EmptyCommit),
+            ))
+            .prepare([create_at(&full_name)], Fail::Immediately, Fail::Immediately)?
+            .commit(committer().to_ref(&mut buf))?;
+
+        let packed = store.find(precomposed)?;
+        assert_eq!(
+            packed.name.shorten(),
+            precomposed,
+            "packing composes the final filename even after an emoji component"
+        );
+        for query in [
+            input.to_owned(),
+            full_name.clone(),
+            format!("main-worktree/{full_name}"),
+        ] {
+            let reference = store.find(query.as_str())?;
+            assert_eq!(
+                reference.name, full_name,
+                "lookup preserves the spelling of untouched components"
+            );
+            assert_eq!(
+                store.find(reference.name.as_ref())?,
+                reference,
+                "a returned reference name must address the same reference"
+            );
+        }
+        let loose_path = tmp.path().join(&full_name);
+        std::fs::create_dir_all(loose_path.parent().expect("a full ref name has parent directories"))?;
+        let commit_id = packed.target.try_id().expect("packed references have object targets");
+        std::fs::write(loose_path, format!("{commit_id}\n"))?;
+        let loose = store.find_loose(input)?;
+        assert_eq!(
+            loose.name, full_name,
+            "loose lookup also preserves the requested spelling"
+        );
+        assert_eq!(
+            store.find_loose(loose.name.as_ref())?,
+            loose,
+            "loose reference names also round-trip"
+        );
+    }
+    let commit_id = crate::hex_to_id("1111111111111111111111111111111111111111");
+    std::fs::write(tmp.path().join("WORKTREE_HEAD"), format!("{commit_id}\n"))?;
+    for (query, expected) in [
+        ("WOR\u{212a}TREE_HEAD", "WORKTREE_HEAD"),
+        ("main-worktree/WOR\u{212a}TREE_HEAD", "main-worktree/WORKTREE_HEAD"),
+    ] {
+        assert_eq!(
+            store.find(query)?.name,
+            expected,
+            "canonicalization that selects a pseudo-ref must preserve that qualification"
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn precompose_unicode_journey() -> Result {
     let tmp = gix_testtools::tempfile::TempDir::new()?;
     let precomposed_a = "ä";

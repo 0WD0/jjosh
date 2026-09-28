@@ -1,4 +1,4 @@
-use std::{borrow::Cow, fmt::Formatter, io::Write};
+use std::{borrow::Cow, fmt::Formatter, io::Write, path::Path};
 
 use gix_error::{ErrorExt, ExnMessageResult, ExnResult, Message, ResultExt, message, not_found};
 
@@ -71,11 +71,11 @@ impl packed::Transaction {
                         .0
                         .to_str()
                         .ok()
-                        .map(|name| gix_utils::str::precompose(name.into()));
+                        .map(|name| gix_utils::str::precompose_path(Path::new(name).into()));
                     match precomposed {
                         None | Some(Cow::Borrowed(_)) => edit,
                         Some(Cow::Owned(precomposed)) => {
-                            edit.name.0 = precomposed.into();
+                            edit.name.0 = gix_path::into_bstr(precomposed).into_owned();
                             edit
                         }
                     }

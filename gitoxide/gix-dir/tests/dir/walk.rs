@@ -3461,6 +3461,54 @@ fn submodules() -> Result {
 }
 
 #[test]
+fn uninitialized_submodules_with_files_remain_tracked() -> Result {
+    let root = fixture("uninitialized-submodules-with-files");
+    assert_eq!(
+        gix_testtools::git(&root, "--no-optional-locks status --porcelain=v1 --untracked-files=all")?,
+        "",
+        "Git ignores files placed inside uninitialized submodules"
+    );
+
+    for fresh_index in [false, true] {
+        for ignore_case in [false, true] {
+            let ((out, _), entries) = try_collect_filtered_opts_collect(
+                &root,
+                None,
+                |keep, ctx| {
+                    walk(
+                        &root,
+                        ctx,
+                        walk::Options {
+                            ignore_case,
+                            emit_tracked: true,
+                            ..options()
+                        },
+                        keep,
+                    )
+                },
+                None::<&str>,
+                Options {
+                    fresh_index,
+                    ..Default::default()
+                },
+            )?;
+            assert_eq!(
+                entries,
+                [
+                    entry(".gitmodules", Tracked, File),
+                    entry("a/b", Tracked, Repository),
+                    entry("empty", Tracked, File),
+                    entry("submodule", Tracked, Repository),
+                ],
+                "gitlinks stay tracked without a checkout (fresh_index={fresh_index}, ignore_case={ignore_case})"
+            );
+            assert_eq!(out.read_dir_calls, 2, "submodule contents are never traversed");
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn cancel_with_collection_does_not_fail() -> Result {
     struct CancelDelegate {
         emits_left_until_cancel: usize,
@@ -3972,72 +4020,52 @@ fn nested_repos_in_ignored_directories() -> Result {
     ignore = "Needs filesystem that folds unicode composition"
 )]
 fn decomposed_unicode_in_root_is_returned_precomposed() -> Result {
-    let root = gix_testtools::tempfile::TempDir::new()?;
-
-    let decomposed = "a\u{308}";
-    let precomposed = "ä";
-    std::fs::write(root.path().join(decomposed), [])?;
-
-    let troot = root.path().join(decomposed);
-    let ((out, actual_root), entries) = try_collect_filtered_opts_collect_with_root(
-        root.path(),
-        None,
-        Some(&troot),
-        |keep, ctx| {
-            walk(
+    for (decomposed, precomposed) in [
+        ("a\u{308}", "ä"),
+        ("📹/a\u{308}", "📹/ä"),
+        ("a\u{308}/📹a\u{308}", "ä/📹a\u{308}"),
+    ] {
+        let root = gix_testtools::tempfile::TempDir::new()?;
+        let troot = root.path().join(decomposed);
+        std::fs::create_dir_all(troot.parent().expect("the file is inside the temporary directory"))?;
+        std::fs::write(&troot, [])?;
+        for (precompose_unicode, expected) in [(true, precomposed), (false, decomposed)] {
+            let ((out, actual_root), entries) = try_collect_filtered_opts_collect_with_root(
                 root.path(),
-                ctx,
-                walk::Options {
-                    precompose_unicode: true,
-                    ..options()
+                None,
+                Some(&troot),
+                |keep, ctx| {
+                    walk(
+                        root.path(),
+                        ctx,
+                        walk::Options {
+                            precompose_unicode,
+                            ..options()
+                        },
+                        keep,
+                    )
                 },
-                keep,
-            )
-        },
-        None::<&str>,
-        Default::default(),
-    )?;
+                None::<&str>,
+                Default::default(),
+            )?;
 
-    assert_eq!(actual_root, troot);
-    assert_eq!(
-        out,
-        walk::Outcome {
-            read_dir_calls: 0,
-            returned_entries: entries.len(),
-            seen_entries: 1,
+            assert_eq!(actual_root, troot, "the traversal root keeps its original spelling");
+            assert_eq!(
+                out,
+                walk::Outcome {
+                    read_dir_calls: 0,
+                    returned_entries: entries.len(),
+                    seen_entries: 1,
+                },
+                "a file root is emitted without reading a directory"
+            );
+            assert_eq!(
+                entries,
+                [entry(expected, Untracked, File)],
+                "root entries compose each path component independently when enabled"
+            );
         }
-    );
-    assert_eq!(
-        entries,
-        [entry(precomposed, Untracked, File)],
-        "even root paths are returned precomposed then"
-    );
-
-    let troot = root.path().join(decomposed);
-    let ((_out, actual_root), entries) = try_collect_filtered_opts_collect_with_root(
-        root.path(),
-        None,
-        Some(&troot),
-        |keep, ctx| {
-            walk(
-                root.path(),
-                ctx,
-                walk::Options {
-                    precompose_unicode: false,
-                    ..options()
-                },
-                keep,
-            )
-        },
-        None::<&str>,
-        Default::default(),
-    )?;
-    assert_eq!(actual_root, troot);
-    assert_eq!(
-        entries,
-        [entry(decomposed, Untracked, File)],
-        "if disabled, it stays decomposed as provided"
-    );
+    }
     Ok(())
 }
 

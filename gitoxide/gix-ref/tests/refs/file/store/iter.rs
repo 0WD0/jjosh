@@ -5,6 +5,43 @@ use crate::{
 };
 use gix_object::bstr::ByteSlice;
 
+#[test]
+#[cfg_attr(not(target_os = "macos"), ignore = "Needs filesystem that folds Unicode composition")]
+fn emoji_parent_does_not_duplicate_precomposed_references() -> Result {
+    let tmp = gix_testtools::tempfile::tempdir()?;
+    let root = tmp.path().join("📹");
+    std::fs::create_dir_all(root.join("refs/heads"))?;
+    let loose_commit_id = hex_to_id("1111111111111111111111111111111111111111");
+    let packed_commit_id = hex_to_id("2222222222222222222222222222222222222222");
+    std::fs::write(root.join("refs/heads/U\u{308}"), format!("{loose_commit_id}\n"))?;
+    std::fs::write(root.join("packed-refs"), format!("{packed_commit_id} refs/heads/Ü\n"))?;
+    let store = gix_ref::file::Store::at_opts(
+        root,
+        crate::fixture_hash_kind(),
+        gix_ref::store::init::Options {
+            precompose_unicode: true,
+            ..Default::default()
+        },
+    );
+
+    let refs = store.iter()?.all()?.collect::<std::result::Result<Vec<_>, _>>()?;
+    assert_eq!(
+        refs.len(),
+        1,
+        "the loose reference shadows its packed version even beneath an emoji parent"
+    );
+    assert_eq!(
+        refs[0].name, "refs/heads/Ü",
+        "reference names compose independently of the repository path"
+    );
+    assert_eq!(
+        refs[0].target,
+        gix_ref::Target::Object(loose_commit_id),
+        "the loose reference takes precedence"
+    );
+    Ok(())
+}
+
 mod with_namespace {
     use crate::Result;
     use gix_object::bstr::{BString, ByteSlice};

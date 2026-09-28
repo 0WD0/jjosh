@@ -92,7 +92,7 @@ pub fn walk(
             return Err(validation(format!("Worktree root at '{}' is not a directory", root.display())).raise_erased());
         }
         if options.precompose_unicode {
-            buf = gix_utils::str::precompose_bstr(buf.into()).into_owned();
+            buf = gix_path::into_bstr(gix_utils::str::precompose_path(gix_path::from_bstr(buf))).into_owned();
         }
         let _ = emit_entry(
             Cow::Borrowed(buf.as_bstr()),
