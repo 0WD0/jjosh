@@ -17,7 +17,7 @@ use crate::{
     plumbing::{
         options::{
             Args, Subcommands, attributes, branch, commit, commitgraph, config, credential, exclude, free, fsck, index,
-            mailmap, merge, odb, revision, tag, tree,
+            mailmap, merge, odb, revision, tag, tree, worktree,
         },
         show_progress,
     },
@@ -321,8 +321,8 @@ pub fn main() -> Result<()> {
             None,
             move |_progress, out, _err| core::repository::log::log(repository(Mode::Lenient)?, out, pathspec),
         ),
-        Subcommands::Worktree(crate::plumbing::options::worktree::Platform { cmd }) => match cmd {
-            crate::plumbing::options::worktree::SubCommands::List => prepare_and_run(
+        Subcommands::Worktree(worktree::Platform { cmd }) => match cmd {
+            worktree::SubCommands::List => prepare_and_run(
                 "worktree-list",
                 trace,
                 verbose,
@@ -330,6 +330,45 @@ pub fn main() -> Result<()> {
                 progress_keep_open,
                 None,
                 move |_progress, out, _err| core::repository::worktree::list(repository(Mode::Lenient)?, out, format),
+            ),
+            worktree::SubCommands::Add {
+                branch,
+                detach,
+                path,
+                commit_ish,
+            } => prepare_and_run(
+                "worktree-add",
+                trace,
+                verbose,
+                progress,
+                progress_keep_open,
+                None,
+                move |progress, out, _err| {
+                    core::repository::worktree::add(
+                        repository(Mode::Lenient)?,
+                        &path,
+                        out,
+                        progress,
+                        &should_interrupt,
+                        core::repository::worktree::AddOptions {
+                            new_branch: branch,
+                            commit_ish,
+                            detach,
+                            format,
+                        },
+                    )
+                },
+            ),
+            worktree::SubCommands::Remove { force, worktree } => prepare_and_run(
+                "worktree-remove",
+                trace,
+                verbose,
+                progress,
+                progress_keep_open,
+                None,
+                move |progress, _out, _err| {
+                    core::repository::worktree::remove(repository(Mode::Lenient)?, &worktree, force, progress, format)
+                },
             ),
         },
         Subcommands::IsClean | Subcommands::IsChanged => {

@@ -13,14 +13,14 @@ impl<'repo> Proxy<'repo> {
     pub(crate) fn new(parent: &'repo Repository, git_dir: impl Into<PathBuf>) -> Self {
         Proxy {
             parent,
-            git_dir: git_dir.into(),
+            git_dir: parent.current_dir().join(git_dir.into()),
         }
     }
 
     pub(crate) fn new_if_gitdir_file_exists(parent: &'repo Repository, git_dir: impl Into<PathBuf>) -> Option<Self> {
-        let git_dir = git_dir.into();
-        if git_dir.join("gitdir").is_file() {
-            Some(Proxy::new(parent, git_dir))
+        let proxy = Proxy::new(parent, git_dir);
+        if proxy.git_dir.join("gitdir").is_file() {
+            Some(proxy)
         } else {
             None
         }
@@ -38,13 +38,15 @@ impl Proxy<'_> {
         })?
     }
 
-    /// Read the location of the checkout, the base of the work tree.
+    /// Read the absolute location of the checkout, the base of the work tree.
+    /// Relative registrations are resolved against the private Git directory.
     /// Note that the location might not exist.
     pub fn base(&self) -> std::io::Result<PathBuf> {
         Ok(gix_discover::path::without_dot_git_dir(self.dot_git()?))
     }
 
-    /// The git directory for the work tree, typically contained within the parent git dir.
+    /// The absolute git directory for the work tree, typically contained within the parent git dir.
+    /// Relative repository paths are anchored to the parent repository's captured current directory.
     pub fn git_dir(&self) -> &Path {
         &self.git_dir
     }
@@ -90,7 +92,7 @@ impl Proxy<'_> {
     pub fn into_repo_with_possibly_inaccessible_worktree(self) -> Result<Repository> {
         let base = self.base().ok();
         let options = self.parent.options.clone().without_repository_environment_overrides();
-        let common_dir = self.parent.common_dir().to_owned();
+        let common_dir = self.parent.current_dir().join(self.parent.common_dir());
         let repo = ThreadSafeRepository::open_from_paths(self.git_dir, base, options, Some(common_dir))?;
         Ok(repo.into())
     }
@@ -108,7 +110,7 @@ impl Proxy<'_> {
             )));
         }
         let options = self.parent.options.clone().without_repository_environment_overrides();
-        let common_dir = self.parent.common_dir().to_owned();
+        let common_dir = self.parent.current_dir().join(self.parent.common_dir());
         let repo = ThreadSafeRepository::open_from_paths(self.git_dir, base.into(), options, Some(common_dir))?;
         Ok(repo.into())
     }

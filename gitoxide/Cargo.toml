@@ -8,7 +8,7 @@ authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
 edition = "2024"
 license = "MIT OR Apache-2.0"
 version = "0.59.0"
-# Rust 1.88 is required by `dua-core` 3.3, used for worktree removal.
+# Rust 1.88 is required by `dua-core` 4.0, used for worktree removal.
 rust-version = "1.88"
 default-run = "gix"
 include = ["/src/**/*", "/build.rs", "/LICENSE-*", "/README.md"]
@@ -29,7 +29,7 @@ test = false
 doctest = false
 
 [features]
-default = ["max"]
+default = ["max", "auto-chain-error"]
 
 #! ### Build Configuration
 #! These combine common choices of building blocks to represent typical builds.
@@ -89,6 +89,9 @@ lean-async = ["hashes", "fast", "tracing", "pretty-cli", "tix", "gitoxide-core-t
 
 #! ### Building Blocks
 #! Typical combinations of features of our dependencies, some of which are referred to in the `gitoxide` crate's code for conditional compilation.
+
+## Flatten error trees into chains with source locations for `anyhow` reports.
+auto-chain-error = ["gix/auto-chain-error"]
 
 ## Provide support for all known hashes. If this isn't enabled, select an individual hash algorithms.
 hashes = ["sha1", "sha256"]

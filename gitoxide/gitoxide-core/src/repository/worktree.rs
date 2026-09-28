@@ -1,8 +1,139 @@
-use anyhow::bail;
-use gix::prelude::ObjectIdExt;
+use std::{path::Path, sync::atomic::AtomicBool};
+
+use anyhow::{Context, bail};
+use gix::{
+    NestedProgress,
+    bstr::{BStr, BString, ByteSlice},
+    prelude::ObjectIdExt,
+};
 use unicode_width::UnicodeWidthStr;
 
 use crate::OutputFormat;
+
+pub struct AddOptions {
+    pub new_branch: Option<BString>,
+    pub commit_ish: Option<BString>,
+    pub detach: bool,
+    pub format: OutputFormat,
+}
+
+pub fn add<P>(
+    mut repo: gix::Repository,
+    destination: &Path,
+    out: &mut dyn std::io::Write,
+    progress: P,
+    should_interrupt: &AtomicBool,
+    options: AddOptions,
+) -> anyhow::Result<()>
+where
+    P: NestedProgress,
+    P::SubProgress: NestedProgress + 'static,
+{
+    use gix::{refs::transaction::PreviousValue, worktree::add::Head};
+
+    if options.format != OutputFormat::Human {
+        bail!("JSON output isn't implemented yet");
+    }
+    repo.clear_namespace();
+    let branch = if let Some(name) = &options.new_branch {
+        Some(local_branch_name(name.as_bstr())?)
+    } else if options.detach {
+        None
+    } else if let Some(spec) = &options.commit_ish {
+        local_branch_name(spec.as_bstr()).ok()
+    } else {
+        Some(local_branch_name(gix::path::os_str_into_bstr(
+            destination
+                .file_name()
+                .context("The destination needs a directory name")?,
+        )?)?)
+    };
+    let head = match branch {
+        Some(name) if options.new_branch.is_none() && repo.try_find_reference(name.as_ref())?.is_some() => {
+            Head::Attached(name)
+        }
+        branch => {
+            let start_point = options
+                .commit_ish
+                .as_ref()
+                .map_or(b"HEAD".as_bstr(), |spec| spec.as_bstr());
+            let commit_id = repo.rev_parse_single(start_point)?.object()?.peel_to_commit()?.id;
+            match branch.filter(|_| options.new_branch.is_some() || options.commit_ish.is_none()) {
+                Some(name) => {
+                    let mut reflog_message: BString = "branch: Created from ".into();
+                    reflog_message.extend_from_slice(start_point);
+                    // Git also retains this branch if subsequent worktree setup fails.
+                    repo.reference(name.clone(), commit_id, PreviousValue::MustNotExist, reflog_message)?;
+                    Head::Attached(name)
+                }
+                None => Head::Detached(commit_id),
+            }
+        }
+    };
+    let (created, outcome) = repo.add_worktree(destination, head, progress, should_interrupt)?;
+    if let Some(error) = outcome.errors.into_iter().next() {
+        return Err(error.error).with_context(|| format!("Worktree checkout failed at {:?}", error.path));
+    }
+    if let Some(collision) = outcome.collisions.into_iter().next() {
+        return Err(std::io::Error::from(collision.error_kind))
+            .with_context(|| format!("Worktree checkout collided at {:?}", collision.path));
+    }
+    if !outcome.delayed_paths_unprocessed.is_empty() || !outcome.delayed_paths_unknown.is_empty() {
+        bail!(
+            "Checkout filters left unprocessed paths {:?} and returned unexpected paths {:?}",
+            outcome.delayed_paths_unprocessed,
+            outcome.delayed_paths_unknown,
+        );
+    }
+    let info = create_worktree_info(
+        &created,
+        gix::path::realpath(
+            created
+                .workdir()
+                .context("The new worktree has no checkout directory")?,
+        )?,
+    )?;
+    info.write(out, UnicodeWidthStr::width(info.base.as_str()))?;
+    Ok(())
+}
+
+fn local_branch_name(name: &BStr) -> anyhow::Result<gix::refs::FullName> {
+    if name.starts_with(b"-") {
+        bail!("Branch names must not start with '-'");
+    }
+    let mut full_name: BString = "refs/heads/".into();
+    full_name.extend_from_slice(name);
+    gix::validate::reference::branch_name(full_name.as_bstr())?;
+    Ok(full_name.try_into()?)
+}
+
+pub fn remove<P>(
+    repo: gix::Repository,
+    worktree: &Path,
+    force: u8,
+    progress: P,
+    format: OutputFormat,
+) -> anyhow::Result<()>
+where
+    P: NestedProgress,
+    P::SubProgress: NestedProgress + 'static,
+{
+    use gix::worktree::remove::Force;
+
+    if format != OutputFormat::Human {
+        bail!("JSON output isn't implemented yet");
+    }
+    repo.remove_worktree(
+        worktree,
+        match force {
+            0 => Force::Never,
+            1 => Force::DiscardChanges,
+            _ => Force::OverrideLock,
+        },
+        progress,
+    )?;
+    Ok(())
+}
 
 pub fn list(repo: gix::Repository, out: &mut dyn std::io::Write, format: OutputFormat) -> anyhow::Result<()> {
     if format != OutputFormat::Human {

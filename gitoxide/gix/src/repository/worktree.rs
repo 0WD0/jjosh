@@ -58,7 +58,7 @@ impl crate::Repository {
     /// Note that these need additional processing to become usable, but provide a first glimpse a typical worktree information.
     pub fn worktrees(&self) -> Result<Vec<worktree::Proxy<'_>>> {
         let mut res = Vec::new();
-        let iter = match std::fs::read_dir(self.common_dir().join("worktrees")) {
+        let iter = match std::fs::read_dir(self.current_dir().join(self.common_dir()).join("worktrees")) {
             Ok(iter) => iter,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(res),
             Err(err) => return Err(Error::from_error(err)),
@@ -108,7 +108,7 @@ impl crate::Repository {
             return Ok(self.clone());
         }
         let options = self.options.clone().without_repository_environment_overrides();
-        crate::ThreadSafeRepository::open_opts(self.common_dir(), options).map(Into::into)
+        crate::ThreadSafeRepository::open_opts(self.current_dir().join(self.common_dir()), options).map(Into::into)
     }
 
     /// Return the currently set worktree if there is one, acting as platform providing a validated worktree base path.
