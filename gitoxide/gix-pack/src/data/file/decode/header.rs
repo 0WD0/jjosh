@@ -62,6 +62,7 @@ where
         use crate::data::entry::Header::*;
         let mut num_deltas = 0;
         let mut first_delta_decompressed_size = None::<u64>;
+        let mut cycle = super::DeltaCycle::new(entry.data_offset);
         loop {
             match entry.header {
                 Tree | Blob | Commit | Tag => {
@@ -105,6 +106,7 @@ where
                     }
                 }
             }
+            cycle.check(entry.data_offset)?;
         }
     }
 

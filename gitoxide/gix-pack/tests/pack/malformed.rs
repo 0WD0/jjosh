@@ -9,6 +9,272 @@ use gix_pack::{cache, data};
 
 const FIRST_ENTRY_OFFSET: data::Offset = data::header::SIZE as data::Offset;
 
+#[test]
+fn plain_object_buffer_growth_respects_alloc_limit() -> Result {
+    let bytes = blob_pack_with_declared_size(&[b'A'; 65], 65)?;
+    for limit in [Some(65), None] {
+        let pack = data::File::from_data(bytes.clone(), PathBuf::from("allocation.pack"), gix_hash::Kind::Sha1)?
+            .with_alloc_limit_bytes(limit);
+        let mut out = vec![0; 64];
+        pack.decode_entry(
+            pack.entry(FIRST_ENTRY_OFFSET)?,
+            &mut out,
+            &mut Default::default(),
+            &|_, _| None,
+            &mut cache::Never,
+        )?;
+        assert_eq!(out, [b'A'; 65], "the object at the limit must decode correctly");
+        if let Some(limit) = limit {
+            assert!(
+                out.capacity() <= limit,
+                "buffer growth must not allocate beyond the cap"
+            );
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn combined_delta_work_buffers_respect_alloc_limit() -> Result {
+    let mut bytes = blob_pack_with_declared_size(&[b'A'; 64], 64)?;
+    bytes[..data::header::SIZE].copy_from_slice(&data::header::encode(data::Version::V2, 2));
+    bytes.truncate(bytes.len() - 20);
+    let delta_offset = bytes.len() as data::Offset;
+    let delta = [64, 64, 0x90, 64];
+    data::entry::Header::OfsDelta {
+        base_distance: delta_offset - FIRST_ENTRY_OFFSET,
+    }
+    .write_to(delta.len() as u64, &mut bytes)?;
+    bytes.extend(deflate(&delta)?);
+    bytes.extend([0; 20]);
+
+    // Two 64-byte work buffers and four delta instruction bytes share one allocation.
+    for limit in [Some(64), Some(131), Some(132), None] {
+        for initial_len in [0, 100] {
+            let pack = data::File::from_data(bytes.clone(), PathBuf::from("allocation.pack"), gix_hash::Kind::Sha1)?
+                .with_alloc_limit_bytes(limit);
+            let mut out = vec![0; initial_len];
+            let initial_capacity = out.capacity();
+            let result = pack.decode_entry(
+                pack.entry(delta_offset)?,
+                &mut out,
+                &mut Default::default(),
+                &|_, _| None,
+                &mut cache::Never,
+            );
+            if limit.is_some_and(|limit| limit < 132) {
+                let err = result.expect_err("the combined allocation must fit within the cap");
+                assert!(
+                    err.classify().any(|classification| classification.class()
+                        == gix_error::Class::ResourceExhaustion(gix_error::ResourceExhaustionKind::AllocationLimit)),
+                    "oversized combined buffers must report the allocation limit: {err}"
+                );
+            } else {
+                result?;
+                assert_eq!(
+                    out, [b'A'; 64],
+                    "the delta preserves its base when the combined buffer fits"
+                );
+            }
+            if let Some(limit) = limit {
+                assert!(
+                    out.capacity() <= initial_capacity.max(limit),
+                    "new allocations must respect the cap, including when reusing a buffer"
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn resolved_base_and_delta_instructions_respect_alloc_limit() -> Result {
+    let bytes = ref_delta_pack(&[64, 64, 0x90, 64])?;
+    let pack = data::File::from_data(bytes, PathBuf::from("allocation.pack"), gix_hash::Kind::Sha1)?
+        .with_alloc_limit_bytes(Some(64));
+    let mut out = Vec::new();
+    let err = pack
+        .decode_entry(
+            pack.entry(FIRST_ENTRY_OFFSET)?,
+            &mut out,
+            &mut Default::default(),
+            &|_, out| {
+                out.clear();
+                out.extend_from_slice(&[b'A'; 64]);
+                Some(data::decode::entry::ResolvedBase::OutOfPack {
+                    kind: gix_object::Kind::Blob,
+                    end: out.len(),
+                })
+            },
+            &mut cache::Never,
+        )
+        .expect_err("the resolved base and delta instructions must fit together within the cap");
+    assert!(
+        err.classify().any(|classification| classification.class()
+            == gix_error::Class::ResourceExhaustion(gix_error::ResourceExhaustionKind::AllocationLimit)),
+        "the initial combined buffer must report the allocation limit: {err}"
+    );
+    assert!(
+        out.capacity() <= 64,
+        "the combined buffer must be checked before reserving instruction space"
+    );
+    Ok(())
+}
+
+#[test]
+fn ref_delta_header_cycles_are_rejected() -> Result {
+    for (num_entries, close_with_ofs) in [(1, false), (2, false), (3, false), (2, true)] {
+        let (pack, offsets) = ref_delta_chain(num_entries, &[0, 0], close_with_ofs)?;
+        let resolutions = std::cell::Cell::new(0);
+        let err = pack
+            .decode_header(pack.entry(FIRST_ENTRY_OFFSET)?, &mut Default::default(), &|base_id| {
+                resolutions.set(resolutions.get() + 1);
+                assert!(resolutions.get() < 20, "a cyclic header lookup must terminate promptly");
+                let offset = offsets[usize::from(base_id.as_bytes()[0]) % offsets.len()];
+                Some(data::decode::header::ResolvedBase::InPack(
+                    pack.entry(offset).expect("the synthetic delta entry exists"),
+                ))
+            })
+            .expect_err("cyclic ref-delta bases must not be accepted");
+        assert!(err.is_corrupted(), "a delta cycle is corrupt pack data: {err}");
+    }
+    Ok(())
+}
+
+#[test]
+fn ref_delta_entry_cycles_are_rejected() -> Result {
+    for delta in [&[0, 0][..], &[][..]] {
+        for (num_entries, close_with_ofs) in [(1, false), (2, false), (3, false), (2, true)] {
+            let (pack, offsets) = ref_delta_chain(num_entries, delta, close_with_ofs)?;
+            let pack = pack.with_alloc_limit_bytes(Some(64 * 1024));
+            let resolutions = std::cell::Cell::new(0);
+            let err = pack
+                .decode_entry(
+                    pack.entry(FIRST_ENTRY_OFFSET)?,
+                    &mut Vec::new(),
+                    &mut Default::default(),
+                    &|base_id, _| {
+                        resolutions.set(resolutions.get() + 1);
+                        assert!(resolutions.get() < 20, "a cyclic object lookup must terminate promptly");
+                        let offset = offsets[usize::from(base_id.as_bytes()[0]) % offsets.len()];
+                        Some(data::decode::entry::ResolvedBase::InPack(
+                            pack.entry(offset).expect("the synthetic delta entry exists"),
+                        ))
+                    },
+                    &mut cache::Never,
+                )
+                .expect_err("even zero-sized cyclic deltas must be rejected");
+            assert!(err.is_corrupted(), "a delta cycle is corrupt pack data: {err}");
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn delta_chain_metadata_respects_alloc_limit() -> Result {
+    let (pack, offsets) = ref_delta_chain(12, &[], false)?;
+    let pack = pack.with_alloc_limit_bytes(Some(64));
+    let err = pack
+        .decode_entry(
+            pack.entry(FIRST_ENTRY_OFFSET)?,
+            &mut Vec::new(),
+            &mut Default::default(),
+            &|base_id, _| {
+                Some(match offsets.get(usize::from(base_id.as_bytes()[0])) {
+                    Some(&offset) => data::decode::entry::ResolvedBase::InPack(
+                        pack.entry(offset).expect("the synthetic delta entry exists"),
+                    ),
+                    None => data::decode::entry::ResolvedBase::OutOfPack {
+                        kind: gix_object::Kind::Blob,
+                        end: 0,
+                    },
+                })
+            },
+            &mut cache::Never,
+        )
+        .expect_err("zero-sized delta payloads still require memory for their chain");
+    assert_eq!(
+        err.classify().find_map(|classification| match classification.class() {
+            gix_error::Class::ResourceExhaustion(kind) => Some(kind),
+            _ => None,
+        }),
+        Some(gix_error::ResourceExhaustionKind::AllocationLimit),
+        "delta-chain storage must respect the allocation limit before decoding payloads"
+    );
+    Ok(())
+}
+
+#[test]
+fn forward_ref_delta_chain_is_accepted() -> Result {
+    let (pack, offsets) = ref_delta_chain(12, &[0, 0], false)?;
+    let entry = pack.entry(FIRST_ENTRY_OFFSET)?;
+    let header = pack.decode_header(entry.clone(), &mut Default::default(), &|base_id| {
+        Some(match offsets.get(usize::from(base_id.as_bytes()[0])) {
+            Some(&offset) => data::decode::header::ResolvedBase::InPack(
+                pack.entry(offset).expect("the synthetic delta entry exists"),
+            ),
+            None => data::decode::header::ResolvedBase::OutOfPack {
+                kind: gix_object::Kind::Blob,
+                num_deltas: None,
+            },
+        })
+    })?;
+    let mut out = Vec::new();
+    let decoded = pack.decode_entry(
+        entry,
+        &mut out,
+        &mut Default::default(),
+        &|base_id, _| {
+            Some(match offsets.get(usize::from(base_id.as_bytes()[0])) {
+                Some(&offset) => data::decode::entry::ResolvedBase::InPack(
+                    pack.entry(offset).expect("the synthetic delta entry exists"),
+                ),
+                None => data::decode::entry::ResolvedBase::OutOfPack {
+                    kind: gix_object::Kind::Blob,
+                    end: 0,
+                },
+            })
+        },
+        &mut cache::Never,
+    )?;
+    assert_eq!(header.num_deltas, 12, "forward references are valid without a cycle");
+    assert_eq!(decoded.num_deltas, 12, "all forward delta bases are resolved");
+    assert!(out.is_empty(), "each delta preserves the empty base blob");
+    Ok(())
+}
+
+/// Each entry refers to the next entry's numbered object ID. Tests resolve the final ID either
+/// outside the pack or back to the first entry. An optional backward ofs-delta closes a mixed cycle.
+/// The deliberately inflated object count ensures cycle detection cannot trust the pack header.
+fn ref_delta_chain(
+    num_entries: u8,
+    delta: &[u8],
+    close_with_ofs: bool,
+) -> Result<(data::File<Vec<u8>>, Vec<data::Offset>)> {
+    let mut pack = data::header::encode(data::Version::V2, u32::MAX).to_vec();
+    let mut offsets = Vec::new();
+    for index in 0..num_entries {
+        let offset = pack.len() as u64;
+        offsets.push(offset);
+        let header = if close_with_ofs && index + 1 == num_entries {
+            data::entry::Header::OfsDelta {
+                base_distance: offset - FIRST_ENTRY_OFFSET,
+            }
+        } else {
+            data::entry::Header::RefDelta {
+                base_id: gix_hash::ObjectId::from_bytes_or_panic(&[index + 1; 20]),
+            }
+        };
+        header.write_to(delta.len() as u64, &mut pack)?;
+        pack.extend(deflate(delta)?);
+    }
+    pack.extend([0; 20]);
+    Ok((
+        data::File::from_data(pack, PathBuf::from("ref-delta-chain.pack"), gix_hash::Kind::Sha1)?,
+        offsets,
+    ))
+}
+
 /// Reproducer for GHSA-x494-mj8g-cj27: malformed delta copy instructions currently reach
 /// `gix_pack::data::File::decode_entry()` and panic while slicing the base object instead of
 /// returning an error for attacker-controlled pack data.

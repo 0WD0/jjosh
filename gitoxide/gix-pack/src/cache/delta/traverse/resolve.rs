@@ -14,6 +14,7 @@ use crate::{
     },
     data,
     data::EntryRange,
+    data::decode::resize_with_limit,
 };
 
 mod node {
@@ -652,16 +653,6 @@ fn decoded_size_limited(size: u64, alloc_limit_bytes: Option<usize>) -> Result<u
     Ok(size)
 }
 
-fn resize_with_limit(out: &mut Vec<u8>, len: usize, alloc_limit_bytes: Option<usize>) -> Result {
-    if alloc_limit_bytes.is_some_and(|limit| len > limit) {
-        bail!(allocation_error(ResourceExhaustionKind::AllocationLimit));
-    }
-    out.try_reserve(len.saturating_sub(out.len()))
-        .or_raise(|| message("Entry too large to fit in memory"))?;
-    out.resize(len, 0);
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use std::{
@@ -678,6 +669,25 @@ mod tests {
         cache::delta::{Tree, traverse},
         data,
     };
+
+    #[test]
+    fn traversal_buffer_growth_respects_alloc_limit() -> gix_error::TestResult {
+        let mut out = Vec::new();
+        let mut inflate = gix_zlib::Inflate::default();
+        for size in [64, 65] {
+            let payload = vec![b'A'; size];
+            super::decompress_all_at_once_with(&mut inflate, &deflate(&payload), size, &mut out, Some(65))?;
+            assert_eq!(
+                out, payload,
+                "each entry must decompress correctly into the reused buffer"
+            );
+            assert!(
+                out.capacity() <= 65,
+                "traversal buffer growth must not allocate beyond the cap"
+            );
+        }
+        Ok(())
+    }
 
     #[test]
     fn traversal_resolves_children_lazily() {
