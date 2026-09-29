@@ -989,6 +989,9 @@ selection, and submission behavior.
   acceptance saves them before materializing conflicts. Failure restores the
   original references and checkout before applying saved departure changes.
   Failed restoration retains the complete stash and reports its recovery ref.
+- Branch checkouts, including returns through symbolic pins, reject local
+  branch names beginning with `-` before invoking Git, so repository-derived
+  names cannot become checkout options that discard local changes.
 - `a h` is available while `HEAD` is detached with a valid symbolic HEAD pin.
   It atomically moves the remembered local branch to the current `HEAD` commit
   and attaches `HEAD` without changing the index or worktree. The symbolic HEAD
