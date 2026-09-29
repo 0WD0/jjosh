@@ -4,6 +4,7 @@ use std::{
 };
 
 use bstr::{BStr, BString, ByteSlice, ByteVec};
+use gix_fs::FileOrSymlink;
 
 use crate::{pattern::Case, search::Pattern};
 
@@ -39,16 +40,23 @@ pub struct Mapping<T> {
     pub sequence_number: usize,
 }
 
+/// Read `path` into `buf`, clearing it first.
+///
+/// Return `Ok(true)` if the entire file was read, even if empty, or `Ok(false)` for missing paths,
+/// directory-related errors, or symlinks skipped when `follow_symlinks` is `false`. On Windows,
+/// permission-denied errors from opening, inspecting, or reading also yield `Ok(false)`.
+/// Return other I/O errors as `Err`. Leave `buf` empty unless the entire file was read.
 fn read_in_full_ignore_missing(path: &Path, follow_symlinks: bool, buf: &mut Vec<u8>) -> std::io::Result<bool> {
     buf.clear();
     let file = if follow_symlinks {
-        std::fs::File::open(path)
+        std::fs::File::open(path).map(FileOrSymlink::File)
     } else {
-        gix_fs::open_options_no_follow().read(true).open(path)
+        gix_fs::open_read_only_no_follow(path)
     };
     Ok(match file {
-        Ok(mut file) => {
-            if let Err(err) = file.read_to_end(buf) {
+        Ok(FileOrSymlink::Symlink) => false,
+        Ok(FileOrSymlink::File(file)) => {
+            if let Err(err) = read_in_full(file, buf) {
                 if io_err_is_dir(&err) {
                     false
                 } else {
@@ -63,6 +71,16 @@ fn read_in_full_ignore_missing(path: &Path, follow_symlinks: bool, buf: &mut Vec
     })
 }
 
+/// Read all bytes from `reader`, clearing `buf` if reading fails.
+fn read_in_full(mut reader: impl Read, buf: &mut Vec<u8>) -> std::io::Result<usize> {
+    reader.read_to_end(buf).inspect_err(|_| buf.clear())
+}
+
+/// Return `true` for errors treated as directory-related when loading pattern files, and `false` otherwise.
+///
+/// This includes `IsADirectory` and `NotADirectory`. On Windows, it also includes `PermissionDenied`,
+/// since opening a directory as a file can report that error. This also catches genuine permission
+/// failures on Windows; the result does not prove that the path is a directory.
 fn io_err_is_dir(err: &std::io::Error) -> bool {
     matches!(
         err.kind(),
@@ -110,6 +128,8 @@ where
 
     /// Create a pattern list from the `source` file, which may be located underneath `root`, while optionally
     /// following symlinks with `follow_symlinks`, providing `buf` to temporarily store the data contained in the file.
+    /// When symlinks aren't followed, they are treated as absent files.
+    /// `buf` is cleared before reading and left empty if the file is skipped or reading fails.
     /// `parse` is a way to parse bytes to pattern.
     pub fn from_file(
         source: impl Into<PathBuf>,

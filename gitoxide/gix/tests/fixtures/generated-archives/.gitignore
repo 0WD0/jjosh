@@ -77,3 +77,6 @@
 /make_sha256_remote_sha256.tar
 # These are generated, no need to check them in as regeneration works.
 /make_worktree_add_repos_*
+# Symlink preflight depends on the host filesystem and privileges; regenerate
+# locally rather than archiving either links or an unsupported-host marker.
+/make_symlinked_mailmap_repo*.tar*

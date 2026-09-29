@@ -24,7 +24,8 @@ pub enum Source {
     /// Use this when no worktree checkout is available, like in bare repositories or when accessing blobs from other parts
     /// of the history which aren't checked out.
     IdMapping,
-    /// Read from the worktree and if not present, read them from the id mappings *if* these don't have the skip-worktree bit set.
+    /// Read from the worktree without following symlinks, falling back to id mappings
+    /// for entries with the skip-worktree bit set.
     #[default]
     WorktreeThenIdMappingIfNotSkipped,
 }
@@ -193,11 +194,10 @@ impl Ignore {
                 }
             }
             Source::WorktreeThenIdMappingIfNotSkipped => {
-                let follow_symlinks = ignore_file_in_index.is_err();
                 let added = gix_glob::search::add_patterns_file(
                     &mut self.stack.patterns,
                     dir.join(".gitignore"),
-                    follow_symlinks,
+                    false,
                     Some(root),
                     buf,
                     self.parse,

@@ -173,9 +173,13 @@ where
                 })
                 .or_error()?;
             } else {
-                let mut file = try_op_or_unlink(dest, overwrite_existing, |p| {
-                    open_options(destination_is_initially_empty, overwrite_existing).open(p)
-                })
+                let (mut file, _) = open_file(
+                    dest,
+                    destination_is_initially_empty,
+                    overwrite_existing,
+                    false,
+                    entry.mode,
+                )
                 .or_error()?;
                 file.write_all(obj.data).or_error()?;
                 file.close().or_error()?;
@@ -205,7 +209,7 @@ where
 
 /// Note that this works only because we assume to not race ourselves when symlinks are involved, and we do this by
 /// delaying symlink creation to the end and will always do that sequentially.
-/// It's still possible to fall for a race if other actors create symlinks in our path, but that's nothing to defend against.
+/// Other actors replacing leading path components with symlinks can still race these operations.
 ///
 /// Without overwrite permission, the worktree stack delegate rejects terminal symlinks for incremental checkout,
 /// while checkout into an empty destination uses exclusive creation.
@@ -258,7 +262,8 @@ fn open_options(destination_is_initially_empty: bool, overwrite_existing: bool) 
         .create_new(destination_is_initially_empty && !overwrite_existing)
         .create(!destination_is_initially_empty || overwrite_existing)
         .write(true)
-        .truncate(true);
+        // Windows returns a reparse point handle, so open_file() must validate it before truncation.
+        .truncate(!cfg!(windows));
     options
 }
 
@@ -289,7 +294,20 @@ pub(crate) fn open_file(
     //  not supported on windows
     #[cfg(windows)]
     let executable_bit_change = ExecutableBitChange::NoChange;
-    try_op_or_unlink(path, overwrite_existing, |p| options.open(p)).map(|f| (f, executable_bit_change))
+    try_op_or_unlink(path, overwrite_existing, |p| {
+        let file = options.open(p)?;
+        #[cfg(windows)]
+        if !destination_is_initially_empty || overwrite_existing {
+            // Exclusive creation cannot open an existing symlink and needs no truncation.
+            // Nonexclusive opens must reject the handle before changing its contents.
+            if file.metadata()?.file_type().is_symlink() {
+                return Err(std::io::ErrorKind::AlreadyExists.into());
+            }
+            file.set_len(0)?;
+        }
+        Ok(file)
+    })
+    .map(|f| (f, executable_bit_change))
 }
 
 /// Close `file` and store its stats in `entry`, possibly adjusting whether `file` is executable.
@@ -394,6 +412,128 @@ mod tests {
             b"untouched",
             "the symlink target must stay unchanged"
         );
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(any(windows, unix))]
+    fn nonexclusive_open_defers_truncation_until_handle_validation() -> gix_testtools::Result {
+        use std::io::Write;
+
+        let dir = gix_testtools::tempfile::tempdir()?;
+        let path = dir.path().join("file");
+        let original_contents = b"longer original contents";
+        for (destination_is_initially_empty, overwrite_existing) in [(false, false), (false, true), (true, true)] {
+            std::fs::write(&path, original_contents)?;
+            let file = super::open_options(destination_is_initially_empty, overwrite_existing).open(&path)?;
+            assert_eq!(
+                file.metadata()?.len(),
+                if cfg!(windows) {
+                    original_contents.len() as u64
+                } else {
+                    0
+                },
+                "Windows defers truncation until handle validation; Unix truncates during the no-follow open"
+            );
+            drop(file);
+            std::fs::write(&path, original_contents)?;
+
+            let (mut file, _) = super::open_file(
+                &path,
+                destination_is_initially_empty,
+                overwrite_existing,
+                false,
+                gix_index::entry::Mode::FILE,
+            )?;
+            assert_eq!(file.metadata()?.len(), 0, "validated regular files must be truncated");
+            file.write_all(b"new")?;
+            drop(file);
+            assert_eq!(std::fs::read(&path)?, b"new", "old trailing contents must not survive");
+        }
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(any(windows, unix))]
+    fn terminal_symlinks_created_after_precheck_are_rejected_or_replaced() -> gix_testtools::Result {
+        use std::{
+            io::Write,
+            sync::atomic::{AtomicUsize, Ordering},
+        };
+
+        let dir = gix_testtools::tempfile::tempdir()?;
+        if !gix_fs::Capabilities::probe_dir(dir.path()).symlink {
+            return Ok(());
+        }
+        for overwrite_existing in [false, true] {
+            for target_exists in [false, true] {
+                let case = gix_testtools::tempfile::tempdir_in(dir.path())?;
+                let target = case.path().join("target");
+                let link = case.path().join("link");
+                if target_exists {
+                    std::fs::write(&target, b"untouched")?;
+                }
+                let attempts = AtomicUsize::new(0);
+                let result = super::try_op_or_unlink(&link, overwrite_existing, |path| {
+                    // Insert the link just before opening, after Windows' forced-checkout precheck.
+                    // Unix has no precheck: O_NOFOLLOW must reject the link during the open itself.
+                    if attempts.fetch_add(1, Ordering::Relaxed) == 0 {
+                        gix_fs::symlink::create(&target, path)?;
+                    }
+                    super::open_file(path, false, false, false, gix_index::entry::Mode::FILE).map(|(file, _)| file)
+                });
+
+                if overwrite_existing {
+                    let mut file = result?;
+                    assert!(
+                        file.metadata()?.is_file(),
+                        "the retried open must return a regular file"
+                    );
+                    file.write_all(b"replacement")?;
+                    drop(file);
+                    assert_eq!(
+                        attempts.load(Ordering::Relaxed),
+                        2,
+                        "the collision must trigger one retry"
+                    );
+                    assert!(
+                        link.symlink_metadata()?.is_file(),
+                        "forced checkout must replace the link"
+                    );
+                    assert_eq!(std::fs::read(&link)?, b"replacement", "only the replacement is written");
+                } else {
+                    let err = result.expect_err("a terminal symlink must be rejected before truncation or writing");
+                    assert!(
+                        gix_fs::symlink::is_collision_error(&err),
+                        "Unix no-follow errors and Windows rejected handles must be recognized as collisions: {err}"
+                    );
+                    #[cfg(windows)]
+                    assert_eq!(err.kind(), std::io::ErrorKind::AlreadyExists, "symlinks are collisions");
+                    assert_eq!(
+                        attempts.load(Ordering::Relaxed),
+                        1,
+                        "non-forced checkout must not retry"
+                    );
+                    assert_eq!(
+                        std::fs::read_link(&link)?,
+                        target,
+                        "the rejected link must remain unchanged"
+                    );
+                }
+                if target_exists {
+                    assert_eq!(
+                        std::fs::read(&target)?,
+                        b"untouched",
+                        "the target must not be truncated or written"
+                    );
+                } else {
+                    assert!(
+                        !target.try_exists()?,
+                        "opening a dangling link must not create its target"
+                    );
+                }
+            }
+        }
         Ok(())
     }
 

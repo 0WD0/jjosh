@@ -38,27 +38,17 @@ mod open_read_only_no_follow {
     #[test]
     #[cfg(any(unix, windows))]
     fn symlinks_are_not_followed() -> gix_testtools::Result {
-        #[cfg(unix)]
-        use std::os::unix::fs::symlink;
-        #[cfg(windows)]
-        use std::os::windows::fs::symlink_file as symlink;
-
-        let dir = gix_testtools::tempfile::tempdir()?;
-        let target = dir.path().join("file");
-        let link = dir.path().join("link");
-        std::fs::write(&target, b"contents")?;
-        if let Err(err) = symlink(&target, &link) {
-            if cfg!(windows) && err.kind() == std::io::ErrorKind::PermissionDenied {
-                eprintln!("skipping symlink checks: {err}");
-                return Ok(());
-            }
-            return Err(err.into());
+        let dir = gix_testtools::scripted_fixture_read_only("symlinks.sh")?;
+        if !gix_testtools::fixture_has_symlinks(&dir)? {
+            return Ok(());
         }
-
-        for target_exists in [true, false] {
-            if !target_exists {
-                std::fs::remove_file(&target)?;
-            }
+        for (name, target_exists) in [("link", true), ("dangling-link", false)] {
+            let link = dir.join(name);
+            assert_eq!(
+                link.exists(),
+                target_exists,
+                "the fixture covers both live and dangling symlinks"
+            );
             assert!(
                 link.symlink_metadata()?.file_type().is_symlink(),
                 "native links remain symlinks whether their targets exist or not"

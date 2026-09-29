@@ -8,6 +8,73 @@ use gix_worktree::{Stack, stack::state::ignore::Source};
 
 use crate::{hex_to_id, stack::probe_case};
 
+#[test]
+#[cfg(any(unix, windows))]
+fn symlinked_ignore_files_are_skipped_with_index_fallback() -> Result {
+    for use_index in [false, true] {
+        let dir = gix_testtools::scripted_fixture_read_only_with_args(
+            "make_symlinked_ignore_repo.sh",
+            [if use_index { "indexed" } else { "symlink" }],
+        )?;
+        if !gix_testtools::fixture_has_symlinks(&dir)? {
+            return Ok(());
+        }
+        let worktree = dir.join("repo");
+        let ignore = worktree.join(".gitignore");
+        assert!(
+            ignore.symlink_metadata()?.file_type().is_symlink(),
+            "the worktree .gitignore must be a symlink, not a copied regular file"
+        );
+        let mut buf = Vec::new();
+        assert!(
+            gix_glob::search::pattern::List::from_file(
+                &ignore,
+                None,
+                true,
+                &mut buf,
+                gix_ignore::search::Ignore::default(),
+            )?
+            .is_some(),
+            "explicitly configured pattern files may still follow symlinks"
+        );
+        assert_eq!(buf, b"external\n", "following loads the target's contents");
+
+        let git_dir = worktree.join(".git");
+        let index = gix_index::File::at(
+            git_dir.join("index"),
+            gix_testtools::object_hash(),
+            false,
+            Default::default(),
+        )?;
+        let objects = gix_odb::at(git_dir.join("objects"), gix_testtools::object_hash())?;
+        let state = gix_worktree::stack::State::IgnoreStack(gix_worktree::stack::state::Ignore::new(
+            Default::default(),
+            Default::default(),
+            None,
+            Source::WorktreeThenIdMappingIfNotSkipped,
+            Default::default(),
+        ));
+        let mut stack = Stack::from_state_and_ignore_case(&worktree, false, state, &index, index.path_backing());
+        for (path, excluded) in [("external", false), ("indexed", use_index)] {
+            let baseline_status: i32 = std::fs::read_to_string(dir.join(format!("{path}.git-check-ignore.status")))?
+                .trim()
+                .parse()?;
+            assert_eq!(baseline_status, i32::from(!excluded), "Git skips the symlink");
+            assert_eq!(
+                std::fs::read(dir.join(format!("{path}.git-check-ignore.out")))?,
+                if excluded { b"indexed\n".as_slice() } else { b"" },
+                "Git reports only the path excluded by the skip-worktree blob"
+            );
+            assert_eq!(
+                stack.at_entry(path, Some(Mode::FILE), &objects)?.is_excluded(),
+                excluded,
+                "external patterns are skipped and skip-worktree blobs remain available"
+            );
+        }
+    }
+    Ok(())
+}
+
 struct IgnoreExpectations<'a> {
     lines: bstr::Lines<'a>,
 }

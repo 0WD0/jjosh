@@ -123,71 +123,126 @@ fn writes_through_symlinks_are_prevented_even_if_overwriting_is_allowed() {
 }
 
 #[test]
-fn nonexclusive_checkout_does_not_follow_terminal_symlinks() -> Result {
-    let mut opts = opts_from_probe();
-    // the test needs filesystem symlink support;
-    if !opts.fs.symlink {
+fn checkout_does_not_follow_terminal_symlinks() -> Result {
+    use gix_index::entry::Mode;
+    use gix_object::Write;
+
+    let temp = gix_testtools::tempfile::tempdir()?;
+    let capabilities = gix_fs::Capabilities::probe_dir(temp.path());
+    if !capabilities.symlink {
         return Ok(());
     }
-    opts.destination_is_initially_empty = false;
+    for mode in [Mode::FILE, Mode::SYMLINK] {
+        for (destination_is_initially_empty, overwrite_existing) in
+            [(false, false), (false, true), (true, false), (true, true)]
+        {
+            for target_kind in ["file", "directory", "missing"] {
+                let destination = gix_testtools::tempfile::tempdir_in(temp.path())?;
+                let outside = gix_testtools::tempfile::tempdir_in(temp.path())?;
+                let target = outside.path().join("target");
+                let canary = if target_kind == "directory" {
+                    std::fs::create_dir(&target)?;
+                    target.join("canary")
+                } else {
+                    target.clone()
+                };
+                if target_kind != "missing" {
+                    std::fs::write(&canary, b"untouched")?;
+                }
+                let checked_out = destination.path().join("entry");
+                gix_fs::symlink::create(&target, &checked_out)?;
 
-    for overwrite_existing in [false, true] {
-        opts.overwrite_existing = overwrite_existing;
-        let outside = gix_testtools::tempfile::tempdir_in(std::env::current_dir()?)?;
-        let canary = outside.path().join("canary");
-        std::fs::write(&canary, b"untouched")?;
-        let (_source, destination, _index, outcome) = checkout_index_in_tmp_dir_opts(
-            opts.clone(),
-            "make_mixed_without_submodules_and_symlinks",
-            None,
-            |_| true,
-            |destination| gix_fs::symlink::create(&canary, &destination.join("executable")),
-        )?;
+                let object_hash = gix_testtools::object_hash();
+                let objects = gix_odb::memory::Proxy::new(gix_object::find::Never, object_hash);
+                let content_blob_id = objects.write_buf(gix_object::Kind::Blob, b"content")?;
+                let mut index = gix_index::State::new(object_hash);
+                index.dangerously_push_entry(
+                    Default::default(),
+                    content_blob_id,
+                    gix_index::entry::Flags::empty(),
+                    mode,
+                    "entry".into(),
+                );
+                index.sort_entries();
+                let outcome = gix_worktree_state::checkout(
+                    &mut index,
+                    destination.path(),
+                    objects,
+                    &progress::Discard,
+                    &progress::Discard,
+                    &AtomicBool::default(),
+                    gix_worktree_state::checkout::Options {
+                        // Exercise regular files and the symlink-as-file fallback with the same collisions.
+                        fs: gix_fs::Capabilities {
+                            symlink: false,
+                            ..capabilities
+                        },
+                        destination_is_initially_empty,
+                        overwrite_existing,
+                        thread_limit: Some(1),
+                        ..gix_worktree_state::checkout::Options::new(gix_filter::Pipeline::new(
+                            Default::default(),
+                            object_hash,
+                            Default::default(),
+                        ))
+                    },
+                )?;
 
-        assert!(
-            outcome.errors.is_empty(),
-            "checkout should not encounter non-collision errors"
-        );
-        let checked_out = destination.path().join("executable");
-        if overwrite_existing {
-            assert!(
-                outcome.collisions.is_empty(),
-                "forced checkout should replace the symlink"
-            );
-            assert!(
-                checked_out.symlink_metadata()?.is_file(),
-                "the symlink must become a regular file"
-            );
-            assert_eq!(
-                std::fs::read(&checked_out)?,
-                b"content",
-                "the regular file must be checked out"
-            );
-        } else {
-            assert_eq!(
-                outcome.collisions.len(),
-                1,
-                "non-forced checkout should report the terminal symlink as a collision"
-            );
-            assert_eq!(
-                outcome.collisions[0].path, "executable",
-                "the collision should identify the terminal symlink"
-            );
-            #[cfg(windows)]
-            assert_eq!(
-                outcome.collisions[0].error_kind, AlreadyExists,
-                "the collision error kind differs by platform and is only stable on Windows"
-            );
-            assert!(
-                checked_out.symlink_metadata()?.file_type().is_symlink(),
-                "non-forced checkout must leave the symlink in place"
-            );
+                assert!(
+                    outcome.errors.is_empty(),
+                    "checkout should only encounter collisions (mode={mode:?}, empty={destination_is_initially_empty}, force={overwrite_existing}, target={target_kind})"
+                );
+                if overwrite_existing {
+                    assert!(
+                        outcome.collisions.is_empty(),
+                        "forced checkout should replace the symlink"
+                    );
+                    assert!(
+                        checked_out.symlink_metadata()?.is_file(),
+                        "the symlink must become a regular file"
+                    );
+                    assert_eq!(
+                        std::fs::read(&checked_out)?,
+                        b"content",
+                        "the regular file must be checked out"
+                    );
+                } else {
+                    assert_eq!(
+                        outcome.collisions.len(),
+                        1,
+                        "non-forced checkout should report the terminal symlink as a collision"
+                    );
+                    assert_eq!(
+                        outcome.collisions[0].path, "entry",
+                        "the collision should identify the terminal symlink"
+                    );
+                    #[cfg(windows)]
+                    if !destination_is_initially_empty {
+                        assert_eq!(
+                            outcome.collisions[0].error_kind, AlreadyExists,
+                            "the stack rejects terminal links before a nonexclusive open"
+                        );
+                    }
+                    assert_eq!(
+                        std::fs::read_link(&checked_out)?,
+                        target,
+                        "non-forced checkout must leave the symlink unchanged"
+                    );
+                }
+                if target_kind == "missing" {
+                    assert!(
+                        !target.try_exists()?,
+                        "checkout must not create a dangling link's target"
+                    );
+                } else {
+                    assert_eq!(
+                        std::fs::read(&canary)?,
+                        b"untouched",
+                        "the symlink target must stay unchanged"
+                    );
+                }
+            }
         }
-        assert_eq!(
-            std::fs::read(&canary)?,
-            b"untouched",
-            "the symlink target must stay unchanged"
-        );
     }
     Ok(())
 }

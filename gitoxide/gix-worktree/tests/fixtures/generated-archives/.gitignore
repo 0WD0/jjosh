@@ -13,3 +13,8 @@ make_attributes_baseline_sha256.tar
 # Uses `ln -s` (including a symlink to the base directory); symlinks do not
 # unpack on Windows without elevated privileges.
 symlink_stack.tar
+# Symlink preflight depends on the host filesystem and privileges; regenerate
+# locally rather than archiving either links or an unsupported-host marker.
+# Keep both argument variants ignored, including their SHA-256 archives.
+/make_symlinked_ignore_repo_indexed*.tar*
+/make_symlinked_ignore_repo_symlink*.tar*
