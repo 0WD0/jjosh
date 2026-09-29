@@ -38,6 +38,31 @@ title "Porcelain ${kind}"
   snapshot="$snapshot/porcelain"
   (when "using the 'tool' subcommand"
     title "ein tool"
+    if test "$kind" = "max"; then
+    title "ein tool query"
+    (when "tracing a path through history"
+      for object_format in sha1 sha256; do
+        (with "a $object_format repository"
+          (sandbox
+            git init --object-format="$object_format" -q
+            git config core.abbrev no
+            echo first >file
+            git add file
+            git commit -q -m "first"
+            # A non-root change ensures tracing decodes a stored commit hash.
+            echo second >>file
+            git commit -q -am "second"
+            printf '++++++++++| 2020-09-09 | %s Δ file' "$(git rev-parse HEAD)" >expected
+
+            it "traces the path with its full commit ID" && {
+              WITH_SNAPSHOT="$PWD/expected" \
+              expect_run $SUCCESSFULLY "$exe" -q tool query . trace-path file
+            }
+          )
+        )
+      done
+    )
+    fi
     (with "a repo with a tiny commit history"
       (small-repo-in-sandbox
         title "ein tool estimate-hours"

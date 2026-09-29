@@ -62,18 +62,23 @@ impl query::Engine {
                     progress.inc();
                     for row in rows {
                         let (hash, mode, source_file_id, has_diff, lines_added, lines_removed): (
-                            [u8; 20],
+                            Vec<u8>,
                             usize,
                             Option<usize>,
                             bool,
                             usize,
                             usize,
                         ) = row?;
-                        let id = gix::ObjectId::from(hash);
-                        let commit_time = id.attach(&self.repo).object()?.into_commit().committer()?.time()?;
+                        let commit_id = gix::ObjectId::try_from(hash.as_slice())?;
+                        let commit_time = commit_id
+                            .attach(&self.repo)
+                            .object()?
+                            .into_commit()
+                            .committer()?
+                            .time()?;
                         let mode = FileMode::from_usize(mode).context("invalid file mode")?;
                         info.push(trace_path::Info {
-                            id,
+                            commit_id,
                             commit_time,
                             file_id,
                             mode,
@@ -93,7 +98,7 @@ impl query::Engine {
                     }
                 }
 
-                info.sort_by_key(|a| a.id);
+                info.sort_by_key(|a| a.commit_id);
                 let max_diff_lines = info
                     .iter()
                     .map(|i| i.diff.map_or(0, |d| d.lines_removed + d.lines_added))
@@ -104,7 +109,7 @@ impl query::Engine {
                 for info in self
                     .commits
                     .iter()
-                    .filter_map(|c| info.binary_search_by(|i| i.id.cmp(c)).ok().map(|idx| &info[idx]))
+                    .filter_map(|c| info.binary_search_by(|i| i.commit_id.cmp(c)).ok().map(|idx| &info[idx]))
                 {
                     found += 1;
                     info.write_to(&mut out, &self.repo, &seen, max_diff_lines)?;
@@ -152,7 +157,7 @@ mod trace_path {
 
     #[derive(Debug)]
     pub struct Info {
-        pub id: gix::ObjectId,
+        pub commit_id: gix::ObjectId,
         pub commit_time: gix::date::Time,
         pub file_id: usize,
         pub mode: FileMode,
@@ -168,7 +173,7 @@ mod trace_path {
             path_by_id: &HashMap<usize, String>,
             max_diff_lines: usize,
         ) -> std::io::Result<()> {
-            let id = self.id.attach(repo);
+            let id = self.commit_id.attach(repo);
             match self.source_file_id {
                 Some(source_id) => {
                     writeln!(

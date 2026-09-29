@@ -314,7 +314,20 @@ mod clap {
         }
 
         fn possible_values(&self) -> Option<Box<dyn Iterator<Item = PossibleValue> + '_>> {
-            Some(Box::new([PossibleValue::new("SHA1")].into_iter()))
+            #[cfg(all(feature = "sha1", not(feature = "sha256")))]
+            {
+                Some(Box::new([PossibleValue::new("SHA1")].into_iter()))
+            }
+            #[cfg(all(feature = "sha256", not(feature = "sha1")))]
+            {
+                Some(Box::new([PossibleValue::new("SHA256")].into_iter()))
+            }
+            #[cfg(all(feature = "sha256", feature = "sha1"))]
+            {
+                Some(Box::new(
+                    [PossibleValue::new("SHA1"), PossibleValue::new("SHA256")].into_iter(),
+                ))
+            }
         }
     }
 

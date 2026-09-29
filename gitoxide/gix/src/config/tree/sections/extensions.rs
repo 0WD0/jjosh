@@ -11,12 +11,10 @@ impl Extensions {
         keys::Boolean::new_boolean("relativeWorktrees", &config::Tree::EXTENSIONS);
     /// The `extensions.objectFormat` key.
     pub const OBJECT_FORMAT: ObjectFormat =
-        ObjectFormat::new_with_validate("objectFormat", &config::Tree::EXTENSIONS, validate::ObjectFormat).with_note(
-            "Support for SHA256 is prepared but not fully implemented yet. For now we abort when encountered",
-        );
+        ObjectFormat::new_with_validate("objectFormat", &config::Tree::EXTENSIONS, validate::ObjectFormat);
 }
 
-/// The `core.checkStat` key.
+/// The `extensions.objectFormat` key.
 pub type ObjectFormat = keys::Any<validate::ObjectFormat>;
 
 mod object_format {

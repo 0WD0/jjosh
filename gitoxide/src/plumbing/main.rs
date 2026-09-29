@@ -950,7 +950,7 @@ pub fn main() -> Result<()> {
                     progress_keep_open,
                     None,
                     move |_progress, _out, _err| {
-                        core::repository::index::from_list(file, index_output_path, force, skip_hash)
+                        core::repository::index::from_list(file, index_output_path, force, object_hash, skip_hash)
                     },
                 ),
                 free::index::Subcommands::CheckoutExclusive {
