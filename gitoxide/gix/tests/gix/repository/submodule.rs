@@ -3,6 +3,65 @@ mod modules_file {
     use crate::submodule::repo;
 
     #[test]
+    fn overrides_respect_section_trust_for_every_modules_source() -> Result {
+        use gix::submodule::config::Update;
+        use gix_sec::Trust;
+
+        let dir = gix_testtools::scripted_fixture_read_only("make_submodule_config_overrides.sh")?;
+        for source in ["worktree", "index", "tree"] {
+            let repo_dir = dir.join(source);
+            for (options, use_overrides) in [
+                (crate::restricted().with(Trust::Reduced), false),
+                (crate::restricted().with(Trust::Full), true),
+                (
+                    crate::restricted().with(Trust::Full).filter_config_section(|_| false),
+                    false,
+                ),
+                (
+                    crate::restricted().with(Trust::Reduced).filter_config_section(|_| true),
+                    true,
+                ),
+            ] {
+                let repo = gix::open_opts(&repo_dir, options)?;
+                let modules = repo.modules()?.expect("the module is available from each source");
+                assert_eq!(
+                    modules.update("s".into())?,
+                    Some(if use_overrides {
+                        Update::Command("override".into())
+                    } else {
+                        Update::Checkout
+                    }),
+                    "{source}: update commands must respect the repository's section filter"
+                );
+                for (field, original, overridden) in [
+                    ("url", "https://safe.example/s", "https://override.example/s"),
+                    ("ignore", "none", "all"),
+                    ("branch", "main", "override"),
+                    ("fetchRecurseSubmodules", "true", "false"),
+                ] {
+                    assert_eq!(
+                        modules.config().string(&format!("submodule.s.{field}")),
+                        Some(if use_overrides { overridden } else { original }.into()),
+                        "{source}: {field} uses the same trust policy as update"
+                    );
+                }
+            }
+            let repo = gix::open_opts(
+                &repo_dir,
+                crate::restricted()
+                    .with(Trust::Reduced)
+                    .config_overrides(["submodule.s.update=!trusted"]),
+            )?;
+            assert_eq!(
+                repo.modules()?.expect("module exists").update("s".into())?,
+                Some(Update::Command("trusted".into())),
+                "{source}: trusted API overrides remain usable in reduced-trust repositories"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
     fn none_if_not_present() -> Result {
         let repo = repo("module1")?;
         assert!(repo.open_modules_file()?.is_none(), "it's OK to not have such a file");
@@ -103,8 +162,7 @@ mod advisory {
     use crate::Result;
     use gix_testtools::tempfile;
 
-    /// Reproducer for GHSA-pg4w-g64p-qwhj: `Repository::open_modules_file()` and
-    /// `Repository::submodules()` currently follow a symlinked worktree `.gitmodules`, allowing
+    /// Regression test for GHSA-pg4w-g64p-qwhj: a symlinked worktree `.gitmodules` must not allow
     /// attacker-controlled bytes outside the repository to define submodule configuration.
     #[test]
     fn symlinked_gitmodules_are_rejected() -> Result {
@@ -122,15 +180,56 @@ mod advisory {
         unix_fs::symlink(&outside_modules, repo_dir.join(".gitmodules"))?;
         std::fs::create_dir(repo_dir.join("escaped"))?;
 
-        let repo = gix::open_opts(&repo_dir, crate::restricted())?;
-        assert!(
-            repo.open_modules_file()?.is_none(),
-            "worktree `.gitmodules` symlinks should not be followed outside the repository"
-        );
-        assert!(
-            repo.submodules()?.is_none(),
-            "attacker-controlled `.gitmodules` content outside the repository should not become active submodule configuration"
-        );
+        for target_exists in [true, false] {
+            if !target_exists {
+                std::fs::remove_file(&outside_modules)?;
+            }
+            let repo = gix::open_opts(&repo_dir, crate::restricted())?;
+            assert!(
+                repo.open_modules_file()?.is_none(),
+                "live and dangling worktree `.gitmodules` symlinks must both be ignored"
+            );
+            assert!(
+                repo.submodules()?.is_none(),
+                "attacker-controlled `.gitmodules` content outside the repository should not become active submodule configuration"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn symlinked_gitmodules_fall_back_to_index_and_tree() -> Result {
+        let temp = tempfile::tempdir()?;
+        let repo_dir = temp.path().join("repo");
+        crate::init_repo_isolated(&repo_dir, gix::create::Kind::WithWorktree)?;
+        let modules_path = repo_dir.join(".gitmodules");
+        std::fs::write(
+            &modules_path,
+            "[submodule \"safe\"]\npath = safe\nurl = https://example.invalid/safe\n",
+        )?;
+        gix_testtools::git(&repo_dir, "add .gitmodules")?;
+        gix_testtools::git(&repo_dir, "commit -m modules")?;
+        std::fs::remove_file(&modules_path)?;
+        let outside_modules = temp.path().join("outside.gitmodules");
+        std::fs::write(
+            &outside_modules,
+            "[submodule \"escaped\"]\npath = escaped\nurl = https://example.invalid/escaped\n",
+        )?;
+        std::os::unix::fs::symlink(&outside_modules, &modules_path)?;
+
+        for source in ["index", "tree"] {
+            if source == "tree" {
+                std::fs::remove_file(repo_dir.join(".git/index"))?;
+            }
+            let repo = gix::open_opts(&repo_dir, crate::restricted())?;
+            assert!(repo.open_modules_file()?.is_none(), "the worktree symlink is ignored");
+            let modules = repo.modules()?.expect("tracked `.gitmodules` remains available");
+            assert_eq!(
+                modules.names().collect::<Vec<_>>(),
+                &["safe"],
+                "{source}: only tracked configuration may define submodules"
+            );
+        }
         Ok(())
     }
 }

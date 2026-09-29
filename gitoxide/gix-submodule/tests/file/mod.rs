@@ -541,6 +541,46 @@ mod append_submodule_overrides {
     use crate::file::submodule;
 
     #[test]
+    fn overrides_preserve_their_section_metadata() -> Result {
+        use gix_config::{Source, file::Metadata};
+
+        let mut module = submodule(
+            "[submodule.a]
+                url = from-module
+                update = checkout",
+        );
+        let mut config = gix_config::File::new(Metadata::from(Source::Local).at("repository.config"));
+        config
+            .new_section("submodule", "a")?
+            .push("url", Some("local".into()))?;
+        config
+            .new_section_with_meta("submodule", "a", Metadata::from(Source::User).at("user.config"))?
+            .push("update", Some("!trusted".into()))?;
+        config
+            .new_section_with_meta("submodule", "other", Metadata::api())?
+            .push("url", Some("api".into()))?;
+        module.append_submodule_overrides(&config)?;
+        assert_eq!(
+            module.names().collect::<Vec<_>>(),
+            ["a"],
+            "API overrides do not define new modules"
+        );
+        for (key, source, path) in [
+            ("submodule.a.url", Source::Local, "repository.config"),
+            ("submodule.a.update", Source::User, "user.config"),
+        ] {
+            let (_, section) = module.config().raw_value_with_section_filter(key, |_| true)?;
+            assert_eq!(section.meta().source, source, "each winning value keeps its own origin");
+            assert_eq!(
+                section.meta().path.as_deref(),
+                Some(std::path::Path::new(path)),
+                "source paths survive merging"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
     fn last_of_multiple_values_wins() -> Result {
         let mut module = submodule("[submodule.a] url = from-module");
         let repo_config = gix_config::File::from_str(

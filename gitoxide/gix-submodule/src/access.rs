@@ -39,7 +39,7 @@ impl File {
             .filter_map(move |s| {
                 s.header()
                     .subsection_name()
-                    .filter(|_| s.meta().source == crate::init::META_MARKER)
+                    .filter(|_| std::ptr::eq(s.meta(), self.config.meta()))
                     .filter(|name| seen.insert(*name))
             })
     }
