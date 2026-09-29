@@ -137,6 +137,71 @@ fn system_prefix() {
     );
 }
 
+#[cfg(windows)]
+mod windows_prefix {
+    #[test]
+    fn mixed_installation_keeps_mingw64_active() -> gix_testtools::Result {
+        mixed_installation("mingw64")
+    }
+
+    #[test]
+    fn mixed_installation_keeps_ucrt64_active() -> gix_testtools::Result {
+        mixed_installation("ucrt64")
+    }
+
+    #[test]
+    fn shortcut_uses_the_same_installation_and_system_config() -> gix_testtools::Result {
+        if gix_testtools::run_in_isolated_process()? {
+            return Ok(());
+        }
+        let installation = tempfile::tempdir()?;
+        std::fs::create_dir(installation.path().join("ucrt64"))?;
+        let _env =
+            gix_testtools::Env::new().set("EXEPATH", installation.path().to_str().expect("UTF-8 temporary path"));
+        let config = installation.path().join("etc/gitconfig");
+        assert_eq!(
+            gix_path::env::installation_config(),
+            Some(config.as_path()),
+            "Git for Windows keeps its installation config in the top-level etc directory"
+        );
+        assert_eq!(
+            gix_path::env::system_config(),
+            Some(config.as_path()),
+            "the EXEPATH shortcut must report that same file as the system config"
+        );
+        assert!(
+            gix_path::env::installation_config_is_system(),
+            "the installation file has system scope"
+        );
+        Ok(())
+    }
+
+    fn mixed_installation(runtime: &str) -> gix_testtools::Result {
+        if gix_testtools::run_in_isolated_process()? {
+            return Ok(());
+        }
+        let installation = tempfile::tempdir()?;
+        for directory in ["mingw64", "ucrt64"] {
+            std::fs::create_dir(installation.path().join(directory))?;
+        }
+        let prefix = installation.path().join(runtime);
+        // Let the real Git report the selected runtime without copying an installation.
+        // Both directories exist, so EXEPATH must fall back to this --exec-path result.
+        let _env = gix_testtools::Env::new()
+            .set("EXEPATH", installation.path().to_str().expect("UTF-8 temporary path"))
+            .set(
+                "GIT_EXEC_PATH",
+                prefix.join("libexec/git-core").to_str().expect("UTF-8 temporary path"),
+            );
+        assert_eq!(
+            gix_path::env::system_prefix(),
+            Some(prefix.as_path()),
+            "an extra runtime directory must not change the prefix selected by Git"
+        );
+        Ok(())
+    }
+}
+
 #[test]
 fn home_dir() {
     assert_ne!(

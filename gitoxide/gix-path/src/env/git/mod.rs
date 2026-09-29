@@ -105,20 +105,17 @@ struct ConfigPaths {
     system: Option<BString>,
 }
 
-/// Invoke the git executable to obtain the installation and system configuration paths, which are cached and returned.
+/// Obtain and cache the installation and system configuration paths.
 ///
-/// The git executable is the one found in `PATH` or an alternative location.
+/// An unambiguous `EXEPATH` identifies Git for Windows' conventional configuration location.
+/// Otherwise, query the Git executable found in `PATH` or an alternative location.
 static GIT_CONFIG_PATHS: LazyLock<ConfigPaths> = LazyLock::new(|| {
     #[cfg(windows)]
     if let Some(system_prefix) = super::system_prefix_from_exepath_var(|key| std::env::var_os(key)) {
-        let installation_config = system_prefix
-            .parent()
-            .map(super::config_path_from_system_prefix)
-            .and_then(|path| crate::os_string_into_bstring(path.into()).ok());
         let system_config =
             crate::os_string_into_bstring(super::config_path_from_system_prefix(&system_prefix).into()).ok();
         return ConfigPaths {
-            installation: installation_config,
+            installation: system_config.clone(),
             installation_is_system: true,
             system: system_config,
         };

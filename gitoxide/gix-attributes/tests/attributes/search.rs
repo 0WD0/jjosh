@@ -67,7 +67,9 @@ fn baseline() -> gix_error::TestResult {
     let mut buf = Vec::new();
     // Due to the way our setup differs from gits dynamic stack (which involves trying to read files from disk
     // by path) we can only test one case baseline, so we require multiple platforms (or filesystems) to run this.
-    let case = if gix_fs::Capabilities::probe("../.git".as_ref()).ignore_case {
+    // Probe a disposable directory; a linked checkout's .git is a file, and the probe can write files.
+    let probe = gix_testtools::tempfile::tempdir()?;
+    let case = if gix_fs::Capabilities::probe_dir(probe.path()).ignore_case {
         Case::Fold
     } else {
         Case::Sensitive

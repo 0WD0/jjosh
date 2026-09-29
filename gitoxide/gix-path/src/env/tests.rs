@@ -18,9 +18,56 @@ impl Drop for CurrentDir {
 }
 
 mod system_prefix {
-    use super::{super::system_prefix_from_exepath_var, CurrentDir};
+    use super::{
+        super::{system_prefix_from_core_dir, system_prefix_from_exepath_var},
+        CurrentDir,
+    };
     use serial_test::serial;
-    use std::{ffi::OsString, path::PathBuf};
+    use std::{
+        ffi::OsString,
+        path::{Path, PathBuf},
+    };
+
+    #[test]
+    fn core_dir_keeps_the_runtime_prefix() {
+        for (core_dir, prefix) in [
+            ("C:/Git/mingw64/libexec/git-core", "C:/Git/mingw64"),
+            ("C:/Git/ucrt64/libexec/git-core", "C:/Git/ucrt64"),
+            ("C:/Git/mingw32/libexec/git-core", "C:/Git/mingw32"),
+            ("C:/Git/clangarm64/libexec/git-core", "C:/Git/clangarm64"),
+            ("C:/libexec/Git/ucrt64/libexec/git-core", "C:/libexec/Git/ucrt64"),
+        ] {
+            assert_eq!(
+                system_prefix_from_core_dir(|| Some(Path::new(core_dir))),
+                Some(PathBuf::from(prefix)),
+                "the runtime prefix is the directory immediately above Git's libexec directory"
+            );
+        }
+    }
+
+    #[test]
+    fn core_dir_without_a_runtime_prefix() {
+        assert_eq!(system_prefix_from_core_dir(|| None), None);
+        for core_dir in ["C:/Git/ucrt64/bin", "libexec/git-core"] {
+            assert_eq!(
+                system_prefix_from_core_dir(|| Some(Path::new(core_dir))),
+                None,
+                "a recognizable, nonempty prefix is required"
+            );
+        }
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn config_is_next_to_the_runtime_prefix() {
+        for runtime in ["mingw64", "ucrt64", "mingw32", "clangarm64"] {
+            assert_eq!(
+                super::super::config_path_from_system_prefix(&Path::new("C:/Git").join(runtime)),
+                PathBuf::from("C:/Git/etc/gitconfig"),
+                "Git for Windows builds ETC_GITCONFIG as ../etc/gitconfig"
+            );
+        }
+    }
 
     fn if_exepath(key: &str, value: impl Into<OsString>) -> Option<OsString> {
         match key {
