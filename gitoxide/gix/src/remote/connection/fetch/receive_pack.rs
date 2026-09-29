@@ -154,7 +154,11 @@ where
         };
         let cache = graph_repo.commit_graph_if_enabled().ok().flatten();
         let mut graph = graph_repo.revision_graph(cache.as_ref());
-        let alternates = repo.objects.store_ref().alternate_db_paths()?;
+        let alternates = if self.negotiation_tips.is_none() {
+            repo.objects.store_ref().alternate_db_paths()?
+        } else {
+            Vec::new()
+        };
         let mut negotiate = Negotiate {
             objects: &graph_repo.objects,
             refs: &graph_repo.refs,
@@ -162,6 +166,7 @@ where
             alternates,
             ref_map,
             shallow: &self.shallow,
+            negotiation_tips: self.negotiation_tips.as_deref(),
             tags: con.remote.fetch_tags,
             negotiator,
             open_options: repo.options.clone(),
@@ -264,6 +269,7 @@ struct Negotiate<'a, 'b, 'c> {
     alternates: Vec<PathBuf>,
     ref_map: &'a gix_protocol::fetch::RefMap,
     shallow: &'a gix_protocol::fetch::Shallow,
+    negotiation_tips: Option<&'a [gix_hash::ObjectId]>,
     tags: gix_protocol::fetch::Tags,
     negotiator: Box<dyn gix_negotiate::Negotiator>,
     open_options: crate::open::Options,
@@ -292,6 +298,7 @@ impl gix_protocol::fetch::Negotiate for Negotiate<'_, '_, '_> {
             &mut *self.graph,
             self.ref_map,
             self.shallow,
+            self.negotiation_tips,
             negotiate::make_refmapping_ignore_predicate(self.tags, self.ref_map),
         )
     }

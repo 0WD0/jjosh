@@ -114,6 +114,9 @@ pub struct Round {
 ///     - The references known on the remote, as previously obtained with [`crate::Handshake::prepare_lsrefs_or_extract_refmap()`].
 /// * `shallow`
 ///     - How to deal with shallow repositories. It does affect how negotiations are performed.
+/// * `negotiation_tips`
+///     - If set, seed negotiation only from these local commit IDs, without enumerating local or alternate refs.
+///       An empty slice starts without any local tips. `None` uses all refs.
 /// * `mapping_is_ignored`
 ///     - `f(mapping) -> bool` returns `true` if the given mapping should not participate in change tracking.
 ///     - [`make_refmapping_ignore_predicate()`] is a typical implementation for this.
@@ -126,6 +129,7 @@ pub fn mark_complete_and_common_ref<Out, F, E>(
     graph: &mut gix_negotiate::Graph<'_, '_>,
     ref_map: &RefMap,
     shallow: &Shallow,
+    negotiation_tips: Option<&[gix_hash::ObjectId]>,
     mapping_is_ignored: impl Fn(&refmap::Mapping) -> bool,
 ) -> Result<Action, Error>
 where
@@ -203,9 +207,24 @@ where
     // color our commits as complete as identified by references, unconditionally
     // (`git` is conditional here based on `deepen`, but it doesn't make sense and it's hard to extract from history when that happened).
     let mut queue = Queue::new();
-    mark_all_refs_in_repo(refs, objects, graph, &mut queue, Flags::COMPLETE)?;
-    for (alt_refs, alt_objs) in alternates().map_err(|err| Error::AlternateRefsAndObjects(err.into()))? {
-        mark_all_refs_in_repo(&alt_refs, &alt_objs, graph, &mut queue, Flags::COMPLETE)?;
+    if let Some(tips) = negotiation_tips {
+        for id in tips {
+            let mut is_complete = false;
+            if let Some(commit) = graph
+                .get_or_insert_commit(*id, |md| {
+                    is_complete = md.flags.contains(Flags::COMPLETE);
+                    md.flags |= Flags::COMPLETE;
+                })?
+                .filter(|_| !is_complete)
+            {
+                queue.insert(commit.commit_time, *id);
+            }
+        }
+    } else {
+        mark_all_refs_in_repo(refs, objects, graph, &mut queue, Flags::COMPLETE)?;
+        for (alt_refs, alt_objs) in alternates().map_err(|err| Error::AlternateRefsAndObjects(err.into()))? {
+            mark_all_refs_in_repo(&alt_refs, &alt_objs, graph, &mut queue, Flags::COMPLETE)?;
+        }
     }
     // Keep track of the tips, which happen to be on our queue right, before we traverse the graph with cutoff.
     let tips = if let Some(cutoff) = cutoff_date {

@@ -80,6 +80,8 @@ jjosh git fetch --project parser --branch main
 jjosh new @ main#parser@origin
 #+end_src
 
+fetch 的协商起点只取当前 endpoint 已保留的原始提交，不遍历 monorepo 的其他项目历史或内部保留引用。首次获取不发送无关的 have，后续获取继续复用原始提交做增量协商；这不改变默认获取完整历史的行为。
+
 外部仓库根目录成为 =libs/parser/=。若只要大仓库里的 =src/parser/=，把 remote add 换成：
 
 #+begin_src sh

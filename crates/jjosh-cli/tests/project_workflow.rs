@@ -168,6 +168,87 @@ fn create_client(root: &Path, colocated: bool) -> PathBuf {
 }
 
 #[test]
+fn project_fetch_negotiates_only_retained_endpoint_history() {
+    // Filtered sources use an alternate ODB backed by the monorepo; neither that
+    // alternate's refs nor the whole-project destination's refs should seed haves.
+    for filtered in [false, true] {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let (work, remote, first_tip) = create_remote(root, "scoped-fetch");
+        let client = create_client(root, false);
+        jjosh(&client, &["project", "add", "p", "--path", "p"]);
+        let url = format!("file://{}", remote.display());
+        let mut args = vec!["git", "remote", "add", "upstream", &url, "--project", "p"];
+        if filtered {
+            args.extend(["--filter", ":/src"]);
+        } else {
+            args.push("--whole");
+        }
+        jjosh(&client, &args);
+
+        let trace = root.join("upload-pack.trace");
+        let fetch = || {
+            fs::write(&trace, "").unwrap();
+            let program = Path::new(env!("CARGO_BIN_EXE_jjosh"));
+            let args = [
+                "git", "fetch", "--project", "p", "--remote", "upstream", "--branch", "main",
+            ];
+            let output = Command::new(program)
+                .args(args)
+                .current_dir(&client)
+                .env("GIT_TRACE_PACKET", &trace)
+                .output()
+                .unwrap();
+            assert_success(&output, program, &args);
+            fs::read_to_string(&trace).unwrap()
+        };
+        let initial = fetch();
+        assert!(
+            initial.contains(&format!("want {first_tip}")),
+            "the initial request must fetch the advertised raw history: {initial}"
+        );
+        assert!(
+            !initial.contains("have "),
+            "an unimported endpoint must not negotiate unrelated monorepo history: {initial}"
+        );
+        let first_canonical = commit_id(&client, "main#p@upstream");
+        let value_path = if filtered { "p/value.txt" } else { "p/src/value.txt" };
+        assert_eq!(
+            jjosh(&client, &["file", "show", "-r", "main#p@upstream", value_path]).stdout,
+            b"scoped-fetch-v1\n"
+        );
+
+        fs::write(work.join("src/value.txt"), "scoped-fetch-v2\n").unwrap();
+        git(&work, &["add", "."]);
+        git(&work, &["commit", "-m", "advance source"]);
+        let next_tip = git(&work, &["rev-parse", "HEAD"]).trim().to_owned();
+        git(&work, &["push", remote.to_str().unwrap(), "main"]);
+        let incremental = fetch();
+        let haves: Vec<_> = incremental
+            .lines()
+            .filter_map(|line| line.split_once("have ").map(|(_, id)| id.trim()))
+            .collect();
+        assert!(
+            incremental.contains(&format!("want {next_tip}")),
+            "the next request must fetch the new advertised tip: {incremental}"
+        );
+        assert!(
+            haves.contains(&first_tip.as_str()),
+            "incremental negotiation must reuse the retained raw tip: {incremental}"
+        );
+        assert!(
+            haves.iter().all(|id| *id == first_tip),
+            "no canonical or unrelated history may be sent as haves: {incremental}"
+        );
+        assert_eq!(commit_id(&client, "main#p@upstream-"), first_canonical);
+        assert_eq!(
+            jjosh(&client, &["file", "show", "-r", "main#p@upstream", value_path]).stdout,
+            b"scoped-fetch-v2\n"
+        );
+    }
+}
+
+#[test]
 fn slow_project_fetch_does_not_block_read_only_log() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path();

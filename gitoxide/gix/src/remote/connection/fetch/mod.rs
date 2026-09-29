@@ -171,6 +171,7 @@ where
             reflog_message: None,
             write_packed_refs: WritePackedRefs::Never,
             shallow: Default::default(),
+            negotiation_tips: None,
         })
     }
 }
@@ -221,6 +222,7 @@ where
     reflog_message: Option<RefLogMessage>,
     write_packed_refs: WritePackedRefs,
     shallow: remote::fetch::Shallow,
+    negotiation_tips: Option<Vec<gix_hash::ObjectId>>,
 }
 
 /// Builder
@@ -249,6 +251,15 @@ where
     /// Set the reflog message to use when updating refs after fetching a pack.
     pub fn with_reflog_message(mut self, reflog_message: RefLogMessage) -> Self {
         self.inner.reflog_message = reflog_message.into();
+        self
+    }
+
+    /// Seed negotiation only from the given local commit IDs instead of all local and alternate refs.
+    ///
+    /// This can avoid scanning unrelated histories in repositories with many refs. An empty vector
+    /// starts without any local tips; it does not make the received history shallow.
+    pub fn with_negotiation_tips(mut self, tips: Vec<gix_hash::ObjectId>) -> Self {
+        self.inner.negotiation_tips = Some(tips);
         self
     }
 
