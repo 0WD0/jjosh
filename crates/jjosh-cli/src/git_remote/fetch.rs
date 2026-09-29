@@ -518,7 +518,21 @@ pub(super) async fn run(
             source.migrate_context(&git, &prefix).map_err(user_error)?;
         }
         let mut old_raw = BTreeMap::new();
+        let mut negotiation_tips = Vec::new();
         for (name, id) in refs_prefixed(raw_git, &raw_prefix)? {
+            match raw_git.find_header(id).map_err(user_error)?.kind() {
+                gix::object::Kind::Commit => negotiation_tips.push(id),
+                gix::object::Kind::Tag => {
+                    let object = raw_git
+                        .find_object(id)
+                        .and_then(|object| object.peel_tags_to_end())
+                        .map_err(user_error)?;
+                    if object.kind == gix::object::Kind::Commit {
+                        negotiation_tips.push(object.id);
+                    }
+                }
+                _ => {}
+            }
             let source = &name[raw_prefix.len()..];
             if source_ref(source).is_some_and(|(kind, name)| selected(kind, name))
                 || source.strip_prefix("pins/").is_some_and(|pin| {
@@ -534,6 +548,8 @@ pub(super) async fn run(
                     .or_insert_with(Converted::absent);
             }
         }
+        negotiation_tips.sort_unstable();
+        negotiation_tips.dedup();
         let outcome = crate::git_transport::fetch::fetch(
             if options.fetch_url.is_some() {
                 raw_git.remote_at(endpoint.as_str()).map_err(user_error)?
@@ -550,6 +566,7 @@ pub(super) async fn run(
             },
             &revisions,
             shallow,
+            negotiation_tips,
             &AtomicBool::new(false),
         )
         .map_err(user_error)?;

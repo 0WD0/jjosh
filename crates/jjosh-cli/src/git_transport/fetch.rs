@@ -23,11 +23,14 @@ pub(crate) struct Outcome {
 /// Neither connection has destination refspecs or automatic tag mappings. The
 /// second connection requests literal object IDs, never names that may have moved
 /// since discovery. A server refusing those IDs fails the operation.
+/// Only the caller's retained raw commit tips seed negotiation, not unrelated
+/// canonical histories or internal GC retention refs in the monorepo.
 pub(crate) fn fetch(
     remote: gix::Remote<'_>,
     select: impl Fn(&Ref) -> bool,
     revisions: &[gix::ObjectId],
     shallow: gix::remote::fetch::Shallow,
+    negotiation_tips: Vec<gix::ObjectId>,
     interrupt: &AtomicBool,
 ) -> anyhow::Result<Outcome> {
     ensure!(!interrupt.load(Ordering::Relaxed), "Git fetch interrupted");
@@ -62,6 +65,7 @@ pub(crate) fn fetch(
             .filter_map(|reference| reference.unpack().1.map(ToOwned::to_owned))
             .chain(revisions.iter().copied()),
         shallow,
+        negotiation_tips,
         interrupt,
     )?;
     Ok(Outcome {
@@ -76,6 +80,7 @@ fn receive_objects(
     remote: gix::Remote<'_>,
     ids: impl IntoIterator<Item = gix::ObjectId>,
     shallow: gix::remote::fetch::Shallow,
+    negotiation_tips: Vec<gix::ObjectId>,
     interrupt: &AtomicBool,
 ) -> anyhow::Result<Vec<PathBuf>> {
     ensure!(!interrupt.load(Ordering::Relaxed), "Git fetch interrupted");
@@ -116,6 +121,7 @@ fn receive_objects(
     );
     let outcome = prepared
         .with_shallow(shallow)
+        .with_negotiation_tips(negotiation_tips)
         .receive(Discard, interrupt)
         .context("Receiving advertisement-pinned Git objects")?;
     let (keep_path, edits) = match outcome.status {
