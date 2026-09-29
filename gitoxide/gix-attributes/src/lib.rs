@@ -143,6 +143,7 @@ pub enum Source {
     GitInstallation,
     /// System-wide attributes file. This is typically defined as
     /// `$(prefix)/etc/gitattributes` (where prefix is the git-installation directory).
+    /// Git for Windows uses `../etc/gitattributes` relative to its runtime prefix instead.
     System,
     /// This is `<xdg-config-home>/git/attributes` and is git application configuration per user.
     ///

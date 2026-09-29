@@ -72,6 +72,7 @@ mod locations {
             if cfg!(target_pointer_width = "64") {
                 pathbuf_vec![
                     r"C:\Program Files\Git\clangarm64\bin",
+                    r"C:\Program Files\Git\ucrt64\bin",
                     r"C:\Program Files\Git\mingw64\bin",
                 ]
             } else {
@@ -96,6 +97,7 @@ mod locations {
             ),
             pathbuf_vec![
                 r"C:\Program Files\Git\clangarm64\bin",
+                r"C:\Program Files\Git\ucrt64\bin",
                 r"C:\Program Files\Git\mingw64\bin",
                 r"C:\Program Files (x86)\Git\mingw32\bin",
             ],
@@ -113,14 +115,17 @@ mod locations {
             if cfg!(target_pointer_width = "64") {
                 pathbuf_vec![
                     r"Z:\wi\de\Git\clangarm64\bin",
+                    r"Z:\wi\de\Git\ucrt64\bin",
                     r"Z:\wi\de\Git\mingw64\bin",
                     r"Y:\nar\row\Git\mingw32\bin",
                     r"X:\cur\rent\Git\clangarm64\bin",
+                    r"X:\cur\rent\Git\ucrt64\bin",
                     r"X:\cur\rent\Git\mingw64\bin",
                 ]
             } else {
                 pathbuf_vec![
                     r"Z:\wi\de\Git\clangarm64\bin",
+                    r"Z:\wi\de\Git\ucrt64\bin",
                     r"Z:\wi\de\Git\mingw64\bin",
                     r"Y:\nar\row\Git\mingw32\bin",
                     r"X:\cur\rent\Git\mingw32\bin",
@@ -135,7 +140,11 @@ mod locations {
             locations_from!(
                 "ProgramW6432" => r"Z:\wi\de",
             ),
-            pathbuf_vec![r"Z:\wi\de\Git\clangarm64\bin", r"Z:\wi\de\Git\mingw64\bin"],
+            pathbuf_vec![
+                r"Z:\wi\de\Git\clangarm64\bin",
+                r"Z:\wi\de\Git\ucrt64\bin",
+                r"Z:\wi\de\Git\mingw64\bin",
+            ],
         );
     }
 
@@ -150,12 +159,14 @@ mod locations {
             if cfg!(target_pointer_width = "64") {
                 pathbuf_vec![
                     r"Z:\wi\de\Git\clangarm64\bin",
+                    r"Z:\wi\de\Git\ucrt64\bin",
                     r"Z:\wi\de\Git\mingw64\bin",
                     r"Y:\nar\row\Git\mingw32\bin",
                 ]
             } else {
                 pathbuf_vec![
                     r"Z:\wi\de\Git\clangarm64\bin",
+                    r"Z:\wi\de\Git\ucrt64\bin",
                     r"Z:\wi\de\Git\mingw64\bin",
                     r"Y:\nar\row\Git\mingw32\bin",
                     r"Z:\wi\de\Git\mingw32\bin",
@@ -184,6 +195,7 @@ mod locations {
             ),
             pathbuf_vec![
                 r"C:\Users\alice\AppData\Local\Programs\Git\clangarm64\bin",
+                r"C:\Users\alice\AppData\Local\Programs\Git\ucrt64\bin",
                 r"C:\Users\alice\AppData\Local\Programs\Git\mingw64\bin",
                 r"C:\Users\alice\AppData\Local\Programs\Git\mingw32\bin",
             ],
@@ -198,6 +210,7 @@ mod locations {
             ),
             pathbuf_vec![
                 r"\\.\Q:\Documents and Settings\bob\weird\sub\dir\Programs\Git\clangarm64\bin",
+                r"\\.\Q:\Documents and Settings\bob\weird\sub\dir\Programs\Git\ucrt64\bin",
                 r"\\.\Q:\Documents and Settings\bob\weird\sub\dir\Programs\Git\mingw64\bin",
                 r"\\.\Q:\Documents and Settings\bob\weird\sub\dir\Programs\Git\mingw32\bin",
             ],
@@ -234,14 +247,17 @@ mod locations {
             if cfg!(target_pointer_width = "64") {
                 pathbuf_vec![
                     r"C:\Users\alice\AppData\Local\Programs\Git\clangarm64\bin",
+                    r"C:\Users\alice\AppData\Local\Programs\Git\ucrt64\bin",
                     r"C:\Users\alice\AppData\Local\Programs\Git\mingw64\bin",
                     r"C:\Users\alice\AppData\Local\Programs\Git\mingw32\bin",
                     r"C:\Program Files\Git\clangarm64\bin",
+                    r"C:\Program Files\Git\ucrt64\bin",
                     r"C:\Program Files\Git\mingw64\bin",
                 ]
             } else {
                 pathbuf_vec![
                     r"C:\Users\alice\AppData\Local\Programs\Git\clangarm64\bin",
+                    r"C:\Users\alice\AppData\Local\Programs\Git\ucrt64\bin",
                     r"C:\Users\alice\AppData\Local\Programs\Git\mingw64\bin",
                     r"C:\Users\alice\AppData\Local\Programs\Git\mingw32\bin",
                     r"C:\Program Files\Git\mingw32\bin",
@@ -267,9 +283,11 @@ mod locations {
             ),
             pathbuf_vec![
                 r"C:\Users\bob\AppData\Local\Programs\Git\clangarm64\bin",
+                r"C:\Users\bob\AppData\Local\Programs\Git\ucrt64\bin",
                 r"C:\Users\bob\AppData\Local\Programs\Git\mingw64\bin",
                 r"C:\Users\bob\AppData\Local\Programs\Git\mingw32\bin",
                 r"C:\Program Files\Git\clangarm64\bin",
+                r"C:\Program Files\Git\ucrt64\bin",
                 r"C:\Program Files\Git\mingw64\bin",
                 r"C:\Program Files (x86)\Git\mingw32\bin",
             ],
@@ -288,20 +306,25 @@ mod locations {
             if cfg!(target_pointer_width = "64") {
                 pathbuf_vec![
                     r"W:\us\er\Programs\Git\clangarm64\bin",
+                    r"W:\us\er\Programs\Git\ucrt64\bin",
                     r"W:\us\er\Programs\Git\mingw64\bin",
                     r"W:\us\er\Programs\Git\mingw32\bin",
                     r"Z:\wi\de\Git\clangarm64\bin",
+                    r"Z:\wi\de\Git\ucrt64\bin",
                     r"Z:\wi\de\Git\mingw64\bin",
                     r"Y:\nar\row\Git\mingw32\bin",
                     r"X:\cur\rent\Git\clangarm64\bin",
+                    r"X:\cur\rent\Git\ucrt64\bin",
                     r"X:\cur\rent\Git\mingw64\bin",
                 ]
             } else {
                 pathbuf_vec![
                     r"W:\us\er\Programs\Git\clangarm64\bin",
+                    r"W:\us\er\Programs\Git\ucrt64\bin",
                     r"W:\us\er\Programs\Git\mingw64\bin",
                     r"W:\us\er\Programs\Git\mingw32\bin",
                     r"Z:\wi\de\Git\clangarm64\bin",
+                    r"Z:\wi\de\Git\ucrt64\bin",
                     r"Z:\wi\de\Git\mingw64\bin",
                     r"Y:\nar\row\Git\mingw32\bin",
                     r"X:\cur\rent\Git\mingw32\bin",
@@ -319,9 +342,11 @@ mod locations {
             ),
             pathbuf_vec![
                 r"W:\us\er\Programs\Git\clangarm64\bin",
+                r"W:\us\er\Programs\Git\ucrt64\bin",
                 r"W:\us\er\Programs\Git\mingw64\bin",
                 r"W:\us\er\Programs\Git\mingw32\bin",
                 r"Z:\wi\de\Git\clangarm64\bin",
+                r"Z:\wi\de\Git\ucrt64\bin",
                 r"Z:\wi\de\Git\mingw64\bin",
             ],
         );
@@ -339,17 +364,21 @@ mod locations {
             if cfg!(target_pointer_width = "64") {
                 pathbuf_vec![
                     r"Y:\nar\row\Programs\Git\clangarm64\bin",
+                    r"Y:\nar\row\Programs\Git\ucrt64\bin",
                     r"Y:\nar\row\Programs\Git\mingw64\bin",
                     r"Y:\nar\row\Programs\Git\mingw32\bin",
                     r"Z:\wi\de\Git\clangarm64\bin",
+                    r"Z:\wi\de\Git\ucrt64\bin",
                     r"Z:\wi\de\Git\mingw64\bin",
                 ]
             } else {
                 pathbuf_vec![
                     r"Y:\nar\row\Programs\Git\clangarm64\bin",
+                    r"Y:\nar\row\Programs\Git\ucrt64\bin",
                     r"Y:\nar\row\Programs\Git\mingw64\bin",
                     r"Y:\nar\row\Programs\Git\mingw32\bin",
                     r"Z:\wi\de\Git\clangarm64\bin",
+                    r"Z:\wi\de\Git\ucrt64\bin",
                     r"Z:\wi\de\Git\mingw64\bin",
                     r"Z:\wi\de\Git\mingw32\bin",
                 ]
@@ -596,6 +625,7 @@ mod locations {
     struct RelativeUserGitBinPaths<'a> {
         x86: &'a Path,
         x64: &'a Path,
+        x64_legacy: &'a Path,
         arm64: &'a Path,
     }
 
@@ -603,19 +633,23 @@ mod locations {
         /// Assert that `locations` leads with the given user path prefix, and extract the suffixes.
         fn assert_from(pf_user: &'a Path, locations: &'static [PathBuf]) -> Self {
             match locations {
-                [path1, path2, path3, ..] => {
+                [path1, path2, path3, path4, ..] => {
                     let suffix_user_arm64 = path1
                         .strip_prefix(pf_user)
                         .expect("It gives a per-user 64-bit ARM64 path and lists it first");
                     let suffix_user_x64 = path2
                         .strip_prefix(pf_user)
-                        .expect("It gives a per-user 64-bit x86 path and lists it second");
-                    let suffix_user_x86 = path3
+                        .expect("It gives a per-user UCRT64 path and lists it second");
+                    let suffix_user_x64_legacy = path3
                         .strip_prefix(pf_user)
-                        .expect("It gives a per-user 32-bit x86 path and lists it third");
+                        .expect("It gives a per-user legacy 64-bit x86 path and lists it third");
+                    let suffix_user_x86 = path4
+                        .strip_prefix(pf_user)
+                        .expect("It gives a per-user 32-bit x86 path and lists it fourth");
                     Self {
                         x86: suffix_user_x86,
                         x64: suffix_user_x64,
+                        x64_legacy: suffix_user_x64_legacy,
                         arm64: suffix_user_arm64,
                     }
                 }
@@ -630,7 +664,12 @@ mod locations {
         /// Assert that suffixes are common Git install locations relative to a program files directory.
         fn assert_architectures(&self) {
             assert_eq!(self.x86, Path::new("Git/mingw32/bin"));
-            assert_eq!(self.x64, Path::new("Git/mingw64/bin"));
+            assert_eq!(self.x64, Path::new("Git/ucrt64/bin"), "UCRT64 precedes legacy x86_64");
+            assert_eq!(
+                self.x64_legacy,
+                Path::new("Git/mingw64/bin"),
+                "legacy x86_64 remains available"
+            );
             assert_eq!(self.arm64, Path::new("Git/clangarm64/bin"));
         }
     }
@@ -640,6 +679,7 @@ mod locations {
     struct RelativeGlobalGitBinPaths<'a> {
         x86: &'a Path,
         maybe_x64: Option<&'a Path>,
+        maybe_x64_legacy: Option<&'a Path>,
         maybe_arm64: Option<&'a Path>,
     }
 
@@ -647,41 +687,46 @@ mod locations {
         /// Assert that `locations` trails with the given global path prefixes, and extract the suffixes.
         fn assert_from(pf: &'a ProgramFilesPaths, locations: &'static [PathBuf]) -> Self {
             match locations {
-                [_, _, _, path4, path5, path6] => {
+                [_, _, _, _, path5, path6, path7, path8] => {
                     let prefix_64bit = pf
                         .maybe_64bit
                         .as_ref()
-                        .expect("It gives 6 paths only if some global paths can be 64-bit");
-                    let suffix_global_arm64 = path4
+                        .expect("It gives 8 paths only if some global paths can be 64-bit");
+                    let suffix_global_arm64 = path5
                         .strip_prefix(prefix_64bit)
-                        .expect("It gives a global 64-bit ARM64 path and lists it fourth");
-                    let suffix_global_x64 = path5
+                        .expect("It gives a global 64-bit ARM64 path and lists it fifth");
+                    let suffix_global_x64 = path6
                         .strip_prefix(prefix_64bit)
-                        .expect("It gives a global 64-bit x86 path and lists it fifth");
-                    let suffix_global_x86 = path6
+                        .expect("It gives a global UCRT64 path and lists it sixth");
+                    let suffix_global_x64_legacy = path7
+                        .strip_prefix(prefix_64bit)
+                        .expect("It gives a global legacy 64-bit x86 path and lists it seventh");
+                    let suffix_global_x86 = path8
                         .strip_prefix(&pf.x86)
-                        .expect("It gives a global 32-bit path and lists it sixth");
+                        .expect("It gives a global 32-bit path and lists it eighth");
                     Self {
                         x86: suffix_global_x86,
                         maybe_x64: Some(suffix_global_x64),
+                        maybe_x64_legacy: Some(suffix_global_x64_legacy),
                         maybe_arm64: Some(suffix_global_arm64),
                     }
                 }
-                [_, _, _, path4] => {
+                [_, _, _, _, path5] => {
                     assert_eq!(
                         pf.maybe_64bit, None,
-                        "It gives 4 paths only if no global paths can be 64-bit.",
+                        "It gives 5 paths only if no global paths can be 64-bit.",
                     );
-                    let suffix_global_x86 = path4
+                    let suffix_global_x86 = path5
                         .strip_prefix(&pf.x86)
-                        .expect("It gives a global 32-bit path and lists it fourth");
+                        .expect("It gives a global 32-bit path and lists it fifth");
                     Self {
                         x86: suffix_global_x86,
                         maybe_x64: None,
+                        maybe_x64_legacy: None,
                         maybe_arm64: None,
                     }
                 }
-                other => panic!("{:?} has length {}, expected 4 or 6.", other, other.len()),
+                other => panic!("{:?} has length {}, expected 5 or 8.", other, other.len()),
             }
         }
 
@@ -690,7 +735,14 @@ mod locations {
             assert_eq!(self.x86, Path::new("Git/mingw32/bin"));
 
             if let Some(suffix_x64) = self.maybe_x64 {
-                assert_eq!(suffix_x64, Path::new("Git/mingw64/bin"));
+                assert_eq!(suffix_x64, Path::new("Git/ucrt64/bin"), "UCRT64 precedes legacy x86_64");
+            }
+            if let Some(suffix_x64_legacy) = self.maybe_x64_legacy {
+                assert_eq!(
+                    suffix_x64_legacy,
+                    Path::new("Git/mingw64/bin"),
+                    "legacy x86_64 remains available"
+                );
             }
             if let Some(suffix_arm64) = self.maybe_arm64 {
                 assert_eq!(suffix_arm64, Path::new("Git/clangarm64/bin"));

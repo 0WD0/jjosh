@@ -19,7 +19,8 @@ mod git;
 ///
 /// ### Performance
 ///
-/// This invokes the git binary which is slow on windows.
+/// This can invoke the Git binary, which is slow on Windows. An unambiguous Git for Windows
+/// installation identified by `EXEPATH` avoids that invocation.
 pub fn installation_config() -> Option<&'static Path> {
     git::install_config_path().and_then(|p| crate::try_from_byte_slice(p).ok())
 }
@@ -38,7 +39,7 @@ pub fn installation_config_is_system() -> bool {
 ///
 /// ### Performance
 ///
-/// This invokes the git binary which is slow on windows.
+/// This shares the discovery and caching of [`installation_config()`].
 pub fn installation_config_prefix() -> Option<&'static Path> {
     installation_config().map(git::config_to_base_path)
 }
@@ -249,11 +250,12 @@ fn system_prefix_from_core_dir<F>(core_dir_func: F) -> Option<PathBuf>
 where
     F: Fn() -> Option<&'static Path>,
 {
-    let path = core_dir_func()?;
-    let one_past_prefix = path.components().enumerate().find_map(|(idx, c)| {
-        matches!(c,std::path::Component::Normal(name) if name.to_str() == Some("libexec")).then_some(idx)
-    })?;
-    Some(path.components().take(one_past_prefix.checked_sub(1)?).collect())
+    core_dir_func()?
+        .ancestors()
+        .find(|path| path.file_name() == Some(OsStr::new("libexec")))?
+        .parent()
+        .filter(|prefix| !prefix.as_os_str().is_empty())
+        .map(Path::to_path_buf)
 }
 
 fn system_prefix_from_exepath_var<F>(var_os_func: F) -> Option<PathBuf>
@@ -263,7 +265,7 @@ where
     // Only attempt this optimization if the `EXEPATH` variable is set to an absolute path.
     let root = var_os_func("EXEPATH").map(PathBuf::from).filter(|r| r.is_absolute())?;
 
-    let mut candidates = ["clangarm64", "mingw64", "mingw32"]
+    let mut candidates = ["clangarm64", "ucrt64", "mingw64", "mingw32"]
         .iter()
         .map(|component| root.join(component))
         .filter(|candidate| candidate.is_dir());
@@ -275,16 +277,25 @@ where
     }
 }
 
-/// Return Git's conventional system configuration path below `prefix`.
+/// Return Git's conventional system configuration path relative to its runtime `prefix`.
 ///
-/// Git for Windows defaults to `etc/gitconfig` relative to its runtime prefix, while on Unix
-/// [`system_prefix()`] is `/`, yielding the conventional `/etc/gitconfig`. This is only a fallback
-/// when Git itself reports no origin, so custom build-time paths and environment overrides still win.
+/// Git for Windows builds this path as `../etc/gitconfig`, beside its runtime directory. On Unix,
+/// [`system_prefix()`] is `/`, yielding `/etc/gitconfig`. This is used by the `EXEPATH` shortcut
+/// and as a fallback when querying Git yields no origin.
 fn config_path_from_system_prefix(prefix: &Path) -> PathBuf {
+    let prefix = if cfg!(windows) {
+        prefix.parent().unwrap_or(prefix)
+    } else {
+        prefix
+    };
     prefix.join("etc/gitconfig")
 }
 
 /// Returns the platform dependent system prefix or `None` if it cannot be found (right now only on Windows).
+///
+/// On Windows this is Git's runtime prefix, such as `C:/Program Files/Git/ucrt64` or
+/// `C:/Program Files/Git/mingw64`. Git for Windows keeps its system configuration and attributes
+/// in the sibling `etc` directory. On other platforms this returns `/`.
 ///
 /// ### Performance
 ///
