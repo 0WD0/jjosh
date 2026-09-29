@@ -111,15 +111,17 @@ impl Options {
     /// not be fully trusted, leading to limitations in how configuration files
     /// are interpreted.
     ///
-    /// If not called explicitly, it will be determined by looking at its
-    /// ownership via [`gix_sec::Trust::from_path_ownership()`].
+    /// If not called explicitly, trust is determined via [`gix_sec::Trust::from_path_ownership()`] for the
+    /// candidate path before resolving a possible gitfile, then lowered as needed by ownership checks of the
+    /// resolved git directory, common directory, and existing worktree. Setting trust explicitly bypasses
+    /// these initial ownership checks when opening, but not when discovering a repository.
     ///
     /// # Security Warning
     ///
     /// Use with extreme care and only if it's absolutely known that the repository
-    /// is always controlled by the desired user. Using this capability _only_ saves
-    /// a permission check and only so if the [`open()`][Self::open()] method is used,
-    /// as opposed to discovery.
+    /// is always controlled by the desired user. This only bypasses the ownership checks described above
+    /// when the [`open()`][Self::open()] method is used, as opposed to discovery. Worktree ownership and
+    /// `safe.directory` are still considered later during opening.
     pub fn with(mut self, trust: gix_sec::Trust) -> Self {
         self.git_dir_trust = trust.into();
         self

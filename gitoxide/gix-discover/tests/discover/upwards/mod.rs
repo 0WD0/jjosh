@@ -436,41 +436,29 @@ fn relative_symlinks_use_the_configured_current_dir() -> Result {
 
 #[test]
 fn from_dir_with_dot_dot() -> Result {
-    // This would be neater if we could just change the actual working directory,
-    // but Rust tests run in parallel by default so we'd interfere with other tests.
-    // Instead ensure it finds the gitoxide repo instead of a test repo if we crawl
-    // up far enough. (This tests that `discover::existing` canonicalizes paths before
-    // exploring ancestors.)
-    let working_dir = repo_path()?;
-    let dir = working_dir.join("some/very/deeply/nested/subdir/../../../../../..");
-    let (path, trust) = gix_discover::upwards(&dir)?;
-    assert_ne!(
-        path.as_ref().canonicalize()?,
-        working_dir.canonicalize()?,
-        "a relative path that climbs above the test repo should yield the parent-gitoxide repo"
-    );
-    // If the parent repo is actually a main worktree, we can make more assertions. If it is not,
-    // it will use an absolute paths and we have to bail.
-    if path.as_ref() == std::path::Path::new("..") {
+    let outer = gix_testtools::scripted_fixture_read_only("make_nested_repos.sh")?;
+    let outer = std::env::current_dir()?.join(outer);
+    let inner = outer.join("inner");
+    let relative = std::path::Path::new("some/very/deeply/nested/subdir/../../../../../..");
+    for (input, expected) in [
+        (relative.to_owned(), PathBuf::from("..")),
+        (inner.join(relative), outer.clone()),
+    ] {
+        let (path, trust) = gix_discover::upwards_opts(
+            &input,
+            gix_discover::upwards::Options {
+                current_dir: Some(&inner),
+                ..Default::default()
+            },
+        )?;
         assert_eq!(path.kind(), Kind::WorkTree { linked_git_dir: None });
         assert_eq!(
             path.as_ref(),
-            std::path::Path::new(".."),
-            "there is only the minimal amount of relative path components to see this worktree"
+            expected,
+            "normalizing dot-dot components discovers the outer repository with minimal path components"
         );
-    } else {
-        assert!(
-            path.as_ref().is_absolute(),
-            "worktree paths are absolute and the parent repo is one"
-        );
-        assert!(matches!(
-            path.kind(),
-            Kind::WorkTree {
-                linked_git_dir: Some(_)
-            }
-        ));
+        assert_eq!(trust, expected_trust(), "the repository has the fixture's ownership");
     }
-    assert_eq!(trust, expected_trust());
     Ok(())
 }
 

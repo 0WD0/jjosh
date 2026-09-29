@@ -63,7 +63,10 @@ impl ThreadSafeRepository {
     /// `options` for fine-grained control.
     /// Empty `core.worktree` values include their bytes as `input` [metadata](gix_error::Error::metadata()).
     ///
-    /// Note that you should use [`crate::discover()`] if security should be adjusted by ownership.
+    /// Unless trust is set explicitly with [`Options::with()`], its initial level comes from ownership of the
+    /// candidate path (`path` or `path/.git`) before resolving a possible gitfile. Ownership checks of the resolved
+    /// git directory, common directory, and existing worktree can then only lower this level.
+    /// Use [`crate::discover()`] if options such as permissions should also be selected according to ownership.
     ///
     /// ### Differences to `git2::Repository::open_ext()`
     ///
@@ -101,11 +104,22 @@ impl ThreadSafeRepository {
 
         // To be altered later based on `core.precomposeUnicode`.
         let cwd = gix_fs::current_dir(false).or_error()?;
-        let (git_dir, worktree_dir) = gix_discover::repository::Path::from_dot_git_dir(path, kind, &cwd)
+        let candidate_trust = options
+            .git_dir_trust
+            .is_none()
+            .then(|| gix_sec::Trust::from_path_ownership(&path))
+            .transpose()
+            .or_error()?;
+        let (git_dir, worktree_dir) = gix_discover::repository::Path::from_dot_git_dir(path.clone(), kind, &cwd)
             .expect("we have sanitized path with is_git()")
             .into_repository_and_work_tree_directories();
-        if options.git_dir_trust.is_none() {
-            options.git_dir_trust = gix_sec::Trust::from_path_ownership(&git_dir).or_error()?.into();
+        if let Some(candidate_trust) = candidate_trust {
+            options.git_dir_trust = Some(gix_discover::repository::trust(
+                &git_dir,
+                worktree_dir.as_deref(),
+                &cwd,
+                (&path, Some(candidate_trust)),
+            )?);
         }
         options.current_dir = Some(cwd);
         ThreadSafeRepository::open_from_paths(git_dir, worktree_dir, options, None)
@@ -114,8 +128,10 @@ impl ThreadSafeRepository {
     /// Try to open a git repository in `fallback_directory` (can be worktree or `.git` directory) only if there is no override
     /// of the `gitdir` using git environment variables.
     ///
-    /// Use the `trust_map` to apply options depending in the trust level for `directory` or the directory it's overridden with.
-    /// The `.git` directory whether given or computed is used for trust checks.
+    /// Use `trust_map` to select options according to the ownership-derived trust level. Initial trust comes from
+    /// the candidate path (`GIT_DIR` if set, otherwise `fallback_directory`) before resolving a possible gitfile.
+    /// Ownership checks of the resolved git directory, common directory, and existing worktree can only lower
+    /// that level, so a trusted target cannot upgrade an untrusted gitfile.
     ///
     /// Note that this will read various `GIT_*` environment variables to check for overrides, and is probably most useful when implementing
     /// custom hooks.
@@ -145,12 +161,14 @@ impl ThreadSafeRepository {
 
         // To be altered later based on `core.precomposeUnicode`.
         let cwd = gix_fs::current_dir(false).or_error()?;
-        let (git_dir, worktree_dir) = gix_discover::repository::Path::from_dot_git_dir(path, path_kind, &cwd)
+        let candidate_trust = gix_sec::Trust::from_path_ownership(&path).or_error()?;
+        let (git_dir, worktree_dir) = gix_discover::repository::Path::from_dot_git_dir(path.clone(), path_kind, &cwd)
             .expect("we have sanitized path with is_git()")
             .into_repository_and_work_tree_directories();
         let worktree_dir = worktree_dir.or(overrides.worktree_dir);
 
-        let git_dir_trust = gix_sec::Trust::from_path_ownership(&git_dir).or_error()?;
+        let git_dir_trust =
+            gix_discover::repository::trust(&git_dir, worktree_dir.as_deref(), &cwd, (&path, Some(candidate_trust)))?;
         let mut options = trust_map.into_value_by_level(git_dir_trust);
         options.git_dir_trust = git_dir_trust.into();
         options.current_dir = Some(cwd);
