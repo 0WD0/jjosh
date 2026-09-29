@@ -97,7 +97,7 @@ mod method {
                 entry.clone(),
                 &mut buf,
                 &mut inflate,
-                &|_, _| None,
+                &|_, _| Ok(None),
                 &mut gix_odb::pack::cache::Never
             )
             .is_ok(),
@@ -112,7 +112,7 @@ mod method {
                 entry,
                 &mut buf,
                 &mut inflate,
-                &|_, _| None,
+                &|_, _| Ok(None),
                 &mut gix_odb::pack::cache::Never,
             )
             .expect_err("pack-controlled allocations larger than the configured limit are rejected");
@@ -138,6 +138,7 @@ mod method {
 /// All hardcoded offsets are obtained via `git pack-verify --verbose  tests/fixtures/packs/pack-a2bf8e71d8c18879e499335762dd95119d93d9f1.idx`
 mod decode_entry {
     use bstr::ByteSlice;
+    use gix_error::Result;
     use gix_pack::{cache, data::decode::entry::ResolvedBase};
 
     use crate::{SMALL_PACK, data::file::pack_at, fixture_path, fixup};
@@ -188,7 +189,7 @@ mod decode_entry {
     }
 
     fn decode_entry_at_offset(offset: u64) -> Vec<u8> {
-        fn resolve_with_panic(_oid: &gix_hash::oid, _out: &mut Vec<u8>) -> Option<ResolvedBase> {
+        fn resolve_with_panic(_oid: &gix_hash::oid, _out: &mut Vec<u8>) -> Result<Option<ResolvedBase>> {
             panic!("should not want to resolve an id here")
         }
 
@@ -209,6 +210,8 @@ mod decode_entry {
 
 /// All hardcoded offsets are obtained via `git pack-verify --verbose  tests/fixtures/packs/pack-a2bf8e71d8c18879e499335762dd95119d93d9f1.idx`
 mod resolve_header {
+    use gix_error::Result;
+
     use crate::{SMALL_PACK, data::file::pack_at};
 
     #[test]
@@ -244,7 +247,7 @@ mod resolve_header {
     }
 
     fn resolve_header_at_offset(offset: u64) -> gix_pack::data::decode::header::Outcome {
-        fn resolve_with_panic(_oid: &gix_hash::oid) -> Option<gix_pack::data::decode::header::ResolvedBase> {
+        fn resolve_with_panic(_oid: &gix_hash::oid) -> Result<Option<gix_pack::data::decode::header::ResolvedBase>> {
             panic!("should not want to resolve an id here")
         }
 

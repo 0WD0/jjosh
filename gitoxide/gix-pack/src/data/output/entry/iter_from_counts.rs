@@ -2,7 +2,7 @@ pub(crate) mod function {
     use gix_error::Result;
     use std::{cmp::Ordering, sync::Arc};
 
-    use gix_error::{ResultExt, message};
+    use gix_error::{OptionExt, ResultExt, message, not_found};
     use gix_features::{
         parallel,
         parallel::SequenceId,
@@ -29,7 +29,7 @@ pub(crate) mod function {
     /// * `options`
     ///   * more configuration
     ///
-    /// _Returns_ the checksum of the pack
+    /// Returns an iterator over entry chunks, or an error if resolving pack locations fails before iteration.
     ///
     /// ## Discussion
     ///
@@ -56,8 +56,10 @@ pub(crate) mod function {
             chunk_size,
             compression,
         }: Options,
-    ) -> impl Iterator<Item = Result<(SequenceId, Vec<output::Entry>)>>
-    + parallel::reduce::Finalize<Reduce = reduce::Statistics<gix_error::Error>>
+    ) -> Result<
+        impl Iterator<Item = Result<(SequenceId, Vec<output::Entry>)>>
+        + parallel::reduce::Finalize<Reduce = reduce::Statistics<gix_error::Error>>,
+    >
     where
         Find: crate::Find + Send + Clone + 'static,
     {
@@ -84,16 +86,17 @@ pub(crate) mod function {
                             use crate::data::output::count::PackLocation::*;
                             match count.entry_pack_location {
                                 LookedUp(_) => continue,
-                                NotLookedUp => count.entry_pack_location = LookedUp(db.location_by_oid(&count.id, buf)),
+                                NotLookedUp => {
+                                    count.entry_pack_location = LookedUp(db.location_by_oid(&count.id, buf)?);
+                                }
                             }
                         }
                         progress.lock().inc_by(chunk_size);
-                        Ok::<_, ()>(())
+                        Ok::<_, gix_error::Error>(())
                     }
                 },
-                parallel::reduce::IdentityWithResult::<(), ()>::default(),
-            )
-            .expect("infallible - we ignore none-existing objects");
+                parallel::reduce::IdentityWithResult::<(), gix_error::Error>::default(),
+            )?;
             progress.lock().show_throughput(start);
         }
         let counts_range_by_pack_id = match mode {
@@ -138,7 +141,7 @@ pub(crate) mod function {
         let progress = Arc::new(parking_lot::Mutex::new(progress));
         let chunks = util::ChunkRanges::new(chunk_size, counts.len());
 
-        parallel::reduce::Stepwise::new(
+        Ok(parallel::reduce::Stepwise::new(
             chunks.enumerate(),
             thread_limit,
             {
@@ -187,20 +190,22 @@ pub(crate) mod function {
                                     base_index_offset,
                                     allow_thin_pack.then_some({
                                         |pack_id, base_offset| {
-                                            let (cached_pack_id, cache) = pack_offsets_to_id.get_or_insert_with(|| {
-                                                db.pack_offsets_and_oid(pack_id)
-                                                    .map(|mut v| {
-                                                        v.sort_by_key(|e| e.0);
-                                                        (pack_id, v)
-                                                    })
-                                                    .expect("pack used for counts is still available")
-                                            });
+                                            if pack_offsets_to_id.is_none() {
+                                                let mut offsets =
+                                                    db.pack_offsets_and_oid(pack_id)?.ok_or_raise(|| {
+                                                        not_found("Pack used for counts is no longer available")
+                                                    })?;
+                                                offsets.sort_by_key(|e| e.0);
+                                                pack_offsets_to_id = Some((pack_id, offsets));
+                                            }
+                                            let (cached_pack_id, cache) =
+                                                pack_offsets_to_id.as_ref().expect("just set");
                                             debug_assert_eq!(*cached_pack_id, pack_id);
                                             stats.ref_delta_objects += 1;
-                                            cache
+                                            Ok(cache
                                                 .binary_search_by_key(&base_offset, |e| e.0)
                                                 .ok()
-                                                .map(|idx| cache[idx].1)
+                                                .map(|idx| cache[idx].1))
                                         }
                                     }),
                                     version,
@@ -247,7 +252,7 @@ pub(crate) mod function {
                 }
             },
             reduce::Statistics::default(),
-        )
+        ))
     }
 }
 

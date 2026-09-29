@@ -174,7 +174,8 @@ impl<T: Clone> OnDiskFile<T> {
                     Ok(())
                 }
                 Err(err) => {
-                    // TODO: Should be provide more information? We don't even know what exactly failed right now, degenerating information.
+                    // TODO(odb-parallelism): only NotFound should become Missing; retain other failures
+                    // across shared handles and retry after file changes, using the branch's failure cache.
                     self.state = Missing;
                     Err(err)
                 }

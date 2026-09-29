@@ -43,14 +43,16 @@ pub trait Find {
         pack_cache: &mut dyn crate::cache::DecodeEntry,
     ) -> Result<Option<(gix_object::Data<'a>, Option<data::entry::Location>)>>;
 
-    /// Find the packs location where an object with `id` can be found in the database, or `None` if there is no pack
-    /// holding the object.
+    /// Find the pack location where an object with `id` can be found in the database.
     ///
-    /// _Note_ that this is always None if the object isn't packed even though it exists as loose object.
-    fn location_by_oid(&self, id: &gix_hash::oid, buf: &mut Vec<u8>) -> Option<data::entry::Location>;
+    /// Returns `Ok(None)` if no pack holds the object, including when it exists only as a loose object.
+    /// Lookup, corruption, and object retrieval failures are returned as errors.
+    fn location_by_oid(&self, id: &gix_hash::oid, buf: &mut Vec<u8>) -> Result<Option<data::entry::Location>>;
 
     /// Obtain a vector of all offsets, in index order, along with their object id.
-    fn pack_offsets_and_oid(&self, pack_id: u32) -> Option<Vec<(data::Offset, gix_hash::ObjectId)>>;
+    ///
+    /// Returns `Ok(None)` if the pack is unavailable, or an error if loading or reading its index fails.
+    fn pack_offsets_and_oid(&self, pack_id: u32) -> Result<Option<Vec<(data::Offset, gix_hash::ObjectId)>>>;
 
     /// Return the [`find::Entry`] for `location` if it is backed by a pack.
     ///
@@ -172,11 +174,11 @@ mod find_impls {
             (*self).try_find_cached(id, buffer, pack_cache)
         }
 
-        fn location_by_oid(&self, id: &oid, buf: &mut Vec<u8>) -> Option<data::entry::Location> {
+        fn location_by_oid(&self, id: &oid, buf: &mut Vec<u8>) -> Result<Option<data::entry::Location>> {
             (*self).location_by_oid(id, buf)
         }
 
-        fn pack_offsets_and_oid(&self, pack_id: u32) -> Option<Vec<(data::Offset, gix_hash::ObjectId)>> {
+        fn pack_offsets_and_oid(&self, pack_id: u32) -> Result<Option<Vec<(data::Offset, gix_hash::ObjectId)>>> {
             (*self).pack_offsets_and_oid(pack_id)
         }
 
@@ -202,11 +204,11 @@ mod find_impls {
             self.deref().try_find_cached(id, buffer, pack_cache)
         }
 
-        fn location_by_oid(&self, id: &oid, buf: &mut Vec<u8>) -> Option<data::entry::Location> {
+        fn location_by_oid(&self, id: &oid, buf: &mut Vec<u8>) -> Result<Option<data::entry::Location>> {
             self.deref().location_by_oid(id, buf)
         }
 
-        fn pack_offsets_and_oid(&self, pack_id: u32) -> Option<Vec<(data::Offset, gix_hash::ObjectId)>> {
+        fn pack_offsets_and_oid(&self, pack_id: u32) -> Result<Option<Vec<(data::Offset, gix_hash::ObjectId)>>> {
             self.deref().pack_offsets_and_oid(pack_id)
         }
 
@@ -232,11 +234,11 @@ mod find_impls {
             self.deref().try_find_cached(id, buffer, pack_cache)
         }
 
-        fn location_by_oid(&self, id: &oid, buf: &mut Vec<u8>) -> Option<data::entry::Location> {
+        fn location_by_oid(&self, id: &oid, buf: &mut Vec<u8>) -> Result<Option<data::entry::Location>> {
             self.deref().location_by_oid(id, buf)
         }
 
-        fn pack_offsets_and_oid(&self, pack_id: u32) -> Option<Vec<(data::Offset, gix_hash::ObjectId)>> {
+        fn pack_offsets_and_oid(&self, pack_id: u32) -> Result<Option<Vec<(data::Offset, gix_hash::ObjectId)>>> {
             self.deref().pack_offsets_and_oid(pack_id)
         }
 
@@ -262,11 +264,11 @@ mod find_impls {
             self.deref().try_find_cached(id, buffer, pack_cache)
         }
 
-        fn location_by_oid(&self, id: &oid, buf: &mut Vec<u8>) -> Option<data::entry::Location> {
+        fn location_by_oid(&self, id: &oid, buf: &mut Vec<u8>) -> Result<Option<data::entry::Location>> {
             self.deref().location_by_oid(id, buf)
         }
 
-        fn pack_offsets_and_oid(&self, pack_id: u32) -> Option<Vec<(data::Offset, gix_hash::ObjectId)>> {
+        fn pack_offsets_and_oid(&self, pack_id: u32) -> Result<Option<Vec<(data::Offset, gix_hash::ObjectId)>>> {
             self.deref().pack_offsets_and_oid(pack_id)
         }
 

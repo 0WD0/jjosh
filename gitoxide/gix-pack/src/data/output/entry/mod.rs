@@ -55,12 +55,14 @@ impl output::Entry {
     /// Create an Entry from a previously counted object which is located in a pack. It's `entry` is provided here.
     /// The `target_version` specifies what kind of target `Entry` version the caller desires. Both supported versions use
     /// the same entry encoding.
+    ///
+    /// Errors from `pack_offset_to_oid` are propagated rather than triggering recompression as if the base were absent.
     pub fn from_pack_entry(
         mut entry: find::Entry,
         count: &output::Count,
         potential_bases: &[output::Count],
         bases_index_offset: usize,
-        pack_offset_to_oid: Option<impl FnMut(u32, u64) -> Option<ObjectId>>,
+        pack_offset_to_oid: Option<impl FnMut(u32, u64) -> Result<Option<ObjectId>>>,
         target_version: data::Version,
     ) -> Option<Result<Self>> {
         if entry.version != target_version {
@@ -88,23 +90,24 @@ impl output::Entry {
                         message("an ofs-delta base distance pointing before pack start").corrupted_error()
                     ));
                 };
-                potential_bases
-                    .binary_search_by(|e| {
-                        e.entry_pack_location
-                            .as_ref()
-                            .expect("packed")
-                            .pack_offset
-                            .cmp(&base_offset)
-                    })
-                    .ok()
-                    .map(|idx| output::entry::Kind::DeltaRef {
+                match potential_bases.binary_search_by(|e| {
+                    e.entry_pack_location
+                        .as_ref()
+                        .expect("packed")
+                        .pack_offset
+                        .cmp(&base_offset)
+                }) {
+                    Ok(idx) => Some(output::entry::Kind::DeltaRef {
                         object_index: idx + bases_index_offset,
-                    })
-                    .or_else(|| {
-                        pack_offset_to_oid
-                            .and_then(|mut f| f(pack_location.pack_id, base_offset))
-                            .map(|id| output::entry::Kind::DeltaOid { id })
-                    })
+                    }),
+                    Err(_) => match pack_offset_to_oid {
+                        Some(mut lookup) => match lookup(pack_location.pack_id, base_offset) {
+                            Ok(base_id) => base_id.map(|id| output::entry::Kind::DeltaOid { id }),
+                            Err(err) => return Some(Err(err)),
+                        },
+                        None => None,
+                    },
+                }
             }
             RefDelta { base_id: _ } => None, // ref deltas are for thin packs or legacy, repack them as base objects
         }

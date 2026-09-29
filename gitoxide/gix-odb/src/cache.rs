@@ -236,11 +236,14 @@ mod impls {
             Ok(possibly_obj)
         }
 
-        fn location_by_oid(&self, id: &oid, buf: &mut Vec<u8>) -> Option<gix_pack::data::entry::Location> {
+        fn location_by_oid(&self, id: &oid, buf: &mut Vec<u8>) -> Result<Option<gix_pack::data::entry::Location>> {
             self.inner.location_by_oid(id, buf)
         }
 
-        fn pack_offsets_and_oid(&self, pack_id: u32) -> Option<Vec<(u64, gix_hash::ObjectId)>> {
+        fn pack_offsets_and_oid(
+            &self,
+            pack_id: u32,
+        ) -> Result<Option<Vec<(gix_pack::data::Offset, gix_hash::ObjectId)>>> {
             self.inner.pack_offsets_and_oid(pack_id)
         }
 

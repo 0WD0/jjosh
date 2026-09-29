@@ -595,22 +595,21 @@ cjHJZXWmV4CcRfmLsXzU8s2cR9A0DBvOxhPD1TlKC2JhBFXigjuL9U4Rbq9tdegB
         let err = db
             .try_find(&id, &mut buf)
             .expect_err("the object exceeds the configured allocation limit");
-        let allocation = err
-            .metadata()
-            .find(|context| context.contains_key("size"))
-            .expect("the allocation limit retains its byte counts");
         let diagnostic = err
             .iter_errors()
             .filter_map(|error| error.downcast_ref::<Message>())
-            .find(|diagnostic| diagnostic.values.contains_key("size"))
+            .find(|diagnostic| {
+                diagnostic.class == Some(Class::ResourceExhaustion(ResourceExhaustionKind::AllocationLimit))
+            })
             .expect("the allocation limit has a diagnostic");
+        assert!(
+            diagnostic.values.is_empty(),
+            "allocation-limit diagnostics do not add size or limit metadata"
+        );
         assert_eq!(
-            *allocation,
-            maplit::btreemap! {
-                "limit".into() => MetadataValue::U64(1),
-                "size".into() => MetadataValue::U64(56915),
-            },
-            "allocation limits add the unsigned byte limit to the requested size"
+            diagnostic.message,
+            "Cannot store loose object of 56915 bytes in memory: the object exceeds the configured allocation limit of 1 bytes",
+            "allocation limits retain the requested size and configured limit in prose"
         );
         assert_eq!(
             diagnostic.class,
@@ -626,17 +625,20 @@ cjHJZXWmV4CcRfmLsXzU8s2cR9A0DBvOxhPD1TlKC2JhBFXigjuL9U4Rbq9tdegB
         Could not read loose object, "path"="<object-path>"
 
         Caused by:
-            0: Cannot store loose object in memory: the object exceeds the configured allocation limit, "limit"=1, "size"=56915
+            0: Cannot store loose object of 56915 bytes in memory: the object exceeds the configured allocation limit of 1 bytes
         "#);
         assert!(
             err.probable_cause().is::<Message>(),
             "no synthetic resource-exhaustion cause remains"
         );
         assert_eq!(
-            err.metadata().next().expect("the lookup records its path")["path"],
-            MetadataValue::from(db.object_path(&id)),
-            "the native object path remains separate from allocation details"
+            *err.metadata().next().expect("the lookup records its path"),
+            [("path".into(), MetadataValue::from(db.object_path(&id)))]
+                .into_iter()
+                .collect::<gix_error::Metadata>(),
+            "the lookup retains only the native object path"
         );
+        assert_eq!(err.metadata().count(), 1, "only the lookup path carries metadata");
         assert_eq!(
             err.classify()
                 .map(|classification| classification.class())
@@ -690,26 +692,28 @@ cjHJZXWmV4CcRfmLsXzU8s2cR9A0DBvOxhPD1TlKC2JhBFXigjuL9U4Rbq9tdegB
             [Class::ResourceExhaustion(ResourceExhaustionKind::AllocationFailure)],
             "both integer conversion and reservation failures retain their allocation-failure class"
         );
-        let allocation = err
-            .metadata()
-            .find(|context| context.contains_key("size"))
-            .expect("the failed allocation records its requested size");
         let diagnostic = err
             .iter_errors()
             .filter_map(|error| error.downcast_ref::<Message>())
-            .find(|diagnostic| diagnostic.values.contains_key("size"))
+            .find(|diagnostic| diagnostic.message.starts_with("Cannot store loose object"))
             .expect("the failed allocation has a diagnostic");
-        assert_eq!(
-            allocation["size"],
-            MetadataValue::U64(size),
-            "the full unrepresentable size is retained"
+        assert!(
+            diagnostic.values.is_empty(),
+            "allocation diagnostics do not add size or limit metadata"
         );
         if usize::try_from(size).is_err() {
+            assert_eq!(
+                diagnostic.message,
+                format!(
+                    "Cannot store loose object of {size} bytes in memory: the object size cannot be represented in memory"
+                ),
+                "conversion diagnostics retain the full requested object size in prose"
+            );
             insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[(&path.to_string_lossy(), "<object-path>")]), "unrepresentable sizes retain the failed integer conversion", @r#"
             Could not read loose object, "path"="<object-path>"
 
             Caused by:
-                0: Cannot store loose object in memory: the object size cannot be represented in memory, "size"=18446744073709551615
+                0: Cannot store loose object of 18446744073709551615 bytes in memory: the object size cannot be represented in memory
                 1: out of range integral type conversion attempted
             "#);
             assert!(
@@ -722,11 +726,16 @@ cjHJZXWmV4CcRfmLsXzU8s2cR9A0DBvOxhPD1TlKC2JhBFXigjuL9U4Rbq9tdegB
                 "the generic context classifies the unrepresentable object size"
             );
         } else {
+            assert_eq!(
+                diagnostic.message,
+                format!("Cannot store loose object of {size} bytes in memory"),
+                "reservation diagnostics retain the full requested object size in prose"
+            );
             insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[(&path.to_string_lossy(), "<object-path>")]), "impossible allocations retain the failed capacity reservation", @r#"
             Could not read loose object, "path"="<object-path>"
 
             Caused by:
-                0: Cannot store loose object in memory, "size"=18446744073709551615
+                0: Cannot store loose object of 18446744073709551615 bytes in memory
                 1: memory allocation failed because the computed capacity exceeded the collection's maximum
             "#);
             assert!(
@@ -739,11 +748,13 @@ cjHJZXWmV4CcRfmLsXzU8s2cR9A0DBvOxhPD1TlKC2JhBFXigjuL9U4Rbq9tdegB
             );
         }
         assert_eq!(
-            err.metadata().next().expect("the lookup records its path")["path"],
-            MetadataValue::from(path.as_path()),
-            "the object path is retained separately from allocation details"
+            *err.metadata().next().expect("the lookup records its path"),
+            [("path".into(), MetadataValue::from(path.as_path()))]
+                .into_iter()
+                .collect::<gix_error::Metadata>(),
+            "the lookup retains only the native object path"
         );
-        assert_eq!(err.metadata().count(), 2, "only the two caller contexts carry metadata");
+        assert_eq!(err.metadata().count(), 1, "only the lookup path carries metadata");
         assert!(
             !err.is_corrupted() && !err.can_retry(),
             "an unrepresentable allocation cannot be repaired by retrying"

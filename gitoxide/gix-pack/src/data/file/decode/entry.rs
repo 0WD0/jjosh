@@ -188,16 +188,18 @@ where
     /// `inflate` will be used for decompressing entries, and will not be reset after usage, but before first using it.
     ///
     /// `resolve` is a function to lookup objects with the given [`ObjectId`][gix_hash::ObjectId], in case the full object id is used to refer to
-    /// a base object, instead of an in-pack offset.
+    /// a base object, instead of an in-pack offset. Return `Ok(None)` if the base could not be found;
+    /// lookup errors are propagated unchanged instead of being treated as missing bases.
     ///
     /// `delta_cache` is a mechanism to avoid looking up base objects multiple times when decompressing multiple objects in a row.
     /// Use a [Noop-Cache][cache::Never] to disable caching all together at the cost of repeating work.
+    #[expect(clippy::type_complexity)] // Keep the fallible resolver's arguments and result explicit.
     pub fn decode_entry(
         &self,
         entry: data::Entry,
         out: &mut Vec<u8>,
         inflate: &mut gix_zlib::Inflate,
-        resolve: &dyn Fn(&gix_hash::oid, &mut Vec<u8>) -> Option<ResolvedBase>,
+        resolve: &dyn Fn(&gix_hash::oid, &mut Vec<u8>) -> Result<Option<ResolvedBase>>,
         delta_cache: &mut dyn cache::DecodeEntry,
     ) -> Result<Outcome> {
         use crate::data::entry::Header::*;
@@ -221,10 +223,11 @@ where
     /// resolve: technically, this shouldn't ever be required as stored local packs don't refer to objects by id
     /// that are outside of the pack. Unless, of course, the ref refers to an object within this pack, which means
     /// it's very, very large as 20bytes are smaller than the corresponding MSB encoded number
+    #[expect(clippy::type_complexity)] // Match the public decoder's resolver signature.
     fn resolve_deltas(
         &self,
         last: data::Entry,
-        resolve: &dyn Fn(&gix_hash::oid, &mut Vec<u8>) -> Option<ResolvedBase>,
+        resolve: &dyn Fn(&gix_hash::oid, &mut Vec<u8>) -> Result<Option<ResolvedBase>>,
         inflate: &mut gix_zlib::Inflate,
         out: &mut Vec<u8>,
         cache: &mut dyn cache::DecodeEntry,
@@ -305,7 +308,7 @@ where
                         .or_error()?;
                     self.entry(offset)?
                 }
-                Header::RefDelta { base_id } => match resolve(base_id.as_ref(), out) {
+                Header::RefDelta { base_id } => match resolve(base_id.as_ref(), out)? {
                     Some(ResolvedBase::InPack(entry)) => entry,
                     Some(ResolvedBase::OutOfPack { end, kind }) => {
                         base_buffer_size = Some(end);

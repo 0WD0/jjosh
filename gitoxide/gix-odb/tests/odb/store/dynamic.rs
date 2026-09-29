@@ -242,7 +242,7 @@ fn multi_index_keep_open() -> Result {
     let mut buf = Vec::new();
     use gix_pack::Find;
     let location = stable_handle
-        .location_by_oid(&oid, &mut buf)
+        .location_by_oid(&oid, &mut buf)?
         .expect("oid exists and is packed");
 
     let non_existing_to_trigger_refresh = missing_id(&handle);
@@ -1030,7 +1030,7 @@ fn auto_refresh_with_and_without_id_stability() -> Result {
         let mut stable_handle = handle.clone();
         stable_handle.prevent_pack_unload();
         let location = stable_handle
-            .location_by_oid(&hex_to_id("501b297447a8255d3533c6858bb692575cdefaa0"), &mut buf)
+            .location_by_oid(&hex_to_id("501b297447a8255d3533c6858bb692575cdefaa0"), &mut buf)?
             .expect("object exists");
         assert!(
             stable_handle.entry_by_location(&location).is_some(),
@@ -1042,7 +1042,7 @@ fn auto_refresh_with_and_without_id_stability() -> Result {
 
         assert!(
             stable_handle
-                .location_by_oid(&hex_to_id("4dac9989f96bc5b5b1263b582c08f0c5f0b58542"), &mut buf)
+                .location_by_oid(&hex_to_id("4dac9989f96bc5b5b1263b582c08f0c5f0b58542"), &mut buf)?
                 .is_some(),
             "it finds the object in the newly unhidden pack, which also triggers a refresh providing it with new indices"
         );

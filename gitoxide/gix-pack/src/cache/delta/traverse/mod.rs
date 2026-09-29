@@ -74,6 +74,10 @@ where
 {
     /// Traverse this tree of delta objects with a function `inspect_object` to process each object at will.
     ///
+    /// Forward references with known base offsets are attached before traversal. Children recorded by base object ID
+    /// during streaming indexing are attached when their bases are fully decoded and hashed, including bases that are
+    /// themselves deltas. All bases must be represented in this tree; external thin-pack bases must be inserted beforehand.
+    ///
     /// * `should_run_in_parallel() -> bool` returns true if the underlying pack is big enough to warrant parallel traversal at all.
     /// * `resolve(EntrySlice, &mut Vec<u8>) -> Option<()>` resolves the bytes in the pack for the given `EntrySlice` and stores them in the
     ///   output vector. It returns `Some(())` if the object existed in the pack, or `None` to indicate a resolution error, which would abort the

@@ -45,11 +45,14 @@ impl crate::Bundle {
                 out,
                 inflate,
                 &|id, _out| {
-                    let idx = self.index.lookup(id)?;
-                    self.pack
-                        .entry(self.index.pack_offset_at_index(idx))
-                        .ok()
-                        .map(crate::data::decode::entry::ResolvedBase::InPack)
+                    self.index
+                        .lookup(id)
+                        .map(|idx| {
+                            self.pack
+                                .entry(self.index.pack_offset_at_index(idx))
+                                .map(crate::data::decode::entry::ResolvedBase::InPack)
+                        })
+                        .transpose()
                 },
                 cache,
             )

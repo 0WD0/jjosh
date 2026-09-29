@@ -73,7 +73,7 @@ pub mod object;
 ///     pack_path,
 ///     offsets.into_iter(),
 ///     &|offset| *offset,
-///     &|_id| None,                     // self-contained pack: no ref-delta lookups
+///     &|_id| Ok(None),                 // self-contained pack: no ref-delta lookups
 ///     &mut gix_features::progress::Discard,
 ///     &AtomicBool::default(),
 ///     gix_hash::Kind::default(),

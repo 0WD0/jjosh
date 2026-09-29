@@ -2,6 +2,7 @@ use gix_error::Result;
 use std::ops::Deref;
 
 use gix_error::{OptionExt, ResultExt, bail, not_found};
+
 use gix_hash::oid;
 
 use crate::{
@@ -49,7 +50,7 @@ where
                         object_index: handle::IndexForObjectInPack { pack_id, pack_offset },
                         index_file,
                         pack: possibly_pack,
-                    }) = index.lookup(id)
+                    }) = index.lookup(id)?
                     {
                         let pack = match possibly_pack {
                             Some(pack) => pack,
@@ -77,13 +78,16 @@ where
                             },
                         };
                         let entry = pack.entry(pack_offset)?;
-                        let res = match pack.decode_header(entry, inflate, &|id| {
-                            index_file.pack_offset_by_id(id).and_then(|pack_offset| {
-                                pack.entry(pack_offset)
-                                    .ok()
-                                    .map(gix_pack::data::decode::header::ResolvedBase::InPack)
-                            })
-                        }) {
+                        let res = pack.decode_header(entry, inflate, &|id| {
+                            index_file
+                                .pack_offset_by_id(id)?
+                                .map(|pack_offset| {
+                                    pack.entry(pack_offset)
+                                        .map(gix_pack::data::decode::header::ResolvedBase::InPack)
+                                })
+                                .transpose()
+                        });
+                        let res = match res {
                             Ok(header) => Ok(header.into()),
                             Err(err) => {
                                 let Some(base_id) = err
@@ -120,12 +124,12 @@ where
                                         },
                                     index_file,
                                     pack: possibly_pack,
-                                } = match snapshot.indices[idx].lookup(id) {
+                                } = match snapshot.indices[idx].lookup(id)? {
                                     Some(res) => res,
                                     None => {
                                         let mut out = None;
                                         for index in &mut snapshot.indices {
-                                            out = index.lookup(id);
+                                            out = index.lookup(id)?;
                                             if out.is_some() {
                                                 break;
                                             }
@@ -140,22 +144,17 @@ where
                                     .as_ref()
                                     .expect("pack to still be available like just now");
                                 let entry = pack.entry(pack_offset)?;
-                                pack.decode_header(entry, inflate, &|id| {
-                                    index_file
-                                        .pack_offset_by_id(id)
-                                        .and_then(|pack_offset| {
-                                            pack.entry(pack_offset)
-                                                .ok()
-                                                .map(gix_pack::data::decode::header::ResolvedBase::InPack)
-                                        })
-                                        .or_else(|| {
-                                            (id == base_id).then(|| {
-                                                gix_pack::data::decode::header::ResolvedBase::OutOfPack {
-                                                    kind: hdr.kind(),
-                                                    num_deltas: hdr.num_deltas(),
-                                                }
-                                            })
-                                        })
+                                pack.decode_header(entry, inflate, &|id| match index_file.pack_offset_by_id(id)? {
+                                    Some(pack_offset) => pack
+                                        .entry(pack_offset)
+                                        .map(gix_pack::data::decode::header::ResolvedBase::InPack)
+                                        .map(Some),
+                                    None => Ok((id == base_id).then(|| {
+                                        gix_pack::data::decode::header::ResolvedBase::OutOfPack {
+                                            kind: hdr.kind(),
+                                            num_deltas: hdr.num_deltas(),
+                                        }
+                                    })),
                                 })
                                 .map(Into::into)
                             }

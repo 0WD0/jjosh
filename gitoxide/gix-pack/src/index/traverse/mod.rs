@@ -175,10 +175,12 @@ where
             buf,
             inflate,
             &|id, _| {
-                let index = self.lookup(id)?;
-                pack.entry(self.pack_offset_at_index(index))
-                    .ok()
-                    .map(crate::data::decode::entry::ResolvedBase::InPack)
+                self.lookup(id)
+                    .map(|index| {
+                        pack.entry(self.pack_offset_at_index(index))
+                            .map(crate::data::decode::entry::ResolvedBase::InPack)
+                    })
+                    .transpose()
             },
             cache,
         ) {

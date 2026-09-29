@@ -46,7 +46,8 @@ where
     /// `inflate` will be used for (partially) decompressing entries, and will be reset before first use, but not after the last use.
     ///
     /// `resolve` is a function to lookup objects with the given [`ObjectId`][gix_hash::ObjectId], in case the full object id
-    /// is used to refer to a base object, instead of an in-pack offset.
+    /// is used to refer to a base object, instead of an in-pack offset. Return `Ok(None)` if the base could not be found;
+    /// lookup errors are propagated unchanged instead of being treated as missing bases.
     ///
     /// For delta entries, this only probes the initial delta header bytes to determine the result
     /// object size. It can reject streams that end or overflow within that probe, but it does not
@@ -57,7 +58,7 @@ where
         &self,
         mut entry: data::Entry,
         inflate: &mut gix_zlib::Inflate,
-        resolve: &dyn Fn(&gix_hash::oid) -> Option<ResolvedBase>,
+        resolve: &dyn Fn(&gix_hash::oid) -> Result<Option<ResolvedBase>>,
     ) -> Result<Outcome> {
         use crate::data::entry::Header::*;
         let mut num_deltas = 0;
@@ -90,7 +91,7 @@ where
                     if first_delta_decompressed_size.is_none() {
                         first_delta_decompressed_size = Some(self.decode_delta_object_size(inflate, &entry)?);
                     }
-                    match resolve(base_id.as_ref()) {
+                    match resolve(base_id.as_ref())? {
                         Some(ResolvedBase::InPack(base_entry)) => entry = base_entry,
                         Some(ResolvedBase::OutOfPack {
                             kind,

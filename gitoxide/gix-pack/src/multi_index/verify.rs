@@ -150,13 +150,13 @@ where
                         "The object id at multi-index entry {entry_index} wasn't in order"
                     )));
                 }
-                let (pack_id, _) = self.pack_id_and_pack_offset_at_index(entry_index);
+                let (pack_id, _) = self.pack_id_and_pack_offset_at_index(entry_index)?;
                 pack_ids_and_offsets.push((pack_id, entry_index));
                 progress.inc();
             }
             {
                 let entry_index = self.num_objects - 1;
-                let (pack_id, _) = self.pack_id_and_pack_offset_at_index(entry_index);
+                let (pack_id, _) = self.pack_id_and_pack_offset_at_index(entry_index)?;
                 pack_ids_and_offsets.push((pack_id, entry_index));
             }
             // sort by pack-id to allow handling all indices matching a pack while its open.
@@ -204,7 +204,7 @@ where
 
                 for entry_id in multi_index_entries_to_check.iter().map(|e| e.1) {
                     let oid = self.oid_at_index(entry_id);
-                    let (_, expected_pack_offset) = self.pack_id_and_pack_offset_at_index(entry_id);
+                    let (_, expected_pack_offset) = self.pack_id_and_pack_offset_at_index(entry_id)?;
                     let entry_in_bundle_index = index.lookup(oid).ok_or_raise(|| {
                         message!("{oid} wasn't found in the index referenced in the multi-pack index").corrupted()
                     })?;

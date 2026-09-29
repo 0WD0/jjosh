@@ -150,6 +150,7 @@ impl<T> Tree<T> {
     }
 
     /// Add a child of the item at `base_offset` which itself resides at pack `offset` and associate custom `data` with it.
+    /// If the base has not been added yet, defer attachment until the tree is finalized before traversal.
     pub(crate) fn add_child(
         &mut self,
         base_offset: crate::data::Offset,
@@ -192,6 +193,7 @@ impl<T> Tree<T> {
     }
 
     /// Add a child whose base is identified by object id and may occur anywhere in the pack.
+    /// During traversal, each fully resolved object is hashed and any children waiting for its ID are attached to it.
     #[cfg(feature = "streaming-input")]
     pub(crate) fn add_child_by_id(
         &mut self,
@@ -291,6 +293,8 @@ mod tests {
     mod from_offsets_in_pack {
         use std::sync::atomic::AtomicBool;
 
+        use gix_error::{ErrorExt, TestResult, message};
+
         use crate as pack;
 
         const SMALL_PACK_INDEX: &str = "objects/pack/pack-a2bf8e71d8c18879e499335762dd95119d93d9f1.idx";
@@ -326,7 +330,7 @@ mod tests {
                 pack_file.path(),
                 std::iter::once(()),
                 &|_| first_entry_offset,
-                &|_| None,
+                &|_| Ok(None),
                 &mut gix_features::progress::Discard,
                 &AtomicBool::new(false),
                 gix_hash::Kind::Sha1,
@@ -349,7 +353,7 @@ mod tests {
                     pack_file.path(),
                     [first, second].into_iter(),
                     &|offset| *offset,
-                    &|_| None,
+                    &|_| Ok(None),
                     &mut gix_features::progress::Discard,
                     &AtomicBool::new(false),
                     gix_hash::Kind::Sha1,
@@ -364,13 +368,165 @@ mod tests {
             Ok(())
         }
 
+        #[test]
+        fn ref_delta_resolver_error_is_propagated_unchanged() -> TestResult {
+            let (pack_file, offsets) = ref_delta_pack()?;
+            let callback_error = std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                message("base index is inaccessible").with("path", "base-index"),
+            )
+            .and_raise(message("could not resolve in-pack base").with("operation", "base lookup"));
+            let original_sources: Vec<_> = callback_error
+                .iter_errors_with_locations()
+                .map(|source| (source.error().to_string(), source.location()))
+                .collect();
+            let original_classes: Vec<_> = callback_error
+                .classify()
+                .map(|classification| classification.class())
+                .collect();
+            let callback_error = std::cell::RefCell::new(Some(callback_error));
+            let err = crate::cache::delta::Tree::from_offsets_in_pack(
+                pack_file.path(),
+                offsets.into_iter(),
+                &|offset| *offset,
+                &|base_id| {
+                    assert_eq!(
+                        base_id,
+                        gix_hash::Kind::Sha1.null().as_ref(),
+                        "the resolver receives the ref-delta's base ID"
+                    );
+                    Err(callback_error
+                        .borrow_mut()
+                        .take()
+                        .expect("the failing resolver is called only once"))
+                },
+                &mut gix_features::progress::Discard,
+                &AtomicBool::new(false),
+                gix_hash::Kind::Sha1,
+            )
+            .err()
+            .expect("a resolver error must abort tree construction");
+
+            assert_eq!(
+                err.iter_errors_with_locations()
+                    .map(|source| (source.error().to_string(), source.location()))
+                    .collect::<Vec<_>>(),
+                original_sources,
+                "the resolver's sources and locations survive without added tree context"
+            );
+            assert_eq!(
+                err.classify()
+                    .map(|classification| classification.class())
+                    .collect::<Vec<_>>(),
+                original_classes,
+                "tree construction preserves all resolver error classifications"
+            );
+            assert_eq!(
+                err.downcast_any_ref::<std::io::Error>()
+                    .expect("the resolver's concrete I/O error remains available")
+                    .kind(),
+                std::io::ErrorKind::PermissionDenied,
+                "the native failure remains available for recovery"
+            );
+            assert!(!err.is_not_found(), "a resolver failure is not a missing base");
+            Ok(())
+        }
+
+        #[test]
+        fn ref_delta_resolver_none_is_a_missing_base() -> TestResult {
+            let (pack_file, offsets) = ref_delta_pack()?;
+            let resolutions = std::cell::Cell::new(0);
+            let err = crate::cache::delta::Tree::from_offsets_in_pack(
+                pack_file.path(),
+                offsets.into_iter(),
+                &|offset| *offset,
+                &|_| {
+                    resolutions.set(resolutions.get() + 1);
+                    Ok(None)
+                },
+                &mut gix_features::progress::Discard,
+                &AtomicBool::new(false),
+                gix_hash::Kind::Sha1,
+            )
+            .err()
+            .expect("Ok(None) means the ref-delta base is absent from the pack");
+
+            assert_eq!(resolutions.get(), 1, "a missing base is looked up only once");
+            assert!(
+                err.is_not_found(),
+                "an absent base retains its not-found classification"
+            );
+            assert_eq!(
+                err.to_string(),
+                format!(
+                    "Base object {} was not found in this pack; offset-based tree construction requires in-pack bases",
+                    gix_hash::Kind::Sha1.null()
+                ),
+                "a missing base identifies the ID and the offset-based constructor's in-pack requirement"
+            );
+            Ok(())
+        }
+
+        #[test]
+        fn ref_delta_resolver_some_attaches_child_to_base() -> TestResult {
+            let (pack_file, offsets) = ref_delta_pack()?;
+            let resolutions = std::cell::Cell::new(0);
+            let tree = crate::cache::delta::Tree::from_offsets_in_pack(
+                pack_file.path(),
+                offsets.into_iter(),
+                &|offset| *offset,
+                &|base_id| {
+                    resolutions.set(resolutions.get() + 1);
+                    assert_eq!(
+                        base_id,
+                        gix_hash::Kind::Sha1.null().as_ref(),
+                        "the resolver receives the ref-delta's base ID"
+                    );
+                    Ok(Some(offsets[0]))
+                },
+                &mut gix_features::progress::Discard,
+                &AtomicBool::new(false),
+                gix_hash::Kind::Sha1,
+            )?;
+
+            assert_eq!(resolutions.get(), 1, "only the ref-delta requires a base lookup");
+            assert_eq!(tree.root_items.len(), 1, "the blob remains the sole root");
+            assert_eq!(tree.child_items.len(), 1, "the ref-delta becomes the sole child");
+            assert_eq!(tree.root_items[0].offset, offsets[0], "the base keeps its pack offset");
+            assert_eq!(
+                tree.root_items[0].children(),
+                &[0],
+                "the resolved base owns the ref-delta child"
+            );
+            assert_eq!(
+                tree.child_items[0].data, offsets[1],
+                "the child retains its caller-provided data"
+            );
+            Ok(())
+        }
+
+        fn ref_delta_pack() -> TestResult<(gix_testtools::tempfile::NamedTempFile, [pack::data::Offset; 2])> {
+            let pack_file = gix_testtools::tempfile::NamedTempFile::new()?;
+            let mut pack_data = pack::data::header::encode(pack::data::Version::V2, 2).to_vec();
+            // Tree construction only reads entry headers, so compressed payloads and a trailer are unnecessary.
+            let base_offset = pack_data.len() as pack::data::Offset;
+            pack::data::entry::Header::Blob.write_to(0, &mut pack_data)?;
+            let delta_offset = pack_data.len() as pack::data::Offset;
+            pack::data::entry::Header::RefDelta {
+                base_id: gix_hash::Kind::Sha1.null(),
+            }
+            .write_to(0, &mut pack_data)?;
+            std::fs::write(pack_file.path(), pack_data)?;
+            Ok((pack_file, [base_offset, delta_offset]))
+        }
+
         fn tree(index_path: &str, pack_path: &str) -> gix_testtools::Result {
             let idx = pack::index::File::at(fixture_path(index_path), gix_hash::Kind::Sha1)?;
             crate::cache::delta::Tree::from_offsets_in_pack(
                 &fixture_path(pack_path),
                 idx.sorted_offsets().into_iter(),
                 &|ofs| *ofs,
-                &|id| idx.lookup(id).map(|index| idx.pack_offset_at_index(index)),
+                &|id| Ok(idx.lookup(id).map(|index| idx.pack_offset_at_index(index))),
                 &mut gix_features::progress::Discard,
                 &AtomicBool::new(false),
                 gix_hash::Kind::Sha1,

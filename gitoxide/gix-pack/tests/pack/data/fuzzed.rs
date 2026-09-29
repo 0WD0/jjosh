@@ -93,7 +93,7 @@ fn non_canonical_pack_entry_header_is_accepted() {
             entry,
             &mut out,
             &mut Default::default(),
-            &|_, _| None,
+            &|_, _| Ok(None),
             &mut gix_pack::cache::Never,
         )
         .expect("non-canonical entry decodes like a canonical git object");
@@ -124,7 +124,7 @@ fn oversized_declared_object_size_is_reported_without_panicking() {
             entry,
             &mut Vec::new(),
             &mut Default::default(),
-            &|_, _| None,
+            &|_, _| Ok(None),
             &mut gix_pack::cache::Never,
         )
     }));
@@ -170,7 +170,7 @@ fn declared_object_size_over_alloc_limit_bytes_is_reported_as_out_of_memory() {
             entry,
             &mut Vec::new(),
             &mut Default::default(),
-            &|_, _| None,
+            &|_, _| Ok(None),
             &mut gix_pack::cache::Never,
         )
     }));
@@ -222,7 +222,7 @@ fn runaway_delta_allocation_is_rejected_with_fuzz_alloc_limit() {
                 entry,
                 &mut Vec::new(),
                 &mut Default::default(),
-                &|_, _| None,
+                &|_, _| Ok(None),
                 &mut gix_pack::cache::Never,
             )
         }));
@@ -265,7 +265,7 @@ fn invalid_ofs_delta_base_distance_is_reported_without_panicking() {
             entry,
             &mut Vec::new(),
             &mut Default::default(),
-            &|_, _| None,
+            &|_, _| Ok(None),
             &mut gix_pack::cache::Never,
         )
     }));
@@ -325,7 +325,7 @@ fn out_of_bounds_entry_data_offset_is_reported_without_panicking() {
                 entry,
                 &mut Vec::new(),
                 &mut Default::default(),
-                &|_, _| None,
+                &|_, _| Ok(None),
                 &mut gix_pack::cache::Never,
             )
         }));
@@ -383,7 +383,7 @@ fn malformed_delta_instruction_relocation_is_reported_without_panicking() {
                 entry,
                 &mut Vec::new(),
                 &mut Default::default(),
-                &|_, _| None,
+                &|_, _| Ok(None),
                 &mut gix_pack::cache::Never,
             )
         }));
@@ -439,7 +439,7 @@ fn runaway_delta_chain_is_reported_without_panicking() {
                     entry,
                     &mut Vec::new(),
                     &mut Default::default(),
-                    &|_, _| None,
+                    &|_, _| Ok(None),
                     &mut gix_pack::cache::Never,
                 )
                 .map(|_| ())
@@ -495,7 +495,7 @@ fn overlong_delta_header_size_is_reported_without_panicking() {
                 entry,
                 &mut Vec::new(),
                 &mut Default::default(),
-                &|_, _| None,
+                &|_, _| Ok(None),
                 &mut gix_pack::cache::Never,
             )
         }));
@@ -556,7 +556,7 @@ fn short_delta_application_is_reported_without_panicking() {
             file.entry(delta_pack_offset).expect("delta entry is parseable"),
             &mut Vec::new(),
             &mut Default::default(),
-            &|_, _| None,
+            &|_, _| Ok(None),
             &mut gix_pack::cache::Never,
         )
     }));

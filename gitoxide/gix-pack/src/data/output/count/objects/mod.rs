@@ -268,7 +268,7 @@ mod expand {
                                     &changes_delegate.objects
                                 };
                                 for id in objects_ref.iter() {
-                                    out.push(id_to_count(db, buf2, id, objects, stats, allow_pack_lookups));
+                                    out.push(id_to_count(db, buf2, id, objects, stats, allow_pack_lookups)?);
                                 }
                                 break;
                             }
@@ -295,7 +295,7 @@ mod expand {
                                     out = objects.dissolve(stats);
                                 }
                                 for id in &traverse_delegate.non_trees {
-                                    out.push(id_to_count(db, buf1, id, objects, stats, allow_pack_lookups));
+                                    out.push(id_to_count(db, buf1, id, objects, stats, allow_pack_lookups)?);
                                 }
                                 break;
                             }
@@ -355,17 +355,17 @@ mod expand {
         objects: &gix_features::progress::AtomicStep,
         statistics: &mut Outcome,
         allow_pack_lookups: bool,
-    ) -> output::Count {
+    ) -> Result<output::Count> {
         objects.fetch_add(1, Ordering::Relaxed);
         statistics.expanded_objects += 1;
-        output::Count {
+        Ok(output::Count {
             id: id.to_owned(),
             entry_pack_location: if allow_pack_lookups {
-                PackLocation::LookedUp(db.location_by_oid(id, buf))
+                PackLocation::LookedUp(db.location_by_oid(id, buf)?)
             } else {
                 PackLocation::NotLookedUp
             },
-        }
+        })
     }
 
     struct CountingObjects<'a> {

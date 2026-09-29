@@ -37,7 +37,7 @@ fn invalid_ofs_delta_base_distance_is_an_error() -> Result {
             &count,
             &[],
             0,
-            None::<fn(u32, u64) -> Option<gix_hash::ObjectId>>,
+            None::<fn(u32, u64) -> gix_error::Result<Option<gix_hash::ObjectId>>>,
             gix_pack::data::Version::V2,
         );
 
@@ -53,6 +53,79 @@ fn invalid_ofs_delta_base_distance_is_an_error() -> Result {
         an ofs-delta base distance pointing before pack start,
     ]
     ");
+    Ok(())
+}
+
+#[test]
+fn thin_pack_base_lookup_distinguishes_errors_from_absence() -> gix_error::TestResult {
+    use gix_error::ErrorExt;
+
+    let mut data = Vec::new();
+    gix_pack::data::entry::Header::OfsDelta { base_distance: 4 }.write_to(0, &mut data)?;
+    let base_offset = gix_pack::data::header::SIZE as u64;
+    let count = output::Count::from_data(
+        object_hash().null(),
+        Some(gix_pack::data::entry::Location {
+            pack_id: 0,
+            pack_offset: base_offset + 4,
+            entry_size: data.len(),
+        }),
+    );
+    let entry = gix_pack::find::Entry {
+        data,
+        version: gix_pack::data::Version::V2,
+    };
+    assert!(
+        output::Entry::from_pack_entry(
+            entry.clone(),
+            &count,
+            &[],
+            0,
+            Some(|_, _| Ok(None)),
+            gix_pack::data::Version::V2,
+        )
+        .is_none(),
+        "an absent base can trigger recompression instead of reusing the delta"
+    );
+    let err = output::Entry::from_pack_entry(
+        entry.clone(),
+        &count,
+        &[],
+        0,
+        Some(|_, _| Err(gix_error::corruption("invalid base reference").raise())),
+        gix_pack::data::Version::V2,
+    )
+    .expect("a failed lookup must not request recompression")
+    .expect_err("corrupt base references must remain errors");
+    assert!(
+        err.is_corrupted(),
+        "the callback's corruption classification is preserved"
+    );
+    assert_eq!(
+        err.to_string(),
+        "invalid base reference",
+        "the original diagnostic is preserved"
+    );
+
+    let base_id = object_hash().empty_blob();
+    let reused = output::Entry::from_pack_entry(
+        entry,
+        &count,
+        &[],
+        0,
+        Some(|pack_id, offset| {
+            assert_eq!(pack_id, 0, "the callback receives the delta's pack");
+            assert_eq!(offset, base_offset, "the callback receives the validated base offset");
+            Ok(Some(base_id))
+        }),
+        gix_pack::data::Version::V2,
+    )
+    .expect("a found base permits delta reuse")?;
+    assert_eq!(
+        reused.kind,
+        output::entry::Kind::DeltaOid { id: base_id },
+        "a found base becomes a ref-delta"
+    );
     Ok(())
 }
 
@@ -374,7 +447,7 @@ fn traversals() -> Result {
                     allow_thin_pack,
                     ..Default::default()
                 },
-            );
+            )?;
             let entries: Vec<_> = InOrderIter::from(entries_iter.by_ref())
                 .collect::<std::result::Result<Vec<_>, _>>()?
                 .into_iter()

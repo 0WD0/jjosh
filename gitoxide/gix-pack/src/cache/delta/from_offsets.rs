@@ -19,16 +19,23 @@ impl<T> Tree<T> {
     /// * `pack_path` is the path to the pack file itself and from which to read the entry data, which is a pack file matching the offsets
     ///   returned by `get_pack_offset(…)`.
     /// * `progress` is used to track progress when creating the tree.
-    /// * `resolve_in_pack_id(gix_hash::oid) -> Option<data::Offset>` takes an object ID and tries to resolve it to an object within this pack if
-    ///   possible. Failing to do so aborts the operation, and this function is not expected to be called in usual packs. It's a theoretical
-    ///   possibility though as old packs might have referred to their objects using the 20 bytes hash, instead of their encoded offset from the base.
+    /// * `resolve_in_pack_id(&gix_hash::oid) -> Result<Option<data::Offset>>` takes an object ID and tries to resolve it to an offset
+    ///   within this pack. `Err` aborts the operation with the resolver's error unchanged; `Ok(None)` aborts with a missing-base error.
+    ///   The callback is only called for ref-deltas, which refer to their base by object ID instead of an encoded offset.
+    ///
+    /// # Ref-delta bases
+    ///
+    /// This constructor requires every base to have an offset in this pack and an item in `data_sorted_by_offsets`.
+    /// Forward references are supported: children whose bases occur later are attached before traversal.
+    /// Unlike streaming indexing, this constructor does not defer base-ID lookup until objects are decoded or insert
+    /// external bases. To complete thin packs, use the streaming indexing path with `data::input::LookupRefDeltaObjectsIter`.
     ///
     /// Note that the sort order is ascending. The given pack file path must match the provided offsets.
     pub fn from_offsets_in_pack(
         pack_path: &std::path::Path,
         data_sorted_by_offsets: impl Iterator<Item = T>,
         get_pack_offset: &dyn Fn(&T) -> data::Offset,
-        resolve_in_pack_id: &dyn Fn(&gix_hash::oid) -> Option<data::Offset>,
+        resolve_in_pack_id: &dyn Fn(&gix_hash::oid) -> Result<Option<data::Offset>>,
         progress: &mut dyn Progress,
         should_interrupt: &AtomicBool,
         object_hash: gix_hash::Kind,
@@ -75,8 +82,8 @@ impl<T> Tree<T> {
                     tree.add_root(pack_offset, data)?;
                 }
                 RefDelta { base_id } => {
-                    let base_pack_offset = resolve_in_pack_id(base_id.as_ref()).ok_or_raise(|| {
-                        message!("Could find object with id {base_id} in this pack. Thin packs are not supported")
+                    let base_pack_offset = resolve_in_pack_id(base_id.as_ref())?.ok_or_raise(|| {
+                        message!("Base object {base_id} was not found in this pack; offset-based tree construction requires in-pack bases")
                             .not_found()
                     })?;
                     tree.add_child(base_pack_offset, pack_offset, data)?;

@@ -35,6 +35,8 @@ where
 {
     /// Instantiate a multi-index file from `data` as assumed to be read or memory-mapped from `path`.
     ///
+    /// Only the structure is validated here; per-object pack and large-offset references are checked on access.
+    ///
     /// `alloc_limit_bytes` bounds each allocation caused by untrusted on-disk multi-index data.
     /// Use `None` to disable the limit.
     ///
@@ -138,7 +140,7 @@ where
             alloc_limit_bytes,
             lookup_ofs: lookup.start,
             offsets_ofs: offsets.start,
-            large_offsets_ofs: large_offsets.map(|r| r.start),
+            large_offsets,
             num_objects,
             num_indices,
         })

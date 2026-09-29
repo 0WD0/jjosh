@@ -5,6 +5,7 @@ use std::{
     path::PathBuf,
 };
 
+use gix_error::{ErrorExt, TestResult, message};
 use gix_pack::{cache, data};
 
 const FIRST_ENTRY_OFFSET: data::Offset = data::header::SIZE as data::Offset;
@@ -20,7 +21,7 @@ fn plain_object_buffer_growth_respects_alloc_limit() -> Result {
             pack.entry(FIRST_ENTRY_OFFSET)?,
             &mut out,
             &mut Default::default(),
-            &|_, _| None,
+            &|_, _| Ok(None),
             &mut cache::Never,
         )?;
         assert_eq!(out, [b'A'; 65], "the object at the limit must decode correctly");
@@ -59,7 +60,7 @@ fn combined_delta_work_buffers_respect_alloc_limit() -> Result {
                 pack.entry(delta_offset)?,
                 &mut out,
                 &mut Default::default(),
-                &|_, _| None,
+                &|_, _| Ok(None),
                 &mut cache::Never,
             );
             if limit.is_some_and(|limit| limit < 132) {
@@ -101,10 +102,10 @@ fn resolved_base_and_delta_instructions_respect_alloc_limit() -> Result {
             &|_, out| {
                 out.clear();
                 out.extend_from_slice(&[b'A'; 64]);
-                Some(data::decode::entry::ResolvedBase::OutOfPack {
+                Ok(Some(data::decode::entry::ResolvedBase::OutOfPack {
                     kind: gix_object::Kind::Blob,
                     end: out.len(),
-                })
+                }))
             },
             &mut cache::Never,
         )
@@ -122,6 +123,304 @@ fn resolved_base_and_delta_instructions_respect_alloc_limit() -> Result {
 }
 
 #[test]
+fn ref_delta_resolver_error_is_propagated_unchanged() -> TestResult {
+    let bytes = ref_delta_pack(&[1, 1, 0x90, 1])?;
+    let pack = data::File::from_data(bytes, PathBuf::from("resolver-error.pack"), gix_hash::Kind::Sha1)?;
+    let callback_error = std::io::Error::new(
+        std::io::ErrorKind::PermissionDenied,
+        message("base storage is inaccessible").with("path", "external-base"),
+    )
+    .and_raise(message("could not resolve delta base").with("operation", "base lookup"));
+    let original_sources: Vec<_> = callback_error
+        .iter_errors_with_locations()
+        .map(|source| (source.error().to_string(), source.location()))
+        .collect();
+    let original_classes: Vec<_> = callback_error
+        .classify()
+        .map(|classification| classification.class())
+        .collect();
+    let callback_error = std::cell::RefCell::new(Some(callback_error));
+    let resolutions = std::cell::Cell::new(0);
+    let err = pack
+        .decode_entry(
+            pack.entry(FIRST_ENTRY_OFFSET)?,
+            &mut Vec::new(),
+            &mut Default::default(),
+            &|base_id, _| {
+                resolutions.set(resolutions.get() + 1);
+                assert_eq!(
+                    base_id,
+                    gix_hash::Kind::Sha1.null().as_ref(),
+                    "the resolver receives the synthetic external base ID"
+                );
+                Err(callback_error
+                    .borrow_mut()
+                    .take()
+                    .expect("the failing resolver is called only once"))
+            },
+            &mut cache::Never,
+        )
+        .expect_err("a resolver failure must abort decoding instead of becoming an unresolved base");
+
+    assert_eq!(resolutions.get(), 1, "a failed base lookup must not be retried");
+    assert_eq!(
+        err.iter_errors_with_locations()
+            .map(|source| (source.error().to_string(), source.location()))
+            .collect::<Vec<_>>(),
+        original_sources,
+        "the callback's context, native sources, and locations must survive without added decode context"
+    );
+    assert_eq!(
+        err.classify()
+            .map(|classification| classification.class())
+            .collect::<Vec<_>>(),
+        original_classes,
+        "decoding must preserve every callback error classification"
+    );
+    let native = err
+        .downcast_any_ref::<std::io::Error>()
+        .expect("the resolver's concrete I/O error remains available for recovery");
+    assert_eq!(
+        native.kind(),
+        std::io::ErrorKind::PermissionDenied,
+        "the native failure must not be replaced with a missing-base error"
+    );
+    assert!(
+        native
+            .get_ref()
+            .expect("the native I/O error retains its payload")
+            .is::<gix_error::Message>(),
+        "the native source payload retains its concrete type"
+    );
+    assert_eq!(
+        err.dominant_class(),
+        Some(gix_error::Class::PermissionDenied),
+        "base-resolution permissions remain actionable at the decode boundary"
+    );
+    assert!(!err.is_not_found(), "a resolver failure is not a missing delta base");
+    assert!(
+        err.downcast_any_ref::<data::decode::DeltaBaseUnresolved>().is_none(),
+        "DeltaBaseUnresolved must only be constructed for a successful lookup returning None"
+    );
+    Ok(())
+}
+
+#[test]
+fn ref_delta_resolver_none_is_an_unresolved_base() -> TestResult {
+    let bytes = ref_delta_pack(&[1, 1, 0x90, 1])?;
+    let pack = data::File::from_data(bytes, PathBuf::from("missing-base.pack"), gix_hash::Kind::Sha1)?;
+    let resolutions = std::cell::Cell::new(0);
+    let err = pack
+        .decode_entry(
+            pack.entry(FIRST_ENTRY_OFFSET)?,
+            &mut Vec::new(),
+            &mut Default::default(),
+            &|_, _| {
+                resolutions.set(resolutions.get() + 1);
+                Ok(None)
+            },
+            &mut cache::Never,
+        )
+        .expect_err("Ok(None) means the ref-delta base could not be found");
+
+    assert_eq!(resolutions.get(), 1, "a missing base must not trigger repeated lookups");
+    assert!(err.is_not_found(), "an unresolved delta base remains a missing object");
+    assert!(
+        err.probable_cause().is::<data::decode::DeltaBaseUnresolved>(),
+        "the unresolved base remains the typed probable cause"
+    );
+    assert_eq!(
+        err.downcast_any_ref::<data::decode::DeltaBaseUnresolved>()
+            .expect("the missing-base error retains its concrete type")
+            .0,
+        gix_hash::Kind::Sha1.null(),
+        "the unresolved error identifies the requested synthetic base"
+    );
+    Ok(())
+}
+
+#[test]
+fn ref_delta_resolver_some_decodes_external_base() -> TestResult {
+    let bytes = ref_delta_pack(&[1, 1, 0x90, 1])?;
+    let pack = data::File::from_data(bytes, PathBuf::from("external-base.pack"), gix_hash::Kind::Sha1)?;
+    let mut out = Vec::new();
+    let resolutions = std::cell::Cell::new(0);
+    let decoded = pack.decode_entry(
+        pack.entry(FIRST_ENTRY_OFFSET)?,
+        &mut out,
+        &mut Default::default(),
+        &|base_id, out| {
+            resolutions.set(resolutions.get() + 1);
+            resolve_external_blob(base_id, out)
+        },
+        &mut cache::Never,
+    )?;
+
+    assert_eq!(resolutions.get(), 1, "the successful callback resolves the base once");
+    assert_eq!(
+        decoded.kind,
+        gix_object::Kind::Blob,
+        "the base determines the object kind"
+    );
+    assert_eq!(
+        decoded.num_deltas, 1,
+        "the external base completes the one-entry delta chain"
+    );
+    assert_eq!(
+        decoded.object_size, 1,
+        "the decoded size matches the delta result header"
+    );
+    assert_eq!(out, b"A", "Ok(Some(base)) preserves successful delta application");
+    Ok(())
+}
+
+#[test]
+fn ref_delta_header_resolver_error_is_propagated_unchanged() -> TestResult {
+    let bytes = ref_delta_pack(&[1, 1, 0x90, 1])?;
+    let pack = data::File::from_data(bytes, PathBuf::from("header-resolver-error.pack"), gix_hash::Kind::Sha1)?;
+    let callback_error = std::io::Error::new(
+        std::io::ErrorKind::PermissionDenied,
+        message("base storage is inaccessible").with("path", "external-base"),
+    )
+    .and_raise(message("could not resolve delta base header").with("operation", "base header lookup"));
+    let original_sources: Vec<_> = callback_error
+        .iter_errors_with_locations()
+        .map(|source| (source.error().to_string(), source.location()))
+        .collect();
+    let original_classes: Vec<_> = callback_error
+        .classify()
+        .map(|classification| classification.class())
+        .collect();
+    let callback_error = std::cell::RefCell::new(Some(callback_error));
+    let resolutions = std::cell::Cell::new(0);
+    let err = pack
+        .decode_header(pack.entry(FIRST_ENTRY_OFFSET)?, &mut Default::default(), &|base_id| {
+            resolutions.set(resolutions.get() + 1);
+            assert_eq!(
+                base_id,
+                gix_hash::Kind::Sha1.null().as_ref(),
+                "the header resolver receives the synthetic external base ID"
+            );
+            Err(callback_error
+                .borrow_mut()
+                .take()
+                .expect("the failing header resolver is called only once"))
+        })
+        .expect_err("a resolver failure must abort header decoding instead of becoming an unresolved base");
+
+    assert_eq!(resolutions.get(), 1, "a failed base header lookup must not be retried");
+    assert_eq!(
+        err.iter_errors_with_locations()
+            .map(|source| (source.error().to_string(), source.location()))
+            .collect::<Vec<_>>(),
+        original_sources,
+        "the callback's context, native sources, and locations must survive without added header decode context"
+    );
+    assert_eq!(
+        err.classify()
+            .map(|classification| classification.class())
+            .collect::<Vec<_>>(),
+        original_classes,
+        "header decoding must preserve every callback error classification"
+    );
+    let native = err
+        .downcast_any_ref::<std::io::Error>()
+        .expect("the header resolver's concrete I/O error remains available for recovery");
+    assert_eq!(
+        native.kind(),
+        std::io::ErrorKind::PermissionDenied,
+        "the native failure must not be replaced with a missing-base error"
+    );
+    assert!(
+        native
+            .get_ref()
+            .expect("the native I/O error retains its payload")
+            .is::<gix_error::Message>(),
+        "the native source payload retains its concrete type"
+    );
+    assert_eq!(
+        err.dominant_class(),
+        Some(gix_error::Class::PermissionDenied),
+        "base-resolution permissions remain actionable at the header decode boundary"
+    );
+    assert!(
+        !err.is_not_found(),
+        "a header resolver failure is not a missing delta base"
+    );
+    assert!(
+        err.downcast_any_ref::<data::decode::DeltaBaseUnresolved>().is_none(),
+        "DeltaBaseUnresolved must only be constructed for a successful header lookup returning None"
+    );
+    Ok(())
+}
+
+#[test]
+fn ref_delta_header_resolver_none_is_an_unresolved_base() -> TestResult {
+    let bytes = ref_delta_pack(&[1, 1, 0x90, 1])?;
+    let pack = data::File::from_data(bytes, PathBuf::from("header-missing-base.pack"), gix_hash::Kind::Sha1)?;
+    let resolutions = std::cell::Cell::new(0);
+    let err = pack
+        .decode_header(pack.entry(FIRST_ENTRY_OFFSET)?, &mut Default::default(), &|_| {
+            resolutions.set(resolutions.get() + 1);
+            Ok(None)
+        })
+        .expect_err("Ok(None) means the ref-delta base header could not be found");
+
+    assert_eq!(
+        resolutions.get(),
+        1,
+        "a missing base header must not trigger repeated lookups"
+    );
+    assert!(
+        err.is_not_found(),
+        "an unresolved delta base header remains a missing object"
+    );
+    assert!(
+        err.probable_cause().is::<data::decode::DeltaBaseUnresolved>(),
+        "the unresolved base remains the typed probable cause"
+    );
+    assert_eq!(
+        err.downcast_any_ref::<data::decode::DeltaBaseUnresolved>()
+            .expect("the missing-base error retains its concrete type")
+            .0,
+        gix_hash::Kind::Sha1.null(),
+        "the unresolved header error identifies the requested synthetic base"
+    );
+    Ok(())
+}
+
+#[test]
+fn ref_delta_header_resolver_some_decodes_external_base() -> TestResult {
+    let bytes = ref_delta_pack(&[1, 1, 0x90, 1])?;
+    let pack = data::File::from_data(bytes, PathBuf::from("header-external-base.pack"), gix_hash::Kind::Sha1)?;
+    let resolutions = std::cell::Cell::new(0);
+    let decoded = pack.decode_header(pack.entry(FIRST_ENTRY_OFFSET)?, &mut Default::default(), &|base_id| {
+        resolutions.set(resolutions.get() + 1);
+        resolve_external_header_blob(base_id)
+    })?;
+
+    assert_eq!(
+        resolutions.get(),
+        1,
+        "the successful header callback resolves the base once"
+    );
+    assert_eq!(
+        decoded.kind,
+        gix_object::Kind::Blob,
+        "the base header determines the object kind"
+    );
+    assert_eq!(
+        decoded.num_deltas, 1,
+        "the external base header completes the one-entry delta chain"
+    );
+    assert_eq!(
+        decoded.object_size, 1,
+        "the decoded size matches the delta result header"
+    );
+    Ok(())
+}
+
+#[test]
 fn ref_delta_header_cycles_are_rejected() -> Result {
     for (num_entries, close_with_ofs) in [(1, false), (2, false), (3, false), (2, true)] {
         let (pack, offsets) = ref_delta_chain(num_entries, &[0, 0], close_with_ofs)?;
@@ -131,9 +430,9 @@ fn ref_delta_header_cycles_are_rejected() -> Result {
                 resolutions.set(resolutions.get() + 1);
                 assert!(resolutions.get() < 20, "a cyclic header lookup must terminate promptly");
                 let offset = offsets[usize::from(base_id.as_bytes()[0]) % offsets.len()];
-                Some(data::decode::header::ResolvedBase::InPack(
+                Ok(Some(data::decode::header::ResolvedBase::InPack(
                     pack.entry(offset).expect("the synthetic delta entry exists"),
-                ))
+                )))
             })
             .expect_err("cyclic ref-delta bases must not be accepted");
         assert!(err.is_corrupted(), "a delta cycle is corrupt pack data: {err}");
@@ -157,9 +456,9 @@ fn ref_delta_entry_cycles_are_rejected() -> Result {
                         resolutions.set(resolutions.get() + 1);
                         assert!(resolutions.get() < 20, "a cyclic object lookup must terminate promptly");
                         let offset = offsets[usize::from(base_id.as_bytes()[0]) % offsets.len()];
-                        Some(data::decode::entry::ResolvedBase::InPack(
+                        Ok(Some(data::decode::entry::ResolvedBase::InPack(
                             pack.entry(offset).expect("the synthetic delta entry exists"),
-                        ))
+                        )))
                     },
                     &mut cache::Never,
                 )
@@ -180,7 +479,7 @@ fn delta_chain_metadata_respects_alloc_limit() -> Result {
             &mut Vec::new(),
             &mut Default::default(),
             &|base_id, _| {
-                Some(match offsets.get(usize::from(base_id.as_bytes()[0])) {
+                Ok(Some(match offsets.get(usize::from(base_id.as_bytes()[0])) {
                     Some(&offset) => data::decode::entry::ResolvedBase::InPack(
                         pack.entry(offset).expect("the synthetic delta entry exists"),
                     ),
@@ -188,7 +487,7 @@ fn delta_chain_metadata_respects_alloc_limit() -> Result {
                         kind: gix_object::Kind::Blob,
                         end: 0,
                     },
-                })
+                }))
             },
             &mut cache::Never,
         )
@@ -209,7 +508,7 @@ fn forward_ref_delta_chain_is_accepted() -> Result {
     let (pack, offsets) = ref_delta_chain(12, &[0, 0], false)?;
     let entry = pack.entry(FIRST_ENTRY_OFFSET)?;
     let header = pack.decode_header(entry.clone(), &mut Default::default(), &|base_id| {
-        Some(match offsets.get(usize::from(base_id.as_bytes()[0])) {
+        Ok(Some(match offsets.get(usize::from(base_id.as_bytes()[0])) {
             Some(&offset) => data::decode::header::ResolvedBase::InPack(
                 pack.entry(offset).expect("the synthetic delta entry exists"),
             ),
@@ -217,7 +516,7 @@ fn forward_ref_delta_chain_is_accepted() -> Result {
                 kind: gix_object::Kind::Blob,
                 num_deltas: None,
             },
-        })
+        }))
     })?;
     let mut out = Vec::new();
     let decoded = pack.decode_entry(
@@ -225,7 +524,7 @@ fn forward_ref_delta_chain_is_accepted() -> Result {
         &mut out,
         &mut Default::default(),
         &|base_id, _| {
-            Some(match offsets.get(usize::from(base_id.as_bytes()[0])) {
+            Ok(Some(match offsets.get(usize::from(base_id.as_bytes()[0])) {
                 Some(&offset) => data::decode::entry::ResolvedBase::InPack(
                     pack.entry(offset).expect("the synthetic delta entry exists"),
                 ),
@@ -233,7 +532,7 @@ fn forward_ref_delta_chain_is_accepted() -> Result {
                     kind: gix_object::Kind::Blob,
                     end: 0,
                 },
-            })
+            }))
         },
         &mut cache::Never,
     )?;
@@ -600,13 +899,16 @@ fn ref_delta_pack_with_declared_size(delta: &[u8], decompressed_size: u64) -> Re
     Ok(pack)
 }
 
-fn resolve_external_blob(_id: &gix_hash::oid, out: &mut Vec<u8>) -> Option<data::decode::entry::ResolvedBase> {
+fn resolve_external_blob(
+    _id: &gix_hash::oid,
+    out: &mut Vec<u8>,
+) -> gix_error::Result<Option<data::decode::entry::ResolvedBase>> {
     out.clear();
     out.extend_from_slice(b"A");
-    Some(data::decode::entry::ResolvedBase::OutOfPack {
+    Ok(Some(data::decode::entry::ResolvedBase::OutOfPack {
         kind: gix_object::Kind::Blob,
         end: 1,
-    })
+    }))
 }
 
 /// Resolve the synthetic ref-delta base for `decode_header()` tests.
@@ -614,9 +916,9 @@ fn resolve_external_blob(_id: &gix_hash::oid, out: &mut Vec<u8>) -> Option<data:
 /// Header decoding uses a resolver that only reports base metadata, unlike `decode_entry()`,
 /// which also needs the base bytes in `out`. Providing this resolver lets malformed ref-delta
 /// fixtures reach delta-header parsing without failing earlier on the unresolved `_id`.
-fn resolve_external_header_blob(_id: &gix_hash::oid) -> Option<data::decode::header::ResolvedBase> {
-    Some(data::decode::header::ResolvedBase::OutOfPack {
+fn resolve_external_header_blob(_id: &gix_hash::oid) -> gix_error::Result<Option<data::decode::header::ResolvedBase>> {
+    Ok(Some(data::decode::header::ResolvedBase::OutOfPack {
         kind: gix_object::Kind::Blob,
         num_deltas: None,
-    })
+    }))
 }
