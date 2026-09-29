@@ -80,6 +80,68 @@ mod destructure_url_in_place {
     }
 
     #[test]
+    fn component_paths_retain_existing_http_path_semantics() -> Result {
+        for protocol in ["https", "ssh"] {
+            for use_http_path in [false, true] {
+                for (path, normalized) in [("/repo/", Some("repo")), ("/", None)] {
+                    let mut ctx = Context {
+                        protocol: Some(protocol.into()),
+                        host: Some("example.com".into()),
+                        path: Some(path.into()),
+                        ..Default::default()
+                    };
+                    ctx.destructure_url_in_place(use_http_path)?;
+                    let expected = if protocol == "https" && !use_http_path {
+                        Some(path)
+                    } else {
+                        normalized
+                    };
+                    assert_eq!(
+                        ctx.path.as_deref().map(Vec::as_slice),
+                        expected.map(str::as_bytes),
+                        "supplied HTTP paths are retained when disabled; used paths are relative and root paths absent"
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn an_explicit_url_still_replaces_supplied_components() -> Result {
+        let mut ctx = Context {
+            url: Some("https://url-user:url-password@url.example/repo".into()),
+            protocol: Some("http".into()),
+            host: Some("components.example".into()),
+            username: Some("component-user".into()),
+            password: Some("component-password".into()),
+            ..Default::default()
+        };
+        ctx.destructure_url_in_place(true)?;
+        assert_eq!(
+            ctx.protocol.as_deref(),
+            Some("https"),
+            "an explicit URL defines the protocol"
+        );
+        assert_eq!(
+            ctx.host.as_deref(),
+            Some("url.example"),
+            "an explicit URL defines the host"
+        );
+        assert_eq!(
+            ctx.username.as_deref(),
+            Some("url-user"),
+            "an explicit URL defines the user"
+        );
+        assert_eq!(
+            ctx.password.as_deref(),
+            Some("url-password"),
+            "an explicit URL defines the password"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn protocol_and_host_with_path_without_url_constructs_full_url() {
         let mut ctx = Context {
             protocol: Some("https".into()),
@@ -142,7 +204,107 @@ mod to_prompt {
 }
 
 mod to_url {
+    use crate::Result;
     use gix_credentials::protocol::Context;
+
+    #[test]
+    fn component_delimiters_cannot_change_the_credential_identity() -> Result {
+        for protocol in ["http", "https", "ssh", "git"] {
+            for user in [
+                "github.com/",
+                "victim@trusted.example/",
+                "victim@trusted.example?",
+                "victim@trusted.example#",
+                "user:password",
+                "user%2Fname",
+                "jörg",
+            ] {
+                let mut ctx = Context {
+                    protocol: Some(protocol.into()),
+                    host: Some("evil.example:8443".into()),
+                    username: Some(user.into()),
+                    password: Some("already-supplied".into()),
+                    path: Some("repo%2Fwith space/?#@".into()),
+                    ..Default::default()
+                };
+                let encoded = ctx.to_url().expect("a protocol is present");
+                let parsed = gix_url::parse(&encoded)?;
+                assert_eq!(parsed.user(), Some(user), "user delimiters remain part of the username");
+                assert_eq!(parsed.host(), Some("evil.example"), "the requested host cannot change");
+                assert_eq!(
+                    parsed.port,
+                    Some(8443),
+                    "the explicit port remains an authority component"
+                );
+                assert_eq!(
+                    parsed.password(),
+                    None,
+                    "the synthesized URL never contains the password"
+                );
+                assert_eq!(
+                    parsed.path, "/repo%2Fwith space/?#@",
+                    "decoded path bytes survive serialization"
+                );
+
+                let mut expected = ctx.clone();
+                expected.url = Some(encoded);
+                ctx.destructure_url_in_place(true)?;
+                assert_eq!(
+                    ctx, expected,
+                    "constructing a URL does not reinterpret supplied credentials"
+                );
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn hosts_keep_ports_ipv6_and_scheme_specific_percent_encoding() -> Result {
+        for (protocol, host, encoded_host) in [
+            ("https", "[::1]:8443", "[::1]:8443"),
+            ("https", "[fe80::1%25eth0]:8443", "[fe80::1%25eth0]:8443"),
+            ("https", "exa%20mple.example:8443", "exa%20mple.example:8443"),
+            ("ssh", "[fe80::1%eth0]:8443", "[fe80::1%25eth0]:8443"),
+            ("ssh", "exa%mple.example:8443", "exa%25mple.example:8443"),
+            (
+                "https",
+                "trusted.example/path@evil.example",
+                "trusted.example%2Fpath%40evil.example",
+            ),
+        ] {
+            let mut ctx = Context {
+                protocol: Some(protocol.into()),
+                host: Some(host.into()),
+                path: Some("repo".into()),
+                ..Default::default()
+            };
+            assert_eq!(
+                ctx.to_url().expect("a protocol is present"),
+                format!("{protocol}://{encoded_host}/repo"),
+                "host encoding preserves ports and IPv6 without introducing authority delimiters"
+            );
+            ctx.destructure_url_in_place(true)?;
+            assert_eq!(
+                ctx.host.as_deref(),
+                Some(host),
+                "the original host field reaches helpers intact"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn protocol_delimiters_cannot_introduce_an_authority() {
+        let mut ctx = Context {
+            protocol: Some("https://trusted.example/".into()),
+            host: Some("evil.example".into()),
+            ..Default::default()
+        };
+        assert!(
+            ctx.destructure_url_in_place(false).is_err(),
+            "a malformed protocol cannot select a different host"
+        );
+    }
 
     #[test]
     fn no_protocol_is_nothing() {

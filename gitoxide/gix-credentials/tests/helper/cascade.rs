@@ -10,6 +10,41 @@ mod invoke {
     use gix_sec::identity::Account;
 
     #[test]
+    fn reconstructed_urls_cannot_change_the_host_sent_to_helpers() -> Result {
+        for user in ["victim@trusted.example?", "victim@trusted.example/", "github.com/"] {
+            let outcome = Cascade::default()
+                .extend([Program::from_custom_definition(
+                    r#"!f() {
+                        while IFS= read -r line; do
+                            case "$line" in host=*) printf 'password=%s\n' "${line#host=}" ;; esac
+                        done
+                    }; f"#,
+                )])
+                .invoke(
+                    Action::Get(Context {
+                        protocol: Some("https".into()),
+                        host: Some("evil.example".into()),
+                        username: Some(user.into()),
+                        ..Default::default()
+                    }),
+                    gix_prompt::Options {
+                        mode: gix_prompt::Mode::Disable,
+                        askpass: None,
+                    },
+                )?
+                .expect("the helper reports the host for which it was asked to obtain credentials");
+            assert_eq!(
+                outcome.identity,
+                identity(user, "evil.example"),
+                "the helper sees the requested host and the complete username; otherwise URL delimiters in \
+                 the username could redirect credential lookup to trusted.example or github.com, exposing \
+                 that host's credentials when the caller authenticates to evil.example"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
     fn invalid_authentication_challenges_fail_without_helpers() {
         let mut error_snapshots = Vec::new();
         for value in [
