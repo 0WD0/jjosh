@@ -105,8 +105,12 @@ open = "5.3.5"
 document-features = { version = "0.2.0", optional = true }
 
 [dev-dependencies]
+# Exercise optional functionality in tests without enabling it for dependents.
+# Networking remains opt-in as its async and blocking implementations are mutually exclusive.
+gitoxide-core = { path = ".", features = ["organize", "estimate-hours", "query", "corpus", "archive", "clean", "tracing", "tracing-cpu-time", "serde"] }
 gix-testtools = { path = "../tests/tools", default-features = false }
 gix = { path = "../gix", default-features = false, features = ["sha1", "parallel"] }
+insta = "1.46.3"
 
 [package.metadata.docs.rs]
 features = ["document-features", "blocking-client", "organize", "estimate-hours", "serde", "gix/sha1", "gix/parallel"]
