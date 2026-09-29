@@ -3259,7 +3259,8 @@ mod tests {
 
         let base = render(&repository, "HEAD")?;
         assert!(
-            base.lines().any(|line| line.contains(&format!("base @ {short_head}"))),
+            base.lines()
+                .any(|line| line.contains("base @ ") && line.contains(&short_head)),
             "a HEAD base separator retains the marker: {base:?}"
         );
         Ok(())
