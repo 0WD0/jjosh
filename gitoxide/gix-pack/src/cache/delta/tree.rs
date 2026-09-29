@@ -132,8 +132,6 @@ impl<T> Tree<T> {
         }
 
         self.assert_is_incrementing_and_update_next_offset(pack_entries_end)
-            .expect("BUG: pack now is smaller than all previously seen entries");
-        Ok(())
     }
 
     /// Add a new root node, one that only has children but is not a child itself, at the given pack `offset` and associate
@@ -253,6 +251,17 @@ mod tests {
     }
 
     #[test]
+    fn pack_end_must_follow_the_last_entry() -> gix_error::TestResult {
+        let mut tree = super::Tree::with_capacity(1, None)?;
+        tree.add_root(12, ())?;
+        let err = tree
+            .set_pack_entries_end_and_resolve_ref_offsets(12)
+            .expect_err("an entry at or past the pack end is corrupt input");
+        assert!(err.is_corrupted(), "invalid end offsets must return a corruption error");
+        Ok(())
+    }
+
+    #[test]
     fn allocation_failure_is_reported() {
         let err = super::Tree::<()>::with_capacity(usize::MAX, None)
             .err()
@@ -324,6 +333,34 @@ mod tests {
             );
 
             assert!(result.is_err(), "an out-of-bounds delta base is corrupt pack data");
+            Ok(())
+        }
+
+        #[test]
+        fn duplicate_and_overlapping_offsets_are_rejected() -> gix_testtools::Result {
+            let first = pack::data::header::SIZE as pack::data::Offset;
+            let pack_file = gix_testtools::tempfile::NamedTempFile::new()?;
+            let mut data = pack::data::header::encode(pack::data::Version::V2, 2).to_vec();
+            // A two-byte header lets the second indexed offset overlap its predecessor.
+            pack::data::entry::Header::Blob.write_to(16, &mut data)?;
+            std::fs::write(pack_file.path(), data)?;
+            for second in [first, first + 1] {
+                let err = crate::cache::delta::Tree::from_offsets_in_pack(
+                    pack_file.path(),
+                    [first, second].into_iter(),
+                    &|offset| *offset,
+                    &|_| None,
+                    &mut gix_features::progress::Discard,
+                    &AtomicBool::new(false),
+                    gix_hash::Kind::Sha1,
+                )
+                .err()
+                .expect("index offsets cannot duplicate or overlap pack entry headers");
+                assert!(
+                    err.is_corrupted(),
+                    "invalid index offsets must return a corruption error"
+                );
+            }
             Ok(())
         }
 

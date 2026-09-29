@@ -690,6 +690,105 @@ mod tests {
     }
 
     #[test]
+    fn traversal_rejects_unreachable_delta_cycles() -> gix_testtools::Result {
+        for has_root in [false, true] {
+            for cycle_len in [1, 2, 3] {
+                let mut pack = Vec::new();
+                let mut tree = Tree::with_capacity(cycle_len + usize::from(has_root), None)?;
+                if has_root {
+                    let root = append_entry(&mut pack, data::entry::Header::Blob, 0, b"");
+                    tree.add_root(root, ())?;
+                }
+                let offsets: Vec<_> = (0..cycle_len)
+                    .map(|_| {
+                        append_entry(
+                            &mut pack,
+                            data::entry::Header::RefDelta {
+                                base_id: gix_hash::Kind::Sha1.null(),
+                            },
+                            2,
+                            &[0, 0],
+                        )
+                    })
+                    .collect();
+                for (index, &offset) in offsets.iter().enumerate() {
+                    tree.add_child(offsets[(index + 1) % cycle_len], offset, ())?;
+                }
+                let err = traverse(
+                    tree,
+                    &pack,
+                    Some(2),
+                    None,
+                    |slice, pack| pack.get(slice.start as usize..slice.end as usize),
+                    |(), _, _| Ok(()),
+                )
+                .expect_err("every delta must be inspected, including components without a root");
+                assert!(err.is_corrupted(), "an unreachable delta cycle is corrupt pack data");
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn traversal_accepts_forward_delta_bases() -> gix_testtools::Result {
+        let mut pack = Vec::new();
+        let child = append_entry(
+            &mut pack,
+            data::entry::Header::RefDelta {
+                base_id: gix_hash::Kind::Sha1.null(),
+            },
+            2,
+            &[0, 0],
+        );
+        let root = append_entry(&mut pack, data::entry::Header::Blob, 0, b"");
+        let mut tree = Tree::with_capacity(2, None)?;
+        tree.add_child(root, child, ())?;
+        tree.add_root(root, ())?;
+        traverse(
+            tree,
+            &pack,
+            Some(1),
+            None,
+            |slice, pack| pack.get(slice.start as usize..slice.end as usize),
+            |(), _, _| Ok(()),
+        )?;
+        Ok(())
+    }
+
+    #[test]
+    fn traversal_accepts_reused_progress() -> gix_testtools::Result {
+        use progress::Count;
+
+        let mut pack = Vec::new();
+        let root = append_entry(&mut pack, data::entry::Header::Blob, 0, b"");
+        let mut tree = Tree::with_capacity(1, None)?;
+        tree.add_root(root, ())?;
+        let object_progress = prodash::progress::Log::new("reused", Some(0));
+        object_progress.set(3); // A previous indexing or traversal operation already counted objects.
+        let counter = object_progress.counter();
+        tree.traverse(
+            |slice, pack: &Vec<u8>| pack.get(slice.start as usize..slice.end as usize),
+            &pack,
+            pack.len() as u64,
+            |(), _, _| Ok(()),
+            traverse::Options {
+                object_progress: Box::new(object_progress),
+                size_progress: &mut progress::Discard,
+                thread_limit: Some(1),
+                should_interrupt: &AtomicBool::new(false),
+                object_hash: gix_hash::Kind::Sha1,
+                alloc_limit_bytes: None,
+            },
+        )?;
+        assert_eq!(
+            counter.load(Ordering::Relaxed),
+            1,
+            "only this traversal's objects are counted"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn traversal_resolves_children_lazily() {
         let mut pack = Vec::new();
         let root_offset = append_entry(&mut pack, data::entry::Header::Blob, 1, b"A");

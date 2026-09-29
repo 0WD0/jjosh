@@ -2265,6 +2265,7 @@ dependencies = [
  "maplit",
  "memmap2",
  "parking_lot",
+ "prodash",
  "serde",
  "smallvec",
  "uluru",

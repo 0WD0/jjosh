@@ -109,7 +109,7 @@ impl<T> Tree<T> {
     ) -> Result {
         let bytes_to_skip: u64 = pack_offset
             .checked_sub(previous_offset)
-            .expect("continuously ascending pack offsets");
+            .ok_or_raise(|| gix_error::corruption("Pack index offsets overlap an entry header"))?;
         if bytes_to_skip == 0 {
             return Ok(());
         }

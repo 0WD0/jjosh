@@ -1,5 +1,5 @@
 use gix_error::Result;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use gix_error::bail;
 use gix_features::{
@@ -115,6 +115,7 @@ where
         let object_counter = {
             let progress = &mut object_progress;
             progress.init(Some(num_objects), progress::count("objects"));
+            progress.set(0);
             progress.counter()
         };
         size_progress.init(None, progress::bytes());
@@ -134,7 +135,7 @@ where
                 &child_items,
                 thread_limit,
                 num_objects,
-                object_counter,
+                object_counter.clone(),
                 size_counter,
                 &resolver_progress,
                 resolve,
@@ -151,6 +152,10 @@ where
             && let Some((base_id, _children)) = threading::lock(&ref_delta_children).first_key_value()
         {
             bail!("The ref-delta base object {base_id} could not be found".not_found());
+        }
+
+        if object_counter.load(Ordering::Relaxed) != num_objects {
+            bail!(gix_error::corruption("Pack delta traversal left unresolved objects"));
         }
 
         object_progress.show_throughput(start);
