@@ -20,7 +20,7 @@ pub(super) struct WindowsExecutable {
 ///
 /// On Windows, we prefer to use `sh` as provided by Git for Windows, when present. To find it, we
 /// run `git --exec-path` to get a path that is usually `<platform>/libexec/git-core` in the Git
-/// for Windows installation, where `<platform>` is something like `mingw64`. It is also acceptable
+/// for Windows installation, where `<platform>` is something like `ucrt64`. It is also acceptable
 /// to find `sh` in an environment not provided by Git for Windows, such as an independent MSYS2
 /// environment in which a `git` package has been installed. However, in an unusual installation,
 /// or if the user has set a custom value of `GIT_EXEC_PATH`, the output of `git --exec-path` may
@@ -48,7 +48,7 @@ pub(super) struct WindowsExecutable {
 ///
 /// Conditions for a privilege escalation attack or other serious malfunction seem far-fetched. If
 /// further research finds the risk is low enough, `usr` may be added. But for now it is omitted.
-const MSYS_USR_VARIANTS: &[&str] = &["mingw64", "mingw32", "clangarm64", "clang64", "clang32", "ucrt64"];
+const MSYS_USR_VARIANTS: &[&str] = &["clangarm64", "ucrt64", "mingw64", "mingw32", "clang64", "clang32"];
 
 /// Find a Git for Windows installation directory based on `git --exec-path` output.
 ///

@@ -79,48 +79,9 @@ mod system_prefix {
     }
 
     #[test]
+    #[serial]
     fn exepath_no_relevant_subdir() {
-        for names in [&[][..], &["ucrt64"][..]] {
-            let exepath = ExePath::new();
-            exepath.create_separate_subdirs(names);
-            let outcome = system_prefix_from_exepath_var(|key| exepath.var_os_func(key));
-            assert_eq!(outcome, None);
-        }
-    }
-
-    #[test]
-    fn exepath_unambiguous_subdir() {
-        for name in ["mingw32", "mingw64", "clangarm64"] {
-            let exepath = ExePath::new();
-            let subdir = exepath.create_subdir(name);
-            let outcome = system_prefix_from_exepath_var(|key| exepath.var_os_func(key));
-            assert_eq!(outcome, Some(subdir));
-        }
-    }
-
-    #[test]
-    fn exepath_unambiguous_subdir_beside_strange_files() {
-        for (dirname, filename1, filename2) in [
-            ("mingw32", "mingw64", "clangarm64"),
-            ("mingw64", "mingw32", "clangarm64"),
-            ("clangarm64", "mingw32", "mingw64"),
-        ] {
-            let exepath = ExePath::new();
-            let subdir = exepath.create_subdir(dirname);
-            exepath.create_separate_regular_files(&[filename1, filename2]);
-            let outcome = system_prefix_from_exepath_var(|key| exepath.var_os_func(key));
-            assert_eq!(outcome, Some(subdir));
-        }
-    }
-
-    #[test]
-    fn exepath_ambiguous_subdir() {
-        for names in [
-            &["mingw32", "mingw64"][..],
-            &["mingw32", "clangarm64"][..],
-            &["mingw64", "clangarm64"][..],
-            &["mingw32", "mingw64", "clangarm64"][..],
-        ] {
+        for names in [&[][..], &["clang64"][..]] {
             let exepath = ExePath::new();
             exepath.create_separate_subdirs(names);
             let outcome = system_prefix_from_exepath_var(|key| exepath.var_os_func(key));
@@ -130,8 +91,63 @@ mod system_prefix {
 
     #[test]
     #[serial]
+    fn exepath_unambiguous_subdir() {
+        for name in ["clangarm64", "ucrt64", "mingw64", "mingw32"] {
+            let exepath = ExePath::new();
+            let subdir = exepath.create_subdir(name);
+            let outcome = system_prefix_from_exepath_var(|key| exepath.var_os_func(key));
+            assert_eq!(outcome, Some(subdir), "{name} is an unambiguous Git for Windows prefix");
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn exepath_unambiguous_subdir_beside_strange_files() {
+        for (dirname, filenames) in [
+            ("clangarm64", ["ucrt64", "mingw64", "mingw32"]),
+            ("ucrt64", ["clangarm64", "mingw64", "mingw32"]),
+            ("mingw64", ["clangarm64", "ucrt64", "mingw32"]),
+            ("mingw32", ["clangarm64", "ucrt64", "mingw64"]),
+        ] {
+            let exepath = ExePath::new();
+            let subdir = exepath.create_subdir(dirname);
+            exepath.create_separate_regular_files(&filenames);
+            let outcome = system_prefix_from_exepath_var(|key| exepath.var_os_func(key));
+            assert_eq!(
+                outcome,
+                Some(subdir),
+                "only directories can be Git for Windows prefixes"
+            );
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn exepath_ambiguous_subdir() {
+        for names in [
+            &["ucrt64", "mingw64"][..],
+            &["ucrt64", "mingw32"][..],
+            &["clangarm64", "ucrt64"][..],
+            &["mingw32", "mingw64"][..],
+            &["mingw32", "clangarm64"][..],
+            &["mingw64", "clangarm64"][..],
+            &["mingw32", "mingw64", "clangarm64"][..],
+            &["clangarm64", "ucrt64", "mingw64", "mingw32"][..],
+        ] {
+            let exepath = ExePath::new();
+            exepath.create_separate_subdirs(names);
+            let outcome = system_prefix_from_exepath_var(|key| exepath.var_os_func(key));
+            assert_eq!(
+                outcome, None,
+                "multiple prefixes require querying Git to disambiguate {names:?}"
+            );
+        }
+    }
+
+    #[test]
+    #[serial]
     fn exepath_empty_string() {
-        for name in ["mingw32", "mingw64", "clangarm64"] {
+        for name in ["clangarm64", "ucrt64", "mingw64", "mingw32"] {
             let exepath = ExePath::new();
             exepath.create_subdir(name);
             let _cwd = CurrentDir::set(&exepath.path).expect("can change to test dir");
@@ -143,7 +159,7 @@ mod system_prefix {
     #[test]
     #[serial]
     fn exepath_nonempty_relative() {
-        for name in ["mingw32", "mingw64", "clangarm64"] {
+        for name in ["clangarm64", "ucrt64", "mingw64", "mingw32"] {
             let grandparent = tempfile::tempdir().expect("can create new temporary directory");
             let parent = grandparent
                 .path()

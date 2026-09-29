@@ -46,10 +46,9 @@ where
     // limited user accounts can usually create their own arbitrarily named directories inside.)
     let varname_user_appdata_local = "LocalAppData";
 
-    // 64-bit relative bin dirs. So far, this is always `mingw64` or `clangarm64`, not `urct64` or
-    // `clang64`. We check `clangarm64` before `mingw64`, because in the strange case that both are
-    // available, we don't want to skip over a native ARM64 executable for an emulated x86_64 one.
-    let suffixes_64 = &[r"Git\clangarm64\bin", r"Git\mingw64\bin"][..];
+    // Prefer native ARM64 over an emulated x86_64 executable when both are present.
+    // For x86_64, Git for Windows 2.56 uses `ucrt64`; keep `mingw64` for older releases.
+    let suffixes_64 = &[r"Git\clangarm64\bin", r"Git\ucrt64\bin", r"Git\mingw64\bin"][..];
 
     // 32-bit relative bin dirs. So far, this is only ever `mingw32`, not `clang32`.
     let suffixes_32 = &[r"Git\mingw32\bin"][..];
@@ -64,6 +63,7 @@ where
     // Bin dirs relative to a user's local application data directory. We try each architecture.
     let suffixes_user = &[
         r"Programs\Git\clangarm64\bin",
+        r"Programs\Git\ucrt64\bin",
         r"Programs\Git\mingw64\bin",
         r"Programs\Git\mingw32\bin",
     ][..];
