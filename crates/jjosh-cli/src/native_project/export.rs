@@ -70,15 +70,11 @@ pub(crate) async fn export_projects(
             mount.as_internal_file_string()
         );
     }
-    let mut reverse = HashMap::new();
-    for (raw, canonical) in known {
-        if let Some(previous) = reverse.insert(canonical.clone(), raw.clone()) {
-            ensure!(
-                previous == *raw,
-                "Project has ambiguous reverse history correspondence at {canonical}"
-            );
-        }
-    }
+    let reverse = super::history::reverse_anchors(
+        known
+            .iter()
+            .map(|(raw, canonical)| (raw.clone(), canonical.clone())),
+    )?;
     let backend = jj_lib::git::get_git_backend(repo.store())?;
     let heads: Vec<_> = heads.iter().map(|head| head.id().clone()).collect();
     let projected = super::history::project(
@@ -99,7 +95,7 @@ pub(crate) async fn export_projects(
                 "Backend changed metadata while projecting {}",
                 commit.id()
             );
-            Ok((raw, commit.id().clone()))
+            Ok((raw, Some(commit.id().clone())))
         },
     )
     .await?;

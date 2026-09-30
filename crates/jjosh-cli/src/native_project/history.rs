@@ -1,12 +1,13 @@
 //! Shared subtree-history projection for validation and native export.
 //!
-//! The caller supplies witnessed boundaries and the identity of retained commits. Validation
-//! uses canonical identities at its excluded range; export uses immutable raw correspondence.
-//! Neither boundary is inferred from a project name or another remote's publication state.
+//! Boundaries come from immutable raw correspondence, not metadata-policy exclusions.
+//! Validation can omit retained values without stopping projection of their ancestry.
+//! A project name or another remote's publication state is not correspondence evidence.
 
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 
-use anyhow::Result;
+use anyhow::{Result, ensure};
 use jj_lib::backend::{CommitId, TreeId};
 use jj_lib::commit::Commit;
 use jj_lib::merge::Merge;
@@ -16,7 +17,7 @@ use jj_lib::repo_path::RepoPath;
 
 pub(super) struct Node<T> {
     pub id: CommitId,
-    /// None for the synthetic root and caller-supplied boundaries.
+    /// None for the synthetic root, witnessed boundaries, and caller-excluded values.
     pub value: Option<T>,
     pub parents: Vec<usize>,
     pub has_conflict: bool,
@@ -39,6 +40,28 @@ enum Visit {
     Write(Commit),
 }
 
+pub(super) fn reverse_anchors(
+    known: impl IntoIterator<Item = (CommitId, CommitId)>,
+) -> Result<HashMap<CommitId, CommitId>> {
+    let known = known.into_iter();
+    let mut reverse = HashMap::with_capacity(known.size_hint().0);
+    for (raw, canonical) in known {
+        match reverse.entry(canonical) {
+            Entry::Vacant(entry) => {
+                entry.insert(raw);
+            }
+            Entry::Occupied(entry) => {
+                ensure!(
+                    entry.get() == &raw,
+                    "Project has ambiguous reverse history correspondence at {}",
+                    entry.key()
+                );
+            }
+        }
+    }
+    Ok(reverse)
+}
+
 /// Walk each reachable commit once, stopping at explicit boundaries. Only EMIT may write
 /// transport commits; validation supplies a read-only callback. The same resolved subtree,
 /// ordered-parent deduplication, synthetic-root removal, and empty-commit rule serve both.
@@ -47,7 +70,7 @@ pub(super) async fn project<T>(
     mount: &RepoPath,
     heads: &[CommitId],
     boundary: impl Fn(&CommitId) -> Option<CommitId>,
-    mut emit: impl FnMut(&Commit, &MergedTree, Vec<CommitId>) -> Result<(CommitId, T)>,
+    mut emit: impl FnMut(&Commit, &MergedTree, Vec<CommitId>) -> Result<(CommitId, Option<T>)>,
 ) -> Result<History<T>> {
     let root = repo.store().root_commit_id();
     let mut nodes = vec![Node {
@@ -132,7 +155,7 @@ pub(super) async fn project<T>(
                 );
                 nodes.push(Node {
                     id,
-                    value: Some(value),
+                    value,
                     parents,
                     has_conflict: tree.has_conflict(),
                 });

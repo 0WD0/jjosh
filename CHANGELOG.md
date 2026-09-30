@@ -19,6 +19,7 @@
 - Git fetch 仅使用当前 endpoint 已保留的原始提交作为协商起点，不再扫描 monorepo 及 alternate 对象库的全部引用，避免大量内部保留引用拖慢小型上游仓库的获取。
   首次获取不发送无关历史，后续获取仍进行增量协商；advertisement-pinned 对象请求和默认完整历史语义不变。
 - project push 的提交元数据校验按实际发布范围执行：只改 project 外内容、因此会从投影历史中被裁掉的 revision，不再因为空描述、外部冲突或 private 标记阻断该 project；真正进入发布历史的 revision 仍沿用 JJ 的完整校验。
+  已知远端／immutable 历史只限定 metadata 校验范围，投影继续遍历至实际 raw correspondence，修复合并已 fetch 的无关分支时空描述提交被误拒绝的问题；空子树的项目删除历史与真正的项目合并仍保留。
 - native project fetch 在普通 Git 传输丢失 JJ `change-id` header 时，可用唯一的项目子树、提交元数据和已映射父版本恢复已有 canonical 历史，避免把同一项目历史重新导入成不相交链。
 - 项目根允许严格包含；父项目交付完整子树，父子身份、连接、观察与 lease 独立。`touched_projects` 同时列出实际被触及的父、子范围。
 - `log` 默认显示提交实际触及的子项目；`touched_projects` 模板字段支持自定义展示，按当前加载的 project View 和原生 diff 语义计算，不改变提交或引用身份。
