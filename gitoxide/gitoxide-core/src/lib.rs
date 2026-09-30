@@ -88,8 +88,6 @@ pub mod repository;
 #[cfg(feature = "tracing")]
 pub mod trace;
 
-mod output;
-
 mod discover;
 pub use discover::discover;
 
