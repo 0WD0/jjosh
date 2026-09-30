@@ -191,7 +191,14 @@ fn project_fetch_negotiates_only_retained_endpoint_history() {
             fs::write(&trace, "").unwrap();
             let program = Path::new(env!("CARGO_BIN_EXE_jjosh"));
             let args = [
-                "git", "fetch", "--project", "p", "--remote", "upstream", "--branch", "main",
+                "git",
+                "fetch",
+                "--project",
+                "p",
+                "--remote",
+                "upstream",
+                "--branch",
+                "main",
             ];
             let output = Command::new(program)
                 .args(args)
@@ -212,9 +219,17 @@ fn project_fetch_negotiates_only_retained_endpoint_history() {
             "an unimported endpoint must not negotiate unrelated monorepo history: {initial}"
         );
         let first_canonical = commit_id(&client, "main#p@upstream");
-        let value_path = if filtered { "p/value.txt" } else { "p/src/value.txt" };
+        let value_path = if filtered {
+            "p/value.txt"
+        } else {
+            "p/src/value.txt"
+        };
         assert_eq!(
-            jjosh(&client, &["file", "show", "-r", "main#p@upstream", value_path]).stdout,
+            jjosh(
+                &client,
+                &["file", "show", "-r", "main#p@upstream", value_path]
+            )
+            .stdout,
             b"scoped-fetch-v1\n"
         );
 
@@ -242,7 +257,11 @@ fn project_fetch_negotiates_only_retained_endpoint_history() {
         );
         assert_eq!(commit_id(&client, "main#p@upstream-"), first_canonical);
         assert_eq!(
-            jjosh(&client, &["file", "show", "-r", "main#p@upstream", value_path]).stdout,
+            jjosh(
+                &client,
+                &["file", "show", "-r", "main#p@upstream", value_path]
+            )
+            .stdout,
             b"scoped-fetch-v2\n"
         );
     }
@@ -647,7 +666,192 @@ fn project_validation_and_export_collapse_out_of_scope_merge_parents() {
             git(&remote, &["ls-tree", "-r", "--name-only", "main"]),
             "value.txt\n"
         );
+
+        // A fetched, immutable branch with no project history must also collapse to
+        // root(). Policy exclusion alone is not a valid projected parent identity.
+        let published = git(&remote, &["rev-parse", "main"]);
+        let (_, other_remote, _) = create_remote(temp.path(), "other");
+        jjosh(&client, &["project", "add", "other", "--path", "other"]);
+        jjosh(
+            &client,
+            &[
+                "git",
+                "remote",
+                "add",
+                "upstream",
+                other_remote.to_str().unwrap(),
+                "--whole",
+                "--project",
+                "other",
+            ],
+        );
+        jjosh(
+            &client,
+            &[
+                "git",
+                "fetch",
+                "--project",
+                "other",
+                "--remote",
+                "upstream",
+                "--branch",
+                "main",
+            ],
+        );
+        assert_eq!(
+            commit_id(&client, "main#other@upstream & immutable()"),
+            commit_id(&client, "main#other@upstream")
+        );
+        jjosh(&client, &["new", "main#p", "main#other@upstream"]);
+        jjosh(&client, &["bookmark", "set", "main#p"]);
+        let before = operation_id(&client);
+        jjosh(
+            &client,
+            &[
+                "git",
+                "push",
+                "--bookmark",
+                "main#p",
+                "--remote",
+                "origin#p",
+                "--dry-run",
+            ],
+        );
+        assert_eq!(operation_id(&client), before);
+        jjosh(
+            &client,
+            &[
+                "git",
+                "push",
+                "--bookmark",
+                "main#p",
+                "--remote",
+                "origin#p",
+            ],
+        );
+        assert_eq!(git(&remote, &["rev-parse", "main"]), published);
     }
+}
+
+#[test]
+fn project_validation_collapses_excluded_equivalent_parents_but_keeps_deletions() {
+    let temp = tempfile::tempdir().unwrap();
+    let remote = temp.path().join("project.git");
+    git(temp.path(), &["init", "--bare", remote.to_str().unwrap()]);
+    let client = create_client(temp.path(), false);
+    jjosh(
+        &client,
+        &[
+            "config",
+            "set",
+            "--repo",
+            "revset-aliases.\"immutable_heads()\"",
+            "root() | tags()",
+        ],
+    );
+    jjosh(&client, &["project", "add", "p", "--path", "p"]);
+    jjosh(
+        &client,
+        &[
+            "git",
+            "remote",
+            "add",
+            "origin",
+            remote.to_str().unwrap(),
+            "--whole",
+            "--project",
+            "p",
+        ],
+    );
+    fs::create_dir(client.join("p")).unwrap();
+    fs::write(client.join("p/value.txt"), "base\n").unwrap();
+    jjosh(&client, &["describe", "-m", "project base"]);
+    let base = commit_id(&client, "@");
+    jjosh(&client, &["bookmark", "set", "main#p"]);
+    jjosh(&client, &["git", "push", "--bookmark", "main#p"]);
+    let published = git(&remote, &["rev-parse", "main"]);
+
+    // These distinct immutable canonical parents both project to the published base.
+    // Their empty descriptions and private status remain outside the validation range.
+    let excluded = ["excluded-left", "excluded-right"].map(|name| {
+        jjosh(&client, &["new", &base]);
+        fs::write(client.join(format!("{name}.txt")), "outside\n").unwrap();
+        let id = commit_id(&client, "@");
+        jjosh(&client, &["tag", "set", name]);
+        id
+    });
+    jjosh(&client, &["new", &excluded[0], &excluded[1]]);
+    jjosh(&client, &["bookmark", "set", "main#p"]);
+    let private = format!("git.private-commits={} | {}", excluded[0], excluded[1]);
+    jjosh(
+        &client,
+        &[
+            "--config",
+            &private,
+            "git",
+            "push",
+            "--bookmark",
+            "main#p",
+            "--dry-run",
+        ],
+    );
+    jjosh(
+        &client,
+        &["--config", &private, "git", "push", "--bookmark", "main#p"],
+    );
+    assert_eq!(git(&remote, &["rev-parse", "main"]), published);
+
+    // An empty subtree with real project ancestry is a deletion, not root(). Keep
+    // this parent even when the merge explicitly chooses the live parent's tree.
+    jjosh(&client, &["new", &base]);
+    fs::remove_dir_all(client.join("p")).unwrap();
+    let deleted = commit_id(&client, "@");
+    jjosh(&client, &["tag", "set", "excluded-delete"]);
+    jjosh(&client, &["new", &base, "-m", "project live"]);
+    fs::write(client.join("p/live.txt"), "live\n").unwrap();
+    let live = commit_id(&client, "@");
+    jjosh(&client, &["new", &live, &deleted]);
+    fs::write(client.join("p/value.txt"), "base\n").unwrap();
+    let merge = commit_id(&client, "@");
+    jjosh(&client, &["bookmark", "set", "main#p", "--allow-backwards"]);
+    let private = format!("git.private-commits={deleted}");
+    let before = operation_id(&client);
+    let rejected = jjosh_unchecked(
+        &client,
+        &[
+            "--config",
+            &private,
+            "git",
+            "push",
+            "--bookmark",
+            "main#p",
+            "--dry-run",
+        ],
+    );
+    assert!(!rejected.status.success());
+    assert!(
+        String::from_utf8_lossy(&rejected.stderr).contains(&merge[..12]),
+        "{}",
+        String::from_utf8_lossy(&rejected.stderr)
+    );
+    assert_eq!(operation_id(&client), before);
+    assert_eq!(git(&remote, &["rev-parse", "main"]), published);
+
+    jjosh(&client, &["describe", "-m", "merge project histories"]);
+    jjosh(
+        &client,
+        &["--config", &private, "git", "push", "--bookmark", "main#p"],
+    );
+    assert_eq!(
+        git(&remote, &["show", "-s", "--format=%p", "main"])
+            .split_whitespace()
+            .count(),
+        2
+    );
+    assert_eq!(
+        git(&remote, &["ls-tree", "-r", "--name-only", "main"]),
+        "live.txt\nvalue.txt\n"
+    );
 }
 
 #[test]

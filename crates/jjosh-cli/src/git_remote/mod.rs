@@ -454,9 +454,15 @@ impl GitRemoteSession for Session {
         candidates: LocalBoxStream<'a, Result<CommitId, RevsetEvaluationError>>,
     ) -> GitPushValidationStream<'a> {
         match &self.project {
-            Some(project) => {
-                crate::native_project::validation::commits(repo, &project.mount, candidates)
-            }
+            Some(project) => crate::native_project::validation::commits(
+                repo,
+                &project.mount,
+                candidates,
+                async move {
+                    let transaction = crate::interop::open_josh_transaction(&self.git_path, true)?;
+                    self.anchors(repo, &transaction).await
+                },
+            ),
             None => jj_cli::git_remote::default_push_validation_commits(repo, candidates),
         }
     }
