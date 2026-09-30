@@ -12,7 +12,7 @@ fn same_date_repo() -> Result<(std::path::PathBuf, gix_odb::Handle)> {
 }
 
 #[test]
-fn c4_breadth_first() -> Result {
+fn c4_breadth_first() -> gix_testtools::TestResult {
     let (repo_dir, odb) = same_date_repo()?;
 
     insta::assert_snapshot!(git_graph(&repo_dir)?, @r"
@@ -43,7 +43,7 @@ fn c4_breadth_first() -> Result {
 }
 
 #[test]
-fn head_breadth_first() -> Result {
+fn head_breadth_first() -> gix_testtools::TestResult {
     let (_repo_dir, odb) = same_date_repo()?;
     // Graph shown in `c4_breadth_first`
     let tip = hex_to_id("01ec18a3ebf2855708ad3c9d244306bc1fae3e9b"); // m1b1
@@ -68,7 +68,7 @@ fn head_breadth_first() -> Result {
 }
 
 #[test]
-fn head_date_order() -> Result {
+fn head_date_order() -> gix_testtools::TestResult {
     let (_repo_dir, odb) = same_date_repo()?;
     // Graph shown in `c4_breadth_first`
     let tip = hex_to_id("01ec18a3ebf2855708ad3c9d244306bc1fae3e9b"); // m1b1
@@ -106,7 +106,7 @@ fn head_date_order() -> Result {
 }
 
 #[test]
-fn head_first_parent_only_breadth_first() -> Result {
+fn head_first_parent_only_breadth_first() -> gix_testtools::TestResult {
     let (_repo_dir, odb) = same_date_repo()?;
     // Graph shown in `c4_breadth_first`
     let tip = hex_to_id("01ec18a3ebf2855708ad3c9d244306bc1fae3e9b"); // m1b1
@@ -126,7 +126,7 @@ fn head_first_parent_only_breadth_first() -> Result {
 }
 
 #[test]
-fn head_c4_breadth_first() -> Result {
+fn head_c4_breadth_first() -> gix_testtools::TestResult {
     let (_repo_dir, odb) = same_date_repo()?;
     // Graph shown in `c4_breadth_first`
     let tips = [
@@ -151,7 +151,7 @@ fn head_c4_breadth_first() -> Result {
 }
 
 #[test]
-fn filtered_commit_does_not_block_ancestors_reachable_from_another_commit() -> Result {
+fn filtered_commit_does_not_block_ancestors_reachable_from_another_commit() -> gix_testtools::TestResult {
     // I don't see a use case for the predicate returning false for a commit but return true for
     // at least one of its ancestors, so this test is kind of dubious. But we do want
     // `Ancestors` to not eagerly blacklist all of a commit's ancestors when blacklisting that
@@ -185,7 +185,7 @@ fn filtered_commit_does_not_block_ancestors_reachable_from_another_commit() -> R
 }
 
 #[test]
-fn predicate_only_called_once_even_if_fork_point() -> Result {
+fn predicate_only_called_once_even_if_fork_point() -> gix_testtools::TestResult {
     // The `self.seen` check should come before the `self.predicate` check, as we don't know how
     // expensive calling `self.predicate` may be.
     let (_repo_dir, odb) = same_date_repo()?;

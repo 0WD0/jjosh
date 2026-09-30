@@ -1,10 +1,10 @@
-use crate::Result;
+use gix_testtools::TestResult;
 use std::{ffi::OsStr, path::PathBuf};
 
 use bstr::ByteSlice;
 
 #[test]
-fn common_values_and_names_by_path() -> Result {
+fn common_values_and_names_by_path() -> TestResult {
     let modules = module_files()
         .map(|(path, stripped)| {
             gix_submodule::File::from_bytes(&std::fs::read(path).unwrap(), stripped, &Default::default())

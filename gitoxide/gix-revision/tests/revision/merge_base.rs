@@ -49,7 +49,7 @@ fn lookup_failures_retain_their_causes() {
 }
 
 #[test]
-fn validate() -> Result {
+fn validate() -> gix_testtools::TestResult {
     let root = gix_testtools::scripted_fixture_read_only("make_merge_base_repos.sh")?;
     let mut count = 0;
     let odb = odb_at(root.join(".git/objects"))?;
@@ -87,7 +87,7 @@ fn validate() -> Result {
 }
 
 #[test]
-fn exhausted_side_skips_unrelated_history() -> Result {
+fn exhausted_side_skips_unrelated_history() -> gix_testtools::TestResult {
     let root = gix_testtools::scripted_fixture_read_only("make_merge_base_repos.sh")?;
     let odb = odb_at(root.join(".git/objects"))?;
     let tip_commit_id = tag_commit_id(&root, "PL")?;
@@ -124,7 +124,7 @@ fn exhausted_side_skips_unrelated_history() -> Result {
 }
 
 #[test]
-fn unreliable_generations_do_not_allow_side_exhaustion() -> Result {
+fn unreliable_generations_do_not_allow_side_exhaustion() -> gix_testtools::TestResult {
     let root = gix_testtools::scripted_fixture_read_only("make_merge_base_repos.sh")?;
     let odb = odb_at(root.join(".git/objects"))?;
     // G and H share B, but clock skew visits B's ancestor E first. Missing,
@@ -166,7 +166,7 @@ mod octopus {
     use crate::{hex_to_id, odb_at};
 
     #[test]
-    fn three_sequential_commits() -> Result {
+    fn three_sequential_commits() -> gix_testtools::TestResult {
         let odb = octopus_odb_at("three-sequential-commits")?;
         let mut graph = gix_revision::Graph::new(&odb, None);
         let first_commit = hex_to_id("e5d0542bd38431f105a8de8e982b3579647feb9f");
@@ -186,7 +186,7 @@ mod octopus {
     }
 
     #[test]
-    fn three_parallel_commits() -> Result {
+    fn three_parallel_commits() -> gix_testtools::TestResult {
         let odb = octopus_odb_at("three-parallel-commits")?;
         let mut graph = gix_revision::Graph::new(&odb, None);
         let base = hex_to_id("3ca3e3dd12585fabbef311d524a5e54678090528");
@@ -206,7 +206,7 @@ mod octopus {
     }
 
     #[test]
-    fn three_forked_commits() -> Result {
+    fn three_forked_commits() -> gix_testtools::TestResult {
         let odb = octopus_odb_at("three-forked-commits")?;
         let mut graph = gix_revision::Graph::new(&odb, None);
         let base = hex_to_id("3ca3e3dd12585fabbef311d524a5e54678090528");

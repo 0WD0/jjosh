@@ -5,7 +5,7 @@ use gix_testtools::tempfile::TempDir;
 use crate::hex_to_id_for_hash;
 
 #[test]
-fn without_memory() -> Result {
+fn without_memory() -> gix_testtools::TestResult {
     use gix_odb::HeaderExt;
     let (mut odb, _tmp) = db_rw()?;
     let mut buf = Vec::new();
@@ -15,9 +15,9 @@ fn without_memory() -> Result {
         "21d3ba9a26b790a4858d67754ae05d04dfce4d0c",
         "95997c02e30a106c5413e7a68e7758c6b3c70e951f7471ee48d75c06edc7d234",
     );
-    let tree = odb.find_tree(&existing, &mut buf).expect("present and valid");
+    let tree = odb.find_tree(&existing, &mut buf)?;
     assert_eq!(tree.entries.len(), 1);
-    odb.header(existing).expect("header can be found just the same");
+    odb.header(existing)?;
     assert!(odb.exists(&existing));
 
     let mut tree = tree.to_owned();
@@ -34,14 +34,11 @@ fn without_memory() -> Result {
             "e0fcb04b8efaa91993f9880a111c25ae4f2ebd2db8737504e14548a194e31c84",
         )
     );
-    let actual = odb.header(new_tree_id).expect("header of new objects can be found");
+    let actual = odb.header(new_tree_id)?;
     assert_eq!(actual.kind(), gix_object::Kind::Tree);
     assert_eq!(actual.size(), expected_new_tree_size());
 
-    let new_tree = odb
-        .find_tree(&new_tree_id, &mut buf)
-        .expect("new tree is also available as object")
-        .to_owned();
+    let new_tree = odb.find_tree(&new_tree_id, &mut buf)?.to_owned();
     assert_eq!(new_tree, tree);
     assert!(!odb.exists(&gix_testtools::object_hash().null()));
 
@@ -49,7 +46,7 @@ fn without_memory() -> Result {
 }
 
 #[test]
-fn with_memory() -> Result {
+fn with_memory() -> gix_testtools::TestResult {
     use gix_object::FindHeader;
     let mut odb = db()?;
     assert_eq!(
@@ -62,7 +59,7 @@ fn with_memory() -> Result {
         "21d3ba9a26b790a4858d67754ae05d04dfce4d0c",
         "95997c02e30a106c5413e7a68e7758c6b3c70e951f7471ee48d75c06edc7d234",
     );
-    let tree = odb.find_tree(&existing, &mut buf).expect("present and valid");
+    let tree = odb.find_tree(&existing, &mut buf)?;
     assert!(odb.exists(&existing));
     assert_eq!(tree.entries.len(), 1);
     odb.try_header(&existing)?.expect("header can be found just the same");
@@ -92,10 +89,7 @@ fn with_memory() -> Result {
     assert_eq!(actual.kind, gix_object::Kind::Tree);
     assert_eq!(actual.size, expected_new_tree_size());
 
-    let new_tree = odb
-        .find_tree(&new_tree_id, &mut buf)
-        .expect("new tree is also available as object")
-        .to_owned();
+    let new_tree = odb.find_tree(&new_tree_id, &mut buf)?.to_owned();
     assert_eq!(new_tree, tree);
 
     let mem = odb.reset_object_memory().expect("memory is still available");
@@ -121,7 +115,7 @@ fn with_memory() -> Result {
 }
 
 #[test]
-fn with_memory_trusts_known_id() -> Result {
+fn with_memory_trusts_known_id() -> gix_testtools::TestResult {
     let odb = db()?;
     let kind = gix_object::Kind::Blob;
     let bytes = b"content";
@@ -151,7 +145,7 @@ fn with_memory_trusts_known_id() -> Result {
 }
 
 #[test]
-fn without_memory_forwards_known_id_writes() -> Result {
+fn without_memory_forwards_known_id_writes() -> gix_testtools::TestResult {
     let (mut odb, _tmp) = db_rw()?;
     odb.take_object_memory().expect("it starts out with memory set");
 

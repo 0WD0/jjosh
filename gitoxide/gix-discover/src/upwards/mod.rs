@@ -432,7 +432,7 @@ pub(crate) mod function {
         use super::{Options, Trust, TrustPolicy, discover_opts_with_trust};
 
         #[test]
-        fn ownership_checks_skip_identical_candidate_and_git_directory() -> gix_error::TestResult {
+        fn ownership_checks_skip_identical_candidate_and_git_directory() -> gix_testtools::TestResult {
             let root = gix_testtools::scripted_fixture_read_only("make_ownership_repos.sh")?;
             let root = std::env::current_dir()?.join(root);
             for (name, bare) in [("worktree", false), ("bare", true)] {
@@ -465,7 +465,7 @@ pub(crate) mod function {
         }
 
         #[test]
-        fn ownership_of_every_linked_repository_path_limits_trust() -> gix_testtools::Result {
+        fn ownership_of_every_linked_repository_path_limits_trust() -> gix_testtools::TestResult {
             let root = gix_testtools::scripted_fixture_read_only("make_linked_ownership_repo.sh")?;
             let main = root.join("main");
             let worktree = root.join("linked");

@@ -11,7 +11,7 @@ use gix_pack::{cache, data};
 const FIRST_ENTRY_OFFSET: data::Offset = data::header::SIZE as data::Offset;
 
 #[test]
-fn plain_object_buffer_growth_respects_alloc_limit() -> Result {
+fn plain_object_buffer_growth_respects_alloc_limit() -> gix_testtools::TestResult {
     let bytes = blob_pack_with_declared_size(&[b'A'; 65], 65)?;
     for limit in [Some(65), None] {
         let pack = data::File::from_data(bytes.clone(), PathBuf::from("allocation.pack"), gix_hash::Kind::Sha1)?
@@ -36,7 +36,7 @@ fn plain_object_buffer_growth_respects_alloc_limit() -> Result {
 }
 
 #[test]
-fn combined_delta_work_buffers_respect_alloc_limit() -> Result {
+fn combined_delta_work_buffers_respect_alloc_limit() -> gix_testtools::TestResult {
     let mut bytes = blob_pack_with_declared_size(&[b'A'; 64], 64)?;
     bytes[..data::header::SIZE].copy_from_slice(&data::header::encode(data::Version::V2, 2));
     bytes.truncate(bytes.len() - 20);
@@ -89,7 +89,7 @@ fn combined_delta_work_buffers_respect_alloc_limit() -> Result {
 }
 
 #[test]
-fn resolved_base_and_delta_instructions_respect_alloc_limit() -> Result {
+fn resolved_base_and_delta_instructions_respect_alloc_limit() -> gix_testtools::TestResult {
     let bytes = ref_delta_pack(&[64, 64, 0x90, 64])?;
     let pack = data::File::from_data(bytes, PathBuf::from("allocation.pack"), gix_hash::Kind::Sha1)?
         .with_alloc_limit_bytes(Some(64));
@@ -421,7 +421,7 @@ fn ref_delta_header_resolver_some_decodes_external_base() -> TestResult {
 }
 
 #[test]
-fn ref_delta_header_cycles_are_rejected() -> Result {
+fn ref_delta_header_cycles_are_rejected() -> gix_testtools::TestResult {
     for (num_entries, close_with_ofs) in [(1, false), (2, false), (3, false), (2, true)] {
         let (pack, offsets) = ref_delta_chain(num_entries, &[0, 0], close_with_ofs)?;
         let resolutions = std::cell::Cell::new(0);
@@ -441,7 +441,7 @@ fn ref_delta_header_cycles_are_rejected() -> Result {
 }
 
 #[test]
-fn ref_delta_entry_cycles_are_rejected() -> Result {
+fn ref_delta_entry_cycles_are_rejected() -> gix_testtools::TestResult {
     for delta in [&[0, 0][..], &[][..]] {
         for (num_entries, close_with_ofs) in [(1, false), (2, false), (3, false), (2, true)] {
             let (pack, offsets) = ref_delta_chain(num_entries, delta, close_with_ofs)?;
@@ -470,7 +470,7 @@ fn ref_delta_entry_cycles_are_rejected() -> Result {
 }
 
 #[test]
-fn delta_chain_metadata_respects_alloc_limit() -> Result {
+fn delta_chain_metadata_respects_alloc_limit() -> gix_testtools::TestResult {
     let (pack, offsets) = ref_delta_chain(12, &[], false)?;
     let pack = pack.with_alloc_limit_bytes(Some(64));
     let err = pack
@@ -504,7 +504,7 @@ fn delta_chain_metadata_respects_alloc_limit() -> Result {
 }
 
 #[test]
-fn forward_ref_delta_chain_is_accepted() -> Result {
+fn forward_ref_delta_chain_is_accepted() -> gix_testtools::TestResult {
     let (pack, offsets) = ref_delta_chain(12, &[0, 0], false)?;
     let entry = pack.entry(FIRST_ENTRY_OFFSET)?;
     let header = pack.decode_header(entry.clone(), &mut Default::default(), &|base_id| {
@@ -578,7 +578,7 @@ fn ref_delta_chain(
 /// `gix_pack::data::File::decode_entry()` and panic while slicing the base object instead of
 /// returning an error for attacker-controlled pack data.
 #[test]
-fn delta_copy_is_reported_without_panicking() -> Result {
+fn delta_copy_is_reported_without_panicking() -> gix_testtools::TestResult {
     let pack_data = ref_delta_pack(&[1, 2, 0x90, 0x02])?;
     let pack = data::File::from_data(pack_data, PathBuf::from("malformed.pack"), gix_hash::Kind::Sha1)?;
     let entry = pack.entry(FIRST_ENTRY_OFFSET)?;
@@ -603,7 +603,7 @@ fn delta_copy_is_reported_without_panicking() -> Result {
 /// instead of rejecting the attacker-controlled size header.
 #[test]
 #[cfg(target_pointer_width = "64")]
-fn oversized_delta_result_is_rejected_without_panicking() -> Result {
+fn oversized_delta_result_is_rejected_without_panicking() -> gix_testtools::TestResult {
     let mut delta = encode_delta_size(1);
     delta.extend(encode_delta_size(isize::MAX as u64 + 1));
 
@@ -629,7 +629,7 @@ fn oversized_delta_result_is_rejected_without_panicking() -> Result {
 /// A delta entry can declare more decompressed bytes than zlib actually produces. Header parsing
 /// must only inspect the produced bytes, not the zero-filled remainder of the output buffer.
 #[test]
-fn truncated_delta_header_ignores_zero_filled_remainder() -> Result {
+fn truncated_delta_header_ignores_zero_filled_remainder() -> gix_testtools::TestResult {
     let pack_data = ref_delta_pack_with_declared_size(&[1, 0x80], 3)?;
     let pack = data::File::from_data(pack_data, PathBuf::from("malformed.pack"), gix_hash::Kind::Sha1)?;
     let entry = pack.entry(FIRST_ENTRY_OFFSET)?;
@@ -646,7 +646,7 @@ fn truncated_delta_header_ignores_zero_filled_remainder() -> Result {
 }
 
 #[test]
-fn complete_delta_with_mismatched_declared_size_is_rejected() -> Result {
+fn complete_delta_with_mismatched_declared_size_is_rejected() -> gix_testtools::TestResult {
     for (name, delta, decompressed_size) in [
         ("shorter", &[1, 1, 0x90, 1][..], 5),
         ("longer", &[1, 1, 0x90, 1, 0][..], 4),
@@ -668,7 +668,7 @@ fn complete_delta_with_mismatched_declared_size_is_rejected() -> Result {
 }
 
 #[test]
-fn plain_object_with_mismatched_declared_size_is_rejected() -> Result {
+fn plain_object_with_mismatched_declared_size_is_rejected() -> gix_testtools::TestResult {
     let mut diagnostics = Vec::new();
     for (blob, decompressed_size) in [(b"A".as_slice(), 2), (b"AB".as_slice(), 1)] {
         let pack_data = blob_pack_with_declared_size(blob, decompressed_size)?;
@@ -691,7 +691,7 @@ fn plain_object_with_mismatched_declared_size_is_rejected() -> Result {
 }
 
 #[test]
-fn empty_plain_object_is_accepted() -> Result {
+fn empty_plain_object_is_accepted() -> gix_testtools::TestResult {
     let pack_data = blob_pack_with_declared_size(b"", 0)?;
     let pack = data::File::from_data(pack_data, PathBuf::from("malformed.pack"), gix_hash::Kind::Sha1)?;
     let entry = pack.entry(FIRST_ENTRY_OFFSET)?;
@@ -707,7 +707,7 @@ fn empty_plain_object_is_accepted() -> Result {
 }
 
 #[test]
-fn delta_with_mismatched_base_size_is_rejected_before_allocating_work_buffers() -> Result {
+fn delta_with_mismatched_base_size_is_rejected_before_allocating_work_buffers() -> gix_testtools::TestResult {
     let declared_base_size = 1_000_000;
     let mut delta = encode_delta_size(declared_base_size);
     delta.extend([1, 0x90, 1]);
@@ -728,7 +728,7 @@ fn delta_with_mismatched_base_size_is_rejected_before_allocating_work_buffers() 
 }
 
 #[test]
-fn in_pack_delta_base_with_mismatched_declared_size_is_rejected() -> Result {
+fn in_pack_delta_base_with_mismatched_declared_size_is_rejected() -> gix_testtools::TestResult {
     let (pack_data, delta_offset) = ofs_delta_pack_with_mismatched_base_size()?;
     let pack = data::File::from_data(
         pack_data.as_slice(),
@@ -746,7 +746,7 @@ fn in_pack_delta_base_with_mismatched_declared_size_is_rejected() -> Result {
 }
 
 #[test]
-fn decode_header_ignores_zero_filled_delta_remainder() -> Result {
+fn decode_header_ignores_zero_filled_delta_remainder() -> gix_testtools::TestResult {
     let pack_data = ref_delta_pack_with_declared_size(&[1, 0x80], 3)?;
     let pack = data::File::from_data(pack_data, PathBuf::from("malformed.pack"), gix_hash::Kind::Sha1)?;
     let entry = pack.entry(FIRST_ENTRY_OFFSET)?;
@@ -759,7 +759,7 @@ fn decode_header_ignores_zero_filled_delta_remainder() -> Result {
 }
 
 #[test]
-fn decode_header_with_mismatched_declared_delta_size_is_rejected() -> Result {
+fn decode_header_with_mismatched_declared_delta_size_is_rejected() -> gix_testtools::TestResult {
     let mut diagnostics = Vec::new();
     for (delta, decompressed_size) in [(&[1, 1, 0x90, 1][..], 5), (&[1, 1, 0x90, 1, 0][..], 4)] {
         let pack_data = ref_delta_pack_with_declared_size(delta, decompressed_size)?;
@@ -781,7 +781,7 @@ fn decode_header_with_mismatched_declared_delta_size_is_rejected() -> Result {
 }
 
 #[test]
-fn large_mismatched_declared_delta_size_is_rejected_during_full_decode() -> Result {
+fn large_mismatched_declared_delta_size_is_rejected_during_full_decode() -> gix_testtools::TestResult {
     let mut diagnostics = Vec::new();
     for (delta_len, decompressed_size) in [(33, 34), (34, 33)] {
         let delta = padded_delta(delta_len);

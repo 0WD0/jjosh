@@ -25,7 +25,7 @@ pub mod streaming_peek_iter {
     #[crate::bisync::bisync]
     #[cfg_attr(feature = "blocking-io", test)]
     #[cfg_attr(all(feature = "async-io", not(feature = "blocking-io")), async_std::test)]
-    async fn peek_follows_read_line_delimiter_logic() -> gix_error::TestResult {
+    async fn peek_follows_read_line_delimiter_logic() -> gix_testtools::TestResult {
         let mut rd = StreamingPeekableIter::new(&b"0005a00000005b"[..], &[PacketLineRef::Flush], false);
         let res = rd.peek_line().await;
         assert_eq!(res.expect("line")??, PacketLineRef::Data(b"a"));
@@ -53,7 +53,7 @@ pub mod streaming_peek_iter {
     #[crate::bisync::bisync]
     #[cfg_attr(feature = "blocking-io", test)]
     #[cfg_attr(all(feature = "async-io", not(feature = "blocking-io")), async_std::test)]
-    async fn peek_follows_read_line_err_logic() -> gix_error::TestResult {
+    async fn peek_follows_read_line_err_logic() -> gix_testtools::TestResult {
         let mut rd = StreamingPeekableIter::new(&b"0005a0009ERR e0000"[..], &[PacketLineRef::Flush], false);
         rd.fail_on_err_lines(true);
         let res = rd.peek_line().await;
@@ -85,7 +85,7 @@ pub mod streaming_peek_iter {
     #[crate::bisync::bisync]
     #[cfg_attr(feature = "blocking-io", test)]
     #[cfg_attr(all(feature = "async-io", not(feature = "blocking-io")), async_std::test)]
-    async fn peek_eof_is_none() -> gix_error::TestResult {
+    async fn peek_eof_is_none() -> gix_testtools::TestResult {
         let mut rd = StreamingPeekableIter::new(&b"0005a0009ERR e0000"[..], &[PacketLineRef::Flush], false);
         rd.fail_on_err_lines(false);
         let res = rd.peek_line().await;
@@ -108,7 +108,7 @@ pub mod streaming_peek_iter {
     #[crate::bisync::bisync]
     #[cfg_attr(feature = "blocking-io", test)]
     #[cfg_attr(all(feature = "async-io", not(feature = "blocking-io")), async_std::test)]
-    async fn peek_non_data() -> gix_error::TestResult {
+    async fn peek_non_data() -> gix_testtools::TestResult {
         let mut inline_error_diagnostics = Vec::new();
         let mut rd = StreamingPeekableIter::new(&b"000000010002"[..], &[PacketLineRef::ResponseEnd], false);
         let res = rd.read_line().await;
@@ -164,7 +164,7 @@ pub mod streaming_peek_iter {
     #[crate::bisync::bisync]
     #[cfg_attr(feature = "blocking-io", test)]
     #[cfg_attr(all(feature = "async-io", not(feature = "blocking-io")), async_std::test)]
-    async fn fail_on_err_lines() -> gix_error::TestResult {
+    async fn fail_on_err_lines() -> gix_testtools::TestResult {
         let input = b"00010009ERR e0002";
         let mut rd = StreamingPeekableIter::new(&input[..], &[], false);
         let res = rd.read_line().await;
@@ -207,13 +207,12 @@ pub mod streaming_peek_iter {
     #[crate::bisync::bisync]
     #[cfg_attr(feature = "blocking-io", test)]
     #[cfg_attr(all(feature = "async-io", not(feature = "blocking-io")), async_std::test)]
-    async fn oversized_packet_lengths_are_reported_instead_of_panicking() -> gix_error::TestResult {
+    async fn oversized_packet_lengths_are_reported_instead_of_panicking() -> gix_testtools::TestResult {
         let mut rd = StreamingPeekableIter::new(&b"ffff\n"[..], &[], false);
         let err = rd
             .read_line()
             .await
-            .expect("a decode error instead of EOF")
-            .expect("no IO error expected")
+            .expect("a decode error instead of EOF")?
             .expect_err("decode should fail for oversized lengths");
         insta::assert_debug_snapshot!(err, "oversized packet lengths are reported instead of panicking", @"The data received claims to be larger than the maximum allowed size: got 65535, exceeds 65516");
         Ok(())
@@ -222,7 +221,7 @@ pub mod streaming_peek_iter {
     #[crate::bisync::bisync]
     #[cfg_attr(feature = "blocking-io", test)]
     #[cfg_attr(all(feature = "async-io", not(feature = "blocking-io")), async_std::test)]
-    async fn peek() -> gix_error::TestResult {
+    async fn peek() -> gix_testtools::TestResult {
         let bytes = fixture_bytes("v1/fetch/01-many-refs.response");
         let mut rd = StreamingPeekableIter::new(&bytes[..], &[PacketLineRef::Flush], false);
         let res = rd.peek_line().await;
@@ -260,7 +259,7 @@ pub mod streaming_peek_iter {
     #[crate::bisync::bisync]
     #[cfg_attr(feature = "blocking-io", test)]
     #[cfg_attr(all(feature = "async-io", not(feature = "blocking-io")), async_std::test)]
-    async fn read_from_file_and_reader_advancement() -> gix_error::TestResult {
+    async fn read_from_file_and_reader_advancement() -> gix_testtools::TestResult {
         let mut bytes = fixture_bytes("v1/fetch/01-many-refs.response");
         bytes.extend(fixture_bytes("v1/fetch/01-many-refs.response"));
         let mut rd = StreamingPeekableIter::new(&bytes[..], &[PacketLineRef::Flush], false);

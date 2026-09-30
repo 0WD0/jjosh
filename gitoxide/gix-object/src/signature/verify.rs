@@ -289,9 +289,11 @@ impl SignedData<'_> {
             .or_raise(|| message("Signature time could not be formatted for SSH verification"))?;
         let verify_time = format!("-Overify-time={verify_time}");
         let mut signature_file = signature_file(signature)?;
-        let signature_path = super::ssh_path_argument(&signature_path(&mut signature_file)?);
-        let allowed_signers = super::ssh_path_argument(&allowed_signers);
-        let revocation_file = revocation_file.map(|path| super::ssh_path_argument(&path));
+        let signature_path = super::ssh_path_argument(&signature_path(&mut signature_file)?)?;
+        let allowed_signers = super::ssh_path_argument(&allowed_signers)?;
+        let revocation_file = revocation_file
+            .map(|path| super::ssh_path_argument(&path))
+            .transpose()?;
         // defensive, as we rely on English when parsing output.
         environment.extend([("LANG".into(), "C".into()), ("LC_ALL".into(), "C".into())]);
         let common = (
@@ -574,7 +576,6 @@ fn parse_ssh_output(output: BString, signer: Option<BString>, trust_level: Trust
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gix_error::Result;
 
     #[test]
     fn parses_gpg_status() {
@@ -652,7 +653,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_good_ssh_output_from_a_failed_verifier() -> Result {
+    fn rejects_good_ssh_output_from_a_failed_verifier() -> gix_testtools::TestResult {
         let signed = SignedData::new(b"payloadsignature", 7..16);
         let outcome = signed.verify(
             BStr::new(b"-----BEGIN SSH SIGNATURE-----\n"),
@@ -676,9 +677,9 @@ mod tests {
     }
 
     #[test]
-    fn programs_with_spaces_are_invoked_directly() {
+    fn programs_with_spaces_are_invoked_directly() -> gix_testtools::TestResult {
         let program = OsStr::new("a directory/verifier");
-        let command: std::process::Command = prepare(program, ["argument with spaces".into()], &[]).into();
+        let command: std::process::Command = prepare(program, ["argument with spaces".into()], &[]).try_into()?;
 
         assert_eq!(
             command.get_program(),
@@ -690,6 +691,7 @@ mod tests {
             [OsStr::new("argument with spaces")],
             "verifier arguments remain separate from the program pathname"
         );
+        Ok(())
     }
 
     #[test]

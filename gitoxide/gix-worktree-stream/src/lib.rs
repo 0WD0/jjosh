@@ -133,12 +133,17 @@ impl Stream {
     ) -> std::io::Result<&mut Self> {
         let rela_path = path.strip_prefix(root).map_err(std::io::Error::other)?;
         let meta = path.symlink_metadata()?;
-        let relative_path = gix_path::to_unix_separators_on_windows(gix_path::into_bstr(rela_path)).into_owned();
+        let relative_path = gix_path::to_unix_separators_on_windows(
+            gix_path::into_bstr(rela_path).map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidInput, err))?,
+        )
+        .into_owned();
         let id = object_hash.null();
 
         let entry = if meta.is_symlink() {
             let content = std::fs::read_link(path)?;
-            let content = gix_path::into_bstr(content).into_owned();
+            let content = gix_path::into_bstr(content)
+                .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))?
+                .into_owned();
             AdditionalEntry {
                 id,
                 mode: gix_object::tree::EntryKind::Link.into(),

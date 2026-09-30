@@ -3,7 +3,7 @@ use std::fs;
 use gix_worktree::remove::Options;
 
 #[test]
-fn relative_roots_are_rejected_before_either_root_is_removed() -> crate::Result {
+fn relative_roots_are_rejected_before_either_root_is_removed() -> gix_testtools::TestResult {
     if gix_testtools::run_in_isolated_process()? {
         return Ok(());
     }
@@ -58,7 +58,7 @@ fn relative_roots_are_rejected_before_either_root_is_removed() -> crate::Result 
 }
 
 #[test]
-fn removes_both_roots_with_configured_thread_limits_without_retries() -> crate::Result {
+fn removes_both_roots_with_configured_thread_limits_without_retries() -> gix_testtools::TestResult {
     for thread_limit in [None, Some(0), Some(1), Some(2)] {
         let tmp = gix_testtools::tempfile::tempdir()?;
         let worktrees_dir = tmp.path().join("repo.git/worktrees");
@@ -89,7 +89,7 @@ fn removes_both_roots_with_configured_thread_limits_without_retries() -> crate::
 }
 
 #[test]
-fn removes_both_roots_and_does_not_follow_symlinks() -> crate::Result {
+fn removes_both_roots_and_does_not_follow_symlinks() -> gix_testtools::TestResult {
     let tmp = gix_testtools::tempfile::tempdir()?;
     let worktrees_dir = tmp.path().join("repo.git/worktrees");
     let git_dir = worktrees_dir.join("linked");
@@ -126,7 +126,7 @@ fn removes_both_roots_and_does_not_follow_symlinks() -> crate::Result {
 
 #[test]
 #[cfg(unix)]
-fn symlink_roots_with_or_without_a_trailing_separator_are_unlinked() -> crate::Result {
+fn symlink_roots_with_or_without_a_trailing_separator_are_unlinked() -> gix_testtools::TestResult {
     for trailing_separator in [false, true] {
         let tmp = gix_testtools::tempfile::tempdir()?;
         let work_dir = tmp.path().join("linked");
@@ -156,7 +156,7 @@ fn symlink_roots_with_or_without_a_trailing_separator_are_unlinked() -> crate::R
 }
 
 #[test]
-fn missing_roots_are_already_removed() -> crate::Result {
+fn missing_roots_are_already_removed() -> gix_testtools::TestResult {
     let tmp = gix_testtools::tempfile::tempdir()?;
     gix_worktree::remove(
         tmp.path().join("missing-worktree"),
@@ -176,7 +176,7 @@ fn missing_roots_are_already_removed() -> crate::Result {
 }
 
 #[test]
-fn only_the_conventional_empty_worktrees_parent_is_removed() -> crate::Result {
+fn only_the_conventional_empty_worktrees_parent_is_removed() -> gix_testtools::TestResult {
     let tmp = gix_testtools::tempfile::tempdir()?;
     let parent = tmp.path().join("custom-parent");
     let git_dir = parent.join("linked");
@@ -195,7 +195,7 @@ fn only_the_conventional_empty_worktrees_parent_is_removed() -> crate::Result {
 
 #[test]
 #[cfg(unix)]
-fn unreadable_directories_match_git() -> crate::Result {
+fn unreadable_directories_match_git() -> gix_testtools::TestResult {
     use std::os::unix::fs::PermissionsExt;
 
     for empty in [true, false] {
@@ -267,7 +267,7 @@ fn unreadable_directories_match_git() -> crate::Result {
 
 #[test]
 #[cfg(unix)]
-fn administrative_data_is_removed_after_checkout_removal_fails() -> crate::Result {
+fn administrative_data_is_removed_after_checkout_removal_fails() -> gix_testtools::TestResult {
     use std::os::unix::fs::PermissionsExt;
 
     let tmp = gix_testtools::tempfile::tempdir()?;
@@ -310,7 +310,7 @@ fn administrative_data_is_removed_after_checkout_removal_fails() -> crate::Resul
 
 #[test]
 #[cfg(windows)]
-fn readonly_files_do_not_prevent_removal() -> crate::Result {
+fn readonly_files_do_not_prevent_removal() -> gix_testtools::TestResult {
     let tmp = gix_testtools::tempfile::tempdir()?;
     let work_dir = tmp.path().join("linked");
     let git_dir = tmp.path().join("repo.git/worktrees/linked");

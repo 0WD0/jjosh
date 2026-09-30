@@ -98,7 +98,7 @@ use std::{borrow::Cow, path::Path};
 
 pub fn script_helper(name: &str) -> Program {
     fn to_arg<'a>(path: impl Into<Cow<'a, Path>>) -> BString {
-        let utf8_encoded = gix_path::into_bstr(path);
+        let utf8_encoded = gix_path::into_bstr(path).expect("fixture path is representable");
         let slash_separated = gix_path::to_unix_separators_on_windows(utf8_encoded);
         gix_quote::single(slash_separated.as_ref())
     }

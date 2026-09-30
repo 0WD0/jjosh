@@ -3,17 +3,17 @@ use std::convert::Infallible;
 use gix_features::parallel::InOrderIter;
 
 #[test]
-fn in_order_stays_in_order() {
+fn in_order_stays_in_order() -> gix_testtools::TestResult {
     assert_eq!(
         InOrderIter::from(vec![Ok::<_, Infallible>((0usize, 'a')), Ok((1, 'b')), Ok((2, 'c'))].into_iter())
-            .collect::<Result<Vec<_>, _>>()
-            .expect("infallible"),
+            .collect::<Result<Vec<_>, _>>()?,
         vec!['a', 'b', 'c']
     );
+    Ok(())
 }
 
 #[test]
-fn out_of_order_items_are_held_until_the_sequence_is_complete() {
+fn out_of_order_items_are_held_until_the_sequence_is_complete() -> gix_testtools::TestResult {
     assert_eq!(
         InOrderIter::from(
             vec![
@@ -24,10 +24,10 @@ fn out_of_order_items_are_held_until_the_sequence_is_complete() {
             ]
             .into_iter()
         )
-        .collect::<Result<Vec<_>, _>>()
-        .expect("infallible"),
+        .collect::<Result<Vec<_>, _>>()?,
         vec!['a', 'b', 'c', 'd']
     );
+    Ok(())
 }
 
 #[test]

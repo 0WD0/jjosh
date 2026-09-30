@@ -53,11 +53,9 @@ pub fn locate_oid(id: gix_hash::ObjectId, buf: &mut Vec<u8>) -> gix_object::Data
 }
 
 #[test]
-fn verify_integrity() {
+fn verify_integrity() -> gix_testtools::TestResult {
     let db = ldb();
-    let outcome = db
-        .verify_integrity(&mut progress::Discard, &AtomicBool::new(false))
-        .expect("fixture objects pass integrity checks");
+    let outcome = db.verify_integrity(&mut progress::Discard, &AtomicBool::new(false))?;
     assert_eq!(outcome.num_objects, 7, "all loose fixture objects were verified");
     let err = db
         .verify_integrity(&mut progress::Discard, &AtomicBool::new(true))
@@ -105,17 +103,18 @@ fn verify_integrity() {
         }),
         "cancellation identifies the original I/O interruption"
     );
+    Ok(())
 }
 
 mod write {
-    use crate::Result;
+
     use gix_object::Write;
     use gix_odb::loose;
 
     use crate::store::loose::{ldb_at, ldb_at_opts, locate_oid, object_ids};
 
     #[test]
-    fn compression_level_is_respected() -> Result {
+    fn compression_level_is_respected() -> gix_testtools::TestResult {
         use gix_zlib::Compression;
         let data: Vec<u8> = (0..64 * 1024).map(|i| (i % 100) as u8).collect();
         let mut sizes = Vec::new();
@@ -147,7 +146,7 @@ mod write {
     }
 
     #[test]
-    fn read_and_write() -> Result {
+    fn read_and_write() -> gix_testtools::TestResult {
         let dir = gix_testtools::tempfile::tempdir()?;
         let db = ldb_at(dir.path());
         let mut buf = Vec::new();
@@ -186,7 +185,7 @@ mod write {
 
     #[test]
     #[cfg(unix)]
-    fn it_writes_objects_with_similar_permissions() -> Result {
+    fn it_writes_objects_with_similar_permissions() -> gix_testtools::TestResult {
         let object_hash = gix_testtools::object_hash();
         let git_store = loose::Store::at(
             crate::scripted_fixture_read_only("repo_with_loose_objects.sh")?.join(".git/objects"),
@@ -209,7 +208,7 @@ mod write {
     }
 
     #[test]
-    fn collisions_do_not_cause_failure() -> Result {
+    fn collisions_do_not_cause_failure() -> gix_testtools::TestResult {
         let dir = gix_testtools::tempfile::tempdir()?;
 
         fn write_empty_trees(dir: &std::path::Path) {
@@ -334,7 +333,7 @@ mod lookup_prefix {
 }
 
 mod find {
-    use crate::Result;
+
     use gix_error::{Class, Message, MetadataValue, ResourceExhaustionKind};
     use gix_object::{BlobRef, CommitRef, Kind, TagRef, TreeRef, bstr::ByteSlice, tree::EntryKind};
 
@@ -348,7 +347,7 @@ mod find {
     }
 
     #[test]
-    fn invalid_object_does_not_trigger_panics() -> Result {
+    fn invalid_object_does_not_trigger_panics() -> gix_testtools::TestResult {
         let tmp = gix_testtools::tempfile::tempdir()?;
         let base = tmp.path().join("aa");
         std::fs::create_dir(&base)?;
@@ -389,7 +388,7 @@ mod find {
     }
 
     #[test]
-    fn completed_object_size_is_validated_before_allocation() -> Result {
+    fn completed_object_size_is_validated_before_allocation() -> gix_testtools::TestResult {
         let mut error_snapshots = Vec::new();
         use std::io::Write;
 
@@ -484,7 +483,7 @@ mod find {
     }
 
     #[test]
-    fn tag() -> Result {
+    fn tag() -> gix_testtools::TestResult {
         let mut buf = Vec::new();
         let o = find("722fe60ad4f0276d5a8121970b5bb9dccdad4ef9", &mut buf);
         assert_eq!(o.kind, Kind::Tag);
@@ -522,7 +521,7 @@ cjHJZXWmV4CcRfmLsXzU8s2cR9A0DBvOxhPD1TlKC2JhBFXigjuL9U4Rbq9tdegB
     }
 
     #[test]
-    fn commit() -> Result {
+    fn commit() -> gix_testtools::TestResult {
         let mut buf = Vec::new();
         let o = find("ffa700b4aca13b80cb6b98a078e7c96804f8e0ec", &mut buf);
         assert_eq!(o.kind, Kind::Commit);
@@ -542,7 +541,7 @@ cjHJZXWmV4CcRfmLsXzU8s2cR9A0DBvOxhPD1TlKC2JhBFXigjuL9U4Rbq9tdegB
     }
 
     #[test]
-    fn blob_data() -> Result {
+    fn blob_data() -> gix_testtools::TestResult {
         let mut buf = Vec::new();
         let o = find("37d4e6c5c48ba0d245164c4e10d5f41140cab980", &mut buf);
         assert_eq!(o.data.as_bstr(), b"hi there\n".as_bstr());
@@ -550,7 +549,7 @@ cjHJZXWmV4CcRfmLsXzU8s2cR9A0DBvOxhPD1TlKC2JhBFXigjuL9U4Rbq9tdegB
     }
 
     #[test]
-    fn blob() -> Result {
+    fn blob() -> gix_testtools::TestResult {
         let mut buf = Vec::new();
         let o = find("37d4e6c5c48ba0d245164c4e10d5f41140cab980", &mut buf);
         assert_eq!(
@@ -570,7 +569,7 @@ cjHJZXWmV4CcRfmLsXzU8s2cR9A0DBvOxhPD1TlKC2JhBFXigjuL9U4Rbq9tdegB
     }
 
     #[test]
-    fn blob_big() -> Result {
+    fn blob_big() -> gix_testtools::TestResult {
         let mut buf = Vec::new();
         let o = find("a706d7cd20fc8ce71489f34b50cf01011c104193", &mut buf);
         assert_eq!(
@@ -582,7 +581,7 @@ cjHJZXWmV4CcRfmLsXzU8s2cR9A0DBvOxhPD1TlKC2JhBFXigjuL9U4Rbq9tdegB
     }
 
     #[test]
-    fn blob_big_respects_alloc_limit_bytes() -> Result {
+    fn blob_big_respects_alloc_limit_bytes() -> gix_testtools::TestResult {
         let id = hex_to_id("a706d7cd20fc8ce71489f34b50cf01011c104193");
         let db = limited_ldb(1);
         let mut buf = Vec::new();
@@ -654,7 +653,7 @@ cjHJZXWmV4CcRfmLsXzU8s2cR9A0DBvOxhPD1TlKC2JhBFXigjuL9U4Rbq9tdegB
     }
 
     #[test]
-    fn unrepresentable_allocation_preserves_the_original_cause() -> Result {
+    fn unrepresentable_allocation_preserves_the_original_cause() -> gix_testtools::TestResult {
         use std::io::Write;
 
         let tmp = gix_testtools::tempfile::tempdir()?;
@@ -772,7 +771,7 @@ cjHJZXWmV4CcRfmLsXzU8s2cR9A0DBvOxhPD1TlKC2JhBFXigjuL9U4Rbq9tdegB
     }
 
     #[test]
-    fn tree() -> Result {
+    fn tree() -> gix_testtools::TestResult {
         let mut buf = Vec::new();
         let o = find("6ba2a0ded519f737fd5b8d5ccfb141125ef3176f", &mut buf);
         assert_eq!(o.kind, Kind::Tree);
@@ -801,11 +800,11 @@ cjHJZXWmV4CcRfmLsXzU8s2cR9A0DBvOxhPD1TlKC2JhBFXigjuL9U4Rbq9tdegB
     }
 
     mod header {
-        use crate::Result;
+
         use crate::{hex_to_id, store::loose::ldb};
 
         #[test]
-        fn existing() -> Result {
+        fn existing() -> gix_testtools::TestResult {
             let db = ldb();
             assert_eq!(
                 db.try_header(&hex_to_id("a706d7cd20fc8ce71489f34b50cf01011c104193"))?
@@ -816,7 +815,7 @@ cjHJZXWmV4CcRfmLsXzU8s2cR9A0DBvOxhPD1TlKC2JhBFXigjuL9U4Rbq9tdegB
         }
 
         #[test]
-        fn non_existing() -> Result {
+        fn non_existing() -> gix_testtools::TestResult {
             let db = ldb();
             assert_eq!(
                 db.try_header(&hex_to_id("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))?,
@@ -827,7 +826,7 @@ cjHJZXWmV4CcRfmLsXzU8s2cR9A0DBvOxhPD1TlKC2JhBFXigjuL9U4Rbq9tdegB
         }
 
         #[test]
-        fn all() -> Result {
+        fn all() -> gix_testtools::TestResult {
             let db = ldb();
             let mut buf = Vec::new();
             for id in db.iter() {

@@ -159,7 +159,7 @@ impl Pipeline {
             Some(root) => {
                 self.path.clear();
                 self.path.push(root);
-                self.path.push(gix_path::from_bstr(rela_path));
+                self.path.push(gix_path::from_bstr(rela_path)?);
                 let size_in_bytes = (self.options.large_file_threshold_bytes > 0)
                     .then(|| {
                         none_if_missing(self.path.metadata().map(|md| md.len())).or_raise(|| {
@@ -180,7 +180,7 @@ impl Pipeline {
                                 Mode::ToGit | Mode::Renormalize => {
                                     let res = self.filter.convert_to_git(
                                         file,
-                                        gix_path::from_bstr(rela_path).as_ref(),
+                                        gix_path::from_bstr(rela_path)?.as_ref(),
                                         attributes,
                                         &mut |buf| {
                                             if convert == Mode::Renormalize || id.is_null() {
@@ -277,7 +277,7 @@ impl Pipeline {
 
                             let res = self.filter.convert_to_git(
                                 &**out,
-                                &gix_path::from_bstr(rela_path),
+                                &gix_path::from_bstr(rela_path)?,
                                 attributes,
                                 &mut |_buf| Ok(None),
                             )?;

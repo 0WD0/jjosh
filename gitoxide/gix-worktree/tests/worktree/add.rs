@@ -4,7 +4,7 @@ use gix_path::{into_bstr, to_unix_separators_on_windows};
 use gix_testtools::tempfile::tempdir;
 
 #[test]
-fn relative_input_paths_are_made_absolute_with_default_options() -> crate::Result {
+fn relative_input_paths_are_made_absolute_with_default_options() -> gix_testtools::TestResult {
     let cwd = std::env::current_dir()?;
     let tmp = gix_testtools::tempfile::tempdir_in(&cwd)?;
     let relative = tmp.path().strip_prefix(&cwd)?;
@@ -28,7 +28,7 @@ fn relative_input_paths_are_made_absolute_with_default_options() -> crate::Resul
 }
 
 #[test]
-fn prepares_git_compatible_links_and_unique_sanitized_names() -> crate::Result {
+fn prepares_git_compatible_links_and_unique_sanitized_names() -> gix_testtools::TestResult {
     let tmp = tempdir()?;
     let common_dir = tmp.path().join("repo.git");
     fs::create_dir(&common_dir)?;
@@ -53,14 +53,14 @@ fn prepares_git_compatible_links_and_unique_sanitized_names() -> crate::Result {
         fs::read_to_string(first.git_dir().join("gitdir"))?,
         format!(
             "{}\n",
-            to_unix_separators_on_windows(into_bstr(first.work_dir().join(".git")))
+            to_unix_separators_on_windows(into_bstr(first.work_dir().join(".git"))?)
         )
     );
     assert_eq!(
         fs::read_to_string(first.work_dir().join(".git"))?,
         format!(
             "gitdir: {}\n",
-            to_unix_separators_on_windows(into_bstr(first.git_dir()))
+            to_unix_separators_on_windows(into_bstr(first.git_dir())?)
         )
     );
 
@@ -96,7 +96,7 @@ fn prepares_git_compatible_links_and_unique_sanitized_names() -> crate::Result {
 }
 
 #[test]
-fn rollback_preserves_a_caller_owned_empty_directory() -> crate::Result {
+fn rollback_preserves_a_caller_owned_empty_directory() -> gix_testtools::TestResult {
     let tmp = tempdir()?;
     let common_dir = tmp.path().join("repo.git");
     let work_dir = tmp.path().join("existing");
@@ -121,7 +121,7 @@ fn rollback_preserves_a_caller_owned_empty_directory() -> crate::Result {
 }
 
 #[test]
-fn explicit_rollback_removes_new_directories_but_preserves_their_parents() -> crate::Result {
+fn explicit_rollback_removes_new_directories_but_preserves_their_parents() -> gix_testtools::TestResult {
     let tmp = tempdir()?;
     let common_dir = tmp.path().join("repo.git");
     let work_dir = tmp.path().join("new-parent/worktree");
@@ -146,7 +146,7 @@ fn explicit_rollback_removes_new_directories_but_preserves_their_parents() -> cr
 }
 
 #[test]
-fn explicit_rollback_attempts_both_directories_even_if_one_fails() -> crate::Result {
+fn explicit_rollback_attempts_both_directories_even_if_one_fails() -> gix_testtools::TestResult {
     let tmp = tempdir()?;
     let common_dir = tmp.path().join("repo.git");
     let work_dir = tmp.path().join("worktree");
@@ -171,7 +171,7 @@ fn explicit_rollback_attempts_both_directories_even_if_one_fails() -> crate::Res
 }
 
 #[test]
-fn rollback_removes_directory_symlinks_without_touching_their_target() -> crate::Result {
+fn rollback_removes_directory_symlinks_without_touching_their_target() -> gix_testtools::TestResult {
     let tmp = tempdir()?;
     let common_dir = tmp.path().join("repo.git");
     let work_dir = tmp.path().join("existing");
@@ -203,7 +203,7 @@ fn rollback_removes_directory_symlinks_without_touching_their_target() -> crate:
 
 #[test]
 #[cfg(unix)]
-fn linking_paths_preserve_backslashes_in_unix_filenames() -> crate::Result {
+fn linking_paths_preserve_backslashes_in_unix_filenames() -> gix_testtools::TestResult {
     let tmp = tempdir()?;
     let common_dir = tmp.path().join(r"repo\backslash.git");
     let work_dir = tmp.path().join(r"with\backslash");
@@ -232,7 +232,7 @@ fn linking_paths_preserve_backslashes_in_unix_filenames() -> crate::Result {
 
 #[test]
 #[cfg(unix)]
-fn linking_paths_resolve_symlinked_parent_directories() -> crate::Result {
+fn linking_paths_resolve_symlinked_parent_directories() -> gix_testtools::TestResult {
     let tmp = tempdir()?;
     let actual_parent = tmp.path().join("actual");
     let linked_parent = tmp.path().join("linked");
@@ -268,7 +268,7 @@ fn linking_paths_resolve_symlinked_parent_directories() -> crate::Result {
 }
 
 #[test]
-fn rejects_occupied_destinations() -> crate::Result {
+fn rejects_occupied_destinations() -> gix_testtools::TestResult {
     let tmp = tempdir()?;
     let common_dir = tmp.path().join("repo.git");
     fs::create_dir(&common_dir)?;

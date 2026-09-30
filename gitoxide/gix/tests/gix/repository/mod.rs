@@ -1,6 +1,6 @@
-#[cfg(feature = "parallel")]
-use crate::Result;
 use gix::Repository;
+#[cfg(feature = "parallel")]
+use gix_testtools::TestResult;
 
 fn blob_id(repo: &Repository, data: &[u8]) -> gix_hash::ObjectId {
     gix_object::compute_hash(repo.object_hash(), gix_object::Kind::Blob, data).expect("valid object hash")
@@ -37,7 +37,7 @@ mod format_version {
     use gix_error::MetadataValue;
 
     #[test]
-    fn upgrade_to_v1_accepts_grandfathered_extensions() -> crate::Result {
+    fn upgrade_to_v1_accepts_grandfathered_extensions() -> gix_testtools::TestResult {
         for input in [
             "",
             "[core]\nrepositoryFormatVersion = 0\n",
@@ -51,7 +51,7 @@ mod format_version {
     }
 
     #[test]
-    fn upgrade_to_v1_rejects_unknown_and_v1_only_extensions() -> crate::Result {
+    fn upgrade_to_v1_rejects_unknown_and_v1_only_extensions() -> gix_testtools::TestResult {
         for name in ["futureExtension", "objectFormat", "relativeWorktrees", "refStorage"] {
             let input = format!("[extensions]\nnoop = true\n[extensions]\n{name} = false\n");
             let config = gix_config::File::try_from(input.as_str())?;
@@ -73,7 +73,7 @@ mod format_version {
     }
 
     #[test]
-    fn upgrade_to_v1_rejects_extension_subsections() -> crate::Result {
+    fn upgrade_to_v1_rejects_extension_subsections() -> gix_testtools::TestResult {
         for subsection in ["", "scope"] {
             let input = format!("[extensions \"{subsection}\"]\nnoop = true\n");
             let config = gix_config::File::try_from(input.as_str())?;
@@ -97,7 +97,7 @@ mod format_version {
     }
 
     #[test]
-    fn already_v1_does_not_repeat_upgrade_validation() -> crate::Result {
+    fn already_v1_does_not_repeat_upgrade_validation() -> gix_testtools::TestResult {
         let config = gix_config::File::try_from(
             "[extensions]\nobjectFormat = sha256\nrelativeWorktrees = true\nfutureExtension = true\n\
              [extensions \"scope\"]\nnoop = true\n",
@@ -112,10 +112,10 @@ mod revision;
 
 #[cfg(feature = "index")]
 mod index {
-    use crate::Result;
+    use gix_testtools::TestResult;
 
     #[test]
-    fn missing_shared_index_is_an_error() -> Result {
+    fn missing_shared_index_is_an_error() -> TestResult {
         let (repo, _tmp) = crate::basic_rw_repo()?;
         let workdir = repo.workdir().expect("the fixture has a worktree");
         gix_testtools::git(workdir, "update-index --split-index")?;
@@ -145,7 +145,7 @@ mod index {
     }
 
     #[test]
-    fn basics() -> Result {
+    fn basics() -> TestResult {
         let repo = crate::named_subrepo_opts("make_basic_repo.sh", "unborn", gix::open::Options::isolated())?;
         let err = repo.index().expect_err("the fixture has no index");
         insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[(&repo.git_dir().to_string_lossy(), "<git-dir>")]), "a missing index has standard not-found classification", @r#"
@@ -182,13 +182,13 @@ mod index {
 
 #[cfg(feature = "dirwalk")]
 mod dirwalk {
-    use crate::Result;
+    use gix_testtools::TestResult;
     use std::sync::atomic::AtomicBool;
 
     use gix_dir::{entry::Kind::*, walk::EmissionMode};
 
     #[test]
-    fn basics() -> Result {
+    fn basics() -> TestResult {
         let repo = crate::named_repo("make_basic_repo.sh")?;
         let untracked_only = repo.dirwalk_options()?.emit_untracked(EmissionMode::CollapseDirectory);
         let mut collect = gix::dir::walk::delegate::Collect::default();
@@ -260,7 +260,7 @@ fn size_in_memory() {
 
 #[test]
 #[cfg(feature = "parallel")]
-fn thread_safe_repository_is_sync() -> Result {
+fn thread_safe_repository_is_sync() -> TestResult {
     fn f<T: Send + Sync + Clone>(_t: T) {}
     f(crate::util::basic_repo()?.into_sync());
     Ok(())
@@ -268,7 +268,7 @@ fn thread_safe_repository_is_sync() -> Result {
 
 #[test]
 #[cfg(feature = "parallel")]
-fn repository_is_send() -> Result {
+fn repository_is_send() -> TestResult {
     fn f<T: Send + Clone>(_t: T) {}
     f(crate::util::basic_repo()?);
     Ok(())

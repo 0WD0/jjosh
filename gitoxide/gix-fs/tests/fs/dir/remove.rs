@@ -1,11 +1,11 @@
 mod empty_upwards_until_boundary {
-    use crate::Result;
+    use crate::TestResult;
     use std::{io, path::Path};
 
     use gix_fs::dir::remove;
 
     #[test]
-    fn boundary_must_contain_target_dir() -> Result {
+    fn boundary_must_contain_target_dir() -> TestResult {
         let dir = tempfile::tempdir()?;
         let (target, boundary) = (dir.path().join("a"), dir.path().join("b"));
         std::fs::create_dir(&target)?;
@@ -26,7 +26,7 @@ mod empty_upwards_until_boundary {
         Ok(())
     }
     #[test]
-    fn target_directory_non_existing_causes_existing_parents_not_to_be_deleted() -> Result {
+    fn target_directory_non_existing_causes_existing_parents_not_to_be_deleted() -> TestResult {
         let dir = tempfile::tempdir()?;
         let parent = dir.path().join("a");
         std::fs::create_dir(&parent)?;
@@ -40,7 +40,7 @@ mod empty_upwards_until_boundary {
     }
 
     #[test]
-    fn target_directory_being_a_file_immediately_fails() -> Result {
+    fn target_directory_being_a_file_immediately_fails() -> TestResult {
         let dir = tempfile::tempdir()?;
         let target = dir.path().join("actually-a-file");
         std::fs::write(&target, [42])?;
@@ -50,14 +50,14 @@ mod empty_upwards_until_boundary {
         Ok(())
     }
     #[test]
-    fn boundary_being_the_target_dir_always_succeeds_and_we_do_nothing() -> Result {
+    fn boundary_being_the_target_dir_always_succeeds_and_we_do_nothing() -> TestResult {
         let dir = tempfile::tempdir()?;
         assert_eq!(remove::empty_upward_until_boundary(dir.path(), dir.path())?, dir.path());
         assert!(dir.path().is_dir(), "it won't touch the boundary");
         Ok(())
     }
     #[test]
-    fn a_directory_which_doesnt_exist_to_start_with_is_ok() -> Result {
+    fn a_directory_which_doesnt_exist_to_start_with_is_ok() -> TestResult {
         let dir = tempfile::tempdir()?;
         let target = dir.path().join("does-not-exist");
         assert_eq!(remove::empty_upward_until_boundary(&target, dir.path())?, target);
@@ -65,14 +65,14 @@ mod empty_upwards_until_boundary {
         Ok(())
     }
     #[test]
-    fn boundary_directory_doesnt_have_to_exist_either_if_the_target_doesnt() -> Result {
+    fn boundary_directory_doesnt_have_to_exist_either_if_the_target_doesnt() -> TestResult {
         let boundary = Path::new("/boundary");
         let target = Path::new("/boundary/target");
         assert_eq!(remove::empty_upward_until_boundary(target, boundary)?, target);
         Ok(())
     }
     #[test]
-    fn nested_directory_deletion_works() -> Result {
+    fn nested_directory_deletion_works() -> TestResult {
         let dir = tempfile::tempdir()?;
         let nested = dir.path().join("a").join("b").join("to-delete");
         std::fs::create_dir_all(&nested)?;
@@ -89,14 +89,14 @@ mod empty_upwards_until_boundary {
 }
 
 mod empty_depth_first {
-    use crate::Result;
+    use crate::TestResult;
     use std::{
         fs::{create_dir, create_dir_all},
         path::Path,
     };
 
     #[test]
-    fn non_empty_anywhere_and_deletion_fails() -> Result {
+    fn non_empty_anywhere_and_deletion_fails() -> TestResult {
         let dir = tempfile::TempDir::new()?;
         let touch = |base: &Path, name: &str| create_dir_all(base).and_then(|_| std::fs::write(base.join(name), b""));
 
@@ -134,11 +134,11 @@ mod empty_depth_first {
 /// We assume that all checks above also apply to the iterator, so won't repeat them here
 /// Test outside interference only
 mod iter {
-    use crate::Result;
+    use crate::TestResult;
     use gix_fs::dir::remove;
 
     #[test]
-    fn racy_directory_creation_during_deletion_always_wins_immediately() -> Result {
+    fn racy_directory_creation_during_deletion_always_wins_immediately() -> TestResult {
         let dir = tempfile::tempdir()?;
         let nested = dir.path().join("a").join("b").join("to-delete");
         std::fs::create_dir_all(&nested)?;

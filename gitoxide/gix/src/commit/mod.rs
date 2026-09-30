@@ -29,16 +29,18 @@ fn signature_program(
         Format::X509 => (config.trusted_path(gpg::X509::PROGRAM)?, &gpg::X509::PROGRAM),
         Format::Ssh => (config.trusted_path(gpg::Ssh::PROGRAM)?, &gpg::Ssh::PROGRAM),
     };
-    Ok(program
-        .unwrap_or_else(|| {
-            let default = gix_path::from_bstr(default.default_value_or_panic()).into_owned();
+    let program = match program {
+        Some(program) => program,
+        None => {
+            let default = gix_path::from_bstr(default.default_value_or_panic())?.into_owned();
             #[cfg(windows)]
             if let Some(program) = default.to_str().and_then(gix_path::env::installation_program) {
-                return program;
+                return Ok(program.into_os_string());
             }
             default
-        })
-        .into_os_string())
+        }
+    };
+    Ok(program.into_os_string())
 }
 
 /// An empty array of a type usable with the `gix::easy` API to help declaring no parents should be used

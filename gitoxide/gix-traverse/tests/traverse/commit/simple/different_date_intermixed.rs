@@ -7,7 +7,7 @@ fn intermixed_repo() -> Result<(std::path::PathBuf, gix_odb::Handle)> {
 }
 
 #[test]
-fn head_breadth_first() -> Result {
+fn head_breadth_first() -> gix_testtools::TestResult {
     let (repo_dir, odb) = intermixed_repo()?;
 
     // Timestamps show the intermixed ordering: b1 and b2 commits are interleaved
@@ -47,7 +47,7 @@ fn head_breadth_first() -> Result {
 }
 
 #[test]
-fn head_date_order() -> Result {
+fn head_date_order() -> gix_testtools::TestResult {
     let (_repo_dir, odb) = intermixed_repo()?;
     // Graph with timestamps shown in `head_breadth_first`
     let tip = hex_to_id("58912d92944087dcb09dca79cdd2a937cc158bed"); // merge

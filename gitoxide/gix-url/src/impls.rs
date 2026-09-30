@@ -39,7 +39,7 @@ impl TryFrom<PathBuf> for Url {
     type Error = gix_error::Error;
 
     fn try_from(value: PathBuf) -> Result<Self, Self::Error> {
-        gix_path::into_bstr(value).try_into()
+        gix_path::into_bstr(value)?.try_into()
     }
 }
 
@@ -47,7 +47,7 @@ impl TryFrom<&Path> for Url {
     type Error = gix_error::Error;
 
     fn try_from(value: &Path) -> Result<Self, Self::Error> {
-        gix_path::into_bstr(value).try_into()
+        gix_path::into_bstr(value)?.try_into()
     }
 }
 
@@ -55,9 +55,7 @@ impl TryFrom<&std::ffi::OsStr> for Url {
     type Error = gix_error::Error;
 
     fn try_from(value: &std::ffi::OsStr) -> Result<Self, Self::Error> {
-        gix_path::os_str_into_bstr(value)
-            .expect("no illformed UTF-8 on Windows")
-            .try_into()
+        gix_path::os_str_into_bstr(value)?.try_into()
     }
 }
 

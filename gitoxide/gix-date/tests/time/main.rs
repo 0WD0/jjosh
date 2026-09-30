@@ -36,7 +36,7 @@ mod write_to {
     }
 
     #[test]
-    fn valid_roundtrips() -> Result<(), Box<dyn std::error::Error>> {
+    fn valid_roundtrips() -> gix_testtools::TestResult {
         for (time, expected) in [
             (
                 Time {
@@ -111,14 +111,14 @@ mod write_to {
             let mut buf = TimeBuf::default();
             assert_eq!(time.to_str(&mut buf), expected);
 
-            let actual = output.as_bstr().to_string().parse::<Time>().expect("round-trippable");
+            let actual = output.as_bstr().to_string().parse::<Time>()?;
             assert_eq!(time, actual);
         }
         Ok(())
     }
 
     #[test]
-    fn max() -> gix_testtools::Result {
+    fn max() -> gix_testtools::TestResult {
         let mut buf = Vec::new();
         Time::MAX.write_to(&mut buf)?;
         assert_eq!(Time::MAX.size(), 25, "The serialized size of the largest possible time");
@@ -133,7 +133,7 @@ mod write_to {
     }
 
     #[test]
-    fn min() -> gix_testtools::Result {
+    fn min() -> gix_testtools::TestResult {
         let mut buf = Vec::new();
         Time::MIN.write_to(&mut buf)?;
         assert_eq!(

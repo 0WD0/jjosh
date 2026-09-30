@@ -40,7 +40,11 @@ impl Cascade {
         } else {
             None
         }
-        .map(|name| vec![Program::from_custom_definition(name)])
+        .map(|name| {
+            vec![Program::from_kind(crate::program::Kind::ExternalName {
+                name_and_args: name.into(),
+            })]
+        })
         .unwrap_or_default()
     }
 }

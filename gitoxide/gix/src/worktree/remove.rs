@@ -459,13 +459,20 @@ fn has_populated_submodule(repo: &crate::Repository) -> Result<bool> {
     let index = repo
         .index_or_empty()
         .or_raise(|| message("Could not open the linked worktree index"))?;
-    Ok(index.entries().iter().any(|entry| {
-        entry.mode == gix_index::entry::Mode::COMMIT
-            && repo.workdir().is_some_and(|work_dir| {
-                work_dir
-                    .join(gix_path::from_bstr(entry.path(&index)))
-                    .join(".git")
-                    .exists()
-            })
-    }))
+    if let Some(work_dir) = repo.workdir() {
+        for entry in index
+            .entries()
+            .iter()
+            .filter(|entry| entry.mode == gix_index::entry::Mode::COMMIT)
+        {
+            if work_dir
+                .join(gix_path::from_bstr(entry.path(&index))?)
+                .join(".git")
+                .exists()
+            {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
 }

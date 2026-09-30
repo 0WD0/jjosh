@@ -212,13 +212,13 @@ mod tests {
 
     #[test]
     #[cfg(unix)]
-    fn parse_ceiling_dirs_from_environment_format() -> std::io::Result<()> {
+    fn parse_ceiling_dirs_from_environment_format() -> gix_testtools::TestResult {
         use std::{fs, os::unix::fs::symlink};
 
         use super::*;
 
         // Setup filesystem
-        let dir = tempfile::tempdir().expect("success creating temp dir");
+        let dir = tempfile::tempdir()?;
         let direct_path = dir.path().join("direct");
         let symlink_path = dir.path().join("symlink");
         fs::create_dir(&direct_path)?;
@@ -230,28 +230,25 @@ mod tests {
         let ceiling_dirs = parse_ceiling_dirs(OsStr::new(ceiling_dir_string.as_str()));
 
         assert_eq!(ceiling_dirs.len(), 2, "Relative path is discarded");
-        assert_eq!(
-            ceiling_dirs[0],
-            symlink_path.canonicalize().expect("symlink path exists"),
-            "Symlinks are resolved"
-        );
+        assert_eq!(ceiling_dirs[0], symlink_path.canonicalize()?, "Symlinks are resolved");
         assert_eq!(
             ceiling_dirs[1], symlink_path,
             "Symlink are not resolved after empty item"
         );
 
-        dir.close()
+        dir.close()?;
+        Ok(())
     }
 
     #[test]
     #[cfg(windows)]
-    fn parse_ceiling_dirs_from_environment_format() -> std::io::Result<()> {
+    fn parse_ceiling_dirs_from_environment_format() -> gix_testtools::TestResult {
         use std::{fs, os::windows::fs::symlink_dir};
 
         use super::*;
 
         // Setup filesystem
-        let dir = tempfile::tempdir().expect("success creating temp dir");
+        let dir = tempfile::tempdir()?;
         let direct_path = dir.path().join("direct");
         let symlink_path = dir.path().join("symlink");
         fs::create_dir(&direct_path)?;
@@ -269,6 +266,7 @@ mod tests {
             "Symlink are not resolved after empty item"
         );
 
-        dir.close()
+        dir.close()?;
+        Ok(())
     }
 }

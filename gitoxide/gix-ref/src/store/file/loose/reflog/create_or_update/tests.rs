@@ -5,7 +5,7 @@ use gix_testtools::tempfile::TempDir;
 
 use super::*;
 
-use gix_testtools::Result;
+use gix_testtools::{Result, TestResult};
 
 static SHA1_TO_SHA256_HASHES: std::sync::LazyLock<std::collections::HashMap<&str, &str>> =
     std::sync::LazyLock::new(|| {
@@ -63,7 +63,7 @@ fn reflog_lines(store: &file::Store, name: &str, buf: &mut Vec<u8>) -> Result<Ve
 const WRITE_MODES: &[WriteReflog] = &[WriteReflog::Normal, WriteReflog::Disable, WriteReflog::Always];
 
 #[test]
-fn should_autocreate_is_unaffected_by_writemode() -> Result {
+fn should_autocreate_is_unaffected_by_writemode() -> TestResult {
     let (_keep, store) = empty_store(WriteReflog::Disable)?;
     for should_create_name in &["HEAD", "refs/heads/main", "refs/remotes/any", "refs/notes/any"] {
         assert!(store.should_autocreate_reflog(Path::new(should_create_name)));
@@ -75,7 +75,7 @@ fn should_autocreate_is_unaffected_by_writemode() -> Result {
 }
 
 #[test]
-fn missing_reflog_creates_it_even_if_similarly_named_empty_dir_exists_and_append_log_lines() -> Result {
+fn missing_reflog_creates_it_even_if_similarly_named_empty_dir_exists_and_append_log_lines() -> TestResult {
     for mode in WRITE_MODES {
         let (_keep, store) = empty_store(*mode)?;
         let full_name_str = "refs/heads/main";
@@ -141,7 +141,7 @@ fn missing_reflog_creates_it_even_if_similarly_named_empty_dir_exists_and_append
         // create onto existing directory
         let full_name_str = "refs/heads/other";
         let full_name: &FullNameRef = full_name_str.try_into()?;
-        let reflog_path = store.reflog_path(full_name_str.try_into().expect("valid"));
+        let reflog_path = store.reflog_path(full_name_str.try_into()?)?;
         let directory_in_place_of_reflog = reflog_path.join("empty-a").join("empty-b");
         std::fs::create_dir_all(directory_in_place_of_reflog)?;
 
@@ -184,10 +184,10 @@ fn missing_reflog_creates_it_even_if_similarly_named_empty_dir_exists_and_append
 }
 
 #[test]
-fn non_empty_reflog_directory_preserves_open_error_context() -> Result {
+fn non_empty_reflog_directory_preserves_open_error_context() -> TestResult {
     let (_keep, store) = empty_store(WriteReflog::Normal)?;
     let name: &FullNameRef = "refs/heads/main".try_into()?;
-    let path = store.reflog_path(name);
+    let path = store.reflog_path(name)?;
     std::fs::create_dir_all(&path)?;
     std::fs::write(path.join("keep"), b"not an empty directory")?;
 
@@ -232,7 +232,7 @@ fn non_empty_reflog_directory_preserves_open_error_context() -> Result {
 }
 
 #[test]
-fn reflog_write_normalizes_committer_name_and_email_like_git() -> Result {
+fn reflog_write_normalizes_committer_name_and_email_like_git() -> TestResult {
     let (_keep, store) = empty_store(WriteReflog::Always)?;
     let full_name_str = "refs/heads/main";
     let full_name: &FullNameRef = full_name_str.try_into()?;

@@ -71,7 +71,7 @@ mod ask {
     }
 
     #[test]
-    fn askpass_only() -> gix_testtools::Result {
+    fn askpass_only() -> gix_testtools::TestResult {
         let mut cmd = std::process::Command::new(env!("CARGO"));
         cmd.args([
             "build",
@@ -87,7 +87,7 @@ mod ask {
             "askpass",
         ]);
         assert!(
-            cmd.status().expect("Cargo can build prompt examples").success(),
+            cmd.status()?.success(),
             "prompt examples must build successfully before they run"
         );
 
@@ -100,7 +100,7 @@ mod ask {
     }
 
     #[test]
-    fn username_password() -> gix_testtools::Result {
+    fn username_password() -> gix_testtools::TestResult {
         let mut cmd = std::process::Command::new(env!("CARGO"));
         cmd.args([
             "build",
@@ -114,7 +114,7 @@ mod ask {
             "credentials",
         ]);
         assert!(
-            cmd.status().expect("Cargo can build prompt examples").success(),
+            cmd.status()?.success(),
             "prompt examples must build successfully before they run"
         );
 

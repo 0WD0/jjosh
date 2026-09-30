@@ -1,8 +1,8 @@
-use crate::Result;
 use crate::remote;
+use gix_testtools::TestResult;
 
 #[test]
-fn push_defaults_to_fetch() -> Result {
+fn push_defaults_to_fetch() -> TestResult {
     let repo = remote::repo("many-fetchspecs");
     let head = repo.head()?;
     let branch = head.clone().try_into_referent().expect("history");
@@ -32,7 +32,7 @@ fn push_defaults_to_fetch() -> Result {
 }
 
 #[test]
-fn separate_push_and_fetch() -> Result {
+fn separate_push_and_fetch() -> TestResult {
     for name in ["push-default", "branch-push-remote"] {
         let repo = remote::repo(name);
         let head = repo.head()?;
@@ -57,7 +57,7 @@ fn separate_push_and_fetch() -> Result {
 }
 
 #[test]
-fn not_configured() -> Result {
+fn not_configured() -> TestResult {
     let repo = remote::repo("base");
     let head = repo.head()?;
     let branch = head.clone().try_into_referent().expect("history");
@@ -79,7 +79,7 @@ fn not_configured() -> Result {
 }
 
 #[test]
-fn dot_remote_behind_symbol() -> Result {
+fn dot_remote_behind_symbol() -> TestResult {
     let repo = remote::repo("branch-dot-remote");
     let head = repo.head()?;
     let branch = head.clone().try_into_referent().expect("history");
@@ -104,7 +104,7 @@ fn dot_remote_behind_symbol() -> Result {
 }
 
 #[test]
-fn url_as_remote_name() -> Result {
+fn url_as_remote_name() -> TestResult {
     let repo = remote::repo("remote-as-url");
     let branch = repo.head_ref()?.expect("history");
 

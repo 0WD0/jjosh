@@ -248,7 +248,7 @@ fn gitdir_matches(
     let git_dir =
         gix_path::to_unix_separators_on_windows(gix_path::into_bstr(git_dir.ok_or_raise(|| {
             not_found("The git directory must be provided to support `gitdir:` conditional includes")
-        })?));
+        })?)?);
 
     let mut pattern_path = match check_interpolation_result(
         err_on_interpolation_failure,
@@ -256,7 +256,7 @@ fn gitdir_matches(
     )
     .or_raise(|| message("Could not interpolate conditional include path"))?
     {
-        Some(path) => gix_path::into_bstr(path).into_owned(),
+        Some(path) => gix_path::into_bstr(path)?.into_owned(),
         // Git keeps the original condition pattern when interpolation fails.
         None => condition_path.to_owned(),
     };
@@ -275,7 +275,7 @@ fn gitdir_matches(
             })?
             .parent()
             .expect("config path can never be /");
-        let mut joined_path = gix_path::to_unix_separators_on_windows(gix_path::into_bstr(parent_dir)).into_owned();
+        let mut joined_path = gix_path::to_unix_separators_on_windows(gix_path::into_bstr(parent_dir)?).into_owned();
         joined_path.push(b'/');
         joined_path.extend_from_slice(relative_pattern_path);
         pattern_path = joined_path;
@@ -283,7 +283,7 @@ fn gitdir_matches(
 
     // NOTE: this special handling of leading backslash is needed to do it like git does
     if pattern_path.iter().next() != Some(&(std::path::MAIN_SEPARATOR as u8))
-        && !gix_path::from_bstr(pattern_path.clone()).is_absolute()
+        && !gix_path::from_bstr(pattern_path.clone())?.is_absolute()
     {
         pattern_path.insert_str(0, "**/");
     }
@@ -298,9 +298,9 @@ fn gitdir_matches(
     }
 
     let expanded_git_dir = gix_path::to_unix_separators_on_windows(gix_path::into_bstr(
-        gix_path::realpath(gix_path::from_byte_slice(&git_dir))
+        gix_path::realpath(gix_path::from_byte_slice(&git_dir)?)
             .or_raise(|| message("Could not resolve the git directory to its real path"))?,
-    ));
+    )?);
     Ok(gix_glob::wildmatch(
         pattern_path.as_bstr(),
         expanded_git_dir.as_ref(),

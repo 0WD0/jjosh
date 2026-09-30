@@ -58,7 +58,7 @@ impl Transaction<'_, '_> {
 
         let lock = match &mut change.update.change {
             Change::Delete { expected, .. } => {
-                let (base, relative_path) = store.reference_path_with_base(change.update.name.as_ref());
+                let (base, relative_path) = store.reference_path_with_base(change.update.name.as_ref())?;
                 let lock = gix_lock::Marker::acquire_to_hold_resource(
                     base.join(relative_path.as_ref()),
                     lock_fail_mode,
@@ -101,7 +101,7 @@ impl Transaction<'_, '_> {
                 Some(lock)
             }
             Change::Update { expected, new, .. } => {
-                let (base, relative_path) = store.reference_path_with_base(change.update.name.as_ref());
+                let (base, relative_path) = store.reference_path_with_base(change.update.name.as_ref())?;
                 let obtain_lock = || {
                     gix_lock::File::acquire_to_update_resource(
                         base.join(relative_path.as_ref()),

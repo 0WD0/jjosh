@@ -315,8 +315,10 @@ mod program_kind {
         fn call_args(kind: ProgramKind, url: &str, version: Protocol) -> Vec<String> {
             let prepare = call(kind, url, version);
             let program = prepare.command.clone();
-            let cmd = std::process::Command::from(prepare);
-            let expected_program = std::process::Command::from(gix_command::prepare(&program));
+            let cmd =
+                std::process::Command::try_from(prepare).expect("command fixture can be represented by the platform");
+            let expected_program = std::process::Command::try_from(gix_command::prepare(&program))
+                .expect("command fixture can be represented by the platform");
             assert_eq!(
                 cmd.get_program(),
                 expected_program.get_program(),

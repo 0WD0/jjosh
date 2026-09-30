@@ -64,7 +64,7 @@ mod trust_tests {
     use gix_sec::Trust;
 
     #[test]
-    fn known_candidate_trust_skips_only_identical_git_directory_spellings() -> gix_error::TestResult {
+    fn known_candidate_trust_skips_only_identical_git_directory_spellings() -> gix_testtools::TestResult {
         let root = gix_testtools::scripted_fixture_read_only("make_ownership_repos.sh")?;
         let cwd = std::env::current_dir()?;
         for name in ["worktree/.git", "bare"] {
@@ -91,7 +91,7 @@ mod trust_tests {
     }
 
     #[test]
-    fn resolved_paths_constrain_trust_without_upgrading_the_candidate() -> gix_error::TestResult {
+    fn resolved_paths_constrain_trust_without_upgrading_the_candidate() -> gix_testtools::TestResult {
         let root = gix_testtools::scripted_fixture_read_only("make_linked_ownership_repo.sh")?;
         let cwd = std::env::current_dir()?;
         let candidate = root.join("linked/.git");

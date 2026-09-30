@@ -9,14 +9,11 @@ use gix_pack::data;
 const FIRST_ENTRY_OFFSET: data::Offset = data::header::SIZE as data::Offset;
 
 #[test]
-fn artifact_inputs_can_be_opened_without_panicking() {
+fn artifact_inputs_can_be_opened_without_panicking() -> gix_testtools::TestResult {
     for path in crate::fuzz_artifact_paths("data_file") {
-        _ = data::File::from_data(
-            std::fs::read(&path).expect("artifact is readable"),
-            path,
-            gix_hash::Kind::Sha1,
-        );
+        _ = data::File::from_data(std::fs::read(&path)?, path, gix_hash::Kind::Sha1);
     }
+    Ok(())
 }
 
 /// Reproducer for the truncated ref-delta metadata fuzz case: malformed entry data must not panic
@@ -36,7 +33,7 @@ fn truncated_ref_delta_metadata_is_reported_without_panicking() {
 /// Reproducer for the oversized pack header fuzz case: malformed entry headers with too many
 /// continuation bytes must not panic while decoding the first object entry.
 #[test]
-fn oversized_pack_entry_header_is_reported_without_panicking() {
+fn oversized_pack_entry_header_is_reported_without_panicking() -> gix_testtools::TestResult {
     let data = [
         b'P', b'A', b'C', b'K', 0, 0, 0, 2, 0, 0, 0, 1, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
         0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
@@ -45,8 +42,7 @@ fn oversized_pack_entry_header_is_reported_without_panicking() {
         data.as_slice(),
         PathBuf::from("fuzzed-header.pack"),
         gix_hash::Kind::Sha1,
-    )
-    .expect("pack header is syntactically valid");
+    )?;
     let result = catch_unwind(AssertUnwindSafe(|| file.entry(FIRST_ENTRY_OFFSET)));
 
     assert!(
@@ -55,10 +51,11 @@ fn oversized_pack_entry_header_is_reported_without_panicking() {
             .is_err(),
         "forged pack entry headers should be rejected as corrupt pack data"
     );
+    Ok(())
 }
 
 #[test]
-fn non_canonical_pack_entry_header_is_accepted() {
+fn non_canonical_pack_entry_header_is_accepted() -> gix_testtools::TestResult {
     fn deflate(bytes: &[u8]) -> Vec<u8> {
         let mut out = gix_zlib::stream::deflate::Write::new(Vec::new(), gix_zlib::Compression::BEST_SPEED);
         out.write_all(bytes).expect("writing to deflater succeeds");
@@ -75,11 +72,8 @@ fn non_canonical_pack_entry_header_is_accepted() {
         bytes.as_slice(),
         PathBuf::from("non-canonical-header.pack"),
         gix_hash::Kind::Sha1,
-    )
-    .expect("pack header is syntactically valid");
-    let entry = file
-        .entry(FIRST_ENTRY_OFFSET)
-        .expect("git-compatible non-canonical entry header is accepted");
+    )?;
+    let entry = file.entry(FIRST_ENTRY_OFFSET)?;
     assert_eq!(entry.header_size(), 2, "the actual header size is retained");
     assert_eq!(
         entry.pack_offset(),
@@ -88,36 +82,32 @@ fn non_canonical_pack_entry_header_is_accepted() {
     );
 
     let mut out = Vec::new();
-    let outcome = file
-        .decode_entry(
-            entry,
-            &mut out,
-            &mut Default::default(),
-            &|_, _| Ok(None),
-            &mut gix_pack::cache::Never,
-        )
-        .expect("non-canonical entry decodes like a canonical git object");
+    let outcome = file.decode_entry(
+        entry,
+        &mut out,
+        &mut Default::default(),
+        &|_, _| Ok(None),
+        &mut gix_pack::cache::Never,
+    )?;
 
     assert_eq!(out, b"20\n");
     assert_eq!(outcome.kind, gix_object::Kind::Blob);
     assert_eq!(outcome.object_size, 3);
+    Ok(())
 }
 
 /// Reproducer for the large-allocation fuzz case: attacker-controlled object sizes must not cause
 /// `decode_entry()` to attempt multi-gigabyte allocations.
 #[test]
-fn oversized_declared_object_size_is_reported_without_panicking() {
+fn oversized_declared_object_size_is_reported_without_panicking() -> gix_testtools::TestResult {
     let mut bytes = data::header::encode(data::Version::V2, 1).to_vec();
-    data::entry::Header::Blob
-        .write_to((i32::MAX as u64) + 1, &mut bytes)
-        .expect("header write succeeds");
+    data::entry::Header::Blob.write_to((i32::MAX as u64) + 1, &mut bytes)?;
     bytes.extend_from_slice(&[0x78, 0x9c, 0x03, 0x00, 0x00, 0x00, 0x00, 0x01]);
     bytes.extend_from_slice(&[0; 20]);
 
-    let file = data::File::from_data(bytes.as_slice(), PathBuf::from("fuzzed-oom.pack"), gix_hash::Kind::Sha1)
-        .expect("pack header is syntactically valid")
+    let file = data::File::from_data(bytes.as_slice(), PathBuf::from("fuzzed-oom.pack"), gix_hash::Kind::Sha1)?
         .with_alloc_limit_bytes(Some(4_000_000));
-    let entry = file.entry(FIRST_ENTRY_OFFSET).expect("entry metadata is parseable");
+    let entry = file.entry(FIRST_ENTRY_OFFSET)?;
 
     let result = catch_unwind(AssertUnwindSafe(|| {
         file.decode_entry(
@@ -135,12 +125,13 @@ fn oversized_declared_object_size_is_reported_without_panicking() {
             .is_err(),
         "oversized declared object sizes should be rejected"
     );
+    Ok(())
 }
 
 /// Reproducer for the allocation-limit fuzz case: with a configured cap, attacker-controlled
 /// object sizes must fail with `OutOfMemory` instead of attempting the allocation or panicking.
 #[test]
-fn declared_object_size_over_alloc_limit_bytes_is_reported_as_out_of_memory() {
+fn declared_object_size_over_alloc_limit_bytes_is_reported_as_out_of_memory() -> gix_testtools::TestResult {
     fn deflate(bytes: &[u8]) -> Vec<u8> {
         let mut out = gix_zlib::stream::deflate::Write::new(Vec::new(), gix_zlib::Compression::BEST_SPEED);
         out.write_all(bytes).expect("writing to deflater succeeds");
@@ -150,9 +141,7 @@ fn declared_object_size_over_alloc_limit_bytes_is_reported_as_out_of_memory() {
 
     let object = [0u8; 65];
     let mut bytes = data::header::encode(data::Version::V2, 1).to_vec();
-    data::entry::Header::Blob
-        .write_to(object.len() as u64, &mut bytes)
-        .expect("header write succeeds");
+    data::entry::Header::Blob.write_to(object.len() as u64, &mut bytes)?;
     bytes.extend_from_slice(&deflate(&object));
     bytes.extend_from_slice(&[0; 20]);
 
@@ -160,10 +149,9 @@ fn declared_object_size_over_alloc_limit_bytes_is_reported_as_out_of_memory() {
         bytes.as_slice(),
         PathBuf::from("fuzzed-alloc-limit.pack"),
         gix_hash::Kind::Sha1,
-    )
-    .expect("pack header is syntactically valid")
+    )?
     .with_alloc_limit_bytes(Some(64));
-    let entry = file.entry(FIRST_ENTRY_OFFSET).expect("entry metadata is parseable");
+    let entry = file.entry(FIRST_ENTRY_OFFSET)?;
 
     let result = catch_unwind(AssertUnwindSafe(|| {
         file.decode_entry(
@@ -186,12 +174,13 @@ fn declared_object_size_over_alloc_limit_bytes_is_reported_as_out_of_memory() {
         }),
         Some(gix_error::ResourceExhaustionKind::AllocationLimit)
     );
+    Ok(())
 }
 
 /// Reproducer for the fuzz target OOM case: with the same allocation cap used by the fuzz harness,
 /// malformed delta chains must be rejected without panicking or tripping allocator aborts.
 #[test]
-fn runaway_delta_allocation_is_rejected_with_fuzz_alloc_limit() {
+fn runaway_delta_allocation_is_rejected_with_fuzz_alloc_limit() -> gix_testtools::TestResult {
     let bytes = [
         0x50, 0x41, 0x43, 0x4b, 0x00, 0x00, 0x00, 0x02, 0xf2, 0x00, 0x00, 0xdd, 0x09, 0x96, 0x98, 0xe7, 0x6c, 0x01,
         0x78, 0x9c, 0x7a, 0x73, 0x6a, 0xfd, 0xff, 0x9b, 0x9b, 0x9b, 0x9b, 0x9b, 0x00, 0x5b,
@@ -200,8 +189,7 @@ fn runaway_delta_allocation_is_rejected_with_fuzz_alloc_limit() {
         bytes.as_slice(),
         PathBuf::from("fuzzed-runaway-delta-allocation.pack"),
         gix_hash::Kind::Sha1,
-    )
-    .expect("pack header is syntactically valid")
+    )?
     .with_alloc_limit_bytes(Some(64 * 1024 * 1024));
     let len = bytes.len() as u64;
     let mut offsets = vec![0, FIRST_ENTRY_OFFSET.min(len - 1), (len - 1) / 2];
@@ -238,16 +226,15 @@ fn runaway_delta_allocation_is_rejected_with_fuzz_alloc_limit() {
         saw_parseable_entry,
         "the reproducer should exercise at least one parseable entry"
     );
+    Ok(())
 }
 
 /// Reproducer for the invalid ofs-delta base-distance fuzz case: a delta whose base distance points
 /// before the beginning of the pack must be rejected without panicking.
 #[test]
-fn invalid_ofs_delta_base_distance_is_reported_without_panicking() {
+fn invalid_ofs_delta_base_distance_is_reported_without_panicking() -> gix_testtools::TestResult {
     let mut bytes = data::header::encode(data::Version::V2, 1).to_vec();
-    data::entry::Header::OfsDelta { base_distance: 13 }
-        .write_to(1, &mut bytes)
-        .expect("header write succeeds");
+    data::entry::Header::OfsDelta { base_distance: 13 }.write_to(1, &mut bytes)?;
     bytes.extend_from_slice(&[0x78, 0x9c, 0x03, 0x00, 0x00, 0x00, 0x00, 0x01]);
     bytes.extend_from_slice(&[0; 20]);
 
@@ -255,10 +242,9 @@ fn invalid_ofs_delta_base_distance_is_reported_without_panicking() {
         bytes.as_slice(),
         PathBuf::from("fuzzed-invalid-ofs-delta.pack"),
         gix_hash::Kind::Sha1,
-    )
-    .expect("pack header is syntactically valid")
+    )?
     .with_alloc_limit_bytes(Some(8 * 1024 * 1024));
-    let entry = file.entry(FIRST_ENTRY_OFFSET).expect("entry metadata is parseable");
+    let entry = file.entry(FIRST_ENTRY_OFFSET)?;
 
     let result = catch_unwind(AssertUnwindSafe(|| {
         file.decode_entry(
@@ -276,13 +262,14 @@ fn invalid_ofs_delta_base_distance_is_reported_without_panicking() {
             .is_err(),
         "invalid ofs-delta base distances should be rejected as corrupt pack data"
     );
+    Ok(())
 }
 
 /// Reproducer for the out-of-bounds data-offset fuzz case: malformed entry headers can produce an
 /// entry whose data offset points past the available pack data, which must be rejected without
 /// panicking during decompression.
 #[test]
-fn out_of_bounds_entry_data_offset_is_reported_without_panicking() {
+fn out_of_bounds_entry_data_offset_is_reported_without_panicking() -> gix_testtools::TestResult {
     let data = [
         0x50, 0x41, 0x43, 0x4b, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x09, 0x97, 0x0e, 0x78, 0x9c, 0x95, 0x8b,
         0x51, 0x0a, 0x83, 0x30, 0x10, 0x44, 0xff, 0x3d, 0x45, 0xa0, 0x9f, 0xa5, 0xb2, 0x89, 0x9b, 0x44, 0xa1, 0x94,
@@ -302,8 +289,7 @@ fn out_of_bounds_entry_data_offset_is_reported_without_panicking() {
         data.as_slice(),
         PathBuf::from("fuzzed-out-of-bounds-data-offset.pack"),
         gix_hash::Kind::Sha1,
-    )
-    .expect("pack header is syntactically valid")
+    )?
     .with_alloc_limit_bytes(Some(8 * 1024 * 1024));
     let len = data.len() as u64;
     let mut offsets = vec![0, FIRST_ENTRY_OFFSET.min(len - 1), (len - 1) / 2];
@@ -332,7 +318,7 @@ fn out_of_bounds_entry_data_offset_is_reported_without_panicking() {
 
         let outcome = result.expect("out-of-bounds entry data offsets must not panic");
         if outcome.is_err() {
-            return;
+            return Ok(());
         }
     }
 
@@ -346,7 +332,7 @@ fn out_of_bounds_entry_data_offset_is_reported_without_panicking() {
 /// Reproducer for the malformed delta-rescue fuzz case: degenerate delta metadata can force the
 /// internal instruction buffer relocation path, which must not panic while moving bytes around.
 #[test]
-fn malformed_delta_instruction_relocation_is_reported_without_panicking() {
+fn malformed_delta_instruction_relocation_is_reported_without_panicking() -> gix_testtools::TestResult {
     let data = [
         0x50, 0x41, 0x43, 0x4b, 0x00, 0x00, 0x00, 0x02, 0x29, 0x00, 0x00, 0x09, 0x97, 0x21, 0x21, 0x21, 0x21, 0x21,
         0x21, 0x21, 0x21, 0x21, 0x21, 0x21, 0x21, 0x21, 0x21, 0x21, 0x21, 0x21, 0x21, 0x21, 0x21, 0x21, 0x21, 0x21,
@@ -359,8 +345,7 @@ fn malformed_delta_instruction_relocation_is_reported_without_panicking() {
         data.as_slice(),
         PathBuf::from("fuzzed-delta-relocation.pack"),
         gix_hash::Kind::Sha1,
-    )
-    .expect("pack header is syntactically valid")
+    )?
     .with_alloc_limit_bytes(Some(8 * 1024 * 1024));
 
     let len = data.len() as u64;
@@ -390,7 +375,7 @@ fn malformed_delta_instruction_relocation_is_reported_without_panicking() {
 
         let outcome = result.expect("malformed delta instruction relocation must not panic");
         if outcome.is_err() {
-            return;
+            return Ok(());
         }
     }
 
@@ -404,7 +389,7 @@ fn malformed_delta_instruction_relocation_is_reported_without_panicking() {
 /// Reproducer for the runaway delta-chain fuzz case: malformed packs must not be able to grow
 /// delta bookkeeping without bound before decode eventually fails.
 #[test]
-fn runaway_delta_chain_is_reported_without_panicking() {
+fn runaway_delta_chain_is_reported_without_panicking() -> gix_testtools::TestResult {
     let data = [
         0x50, 0x41, 0x43, 0x4b, 0x00, 0x00, 0x00, 0x02, 0x50, 0x41, 0x43, 0x4b, 0x00, 0x00, 0x00, 0x02, 0x00, 0x84,
         0x00, 0x76, 0x76, 0x76, 0x76, 0x76, 0x76, 0x76, 0x76, 0x76, 0x76, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1e, 0x91,
@@ -420,8 +405,7 @@ fn runaway_delta_chain_is_reported_without_panicking() {
         data.as_slice(),
         PathBuf::from("fuzzed-runaway-delta-chain.pack"),
         gix_hash::Kind::Sha1,
-    )
-    .expect("pack header is syntactically valid")
+    )?
     .with_alloc_limit_bytes(Some(8 * 1024 * 1024));
 
     let len = data.len() as u64;
@@ -449,7 +433,7 @@ fn runaway_delta_chain_is_reported_without_panicking() {
 
         let outcome = result.expect("runaway delta chains must not panic or OOM the process");
         if outcome.is_err() {
-            return;
+            return Ok(());
         }
     }
 
@@ -459,7 +443,7 @@ fn runaway_delta_chain_is_reported_without_panicking() {
 /// Reproducer for the overlong delta-header fuzz case: malformed varints in delta headers must be
 /// rejected as corrupt input instead of overflowing the shift width while decoding sizes.
 #[test]
-fn overlong_delta_header_size_is_reported_without_panicking() {
+fn overlong_delta_header_size_is_reported_without_panicking() -> gix_testtools::TestResult {
     let data = [
         0x50, 0x41, 0x43, 0x4b, 0x00, 0x00, 0x00, 0x02, 0x29, 0x00, 0x00, 0x10, 0x68, 0xaf, 0x4f, 0x00, 0x00, 0x00,
         0x00, 0x32, 0x18, 0xa1, 0x71, 0x38, 0x95, 0x81, 0x48, 0x58, 0x49, 0x7f, 0x63, 0xe4, 0x4d, 0x6a, 0xe8, 0x85,
@@ -471,8 +455,7 @@ fn overlong_delta_header_size_is_reported_without_panicking() {
         data.as_slice(),
         PathBuf::from("fuzzed-overlong-delta-header.pack"),
         gix_hash::Kind::Sha1,
-    )
-    .expect("pack header is syntactically valid")
+    )?
     .with_alloc_limit_bytes(Some(8 * 1024 * 1024));
 
     let len = data.len() as u64;
@@ -502,7 +485,7 @@ fn overlong_delta_header_size_is_reported_without_panicking() {
 
         let outcome = result.expect("overlong delta header sizes must not panic");
         if outcome.is_err() {
-            return;
+            return Ok(());
         }
     }
 
@@ -516,7 +499,7 @@ fn overlong_delta_header_size_is_reported_without_panicking() {
 /// Reproducer for the short delta-application fuzz case: malformed delta instructions can produce
 /// fewer bytes than the advertised result size, which must be rejected without panicking.
 #[test]
-fn short_delta_application_is_reported_without_panicking() {
+fn short_delta_application_is_reported_without_panicking() -> gix_testtools::TestResult {
     fn deflate(bytes: &[u8]) -> Vec<u8> {
         let mut out = gix_zlib::stream::deflate::Write::new(Vec::new(), gix_zlib::Compression::BEST_SPEED);
         out.write_all(bytes).expect("writing to deflater succeeds");
@@ -529,17 +512,14 @@ fn short_delta_application_is_reported_without_panicking() {
     let delta = deflate(&delta_payload);
 
     let mut bytes = data::header::encode(data::Version::V2, 2).to_vec();
-    data::entry::Header::Blob
-        .write_to(1, &mut bytes)
-        .expect("header write succeeds");
+    data::entry::Header::Blob.write_to(1, &mut bytes)?;
     bytes.extend_from_slice(&base);
 
     let delta_pack_offset = bytes.len() as u64;
     data::entry::Header::OfsDelta {
         base_distance: delta_pack_offset - FIRST_ENTRY_OFFSET,
     }
-    .write_to(delta_payload.len() as u64, &mut bytes)
-    .expect("header write succeeds");
+    .write_to(delta_payload.len() as u64, &mut bytes)?;
     bytes.extend_from_slice(&delta);
     bytes.extend_from_slice(&[0; 20]);
 
@@ -547,8 +527,7 @@ fn short_delta_application_is_reported_without_panicking() {
         bytes.as_slice(),
         PathBuf::from("fuzzed-short-delta-application.pack"),
         gix_hash::Kind::Sha1,
-    )
-    .expect("pack header is syntactically valid")
+    )?
     .with_alloc_limit_bytes(Some(8 * 1024 * 1024));
 
     let result = catch_unwind(AssertUnwindSafe(|| {
@@ -567,4 +546,5 @@ fn short_delta_application_is_reported_without_panicking() {
             .is_err(),
         "short delta applications should be rejected as corrupt pack data"
     );
+    Ok(())
 }

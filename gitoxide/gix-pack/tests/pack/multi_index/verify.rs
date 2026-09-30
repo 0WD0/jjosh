@@ -1,4 +1,3 @@
-use crate::Result;
 use std::sync::atomic::AtomicBool;
 
 use gix_features::progress;
@@ -7,7 +6,7 @@ use maplit::btreemap;
 use crate::{multi_index::multi_index, object_hash};
 
 #[test]
-fn checksum() -> Result {
+fn checksum() -> gix_testtools::TestResult {
     let (file, _) = multi_index(object_hash());
     assert_eq!(
         file.verify_checksum(&mut progress::Discard, &AtomicBool::new(false))?,

@@ -359,7 +359,9 @@ fn canonical_name(repo: &gix::Repository, name: &FullNameRef) -> Result<FullName
             return Ok(
                 match repo
                     .worktree()
-                    .and_then(|worktree| worktree.id().map(ToOwned::to_owned))
+                    .map(|worktree| worktree.id().map(|id| id.map(ToOwned::to_owned)))
+                    .transpose()?
+                    .flatten()
                 {
                     Some(worktree) => Category::LinkedPseudoRef {
                         name: worktree.as_bstr(),

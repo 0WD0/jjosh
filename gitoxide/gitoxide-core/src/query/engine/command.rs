@@ -25,9 +25,9 @@ impl query::Engine {
                 let is_excluded = spec.is_excluded();
                 let relpath = if spec.signature.contains(gix::pathspec::MagicSignature::TOP) {
                     let root = self.repo.workdir().unwrap_or_else(|| self.repo.git_dir());
-                    let path = root.join(gix::path::from_bstr(spec.path()).as_ref());
+                    let path = root.join(gix::path::from_bstr(spec.path())?.as_ref());
                     self.repo
-                        .normalize_path(gix::path::into_bstr(path).as_ref())?
+                        .normalize_path(gix::path::into_bstr(path)?.as_ref())?
                         .into_owned()
                 } else {
                     self.repo.normalize_path(spec.path())?.into_owned()

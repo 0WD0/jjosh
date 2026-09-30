@@ -1,4 +1,4 @@
-use crate::Result;
+use crate::TestResult;
 use std::fs;
 
 use gix_config::{
@@ -28,7 +28,7 @@ fn assert_include_depth(err: gix_error::Error) -> gix_error::Error {
 }
 
 #[test]
-fn multiple() -> Result {
+fn multiple() -> TestResult {
     let dir = tempdir()?;
 
     let a_path = dir.path().join("a");
@@ -95,7 +95,7 @@ fn multiple() -> Result {
 }
 
 #[test]
-fn respect_max_depth() -> Result {
+fn respect_max_depth() -> TestResult {
     let dir = tempdir()?;
 
     // 0 includes 1 - base level
@@ -194,7 +194,7 @@ fn respect_max_depth() -> Result {
 }
 
 #[test]
-fn simple() -> Result {
+fn simple() -> TestResult {
     let dir = tempdir()?;
 
     let a_path = dir.path().join("a");
@@ -230,7 +230,7 @@ fn simple() -> Result {
 }
 
 #[test]
-fn cycle_detection() -> Result {
+fn cycle_detection() -> TestResult {
     let dir = tempdir()?;
 
     let a_path = dir.path().join("a");
@@ -291,7 +291,7 @@ fn cycle_detection() -> Result {
 }
 
 #[test]
-fn nested() -> Result {
+fn nested() -> TestResult {
     let dir = tempdir()?;
 
     let a_path = dir.path().join("a");

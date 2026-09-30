@@ -1,11 +1,10 @@
-use crate::Result;
 use std::io;
 
 use gix_error::{Class, ClassificationMarker, Error, Message, MetadataValue, classify};
 use gix_object::{Kind, Write};
 
 #[test]
-fn write_failures_preserve_custom_sources_and_metadata() -> Result {
+fn write_failures_preserve_custom_sources_and_metadata() -> gix_testtools::TestResult {
     let mut error_snapshots = Vec::new();
     #[derive(Debug)]
     struct ReadFailure(ClassificationMarker);
@@ -124,7 +123,7 @@ fn write_failures_preserve_custom_sources_and_metadata() -> Result {
 }
 
 #[test]
-fn delta_lookup_distinguishes_missing_bases_from_recursion_limits() -> Result {
+fn delta_lookup_distinguishes_missing_bases_from_recursion_limits() -> gix_testtools::TestResult {
     let mut error_snapshots = Vec::new();
     use std::io::Write;
 
@@ -503,12 +502,12 @@ fn multi_index_corrupt_reference_is_fallible(large_offset: bool) -> gix_error::T
 }
 
 #[test]
-fn multi_index_invalid_pack_reference() -> gix_error::TestResult {
+fn multi_index_invalid_pack_reference() -> gix_testtools::TestResult {
     multi_index_corrupt_reference_is_fallible(false)
 }
 
 #[test]
-fn multi_index_invalid_large_offset_reference() -> gix_error::TestResult {
+fn multi_index_invalid_large_offset_reference() -> gix_testtools::TestResult {
     multi_index_corrupt_reference_is_fallible(true)
 }
 
@@ -663,17 +662,17 @@ fn multi_index_pack_generation_is_fallible(large_offset: bool) -> gix_error::Tes
 }
 
 #[test]
-fn multi_index_pack_generation_invalid_pack_reference() -> gix_error::TestResult {
+fn multi_index_pack_generation_invalid_pack_reference() -> gix_testtools::TestResult {
     multi_index_pack_generation_is_fallible(false)
 }
 
 #[test]
-fn multi_index_pack_generation_invalid_large_offset_reference() -> gix_error::TestResult {
+fn multi_index_pack_generation_invalid_large_offset_reference() -> gix_testtools::TestResult {
     multi_index_pack_generation_is_fallible(true)
 }
 
 #[test]
-fn pack_location_allocation_failures_are_resource_exhaustion() -> gix_error::TestResult {
+fn pack_location_allocation_failures_are_resource_exhaustion() -> gix_testtools::TestResult {
     use gix_error::ResourceExhaustionKind;
     use gix_pack::{Find as _, data};
     use std::io::Write as _;
@@ -782,7 +781,7 @@ fn pack_location_allocation_failures_are_resource_exhaustion() -> gix_error::Tes
 }
 
 #[test]
-fn pack_lookup_unavailable_is_not_an_error() -> gix_error::TestResult {
+fn pack_lookup_unavailable_is_not_an_error() -> gix_testtools::TestResult {
     let dir = gix_testtools::tempfile::tempdir()?;
     let mut handle = crate::odb_at(dir.path())?.into_inner();
     handle.prevent_pack_unload();
@@ -802,7 +801,7 @@ fn pack_lookup_unavailable_is_not_an_error() -> gix_error::TestResult {
 }
 
 #[test]
-fn pack_location_preserves_native_load_errors() -> gix_error::TestResult {
+fn pack_location_preserves_native_load_errors() -> gix_testtools::TestResult {
     use gix_pack::Find as _;
 
     let dir = crate::scripted_fixture_writable("make_repo_multi_index.sh")?;
@@ -836,7 +835,7 @@ fn pack_location_preserves_native_load_errors() -> gix_error::TestResult {
 // offsets, object/header lookup and enumeration, including refresh_never and later valid/repaired
 // packs. Cover pack/alternate removal clearing failures without refresh loops.
 #[test]
-fn pack_lookup_preserves_index_load_errors() -> gix_error::TestResult {
+fn pack_lookup_preserves_index_load_errors() -> gix_testtools::TestResult {
     use gix_pack::Find as _;
 
     for lookup_location in [false, true] {
@@ -876,7 +875,7 @@ fn pack_lookup_preserves_index_load_errors() -> gix_error::TestResult {
 }
 
 #[test]
-fn multi_index_ref_delta_preserves_corrupt_base_lookup() -> gix_error::TestResult {
+fn multi_index_ref_delta_preserves_corrupt_base_lookup() -> gix_testtools::TestResult {
     use gix_pack::data;
     use std::io::Write;
 
@@ -976,7 +975,7 @@ fn multi_index_ref_delta_preserves_corrupt_base_lookup() -> gix_error::TestResul
 
 #[test]
 #[cfg(unix)]
-fn disappearing_loose_objects_keep_retryable_diagnostics() -> Result {
+fn disappearing_loose_objects_keep_retryable_diagnostics() -> gix_testtools::TestResult {
     let mut diagnostics = Vec::new();
     use std::{os::unix::fs::symlink, sync::atomic::AtomicBool};
 
@@ -1076,7 +1075,7 @@ fn disappearing_loose_objects_keep_retryable_diagnostics() -> Result {
 }
 
 #[test]
-fn in_pack_ref_delta_preserves_malformed_base_entry() -> gix_error::TestResult {
+fn in_pack_ref_delta_preserves_malformed_base_entry() -> gix_testtools::TestResult {
     use gix_pack::data;
     use std::io::Write;
 

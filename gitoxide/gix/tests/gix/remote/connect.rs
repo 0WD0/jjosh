@@ -3,12 +3,12 @@
     feature = "blocking-http-transport-reqwest"
 ))]
 mod http_authentication {
-    use crate::Result;
     use gix_error::ErrorExt;
+    use gix_testtools::TestResult;
     use std::io::{BufRead, Write};
 
     #[test]
-    fn cached_credentials_are_selected_without_prompting() -> Result {
+    fn cached_credentials_are_selected_without_prompting() -> TestResult {
         if gix_testtools::run_in_isolated_process()? {
             return Ok(());
         }
@@ -92,8 +92,8 @@ mod http_authentication {
 #[cfg(feature = "blocking-network-client")]
 mod blocking_io {
     mod protocol_allow {
-        use crate::Result;
         use gix::remote::Direction::Fetch;
+        use gix_testtools::TestResult;
         use serial_test::serial;
 
         use crate::remote;
@@ -136,7 +136,7 @@ mod blocking_io {
 
         #[test]
         #[serial]
-        fn user() -> Result {
+        fn user() -> TestResult {
             let _environment = gix_testtools::isolate_git_environment()?;
             for (env_value, should_allow) in [
                 (None, Some(true)),

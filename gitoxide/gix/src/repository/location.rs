@@ -107,11 +107,8 @@ impl crate::Repository {
     /// first for paths supplied relative to the current working directory, absolute paths, or paths with `.` or `..`
     /// components.
     pub fn workdir_path(&self, rela_path: impl AsRef<BStr>) -> Option<PathBuf> {
-        self.workdir().and_then(|wd| {
-            gix_path::try_from_bstr(rela_path.as_ref())
-                .ok()
-                .map(|rela| wd.join(rela))
-        })
+        self.workdir()
+            .and_then(|wd| gix_path::from_bstr(rela_path.as_ref()).ok().map(|rela| wd.join(rela)))
     }
 
     /// Normalize `path` into a repository-relative Git path with slash separators.
@@ -128,7 +125,7 @@ impl crate::Repository {
     /// Paths which traverse outside of the repository are rejected. Note that passing absolute paths is expensive
     /// as their realpath has to be determined.
     pub fn normalize_path<'a>(&self, path: &'a (impl gix_utils::AsBStr + ?Sized)) -> Result<Cow<'a, BStr>> {
-        let path = gix_path::from_bstr(Cow::Borrowed(path.as_bstr()));
+        let path = gix_path::from_bstr(Cow::Borrowed(path.as_bstr()))?;
         let path = if gix_path::is_absolute(path.as_ref()) {
             let root = gix_path::realpath_opts(
                 self.workdir().unwrap_or_else(|| self.git_dir()),
@@ -168,7 +165,7 @@ impl crate::Repository {
                     .expect("path was just validated as normalizable")
             }
         };
-        Ok(gix_path::to_unix_separators_on_windows(gix_path::into_bstr(path)))
+        Ok(gix_path::to_unix_separators_on_windows(gix_path::into_bstr(path)?))
     }
 
     // TODO: tests, respect precomposeUnicode

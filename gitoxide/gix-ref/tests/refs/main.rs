@@ -68,11 +68,10 @@ mod error;
 mod file;
 mod fullname;
 mod partialname {
-    use crate::Result;
     use gix_ref::PartialName;
 
     #[test]
-    fn join() -> Result {
+    fn join() -> gix_testtools::TestResult {
         let pn = PartialName::try_from("no-trailing-slash")?;
         assert_eq!(pn.join("name".into())?, "no-trailing-slash/name");
 

@@ -56,11 +56,7 @@ pub(super) fn recursive(
             current_bstr.push(b'/');
         }
         let file_name = entry.file_name();
-        current_bstr.extend_from_slice(
-            gix_path::try_os_str_into_bstr(Cow::Borrowed(file_name.as_ref()))
-                .expect("no illformed UTF-8")
-                .as_ref(),
-        );
+        current_bstr.extend_from_slice(gix_path::try_os_str_into_bstr(Cow::Borrowed(file_name.as_ref()))?.as_ref());
         current.push(file_name);
 
         let mut info = classify::path(

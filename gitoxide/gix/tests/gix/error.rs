@@ -187,7 +187,7 @@ fn worktree_and_branch_rejections_have_intrinsic_recovery_classes() {
 }
 
 #[test]
-fn opening_keeps_configuration_failure_classification_specific() -> gix_error::TestResult {
+fn opening_keeps_configuration_failure_classification_specific() -> gix_testtools::TestResult {
     let directory = gix_testtools::tempfile::TempDir::new()?;
     let repo = crate::init_repo_isolated(directory.path(), gix::create::Kind::Bare)?;
     std::fs::write(

@@ -62,7 +62,7 @@ fn bytes_component_to_os_str<'a>(component: &'a [u8], path: &BStr) -> Option<Res
     if component.is_empty() {
         return None;
     }
-    let component = match gix_path::try_from_byte_slice(component.as_bstr()) {
+    let component = match gix_path::from_byte_slice(component.as_bstr()) {
         Ok(c) => c,
         Err(err) => return Some(Err(err)),
     };

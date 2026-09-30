@@ -249,7 +249,7 @@ impl Fixture {
 macro_rules! mktest {
     ($name:ident, $case:expr, $number_of_lines:literal) => {
         #[test]
-        fn $name() -> gix_testtools::Result {
+        fn $name() -> gix_testtools::TestResult {
             let Fixture {
                 odb,
                 mut resource_cache,
@@ -374,7 +374,7 @@ fn diff_algorithm_parity() {
 }
 
 #[test]
-fn file_that_was_added_in_two_branches() -> gix_testtools::Result {
+fn file_that_was_added_in_two_branches() -> gix_testtools::TestResult {
     let worktree_path = gix_testtools::scripted_fixture_read_only("make_blame_two_roots_repo.sh")?;
 
     let Fixture {
@@ -405,7 +405,7 @@ fn file_that_was_added_in_two_branches() -> gix_testtools::Result {
 }
 
 #[test]
-fn since() -> gix_testtools::Result {
+fn since() -> gix_testtools::TestResult {
     let Fixture {
         odb,
         mut resource_cache,
@@ -423,9 +423,7 @@ fn since() -> gix_testtools::Result {
         gix_blame::Options {
             diff_algorithm: gix_diff::blob::Algorithm::Histogram,
             ranges: BlameRanges::default(),
-            since: Some(
-                gix_date::parse("2025-01-31", None).expect("TODO: should be able to to retrieve inner from Exn"),
-            ),
+            since: Some(gix_date::parse("2025-01-31", None)?),
             rewrites: Some(gix_diff::Rewrites::default()),
             debug_track_path: false,
         },
@@ -447,7 +445,7 @@ mod blame_ranges {
     use gix_blame::BlameRanges;
 
     #[test]
-    fn line_range() -> gix_testtools::Result {
+    fn line_range() -> gix_testtools::TestResult {
         let Fixture {
             odb,
             mut resource_cache,
@@ -483,7 +481,7 @@ mod blame_ranges {
     }
 
     #[test]
-    fn multiple_ranges_using_add_range() -> gix_testtools::Result {
+    fn multiple_ranges_using_add_range() -> gix_testtools::TestResult {
         let Fixture {
             odb,
             mut resource_cache,
@@ -529,7 +527,7 @@ mod blame_ranges {
     }
 
     #[test]
-    fn multiple_ranges_using_from_ranges() -> gix_testtools::Result {
+    fn multiple_ranges_using_from_ranges() -> gix_testtools::TestResult {
         let Fixture {
             odb,
             mut resource_cache,
@@ -576,7 +574,7 @@ mod rename_tracking {
     use crate::{Baseline, Fixture};
 
     #[test]
-    fn source_file_name_is_tracked_per_hunk() -> gix_testtools::Result {
+    fn source_file_name_is_tracked_per_hunk() -> gix_testtools::TestResult {
         let worktree_path = gix_testtools::scripted_fixture_read_only("make_blame_rename_tracking_repo.sh")?;
 
         let Fixture {
@@ -613,7 +611,7 @@ mod rename_tracking {
     }
 
     #[test]
-    fn rename_and_change_in_merge_commit() -> gix_testtools::Result {
+    fn rename_and_change_in_merge_commit() -> gix_testtools::TestResult {
         let worktree_path = gix_testtools::scripted_fixture_read_only("make_blame_rename_tracking_repo.sh")?;
 
         let mut fixture = Fixture::for_worktree_path(worktree_path.to_path_buf())?;
@@ -649,12 +647,12 @@ mod untracked_changes {
     use crate::{Baseline, Fixture};
 
     #[test]
-    fn untracked_lines() -> gix_testtools::Result {
+    fn untracked_lines() -> gix_testtools::TestResult {
         let worktree_path = gix_testtools::scripted_fixture_read_only("make_blame_repo.sh")?;
 
         let mut fixture = Fixture::for_worktree_path(worktree_path.to_path_buf())?;
         let source_file_name = "untracked-lines.txt";
-        let contents = std::fs::read(worktree_path.join(source_file_name)).expect("file to be present and readable");
+        let contents = std::fs::read(worktree_path.join(source_file_name))?;
 
         let lines_blamed = fixture
             .blame_untracked_changes(
@@ -681,12 +679,12 @@ mod untracked_changes {
     }
 
     #[test]
-    fn untracked_file() -> gix_testtools::Result {
+    fn untracked_file() -> gix_testtools::TestResult {
         let worktree_path = gix_testtools::scripted_fixture_read_only("make_blame_repo.sh")?;
 
         let mut fixture = Fixture::for_worktree_path(worktree_path.to_path_buf())?;
         let source_file_name = "untracked-file.txt";
-        let contents = std::fs::read(worktree_path.join(source_file_name)).expect("file to be present and readable");
+        let contents = std::fs::read(worktree_path.join(source_file_name))?;
 
         let lines_blamed = fixture
             .blame_untracked_changes(
@@ -713,12 +711,12 @@ mod untracked_changes {
     }
 
     #[test]
-    fn untracked_lines_with_ranges() -> gix_testtools::Result {
+    fn untracked_lines_with_ranges() -> gix_testtools::TestResult {
         let worktree_path = gix_testtools::scripted_fixture_read_only("make_blame_repo.sh")?;
 
         let mut fixture = Fixture::for_worktree_path(worktree_path.to_path_buf())?;
         let source_file_name = "untracked-lines.txt";
-        let contents = std::fs::read(worktree_path.join(source_file_name)).expect("file to be present and readable");
+        let contents = std::fs::read(worktree_path.join(source_file_name))?;
 
         let lines_blamed = fixture
             .blame_untracked_changes(
@@ -750,7 +748,7 @@ mod symlinks {
 
     use crate::{Baseline, Fixture};
 
-    fn run_test(source_file_name: &str, baseline_name: &str) -> gix_testtools::Result {
+    fn run_test(source_file_name: &str, baseline_name: &str) -> gix_testtools::TestResult {
         let worktree_path = gix_testtools::scripted_fixture_read_only("make_blame_symlinks_repo.sh")?;
         let mut fixture = Fixture::for_worktree_path(worktree_path.to_path_buf())?;
 
@@ -778,27 +776,27 @@ mod symlinks {
     }
 
     #[test]
-    fn lines_added_to_file_targeted_by_symlink() -> gix_testtools::Result {
+    fn lines_added_to_file_targeted_by_symlink() -> gix_testtools::TestResult {
         run_test("symlink", "symlink.baseline")
     }
 
     #[test]
-    fn symlink_changing_target() -> gix_testtools::Result {
+    fn symlink_changing_target() -> gix_testtools::TestResult {
         run_test("symlink-changing-target", "symlink-changing-target.baseline")
     }
 
     #[test]
-    fn symlink_renamed() -> gix_testtools::Result {
+    fn symlink_renamed() -> gix_testtools::TestResult {
         run_test("symlink-after-rename", "symlink-renamed.baseline")
     }
 
     #[test]
-    fn file_becomes_symlink() -> gix_testtools::Result {
+    fn file_becomes_symlink() -> gix_testtools::TestResult {
         run_test("file-then-symlink", "file-becomes-symlink.baseline")
     }
 
     #[test]
-    fn symlink_becomes_file() -> gix_testtools::Result {
+    fn symlink_becomes_file() -> gix_testtools::TestResult {
         run_test("symlink-then-file", "symlink-becomes-file.baseline")
     }
 }

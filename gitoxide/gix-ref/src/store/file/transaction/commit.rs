@@ -125,7 +125,7 @@ impl Transaction<'_, '_> {
         }
 
         for change in &mut updates {
-            let (reflog_root, relative_name) = self.store.reflog_base_and_relative_path(change.update.name.as_ref());
+            let (reflog_root, relative_name) = self.store.reflog_base_and_relative_path(change.update.name.as_ref())?;
             match &change.update.change {
                 Change::Update { .. } => {}
                 Change::Delete { .. } => {
@@ -168,7 +168,7 @@ impl Transaction<'_, '_> {
             };
             if take_lock_and_delete {
                 let lock = change.lock.take();
-                let reference_path = self.store.reference_path(change.update.name.as_ref());
+                let reference_path = self.store.reference_path(change.update.name.as_ref())?;
                 if let Err(err) = std::fs::remove_file(reference_path)
                     && err.kind() != std::io::ErrorKind::NotFound
                 {

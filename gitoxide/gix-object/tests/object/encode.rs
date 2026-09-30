@@ -7,7 +7,7 @@ fn try_from_error() -> std::io::Error {
 macro_rules! round_trip_with_hash_kind {
     ($owned:ty, $borrowed:ty, $( $files:literal ), +) => {
         #[test]
-        fn round_trip() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        fn round_trip() -> gix_testtools::TestResult {
             use std::convert::TryFrom;
             use std::io::Write;
             use crate::object_fixture;
@@ -106,7 +106,7 @@ mod tree {
     use gix_object::{WriteTo, tree, tree::EntryKind};
 
     #[test]
-    fn write_to_does_not_validate() {
+    fn write_to_does_not_validate() -> gix_testtools::TestResult {
         let hash_kind = crate::fixture_hash_kind();
         let mut tree = gix_object::Tree::empty();
         tree.entries.push(tree::Entry {
@@ -119,8 +119,8 @@ mod tree {
             filename: "something\nwith\newlines\n".into(),
             oid: hash_kind.empty_tree(),
         });
-        tree.write_to(&mut std::io::sink())
-            .expect("write succeeds, no validation is performed");
+        tree.write_to(&mut std::io::sink())?;
+        Ok(())
     }
 
     #[test]
@@ -157,7 +157,7 @@ mod blob {
     use crate::fixture_bytes;
 
     #[test]
-    fn round_trip() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    fn round_trip() -> gix_testtools::TestResult {
         let input_name = "tree/everything.tree";
         let input = fixture_bytes(input_name);
         // It doesn't matter which data we use - it's not interpreted.
@@ -224,7 +224,7 @@ mod loose_header {
     use gix_object::{Kind, decode, encode};
 
     #[test]
-    fn round_trip() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    fn round_trip() -> gix_testtools::TestResult {
         for (kind, size, expected) in &[
             (Kind::Tree, 1234, "tree 1234\0".as_bytes()),
             (Kind::Blob, 0, b"blob 0\0"),

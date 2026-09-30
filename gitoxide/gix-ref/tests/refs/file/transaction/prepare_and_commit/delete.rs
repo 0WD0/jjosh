@@ -1,4 +1,3 @@
-use crate::Result;
 use crate::{
     file::{
         store_writable,
@@ -13,9 +12,10 @@ use gix_ref::{
     file::ReferenceExt,
     transaction::{PreviousValue, RefEdit, RefLog},
 };
+use gix_testtools::TestResult;
 
 #[test]
-fn delete_a_ref_which_is_gone_succeeds() -> Result {
+fn delete_a_ref_which_is_gone_succeeds() -> TestResult {
     let (_keep, store) = empty_store()?;
     let edits = store
         .transaction()
@@ -30,7 +30,7 @@ fn delete_a_ref_which_is_gone_succeeds() -> Result {
 }
 
 #[test]
-fn delete_a_ref_which_is_gone_but_must_exist_fails() -> Result {
+fn delete_a_ref_which_is_gone_but_must_exist_fails() -> TestResult {
     let (_keep, store) = empty_store()?;
     let res = store.transaction().prepare(
         Some(RefEdit::delete("DOES_NOT_EXIST".try_into()?, PreviousValue::MustExist)),
@@ -49,10 +49,10 @@ fn delete_a_ref_which_is_gone_but_must_exist_fails() -> Result {
 }
 
 #[test]
-fn delete_ref_and_reflog_on_symbolic_no_deref() -> Result {
+fn delete_ref_and_reflog_on_symbolic_no_deref() -> TestResult {
     let (_keep, store) = store_writable("make_repo_for_reflog.sh")?;
     let head = store.find_loose("HEAD")?;
-    assert!(head.log_exists(&store));
+    assert!(head.log_exists(&store)?);
     let _main = store.find_loose("main")?;
 
     let edits = store
@@ -82,10 +82,10 @@ fn delete_ref_and_reflog_on_symbolic_no_deref() -> Result {
 }
 
 #[test]
-fn delete_ref_with_incorrect_previous_value_fails() -> Result {
+fn delete_ref_with_incorrect_previous_value_fails() -> TestResult {
     let (_keep, store) = store_writable("make_repo_for_reflog.sh")?;
     let head = store.find_loose("HEAD")?;
-    assert!(head.log_exists(&store));
+    assert!(head.log_exists(&store)?);
 
     let res = store.transaction().prepare(
         Some(
@@ -123,17 +123,17 @@ fn delete_ref_with_incorrect_previous_value_fails() -> Result {
     );
     // everything stays as is
     let head = store.find_loose("HEAD")?;
-    assert!(head.log_exists(&store));
-    let main = store.find_loose("main").expect("referent still exists");
-    assert!(main.log_exists(&store));
+    assert!(head.log_exists(&store)?);
+    let main = store.find_loose("main")?;
+    assert!(main.log_exists(&store)?);
     Ok(())
 }
 
 #[test]
-fn delete_reflog_only_of_symbolic_no_deref() -> Result {
+fn delete_reflog_only_of_symbolic_no_deref() -> TestResult {
     let (_keep, store) = store_writable("make_repo_for_reflog.sh")?;
     let head = store.find_loose("HEAD")?;
-    assert!(head.log_exists(&store));
+    assert!(head.log_exists(&store)?);
 
     let edits = store
         .transaction()
@@ -150,9 +150,9 @@ fn delete_reflog_only_of_symbolic_no_deref() -> Result {
 
     assert_eq!(edits.len(), 1);
     let head: Reference = store.find_loose("HEAD")?.into();
-    assert!(!head.log_exists(&store));
-    let main = store.find_loose("main").expect("referent still exists");
-    assert!(main.log_exists(&store), "log is untouched, too");
+    assert!(!head.log_exists(&store)?);
+    let main = store.find_loose("main")?;
+    assert!(main.log_exists(&store)?, "log is untouched, too");
     assert_eq!(
         main.target,
         head.follow(&store).expect("a symref")?.target,
@@ -162,10 +162,10 @@ fn delete_reflog_only_of_symbolic_no_deref() -> Result {
 }
 
 #[test]
-fn delete_reflog_only_of_symbolic_with_deref() -> Result {
+fn delete_reflog_only_of_symbolic_with_deref() -> TestResult {
     let (_keep, store) = store_writable("make_repo_for_reflog.sh")?;
     let head = store.find_loose("HEAD")?;
-    assert!(head.log_exists(&store));
+    assert!(head.log_exists(&store)?);
 
     let edits = store
         .transaction()
@@ -178,9 +178,9 @@ fn delete_reflog_only_of_symbolic_with_deref() -> Result {
 
     assert_eq!(edits.len(), 2);
     let head: Reference = store.find_loose("HEAD")?.into();
-    assert!(!head.log_exists(&store));
-    let main = store.find_loose("main").expect("referent still exists");
-    assert!(!main.log_exists(&store), "log is removed");
+    assert!(!head.log_exists(&store)?);
+    let main = store.find_loose("main")?;
+    assert!(!main.log_exists(&store)?, "log is removed");
     assert_eq!(
         main.target,
         head.follow(&store).expect("a symref")?.target,
@@ -190,7 +190,7 @@ fn delete_reflog_only_of_symbolic_with_deref() -> Result {
 }
 
 #[test]
-fn rename_a_to_a_slash_b_in_one_transaction() -> Result {
+fn rename_a_to_a_slash_b_in_one_transaction() -> TestResult {
     let (_keep, store) = store_writable("make_repo_for_reflog.sh")?;
     let old = store.find_loose("old")?;
 
@@ -251,7 +251,7 @@ fn rename_a_to_a_slash_b_in_one_transaction() -> Result {
 
 #[test]
 /// Based on https://github.com/git/git/blob/master/refs/files-backend.c#L514:L515
-fn delete_broken_ref_that_must_exist_fails_as_it_is_no_valid_ref() -> Result {
+fn delete_broken_ref_that_must_exist_fails_as_it_is_no_valid_ref() -> TestResult {
     let (_keep, store) = empty_store()?;
     std::fs::write(store.git_dir().join("HEAD"), b"broken")?;
     assert!(store.try_find_loose("HEAD").is_err(), "the ref is truly broken");
@@ -276,7 +276,7 @@ fn delete_broken_ref_that_must_exist_fails_as_it_is_no_valid_ref() -> Result {
 }
 
 #[test]
-fn non_existing_can_be_deleted_with_the_may_exist_match_constraint() -> Result {
+fn non_existing_can_be_deleted_with_the_may_exist_match_constraint() -> TestResult {
     let (_keep, store) = empty_store()?;
     let previous_value =
         PreviousValue::ExistingMustMatch(Target::Object(hex_to_id("134385f6d781b7e97062102c6a483440bfda2a03")));
@@ -298,7 +298,7 @@ fn non_existing_can_be_deleted_with_the_may_exist_match_constraint() -> Result {
 
 #[test]
 /// Based on https://github.com/git/git/blob/master/refs/files-backend.c#L514:L515
-fn delete_broken_ref_that_may_not_exist_works_even_in_deref_mode() -> Result {
+fn delete_broken_ref_that_may_not_exist_works_even_in_deref_mode() -> TestResult {
     let (_keep, store) = empty_store()?;
     std::fs::write(store.git_dir().join("HEAD"), b"broken")?;
     assert!(store.try_find_loose("HEAD").is_err(), "the ref is truly broken");
@@ -318,14 +318,14 @@ fn delete_broken_ref_that_may_not_exist_works_even_in_deref_mode() -> Result {
 }
 
 #[test]
-fn store_write_mode_has_no_effect_and_reflogs_are_always_deleted() -> Result {
+fn store_write_mode_has_no_effect_and_reflogs_are_always_deleted() -> TestResult {
     for reflog_writemode in &[
         gix_ref::store::WriteReflog::Normal,
         gix_ref::store::WriteReflog::Disable,
     ] {
         let (_keep, mut store) = store_writable("make_repo_for_reflog.sh")?;
         store.write_reflog = *reflog_writemode;
-        assert!(store.find_loose("HEAD")?.log_exists(&store));
+        assert!(store.find_loose("HEAD")?.log_exists(&store)?);
         assert!(store.open_packed_buffer()?.is_none(), "there is no pack");
 
         let edits = store
@@ -341,7 +341,7 @@ fn store_write_mode_has_no_effect_and_reflogs_are_always_deleted() -> Result {
             )?
             .commit(committer().to_ref(&mut TimeBuf::default()))?;
         assert_eq!(edits.len(), 1);
-        assert!(!store.find_loose("HEAD")?.log_exists(&store), "log was deleted");
+        assert!(!store.find_loose("HEAD")?.log_exists(&store)?, "log was deleted");
         assert!(store.open_packed_buffer()?.is_none(), "there still is no pack");
     }
     Ok(())
@@ -349,7 +349,7 @@ fn store_write_mode_has_no_effect_and_reflogs_are_always_deleted() -> Result {
 
 #[test]
 fn packed_refs_are_consulted_when_determining_previous_value_of_ref_to_be_deleted_and_are_deleted_from_packed_ref_file()
--> Result {
+-> TestResult {
     let (_keep, store) = store_writable("make_packed_ref_repository.sh")?;
     assert!(
         store.try_find_loose("main")?.is_none(),
@@ -380,7 +380,7 @@ fn packed_refs_are_consulted_when_determining_previous_value_of_ref_to_be_delete
 }
 
 #[test]
-fn a_loose_ref_with_old_value_check_and_outdated_packed_refs_value_deletes_both_refs() -> Result {
+fn a_loose_ref_with_old_value_check_and_outdated_packed_refs_value_deletes_both_refs() -> TestResult {
     let (_keep, store) = store_writable("make_packed_ref_repository_for_overlay.sh")?;
     let packed = store.open_packed_buffer()?.expect("packed-refs");
     let branch = store.find("newer-as-loose")?;
@@ -416,7 +416,7 @@ fn a_loose_ref_with_old_value_check_and_outdated_packed_refs_value_deletes_both_
 }
 
 #[test]
-fn all_contained_references_deletes_the_packed_ref_file_too() -> Result {
+fn all_contained_references_deletes_the_packed_ref_file_too() -> TestResult {
     for mode in ["must-exist", "may-exist"] {
         let (_keep, store) = store_writable("make_packed_ref_repository.sh")?;
         let edits = store

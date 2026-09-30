@@ -500,7 +500,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn normalized_roots_keep_their_containing_device() -> gix_testtools::Result {
+    fn normalized_roots_keep_their_containing_device() -> gix_testtools::TestResult {
         let tmp = gix_testtools::tempfile::tempdir()?;
         let root = super::normalize_root(&tmp.path().join("one-component"))?;
         assert!(root.is_absolute(), "root normalization preserves absolute paths");
@@ -552,7 +552,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn filesystem_root_aliases_are_not_traversed() -> gix_testtools::Result {
+    fn filesystem_root_aliases_are_not_traversed() -> gix_testtools::TestResult {
         let tmp = gix_testtools::tempfile::tempdir()?;
         let root_link = tmp.path().join("root-link");
         gix_fs::symlink::create(std::path::Path::new("/"), &root_link)?;
@@ -576,7 +576,7 @@ mod tests {
     }
 
     #[test]
-    fn retries_when_an_entry_appears_after_scanning() -> gix_testtools::Result {
+    fn retries_when_an_entry_appears_after_scanning() -> gix_testtools::TestResult {
         for options in [
             Options::default(),
             Options {
@@ -649,7 +649,7 @@ mod tests {
     }
 
     #[test]
-    fn stops_after_the_configured_number_of_improving_deletion_passes() -> gix_testtools::Result {
+    fn stops_after_the_configured_number_of_improving_deletion_passes() -> gix_testtools::TestResult {
         for max_retries in [0, 1, 2, 4] {
             let tmp = gix_testtools::tempfile::tempdir()?;
             let root = tmp.path().join("worktree");

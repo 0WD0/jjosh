@@ -309,7 +309,7 @@ impl ThreadSafeRepository {
                 ));
             }
             // Git treats core.worktree as a literal path, without tilde or prefix interpolation.
-            let worktree = gix_path::from_bstr(worktree.as_bstr()).into_owned();
+            let worktree = gix_path::from_bstr(worktree.as_bstr())?.into_owned();
             let worktree = match source {
                 gix_config::Source::Env
                 | gix_config::Source::Cli
@@ -318,7 +318,7 @@ impl ThreadSafeRepository {
                 _ => worktree_dir_from_repository_config(&git_dir, worktree, current_dir),
             };
             worktree_dir = if worktree_from_environment {
-                Some(gix_path::normalize_saturating(worktree.into(), current_dir).into_owned())
+                Some(gix_path::normalize_saturating(worktree.into(), current_dir)?.into_owned())
             } else {
                 gix_path::normalize(worktree.into(), current_dir).map(Cow::into_owned)
             };
@@ -441,7 +441,7 @@ impl ThreadSafeRepository {
         {
             Some(value) => {
                 gitoxide::Core::INDEX_FILE.validate(value.as_bstr())?;
-                gix_path::from_bstr(value).into_owned()
+                gix_path::from_bstr(value)?.into_owned()
             }
             None => git_dir.join("index"),
         };
@@ -649,7 +649,7 @@ fn check_safe_directories(
             let safe_dir =
                 match gix_config::Path::from(safe_dir).interpolate(interpolate_context(git_install_dir, home)) {
                     Ok(path) => path,
-                    Err(_) => gix_path::from_bstr(safe_dir).into_owned(),
+                    Err(_) => gix_path::from_bstr(safe_dir)?.into_owned(),
                 };
             if !safe_dir.is_absolute() {
                 gix_trace::warn!(

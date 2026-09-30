@@ -1,4 +1,3 @@
-use crate::Result;
 use gix_date::parse::TimeBuf;
 use gix_hash::ObjectId;
 use gix_lock::acquire::Fail;
@@ -12,6 +11,7 @@ use gix_ref::{
     store::WriteReflog,
     transaction::{Change, LogChange, PreviousValue, RefEdit, RefLog},
 };
+use gix_testtools::{Result, TestResult};
 
 use crate::{
     file::{
@@ -26,7 +26,7 @@ use crate::{
 mod collisions;
 
 #[test]
-fn intermediate_directories_are_removed_on_rollback() -> Result {
+fn intermediate_directories_are_removed_on_rollback() -> TestResult {
     for explicit_rollback in [false, true] {
         let (dir, store) = empty_store()?;
 
@@ -58,7 +58,7 @@ fn intermediate_directories_are_removed_on_rollback() -> Result {
 }
 
 #[test]
-fn reference_with_equally_named_empty_or_non_empty_directory_already_in_place_can_potentially_recover() -> Result {
+fn reference_with_equally_named_empty_or_non_empty_directory_already_in_place_can_potentially_recover() -> TestResult {
     #[cfg(not(windows))]
     let mut error_snapshots = Vec::new();
     for is_empty in &[true, false] {
@@ -114,7 +114,7 @@ fn reference_with_equally_named_empty_or_non_empty_directory_already_in_place_ca
 }
 
 #[test]
-fn reference_with_old_value_must_exist_when_creating_it() -> Result {
+fn reference_with_old_value_must_exist_when_creating_it() -> TestResult {
     let (_keep, store) = empty_store()?;
 
     let new_target = Target::Object(crate::fixture_hash_kind().null());
@@ -145,7 +145,7 @@ fn reference_with_old_value_must_exist_when_creating_it() -> Result {
 }
 
 #[test]
-fn target_mismatch_sources_retain_expected_and_actual_content_and_resolved_name() -> gix_error::TestResult {
+fn target_mismatch_sources_retain_expected_and_actual_content_and_resolved_name() -> TestResult {
     for deref in [false, true] {
         for delete in [false, true] {
             for must_exist in [false, true] {
@@ -218,7 +218,7 @@ fn target_mismatch_sources_retain_expected_and_actual_content_and_resolved_name(
 }
 
 #[test]
-fn reference_with_explicit_value_must_match_the_value_on_update() -> Result {
+fn reference_with_explicit_value_must_match_the_value_on_update() -> TestResult {
     let (_keep, store) = store_writable("make_repo_for_reflog.sh")?;
     let head = store.try_find_loose("HEAD")?.expect("head exists already");
     let target = head.target;
@@ -255,7 +255,7 @@ fn reference_with_explicit_value_must_match_the_value_on_update() -> Result {
 }
 
 #[test]
-fn the_existing_must_match_constraint_allow_non_existing_references_to_be_created() -> Result {
+fn the_existing_must_match_constraint_allow_non_existing_references_to_be_created() -> TestResult {
     let (_keep, store) = store_writable("make_repo_for_reflog.sh")?;
     let expected = PreviousValue::ExistingMustMatch(Target::Object(ObjectId::empty_tree(crate::fixture_hash_kind())));
     let mut buf = TimeBuf::default();
@@ -289,7 +289,7 @@ fn the_existing_must_match_constraint_allow_non_existing_references_to_be_create
 
 #[test]
 fn the_existing_must_match_constraint_requires_existing_references_to_have_the_given_value_to_cause_failure_on_mismatch()
--> Result {
+-> TestResult {
     let (_keep, store) = store_writable("make_repo_for_reflog.sh")?;
     let head = store.try_find_loose("HEAD")?.expect("head exists already");
     let target = head.target;
@@ -326,7 +326,7 @@ fn the_existing_must_match_constraint_requires_existing_references_to_have_the_g
 }
 
 #[test]
-fn reference_with_must_not_exist_constraint_cannot_be_created_if_it_exists_already() -> Result {
+fn reference_with_must_not_exist_constraint_cannot_be_created_if_it_exists_already() -> TestResult {
     let (_keep, store) = store_writable("make_repo_for_reflog.sh")?;
     let head = store.try_find_loose("HEAD")?.expect("head exists already");
     let target = head.target;
@@ -356,7 +356,7 @@ fn reference_with_must_not_exist_constraint_cannot_be_created_if_it_exists_alrea
 }
 
 #[test]
-fn namespaced_updates_or_deletions_are_transparent_and_not_observable() -> Result {
+fn namespaced_updates_or_deletions_are_transparent_and_not_observable() -> TestResult {
     let (_keep, mut store) = empty_store()?;
     store.namespace = gix_ref::namespace::expand("foo")?.into();
     let actual = vec![
@@ -373,7 +373,7 @@ fn namespaced_updates_or_deletions_are_transparent_and_not_observable() -> Resul
 }
 
 #[test]
-fn reference_with_must_exist_constraint_must_exist_already_with_any_value() -> Result {
+fn reference_with_must_exist_constraint_must_exist_already_with_any_value() -> TestResult {
     let (_keep, store) = store_writable("make_repo_for_reflog.sh")?;
     let head = store.try_find_loose("HEAD")?.expect("head exists already");
     let target = head.target;
@@ -452,7 +452,7 @@ fn reference_with_must_not_exist_constraint_may_exist_already_if_the_new_value_m
 }
 
 #[test]
-fn cancellation_after_preparation_leaves_no_change() -> Result {
+fn cancellation_after_preparation_leaves_no_change() -> TestResult {
     let (dir, store) = empty_store()?;
 
     let tx = store.transaction();
@@ -476,7 +476,7 @@ fn cancellation_after_preparation_leaves_no_change() -> Result {
 }
 
 #[test]
-fn symbolic_reference_writes_reflog_if_previous_value_is_set() -> Result {
+fn symbolic_reference_writes_reflog_if_previous_value_is_set() -> TestResult {
     let (_keep, store) = empty_store()?;
     let referent = "refs/heads/alt-main";
     assert!(
@@ -514,7 +514,7 @@ fn symbolic_reference_writes_reflog_if_previous_value_is_set() -> Result {
         Some(referent.as_bytes().as_bstr())
     );
     assert!(
-        head.log_exists(&store),
+        head.log_exists(&store)?,
         "reflog is written for new symbolic ref with information about the peeled target id, \
          as special accommodation for the state during clone to allow us to get a peeled id into the log"
     );
@@ -524,7 +524,7 @@ fn symbolic_reference_writes_reflog_if_previous_value_is_set() -> Result {
 }
 
 #[test]
-fn windows_device_name_is_illegal_with_enabled_windows_protections() -> Result {
+fn windows_device_name_is_illegal_with_enabled_windows_protections() -> TestResult {
     let mut error_snapshots = Vec::new();
     let (_keep, mut store) = empty_store()?;
     store.prohibit_windows_device_names = true;
@@ -599,7 +599,7 @@ fn windows_device_name_is_illegal_with_enabled_windows_protections() -> Result {
 /// `LockAcquire(PermanentlyLocked)` instead.
 #[cfg(not(windows))]
 #[test]
-fn windows_device_name_check_runs_before_lock_acquisition() -> Result {
+fn windows_device_name_check_runs_before_lock_acquisition() -> TestResult {
     let (keep, mut store) = empty_store()?;
     store.prohibit_windows_device_names = true;
 
@@ -633,7 +633,7 @@ fn windows_device_name_check_runs_before_lock_acquisition() -> Result {
 }
 
 #[test]
-fn lock_failure_on_symbolic_referent_is_reported_for_the_symbolic_ref() -> Result {
+fn lock_failure_on_symbolic_referent_is_reported_for_the_symbolic_ref() -> TestResult {
     let (keep, store) = empty_store()?;
     std::fs::write(keep.path().join("HEAD"), b"ref: refs/heads/main\n")?;
     std::fs::create_dir_all(keep.path().join("refs/heads"))?;
@@ -680,7 +680,7 @@ fn lock_failure_on_symbolic_referent_is_reported_for_the_symbolic_ref() -> Resul
 }
 
 #[test]
-fn symbolic_head_missing_referent_then_update_referent() -> Result {
+fn symbolic_head_missing_referent_then_update_referent() -> TestResult {
     for reflog_writemode in &[WriteReflog::Normal, WriteReflog::Disable, WriteReflog::Always] {
         let (_keep, mut store) = empty_store()?;
         store.write_reflog = *reflog_writemode;
@@ -732,7 +732,7 @@ fn symbolic_head_missing_referent_then_update_referent() -> Result {
             head.target.to_ref().try_name().map(gix_ref::FullNameRef::as_bstr),
             Some(referent.as_bytes().as_bstr())
         );
-        assert!(!head.log_exists(&store), "no reflog is written for symbolic ref");
+        assert!(!head.log_exists(&store)?, "no reflog is written for symbolic ref");
         assert!(store.try_find_loose(referent)?.is_none(), "referent wasn't created");
 
         let new_oid = hex_to_id("28ce6a8b26aa170e1de65536fe8abe1832bd3242");
@@ -814,7 +814,7 @@ fn symbolic_head_missing_referent_then_update_referent() -> Result {
 #[test]
 /// Writing a peeled ref to which head points to doesn't update HEAD on the fly even though that might be what's would
 /// be needed to keep the reflog consistent
-fn write_reference_to_which_head_points_to_does_not_update_heads_reflog_even_though_it_should() -> Result {
+fn write_reference_to_which_head_points_to_does_not_update_heads_reflog_even_though_it_should() -> TestResult {
     let (_keep, store) = store_writable("make_repo_for_reflog.sh")?;
     let head = store.find_loose("HEAD")?;
     let referent = head.target.to_ref().try_name().expect("symbolic ref").to_owned();
@@ -863,7 +863,7 @@ fn write_reference_to_which_head_points_to_does_not_update_heads_reflog_even_tho
 }
 
 #[test]
-fn packed_refs_are_looked_up_when_checking_existing_values() -> Result {
+fn packed_refs_are_looked_up_when_checking_existing_values() -> TestResult {
     let (_keep, store) = store_writable("make_packed_ref_repository.sh")?;
     assert!(
         store.try_find_loose("main")?.is_none(),
@@ -912,7 +912,7 @@ fn packed_refs_creation_with_tag_loop_are_not_handled_and_cannot_exist_due_to_ob
 }
 
 #[test]
-fn packed_refs_creation_with_packed_refs_mode_prune_removes_original_loose_refs() -> Result {
+fn packed_refs_creation_with_packed_refs_mode_prune_removes_original_loose_refs() -> TestResult {
     let (_keep, store) = store_writable("make_ref_repository.sh")?;
     assert!(
         store.open_packed_buffer()?.is_none(),
@@ -959,7 +959,7 @@ fn packed_refs_creation_with_packed_refs_mode_prune_removes_original_loose_refs(
 }
 
 #[test]
-fn packed_refs_creation_with_packed_refs_mode_leave_keeps_original_loose_refs() -> Result {
+fn packed_refs_creation_with_packed_refs_mode_leave_keeps_original_loose_refs() -> TestResult {
     let (_keep, store) = store_writable("make_packed_ref_repository_for_overlay.sh")?;
     let branch = store.find("newer-as-loose")?;
     let packed = store.open_packed_buffer()?.expect("packed-refs");
@@ -1013,7 +1013,7 @@ fn packed_refs_creation_with_packed_refs_mode_leave_keeps_original_loose_refs() 
 }
 
 #[test]
-fn packed_refs_deletion_in_deletions_and_updates_mode() -> Result {
+fn packed_refs_deletion_in_deletions_and_updates_mode() -> TestResult {
     let (_keep, store) = store_writable("make_packed_ref_repository.sh")?;
     assert!(
         store.try_find_loose("refs/heads/d1")?.is_none(),

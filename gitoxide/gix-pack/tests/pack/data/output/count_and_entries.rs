@@ -14,7 +14,7 @@ use crate::{
 };
 
 #[test]
-fn invalid_ofs_delta_base_distance_is_an_error() -> Result {
+fn invalid_ofs_delta_base_distance_is_an_error() -> gix_testtools::TestResult {
     let mut error_snapshots = Vec::new();
     let first_entry_offset = gix_pack::data::header::SIZE as gix_pack::data::Offset;
     for base_distance in [first_entry_offset, u64::MAX] {
@@ -57,7 +57,7 @@ fn invalid_ofs_delta_base_distance_is_an_error() -> Result {
 }
 
 #[test]
-fn thin_pack_base_lookup_distinguishes_errors_from_absence() -> gix_error::TestResult {
+fn thin_pack_base_lookup_distinguishes_errors_from_absence() -> gix_testtools::TestResult {
     use gix_error::ErrorExt;
 
     let mut data = Vec::new();
@@ -130,7 +130,7 @@ fn thin_pack_base_lookup_distinguishes_errors_from_absence() -> gix_error::TestR
 }
 
 #[test]
-fn traversals() -> Result {
+fn traversals() -> gix_testtools::TestResult {
     #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
     struct Count {
         trees: usize,
@@ -482,7 +482,7 @@ fn traversals() -> Result {
 }
 
 #[test]
-fn tree_additions_from_each_merge_parent_are_kept() -> Result {
+fn tree_additions_from_each_merge_parent_are_kept() -> gix_testtools::TestResult {
     use gix_object::Write;
 
     let object_hash = object_hash();
@@ -560,7 +560,7 @@ fn tree_additions_from_each_merge_parent_are_kept() -> Result {
 /// level 1 being much weaker than it used to be, entries have to be compressed with the
 /// configured level, defaulting to what `git` uses.
 #[test]
-fn entry_sizes_depend_on_compression_level() -> Result {
+fn entry_sizes_depend_on_compression_level() -> gix_testtools::TestResult {
     use gix_error::Result;
     use gix_object::WriteTo;
     let (tree_id, buf) = {

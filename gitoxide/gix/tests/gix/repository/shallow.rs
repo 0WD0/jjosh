@@ -1,4 +1,4 @@
-use crate::Result;
+use gix_testtools::{Result, TestResult};
 use serial_test::parallel;
 
 use crate::util::{hex_to_id, named_subrepo_opts};
@@ -12,10 +12,10 @@ fn shallow_ids(repo: &gix::Repository) -> Result<Vec<gix::ObjectId>> {
 
 #[test]
 #[parallel]
-fn no() -> Result {
+fn no() -> TestResult {
     for name in ["base", "empty"] {
         let repo = named_subrepo_opts("make_shallow_repo.sh", name, crate::restricted())?;
-        assert!(!repo.is_shallow());
+        assert!(!repo.is_shallow()?);
         assert!(repo.shallow_commits()?.is_none());
         let commits: Vec<_> = repo
             .head_id()?
@@ -39,10 +39,10 @@ fn no() -> Result {
 
 #[test]
 #[parallel]
-fn yes() -> Result {
+fn yes() -> TestResult {
     for name in ["shallow.git", "shallow"] {
         let repo = named_subrepo_opts("make_shallow_repo.sh", name, crate::restricted())?;
-        assert!(repo.is_shallow());
+        assert!(repo.is_shallow()?);
         assert_eq!(
             shallow_ids(&repo)?,
             [hex_to_id("30887839de28edf7ab66c860e5c58b4d445f6b12")]
@@ -52,7 +52,7 @@ fn yes() -> Result {
 }
 
 mod traverse {
-    use crate::Result;
+    use gix_testtools::TestResult;
     use gix_traverse::commit::simple::CommitTimeOrder;
     use serial_test::parallel;
 
@@ -60,7 +60,7 @@ mod traverse {
 
     #[test]
     #[parallel]
-    fn boundary_is_detected_triggering_no_error() -> Result {
+    fn boundary_is_detected_triggering_no_error() -> TestResult {
         for sorting in [
             gix::revision::walk::Sorting::BreadthFirst,
             gix::revision::walk::Sorting::ByCommitTime(CommitTimeOrder::NewestFirst),
@@ -89,7 +89,7 @@ mod traverse {
 
     #[test]
     #[parallel]
-    fn complex_graphs_can_be_iterated_despite_multiple_shallow_boundaries() -> Result {
+    fn complex_graphs_can_be_iterated_despite_multiple_shallow_boundaries() -> TestResult {
         let base = gix_path::realpath(gix_testtools::scripted_fixture_read_only("make_remote_repos.sh")?.join("base"))?;
         let shallow_base = gix_testtools::scripted_fixture_read_only_with_args_single_archive(
             "make_complex_shallow_repo.sh",

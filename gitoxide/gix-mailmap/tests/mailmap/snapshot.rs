@@ -215,17 +215,17 @@ fn invalid_entries_are_ignored() {
 }
 
 #[test]
-fn partial_updates_match_git() -> gix_testtools::Result {
-    assert_matches_git("partial-updates")
+fn partial_updates_match_git() -> gix_testtools::TestResult {
+    assert_matches_git("partial-updates").map_err(Into::into)
 }
 
 #[test]
-fn case_folding_with_non_utf8_keys_matches_git() -> gix_testtools::Result {
-    assert_matches_git("case-folding-with-non-utf8-keys")
+fn case_folding_with_non_utf8_keys_matches_git() -> gix_testtools::TestResult {
+    assert_matches_git("case-folding-with-non-utf8-keys").map_err(Into::into)
 }
 
 #[test]
-fn large_reverse_ordered_mailmaps() -> gix_testtools::Result {
+fn large_reverse_ordered_mailmaps() -> gix_testtools::TestResult {
     use std::fmt::Write;
 
     const COUNT: usize = 100_000;

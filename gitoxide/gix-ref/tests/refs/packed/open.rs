@@ -1,4 +1,3 @@
-use crate::Result;
 use std::path::Path;
 
 use gix_testtools::fixture_path;
@@ -14,7 +13,7 @@ fn sorted_buffer_works() {
 }
 
 #[test]
-fn empty_buffers_should_not_exist_but_are_fine_to_open() -> Result {
+fn empty_buffers_should_not_exist_but_are_fine_to_open() -> gix_testtools::TestResult {
     let (_keep, path) = write_packed_refs_with(&[])?;
     assert_eq!(gix_ref::packed::Buffer::open(path, 512, HASH_KIND)?.iter()?.count(), 0);
     Ok(())
@@ -42,7 +41,7 @@ fn unsorted_buffers_or_those_without_a_header_can_be_opened_and_searched() {
 }
 
 #[test]
-fn bogus_content_triggers_an_error() -> Result {
+fn bogus_content_triggers_an_error() -> gix_testtools::TestResult {
     let packed_refs_data = b"starts with a bogus record, not a header anyway";
     let (_keep, path) = write_packed_refs_with(packed_refs_data)?;
 

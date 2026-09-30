@@ -262,7 +262,9 @@ without trading responsiveness for metadata that is not visible.
   option may be repeated.
 - `-h/--help` prints Clap's standard help for `tix` and every subcommand.
 - Diagnostics retain underlying causes when adding command or argument context,
-  including encoding failures when OS-string conversions fail.
+  including encoding failures when OS-string conversions fail. Git paths,
+  reference names, and configured commands that cannot be represented natively
+  produce errors before their associated command is launched.
 - `--quit-on-finish[=INPUTS]` exits after traversal, lane computation, and one
   completed frame, for measurement and non-interactive inspection. Optional
   characters are replayed as read-only keyboard input before the retained final
@@ -2279,6 +2281,8 @@ views.
 - The worktree watcher exists only while the combined worktree block is enabled.
   It observes the index and ignore-aware directories that Git status would walk,
   using non-recursive registrations so ignored build trees do not generate work.
+  Unrepresentable directory or index paths fail the refresh before updating
+  registrations or the saved index projection; partial directory sets are not used.
 - Access-only and incomplete `.lock` activity are ignored. Completed atomic
   renames, index/HEAD updates, relevant worktree paths, and backend rescan requests
   invalidate the appropriate cache.

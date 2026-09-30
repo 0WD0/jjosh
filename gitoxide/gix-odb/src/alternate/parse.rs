@@ -35,7 +35,7 @@ pub fn parse(mut input: &[u8]) -> Result<Vec<PathBuf>> {
             continue;
         };
         out.push(
-            gix_path::try_from_bstr(path)
+            gix_path::from_bstr(path)
                 .or_raise(|| Message::new("Could not obtain an alternate object directory").with_input(original))?
                 .into_owned(),
         );

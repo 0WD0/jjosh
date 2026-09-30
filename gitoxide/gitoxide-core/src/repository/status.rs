@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{io, path::Path};
 
 use gix::{
     Result,
@@ -133,7 +133,7 @@ pub fn show(
                     gix::diff::index::Change::Rewrite {
                         ref source_location, ..
                     } => {
-                        let source_location = gix::path::from_bstr(source_location.as_ref());
+                        let source_location = gix::path::from_bstr(source_location.as_ref())?;
                         let source_location = gix::path::relativize_with_prefix(&source_location, prefix);
                         writeln!(
                             out,
@@ -141,7 +141,7 @@ pub fn show(
                             status = "R",
                             source_rela_path = source_location.display(),
                             dest_rela_path =
-                                gix::path::relativize_with_prefix(&gix::path::from_bstr(location), prefix).display(),
+                                gix::path::relativize_with_prefix(&gix::path::from_bstr(location)?, prefix).display(),
                         )
                         .or_error()?;
                         continue;
@@ -150,7 +150,7 @@ pub fn show(
                 writeln!(
                     out,
                     "{status: >2}  {rela_path}",
-                    rela_path = gix::path::relativize_with_prefix(&gix::path::from_bstr(location), prefix).display(),
+                    rela_path = gix::path::relativize_with_prefix(&gix::path::from_bstr(location)?, prefix).display(),
                 )
                 .or_error()?;
             }
@@ -169,8 +169,8 @@ pub fn show(
                         out,
                         "{status: >3} {rela_path}{slash}",
                         status = "?",
-                        rela_path =
-                            gix::path::relativize_with_prefix(&gix::path::from_bstr(entry.rela_path), prefix).display(),
+                        rela_path = gix::path::relativize_with_prefix(&gix::path::from_bstr(entry.rela_path)?, prefix)
+                            .display(),
                         slash = if entry.disk_kind.unwrap_or(gix::dir::entry::Kind::File).is_dir() {
                             "/"
                         } else {
@@ -189,9 +189,9 @@ pub fn show(
                     "{status: >3} {source_rela_path} → {dest_rela_path}",
                     status = "R",
                     source_rela_path =
-                        gix::path::relativize_with_prefix(&gix::path::from_bstr(source.rela_path()), prefix).display(),
+                        gix::path::relativize_with_prefix(&gix::path::from_bstr(source.rela_path())?, prefix).display(),
                     dest_rela_path = gix::path::relativize_with_prefix(
-                        &gix::path::from_bstr(dirwalk_entry.rela_path.as_bstr()),
+                        &gix::path::from_bstr(dirwalk_entry.rela_path.as_bstr())?,
                         prefix
                     )
                     .display(),
@@ -239,7 +239,7 @@ fn print_index_entry_status(
         EntryStatus::IntentToAdd => "A",
     };
 
-    let rela_path = gix::path::from_bstr(rela_path);
+    let rela_path = gix::path::from_bstr(rela_path).map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?;
     let display_path = gix::path::relativize_with_prefix(&rela_path, prefix);
     writeln!(out, "{status: >3} {}", display_path.display())
 }

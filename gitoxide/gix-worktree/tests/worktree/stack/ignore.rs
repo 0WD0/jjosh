@@ -1,4 +1,4 @@
-use crate::Result;
+use gix_testtools::TestResult;
 use std::fs::Metadata;
 
 use bstr::{BStr, ByteSlice};
@@ -10,7 +10,7 @@ use crate::{hex_to_id, stack::probe_case};
 
 #[test]
 #[cfg(any(unix, windows))]
-fn symlinked_ignore_files_are_skipped_with_index_fallback() -> Result {
+fn symlinked_ignore_files_are_skipped_with_index_fallback() -> TestResult {
     for use_index in [false, true] {
         let dir = gix_testtools::scripted_fixture_read_only_with_args(
             "make_symlinked_ignore_repo.sh",
@@ -101,7 +101,7 @@ impl<'a> Iterator for IgnoreExpectations<'a> {
 }
 
 #[test]
-fn exclude_by_dir_is_handled_just_like_git() {
+fn exclude_by_dir_is_handled_just_like_git() -> TestResult {
     let dir = crate::scripted_fixture_read_only("make_special_exclude_case.sh").unwrap();
     let git_dir = dir.join(".git");
 
@@ -134,7 +134,7 @@ fn exclude_by_dir_is_handled_just_like_git() {
     }
     for (relative_entry, source_and_line) in expectations {
         let (source, line, expected_pattern) = source_and_line.expect("every value is matched");
-        let relative_path = gix_path::from_byte_slice(relative_entry);
+        let relative_path = gix_path::from_byte_slice(relative_entry)?;
         let is_dir = dir.join(relative_path).metadata().ok().map(metadata_to_mode);
 
         let platform = cache.at_entry(relative_entry, is_dir, &FindError).unwrap();
@@ -158,6 +158,7 @@ fn exclude_by_dir_is_handled_just_like_git() {
         assert_eq!(line, 2);
         assert_eq!(source, ".gitignore");
     }
+    Ok(())
 }
 
 fn metadata_to_mode(meta: Metadata) -> Mode {
@@ -169,7 +170,7 @@ fn metadata_to_mode(meta: Metadata) -> Mode {
 }
 
 #[test]
-fn check_against_baseline() -> Result {
+fn check_against_baseline() -> TestResult {
     let dir = crate::scripted_fixture_read_only("make_ignore_and_attributes_setup.sh")?;
     let worktree_dir = dir.join("repo");
     let git_dir = worktree_dir.join(".git");
@@ -214,7 +215,7 @@ fn check_against_baseline() -> Result {
         lines: baseline.lines(),
     };
     for (relative_entry, source_and_line) in expectations {
-        let relative_path = gix_path::from_byte_slice(relative_entry);
+        let relative_path = gix_path::from_byte_slice(relative_entry)?;
         let is_dir = worktree_dir.join(relative_path).metadata().ok().map(metadata_to_mode);
 
         let platform = cache.at_entry(relative_entry, is_dir, &odb)?;

@@ -202,7 +202,7 @@ pub(crate) mod function {
 
         #[cfg(feature = "blocking-client")]
         #[test]
-        fn invoke_preserves_transport_retryability() {
+        fn invoke_preserves_transport_retryability() -> gix_testtools::TestResult {
             let mut error_snapshots = Vec::new();
             use std::io::{self, ErrorKind};
 
@@ -216,8 +216,7 @@ pub(crate) mod function {
                 }
             }
 
-            let capabilities = super::Capabilities::from_lines("version 2\nls-refs\nagent=test\n".into())
-                .expect("valid V2 capabilities");
+            let capabilities = super::Capabilities::from_lines("version 2\nls-refs\nagent=test\n".into())?;
             for (kind, retryable) in [
                 (ErrorKind::BrokenPipe, true),
                 (ErrorKind::ConnectionReset, true),
@@ -268,6 +267,7 @@ pub(crate) mod function {
                     1: permission denied,
             ]
             ");
+            Ok(())
         }
 
         #[test]
@@ -304,23 +304,16 @@ pub(crate) mod function {
         }
 
         #[test]
-        fn from_refspecs_keeps_exact_refs_and_dwim_expansions() {
+        fn from_refspecs_keeps_exact_refs_and_dwim_expansions() -> gix_testtools::TestResult {
             let specs = [
-                gix_refspec::parse("HEAD".into(), gix_refspec::parse::Operation::Fetch)
-                    .expect("valid")
-                    .to_owned(),
-                gix_refspec::parse("dwim".into(), gix_refspec::parse::Operation::Fetch)
-                    .expect("valid")
-                    .to_owned(),
+                gix_refspec::parse("HEAD".into(), gix_refspec::parse::Operation::Fetch)?.to_owned(),
+                gix_refspec::parse("dwim".into(), gix_refspec::parse::Operation::Fetch)?.to_owned(),
                 gix_refspec::parse(
                     "refs/tags/prefix*:refs/tags/prefix*".into(),
                     gix_refspec::parse::Operation::Fetch,
-                )
-                .expect("valid")
+                )?
                 .to_owned(),
-                gix_refspec::parse("refs/heads/main".into(), gix_refspec::parse::Operation::Fetch)
-                    .expect("valid")
-                    .to_owned(),
+                gix_refspec::parse("refs/heads/main".into(), gix_refspec::parse::Operation::Fetch)?.to_owned(),
             ];
 
             let prefixes = RefPrefixes::from_refspecs(&specs);
@@ -342,6 +335,7 @@ pub(crate) mod function {
                 .map(BString::from)
                 .collect::<Vec<_>>()
             );
+            Ok(())
         }
     }
 }

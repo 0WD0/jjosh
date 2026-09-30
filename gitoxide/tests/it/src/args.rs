@@ -192,7 +192,7 @@ impl TypedValueParser for AsPathSpec {
         OsStringValueParser::new()
             .try_map(move |arg| {
                 let arg: &std::path::Path = arg.as_os_str().as_ref();
-                gix::pathspec::parse(gix::path::into_bstr(arg).as_ref(), pathspec_defaults)
+                gix::pathspec::parse(gix::path::into_bstr(arg)?.as_ref(), pathspec_defaults)
             })
             .parse_ref(cmd, arg, value)
     }

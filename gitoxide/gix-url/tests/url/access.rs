@@ -21,11 +21,11 @@ mod canonicalized {
     #[test]
     fn file_that_is_current_dir_is_absolutized() -> gix_testtools::TestResult {
         let url = gix_url::parse(".")?;
-        assert!(gix_path::from_bstr(Cow::Borrowed(url.path.as_ref())).is_relative());
+        assert!(gix_path::from_bstr(Cow::Borrowed(url.path.as_ref()))?.is_relative());
         assert!(
             gix_path::from_bstr(Cow::Borrowed(
                 url.canonicalized(&std::env::current_dir()?)?.path.as_ref()
-            ))
+            ))?
             .is_absolute()
         );
         Ok(())
@@ -33,6 +33,24 @@ mod canonicalized {
 }
 
 use gix_url::ArgumentSafety;
+
+#[test]
+#[cfg(windows)]
+fn native_paths_with_unpaired_surrogates_return_encoding_errors() {
+    use std::os::windows::ffi::OsStringExt;
+
+    let path = std::path::PathBuf::from(std::ffi::OsString::from_wide(&[0xd800]));
+    for err in [
+        gix_url::Url::try_from(path.clone()).expect_err("owned paths must be representable as URL bytes"),
+        gix_url::Url::try_from(path.as_path()).expect_err("borrowed paths must be representable as URL bytes"),
+        gix_url::Url::try_from(path.as_os_str()).expect_err("native strings must be representable as URL bytes"),
+    ] {
+        assert!(
+            err.is_validation(),
+            "path encoding failures are returned instead of panicking"
+        );
+    }
+}
 
 mod path_query_fragment {
     use std::borrow::Cow;
@@ -55,7 +73,7 @@ mod path_query_fragment {
     }
 
     #[test]
-    fn http_delimiters_are_recognized_before_decoding() -> gix_error::TestResult {
+    fn http_delimiters_are_recognized_before_decoding() -> gix_testtools::TestResult {
         for scheme in ["http", "https"] {
             for (suffix, expected) in [
                 ("/repo%23one?query=value#fragment", "/repo#one"),
@@ -102,7 +120,7 @@ mod path_query_fragment {
     }
 
     #[test]
-    fn other_schemes_keep_their_stored_paths() -> gix_error::TestResult {
+    fn other_schemes_keep_their_stored_paths() -> gix_testtools::TestResult {
         for (input, expected) in [
             ("git@host:repo#one?two%23three", "repo#one?two%23three"),
             ("ssh://git@host/repo%23one?two", "/repo#one?two"),
@@ -127,7 +145,7 @@ mod path_query_fragment {
     }
 
     #[test]
-    fn constructed_and_mutated_http_paths_are_already_decoded() -> gix_error::TestResult {
+    fn constructed_and_mutated_http_paths_are_already_decoded() -> gix_testtools::TestResult {
         for scheme in [Scheme::Http, Scheme::Https] {
             for (path, expected) in [
                 ("/repo%23one?query=value#fragment", "/repo%23one"),
@@ -168,7 +186,7 @@ mod path_query_fragment {
     }
 
     #[test]
-    fn mutation_keeps_paths_byte_oriented_and_uses_the_current_scheme() -> gix_error::TestResult {
+    fn mutation_keeps_paths_byte_oriented_and_uses_the_current_scheme() -> gix_testtools::TestResult {
         let mut url = gix_url::parse("https://host/repo%23one?query=value#fragment")?;
         url.scheme = Scheme::Ssh;
         assert_eq!(
@@ -210,7 +228,7 @@ mod path_query_fragment {
     }
 
     #[test]
-    fn query_pairs_and_fragments_are_split_before_decoding() -> gix_error::TestResult {
+    fn query_pairs_and_fragments_are_split_before_decoding() -> gix_testtools::TestResult {
         for scheme in ["http", "https"] {
             for (suffix, path, query, fragment) in [
                 (
@@ -296,7 +314,7 @@ mod path_query_fragment {
     }
 
     #[test]
-    fn empty_and_absent_components_remain_distinct() -> gix_error::TestResult {
+    fn empty_and_absent_components_remain_distinct() -> gix_testtools::TestResult {
         for (suffix, has_query, fragment) in [
             ("", false, None),
             ("/repo", false, None),
@@ -323,7 +341,7 @@ mod path_query_fragment {
     }
 
     #[test]
-    fn constructed_and_mutated_components_keep_literal_percent_escapes() -> gix_error::TestResult {
+    fn constructed_and_mutated_components_keep_literal_percent_escapes() -> gix_testtools::TestResult {
         let path = "/repo%23one?x=a%26b&space=+%2B#frag%23+";
         let constructed = Url::from_parts(Scheme::Https, None, None, Some("host".into()), None, path.into(), false)?;
         let mut mutated = gix_url::parse("https://host/old%23repo?x=%26#old%23fragment")?;
@@ -354,7 +372,7 @@ mod path_query_fragment {
 
     #[cfg(feature = "serde")]
     #[test]
-    fn serde_preserves_component_boundaries() -> gix_error::TestResult {
+    fn serde_preserves_component_boundaries() -> gix_testtools::TestResult {
         let mut mutated = gix_url::parse("https://host/old%23repo?x=%26#old%23fragment")?;
         mutated.path = "/repo%23one?x=a%26b&space=+%2B#frag%23+".into();
         for url in [
@@ -373,7 +391,7 @@ mod path_query_fragment {
 }
 
 #[test]
-fn user() -> gix_error::TestResult {
+fn user() -> gix_testtools::TestResult {
     let mut url = gix_url::parse("https://user:password@host/path")?;
 
     assert_eq!(url.user(), Some("user"));
@@ -384,7 +402,7 @@ fn user() -> gix_error::TestResult {
 }
 
 #[test]
-fn password() -> gix_error::TestResult {
+fn password() -> gix_testtools::TestResult {
     let mut url = gix_url::parse("https://user:password@host/path")?;
 
     assert_eq!(url.password(), Some("password"));
@@ -395,7 +413,7 @@ fn password() -> gix_error::TestResult {
 }
 
 #[test]
-fn mutation_roundtrip() -> gix_error::TestResult {
+fn mutation_roundtrip() -> gix_testtools::TestResult {
     let mut url = gix_url::parse("https://user@host/path")?;
     url.set_user(Some("newuser".into()));
     url.set_password(Some("secret".into()));
@@ -411,7 +429,7 @@ fn mutation_roundtrip() -> gix_error::TestResult {
 }
 
 #[test]
-fn from_bytes_roundtrip() -> gix_error::TestResult {
+fn from_bytes_roundtrip() -> gix_testtools::TestResult {
     let original = "https://user:password@example.com:8080/path/to/repo";
     let url = gix_url::parse(original)?;
 
@@ -425,7 +443,7 @@ fn from_bytes_roundtrip() -> gix_error::TestResult {
 }
 
 #[test]
-fn from_bytes_with_non_utf8_path() -> gix_error::TestResult {
+fn from_bytes_with_non_utf8_path() -> gix_testtools::TestResult {
     let url = gix_url::parse(b"/path/to\xff/repo".as_slice())?;
     let bytes = url.to_bstring();
     let from_bytes = gix_url::Url::from_bytes(bytes.as_ref())?;
@@ -437,7 +455,7 @@ fn from_bytes_with_non_utf8_path() -> gix_error::TestResult {
 }
 
 #[test]
-fn user_argument_safety() -> gix_error::TestResult {
+fn user_argument_safety() -> gix_testtools::TestResult {
     let url = gix_url::parse("ssh://-Fconfigfile@foo/bar")?;
 
     assert_eq!(url.user(), Some("-Fconfigfile"));
@@ -455,7 +473,7 @@ fn user_argument_safety() -> gix_error::TestResult {
 }
 
 #[test]
-fn host_argument_safety() -> gix_error::TestResult {
+fn host_argument_safety() -> gix_testtools::TestResult {
     let url = gix_url::parse("ssh://-oProxyCommand=open$IFS-aCalculator/foo")?;
 
     assert_eq!(url.user(), None);
@@ -480,7 +498,7 @@ fn host_argument_safety() -> gix_error::TestResult {
 }
 
 #[test]
-fn path_argument_safety() -> gix_error::TestResult {
+fn path_argument_safety() -> gix_testtools::TestResult {
     let url = gix_url::parse("ssh://foo/-oProxyCommand=open$IFS-aCalculator")?;
 
     assert_eq!(url.user(), None);
@@ -511,7 +529,7 @@ fn path_argument_safety() -> gix_error::TestResult {
 }
 
 #[test]
-fn all_argument_safety_safe() -> gix_error::TestResult {
+fn all_argument_safety_safe() -> gix_testtools::TestResult {
     let url = gix_url::parse("ssh://user.name@example.com/path/to/file")?;
 
     assert_eq!(url.user(), Some("user.name"));
@@ -529,7 +547,7 @@ fn all_argument_safety_safe() -> gix_error::TestResult {
 }
 
 #[test]
-fn all_argument_safety_not_safe() -> gix_error::TestResult {
+fn all_argument_safety_not_safe() -> gix_testtools::TestResult {
     let all_bad = "ssh://-Fconfigfile@-oProxyCommand=open$IFS-aCalculator/-oProxyCommand=open$IFS-aCalculator";
     let url = gix_url::parse(all_bad)?;
 

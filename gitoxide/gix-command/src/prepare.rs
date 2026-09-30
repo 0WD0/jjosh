@@ -6,6 +6,7 @@ use std::{
 };
 
 use bstr::ByteSlice;
+use gix_error::Result;
 
 use crate::{Context, Prepare, extract_interpreter, is_bare_command, split_paths, win_path_lookup};
 
@@ -15,8 +16,8 @@ impl Prepare {
     /// scripts, and if found will use `sh` to execute it or whatever is set as
     /// [`with_shell_program()`](Self::with_shell_program()).
     ///
-    /// Commands are inspected as bytes, including non-UTF-8 commands on Unix. If the platform
-    /// cannot represent a command as bytes, it is invoked directly.
+    /// Commands are inspected using their native encoded bytes, including commands that cannot
+    /// be represented as UTF-8.
     ///
     /// If a shell is used, then arguments given here with [arg()](Self::arg) or
     /// [args()](Self::args) will be substituted via `"$@"` if it's not already present in the
@@ -30,8 +31,11 @@ impl Prepare {
     /// If neither this method nor [`with_shell()`](Self::with_shell()) is called, commands are
     /// always executed verbatim and directly, without the use of a shell.
     pub fn command_may_be_shell_script(mut self) -> Self {
-        self.use_shell = gix_path::os_str_into_bstr(&self.command)
-            .is_ok_and(|cmd| cmd.find_byteset(b"|&;<>()$`\\\"' \t\n*?[#~=%").is_some());
+        self.use_shell = self
+            .command
+            .as_encoded_bytes()
+            .find_byteset(b"|&;<>()$`\\\"' \t\n*?[#~=%")
+            .is_some();
         self
     }
 
@@ -168,15 +172,20 @@ impl Prepare {
 /// Finalization
 impl Prepare {
     /// Spawn the command as configured.
+    ///
+    /// Encoding errors during preparation are returned with [`std::io::ErrorKind::InvalidInput`].
     pub fn spawn(self) -> std::io::Result<std::process::Child> {
-        let mut cmd = Command::from(self);
+        let mut cmd =
+            Command::try_from(self).map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidInput, err))?;
         gix_trace::debug!(cmd = ?cmd);
         cmd.spawn()
     }
 }
 
-impl From<Prepare> for Command {
-    fn from(mut prep: Prepare) -> Command {
+impl TryFrom<Prepare> for Command {
+    type Error = gix_error::Error;
+
+    fn try_from(mut prep: Prepare) -> Result<Self> {
         let mut inline_env = Vec::new();
         let mut cmd = if prep.use_shell {
             let split_args = prep
@@ -218,11 +227,10 @@ impl From<Prepare> for Command {
                         .to_os_string();
                     cmd.arg("-c");
                     if !prep.args.is_empty() {
-                        if !gix_path::os_str_into_bstr(&prep.command).is_ok_and(|cmd| cmd.contains_str("$@")) {
-                            if prep.quote_command
-                                && let Ok(command) = gix_path::os_str_into_bstr(&prep.command)
-                            {
-                                prep.command = gix_path::from_bstring(gix_quote::single(command)).into();
+                        if !prep.command.as_encoded_bytes().contains_str("$@") {
+                            if prep.quote_command {
+                                let command = gix_path::os_str_into_bstr(&prep.command)?;
+                                prep.command = gix_path::from_bstring(gix_quote::single(command))?.into();
                             }
                             prep.command.push(r#" "$@""#);
                         } else {
@@ -265,7 +273,7 @@ impl From<Prepare> for Command {
                 cmd.env("GIT_NO_REPLACE_OBJECTS", usize::from(value).to_string());
             }
             if let Some(namespace) = ctx.ref_namespace {
-                cmd.env("GIT_NAMESPACE", gix_path::from_bstring(namespace));
+                cmd.env("GIT_NAMESPACE", gix_path::from_bstring(namespace)?);
             }
             if let Some(value) = ctx.literal_pathspecs {
                 cmd.env("GIT_LITERAL_PATHSPECS", usize::from(value).to_string());
@@ -288,7 +296,7 @@ impl From<Prepare> for Command {
             }
         }
         cmd.envs(inline_env);
-        cmd
+        Ok(cmd)
     }
 }
 
@@ -360,7 +368,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn inherited_path_is_used_for_both_probing_and_execution() -> gix_testtools::Result {
+    fn inherited_path_is_used_for_both_probing_and_execution() -> gix_testtools::TestResult {
         if gix_testtools::run_in_isolated_process()? {
             return Ok(());
         }
@@ -413,7 +421,7 @@ mod tests {
     }
 
     #[test]
-    fn explicit_path_lookup_failure_stays_within_that_path() -> gix_testtools::Result {
+    fn explicit_path_lookup_failure_stays_within_that_path() -> gix_testtools::TestResult {
         let joined_paths = std::env::join_paths(["", "not/a/real/path", "also/not/real"])?;
         let cmd = windows_command("missing.exe".into(), &[], &[("PATH".into(), joined_paths)]);
         assert_eq!(

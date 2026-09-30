@@ -74,7 +74,7 @@ impl<'repo> Remote<'repo> {
     ) -> Result<(gix_url::Url, gix_protocol::transport::Protocol)> {
         fn sanitize(mut url: gix_url::Url) -> Result<gix_url::Url> {
             if url.scheme == gix_url::Scheme::File {
-                let mut dir = gix_path::to_native_path_on_windows(Cow::Borrowed(url.path.as_ref()));
+                let mut dir = gix_path::to_native_path_on_windows(Cow::Borrowed(url.path.as_ref()))?;
                 let kind = gix_discover::is_git(dir.as_ref())
                     .or_else(|_| {
                         dir.to_mut().push(gix_discover::DOT_GIT_DIR);
@@ -86,20 +86,19 @@ impl<'repo> Remote<'repo> {
                             url.to_bstring()
                         )
                     })?;
-                let (git_dir, _work_dir) = gix_discover::repository::Path::from_dot_git_dir(
+                let Some(repository_path) = gix_discover::repository::Path::from_dot_git_dir(
                     dir.clone().into_owned(),
                     kind,
                     // precomposed unicode doesn't matter here as long as the produced path is accessible,
                     // which is a given either way.
                     &gix_fs::current_dir(false).or_raise(|| message("Could not obtain the current directory"))?,
-                )
-                .ok_or_else(|| {
-                    message("Could not access remote repository")
-                        .with_input(gix_path::into_bstr(dir.clone().into_owned()).into_owned())
-                        .validation_error()
-                })?
-                .into_repository_and_work_tree_directories();
-                url.path = gix_path::into_bstr(git_dir).into_owned();
+                ) else {
+                    return Err(message("Could not access remote repository")
+                        .with_input(gix_path::into_bstr(dir.into_owned())?.into_owned())
+                        .validation_error());
+                };
+                let (git_dir, _work_dir) = repository_path.into_repository_and_work_tree_directories();
+                url.path = gix_path::into_bstr(git_dir)?.into_owned();
             }
             Ok(url)
         }

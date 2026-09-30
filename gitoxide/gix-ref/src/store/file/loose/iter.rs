@@ -51,7 +51,7 @@ impl Iterator for SortedLoosePaths {
                     let full_name = full_path
                         .strip_prefix(&self.base)
                         .expect("prefix-stripping cannot fail as base is within our root");
-                    let Ok(full_name) = gix_path::try_into_bstr(full_name)
+                    let Ok(full_name) = gix_path::into_bstr(full_name)
                         .map(|name| gix_path::to_unix_separators_on_windows(name).into_owned())
                     else {
                         continue;

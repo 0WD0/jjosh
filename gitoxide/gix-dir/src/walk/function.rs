@@ -50,14 +50,13 @@ pub fn walk(
 ) -> Result<(Outcome, PathBuf)> {
     let root = match ctx.explicit_traversal_root {
         Some(root) => root.to_owned(),
-        None => ctx
-            .pathspec
-            .longest_common_directory()
-            .and_then(|candidate| {
-                let candidate = worktree_root.join(candidate);
-                candidate.is_dir().then_some(candidate)
-            })
-            .unwrap_or_else(|| worktree_root.join(ctx.pathspec.prefix_directory())),
+        None => match ctx.pathspec.longest_common_directory()?.and_then(|candidate| {
+            let candidate = worktree_root.join(candidate);
+            candidate.is_dir().then_some(candidate)
+        }) {
+            Some(root) => root,
+            None => worktree_root.join(ctx.pathspec.prefix_directory()?),
+        },
     };
     let _span = gix_trace::coarse!("walk", root = ?root, worktree_root = ?worktree_root, options = ?options);
     let (mut current, worktree_root_relative) = assure_no_symlink_in_root(worktree_root, &root)?;
@@ -93,7 +92,7 @@ pub fn walk(
             );
         }
         if options.precompose_unicode {
-            buf = gix_path::into_bstr(gix_utils::str::precompose_path(gix_path::from_bstr(buf))).into_owned();
+            buf = gix_path::into_bstr(gix_utils::str::precompose_path(gix_path::from_bstr(buf)?))?.into_owned();
         }
         let _ = emit_entry(
             Cow::Borrowed(buf.as_bstr()),

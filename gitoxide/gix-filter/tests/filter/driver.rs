@@ -1,11 +1,11 @@
 use bstr::{BStr, BString};
 
 mod baseline {
-    use crate::Result;
     use crate::driver::driver_path;
+    use gix_testtools::TestResult;
 
     #[test]
-    fn our_implementation_used_by_git() -> Result {
+    fn our_implementation_used_by_git() -> TestResult {
         let exe = driver_path().to_string();
         gix_testtools::scripted_fixture_read_only_with_args_single_archive("baseline.sh", [exe])?;
         Ok(())
@@ -204,7 +204,7 @@ mod shutdown {
     }
 
     #[test]
-    fn explicit_shutdown_waits_for_processes() -> Result {
+    fn explicit_shutdown_waits_for_processes() -> gix_testtools::TestResult {
         let mut state = state_with_waiting_process()?;
 
         let start = std::time::Instant::now();
@@ -231,7 +231,7 @@ mod shutdown {
     }
 
     #[test]
-    fn unsuccessful_process_exit_can_be_turned_into_an_error() -> Result {
+    fn unsuccessful_process_exit_can_be_turned_into_an_error() -> gix_testtools::TestResult {
         let mut state = gix_filter::driver::State::default();
         let mut driver = driver_with_process();
         driver
@@ -262,7 +262,7 @@ mod shutdown {
     }
 
     #[test]
-    fn drop_waits_for_processes() -> Result {
+    fn drop_waits_for_processes() -> gix_testtools::TestResult {
         let state = state_with_waiting_process()?;
 
         let start = std::time::Instant::now();
@@ -276,7 +276,7 @@ mod shutdown {
 }
 
 pub(crate) mod apply {
-    use crate::Result;
+    use gix_testtools::TestResult;
     use std::{io::Read, sync::LazyLock};
 
     use crate::driver::{driver_path, shutdown::extract_client};
@@ -308,7 +308,7 @@ pub(crate) mod apply {
     }
 
     #[test]
-    fn missing_driver_means_no_filter_is_applied() -> Result {
+    fn missing_driver_means_no_filter_is_applied() -> TestResult {
         let mut state = gix_filter::driver::State::default();
         let mut driver = driver_no_process();
         driver.smudge = None;
@@ -338,7 +338,7 @@ pub(crate) mod apply {
     }
 
     #[test]
-    fn a_crashing_process_can_restart_it() -> Result {
+    fn a_crashing_process_can_restart_it() -> TestResult {
         let mut state = gix_filter::driver::State::default();
         let driver = driver_with_process();
         let err = match state.apply(
@@ -378,8 +378,7 @@ pub(crate) mod apply {
                 &mut std::io::empty(),
                 Operation::Smudge,
                 context_from_path("fine"),
-            )
-            .expect("process restarts fine")
+            )?
             .expect("filter applied");
         let mut buf = Vec::new();
         filtered.read_to_end(&mut buf)?;
@@ -388,7 +387,7 @@ pub(crate) mod apply {
     }
 
     #[test]
-    fn process_status_abort_disables_capability() -> Result {
+    fn process_status_abort_disables_capability() -> TestResult {
         let mut state = gix_filter::driver::State::default();
         let driver = driver_with_process();
         let client = extract_client(state.maybe_launch_process(&driver, Operation::Clean, "does not matter".into())?);
@@ -427,7 +426,7 @@ pub(crate) mod apply {
     }
 
     #[test]
-    fn process_status_strange_shuts_down_process() -> Result {
+    fn process_status_strange_shuts_down_process() -> TestResult {
         let mut state = gix_filter::driver::State::default();
         let driver = driver_with_process();
         let client = extract_client(state.maybe_launch_process(&driver, Operation::Clean, "does not matter".into())?);
@@ -461,7 +460,7 @@ pub(crate) mod apply {
     }
 
     #[test]
-    fn smudge_and_clean_failure_is_translated_to_observable_error_for_required_drivers() -> Result {
+    fn smudge_and_clean_failure_is_translated_to_observable_error_for_required_drivers() -> TestResult {
         let mut state = gix_filter::driver::State::default();
         let driver = driver_no_process();
         assert!(driver.required);
@@ -501,7 +500,7 @@ pub(crate) mod apply {
     }
 
     #[test]
-    fn smudge_and_clean_failure_falls_back_to_input_if_required_is_false() -> Result {
+    fn smudge_and_clean_failure_falls_back_to_input_if_required_is_false() -> TestResult {
         let mut state = gix_filter::driver::State::default();
         let mut driver = driver_no_process();
         driver.required = false;
@@ -526,7 +525,7 @@ pub(crate) mod apply {
     }
 
     #[test]
-    fn successful_non_required_driver_can_close_stdin_early() -> Result {
+    fn successful_non_required_driver_can_close_stdin_early() -> TestResult {
         let mut state = gix_filter::driver::State::default();
         let mut driver = driver_no_process();
         driver.required = false;
@@ -556,7 +555,7 @@ pub(crate) mod apply {
     }
 
     #[test]
-    fn smudge_and_clean_series() -> Result {
+    fn smudge_and_clean_series() -> TestResult {
         let mut state = gix_filter::driver::State::default();
         for mut driver in [driver_no_process(), driver_with_process()] {
             assert!(
@@ -610,7 +609,7 @@ pub(crate) mod apply {
     }
 
     #[test]
-    fn smudge_and_clean_delayed() -> Result {
+    fn smudge_and_clean_delayed() -> TestResult {
         let mut state = gix_filter::driver::State::default();
         let driver = driver_with_process();
         let input = "hello\nthere\n";
@@ -679,7 +678,7 @@ pub(crate) mod apply {
     }
 
     #[test]
-    fn delaying_without_permission_is_corruption() -> gix_error::TestResult {
+    fn delaying_without_permission_is_corruption() -> TestResult {
         if gix_testtools::run_in_isolated_process()? {
             return Ok(());
         }
@@ -713,7 +712,7 @@ pub(crate) mod apply {
     }
 
     #[test]
-    fn large_file_with_cat_filter_does_not_hang() -> Result {
+    fn large_file_with_cat_filter_does_not_hang() -> TestResult {
         // This test reproduces issue #2080 where using `cat` as a filter with a large file
         // causes a deadlock. The pipe buffer is typically 64KB on Linux, so we use files
         // larger than that to ensure the buffer fills up.
@@ -765,7 +764,7 @@ pub(crate) mod apply {
     }
 
     #[test]
-    fn large_file_with_cat_filter_early_drop() -> Result {
+    fn large_file_with_cat_filter_early_drop() -> TestResult {
         // Test that dropping the reader early doesn't cause issues (thread cleanup)
         let mut state = gix_filter::driver::State::default();
 

@@ -1,4 +1,4 @@
-use gix_error::Result;
+use gix_error::{OptionExt, Result};
 use std::{
     borrow::Cow,
     ffi::{OsStr, OsString},
@@ -16,20 +16,30 @@ fn utf8_error() -> gix_error::Message {
 
 /// Like [`into_bstr()`], but takes `OsStr` as input for a lossless, but fallible, conversion.
 pub fn os_str_into_bstr(path: &OsStr) -> Result<&BStr> {
-    let path = try_into_bstr(Cow::Borrowed(path.as_ref()))?;
-    match path {
-        Cow::Borrowed(path) => Ok(path),
-        Cow::Owned(_) => unreachable!("borrowed cows stay borrowed"),
-    }
+    #[cfg(unix)]
+    let bytes = {
+        use std::os::unix::ffi::OsStrExt;
+        path.as_bytes()
+    };
+    #[cfg(not(unix))]
+    let bytes = std::str::from_utf8(path.as_encoded_bytes())
+        .or_raise(utf8_error)?
+        .as_bytes();
+    Ok(bytes.into())
 }
 
 /// Like [`into_bstr()`], but takes `OsString` as input for a lossless, but fallible, conversion.
 pub fn os_string_into_bstring(path: OsString) -> Result<BString> {
-    let path = try_into_bstr(Cow::Owned(path.into()))?;
-    match path {
-        Cow::Borrowed(_path) => unreachable!("borrowed cows stay borrowed"),
-        Cow::Owned(path) => Ok(path),
-    }
+    #[cfg(unix)]
+    let bytes = {
+        use std::os::unix::ffi::OsStringExt;
+        path.into_vec()
+    };
+    #[cfg(not(unix))]
+    let bytes = String::from_utf8(path.into_encoded_bytes())
+        .or_raise(utf8_error)?
+        .into_bytes();
+    Ok(bytes.into())
 }
 
 /// Like [`into_bstr()`], but takes `Cow<OsStr>` as input for a lossless, but fallible, conversion.
@@ -44,41 +54,11 @@ pub fn try_os_str_into_bstr(path: Cow<'_, OsStr>) -> Result<Cow<'_, BStr>> {
 ///
 /// On non-Unix platforms, if the source `Path` contains ill-formed, lone surrogates, the UTF-8 conversion will fail
 /// causing a [`gix_error::Error`] with the encoding failure as its source to be returned.
-pub fn try_into_bstr<'a>(path: impl Into<Cow<'a, Path>>) -> Result<Cow<'a, BStr>> {
-    let path = path.into();
-    let path_str = match path {
-        Cow::Owned(path) => Cow::Owned({
-            #[cfg(unix)]
-            let p: BString = {
-                use std::os::unix::ffi::OsStringExt;
-                path.into_os_string().into_vec().into()
-            };
-            #[cfg(not(unix))]
-            let p: BString = String::from_utf8(path.into_os_string().into_encoded_bytes())
-                .or_raise(utf8_error)?
-                .into();
-            p
-        }),
-        Cow::Borrowed(path) => Cow::Borrowed({
-            #[cfg(unix)]
-            let p: &BStr = {
-                use std::os::unix::ffi::OsStrExt;
-                path.as_os_str().as_bytes().into()
-            };
-            #[cfg(not(unix))]
-            let p: &BStr = std::str::from_utf8(path.as_os_str().as_encoded_bytes())
-                .or_raise(utf8_error)?
-                .as_bytes()
-                .into();
-            p
-        }),
-    };
-    Ok(path_str)
-}
-
-/// Similar to [`try_into_bstr()`] but **panics** if malformed surrogates are encountered on Windows.
-pub fn into_bstr<'a>(path: impl Into<Cow<'a, Path>>) -> Cow<'a, BStr> {
-    try_into_bstr(path).expect("prefix path doesn't contain ill-formed UTF-8")
+pub fn into_bstr<'a>(path: impl Into<Cow<'a, Path>>) -> Result<Cow<'a, BStr>> {
+    match path.into() {
+        Cow::Owned(path) => os_string_into_bstring(path.into_os_string()).map(Cow::Owned),
+        Cow::Borrowed(path) => os_str_into_bstr(path.as_os_str()).map(Cow::Borrowed),
+    }
 }
 
 /// Join `path` to `base` such that they are separated with a `/`, i.e. `base/path`.
@@ -93,10 +73,8 @@ pub fn join_bstr_unix_pathsep<'a, 'b>(base: impl Into<Cow<'a, BStr>>, path: impl
 
 /// Given `input` bytes, produce a `Path` from them ignoring encoding entirely if on Unix.
 ///
-/// On non-Unix platforms, the input is required to be valid UTF-8, which is guaranteed if we wrote it before.
-/// There are some potential Git versions and Windows installations which produce malformed UTF-16
-/// if certain emojis are in the path. It's as rare as it sounds, but possible.
-pub fn try_from_byte_slice(input: &[u8]) -> Result<&Path> {
+/// On non-Unix platforms, invalid UTF-8 returns an error with the encoding failure as its source.
+pub fn from_byte_slice(input: &[u8]) -> Result<&Path> {
     #[cfg(unix)]
     let p = {
         use std::os::unix::ffi::OsStrExt;
@@ -108,21 +86,16 @@ pub fn try_from_byte_slice(input: &[u8]) -> Result<&Path> {
 }
 
 /// Similar to [`from_byte_slice()`], but takes either borrowed or owned `input`.
-pub fn try_from_bstr<'a>(input: impl Into<Cow<'a, BStr>>) -> Result<Cow<'a, Path>> {
+pub fn from_bstr<'a>(input: impl Into<Cow<'a, BStr>>) -> Result<Cow<'a, Path>> {
     let input = input.into();
     match input {
-        Cow::Borrowed(input) => try_from_byte_slice(input).map(Cow::Borrowed),
-        Cow::Owned(input) => try_from_bstring(input).map(Cow::Owned),
+        Cow::Borrowed(input) => from_byte_slice(input).map(Cow::Borrowed),
+        Cow::Owned(input) => from_bstring(input).map(Cow::Owned),
     }
 }
 
-/// Similar to [`try_from_bstr()`], but **panics** if malformed surrogates are encountered on Windows.
-pub fn from_bstr<'a>(input: impl Into<Cow<'a, BStr>>) -> Cow<'a, Path> {
-    try_from_bstr(input).expect("prefix path doesn't contain ill-formed UTF-8")
-}
-
-/// Similar to [`try_from_bstr()`], but takes and produces owned data.
-pub fn try_from_bstring(input: impl Into<BString>) -> Result<PathBuf> {
+/// Similar to [`from_bstr()`], but takes and produces owned data.
+pub fn from_bstring(input: impl Into<BString>) -> Result<PathBuf> {
     let input = input.into();
     #[cfg(unix)]
     let p = {
@@ -132,16 +105,6 @@ pub fn try_from_bstring(input: impl Into<BString>) -> Result<PathBuf> {
     #[cfg(not(unix))]
     let p = PathBuf::from(String::from_utf8(input.into()).or_raise(utf8_error)?);
     Ok(p)
-}
-
-/// Similar to [`try_from_bstring()`], but will **panic** if there is ill-formed UTF-8 in the `input`.
-pub fn from_bstring(input: impl Into<BString>) -> PathBuf {
-    try_from_bstring(input).expect("well-formed UTF-8 on windows")
-}
-
-/// Similar to [`try_from_byte_slice()`], but will **panic** if there is ill-formed UTF-8 in the `input`.
-pub fn from_byte_slice(input: &[u8]) -> &Path {
-    try_from_byte_slice(input).expect("well-formed UTF-8 on windows")
 }
 
 fn replace<'a>(path: impl Into<Cow<'a, BStr>>, find: u8, replace: u8) -> Cow<'a, BStr> {
@@ -176,8 +139,8 @@ pub fn to_native_separators<'a>(path: impl Into<Cow<'a, BStr>>) -> Cow<'a, BStr>
 }
 
 /// Convert paths with slashes to backslashes on Windows and do nothing on Unix,
-/// but **panic** if unpaired surrogates are encountered on Windows.
-pub fn to_native_path_on_windows<'a>(path: impl Into<Cow<'a, BStr>>) -> Cow<'a, std::path::Path> {
+/// returning an error for invalid UTF-8 on non-Unix platforms.
+pub fn to_native_path_on_windows<'a>(path: impl Into<Cow<'a, BStr>>) -> Result<Cow<'a, std::path::Path>> {
     #[cfg(not(windows))]
     {
         crate::from_bstr(path)
@@ -255,8 +218,10 @@ pub fn normalize<'a>(path: Cow<'a, Path>, current_dir: &Path) -> Option<Cow<'a, 
 }
 
 /// Like [`normalize()`], but treats `..` components beyond the filesystem root as no-ops.
-pub fn normalize_saturating<'a>(path: Cow<'a, Path>, current_dir: &Path) -> Cow<'a, Path> {
-    normalize_inner(path, current_dir, true).expect("saturating normalization always produces a path")
+/// Returns an error if normalization exhausts an empty or relative `current_dir`.
+pub fn normalize_saturating<'a>(path: Cow<'a, Path>, current_dir: &Path) -> Result<Cow<'a, Path>> {
+    normalize_inner(path, current_dir, true)
+        .ok_or_raise(|| gix_error::validation("Cannot normalize a path after exhausting the current directory"))
 }
 
 fn normalize_inner<'a>(path: Cow<'a, Path>, current_dir: &Path, saturate_at_root: bool) -> Option<Cow<'a, Path>> {

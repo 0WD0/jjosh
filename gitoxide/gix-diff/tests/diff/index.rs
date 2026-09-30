@@ -1,4 +1,3 @@
-use crate::Result;
 use gix_diff::{
     Rewrites,
     index::Change,
@@ -6,10 +5,11 @@ use gix_diff::{
 };
 use gix_error::ErrorExt;
 use gix_object::bstr::BStr;
+use gix_testtools::TestResult;
 
 #[test]
-fn empty_to_new_tree_without_rename_tracking() -> Result {
-    let changes = collect_changes_no_renames(None, "c1 - initial").expect("really just an addition - nothing to track");
+fn empty_to_new_tree_without_rename_tracking() -> TestResult {
+    let changes = collect_changes_no_renames(None, "c1 - initial")?;
     insta::assert_snapshot!(crate::normalize_debug_snapshot(&changes).0, @r#"
     [
         Addition {
@@ -69,7 +69,7 @@ fn empty_to_new_tree_without_rename_tracking() -> Result {
 }
 
 #[test]
-fn changes_against_modified_tree_with_filename_tracking() -> Result {
+fn changes_against_modified_tree_with_filename_tracking() -> TestResult {
     let changes = collect_changes_no_renames("c2", "c3-modification")?;
     insta::assert_snapshot!(crate::normalize_debug_snapshot(&changes).0, @r#"
     [
@@ -105,7 +105,7 @@ fn changes_against_modified_tree_with_filename_tracking() -> Result {
 }
 
 #[test]
-fn renames_by_identity() -> Result {
+fn renames_by_identity() -> TestResult {
     for (from, to, expected, assert_msg, track_empty) in [
         (
             "c3-modification",
@@ -196,8 +196,7 @@ fn renames_by_identity() -> Result {
 }
 
 #[test]
-fn rename_by_similarity() -> Result {
-    insta::allow_duplicates! {
+fn rename_by_similarity() -> TestResult {
     for percentage in [
         None,
         Some(0.76), /*cutoff point where git stops seeing it as equal */
@@ -209,7 +208,8 @@ fn rename_by_similarity() -> Result {
                 percentage,
                 ..Default::default()
             }),
-        ).expect("errors can only happen with IO or ODB access fails");
+        )?;
+        insta::allow_duplicates! {
             insta::assert_snapshot!(crate::normalize_debug_snapshot(&changes).0, @r#"
             [
                 Modification {
@@ -243,11 +243,11 @@ fn rename_by_similarity() -> Result {
                 },
             ]
             "#);
-            let out = out.expect("tracking enabled");
-            assert_eq!(out.num_similarity_checks, if percentage.is_some() { 1 } else { 0 });
-            assert_eq!(out.num_similarity_checks_skipped_for_rename_tracking_due_to_limit, 0);
-            assert_eq!(out.num_similarity_checks_skipped_for_copy_tracking_due_to_limit, 0);
         }
+        let out = out.expect("tracking enabled");
+        assert_eq!(out.num_similarity_checks, if percentage.is_some() { 1 } else { 0 });
+        assert_eq!(out.num_similarity_checks_skipped_for_rename_tracking_due_to_limit, 0);
+        assert_eq!(out.num_similarity_checks_skipped_for_copy_tracking_due_to_limit, 0);
     }
 
     let (changes, out) = collect_changes_opts(
@@ -258,8 +258,7 @@ fn rename_by_similarity() -> Result {
             limit: 1, // has no effect as it's just one item here.
             ..Default::default()
         }),
-    )
-    .expect("it found all items at the cut-off point, similar to git");
+    )?;
 
     insta::assert_snapshot!(crate::normalize_debug_snapshot(&changes).0, @r#"
     [
@@ -302,7 +301,7 @@ fn rename_by_similarity() -> Result {
 }
 
 #[test]
-fn renames_by_similarity_with_limit() -> Result {
+fn renames_by_similarity_with_limit() -> TestResult {
     let (changes, out) = collect_changes_opts(
         "c6",
         "r5",
@@ -360,7 +359,7 @@ fn renames_by_similarity_with_limit() -> Result {
 }
 
 #[test]
-fn copies_by_identity() -> Result {
+fn copies_by_identity() -> TestResult {
     let (changes, out) = collect_changes_opts(
         "c7",
         "tc1-identity",
@@ -431,7 +430,7 @@ fn copies_by_identity() -> Result {
 }
 
 #[test]
-fn copies_by_similarity() -> Result {
+fn copies_by_similarity() -> TestResult {
     let (changes, out) = collect_changes_opts(
         "tc1-identity",
         "tc2-similarity",
@@ -502,7 +501,7 @@ fn copies_by_similarity() -> Result {
 }
 
 #[test]
-fn copies_in_entire_tree_by_similarity() -> Result {
+fn copies_in_entire_tree_by_similarity() -> TestResult {
     let (changes, out) = collect_changes_opts(
         "tc2-similarity",
         "tc3-find-harder",
@@ -616,7 +615,7 @@ fn copies_in_entire_tree_by_similarity() -> Result {
 }
 
 #[test]
-fn copies_in_entire_tree_by_similarity_with_limit() -> Result {
+fn copies_in_entire_tree_by_similarity_with_limit() -> TestResult {
     let (changes, out) = collect_changes_opts(
         "tc2-similarity",
         "tc3-find-harder",
@@ -700,7 +699,7 @@ fn copies_in_entire_tree_by_similarity_with_limit() -> Result {
 }
 
 #[test]
-fn realistic_renames_by_identity() -> Result {
+fn realistic_renames_by_identity() -> TestResult {
     let (changes, out) = collect_changes_opts(
         "r1-base",
         "r1-change",
@@ -762,7 +761,7 @@ fn realistic_renames_by_identity() -> Result {
 }
 
 #[test]
-fn realistic_renames_disabled() -> Result {
+fn realistic_renames_disabled() -> TestResult {
     let changes = collect_changes_no_renames("r1-base", "r1-change")?;
     insta::assert_snapshot!(crate::normalize_debug_snapshot(&(changes.into_iter().collect::<Vec<_>>())).0, @r#"
     [
@@ -809,7 +808,7 @@ fn realistic_renames_disabled() -> Result {
 }
 
 #[test]
-fn realistic_renames_disabled_3() -> Result {
+fn realistic_renames_disabled_3() -> TestResult {
     let changes = collect_changes_no_renames("r3-base", "r3-change")?;
 
     insta::assert_snapshot!(crate::normalize_debug_snapshot(&(changes.into_iter().collect::<Vec<_>>())).0, @r#"
@@ -853,7 +852,7 @@ fn realistic_renames_disabled_3() -> Result {
 }
 
 #[test]
-fn realistic_renames_by_identity_3() -> Result {
+fn realistic_renames_by_identity_3() -> TestResult {
     let (changes, out) = collect_changes_opts(
         "r3-base",
         "r3-change",
@@ -912,7 +911,7 @@ fn realistic_renames_by_identity_3() -> Result {
 }
 
 #[test]
-fn realistic_renames_2() -> Result {
+fn realistic_renames_2() -> TestResult {
     let (changes, out) = collect_changes_opts(
         "r2-base",
         "r2-change",
@@ -1071,7 +1070,7 @@ fn realistic_renames_2() -> Result {
 }
 
 #[test]
-fn realistic_renames_3_without_identity() -> Result {
+fn realistic_renames_3_without_identity() -> TestResult {
     let (changes, out) = collect_changes_opts(
         "r4-base",
         "r4-dir-rename-non-identity",
@@ -1318,7 +1317,7 @@ fn sparse_indices_are_invalid_diff_input() -> gix_error::TestResult {
 }
 
 #[test]
-fn unmerged_entries_and_intent_to_add() -> Result {
+fn unmerged_entries_and_intent_to_add() -> TestResult {
     let (changes, _out) = collect_changes_opts(
         "r4-dir-rename-non-identity",
         ".git/index",

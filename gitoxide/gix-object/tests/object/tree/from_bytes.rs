@@ -1,10 +1,9 @@
-use crate::Result;
 use gix_object::{Tree, TreeRef, TreeRefIter, WriteTo, bstr::ByteSlice, tree, tree::EntryRef};
 
 use crate::{fixture_oid, tree_fixture};
 
 #[test]
-fn empty() -> Result {
+fn empty() -> gix_testtools::TestResult {
     let tree_ref = TreeRef::from_bytes(&[], gix_testtools::object_hash())?;
     assert_eq!(
         tree_ref,
@@ -23,7 +22,7 @@ fn empty() -> Result {
 }
 
 #[test]
-fn everything() -> Result {
+fn everything() -> gix_testtools::TestResult {
     let fixture = tree_fixture("everything.tree")?;
     let hash_kind = crate::fixture_hash_kind();
     let tree_ref = TreeRef::from_bytes(&fixture, hash_kind)?;
@@ -95,7 +94,7 @@ fn fuzz_artifact_inputs_can_be_parsed_without_panicking() {
 }
 
 #[test]
-fn special_trees() -> Result {
+fn special_trees() -> gix_testtools::TestResult {
     let hash_kind = crate::fixture_hash_kind();
     for (name, expected_entry_count) in [
         ("maybe-special", 160),
@@ -118,7 +117,7 @@ fn special_trees() -> Result {
         );
         // Show we can roundtrip
         let mut buf: Vec<u8> = Default::default();
-        actual.write_to(&mut buf).expect("Failed to write bytes to buffer");
+        actual.write_to(&mut buf)?;
         assert_eq!(buf, fixture);
     }
     Ok(())

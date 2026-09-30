@@ -55,14 +55,13 @@ fn malformed_fanout_is_reported_without_panicking() {
 /// Reproducer for the allocation-limit fuzz case: long user-controlled pack names in the `PNAM`
 /// chunk must be rejected as resource exhaustion when they exceed the configured allocation limit.
 #[test]
-fn long_pack_names_over_alloc_limit_bytes_are_resource_exhaustion() {
+fn long_pack_names_over_alloc_limit_bytes_are_resource_exhaustion() -> gix_testtools::TestResult {
     let long_name = format!("{}.idx", "a".repeat(65));
     let index = gix_pack::multi_index::File::from_data(
         valid_multi_index_with_index_name(long_name.as_bytes()),
         PathBuf::from("fuzzed-long-name.midx"),
         None,
-    )
-    .expect("synthetic multi-index is valid");
+    )?;
 
     assert_eq!(index.index_names(), [PathBuf::from(&long_name)]);
 
@@ -82,6 +81,7 @@ fn long_pack_names_over_alloc_limit_bytes_are_resource_exhaustion() {
         "an application limit doesn't make otherwise valid input corrupt"
     );
     insta::assert_debug_snapshot!(err, "the error explains the allocation-limit failure", @"Pack names require more memory than allowed");
+    Ok(())
 }
 
 /// Reproducer for the fuzz target OOM case: the harness uses an allocation cap so attacker-controlled
@@ -103,7 +103,7 @@ fn absurd_pack_count_is_rejected_with_fuzz_alloc_limit() {
 }
 
 #[test]
-fn out_of_bounds_pack_indices_are_rejected_on_access() -> gix_error::TestResult {
+fn out_of_bounds_pack_indices_are_rejected_on_access() -> gix_testtools::TestResult {
     for pack_index in [1, u32::MAX] {
         let index = gix_pack::multi_index::File::from_data(
             multi_index_with_offset(b"a.idx", pack_index, 0, None),
@@ -135,7 +135,7 @@ fn out_of_bounds_pack_indices_are_rejected_on_access() -> gix_error::TestResult 
 }
 
 #[test]
-fn out_of_bounds_large_offsets_are_rejected_on_access() -> gix_error::TestResult {
+fn out_of_bounds_large_offsets_are_rejected_on_access() -> gix_testtools::TestResult {
     for ordinal in [1, 0x7fff_ffff] {
         let index = gix_pack::multi_index::File::from_data(
             multi_index_with_offset(b"a.idx", 0, (1 << 31) | ordinal, Some(&[1 << 32])),
@@ -167,7 +167,7 @@ fn out_of_bounds_large_offsets_are_rejected_on_access() -> gix_error::TestResult
 }
 
 #[test]
-fn out_of_bounds_entry_indices_are_validation_errors() -> gix_error::TestResult {
+fn out_of_bounds_entry_indices_are_validation_errors() -> gix_testtools::TestResult {
     let index = gix_pack::multi_index::File::from_data(
         valid_multi_index_with_index_name(b"a.idx"),
         PathBuf::from("valid.midx"),
@@ -187,7 +187,7 @@ fn out_of_bounds_entry_indices_are_validation_errors() -> gix_error::TestResult 
 }
 
 #[test]
-fn integrity_verification_rejects_corrupt_offset_references() -> gix_error::TestResult {
+fn integrity_verification_rejects_corrupt_offset_references() -> gix_testtools::TestResult {
     for mut data in [
         multi_index_with_offset(b"a.idx", 1, 0, None),
         multi_index_with_offset(b"a.idx", 0, (1 << 31) | 1, Some(&[1 << 32])),
@@ -213,7 +213,7 @@ fn integrity_verification_rejects_corrupt_offset_references() -> gix_error::Test
 }
 
 #[test]
-fn high_bit_offsets_follow_the_presence_of_the_large_offset_chunk() -> gix_error::TestResult {
+fn high_bit_offsets_follow_the_presence_of_the_large_offset_chunk() -> gix_testtools::TestResult {
     for (offset, large_offsets, expected) in [
         (1 << 31, Some(&[1 << 32][..]), 1 << 32),
         ((1 << 31) | 1, Some(&[1 << 32, 1 << 33][..]), 1 << 33),
@@ -225,8 +225,7 @@ fn high_bit_offsets_follow_the_presence_of_the_large_offset_chunk() -> gix_error
             multi_index_with_offset(b"a.idx", 0, offset, large_offsets),
             PathBuf::from("valid-large-offset.midx"),
             None,
-        )
-        .expect("a high bit indicates a large-offset ordinal only when LOFF is present");
+        )?;
         assert_eq!(
             index.pack_id_and_pack_offset_at_index(0)?,
             (0, expected),

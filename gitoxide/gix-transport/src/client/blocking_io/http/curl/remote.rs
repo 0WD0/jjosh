@@ -923,15 +923,14 @@ mod tests {
     }
 
     #[test]
-    fn aborted_uploads_preserve_the_callback_error() {
+    fn aborted_uploads_preserve_the_callback_error() -> gix_testtools::TestResult {
         let (writer, reader) = pipe::unidirectional(1);
         writer
             .channel
             .send(Err(io::Error::other(gix_error::ClassificationMarker::with_source(
                 gix_error::Class::Retryable,
                 gix_error::not_found("custom upload source is unavailable"),
-            ))))
-            .expect("the upload reader is alive");
+            ))))?;
         let mut handler = Handler {
             receive_body: Some(StreamOrBuffer::Stream(reader)),
             ..Default::default()
@@ -953,6 +952,7 @@ mod tests {
         assert!(err.is_not_found(), "other callback classifications survive too");
         assert!(err.downcast_any_ref::<curl::Error>().is_some());
         assert!(handler.io_error.is_none(), "a later request cannot reuse this failure");
+        Ok(())
     }
 
     #[test]

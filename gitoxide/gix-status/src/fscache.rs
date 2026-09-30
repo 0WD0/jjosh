@@ -316,7 +316,7 @@ mod windows {
         let dir = if rel_dir.is_empty() {
             worktree.to_owned()
         } else {
-            worktree.join(gix_path::from_bstr(rel_dir))
+            worktree.join(gix_path::from_bstr(rel_dir).ok()?)
         };
         let dir_path = utf16_null_terminated(&dir);
         #[expect(unsafe_code)]

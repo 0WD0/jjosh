@@ -11,21 +11,22 @@ mod tag;
 mod tree;
 
 #[test]
-fn compute_hash() {
+fn compute_hash() -> gix_testtools::TestResult {
     for hk in gix_hash::Kind::all() {
         assert_eq!(
-            gix_object::compute_hash(*hk, gix_object::Kind::Blob, &[]).expect("empty hash doesn’t collide"),
+            gix_object::compute_hash(*hk, gix_object::Kind::Blob, &[])?,
             gix_hash::ObjectId::empty_blob(*hk)
         );
         assert_eq!(
-            gix_object::compute_hash(*hk, gix_object::Kind::Tree, &[]).expect("empty hash doesn’t collide"),
+            gix_object::compute_hash(*hk, gix_object::Kind::Tree, &[])?,
             gix_hash::ObjectId::empty_tree(*hk)
         );
     }
+    Ok(())
 }
 
 #[test]
-fn compute_stream_hash() {
+fn compute_stream_hash() -> gix_testtools::TestResult {
     for hk in gix_hash::Kind::all() {
         assert_eq!(
             gix_object::compute_stream_hash(
@@ -35,8 +36,7 @@ fn compute_stream_hash() {
                 0,
                 &mut gix_features::progress::Discard,
                 &AtomicBool::default()
-            )
-            .expect("in-memory works"),
+            )?,
             gix_hash::ObjectId::empty_blob(*hk)
         );
         assert_eq!(
@@ -47,15 +47,15 @@ fn compute_stream_hash() {
                 0,
                 &mut gix_features::progress::Discard,
                 &AtomicBool::default()
-            )
-            .expect("in-memory works"),
+            )?,
             gix_hash::ObjectId::empty_tree(*hk)
         );
     }
+    Ok(())
 }
 
 #[test]
-fn never_writes_to_nowhere_and_finds_nothing() -> Result {
+fn never_writes_to_nowhere_and_finds_nothing() -> gix_testtools::TestResult {
     let db = gix_object::find::Never;
     let data = b"content";
     let expected = gix_object::compute_hash(gix_hash::Kind::default(), gix_object::Kind::Blob, data)?;

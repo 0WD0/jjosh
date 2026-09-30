@@ -12,15 +12,14 @@ mod shallow {
 
 #[cfg(any(feature = "blocking-network-client", feature = "async-network-client-async-std"))]
 mod blocking_and_async_io {
-    use crate::Result;
+    use gix_testtools::{Result, TestResult};
     use std::sync::atomic::AtomicBool;
 
     use gix::{
         config::tree::Protocol,
         remote::{Direction::Fetch, fetch, fetch::Status},
     };
-    #[cfg(feature = "blocking-network-client")]
-    use gix_error::TestResult;
+
     use gix_features::progress;
     use gix_protocol::bisync;
     use gix_testtools::tempfile::TempDir;
@@ -296,7 +295,7 @@ mod blocking_and_async_io {
 
     #[test]
     #[cfg(feature = "blocking-network-client")]
-    fn fetch_with_alternates_adds_tips_from_alternates() -> Result<()> {
+    fn fetch_with_alternates_adds_tips_from_alternates() -> TestResult {
         use gix::error::ResultExt;
 
         // Isolated repository options don't sanitize the ambient Git config inherited by local `upload-pack`.
@@ -353,7 +352,7 @@ mod blocking_and_async_io {
     #[bisync::bisync]
     #[cfg_attr(feature = "blocking-network-client", test)]
     #[cfg_attr(feature = "async-network-client-async-std", async_std::test)]
-    async fn local_transport_fetches_head_against_remote_refs() -> Result {
+    async fn local_transport_fetches_head_against_remote_refs() -> TestResult {
         // Blocking local transport spawns `upload-pack`, which inherits ambient Git configuration.
         // Isolate it in a child to keep fetch I/O parallel without changing the parent environment.
         #[cfg(feature = "blocking-network-client")]
@@ -411,7 +410,7 @@ mod blocking_and_async_io {
     #[bisync::bisync]
     #[cfg_attr(feature = "blocking-network-client", test)]
     #[cfg_attr(feature = "async-network-client-async-std", async_std::test)]
-    async fn fetch_ignores_dangling_symbolic_refs_during_negotiation() -> Result {
+    async fn fetch_ignores_dangling_symbolic_refs_during_negotiation() -> TestResult {
         // Blocking local transport spawns `upload-pack`, which inherits ambient Git configuration.
         // Isolate it in a child to keep fetch I/O parallel without changing the parent environment.
         #[cfg(feature = "blocking-network-client")]
@@ -459,7 +458,7 @@ mod blocking_and_async_io {
     #[bisync::bisync]
     #[cfg_attr(feature = "blocking-network-client", test)]
     #[cfg_attr(feature = "async-network-client-async-std", async_std::test)]
-    async fn fetch_with_multi_round_negotiation() -> Result {
+    async fn fetch_with_multi_round_negotiation() -> TestResult {
         // Blocking local clone/fetch spawns `upload-pack`, which inherits ambient Git configuration.
         // Use a child to keep negotiation I/O parallel without changing the parent environment.
         #[cfg(feature = "blocking-network-client")]
@@ -545,7 +544,7 @@ mod blocking_and_async_io {
     #[bisync::bisync]
     #[cfg_attr(feature = "blocking-network-client", test)]
     #[cfg_attr(feature = "async-network-client-async-std", async_std::test)]
-    async fn fetch_shallow_deepen_zero_does_not_fail() -> Result {
+    async fn fetch_shallow_deepen_zero_does_not_fail() -> TestResult {
         // Even without deepening, blocking local transport spawns `upload-pack` with ambient Git config.
         // Isolate it in a child to keep fetch I/O parallel without changing the parent environment.
         #[cfg(feature = "blocking-network-client")]
@@ -589,7 +588,7 @@ mod blocking_and_async_io {
     #[bisync::bisync]
     #[cfg_attr(feature = "blocking-network-client", test)]
     #[cfg_attr(feature = "async-network-client-async-std", async_std::test)]
-    async fn fetch_shallow_deepen_not_possible() -> Result {
+    async fn fetch_shallow_deepen_not_possible() -> TestResult {
         // Blocking local transport spawns `upload-pack`, which inherits ambient Git configuration.
         // Isolate it in a child to keep shallow-fetch I/O parallel without changing the parent environment.
         #[cfg(feature = "blocking-network-client")]
@@ -650,7 +649,7 @@ mod blocking_and_async_io {
     #[bisync::bisync]
     #[cfg_attr(feature = "blocking-network-client", test)]
     #[cfg_attr(feature = "async-network-client-async-std", async_std::test)]
-    async fn fetch_empty_pack() -> Result {
+    async fn fetch_empty_pack() -> TestResult {
         // Even without receiving a pack, blocking local transport spawns `upload-pack` with ambient Git config.
         // Isolate it in a child to keep fetch I/O parallel without changing the parent environment.
         #[cfg(feature = "blocking-network-client")]
@@ -736,7 +735,7 @@ mod blocking_and_async_io {
     #[bisync::bisync]
     #[cfg_attr(feature = "blocking-network-client", test)]
     #[cfg_attr(feature = "async-network-client-async-std", async_std::test)]
-    async fn fetch_pack_without_local_destination() -> Result {
+    async fn fetch_pack_without_local_destination() -> TestResult {
         // Blocking local transport spawns `upload-pack`, which inherits ambient Git configuration.
         // Isolate it in a child to keep fetch I/O parallel without changing the parent environment.
         #[cfg(feature = "blocking-network-client")]
@@ -811,7 +810,7 @@ mod blocking_and_async_io {
     #[bisync::bisync]
     #[cfg_attr(feature = "blocking-network-client", test)]
     #[cfg_attr(feature = "async-network-client-async-std", async_std::test)]
-    async fn fetching_a_missing_explicit_ref_fails_even_if_ls_refs_returns_nothing() -> Result {
+    async fn fetching_a_missing_explicit_ref_fails_even_if_ls_refs_returns_nothing() -> TestResult {
         // Blocking local ref discovery spawns `upload-pack` with ambient Git config, even for a missing ref.
         // Isolate it in a child to keep Git I/O parallel without changing the parent environment.
         #[cfg(feature = "blocking-network-client")]
@@ -847,7 +846,7 @@ mod blocking_and_async_io {
     #[bisync::bisync]
     #[cfg_attr(feature = "blocking-network-client", test)]
     #[cfg_attr(feature = "async-network-client-async-std", async_std::test)]
-    async fn fetch_pack() -> Result {
+    async fn fetch_pack() -> TestResult {
         // Blocking local transport spawns `upload-pack`, which inherits ambient Git configuration.
         // Isolate it in a child to keep fetch I/O parallel without changing the parent environment.
         #[cfg(feature = "blocking-network-client")]

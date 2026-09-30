@@ -1,4 +1,4 @@
-use crate::Result;
+use crate::TestResult;
 
 fn file(input: &str) -> gix_config::File {
     input.parse().unwrap()
@@ -51,7 +51,7 @@ fn comment_included() {
 }
 
 #[test]
-fn non_existing_values_cannot_be_set() -> Result {
+fn non_existing_values_cannot_be_set() -> TestResult {
     let mut file = gix_config::File::default();
     file.set_raw_value_by("new", None, "key", "value")?;
     file.set_raw_value_by("new", "subsection", "key", "subsection-value")?;
@@ -66,7 +66,7 @@ fn non_existing_values_cannot_be_set() -> Result {
 }
 
 #[test]
-fn accepts_short_lived_keys() -> Result {
+fn accepts_short_lived_keys() -> TestResult {
     let mut file = gix_config::File::default();
     let key = String::from("new.key");
 

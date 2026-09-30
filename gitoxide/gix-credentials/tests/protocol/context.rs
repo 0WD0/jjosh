@@ -1,5 +1,5 @@
 mod destructure_url_in_place {
-    use crate::Result;
+    use crate::TestResult;
     use gix_credentials::protocol::Context;
 
     fn url_ctx(url: &str) -> Context {
@@ -39,7 +39,7 @@ mod destructure_url_in_place {
     }
 
     #[test]
-    fn passwords_are_placed_in_context_too() -> Result {
+    fn passwords_are_placed_in_context_too() -> TestResult {
         let mut ctx = url_ctx("http://user:password@host/path");
         ctx.destructure_url_in_place(false)?;
         assert_eq!(ctx.password.as_deref(), Some("password"));
@@ -80,7 +80,7 @@ mod destructure_url_in_place {
     }
 
     #[test]
-    fn component_paths_retain_existing_http_path_semantics() -> Result {
+    fn component_paths_retain_existing_http_path_semantics() -> TestResult {
         for protocol in ["https", "ssh"] {
             for use_http_path in [false, true] {
                 for (path, normalized) in [("/repo/", Some("repo")), ("/", None)] {
@@ -108,7 +108,7 @@ mod destructure_url_in_place {
     }
 
     #[test]
-    fn an_explicit_url_still_replaces_supplied_components() -> Result {
+    fn an_explicit_url_still_replaces_supplied_components() -> TestResult {
         let mut ctx = Context {
             url: Some("https://url-user:url-password@url.example/repo".into()),
             protocol: Some("http".into()),
@@ -142,7 +142,7 @@ mod destructure_url_in_place {
     }
 
     #[test]
-    fn protocol_and_host_with_path_without_url_constructs_full_url() {
+    fn protocol_and_host_with_path_without_url_constructs_full_url() -> TestResult {
         let mut ctx = Context {
             protocol: Some("https".into()),
             host: Some("github.com".into()),
@@ -151,8 +151,7 @@ mod destructure_url_in_place {
             password: Some("pass-to-be-ignored".into()),
             ..Default::default()
         };
-        ctx.destructure_url_in_place(false)
-            .expect("should work with protocol, host and path");
+        ctx.destructure_url_in_place(false)?;
 
         assert_eq!(
             ctx.url.unwrap(),
@@ -163,6 +162,7 @@ mod destructure_url_in_place {
         assert_eq!(ctx.protocol.as_deref(), Some("https"));
         assert_eq!(ctx.host.as_deref(), Some("github.com"));
         assert_eq!(ctx.path.unwrap(), "org/repo");
+        Ok(())
     }
 
     #[test]
@@ -204,11 +204,11 @@ mod to_prompt {
 }
 
 mod to_url {
-    use crate::Result;
+    use crate::TestResult;
     use gix_credentials::protocol::Context;
 
     #[test]
-    fn component_delimiters_cannot_change_the_credential_identity() -> Result {
+    fn component_delimiters_cannot_change_the_credential_identity() -> TestResult {
         for protocol in ["http", "https", "ssh", "git"] {
             for user in [
                 "github.com/",
@@ -259,7 +259,7 @@ mod to_url {
     }
 
     #[test]
-    fn hosts_keep_ports_ipv6_and_scheme_specific_percent_encoding() -> Result {
+    fn hosts_keep_ports_ipv6_and_scheme_specific_percent_encoding() -> TestResult {
         for (protocol, host, encoded_host) in [
             ("https", "[::1]:8443", "[::1]:8443"),
             ("https", "[fe80::1%25eth0]:8443", "[fe80::1%25eth0]:8443"),

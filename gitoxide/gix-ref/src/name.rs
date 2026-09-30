@@ -96,7 +96,8 @@ impl PartialNameRef {
 impl PartialNameRef {
     /// Convert this name into the relative path possibly identifying the reference location.
     /// Note that it may be only a partial path though.
-    pub fn to_partial_path(&self) -> &Path {
+    /// Return an error if the name cannot be represented as a native path.
+    pub fn to_partial_path(&self) -> gix_error::Result<&Path> {
         gix_path::from_byte_slice(self.0.as_bstr())
     }
 

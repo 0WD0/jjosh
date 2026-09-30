@@ -46,7 +46,7 @@ pub mod shebang {
             .map_or(line.len(), |space_idx| slash_idx + space_idx);
         let (interpreter, args) = line.split_at(space_idx);
         Some(Data {
-            interpreter: gix_path::try_from_byte_slice(interpreter.trim()).ok()?.to_owned(),
+            interpreter: gix_path::from_byte_slice(interpreter.trim()).ok()?.to_owned(),
             args: crate::parse::arguments(args.trim().as_bstr()).unwrap_or_default(),
         })
     }
@@ -63,6 +63,10 @@ pub mod shebang {
 
 /// A structure to keep settings to use when invoking a command via [`spawn()`][Prepare::spawn()],
 /// after creating it with [`prepare()`].
+///
+/// Convert it to [`std::process::Command`] with [`TryFrom::try_from()`] to finish preparation
+/// without spawning. Preparation reports an error when shell quoting or namespace conversion
+/// requires an encoding the platform cannot represent.
 pub struct Prepare {
     /// The command to invoke, either directly or with a shell depending on `use_shell`.
     pub command: OsString,

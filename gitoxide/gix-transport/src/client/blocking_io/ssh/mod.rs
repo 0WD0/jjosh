@@ -13,6 +13,7 @@ use crate::{Protocol, client::blocking_io::file::SpawnProcessOnDemand};
 pub enum Error {
     UnsupportedScheme(gix_url::Url),
     AmbiguousHostName { host: String },
+    PrepareCommand(gix_error::Error),
 }
 
 impl std::fmt::Display for Error {
@@ -26,6 +27,7 @@ impl std::fmt::Display for Error {
             Error::AmbiguousHostName { host } => {
                 write!(f, "Host name '{host}' could be mistaken for a command-line argument")
             }
+            Error::PrepareCommand(_) => f.write_str("Could not prepare the ssh command"),
         }
     }
 }
@@ -35,6 +37,7 @@ impl std::error::Error for Error {
         match self {
             Error::AmbiguousHostName { .. } => Some(const { &gix_error::ClassificationMarker::VALIDATION }),
             Error::UnsupportedScheme(_) => Some(const { &gix_error::ClassificationMarker::UNSUPPORTED }),
+            Error::PrepareCommand(err) => Some(err),
         }
     }
 }
@@ -218,7 +221,7 @@ fn build_client_feature_check_command(ssh_cmd: &OsStr, url: &Url, disallow_shell
     if disallow_shell {
         prepare.use_shell = false;
     }
-    Ok(prepare.into())
+    prepare.try_into().map_err(Error::PrepareCommand)
 }
 
 #[cfg(test)]

@@ -1,4 +1,3 @@
-use crate::Result;
 use crate::fixture_path;
 
 #[test]
@@ -19,7 +18,7 @@ fn unsupported_version_is_not_invalid_input_or_corruption() {
 }
 
 #[test]
-fn encode_decode_roundtrip() -> Result {
+fn encode_decode_roundtrip() -> gix_testtools::TestResult {
     let buf = std::fs::read(fixture_path(
         "objects/pack/pack-11fdfa9e156ab73caae3b6da867192221f2089c2.pack",
     ))?;

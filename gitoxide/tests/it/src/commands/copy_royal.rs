@@ -31,7 +31,7 @@ pub(super) mod function {
             .index_entries_with_paths(&index)
             .ok_or_raise(|| message("Didn't find a single entry to copy"))?
         {
-            let rela_path = gix::path::from_bstr(rela_path);
+            let rela_path = gix::path::from_bstr(rela_path)?;
             let src = worktree_dir.join(&rela_path);
             stack
                 .make_relative_path_current(&*rela_path, &mut create_dir)

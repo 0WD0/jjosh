@@ -1,4 +1,3 @@
-use crate::Result;
 use gix_date::parse::TimeBuf;
 use gix_lock::acquire::Fail;
 use gix_ref::{
@@ -21,7 +20,7 @@ fn case_sensitive(tmp_dir: &std::path::Path) -> bool {
 }
 
 #[test]
-fn conflicting_creation_without_packed_refs() -> Result {
+fn conflicting_creation_without_packed_refs() -> gix_testtools::TestResult {
     let (dir, store) = empty_store()?;
     let res = store.transaction().prepare(
         [create_at("refs/a"), create_at("refs/A")],
@@ -55,7 +54,7 @@ fn conflicting_creation_without_packed_refs() -> Result {
 }
 
 #[test]
-fn non_conflicting_creation_without_packed_refs_work() -> Result {
+fn non_conflicting_creation_without_packed_refs_work() -> gix_testtools::TestResult {
     let (_dir, store) = empty_store()?;
     let ongoing = store
         .transaction()
@@ -79,7 +78,8 @@ fn non_conflicting_creation_without_packed_refs_work() -> Result {
 }
 
 #[test]
-fn packed_refs_lock_is_mandatory_for_multiple_ongoing_transactions_even_if_one_does_not_need_it() -> Result {
+fn packed_refs_lock_is_mandatory_for_multiple_ongoing_transactions_even_if_one_does_not_need_it()
+-> gix_testtools::TestResult {
     let (_dir, store) = empty_store()?;
     let ref_name = "refs/a";
     let _t1 = store
@@ -109,7 +109,7 @@ fn packed_refs_lock_is_mandatory_for_multiple_ongoing_transactions_even_if_one_d
 }
 
 #[test]
-fn conflicting_creation_into_packed_refs() -> Result {
+fn conflicting_creation_into_packed_refs() -> gix_testtools::TestResult {
     let (dir, store) = empty_store()?;
     let mut buf = TimeBuf::default();
     let transaction = store

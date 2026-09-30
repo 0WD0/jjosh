@@ -16,12 +16,11 @@ fn fuzz() {
 }
 
 #[test]
-fn filters_receive_event_refs_for_content_access() {
+fn filters_receive_event_refs_for_content_access() -> gix_testtools::TestResult {
     fn reject_drop_values(event: EventRef<'_>) -> bool {
         !matches!(event, EventRef::Value(value) if value == b"drop".as_slice())
     }
-    let events = Events::from_bytes(b"[core]\nkeep = keep\ndrop = drop\n", Some(reject_drop_values))
-        .expect("content-based filters can inspect event bytes through views");
+    let events = Events::from_bytes(b"[core]\nkeep = keep\ndrop = drop\n", Some(reject_drop_values))?;
 
     assert!(
         !events
@@ -29,6 +28,7 @@ fn filters_receive_event_refs_for_content_access() {
             .any(|event| matches!(event, EventRef::Value(value) if value == b"drop".as_slice())),
         "the filter can reject events by inspecting their value bytes"
     );
+    Ok(())
 }
 
 #[test]

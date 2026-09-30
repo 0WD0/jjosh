@@ -32,7 +32,7 @@ impl Search {
             None,
             collection,
             true, /* allow macros */
-        );
+        )?;
 
         for path in files.into_iter() {
             group.add_patterns_file(path.into(), true, None, buf, collection, true /* allow macros */)?;
@@ -81,15 +81,16 @@ impl Search {
         root: Option<&Path>,
         collection: &mut MetadataCollection,
         allow_macros: bool,
-    ) {
+    ) -> std::io::Result<()> {
         self.patterns
-            .push(pattern::List::from_bytes(bytes, source, root, Attributes));
+            .push(pattern::List::from_bytes(bytes, source, root, Attributes)?);
         let last = self.patterns.last_mut().expect("just added");
         if !allow_macros {
             last.patterns
                 .retain(|p| !matches!(p.value, Value::MacroAssignments { .. }));
         }
         collection.update_from_list(last);
+        Ok(())
     }
 
     /// Pop the last attribute patterns list from our queue.

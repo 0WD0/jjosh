@@ -1,4 +1,3 @@
-use crate::Result;
 use gix_ref::packed;
 use gix_testtools::fixture_path;
 
@@ -19,7 +18,7 @@ fn a_lock_file_would_not_be_a_valid_partial_name() {
 }
 
 #[test]
-fn capitalized_branch() -> Result {
+fn capitalized_branch() -> gix_testtools::TestResult {
     let store = store_with_packed_refs()?;
     let packed_refs = store.open_packed_buffer()?.expect("packed-refs exist");
 
@@ -32,7 +31,7 @@ fn capitalized_branch() -> Result {
 }
 
 #[test]
-fn all_iterable_refs_can_be_found() -> Result {
+fn all_iterable_refs_can_be_found() -> gix_testtools::TestResult {
     let store = store_with_packed_refs()?;
     let packed_refs = store.open_packed_buffer()?.expect("packed-refs exist");
 
@@ -47,7 +46,7 @@ fn all_iterable_refs_can_be_found() -> Result {
 }
 
 #[test]
-fn binary_search_a_name_past_the_end_of_the_packed_refs_file() -> Result {
+fn binary_search_a_name_past_the_end_of_the_packed_refs_file() -> gix_testtools::TestResult {
     let packed_refs = packed::Buffer::open(
         fixture_path("packed-refs").join("triggers-out-of-bounds"),
         32,
@@ -58,7 +57,7 @@ fn binary_search_a_name_past_the_end_of_the_packed_refs_file() -> Result {
 }
 
 #[test]
-fn find_packed_refs_with_peeled_items_and_full_or_partial_names() -> Result {
+fn find_packed_refs_with_peeled_items_and_full_or_partial_names() -> gix_testtools::TestResult {
     let packed_refs = b"# pack-refs with: peeled fully-peeled sorted
 916840c0e2f67d370291042cb5274a597f4fa9bc refs/tags/TEST-0.0.1
 c4cebba92af964f2d126be90b8a6298c4cf84d45 refs/tags/gix-actor-v0.1.0
@@ -98,7 +97,7 @@ c4cebba92af964f2d126be90b8a6298c4cf84d45 refs/tags/gix-actor-v0.1.0
 }
 
 #[test]
-fn partial_name_to_full_name_conversion_rules_are_applied() -> Result {
+fn partial_name_to_full_name_conversion_rules_are_applied() -> gix_testtools::TestResult {
     let store = store_at("make_packed_refs_for_lookup_rules.sh")?;
     let packed = store.open_packed_buffer()?.expect("packed-refs exists");
 
@@ -156,7 +155,7 @@ fn partial_name_to_full_name_conversion_rules_are_applied() -> Result {
 }
 
 #[test]
-fn invalid_refs_within_a_file_do_not_lead_to_incorrect_results() -> Result {
+fn invalid_refs_within_a_file_do_not_lead_to_incorrect_results() -> gix_testtools::TestResult {
     let mut error_snapshots = Vec::new();
     let broken_packed_refs = b"# pack-refs with: peeled fully-peeled sorted
 916840c0e2f67d370291042cb5274a597f4fa9bc refs/tags/TEST-0.0.1
@@ -202,7 +201,7 @@ bogus refs/tags/gix-actor-v0.1.0
 }
 
 #[test]
-fn find_speed() -> Result {
+fn find_speed() -> gix_testtools::TestResult {
     let store = store_at("make_repository_with_lots_of_packed_refs.sh")?;
     let packed = store.open_packed_buffer()?.expect("packed-refs present");
     let start = std::time::Instant::now();

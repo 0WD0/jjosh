@@ -1396,10 +1396,10 @@ pub fn scripted_fixture_writable_with_args_single_archive_with_post_with_git_ver
 /// ### Example
 ///
 /// ```no_run
-/// use gix_testtools::{Result, FixtureState};
+/// use gix_testtools::{TestResult, FixtureState};
 ///
 /// #[test]
-/// fn test_with_rust_fixture() -> Result {
+/// fn test_with_rust_fixture() -> TestResult {
 ///     let (dir, _) = gix_testtools::rust_fixture_read_only("my_fixture", 1, |state| {
 ///         if let FixtureState::Uninitialized(path) = state {
 ///             std::fs::write(path.join("file.txt"), "content")?;
@@ -1430,10 +1430,10 @@ where
 /// ### Example
 ///
 /// ```no_run
-/// use gix_testtools::{Result, Creation, FixtureState};
+/// use gix_testtools::{TestResult, Creation, FixtureState};
 ///
 /// #[test]
-/// fn test_with_writable_rust_fixture() -> Result {
+/// fn test_with_writable_rust_fixture() -> TestResult {
 ///     let (dir, ()) = gix_testtools::rust_fixture_writable("my_fixture", 1, Creation::CopyFromReadOnly, |state| {
 ///         if let FixtureState::Uninitialized(path) = state {
 ///             std::fs::write(path.join("file.txt"), "content")?;
@@ -1805,8 +1805,8 @@ where
                 let mut cmd = if let Some(file) = prelude_file.as_ref() {
                     let mut cmd = command_with_environment_snapshot(bash_program());
                     let prelude_path = gix_path::from_bstring(
-                        gix_path::to_unix_separators_on_windows(gix_path::into_bstr(file.path())).into_owned(),
-                    );
+                        gix_path::to_unix_separators_on_windows(gix_path::into_bstr(file.path())?).into_owned(),
+                    )?;
                     cmd.arg("-c")
                         .arg("source \"$1\" || exit; shift; source \"$0\" \"$@\"")
                         .arg(&script_absolute_path)

@@ -60,7 +60,7 @@ impl Pattern {
             if count > 0 { count as usize } else { Default::default() }
         }
 
-        let mut path = gix_path::from_bstr(self.path.as_bstr());
+        let mut path = gix_path::from_bstr(self.path.as_bstr())?;
         let mut num_prefix_components = 0;
         let mut was_absolute = false;
         if gix_path::is_absolute(path.as_ref()) {
@@ -70,7 +70,7 @@ impl Pattern {
                 Err(_) => {
                     bail!(
                         validation(format!("The path is not inside of the worktree \"{}\"", root.display()))
-                            .with_input(gix_path::into_bstr(path.into_owned()).into_owned())
+                            .with_input(gix_path::into_bstr(path.into_owned())?.into_owned())
                     );
                 }
             };
@@ -108,7 +108,7 @@ impl Pattern {
             None => {
                 bail!(
                     validation("The path leaves the repository")
-                        .with_input(gix_path::into_bstr(path.into_owned()).into_owned())
+                        .with_input(gix_path::into_bstr(path.into_owned())?.into_owned())
                 );
             }
         };
@@ -118,7 +118,7 @@ impl Pattern {
             BString::from(".")
         } else {
             let cleaned = PathBuf::from_iter(path.components().filter(|c| !matches!(c, Component::CurDir)));
-            let mut out = gix_path::to_unix_separators_on_windows(gix_path::into_bstr(cleaned)).into_owned();
+            let mut out = gix_path::to_unix_separators_on_windows(gix_path::into_bstr(cleaned)?).into_owned();
             self.prefix_len = {
                 if self.signature.contains(MagicSignature::MUST_BE_DIR) {
                     out.push(b'/');

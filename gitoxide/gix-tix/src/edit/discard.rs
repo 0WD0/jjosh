@@ -35,11 +35,15 @@ pub(crate) fn perform(repo: &gix::Repository, change: &PathChange) -> Result<()>
         "discarding submodule changes is not supported"
     );
     let run = |args: &[&str], paths: &[&BStr]| -> Result<()> {
+        let paths = paths
+            .iter()
+            .map(|path| gix::path::from_byte_slice(path.as_bytes()))
+            .collect::<Result<Vec<_>>>()?;
         let output = crate::git_command(workdir)
             .arg("--literal-pathspecs")
             .args(args)
             .arg("--")
-            .args(paths.iter().map(|path| gix::path::from_byte_slice(path.as_bytes())))
+            .args(paths)
             .output()
             .or_raise(|| message("could not launch Git to discard the selected change"))?;
         gix::error::ensure!(output.status.success(), "{}", output.stderr.trim().to_str_lossy());
@@ -334,7 +338,7 @@ mod tests {
         let selected = BStr::new(b"file-\xff");
         let other = BStr::new(b"file-\xfe");
         for name in [selected, other] {
-            std::fs::write(path.join(gix::path::from_bstr(name)), "contents\n")?;
+            std::fs::write(path.join(gix::path::from_bstr(name)?), "contents\n")?;
         }
         let repo = crate::test_repository::open(path)?;
         let changes = crate::load_worktree_changes_without_lines(&repo, gix::status::UntrackedFiles::Collapsed)?;
@@ -346,8 +350,8 @@ mod tests {
 
         perform(&repo, change)?;
 
-        assert!(!path.join(gix::path::from_bstr(selected)).exists());
-        assert_eq!(std::fs::read(path.join(gix::path::from_bstr(other)))?, b"contents\n");
+        assert!(!path.join(gix::path::from_bstr(selected)?).exists());
+        assert_eq!(std::fs::read(path.join(gix::path::from_bstr(other)?))?, b"contents\n");
         Ok(())
     }
 }

@@ -1,5 +1,8 @@
 #![allow(missing_docs)]
-use std::path::{Path, PathBuf};
+use std::{
+    borrow::Cow,
+    path::{Path, PathBuf},
+};
 
 use bstr::{BStr, ByteSlice};
 
@@ -51,6 +54,7 @@ pub enum State {
 #[must_use]
 pub struct Platform<'a> {
     parent: &'a Stack,
+    relative_path: Cow<'a, BStr>,
     is_dir: Option<bool>,
 }
 
@@ -137,8 +141,12 @@ impl Stack {
             statistics: &mut self.statistics,
         };
         self.stack.make_relative_path_current(relative, &mut delegate)?;
+        let relative_path = gix_path::to_unix_separators_on_windows(
+            gix_path::into_bstr(self.stack.current_relative()).map_err(std::io::Error::other)?,
+        );
         Ok(Platform {
             parent: self,
+            relative_path,
             is_dir: mode_is_dir(mode),
         })
     }

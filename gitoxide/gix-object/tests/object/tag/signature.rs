@@ -12,7 +12,7 @@ use gix_testtools::signature;
 use crate::Result;
 
 #[test]
-fn ssh_and_tag_ref_api() -> Result {
+fn ssh_and_tag_ref_api() -> gix_testtools::TestResult {
     if !signature::program_available("ssh-keygen") {
         return Ok(());
     }
@@ -32,7 +32,7 @@ fn ssh_and_tag_ref_api() -> Result {
 }
 
 #[test]
-fn openpgp() -> Result {
+fn openpgp() -> gix_testtools::TestResult {
     if !signature::program_available("gpg") {
         return Ok(());
     }
@@ -66,7 +66,7 @@ fn openpgp() -> Result {
 }
 
 #[test]
-fn x509() -> Result {
+fn x509() -> gix_testtools::TestResult {
     if !signature::program_available("gpgsm") {
         return Ok(());
     }
@@ -93,7 +93,7 @@ fn x509() -> Result {
 }
 
 #[test]
-fn replaces_the_active_signature_and_tampering_is_invalid() -> Result {
+fn replaces_the_active_signature_and_tampering_is_invalid() -> gix_testtools::TestResult {
     if !signature::program_available("ssh-keygen") {
         return Ok(());
     }
@@ -136,7 +136,7 @@ fn replaces_the_active_signature_and_tampering_is_invalid() -> Result {
 
 #[test]
 #[cfg(feature = "sha256")]
-fn native_sha256_has_one_in_body_signature_and_no_compatibility_header() -> Result {
+fn native_sha256_has_one_in_body_signature_and_no_compatibility_header() -> gix_testtools::TestResult {
     if !signature::program_available("ssh-keygen") {
         return Ok(());
     }

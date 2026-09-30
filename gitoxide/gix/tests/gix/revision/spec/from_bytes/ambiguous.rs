@@ -1,5 +1,4 @@
 use super::{missing_reference_names, repo};
-use crate::Result;
 use crate::{
     revision::spec::from_bytes::{
         normalize_repo_path, parse_spec, parse_spec_better_than_baseline, parse_spec_no_baseline,
@@ -14,9 +13,10 @@ use gix::{
         spec::parse::{CandidateInfo, Error, Options, RefsHint},
     },
 };
+use gix_testtools::TestResult;
 
 #[test]
-fn prefix() -> Result {
+fn prefix() -> TestResult {
     let mut error_snapshots = Vec::new();
     {
         let repo = repo("blob.prefix")?;
@@ -64,7 +64,7 @@ fn prefix() -> Result {
             assert!(
                 source.downcast_any_ref::<gix_error::Message>().is_some(),
                 "the owned lookup error retains concrete causes"
-           );
+            );
         }
         insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&format_args!("{}", normalize_repo_path(&format!("{err:#?}"), &repo)), &[]), "ambiguous prefixes retain the lookup failure for each malformed candidate", @"
         Short id bad0 is ambiguous. Candidates are:
@@ -82,7 +82,7 @@ fn prefix() -> Result {
 }
 
 #[test]
-fn fully_failed_disambiguation_still_yields_an_ambiguity_error() -> Result {
+fn fully_failed_disambiguation_still_yields_an_ambiguity_error() -> TestResult {
     let repo = repo("ambiguous_blob_tree_commit")?;
     let err = parse_spec("0000000000^{tag}", &repo).expect_err("none of the candidates can peel to a tag");
 
@@ -141,7 +141,7 @@ fn ranges_are_auto_disambiguated_by_committish() {
 }
 
 #[test]
-fn resolved_ambiguity_does_not_hide_a_missing_symbolic_referent() -> Result {
+fn resolved_ambiguity_does_not_hide_a_missing_symbolic_referent() -> TestResult {
     let fixture = gix_testtools::scripted_fixture_writable("make_rev_spec_parse_repos.sh")?;
     let repo = gix::open_opts(fixture.path().join("ambiguous_blob_tree_commit"), crate::restricted())?;
     std::fs::write(repo.git_dir().join("refs/heads/alias"), b"ref: refs/heads/missing\n")?;
@@ -156,7 +156,7 @@ fn resolved_ambiguity_does_not_hide_a_missing_symbolic_referent() -> Result {
     assert!(
         err.iter_errors().any(|cause| matches!(
             cause.downcast_ref::<Error>(),
-            Some(Error::MissingReference { name }) if name == std::path::Path::new("refs/heads/missing")
+            Some(Error::MissingReference { name }) if name == gix::bstr::BStr::new("refs/heads/missing")
         )),
         "rejected candidates do not hide the parser-owned missing-reference error"
     );
@@ -164,7 +164,7 @@ fn resolved_ambiguity_does_not_hide_a_missing_symbolic_referent() -> Result {
         err.downcast_any_ref::<gix::refs::file::find::NotFound>()
             .expect("the lookup error survives rejected-candidate errors")
             .name,
-        std::path::Path::new("refs/heads/missing"),
+        gix::bstr::BStr::new("refs/heads/missing"),
         "the final spec conversion retains the actual lookup failure"
     );
     insta::assert_debug_snapshot!(err, @r#"
@@ -174,14 +174,14 @@ fn resolved_ambiguity_does_not_hide_a_missing_symbolic_referent() -> Result {
         0: Last encountered object 0000000000b was blob while trying to peel to commit
         1: Last encountered object 0000000000c was tree while trying to peel to commit
         2: Could not peel 'refs/heads/alias' to obtain its target
-        ├─0: Reference refs/heads/missing could not be found
+        ├─0: Reference "refs/heads/missing" could not be found
         └─1: The ref partially named "refs/heads/missing" could not be found
     "#);
     Ok(())
 }
 
 #[test]
-fn missing_references_survive_other_endpoint_ambiguity() -> Result {
+fn missing_references_survive_other_endpoint_ambiguity() -> TestResult {
     let fixture = gix_testtools::scripted_fixture_writable("make_rev_spec_parse_repos.sh")?;
     for (fixture_name, remains_ambiguous) in [
         ("ambiguous_blob_tree_commit", false),
@@ -195,14 +195,14 @@ fn missing_references_survive_other_endpoint_ambiguity() -> Result {
                 .expect_err("the right endpoint's symbolic referent is missing");
             assert_eq!(
                 missing_reference_names(&err),
-                [std::path::Path::new("refs/heads/missing")],
+                [gix::bstr::BStr::new("refs/heads/missing")],
                 "{fixture_name}: {input} retains missing references during callbacks and finalization: {err}"
             );
             assert_eq!(
                 err.downcast_any_ref::<gix::refs::file::find::NotFound>()
                     .expect("the original lookup cause is retained alongside parser recovery errors")
                     .name,
-                std::path::Path::new("refs/heads/missing"),
+                gix::bstr::BStr::new("refs/heads/missing"),
                 "aggregation does not discard the original missing-reference cause"
             );
             assert_eq!(
@@ -290,7 +290,7 @@ fn tags_can_be_disambiguated_with_commit_specific_transformations() {
 }
 
 #[test]
-fn duplicates_are_deduplicated_across_all_odb_types() -> Result {
+fn duplicates_are_deduplicated_across_all_odb_types() -> TestResult {
     let repo = repo("duplicate_ambiguous_objects")?;
     let err = parse_spec_no_baseline("0000000000", &repo).expect_err("multiple distinct candidates match");
     let Some(Error::AmbiguousPrefix { candidates, .. }) = err.downcast_any_ref::<Error>() else {
@@ -354,7 +354,7 @@ fn duplicates_are_deduplicated_across_all_odb_types() -> Result {
 }
 
 #[test]
-fn malformed_commit_and_tag_candidates_retain_decode_errors() -> Result {
+fn malformed_commit_and_tag_candidates_retain_decode_errors() -> TestResult {
     use gix_object::Write;
 
     let fixture = gix_testtools::scripted_fixture_writable("make_rev_spec_parse_repos.sh")?;
@@ -509,7 +509,7 @@ fn ambiguous_short_refs_are_dereferenced() {
 }
 
 #[test]
-fn reference_collisions_retain_multiple_object_candidates() -> Result {
+fn reference_collisions_retain_multiple_object_candidates() -> TestResult {
     let fixture = gix_testtools::scripted_fixture_writable("make_rev_spec_parse_repos.sh")?;
     let repo = gix::open_opts(fixture.path().join("ambiguous_blob_tree_commit"), crate::restricted())?;
     repo.reference(

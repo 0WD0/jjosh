@@ -1,8 +1,8 @@
-use crate::Result;
+use crate::TestResult;
 use gix_config::{file, file::init};
 
 #[test]
-fn missing_includes_are_ignored_by_default() -> Result {
+fn missing_includes_are_ignored_by_default() -> TestResult {
     let input = r#"
         [include]
             path = /etc/absolute/missing.config

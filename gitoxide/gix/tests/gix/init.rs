@@ -1,10 +1,10 @@
 mod bare {
-    use crate::Result;
+    use gix_testtools::TestResult;
     use gix_testtools::tempfile;
 
     #[test]
     #[serial_test::serial]
-    fn init_into_non_existing_directory_creates_it() -> Result {
+    fn init_into_non_existing_directory_creates_it() -> TestResult {
         let _environment = gix_testtools::isolate_git_environment()?;
         let tmp = tempfile::tempdir()?;
         let git_dir = tmp.path().join("bare.git");
@@ -25,7 +25,7 @@ mod bare {
 
     #[test]
     #[serial_test::serial]
-    fn init_into_empty_directory_uses_it_directly() -> Result {
+    fn init_into_empty_directory_uses_it_directly() -> TestResult {
         let _environment = gix_testtools::isolate_git_environment()?;
         let tmp = tempfile::tempdir()?;
         let repo = gix::init_bare(tmp.path())?;
@@ -44,7 +44,7 @@ mod bare {
     }
 
     #[test]
-    fn init_into_non_empty_directory_is_not_allowed() -> Result {
+    fn init_into_non_empty_directory_is_not_allowed() -> TestResult {
         let tmp = tempfile::tempdir()?;
         std::fs::write(tmp.path().join("existing.txt"), b"I was here before you")?;
 
@@ -55,11 +55,11 @@ mod bare {
 }
 
 mod non_bare {
-    use crate::Result;
+    use gix_testtools::TestResult;
     use gix_testtools::tempfile;
 
     #[test]
-    fn init_bare_with_custom_branch_name() -> Result {
+    fn init_bare_with_custom_branch_name() -> TestResult {
         let tmp = tempfile::tempdir()?;
         let repo: gix::Repository = gix::ThreadSafeRepository::init_opts(
             tmp.path(),
@@ -77,7 +77,7 @@ mod non_bare {
     }
 
     #[test]
-    fn init_bare_with_fully_qualified_custom_branch_name_is_not_prefixed_again() -> Result {
+    fn init_bare_with_fully_qualified_custom_branch_name_is_not_prefixed_again() -> TestResult {
         let tmp = tempfile::tempdir()?;
         let repo: gix::Repository = gix::ThreadSafeRepository::init_opts(
             tmp.path(),
@@ -100,7 +100,7 @@ mod non_bare {
     }
 
     #[test]
-    fn init_bare_rejects_reserved_branch_name() -> Result {
+    fn init_bare_rejects_reserved_branch_name() -> TestResult {
         let tmp = tempfile::tempdir()?;
         let err = gix::ThreadSafeRepository::init_opts(
             tmp.path(),
@@ -128,7 +128,7 @@ mod non_bare {
     }
 
     #[test]
-    fn init_bare_rejects_reserved_fully_qualified_branch_name() -> Result {
+    fn init_bare_rejects_reserved_fully_qualified_branch_name() -> TestResult {
         let tmp = tempfile::tempdir()?;
         let err = gix::ThreadSafeRepository::init_opts(
             tmp.path(),
@@ -161,7 +161,7 @@ mod non_bare {
 
     #[test]
     #[serial_test::serial]
-    fn init_into_empty_directory_creates_a_dot_git_dir() -> Result {
+    fn init_into_empty_directory_creates_a_dot_git_dir() -> TestResult {
         let _environment = gix_testtools::isolate_git_environment()?;
         let tmp = tempfile::tempdir()?;
         let repo = gix::init(tmp.path())?;
@@ -181,7 +181,7 @@ mod non_bare {
     }
 
     #[test]
-    fn init_into_non_empty_directory_is_allowed_if_option_is_none_or_false() -> Result {
+    fn init_into_non_empty_directory_is_allowed_if_option_is_none_or_false() -> TestResult {
         for destination_must_be_empty in [None, Some(false)] {
             let tmp = tempfile::tempdir()?;
             std::fs::write(tmp.path().join("existing.txt"), b"I was here before you")?;
@@ -206,7 +206,7 @@ mod non_bare {
     }
 
     #[test]
-    fn init_into_non_empty_directory_is_not_allowed_if_option_is_true() -> Result {
+    fn init_into_non_empty_directory_is_not_allowed_if_option_is_true() -> TestResult {
         let tmp = tempfile::tempdir()?;
         std::fs::write(tmp.path().join("existing.txt"), b"I was here before you")?;
 

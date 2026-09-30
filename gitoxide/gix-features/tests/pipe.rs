@@ -4,7 +4,7 @@ mod io {
     use gix_features::io;
 
     #[test]
-    fn threaded_read_to_end() {
+    fn threaded_read_to_end() -> gix_testtools::TestResult {
         let (mut writer, mut reader) = gix_features::io::pipe::unidirectional(0);
 
         let message = "Hello, world!";
@@ -15,9 +15,10 @@ mod io {
         });
 
         let mut received = String::new();
-        reader.read_to_string(&mut received).unwrap();
+        reader.read_to_string(&mut received)?;
 
         assert_eq!(&received, message);
+        Ok(())
     }
 
     #[test]
@@ -33,38 +34,34 @@ mod io {
         assert_eq!(err.kind(), ErrorKind::BrokenPipe);
     }
     #[test]
-    fn line_reading_one_by_one() {
+    fn line_reading_one_by_one() -> gix_testtools::TestResult {
         let (mut writer, mut reader) = io::pipe::unidirectional(2);
-        writer.write_all(b"a\n").expect("success");
-        writer.write_all(b"b\nc").expect("success");
+        writer.write_all(b"a\n")?;
+        writer.write_all(b"b\nc")?;
         drop(writer);
         let mut buf = String::new();
         for expected in &["a\n", "b\n", "c"] {
             buf.clear();
-            assert_eq!(reader.read_line(&mut buf).expect("success"), expected.len());
+            assert_eq!(reader.read_line(&mut buf)?, expected.len());
             assert_eq!(buf, *expected);
         }
+        Ok(())
     }
 
     #[test]
-    fn line_reading() {
+    fn line_reading() -> gix_testtools::TestResult {
         let (mut writer, reader) = io::pipe::unidirectional(2);
-        writer.write_all(b"a\n").expect("success");
-        writer.write_all(b"b\nc\n").expect("success");
+        writer.write_all(b"a\n")?;
+        writer.write_all(b"b\nc\n")?;
         drop(writer);
-        assert_eq!(
-            reader.lines().map_while(Result::ok).collect::<Vec<_>>(),
-            vec!["a", "b", "c"]
-        );
+        assert_eq!(reader.lines().collect::<Result<Vec<_>, _>>()?, vec!["a", "b", "c"]);
+        Ok(())
     }
 
     #[test]
-    fn writer_can_inject_errors() {
+    fn writer_can_inject_errors() -> gix_testtools::TestResult {
         let (writer, mut reader) = io::pipe::unidirectional(1);
-        writer
-            .channel
-            .send(Err(std::io::Error::other("the error")))
-            .expect("send success");
+        writer.channel.send(Err(std::io::Error::other("the error")))?;
         let mut buf = [0];
         insta::assert_debug_snapshot!(reader.read(&mut buf).expect_err("using Read trait, errors are propagated"), "using Read trait, errors are propagated", @r#"
         Custom {
@@ -73,29 +70,26 @@ mod io {
         }
         "#);
 
-        writer
-            .channel
-            .send(Err(std::io::Error::other("the error")))
-            .expect("send success");
+        writer.channel.send(Err(std::io::Error::other("the error")))?;
         insta::assert_debug_snapshot!(reader.fill_buf().expect_err("using BufRead trait, errors are propagated"), "using BufRead trait, errors are propagated", @r#"
         Custom {
             kind: Other,
             error: "the error",
         }
         "#);
+        Ok(())
     }
 
     #[test]
-    fn continue_on_empty_writes() {
+    fn continue_on_empty_writes() -> gix_testtools::TestResult {
         let (mut writer, mut reader) = io::pipe::unidirectional(2);
-        writer.write_all(&[]).expect("write successful and non-blocking");
+        writer.write_all(&[])?;
         let input = b"hello";
-        writer
-            .write_all(input)
-            .expect("second write works as well as there is capacity");
+        writer.write_all(input)?;
         let mut buf = vec![0u8; input.len()];
-        assert_eq!(reader.read(&mut buf).expect("read succeeds"), input.len());
+        assert_eq!(reader.read(&mut buf)?, input.len());
         assert_eq!(buf, &input[..]);
+        Ok(())
     }
 
     #[test]

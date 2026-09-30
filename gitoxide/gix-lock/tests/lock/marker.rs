@@ -4,7 +4,7 @@ mod acquire {
     use gix_lock::acquire::Fail;
 
     #[test]
-    fn fail_mode_immediately_produces_a_descriptive_error() -> gix_error::TestResult {
+    fn fail_mode_immediately_produces_a_descriptive_error() -> gix_testtools::TestResult {
         let dir = tempfile::tempdir()?;
         let resource = dir.path().join("the-resource");
         let guard = gix_lock::Marker::acquire_to_hold_resource(&resource, Fail::Immediately, None, 0)?;
@@ -32,7 +32,7 @@ mod acquire {
     }
 
     #[test]
-    fn fail_mode_after_duration_fails_after_a_given_duration_or_more() -> gix_error::TestResult {
+    fn fail_mode_after_duration_fails_after_a_given_duration_or_more() -> gix_testtools::TestResult {
         let dir = tempfile::tempdir()?;
         let resource = dir.path().join("the-resource");
         let _guard = gix_lock::Marker::acquire_to_hold_resource(&resource, Fail::Immediately, None, 0)?;
@@ -82,7 +82,7 @@ mod commit {
     }
 
     #[test]
-    fn fails_for_ordinary_marker_that_was_never_writable() -> gix_error::TestResult {
+    fn fails_for_ordinary_marker_that_was_never_writable() -> gix_testtools::TestResult {
         let dir = tempfile::tempdir()?;
         let resource = dir.path().join("the-resource");
         let mark = gix_lock::Marker::acquire_to_hold_resource(resource, Fail::Immediately, None, 0)?;

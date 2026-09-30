@@ -45,7 +45,8 @@ impl SymlinkCheck {
     /// to `relative_path`. Instead.
     /// For convenience, this incarnation is tuned to be easy to use with Git paths, i.e. slash-separated `BString` path.
     pub fn verified_path_allow_nonexisting(&mut self, relative_path: &BStr) -> std::io::Result<Cow<'_, Path>> {
-        let rela_path = gix_path::try_from_bstr(relative_path).map_err(std::io::Error::other)?;
+        let rela_path = gix_path::from_bstr(relative_path)
+            .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidInput, err))?;
         if let Err(err) = self.verified_path(rela_path.as_ref()) {
             if err.kind() == std::io::ErrorKind::NotFound {
                 Ok(Cow::Owned(self.inner.root().join(rela_path)))

@@ -306,7 +306,10 @@ impl crate::Repository {
                     let name_is_url = matches!(
                         remote::Name::try_from(std::borrow::Cow::Borrowed(name_or_url)),
                         Ok(remote::Name::Url(_))
-                    ) || gix_path::is_absolute(gix_path::from_bstr(name_or_url));
+                    ) || match gix_path::from_bstr(name_or_url) {
+                        Ok(path) => gix_path::is_absolute(path),
+                        Err(err) => return Some(Err(err)),
+                    };
                     match config::tree::Remote::URL.try_into_url(std::borrow::Cow::Borrowed(name_or_url)) {
                         Ok(url) if name_is_url || url.scheme != gix_url::Scheme::File => urls.push(url),
                         Ok(_) => {}

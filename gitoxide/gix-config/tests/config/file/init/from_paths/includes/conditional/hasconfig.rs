@@ -1,10 +1,10 @@
-use crate::Result;
+use crate::{Result, TestResult};
 use std::path::{Path, PathBuf};
 
 use gix_config::file::{includes, init};
 
 #[test]
-fn simple() -> Result {
+fn simple() -> TestResult {
     let (config, root) = config_with_includes("basic")?;
     compare_baseline(&config, "user.this", root.join("expected"));
     assert_eq!(config.string("user.that"), None);
@@ -12,7 +12,7 @@ fn simple() -> Result {
 }
 
 #[test]
-fn inclusion_order() -> Result {
+fn inclusion_order() -> TestResult {
     let (config, root) = config_with_includes("inclusion-order")?;
     for key in ["one", "two", "three"] {
         compare_baseline(&config, format!("user.{key}"), root.join(format!("expected.{key}")));
@@ -21,7 +21,7 @@ fn inclusion_order() -> Result {
 }
 
 #[test]
-fn globs() -> Result {
+fn globs() -> TestResult {
     let (config, root) = config_with_includes("globs")?;
     for key in ["dss", "dse", "dsm", "ssm"] {
         compare_baseline(&config, format!("user.{key}"), root.join(format!("expected.{key}")));
@@ -31,7 +31,7 @@ fn globs() -> Result {
 }
 
 #[test]
-fn cycle_breaker() -> Result {
+fn cycle_breaker() -> TestResult {
     for name in ["cycle-breaker-direct", "cycle-breaker-indirect"] {
         let (_config, _root) = config_with_includes(name)?;
     }
@@ -40,7 +40,7 @@ fn cycle_breaker() -> Result {
 }
 
 #[test]
-fn no_cycle() -> Result {
+fn no_cycle() -> TestResult {
     let (config, root) = config_with_includes("no-cycle")?;
     compare_baseline(&config, "user.name", root.join("expected"));
     Ok(())

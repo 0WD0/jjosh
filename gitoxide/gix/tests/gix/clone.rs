@@ -1,9 +1,9 @@
-use crate::Result;
 use crate::{remote, util::restricted};
+use gix_testtools::TestResult;
 
 #[cfg(all(feature = "worktree-mutation", feature = "blocking-network-client"))]
 mod blocking_io {
-    use crate::Result;
+    use gix_testtools::{Result, TestResult};
     use std::{borrow::Cow, path::Path, sync::atomic::AtomicBool};
 
     use crate::{
@@ -28,7 +28,7 @@ mod blocking_io {
 
     #[test]
     #[serial_test::serial]
-    fn inherited_core_symlinks_false_is_respected() -> Result {
+    fn inherited_core_symlinks_false_is_respected() -> TestResult {
         let _environment = gix_testtools::isolate_git_environment()?;
         use gix_sec::Permission;
 
@@ -126,7 +126,7 @@ mod blocking_io {
     }
 
     #[test]
-    fn fetch_shallow_no_checkout_then_unshallow() -> Result {
+    fn fetch_shallow_no_checkout_then_unshallow() -> TestResult {
         // Local Git transport children read ambient config independently of repository options.
         // Process isolation keeps the shallow fetch and unshallow I/O off the shared serial lock.
         if gix_testtools::run_in_isolated_process()? {
@@ -152,7 +152,7 @@ mod blocking_io {
                     Ok(r)
                 }
             })
-            .with_shallow(Shallow::DepthAtRemote(2.try_into().expect("non-zero")));
+            .with_shallow(Shallow::DepthAtRemote(2.try_into()?));
         let (repo, _out) = prepare.fetch_only(gix::progress::Discard, &AtomicBool::default())?;
         drop(prepare);
 
@@ -178,11 +178,11 @@ mod blocking_io {
 
         assert!(repo.shallow_commits()?.is_none(), "the repo isn't shallow anymore");
         assert!(
-            !repo.is_shallow(),
+            !repo.is_shallow()?,
             "both methods agree - if there are no shallow commits, it shouldn't think the repo is shallow"
         );
         assert!(
-            !repo.shallow_file().exists(),
+            !repo.shallow_file()?.exists(),
             "when the repo is not shallow anymore, there is no need for a shallow file"
         );
         assert!(
@@ -194,7 +194,7 @@ mod blocking_io {
     }
 
     #[test]
-    fn shallow_clone_uses_single_branch_refspec() -> Result {
+    fn shallow_clone_uses_single_branch_refspec() -> TestResult {
         if gix_testtools::run_in_isolated_process()? {
             return Ok(());
         }
@@ -203,7 +203,7 @@ mod blocking_io {
             .with_shallow(Shallow::DepthAtRemote(1.try_into()?))
             .fetch_only(gix::progress::Discard, &AtomicBool::default())?;
 
-        assert!(repo.is_shallow(), "repository should be shallow");
+        assert!(repo.is_shallow()?, "repository should be shallow");
 
         // Verify that only a single-branch refspec was configured
         let remote = repo.find_remote("origin")?;
@@ -216,7 +216,7 @@ mod blocking_io {
         assert_eq!(refspecs.len(), 1, "shallow clone should have only one fetch refspec");
 
         // The refspec should be for a single branch (main), not a wildcard
-        let refspec_str = refspecs[0].to_str().expect("valid utf8");
+        let refspec_str = refspecs[0].to_str()?;
         assert_eq!(
             refspec_str, "+refs/heads/main:refs/remotes/origin/main",
             "shallow clone refspec should not use wildcard and should be the main branch: {refspec_str}"
@@ -226,7 +226,7 @@ mod blocking_io {
     }
 
     #[test]
-    fn shallow_clone_with_ambiguous_branch_and_tag_name_prefers_branch() -> Result {
+    fn shallow_clone_with_ambiguous_branch_and_tag_name_prefers_branch() -> TestResult {
         if gix_testtools::run_in_isolated_process()? {
             return Ok(());
         }
@@ -283,7 +283,7 @@ mod blocking_io {
     }
 
     #[test]
-    fn from_shallow_prohibited_with_option() -> Result {
+    fn from_shallow_prohibited_with_option() -> TestResult {
         if gix_testtools::run_in_isolated_process()? {
             return Ok(());
         }
@@ -309,7 +309,7 @@ mod blocking_io {
     }
 
     #[test]
-    fn from_shallow_allowed_by_default() -> Result {
+    fn from_shallow_allowed_by_default() -> TestResult {
         if gix_testtools::run_in_isolated_process()? {
             return Ok(());
         }
@@ -341,7 +341,7 @@ mod blocking_io {
     }
 
     #[test]
-    fn from_non_shallow_then_deepen_then_deepen_since_to_unshallow() -> Result {
+    fn from_non_shallow_then_deepen_then_deepen_since_to_unshallow() -> TestResult {
         if gix_testtools::run_in_isolated_process()? {
             return Ok(());
         }
@@ -354,7 +354,7 @@ mod blocking_io {
             })
             .fetch_only(gix::progress::Discard, &AtomicBool::default())?;
 
-        assert!(repo.is_shallow());
+        assert!(repo.is_shallow()?);
         assert_eq!(
             shallow_ids(&repo, "present")?,
             sorted([
@@ -396,7 +396,7 @@ mod blocking_io {
             .receive(gix::progress::Discard, &AtomicBool::default())?;
 
         assert!(
-            !repo.is_shallow(),
+            !repo.is_shallow()?,
             "the cutoff date is before the first commit, effectively unshallowing"
         );
         assert!(
@@ -407,7 +407,7 @@ mod blocking_io {
     }
 
     #[test]
-    fn from_non_shallow_by_deepen_exclude_then_deepen_to_unshallow() -> Result {
+    fn from_non_shallow_by_deepen_exclude_then_deepen_to_unshallow() -> TestResult {
         if gix_testtools::run_in_isolated_process()? {
             return Ok(());
         }
@@ -430,7 +430,7 @@ mod blocking_io {
             })
             .fetch_only(gix::progress::Discard, &AtomicBool::default())?;
 
-        assert!(repo.is_shallow());
+        assert!(repo.is_shallow()?);
         assert_eq!(
             shallow_ids(&repo, "present")?,
             sorted([
@@ -446,12 +446,12 @@ mod blocking_io {
             .with_shallow(Shallow::Deepen(2))
             .receive(gix::progress::Discard, &AtomicBool::default())?;
 
-        assert!(!repo.is_shallow(), "one is just enough to unshallow it");
+        assert!(!repo.is_shallow()?, "one is just enough to unshallow it");
         Ok(())
     }
 
     #[test]
-    fn fetch_only_with_configuration() -> Result {
+    fn fetch_only_with_configuration() -> TestResult {
         if gix_testtools::run_in_isolated_process()? {
             return Ok(());
         }
@@ -507,7 +507,7 @@ mod blocking_io {
                     .expect("present")
                     .path
                     .as_ref()
-            ))
+            ))?
             .is_absolute(),
             "file urls can't be relative paths"
         );
@@ -586,14 +586,14 @@ mod blocking_io {
                         match r.target() {
                             TargetRef::Object(_) => {
                                 let mut logs = r.log_iter();
-                                assert_reflog(logs.all());
+                                assert_reflog(logs.all())?;
                             }
                             TargetRef::Symbolic(_) => {
                                 // TODO: it *should* be possible to set the reflog here based on the referent if deref = true
                                 //       when setting up the edits. But it doesn't seem to work. Also, some tests are
                                 //       missing for `leaf_referent_previous_oid`.
                                 assert!(
-                                    !r.log_exists(),
+                                    !r.log_exists()?,
                                     "symbolic refs don't have object ids, so they can't get \
                                       into the reflog as these need previous and new oid"
                                 );
@@ -614,14 +614,7 @@ mod blocking_io {
                     })
                     .map(|(idx, _)| &out.ref_map.mappings[idx])
                 {
-                    out_of_graph_tags.push(
-                        mapping
-                            .remote
-                            .as_name()
-                            .expect("tag always has a path")
-                            .to_str()
-                            .expect("valid UTF8"),
-                    );
+                    out_of_graph_tags.push(mapping.remote.as_name().expect("tag always has a path").to_str()?);
                 }
                 assert_eq!(
                     out_of_graph_tags,
@@ -637,9 +630,7 @@ mod blocking_io {
         }
 
         let remote_repo = remote::repo("base");
-        let remote_head = repo
-            .find_reference(&format!("refs/remotes/{remote_name}/HEAD"))
-            .expect("remote HEAD present");
+        let remote_head = repo.find_reference(&format!("refs/remotes/{remote_name}/HEAD"))?;
         let remote_head_id = remote_repo.head_id()?;
         assert_eq!(
             remote_head.target().try_id(),
@@ -650,7 +641,7 @@ mod blocking_io {
         let head = repo.head()?;
         {
             let mut logs = head.log_iter();
-            assert_reflog(logs.all());
+            assert_reflog(logs.all())?;
         }
 
         let referent = head.try_into_referent().expect("symbolic ref is present");
@@ -681,12 +672,12 @@ mod blocking_io {
 
         {
             let mut logs = referent.log_iter();
-            assert_reflog(logs.all());
+            assert_reflog(logs.all())?;
         }
         Ok(())
     }
 
-    fn assert_reflog(log: std::io::Result<Option<gix_ref::file::log::iter::Forward<'_>>>) {
+    fn assert_reflog(log: std::io::Result<Option<gix_ref::file::log::iter::Forward<'_>>>) -> Result {
         let lines = log
             .unwrap()
             .expect("log present")
@@ -699,12 +690,13 @@ mod blocking_io {
             "{:?} unexpected",
             line.message
         );
-        let path = gix_path::from_bstr(line.message.rsplit(|b| *b == b' ').next().expect("path").as_bstr());
+        let path = gix_path::from_bstr(line.message.rsplit(|b| *b == b' ').next().expect("path").as_bstr())?;
         assert!(path.is_absolute(), "\"{}\" must be absolute", path.display());
+        Ok(())
     }
 
     #[test]
-    fn fetch_and_checkout() -> Result {
+    fn fetch_and_checkout() -> TestResult {
         if gix_testtools::run_in_isolated_process()? {
             return Ok(());
         }
@@ -722,13 +714,13 @@ mod blocking_io {
         let index = repo.index()?;
         assert_eq!(index.entries().len(), 1, "All entries are known as per HEAD tree");
 
-        assure_index_entries_on_disk(&index, repo.workdir().expect("non-bare"));
+        assure_index_entries_on_disk(&index, repo.workdir().expect("non-bare"))?;
         Ok(())
     }
 
     #[test]
     #[cfg(unix)]
-    fn fetch_and_checkout_does_not_follow_delayed_symlink_prefixes() -> Result {
+    fn fetch_and_checkout_does_not_follow_delayed_symlink_prefixes() -> TestResult {
         if gix_testtools::run_in_isolated_process()? {
             return Ok(());
         }
@@ -766,7 +758,7 @@ mod blocking_io {
     }
 
     #[test]
-    fn fetch_and_checkout_into_non_empty_directory() -> Result {
+    fn fetch_and_checkout_into_non_empty_directory() -> TestResult {
         if gix_testtools::run_in_isolated_process()? {
             return Ok(());
         }
@@ -790,14 +782,14 @@ mod blocking_io {
 
         let index = repo.index()?;
         assert_eq!(index.entries().len(), 1, "All entries are known as per HEAD tree");
-        assure_index_entries_on_disk(&index, repo.workdir().expect("non-bare"));
+        assure_index_entries_on_disk(&index, repo.workdir().expect("non-bare"))?;
 
         assert_eq!(std::fs::read(&existing_path)?, EXISTING_CONTENT);
         Ok(())
     }
 
     #[test]
-    fn fetch_and_checkout_into_non_empty_directory_does_not_overwrite_pre_existing_tracked_file() -> Result {
+    fn fetch_and_checkout_into_non_empty_directory_does_not_overwrite_pre_existing_tracked_file() -> TestResult {
         if gix_testtools::run_in_isolated_process()? {
             return Ok(());
         }
@@ -841,7 +833,7 @@ mod blocking_io {
     }
 
     #[test]
-    fn fetch_and_checkout_into_non_empty_directory_with_existing_dot_git_is_rejected() -> Result {
+    fn fetch_and_checkout_into_non_empty_directory_with_existing_dot_git_is_rejected() -> TestResult {
         let fixture = gix_testtools::scripted_fixture_writable("make_clone_destinations.sh")?;
         let destination = fixture.path().join("non-empty-with-dot-git");
         let existing_path = destination.join("existing.txt");
@@ -874,7 +866,7 @@ mod blocking_io {
     }
 
     #[test]
-    fn drop_after_failed_fetch_into_non_empty_directory_preserves_destination() -> Result {
+    fn drop_after_failed_fetch_into_non_empty_directory_preserves_destination() -> TestResult {
         if gix_testtools::run_in_isolated_process()? {
             return Ok(());
         }
@@ -912,7 +904,7 @@ mod blocking_io {
     }
 
     #[test]
-    fn fetch_and_checkout_specific_ref() -> Result {
+    fn fetch_and_checkout_specific_ref() -> TestResult {
         if gix_testtools::run_in_isolated_process()? {
             return Ok(());
         }
@@ -955,12 +947,12 @@ mod blocking_io {
         let index = repo.index()?;
         assert_eq!(index.entries().len(), 1, "All entries are known as per HEAD tree");
 
-        assure_index_entries_on_disk(&index, repo.workdir().expect("non-bare"));
+        assure_index_entries_on_disk(&index, repo.workdir().expect("non-bare"))?;
         Ok(())
     }
 
     #[test]
-    fn fetch_and_checkout_specific_revision() -> Result {
+    fn fetch_and_checkout_specific_revision() -> TestResult {
         if gix_testtools::run_in_isolated_process()? {
             return Ok(());
         }
@@ -1012,7 +1004,7 @@ mod blocking_io {
     }
 
     #[test]
-    fn fetch_specific_revision_bare_and_shallow() -> Result {
+    fn fetch_specific_revision_bare_and_shallow() -> TestResult {
         if gix_testtools::run_in_isolated_process()? {
             return Ok(());
         }
@@ -1048,7 +1040,7 @@ mod blocking_io {
         .with_shallow(Shallow::DepthAtRemote(1.try_into()?));
         let (mut checkout, _) = shallow.fetch_then_checkout(gix::progress::Discard, &AtomicBool::default())?;
         let (repo, _) = checkout.main_worktree(gix::progress::Discard, &AtomicBool::default())?;
-        assert!(repo.is_shallow(), "depth applies to a single-revision clone");
+        assert!(repo.is_shallow()?, "depth applies to a single-revision clone");
         assert_eq!(repo.head_id()?, expected, "the requested revision is checked out");
         assert_eq!(
             repo.references()?.all()?.count(),
@@ -1059,7 +1051,7 @@ mod blocking_io {
     }
 
     #[test]
-    fn invalid_specific_revisions_are_rejected() -> Result {
+    fn invalid_specific_revisions_are_rejected() -> TestResult {
         if gix_testtools::run_in_isolated_process()? {
             return Ok(());
         }
@@ -1119,7 +1111,7 @@ mod blocking_io {
     }
 
     #[test]
-    fn fetch_and_checkout_specific_non_existing() -> Result {
+    fn fetch_and_checkout_specific_non_existing() -> TestResult {
         if gix_testtools::run_in_isolated_process()? {
             return Ok(());
         }
@@ -1145,7 +1137,7 @@ mod blocking_io {
     }
 
     #[test]
-    fn fetch_retries_without_the_implicit_head_refspec_on_conflict() -> Result {
+    fn fetch_retries_without_the_implicit_head_refspec_on_conflict() -> TestResult {
         if gix_testtools::run_in_isolated_process()? {
             return Ok(());
         }
@@ -1173,7 +1165,7 @@ mod blocking_io {
     }
 
     #[test]
-    fn fetch_and_checkout_specific_annotated_tag() -> Result {
+    fn fetch_and_checkout_specific_annotated_tag() -> TestResult {
         if gix_testtools::run_in_isolated_process()? {
             return Ok(());
         }
@@ -1197,7 +1189,7 @@ mod blocking_io {
 
             let (repo, _) = checkout.main_worktree(gix::progress::Discard, &AtomicBool::default())?;
 
-            assert_eq!(repo.is_shallow(), shallow);
+            assert_eq!(repo.is_shallow()?, shallow);
             let remote_ref_name = format!("refs/tags/{ref_to_checkout}");
             if shallow {
                 let remote = repo.find_remote("origin")?;
@@ -1233,15 +1225,16 @@ mod blocking_io {
         Ok(())
     }
 
-    fn assure_index_entries_on_disk(index: &gix::worktree::Index, work_dir: &Path) {
+    fn assure_index_entries_on_disk(index: &gix::worktree::Index, work_dir: &Path) -> Result {
         for entry in index.entries() {
-            let entry_path = work_dir.join(gix_path::from_bstr(entry.path(index)));
+            let entry_path = work_dir.join(gix_path::from_bstr(entry.path(index))?);
             assert!(entry_path.is_file(), "\"{}\" not found on disk", entry_path.display());
         }
+        Ok(())
     }
 
     #[test]
-    fn fetch_and_checkout_empty_remote_repo() -> Result {
+    fn fetch_and_checkout_empty_remote_repo() -> TestResult {
         if gix_testtools::run_in_isolated_process()? {
             return Ok(());
         }
@@ -1293,7 +1286,7 @@ mod blocking_io {
     }
 
     #[test]
-    fn fetch_only_without_configuration() -> Result {
+    fn fetch_only_without_configuration() -> TestResult {
         if gix_testtools::run_in_isolated_process()? {
             return Ok(());
         }
@@ -1321,7 +1314,7 @@ mod blocking_io {
 
     #[test]
     #[cfg(feature = "sha256")]
-    fn fetch_only_adopts_remote_sha256_object_format() -> Result {
+    fn fetch_only_adopts_remote_sha256_object_format() -> TestResult {
         let remote = gix_testtools::scripted_fixture_read_only("make_sha256_remote.sh")?.join("remote");
         assert_eq!(
             gix::open_opts(&remote, gix::open::Options::isolated())?.object_hash(),
@@ -1369,7 +1362,7 @@ mod blocking_io {
 }
 
 #[test]
-fn clone_ignores_repository_paths_and_keeps_preferences() -> Result {
+fn clone_ignores_repository_paths_and_keeps_preferences() -> TestResult {
     if gix_testtools::run_in_isolated_process()? {
         return Ok(());
     }
@@ -1400,7 +1393,7 @@ fn clone_ignores_repository_paths_and_keeps_preferences() -> Result {
         "the clone keeps its index in its own git directory"
     );
     assert_eq!(
-        repo.editor(),
+        repo.editor()?,
         Some("git-editor".into()),
         "the clone honors the caller's editor preference"
     );
@@ -1413,7 +1406,7 @@ fn clone_ignores_repository_paths_and_keeps_preferences() -> Result {
 }
 
 #[test]
-fn clone_and_early_persist_without_receive() -> Result {
+fn clone_and_early_persist_without_receive() -> TestResult {
     let tmp = gix_testtools::tempfile::TempDir::new()?;
     let repo = gix::clone::PrepareFetch::new(
         remote::repo("base").path(),
@@ -1429,7 +1422,7 @@ fn clone_and_early_persist_without_receive() -> Result {
 }
 
 #[test]
-fn clone_and_destination_must_be_empty() -> Result {
+fn clone_and_destination_must_be_empty() -> TestResult {
     let mut error_snapshots = Vec::new();
     let tmp = gix_testtools::tempfile::TempDir::new()?;
     std::fs::write(tmp.path().join("file"), b"hello")?;
@@ -1467,7 +1460,7 @@ fn clone_and_destination_must_be_empty() -> Result {
 }
 
 #[test]
-fn clone_with_worktree_and_destination_must_be_empty() -> Result {
+fn clone_with_worktree_and_destination_must_be_empty() -> TestResult {
     let fixture = gix_testtools::scripted_fixture_writable("make_clone_destinations.sh")?;
     let destination = fixture.path().join("non-empty");
     let err = gix::clone::PrepareFetch::new(
@@ -1494,7 +1487,7 @@ fn clone_with_worktree_and_destination_must_be_empty() -> Result {
 }
 
 #[test]
-fn clone_bare_into_empty_directory_and_early_drop() -> Result {
+fn clone_bare_into_empty_directory_and_early_drop() -> TestResult {
     let tmp = gix_testtools::tempfile::TempDir::new()?;
     // this breaks isolation, but shouldn't be affecting the test. If so, use isolation options for opening the repo.
     let prep = gix::clone::PrepareFetch::new(
@@ -1513,7 +1506,7 @@ fn clone_bare_into_empty_directory_and_early_drop() -> Result {
 }
 
 #[test]
-fn clone_into_empty_directory_and_early_drop() -> Result {
+fn clone_into_empty_directory_and_early_drop() -> TestResult {
     let tmp = gix_testtools::tempfile::TempDir::new()?;
     let prep = gix::clone::PrepareFetch::new(
         remote::repo("base").path(),

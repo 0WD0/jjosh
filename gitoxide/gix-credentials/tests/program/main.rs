@@ -4,7 +4,7 @@ use gix_error::Result;
 use std::{ffi::OsString, io::Cursor};
 
 #[test]
-fn action_aliases_are_accepted() -> Result {
+fn action_aliases_are_accepted() -> gix_testtools::TestResult {
     for (input, expected) in [
         ("get", "get"),
         ("fill", "get"),
@@ -34,7 +34,7 @@ fn invalid_actions_are_validation_errors() {
 }
 
 #[test]
-fn context_options_apply_to_input_and_output() {
+fn context_options_apply_to_input_and_output() -> gix_testtools::TestResult {
     let input = b"url=https://github.com/with\rreturn\n";
     let mut output = Vec::new();
     let options = gix_credentials::protocol::ContextOptions {
@@ -56,10 +56,10 @@ fn context_options_apply_to_input_and_output() {
                 ..Default::default()
             }))
         },
-    )
-    .expect("carriage returns are allowed");
+    )?;
 
     assert!(output.contains_str("user\rname"));
+    Ok(())
 }
 
 #[test]

@@ -19,18 +19,18 @@ mod header {
     }
 
     mod write_to {
-        use crate::Result;
+        use crate::TestResult;
         use crate::parse::section::header::serialized;
 
         #[test]
-        fn subsection_backslashes_and_quotes_are_escaped() -> Result {
+        fn subsection_backslashes_and_quotes_are_escaped() -> TestResult {
             assert_eq!(serialized("core", r"a\b")?, r#"[core "a\\b"]"#);
             assert_eq!(serialized("core", r#"a:"b""#)?, r#"[core "a:\"b\""]"#);
             Ok(())
         }
 
         #[test]
-        fn everything_is_allowed() -> Result {
+        fn everything_is_allowed() -> TestResult {
             assert_eq!(serialized("core", "a/b \t\t a\\b")?, "[core \"a/b \t\t a\\\\b\"]");
             Ok(())
         }

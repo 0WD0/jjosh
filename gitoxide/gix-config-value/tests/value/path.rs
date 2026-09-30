@@ -6,7 +6,7 @@ mod interpolate {
     use gix_config_value::path;
 
     #[test]
-    fn backslash_is_not_special_and_they_are_not_escaping_anything() -> Result {
+    fn backslash_is_not_special_and_they_are_not_escaping_anything() -> gix_testtools::TestResult {
         for path in [r"C:\foo\bar", "/foo/bar"] {
             let actual = gix_config_value::Path::from(path).interpolate(Default::default())?;
             assert_eq!(actual, Path::new(path));
@@ -22,42 +22,40 @@ mod interpolate {
     }
 
     #[test]
-    fn prefix_substitutes_git_install_dir() {
+    fn prefix_substitutes_git_install_dir() -> gix_testtools::TestResult {
         for git_install_dir in &["/tmp/git", r"C:\git"] {
             for (val, expected) in &[("%(prefix)/foo/bar", "foo/bar"), (r"%(prefix)/foo\bar", r"foo\bar")] {
                 let expected =
                     std::path::PathBuf::from(format!("{}{}{}", git_install_dir, std::path::MAIN_SEPARATOR, expected));
                 assert_eq!(
-                    gix_config_value::Path::from(*val)
-                        .interpolate(path::interpolate::Context {
-                            git_install_dir: Path::new(git_install_dir).into(),
-                            ..Default::default()
-                        })
-                        .expect("valid interpolation"),
+                    gix_config_value::Path::from(*val).interpolate(path::interpolate::Context {
+                        git_install_dir: Path::new(git_install_dir).into(),
+                        ..Default::default()
+                    })?,
                     expected,
                     "prefix interpolation keeps separators as they are"
                 );
             }
         }
+        Ok(())
     }
 
     #[test]
-    fn prefix_substitution_skipped_with_dot_slash() {
+    fn prefix_substitution_skipped_with_dot_slash() -> gix_testtools::TestResult {
         let path = "./%(prefix)/foo/bar";
         let git_install_dir = "/tmp/git";
         assert_eq!(
-            gix_config_value::Path::from(path)
-                .interpolate(path::interpolate::Context {
-                    git_install_dir: Path::new(git_install_dir).into(),
-                    ..Default::default()
-                })
-                .expect("valid interpolation"),
+            gix_config_value::Path::from(path).interpolate(path::interpolate::Context {
+                git_install_dir: Path::new(git_install_dir).into(),
+                ..Default::default()
+            })?,
             Path::new(path)
         );
+        Ok(())
     }
 
     #[test]
-    fn tilde_alone_substitutes_current_user() -> Result {
+    fn tilde_alone_substitutes_current_user() -> gix_testtools::TestResult {
         let home = std::env::current_dir().expect("current directory is available");
         assert_eq!(
             gix_config_value::Path::from("~").interpolate(path::interpolate::Context {
@@ -80,8 +78,8 @@ mod interpolate {
     }
 
     #[test]
-    fn tilde_slash_substitutes_current_user() -> Result {
-        let home = std::env::current_dir().expect("current directory is available");
+    fn tilde_slash_substitutes_current_user() -> gix_testtools::TestResult {
+        let home = std::env::current_dir()?;
         for suffix in ["", "user/bar", r"user\bar", "/user/bar"] {
             let actual = gix_config_value::Path::from(format!("~/{suffix}").as_str()).interpolate(
                 path::interpolate::Context {
@@ -100,7 +98,7 @@ mod interpolate {
     }
 
     #[test]
-    fn tilde_with_given_user() -> Result {
+    fn tilde_with_given_user() -> gix_testtools::TestResult {
         let mut error_snapshots = Vec::new();
         let home = std::env::current_dir().expect("current directory is available");
 

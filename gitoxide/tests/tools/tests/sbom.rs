@@ -2,7 +2,7 @@
 
 use std::{collections::BTreeSet, fs, path::Path, process::Command};
 
-use gix_testtools::{Result, tempfile::TempDir};
+use gix_testtools::{Result, TestResult, tempfile::TempDir};
 use serde_json::Value;
 
 fn isolated(command: &mut Command, root: &Path) {
@@ -115,7 +115,7 @@ windows-backend = { path = "../windows-backend", optional = true }
 }
 
 #[test]
-fn help_and_invalid_selection() -> Result {
+fn help_and_invalid_selection() -> TestResult {
     let root = fixture()?;
     let help = jtt(root.path(), &["--help"])?;
     assert!(
@@ -268,7 +268,7 @@ fn check_documents(output: &Path, scope: &str) -> Result<BTreeSet<String>> {
 
 #[test]
 #[ignore = "requires cargo-cyclonedx and sbom-tools; run just sbom-test"]
-fn package_features_and_workspace() -> Result {
+fn package_features_and_workspace() -> TestResult {
     let root = fixture()?;
     let lock = fs::read(root.path().join("Cargo.lock"))?;
     let output_dir = root.path().join("target/sbom");

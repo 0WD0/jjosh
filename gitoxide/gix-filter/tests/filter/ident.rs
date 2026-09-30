@@ -1,9 +1,9 @@
 mod undo {
-    use crate::Result;
     use bstr::{B, ByteSlice};
+    use gix_testtools::TestResult;
 
     #[test]
-    fn no_id_changes_nothing() -> Result {
+    fn no_id_changes_nothing() -> TestResult {
         let mut buf = Vec::new();
         let changed = gix_filter::ident::undo(B("hello"), &mut buf)?;
         assert!(!changed, "the buffer is not touched");
@@ -12,7 +12,7 @@ mod undo {
     }
 
     #[test]
-    fn empty() -> Result {
+    fn empty() -> TestResult {
         let mut buf = Vec::new();
         assert!(
             !gix_filter::ident::undo(B(""), &mut buf)?,
@@ -22,7 +22,7 @@ mod undo {
     }
 
     #[test]
-    fn nothing_if_newline_between_dollars() -> Result {
+    fn nothing_if_newline_between_dollars() -> TestResult {
         let mut buf = Vec::new();
         assert!(!gix_filter::ident::undo(B(" $Id: \n$"), &mut buf)?);
         assert_eq!(buf.len(), 0);
@@ -30,7 +30,7 @@ mod undo {
     }
 
     #[test]
-    fn nothing_if_it_is_not_id() -> Result {
+    fn nothing_if_it_is_not_id() -> TestResult {
         let mut buf = Vec::new();
         assert!(
             !gix_filter::ident::undo(B(" $id: something$"), &mut buf)?,
@@ -41,7 +41,7 @@ mod undo {
     }
 
     #[test]
-    fn anything_between_dollar_id_dollar() -> Result {
+    fn anything_between_dollar_id_dollar() -> TestResult {
         let mut buf = Vec::new();
         assert!(gix_filter::ident::undo(B(" $Id: something$\nhello"), &mut buf)?);
         assert_eq!(buf.as_bstr(), " $Id$\nhello");
@@ -49,7 +49,7 @@ mod undo {
     }
 
     #[test]
-    fn multiple() -> Result {
+    fn multiple() -> TestResult {
         let mut buf = Vec::new();
         assert!(gix_filter::ident::undo(
             B("$Id: a\n$ $Id: something$\nhello$Id: hex$\nlast $Id:other$\n$Id: \n$"),
@@ -67,12 +67,12 @@ mod undo {
 }
 
 mod apply {
-    use crate::Result;
     use bstr::{B, ByteSlice};
     use gix_filter::ident;
+    use gix_testtools::TestResult;
 
     #[test]
-    fn no_change() -> Result {
+    fn no_change() -> TestResult {
         let mut buf = Vec::new();
         for input_no_match in [
             "",
@@ -88,7 +88,7 @@ mod apply {
     }
 
     #[test]
-    fn simple() -> Result {
+    fn simple() -> TestResult {
         let mut buf = Vec::new();
         assert!(
             ident::apply(B("$Id$"), gix_testtools::object_hash(), &mut buf)?,
@@ -119,7 +119,7 @@ mod apply {
     }
 
     #[test]
-    fn round_trips() -> Result {
+    fn round_trips() -> TestResult {
         let mut buf = Vec::new();
         for input in [
             "hi\n$Id$\nho\n\t$Id$$Id$$Id$",

@@ -126,7 +126,7 @@ impl delegate::Navigate for Delegate<'_> {
                     }
                     let mut tree = repo.find_object(tree_id).or_erased()?.into_tree();
                     let entry = tree
-                        .peel_to_entry_by_path(gix_path::from_bstr(path))
+                        .peel_to_entry_by_path(gix_path::from_bstr(path).or_erased()?)
                         .or_erased()?
                         .ok_or_raise_erased(|| {
                             message!(
@@ -334,10 +334,10 @@ impl delegate::Navigate for Delegate<'_> {
                     .iter()
                     .filter(|our_stage| **our_stage != stage)
                     .find_map(|stage| index.entry_index_by_path_and_stage(path, *stage).map(|_| *stage));
-                let exists = self
-                    .repo
-                    .workdir()
-                    .is_some_and(|root| root.join(gix_path::from_bstr(path)).exists());
+                let exists = match self.repo.workdir() {
+                    Some(root) => root.join(gix_path::from_bstr(path)?).exists(),
+                    None => false,
+                };
                 Err(message!(
                     "Path {path:?} did not exist in index at stage {desired_stage}{stage_hint}{exists}",
                     exists = if exists {

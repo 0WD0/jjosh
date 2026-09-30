@@ -1,5 +1,84 @@
-use crate::Result;
+use gix_testtools::TestResult;
 use std::sync::LazyLock;
+
+#[test]
+#[cfg(any(unix, windows))]
+fn native_program_paths_are_preserved_without_utf8_conversion() -> TestResult {
+    #[cfg(unix)]
+    let program = {
+        use std::os::unix::ffi::OsStringExt;
+        std::ffi::OsString::from_vec(b"./native-\xff".to_vec())
+    };
+    #[cfg(windows)]
+    let program = {
+        use std::os::windows::ffi::OsStringExt;
+        std::ffi::OsString::from_wide(&[b'.' as u16, b'/' as u16, 0xd800])
+    };
+    // An explicit PATH avoids reading the process environment during Windows preparation.
+    let command = std::process::Command::try_from(gix_command::prepare(&program).env("PATH", ""))?;
+    assert_eq!(
+        command.get_program(),
+        program,
+        "direct commands preserve native path encoding"
+    );
+    Ok(())
+}
+
+#[test]
+#[cfg(windows)]
+fn native_shell_inspection_preserves_bytes_and_quoting_reports_encoding_errors() -> TestResult {
+    use std::os::windows::ffi::OsStringExt;
+
+    let native = std::ffi::OsString::from_wide(&[0xd800]);
+    let mut script = native.clone();
+    script.push(" $@");
+    let prepare = gix_command::prepare(&script).command_may_be_shell_script();
+    assert!(
+        prepare.use_shell,
+        "ASCII shell syntax is recognized beside an unpaired surrogate"
+    );
+    let command = std::process::Command::try_from(prepare.with_shell_program("unused-shell").arg("arg"))?;
+    assert_eq!(
+        command.get_args().nth(1),
+        Some(script.as_os_str()),
+        "an existing $@ is detected without changing the native script"
+    );
+    let err = std::process::Command::try_from(
+        gix_command::prepare(native)
+            .with_shell()
+            .with_shell_program("unused-shell")
+            .with_quoted_command()
+            .arg("arg"),
+    )
+    .expect_err("shell quoting needs representable bytes");
+    assert!(err.is_validation(), "unrepresentable shell input is a validation error");
+    Ok(())
+}
+
+#[test]
+#[cfg(windows)]
+fn unrepresentable_namespace_is_reported_before_spawning() -> TestResult {
+    let prepare = || {
+        gix_command::prepare("./unused-command")
+            .env("PATH", "")
+            .with_context(gix_command::Context {
+                ref_namespace: Some(vec![0xff].into()),
+                ..Default::default()
+            })
+    };
+    let err = std::process::Command::try_from(prepare()).expect_err("a namespace must fit the process environment");
+    assert!(
+        err.is_validation(),
+        "invalid namespace bytes retain their validation classification"
+    );
+    let err = prepare().spawn().expect_err("invalid input prevents process creation");
+    assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+    assert!(
+        err.get_ref().is_some(),
+        "the encoding failure remains the I/O error's source"
+    );
+    Ok(())
+}
 
 fn default_shell() -> &'static str {
     static SH: LazyLock<std::ffi::OsString> = LazyLock::new(|| gix_path::env::shell_command().get_program().to_owned());
@@ -17,7 +96,8 @@ fn quoted(input: &[&str]) -> String {
     // These assertions cover argument parsing. Windows resolves the program before spawning, so
     // compare against the same program prepared without any argument splitting.
     let (program, args) = input.split_first().expect("a command always includes its program");
-    let cmd = std::process::Command::from(gix_command::prepare(program));
+    let cmd = std::process::Command::try_from(gix_command::prepare(program))
+        .expect("command fixture can be represented by the platform");
     std::iter::once(format!("{cmd:?}"))
         .chain(args.iter().map(|s| format!("\"{s}\"")))
         .collect::<Vec<_>>()
@@ -42,46 +122,51 @@ fn quoted_default_shell(input: &[&str]) -> String {
 }
 
 #[test]
-fn empty() {
-    let cmd = std::process::Command::from(gix_command::prepare(""));
+fn empty() -> TestResult {
+    let cmd = std::process::Command::try_from(gix_command::prepare(""))?;
     assert_eq!(format!("{cmd:?}"), "\"\"");
+    Ok(())
 }
 
 #[test]
-fn whitespace_only_without_shell() {
-    let cmd = std::process::Command::from(gix_command::prepare("   "));
+fn whitespace_only_without_shell() -> TestResult {
+    let cmd = std::process::Command::try_from(gix_command::prepare("   "))?;
     assert_eq!(format!("{cmd:?}"), quoted(&["   "]));
+    Ok(())
 }
 
 #[test]
-fn whitespace_only_commands_with_auto_split_fall_back_to_shell() {
-    let cmd = std::process::Command::from(
+fn whitespace_only_commands_with_auto_split_fall_back_to_shell() -> TestResult {
+    let cmd = std::process::Command::try_from(
         gix_command::prepare("   ").command_may_be_shell_script_allow_manual_argument_splitting(),
-    );
+    )?;
     assert_eq!(format!("{cmd:?}"), quoted_default_shell(&["-c", "   ", SH_BASENAME]));
+    Ok(())
 }
 
 #[test]
-fn single_and_multiple_arguments() {
-    let cmd = std::process::Command::from(gix_command::prepare("ls").arg("first").args(["second", "third"]));
+fn single_and_multiple_arguments() -> TestResult {
+    let cmd = std::process::Command::try_from(gix_command::prepare("ls").arg("first").args(["second", "third"]))?;
     assert_eq!(format!("{cmd:?}"), quoted(&["ls", "first", "second", "third"]));
+    Ok(())
 }
 
 #[test]
-fn multiple_arguments_in_one_line_with_auto_split() {
-    let cmd = std::process::Command::from(
+fn multiple_arguments_in_one_line_with_auto_split() -> TestResult {
+    let cmd = std::process::Command::try_from(
         gix_command::prepare("echo first second third").command_may_be_shell_script_allow_manual_argument_splitting(),
-    );
+    )?;
     assert_eq!(
         format!("{cmd:?}"),
         quoted(&["echo", "first", "second", "third"]),
         "we split by hand which works unless one tries to rely on shell-builtins (which we can't detect)"
     );
+    Ok(())
 }
 
 #[test]
-fn shell_assignments_are_applied_during_manual_splitting() {
-    let cmd = std::process::Command::from(
+fn shell_assignments_are_applied_during_manual_splitting() -> TestResult {
+    let cmd = std::process::Command::try_from(
         gix_command::prepare(r#"  FOO=bar BAR="two words" GIT_DIR=inline command.exe arg"#)
             .env("FOO", "overridden")
             .with_context(gix_command::Context {
@@ -89,10 +174,10 @@ fn shell_assignments_are_applied_during_manual_splitting() {
                 ..Default::default()
             })
             .command_may_be_shell_script_allow_manual_argument_splitting(),
-    );
+    )?;
     assert_eq!(
         cmd.get_program(),
-        std::process::Command::from(gix_command::prepare("command.exe")).get_program(),
+        std::process::Command::try_from(gix_command::prepare("command.exe"))?.get_program(),
         "non-PATH assignments don't prevent manual splitting"
     );
     assert_eq!(cmd.get_args().collect::<Vec<_>>(), ["arg"], "arguments are retained");
@@ -116,20 +201,21 @@ fn shell_assignments_are_applied_during_manual_splitting() {
         Some(std::ffi::OsStr::new("inline")),
         "inline assignments have shell precedence over context values"
     );
+    Ok(())
 }
 
 #[test]
 #[cfg(windows)]
-fn inline_path_assignment_controls_lookup() -> gix_testtools::Result {
+fn inline_path_assignment_controls_lookup() -> TestResult {
     let root = gix_testtools::scripted_fixture_read_only("win_path_lookup.sh")?;
     let joined_paths = root.join("a").to_string_lossy().replace('\\', "/");
     let program = format!("{joined_paths}/x.exe");
     let input = format!(r#"PATH="{joined_paths}" x.exe arg"#);
-    let cmd = std::process::Command::from(
+    let cmd = std::process::Command::try_from(
         gix_command::prepare(input)
             .env("PATH", "builder path must be overridden")
             .command_may_be_shell_script_allow_manual_argument_splitting(),
-    );
+    )?;
     assert_eq!(cmd.get_program(), std::path::Path::new(&program));
     assert_eq!(
         cmd.get_args().collect::<Vec<_>>(),
@@ -148,11 +234,11 @@ fn inline_path_assignment_controls_lookup() -> gix_testtools::Result {
 
 #[test]
 #[cfg(windows)]
-fn builder_path_controls_lookup() -> gix_testtools::Result {
+fn builder_path_controls_lookup() -> TestResult {
     let root = gix_testtools::scripted_fixture_read_only("win_path_lookup.sh")?;
     let joined_paths = root.join("b").to_string_lossy().replace('\\', "/");
     let script = std::path::PathBuf::from(&joined_paths).join("exe");
-    let cmd = std::process::Command::from(gix_command::prepare("exe").env("Path", joined_paths.as_str()));
+    let cmd = std::process::Command::try_from(gix_command::prepare("exe").env("Path", joined_paths.as_str()))?;
     assert_eq!(cmd.get_program(), std::path::Path::new("/b/exe"));
     assert_eq!(
         cmd.get_args().collect::<Vec<_>>(),
@@ -164,13 +250,13 @@ fn builder_path_controls_lookup() -> gix_testtools::Result {
 
 #[test]
 #[cfg(windows)]
-fn manually_split_commands_retain_shebang_dispatch() -> gix_testtools::Result {
+fn manually_split_commands_retain_shebang_dispatch() -> TestResult {
     let root = gix_testtools::scripted_fixture_read_only("win_path_lookup.sh")?;
     let script = root.join("b").join("exe").to_string_lossy().replace('\\', "/");
     let input = format!(r#"FOO=bar "{script}" arg"#);
-    let cmd = std::process::Command::from(
+    let cmd = std::process::Command::try_from(
         gix_command::prepare(input).command_may_be_shell_script_allow_manual_argument_splitting(),
-    );
+    )?;
     assert_eq!(cmd.get_program(), std::path::Path::new("/b/exe"));
     assert_eq!(
         cmd.get_args().collect::<Vec<_>>(),
@@ -188,38 +274,40 @@ fn manually_split_commands_retain_shebang_dispatch() -> gix_testtools::Result {
 }
 
 #[test]
-fn only_unambiguous_shell_assignments_are_applied() {
+fn only_unambiguous_shell_assignments_are_applied() -> TestResult {
     for (input, program, args) in [
         ("tool-name=value arg", "tool-name=value", &["arg"][..]),
         (r#"'FOO'=bar command"#, "FOO=bar", &["command"][..]),
     ] {
-        let cmd = std::process::Command::from(
+        let cmd = std::process::Command::try_from(
             gix_command::prepare(input).command_may_be_shell_script_allow_manual_argument_splitting(),
-        );
+        )?;
         assert_eq!(
             cmd.get_program(),
-            std::process::Command::from(gix_command::prepare(program)).get_program(),
+            std::process::Command::try_from(gix_command::prepare(program))?.get_program(),
             "{input:?} is not an assignment prefix"
         );
         assert_eq!(cmd.get_args().collect::<Vec<_>>(), args, "arguments are retained");
         assert_eq!(cmd.get_envs().count(), 0, "the environment is unchanged");
     }
+    Ok(())
 }
 
 #[test]
-fn assignment_only_input_is_left_to_the_shell() {
-    let cmd = std::process::Command::from(
+fn assignment_only_input_is_left_to_the_shell() -> TestResult {
+    let cmd = std::process::Command::try_from(
         gix_command::prepare("tool=name").command_may_be_shell_script_allow_manual_argument_splitting(),
-    );
+    )?;
     assert_eq!(
         format!("{cmd:?}"),
         quoted_default_shell(&["-c", "tool=name", SH_BASENAME])
     );
+    Ok(())
 }
 
 #[test]
 #[cfg(unix)]
-fn invalid_utf8_commands_are_checked_for_shell_syntax() {
+fn invalid_utf8_commands_are_checked_for_shell_syntax() -> TestResult {
     use std::os::unix::ffi::{OsStrExt, OsStringExt};
 
     assert!(
@@ -235,20 +323,21 @@ fn invalid_utf8_commands_are_checked_for_shell_syntax() {
         "shell syntax is detected without requiring UTF-8"
     );
 
-    let cmd = std::process::Command::from(
+    let cmd = std::process::Command::try_from(
         gix_command::prepare(std::ffi::OsString::from_vec(vec![0xff, b' ', 0xfe]))
             .command_may_be_shell_script_allow_manual_argument_splitting(),
-    );
+    )?;
     assert_eq!(cmd.get_program().as_bytes(), [0xff]);
     assert_eq!(
         cmd.get_args().map(OsStrExt::as_bytes).collect::<Vec<_>>(),
         [&[0xfe][..]],
         "manual splitting preserves invalid UTF-8"
     );
+    Ok(())
 }
 
 #[test]
-fn relative_existing_paths_with_shell_syntax_still_use_the_shell() -> Result {
+fn relative_existing_paths_with_shell_syntax_still_use_the_shell() -> TestResult {
     let temp = gix_testtools::tempfile::Builder::new()
         .prefix("$HOME")
         .tempdir_in(".")?;
@@ -264,18 +353,20 @@ fn relative_existing_paths_with_shell_syntax_still_use_the_shell() -> Result {
 }
 
 #[test]
-fn single_and_multiple_arguments_as_part_of_command() {
-    let cmd = std::process::Command::from(gix_command::prepare("ls first second third"));
+fn single_and_multiple_arguments_as_part_of_command() -> TestResult {
+    let cmd = std::process::Command::try_from(gix_command::prepare("ls first second third"))?;
     assert_eq!(
         format!("{cmd:?}"),
         quoted(&["ls first second third"]),
         "without shell, this is an invalid command"
     );
+    Ok(())
 }
 
 #[test]
-fn single_and_multiple_arguments_as_part_of_command_with_shell() {
-    let cmd = std::process::Command::from(gix_command::prepare("ls first second third").command_may_be_shell_script());
+fn single_and_multiple_arguments_as_part_of_command_with_shell() -> TestResult {
+    let cmd =
+        std::process::Command::try_from(gix_command::prepare("ls first second third").command_may_be_shell_script())?;
     assert_eq!(
         format!("{cmd:?}"),
         if cfg!(windows) {
@@ -285,15 +376,16 @@ fn single_and_multiple_arguments_as_part_of_command_with_shell() {
         },
         "with shell, this works as it performs word splitting"
     );
+    Ok(())
 }
 
 #[test]
-fn single_and_multiple_arguments_as_part_of_command_with_given_shell() {
-    let cmd = std::process::Command::from(
+fn single_and_multiple_arguments_as_part_of_command_with_given_shell() -> TestResult {
+    let cmd = std::process::Command::try_from(
         gix_command::prepare("ls first second third")
             .command_may_be_shell_script()
             .with_shell_program("/somepath/to/bash"),
-    );
+    )?;
     assert_eq!(
         format!("{cmd:?}"),
         if cfg!(windows) {
@@ -303,15 +395,16 @@ fn single_and_multiple_arguments_as_part_of_command_with_given_shell() {
         },
         "with shell, this works as it performs word splitting on Windows, but on linux (or without splitting) it uses the given shell"
     );
+    Ok(())
 }
 
 #[test]
-fn single_and_complex_arguments_as_part_of_command_with_shell() {
-    let cmd = std::process::Command::from(
+fn single_and_complex_arguments_as_part_of_command_with_shell() -> TestResult {
+    let cmd = std::process::Command::try_from(
         gix_command::prepare(r#"ls --foo "a b""#)
             .arg("additional")
             .command_may_be_shell_script(),
-    );
+    )?;
     assert_eq!(
         format!("{cmd:?}"),
         if cfg!(windows) {
@@ -322,63 +415,68 @@ fn single_and_complex_arguments_as_part_of_command_with_shell() {
         },
         "with shell, this works as it performs word splitting, on windows we can avoid the shell"
     );
+    Ok(())
 }
 
 #[test]
-fn single_and_complex_arguments_with_auto_split() {
-    let cmd = std::process::Command::from(
+fn single_and_complex_arguments_with_auto_split() -> TestResult {
+    let cmd = std::process::Command::try_from(
         gix_command::prepare(r#"ls --foo="a b""#).command_may_be_shell_script_allow_manual_argument_splitting(),
-    );
+    )?;
     assert_eq!(
         format!("{cmd:?}"),
         quoted(&["ls", "--foo=a b"]),
         "splitting can also handle quotes"
     );
+    Ok(())
 }
 
 #[test]
-fn single_and_complex_arguments_without_auto_split() {
-    let cmd = std::process::Command::from(
+fn single_and_complex_arguments_without_auto_split() -> TestResult {
+    let cmd = std::process::Command::try_from(
         gix_command::prepare(r#"ls --foo="a b""#).command_may_be_shell_script_disallow_manual_argument_splitting(),
-    );
+    )?;
     assert_eq!(
         format!("{cmd:?}"),
         quoted_default_shell(&["-c", r#"ls --foo=\"a b\""#, SH_BASENAME])
     );
+    Ok(())
 }
 
 #[test]
-fn single_and_simple_arguments_without_auto_split_with_shell() {
-    let cmd = std::process::Command::from(gix_command::prepare("ls").arg("--foo=a b").with_shell());
+fn single_and_simple_arguments_without_auto_split_with_shell() -> TestResult {
+    let cmd = std::process::Command::try_from(gix_command::prepare("ls").arg("--foo=a b").with_shell())?;
     assert_eq!(
         format!("{cmd:?}"),
         quoted_default_shell(&["-c", r#"ls \"$@\""#, SH_BASENAME, "--foo=a b"])
     );
+    Ok(())
 }
 
 #[test]
-fn quoted_command_without_argument_splitting() {
-    let cmd = std::process::Command::from(
+fn quoted_command_without_argument_splitting() -> TestResult {
+    let cmd = std::process::Command::try_from(
         gix_command::prepare("ls")
             .arg("--foo=a b")
             .with_shell()
             .with_quoted_command(),
-    );
+    )?;
     assert_eq!(
         format!("{cmd:?}"),
         quoted_default_shell(&["-c", r#"'ls' \"$@\""#, SH_BASENAME, "--foo=a b"]),
         "looks strange thanks to debug printing, but is the right amount of quotes actually"
     );
+    Ok(())
 }
 
 #[test]
-fn quoted_windows_command_without_argument_splitting() {
-    let cmd = std::process::Command::from(
+fn quoted_windows_command_without_argument_splitting() -> TestResult {
+    let cmd = std::process::Command::try_from(
         gix_command::prepare(r"C:\Users\O'Shaughnessy\with space.exe")
             .arg("--foo='a b'")
             .with_shell()
             .with_quoted_command(),
-    );
+    )?;
     assert_eq!(
         format!("{cmd:?}"),
         quoted_default_shell(&[
@@ -389,58 +487,63 @@ fn quoted_windows_command_without_argument_splitting() {
         ]),
         "again, a lot of extra backslashes, but it's correct outside of the debug formatting"
     );
+    Ok(())
 }
 
 #[test]
-fn single_and_complex_arguments_will_not_auto_split_on_special_characters() {
-    let cmd = std::process::Command::from(
+fn single_and_complex_arguments_will_not_auto_split_on_special_characters() -> TestResult {
+    let cmd = std::process::Command::try_from(
         gix_command::prepare("ls --foo=~/path").command_may_be_shell_script_allow_manual_argument_splitting(),
-    );
+    )?;
     assert_eq!(
         format!("{cmd:?}"),
         quoted_default_shell(&["-c", "ls --foo=~/path", SH_BASENAME]),
         "splitting can also handle quotes"
     );
+    Ok(())
 }
 
 #[test]
-fn tilde_path_and_multiple_arguments_as_part_of_command_with_shell() {
-    let cmd =
-        std::process::Command::from(gix_command::prepare(r#"~/bin/exe --foo "a b""#).command_may_be_shell_script());
+fn tilde_path_and_multiple_arguments_as_part_of_command_with_shell() -> TestResult {
+    let cmd = std::process::Command::try_from(
+        gix_command::prepare(r#"~/bin/exe --foo "a b""#).command_may_be_shell_script(),
+    )?;
     assert_eq!(
         format!("{cmd:?}"),
         quoted_default_shell(&["-c", r#"~/bin/exe --foo \"a b\""#, SH_BASENAME]),
         "this always needs a shell as we need tilde expansion"
     );
+    Ok(())
 }
 
 #[test]
-fn script_with_dollar_at() {
-    let cmd = std::process::Command::from(
+fn script_with_dollar_at() -> TestResult {
+    let cmd = std::process::Command::try_from(
         gix_command::prepare(r#"echo "$@" >&2"#)
             .command_may_be_shell_script()
             .arg("store"),
-    );
+    )?;
     assert_eq!(
         format!("{cmd:?}"),
         quoted_default_shell(&["-c", r#"echo \"$@\" >&2"#, SH_BASENAME, "store"]),
         "this is how credential helpers have to work as for some reason they don't get '$@' added in Git.\
             We deal with it by not doubling the '$@' argument, which seems more flexible."
     );
+    Ok(())
 }
 
 #[test]
 #[cfg(unix)]
-fn non_utf8_script_with_dollar_at_does_not_duplicate_arguments() {
+fn non_utf8_script_with_dollar_at_does_not_duplicate_arguments() -> TestResult {
     use bstr::ByteSlice;
     use std::os::unix::ffi::{OsStrExt, OsStringExt};
 
     let script = std::ffi::OsString::from_vec(b"echo \xff \"$@\"".to_vec());
-    let cmd = std::process::Command::from(
+    let cmd = std::process::Command::try_from(
         gix_command::prepare(script.clone())
             .command_may_be_shell_script()
             .arg("argument"),
-    );
+    )?;
     assert_eq!(
         cmd.get_args()
             .nth(1)
@@ -450,24 +553,26 @@ fn non_utf8_script_with_dollar_at_does_not_duplicate_arguments() {
         script.as_bytes().as_bstr(),
         "the existing byte-encoded $@ is retained without appending another one"
     );
+    Ok(())
 }
 
 #[test]
-fn script_with_dollar_at_has_no_quoting() {
-    let cmd = std::process::Command::from(
+fn script_with_dollar_at_has_no_quoting() -> TestResult {
+    let cmd = std::process::Command::try_from(
         gix_command::prepare(r#"echo "$@" >&2"#)
             .command_may_be_shell_script()
             .with_quoted_command()
             .arg("store"),
-    );
+    )?;
     assert_eq!(
         format!("{cmd:?}"),
         quoted_default_shell(&["-c", r#"echo \"$@\" >&2"#, SH_BASENAME, "store"])
     );
+    Ok(())
 }
 
 #[test]
-fn shell_program_with_no_basename_uses_underscore_placeholder() {
+fn shell_program_with_no_basename_uses_underscore_placeholder() -> TestResult {
     // Defensive fallback for degenerate input that should not occur in
     // practice. If a caller passes a shell path whose `file_name()` is
     // `None` (empty string, `/`, etc.), the `command_name` operand falls
@@ -475,14 +580,15 @@ fn shell_program_with_no_basename_uses_underscore_placeholder() {
     // in shell one-liners. Such a "shell" would not produce a runnable
     // command — the fallback only keeps the construction total in the
     // face of bad input, without making a false claim about the shell.
-    let cmd = std::process::Command::from(
+    let cmd = std::process::Command::try_from(
         gix_command::prepare("echo hi")
             .command_may_be_shell_script_disallow_manual_argument_splitting()
             .with_shell_program(""),
-    );
+    )?;
     assert_eq!(
         format!("{cmd:?}"),
         quoted(&["", "-c", "echo hi", "_"]),
         "with no basename available, the command_name operand is '_', not a guessed shell name"
     );
+    Ok(())
 }

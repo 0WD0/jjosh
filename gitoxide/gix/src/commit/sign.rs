@@ -1,4 +1,4 @@
-use std::{ffi::OsString, path::PathBuf, process::Stdio};
+use std::{ffi::OsString, process::Stdio};
 
 use crate::error::{ResultExt, bail, message};
 use crate::{
@@ -33,8 +33,9 @@ pub(crate) fn signing_options(repo: &crate::Repository) -> Result<Options> {
         Some(key) if !key.is_empty() && format == Format::Ssh && is_literal_ssh_key(&key).is_none() => config
             .trusted_path(User::SIGNING_KEY)
             .or_raise(|| message("Could not interpolate the configured commit-signing key path"))?
-            .map_or_else(|| gix_path::from_bstring(key).into_os_string(), PathBuf::into_os_string),
-        Some(key) if !key.is_empty() => gix_path::from_bstring(key).into_os_string(),
+            .map_or_else(|| gix_path::from_bstring(key), Ok)?
+            .into_os_string(),
+        Some(key) if !key.is_empty() => gix_path::from_bstring(key)?.into_os_string(),
         _ if format == Format::Ssh => default_ssh_key(&config)?.ok_or_else(|| {
             Error::from_error(message(
                 "user.signingKey or gpg.ssh.defaultKeyCommand must provide an SSH signing key",
@@ -53,7 +54,7 @@ pub(crate) fn signing_options(repo: &crate::Repository) -> Result<Options> {
             identity.extend_from_slice(b" <");
             identity.extend_from_slice(committer.email);
             identity.extend_from_slice(b">");
-            gix_path::from_bstring(identity).into_os_string()
+            gix_path::from_bstring(identity)?.into_os_string()
         }
     };
     Ok(Options {
@@ -71,7 +72,7 @@ pub(crate) fn signing_options_if_enabled(repo: &crate::Repository) -> Result<Opt
 }
 
 fn default_ssh_key(config: &crate::config::Snapshot<'_>) -> Result<Option<OsString>> {
-    let Some(program) = config.trusted_program(gpg::Ssh::DEFAULT_KEY_COMMAND) else {
+    let Some(program) = config.trusted_program(gpg::Ssh::DEFAULT_KEY_COMMAND)? else {
         return Ok(None);
     };
     let mut command: std::process::Command = gix_command::prepare(&program)
@@ -79,7 +80,7 @@ fn default_ssh_key(config: &crate::config::Snapshot<'_>) -> Result<Option<OsStri
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .into();
+        .try_into()?;
     let program_display = if program == command.get_program() {
         String::new()
     } else {
@@ -101,5 +102,5 @@ fn default_ssh_key(config: &crate::config::Snapshot<'_>) -> Result<Option<OsStri
     if is_literal_ssh_key(key).is_none() {
         bail!("gpg.ssh.defaultKeyCommand returned an invalid key: {key:?}");
     }
-    Ok(Some(gix_path::from_bstr(key.as_bstr()).into_owned().into_os_string()))
+    Ok(Some(gix_path::from_bstr(key.as_bstr())?.into_owned().into_os_string()))
 }

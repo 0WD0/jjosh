@@ -31,7 +31,7 @@ pub(crate) struct StackDelegate<'a, 'find> {
 impl gix_fs::stack::Delegate for StackDelegate<'_, '_> {
     fn push_directory(&mut self, stack: &gix_fs::Stack) -> std::io::Result<()> {
         self.statistics.delegate.push_directory += 1;
-        let rela_dir_bstr = gix_path::into_bstr(stack.current_relative());
+        let rela_dir_bstr = gix_path::into_bstr(stack.current_relative()).map_err(std::io::Error::other)?;
         let rela_dir = gix_path::to_unix_separators_on_windows(rela_dir_bstr);
         match &mut self.state {
             #[cfg(feature = "attributes")]
@@ -139,7 +139,7 @@ fn validate_last_component(
     let Some(last_component) = stack.current_relative().components().next_back() else {
         return Ok(());
     };
-    let last_component = gix_path::try_into_bstr(std::borrow::Cow::Borrowed(last_component.as_os_str().as_ref()))
+    let last_component = gix_path::into_bstr(std::borrow::Cow::Borrowed(last_component.as_os_str().as_ref()))
         .or_raise(|| {
             gix_error::message!(
                 "Path component {last_component:?} of path \"{}\" contained invalid UTF-8 and could not be validated",

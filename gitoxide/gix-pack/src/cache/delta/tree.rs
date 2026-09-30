@@ -219,7 +219,7 @@ impl<T> Tree<T> {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn unresolved_ref_delta_parent_is_corruption() -> gix_error::TestResult {
+    fn unresolved_ref_delta_parent_is_corruption() -> gix_testtools::TestResult {
         let mut tree = super::Tree::with_capacity(1, None)?;
         tree.add_child(24, 12, ())?;
         let err = tree
@@ -239,7 +239,7 @@ mod tests {
     }
 
     #[test]
-    fn forward_ref_delta_parent_is_allowed() -> gix_error::TestResult {
+    fn forward_ref_delta_parent_is_allowed() -> gix_testtools::TestResult {
         let mut tree = super::Tree::with_capacity(2, None)?;
         tree.add_child(24, 12, ())?;
         tree.add_root(24, ())?;
@@ -253,7 +253,7 @@ mod tests {
     }
 
     #[test]
-    fn pack_end_must_follow_the_last_entry() -> gix_error::TestResult {
+    fn pack_end_must_follow_the_last_entry() -> gix_testtools::TestResult {
         let mut tree = super::Tree::with_capacity(1, None)?;
         tree.add_root(12, ())?;
         let err = tree
@@ -306,17 +306,17 @@ mod tests {
         use gix_testtools::fixture_path;
 
         #[test]
-        fn v1() -> gix_testtools::Result {
-            tree(INDEX_V1, PACK_FOR_INDEX_V1)
+        fn v1() -> gix_testtools::TestResult {
+            Ok(tree(INDEX_V1, PACK_FOR_INDEX_V1)?)
         }
 
         #[test]
-        fn v2() -> gix_testtools::Result {
-            tree(SMALL_PACK_INDEX, SMALL_PACK)
+        fn v2() -> gix_testtools::TestResult {
+            Ok(tree(SMALL_PACK_INDEX, SMALL_PACK)?)
         }
 
         #[test]
-        fn invalid_ofs_delta_base_distance_is_reported() -> gix_testtools::Result {
+        fn invalid_ofs_delta_base_distance_is_reported() -> gix_testtools::TestResult {
             let first_entry_offset = pack::data::header::SIZE as pack::data::Offset;
             let pack_file = gix_testtools::tempfile::NamedTempFile::new()?;
             let mut pack_data = pack::data::header::encode(pack::data::Version::V2, 1).to_vec();
@@ -341,7 +341,7 @@ mod tests {
         }
 
         #[test]
-        fn duplicate_and_overlapping_offsets_are_rejected() -> gix_testtools::Result {
+        fn duplicate_and_overlapping_offsets_are_rejected() -> gix_testtools::TestResult {
             let first = pack::data::header::SIZE as pack::data::Offset;
             let pack_file = gix_testtools::tempfile::NamedTempFile::new()?;
             let mut data = pack::data::header::encode(pack::data::Version::V2, 2).to_vec();

@@ -121,7 +121,7 @@ impl File {
         if path_bstr.is_empty() {
             bail!("The submodule '{name}' was missing its 'path' field or it was empty".validation());
         }
-        let path = gix_path::from_bstr(path_bstr.as_bstr());
+        let path = gix_path::from_bstr(path_bstr.as_bstr())?;
         if path.is_absolute() {
             bail!(validation(format!("The path of submodule '{name}' needs to be relative")).with_input(path_bstr));
         }

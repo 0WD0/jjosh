@@ -92,7 +92,11 @@ pub fn repository_kind(git_dir: &Path) -> Option<RepositoryKind> {
 ///
 /// Empty or whitespace-only path files are invalid.
 pub fn from_plain_file(path: &std::path::Path) -> Option<std::io::Result<PathBuf>> {
-    read_plain_file_content(path).map(|res| res.map(gix_path::from_bstring))
+    read_plain_file_content(path).map(|res| {
+        res.and_then(|path| {
+            gix_path::from_bstring(path).map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))
+        })
+    })
 }
 
 /// Reads a plain path from a file like [`from_plain_file()`], resolving relative paths against
@@ -103,7 +107,8 @@ pub fn from_plain_file(path: &std::path::Path) -> Option<std::io::Result<PathBuf
 pub fn from_plain_file_relative_to_file(path: &std::path::Path) -> Option<std::io::Result<PathBuf>> {
     read_plain_file_content(path).map(|res| {
         res.and_then(|buf| {
-            let plain_path = gix_path::from_bstring(buf);
+            let plain_path =
+                gix_path::from_bstring(buf).map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))?;
             if !plain_path.is_relative() {
                 return Ok(plain_path);
             }

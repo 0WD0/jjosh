@@ -83,11 +83,10 @@ impl From<Mode> for bool {
 }
 
 mod read_only {
-    use crate::Result;
     use crate::file::worktree::{Mode, assert_reflog, into_peel, main_store, worktree_store};
 
     #[test]
-    fn linked() -> Result {
+    fn linked() -> gix_testtools::TestResult {
         for packed in [false, true] {
             let (store, odb, _tmp) = worktree_store(packed, "w1", Mode::Read)?;
             assert_eq!(store.is_pristine("refs/heads/main".try_into()?), Some(false));
@@ -136,7 +135,7 @@ mod read_only {
     }
 
     #[test]
-    fn main() -> Result {
+    fn main() -> gix_testtools::TestResult {
         for packed in [false, true] {
             let (store, odb, _tmp) = main_store(packed, Mode::Read)?;
             assert_eq!(store.is_pristine("refs/heads/main".try_into()?), Some(false));
@@ -197,7 +196,6 @@ mod read_only {
 }
 
 mod writable {
-    use crate::Result;
     use gix_date::parse::TimeBuf;
     use gix_lock::acquire::Fail;
     use gix_ref::{
@@ -224,7 +222,7 @@ mod writable {
     }
 
     #[test]
-    fn main() -> Result {
+    fn main() -> gix_testtools::TestResult {
         let mut error_snapshots = Vec::new();
         let new_id_main = hex_to_id("11111111111111111162102c6a483440bfda2a03");
         let new_id_main_str = new_id_main.to_string();
@@ -259,8 +257,7 @@ mod writable {
                     Fail::Immediately,
                     Fail::Immediately,
                 )?
-                .commit(committer().to_ref(&mut TimeBuf::default()))
-                .expect("successful commit as even similar resolved names live in different base locations");
+                .commit(committer().to_ref(&mut TimeBuf::default()))?;
 
             assert_eq!(
                 store
@@ -486,7 +483,7 @@ mod writable {
     }
 
     #[test]
-    fn linked() -> Result {
+    fn linked() -> gix_testtools::TestResult {
         let mut error_snapshots = Vec::new();
         let new_id = hex_to_id("134385f6d781b7e97062102c6a483440bfda2a03");
         let new_id_str = new_id.to_string();
@@ -534,8 +531,7 @@ mod writable {
                     Fail::Immediately,
                     Fail::Immediately,
                 )?
-                .commit(committer().to_ref(&mut TimeBuf::default()))
-                .expect("successful commit as even similar resolved names live in different base locations");
+                .commit(committer().to_ref(&mut TimeBuf::default()))?;
 
             assert_eq!(
                 store

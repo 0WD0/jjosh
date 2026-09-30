@@ -1,21 +1,20 @@
 mod reflog {
     mod packed {
-        use crate::Result;
         use gix_ref::file::ReferenceExt;
 
         use crate::file;
 
         #[test]
-        fn iter() -> Result {
+        fn iter() -> gix_testtools::TestResult {
             let store = file::store_with_packed_refs()?;
             let r = store.find("main")?;
             assert_eq!(r.log_iter(&store).all()?.expect("log exists").count(), 1);
-            assert!(r.log_exists(&store), "it exists if its readable");
+            assert!(r.log_exists(&store)?, "it exists if its readable");
             Ok(())
         }
 
         #[test]
-        fn iter_rev() -> Result {
+        fn iter_rev() -> gix_testtools::TestResult {
             let store = file::store_with_packed_refs()?;
             let r = store.find("main")?;
             assert_eq!(r.log_iter(&store).rev()?.expect("log exists").count(), 1);
@@ -24,21 +23,20 @@ mod reflog {
     }
 
     mod loose {
-        use crate::Result;
         use crate::file;
 
         #[test]
-        fn iter() -> Result {
+        fn iter() -> gix_testtools::TestResult {
             let store = file::store()?;
             let r = store.find_loose("HEAD")?;
             let mut buf = Vec::new();
             assert_eq!(r.log_iter(&store, &mut buf)?.expect("log exists").count(), 1);
-            assert!(r.log_exists(&store), "it exists if its readable");
+            assert!(r.log_exists(&store)?, "it exists if its readable");
             Ok(())
         }
 
         #[test]
-        fn iter_rev() -> Result {
+        fn iter_rev() -> gix_testtools::TestResult {
             let store = file::store()?;
             let r = store.find_loose("HEAD")?;
             let mut buf = [0u8; 256];
@@ -49,7 +47,6 @@ mod reflog {
 }
 
 mod peel {
-    use crate::Result;
     use gix_error::Message;
     use gix_object::FindExt;
     use gix_ref::{Reference, file::ReferenceExt};
@@ -61,12 +58,12 @@ mod peel {
     };
 
     #[test]
-    fn one_level() -> Result {
+    fn one_level() -> gix_testtools::TestResult {
         let store = file::store()?;
         let r = store.find_loose("HEAD")?;
         assert_eq!(r.kind(), gix_ref::Kind::Symbolic, "there is something to peel");
 
-        let nr = Reference::from(r).follow(&store).expect("exists").expect("no failure");
+        let nr = Reference::from(r).follow(&store).expect("exists")?;
         assert!(
             matches!(nr.target.to_ref(), gix_ref::TargetRef::Object(_)),
             "iteration peels a single level"
@@ -81,7 +78,7 @@ mod peel {
     }
 
     #[test]
-    fn peel_with_packed_involvement() -> Result {
+    fn peel_with_packed_involvement() -> gix_testtools::TestResult {
         let store = store_with_packed_refs()?;
         let mut head: Reference = store.find_loose("HEAD")?.into();
         let expected = hex_to_id("134385f6d781b7e97062102c6a483440bfda2a03");
@@ -95,7 +92,7 @@ mod peel {
     }
 
     #[test]
-    fn peel_one_level_with_pack() -> Result {
+    fn peel_one_level_with_pack() -> gix_testtools::TestResult {
         let store = store_with_packed_refs()?;
 
         let mut head = store.find("dt1")?;
@@ -133,7 +130,7 @@ mod peel {
     }
 
     #[test]
-    fn to_id_multi_hop() -> Result {
+    fn to_id_multi_hop() -> gix_testtools::TestResult {
         let store = file::store()?;
         let mut r: Reference = store.find_loose("multi-link")?.into();
         assert_eq!(r.kind(), gix_ref::Kind::Symbolic, "there is something to peel");
@@ -157,7 +154,7 @@ mod peel {
     }
 
     #[test]
-    fn to_id_long_jump() -> Result {
+    fn to_id_long_jump() -> gix_testtools::TestResult {
         for packed in [None, Some("packed")] {
             let store = file::store_at_with_args("make_multi_hop_ref.sh", packed)?;
             let odb = crate::file::odb_at(store.git_dir().join("objects"))?;
@@ -189,7 +186,7 @@ mod peel {
     }
 
     #[test]
-    fn to_id_cycle() -> Result {
+    fn to_id_cycle() -> gix_testtools::TestResult {
         let store = file::store()?;
         let mut r: Reference = store.find_loose("loop-a")?.into();
         assert_eq!(r.kind(), gix_ref::Kind::Symbolic, "there is something to peel");

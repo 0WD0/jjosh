@@ -1,6 +1,6 @@
 mod at {
     #[test]
-    fn shorter_than_checksum() -> gix_testtools::Result {
+    fn shorter_than_checksum() -> gix_testtools::TestResult {
         let mut error_snapshots = Vec::new();
         let tmp = gix_testtools::tempfile::TempDir::new()?;
         let path = tmp.path().join("index");
@@ -37,18 +37,18 @@ mod at_or_new {
     use crate::Fixture::Generated;
 
     #[test]
-    fn opens_existing() {
+    fn opens_existing() -> gix_testtools::TestResult {
         gix_index::File::at_or_default(
             Generated("v4_more_files_IEOT").to_path(),
             gix_testtools::object_hash(),
             false,
             Default::default(),
-        )
-        .expect("file exists and can be opened");
+        )?;
+        Ok(())
     }
 
     #[test]
-    fn missing_shared_index_is_an_error() -> gix_testtools::Result {
+    fn missing_shared_index_is_an_error() -> gix_testtools::TestResult {
         let tmp = gix_testtools::tempfile::TempDir::new()?;
         let index_path = tmp.path().join("index");
         // Keep the primary split index, but leave its shared index behind.
@@ -67,14 +67,13 @@ mod at_or_new {
     }
 
     #[test]
-    fn create_empty_in_memory_state_if_file_does_not_exist() {
+    fn create_empty_in_memory_state_if_file_does_not_exist() -> gix_testtools::TestResult {
         let index = gix_index::File::at_or_default(
             "__definitely no file that exists ever__",
             gix_testtools::object_hash(),
             false,
             Default::default(),
-        )
-        .expect("file is defaulting to a new one");
+        )?;
         assert!(!index.path().is_file(), "the file wasn't created yet");
         assert_eq!(
             index.object_hash(),
@@ -82,6 +81,7 @@ mod at_or_new {
             "object hash is respected"
         );
         assert_eq!(index.entries().len(), 0, "index is empty");
+        Ok(())
     }
 }
 
@@ -91,7 +91,7 @@ mod from_state {
     use crate::Fixture::*;
 
     #[test]
-    fn writes_data_to_disk_and_is_a_valid_index() -> gix_testtools::Result {
+    fn writes_data_to_disk_and_is_a_valid_index() -> gix_testtools::TestResult {
         let fixtures = [
             (Loose("extended-flags"), V3),
             (Generated("v2"), V2),

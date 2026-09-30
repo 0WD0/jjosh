@@ -15,7 +15,7 @@ pub fn gitdir(input: &[u8]) -> Result<PathBuf> {
     if path.is_empty() {
         bail!(validation("Format should be 'gitdir: <path>', but got").with_input(input));
     }
-    Ok(gix_path::try_from_bstr(path)
+    Ok(gix_path::from_bstr(path)
         .or_raise(|| validation("Couldn't decode input as UTF8").with_input(input))?
         .into_owned())
 }

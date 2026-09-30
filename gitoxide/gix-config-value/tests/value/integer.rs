@@ -2,10 +2,10 @@ use std::borrow::Cow;
 
 use bstr::{BStr, BString};
 use gix_config_value::{Integer, integer::Suffix};
-use gix_error::{MetadataValue, Result};
+use gix_error::MetadataValue;
 
 #[test]
-fn from_utf8_str() -> Result {
+fn from_utf8_str() -> gix_testtools::TestResult {
     assert_eq!(
         Integer::try_from("1k")?,
         Integer {
@@ -70,7 +70,7 @@ fn invalid_from_str() {
 }
 
 #[test]
-fn from_bytes_accepts_common_inputs() -> Result {
+fn from_bytes_accepts_common_inputs() -> gix_testtools::TestResult {
     let owned = BString::from("0X800");
     for actual in [
         Integer::from_bytes::<i64>("2k")?,
@@ -94,7 +94,7 @@ fn from_bytes_accepts_common_inputs() -> Result {
 }
 
 #[test]
-fn from_bytes_applies_suffixes_before_converting_to_the_target() -> Result {
+fn from_bytes_applies_suffixes_before_converting_to_the_target() -> gix_testtools::TestResult {
     for (input, expected) in [
         ("12", 12),
         ("13k", 13 * 1024),

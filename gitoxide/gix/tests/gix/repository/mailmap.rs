@@ -1,7 +1,7 @@
-use crate::{Result, named_repo};
+use crate::named_repo;
 
 #[test]
-fn empty_when_no_mailmap_present() -> Result {
+fn empty_when_no_mailmap_present() -> gix_testtools::TestResult {
     let repo = named_repo("make_basic_repo.sh")?;
     let snapshot = repo.open_mailmap();
     assert!(
@@ -20,7 +20,7 @@ fn empty_when_no_mailmap_present() -> Result {
 
 #[test]
 #[cfg(any(unix, windows))]
-fn worktree_symlinks_are_rejected_but_configured_mailmaps_may_follow_them() -> Result {
+fn worktree_symlinks_are_rejected_but_configured_mailmaps_may_follow_them() -> gix_testtools::TestResult {
     let dir = gix_testtools::scripted_fixture_read_only("make_symlinked_mailmap_repo.sh")?;
     if !gix_testtools::fixture_has_symlinks(&dir)? {
         return Ok(());
@@ -48,7 +48,7 @@ fn worktree_symlinks_are_rejected_but_configured_mailmaps_may_follow_them() -> R
     );
 
     repo.config_snapshot_mut()
-        .set_raw_value("mailmap.file", gix::path::into_bstr(mailmap.as_path()))?;
+        .set_raw_value("mailmap.file", gix::path::into_bstr(mailmap.as_path())?)?;
     assert!(
         repo.open_mailmap_into(&mut snapshot).is_err(),
         "the worktree symlink error is still reported while other sources are loaded"
@@ -62,7 +62,7 @@ fn worktree_symlinks_are_rejected_but_configured_mailmaps_may_follow_them() -> R
 }
 
 #[test]
-fn reads_existing_mailmap_from_worktree_root() -> Result {
+fn reads_existing_mailmap_from_worktree_root() -> gix_testtools::TestResult {
     let repo = named_repo("make_mailmap_repo.sh")?;
     let snapshot = repo.open_mailmap();
     assert_eq!(

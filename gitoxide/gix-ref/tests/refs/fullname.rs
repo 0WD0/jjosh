@@ -17,6 +17,29 @@ fn partial_name_from_os_str_retains_concrete_error() {
     );
 }
 
+#[cfg(windows)]
+#[test]
+fn native_reference_paths_reject_invalid_encoding() -> gix_testtools::TestResult {
+    use gix_ref::bstr::ByteSlice;
+
+    let name = FullName::try_from(b"refs/heads/\xff".as_bstr())?;
+    let namespace = gix_ref::namespace::expand(b"\xff".as_bstr())?;
+    for result in [
+        name.to_path(),
+        name.as_ref().to_path(),
+        name.as_ref().as_partial_name().to_partial_path(),
+        namespace.to_path(),
+    ] {
+        assert!(
+            result
+                .expect_err("the name cannot be represented on Windows")
+                .is_validation(),
+            "Git names remain byte-oriented until a native path is requested"
+        );
+    }
+    Ok(())
+}
+
 #[test]
 fn file_name() {
     let name: gix_ref::FullName = "refs/heads/main".try_into().unwrap();
@@ -153,7 +176,7 @@ fn shorten_and_category() {
 }
 
 #[test]
-fn to_full_name() -> gix_testtools::Result {
+fn to_full_name() -> gix_testtools::TestResult {
     assert_eq!(
         Category::LocalBranch.to_full_name("refs/heads/full")?,
         "refs/heads/full",
@@ -170,7 +193,7 @@ fn to_full_name() -> gix_testtools::Result {
 }
 
 #[test]
-fn local_branch_head_is_representable_as_full_ref_name() -> gix_testtools::Result {
+fn local_branch_head_is_representable_as_full_ref_name() -> gix_testtools::TestResult {
     assert_eq!(
         Category::LocalBranch.to_full_name("HEAD")?,
         "refs/heads/HEAD",

@@ -1,5 +1,5 @@
 mod from_git_dir_file {
-    use crate::Result;
+    use gix_testtools::{Result, TestResult};
     use std::{
         io::Write,
         path::{Path, PathBuf},
@@ -9,7 +9,7 @@ mod from_git_dir_file {
 
     #[cfg(not(windows))]
     #[test]
-    fn absolute_path_unix() -> Result {
+    fn absolute_path_unix() -> TestResult {
         let (path, _) = write_and_read(b"gitdir: /absolute/path/.git")?;
         assert_eq!(path, Path::new("/absolute/path/.git"));
         Ok(())
@@ -17,7 +17,7 @@ mod from_git_dir_file {
 
     #[cfg(windows)]
     #[test]
-    fn absolute_path_windows() -> Result {
+    fn absolute_path_windows() -> TestResult {
         let (path, _) = write_and_read(b"gitdir: C:/absolute/path/.git")?;
         assert_eq!(path, Path::new("C:/absolute/path/.git"));
 
@@ -27,7 +27,7 @@ mod from_git_dir_file {
     }
 
     #[test]
-    fn relative_path_is_made_absolute_relative_to_containing_dir() -> Result {
+    fn relative_path_is_made_absolute_relative_to_containing_dir() -> TestResult {
         let (path, gitdir_file) = write_and_read(b"gitdir: relative/path")?;
         assert_eq!(path, gitdir_file.parent().unwrap().join(Path::new("relative/path")));
         Ok(())
@@ -46,19 +46,19 @@ mod from_git_dir_file {
 }
 
 mod from_plain_file_relative_to_file {
-    use crate::Result;
     use crate::path::plain_file_with_content;
+    use gix_testtools::{Result, TestResult};
     use std::path::{Path, PathBuf};
 
     #[test]
-    fn relative_path_is_made_absolute_relative_to_containing_dir() -> Result {
+    fn relative_path_is_made_absolute_relative_to_containing_dir() -> TestResult {
         let (path, plain_file) = write_and_read(b"relative/path\n")?;
         assert_eq!(path, plain_file.parent().unwrap().join(Path::new("relative/path")));
         Ok(())
     }
 
     #[test]
-    fn empty_or_whitespace_only_path_is_invalid() -> Result {
+    fn empty_or_whitespace_only_path_is_invalid() -> TestResult {
         let mut error_snapshots = Vec::new();
         for content in [b"".as_slice(), b"   \n".as_slice()] {
             let file = plain_file_with_content(content)?;
@@ -102,11 +102,11 @@ mod from_plain_file_relative_to_file {
 }
 
 mod from_plain_file {
-    use crate::Result;
     use crate::path::plain_file_with_content;
+    use gix_testtools::TestResult;
 
     #[test]
-    fn empty_or_whitespace_only_path_is_invalid() -> Result {
+    fn empty_or_whitespace_only_path_is_invalid() -> TestResult {
         let mut error_snapshots = Vec::new();
         for content in [b"".as_slice(), b"   \n".as_slice()] {
             let file = plain_file_with_content(content)?;

@@ -1,10 +1,10 @@
-use crate::Result;
+use gix_testtools::TestResult;
 use std::path::Path;
 
 use gix_discover::parse;
 
 #[test]
-fn valid() -> Result {
+fn valid() -> TestResult {
     assert_eq!(parse::gitdir(b"gitdir: a")?, Path::new("a"));
     assert_eq!(parse::gitdir(b"gitdir: relative/path")?, Path::new("relative/path"));
     assert_eq!(parse::gitdir(b"gitdir: ./relative/path")?, Path::new("./relative/path"));

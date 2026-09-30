@@ -57,46 +57,34 @@ impl packed::Transaction {
         assert!(self.edits.is_none(), "BUG: cannot call prepare(…) more than once");
         let buffer = &self.buffer;
         // Remove all edits which are deletions that aren't here in the first place
-        let mut edits: Vec<Edit> = edits
-            .into_iter()
-            .map(|mut edit| {
-                use gix_object::bstr::ByteSlice;
-                if self.precompose_unicode {
-                    let precomposed = edit
-                        .name
-                        .0
-                        .to_str()
-                        .ok()
-                        .map(|name| gix_utils::str::precompose_path(Path::new(name).into()));
-                    match precomposed {
-                        None | Some(Cow::Borrowed(_)) => edit,
-                        Some(Cow::Owned(precomposed)) => {
-                            edit.name.0 = gix_path::into_bstr(precomposed).into_owned();
-                            edit
-                        }
-                    }
-                } else {
-                    edit
+        let mut prepared_edits = Vec::new();
+        for mut edit in edits {
+            use gix_object::bstr::ByteSlice;
+            if self.precompose_unicode {
+                let precomposed = edit
+                    .name
+                    .0
+                    .to_str()
+                    .ok()
+                    .map(|name| gix_utils::str::precompose_path(Path::new(name).into()));
+                if let Some(Cow::Owned(precomposed)) = precomposed {
+                    edit.name.0 = gix_path::into_bstr(precomposed)?.into_owned();
                 }
-            })
-            .map(|mut edit| {
-                if let Some(namespace) = &self.namespace {
-                    edit.name = namespace.clone().into_namespaced_name(edit.name.as_ref());
-                }
-                edit
-            })
-            .filter(|edit| {
-                if let Change::Delete { .. } = edit.change {
-                    buffer.as_ref().is_none_or(|b| b.find(edit.name.as_ref()).is_ok())
-                } else {
-                    true
-                }
-            })
-            .map(|change| Edit {
-                inner: change,
+            }
+            if let Some(namespace) = &self.namespace {
+                edit.name = namespace.clone().into_namespaced_name(edit.name.as_ref());
+            }
+            if matches!(edit.change, Change::Delete { .. })
+                && buffer.as_ref().is_some_and(|b| b.find(edit.name.as_ref()).is_err())
+            {
+                continue;
+            }
+            prepared_edits.push(Edit {
+                inner: edit,
                 peeled: None,
-            })
-            .collect();
+            });
+        }
+        let mut edits = prepared_edits;
 
         let mut buf = Vec::new();
         for edit in &mut edits {

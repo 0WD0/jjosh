@@ -1,5 +1,5 @@
-use crate::Result;
 use crate::remote;
+use gix_testtools::TestResult;
 
 mod baseline {
     use crate::Result;
@@ -127,7 +127,7 @@ fn any_url_calls_global() {
 }
 
 #[test]
-fn protect_protocol_defaults_to_true_and_can_be_overridden_per_url() -> Result {
+fn protect_protocol_defaults_to_true_and_can_be_overridden_per_url() -> TestResult {
     let mut repo = remote::repo("credential-helpers");
     let url = "https://example.com";
     let (cascade, action, _) = repo.config_snapshot().credential_helpers(url.try_into()?)?;
@@ -202,7 +202,7 @@ fn subdomain_globs_match_on_their_level() {
 
 #[test]
 #[serial_test::serial]
-fn http_urls_match_the_host_without_path_as_well() -> Result {
+fn http_urls_match_the_host_without_path_as_well() -> TestResult {
     let _environment = gix_testtools::isolate_git_environment()?.set("GIT_ASKPASS", "foo");
     baseline::agrees_with("http://example.com:8080/other/path");
     baseline::agrees_with_but_drops_default_port_in_prompt("http://example.com:80/");
@@ -213,7 +213,7 @@ fn http_urls_match_the_host_without_path_as_well() -> Result {
 
 #[test]
 #[serial_test::serial]
-fn user_rules_only_match_urls_with_user() -> Result {
+fn user_rules_only_match_urls_with_user() -> TestResult {
     let _environment = gix_testtools::isolate_git_environment()?.set("SSH_ASKPASS", "foo");
     baseline::agrees_with("https://user@example.com/with-user");
     baseline::agrees_with("https://example.com/with-user");
@@ -241,7 +241,7 @@ fn invalid_urls_are_rejected_early() {
 }
 
 #[test]
-fn empty_core_askpass_is_ignored() -> Result {
+fn empty_core_askpass_is_ignored() -> TestResult {
     for strict in [false, true] {
         let repo = gix::open_opts(
             remote::repo_path("empty-core-askpass"),
@@ -256,7 +256,7 @@ fn empty_core_askpass_is_ignored() -> Result {
 }
 
 #[test]
-fn core_askpass_interpolation_errors_are_not_ignored() -> Result {
+fn core_askpass_interpolation_errors_are_not_ignored() -> TestResult {
     let mut error_snapshots = Vec::new();
     for strict in [false, true] {
         let repo = gix::open_opts(

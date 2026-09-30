@@ -1,5 +1,5 @@
-use crate::Result;
 use gix::{prelude::ObjectIdExt, revision::Spec};
+use gix_testtools::TestResult;
 
 use crate::{
     revision::spec::from_bytes::{parse_spec, parse_spec_no_baseline, repo},
@@ -7,7 +7,7 @@ use crate::{
 };
 
 #[test]
-fn complex() -> Result {
+fn complex() -> TestResult {
     let repo = &repo("complex_graph")?;
 
     assert_eq!(parse_spec("b", repo)?, parse_spec("a~1", repo)?);
@@ -23,7 +23,7 @@ fn complex() -> Result {
 }
 
 #[test]
-fn freestanding_negation_yields_descriptive_error() -> Result {
+fn freestanding_negation_yields_descriptive_error() -> TestResult {
     let mut error_snapshots = Vec::new();
     let repo = repo("complex_graph")?;
     for revspec in ["^^", "^^HEAD"] {
@@ -42,7 +42,7 @@ fn freestanding_negation_yields_descriptive_error() -> Result {
     couldn't parse revision, input="!"
 
     Caused by:
-        0: Reference ! could not be found
+        0: Reference "!" could not be found
         1: The ref partially named "!" could not be found
     "#);
     assert!(err.is_not_found(), "the missing anchor reference remains classified");
@@ -59,7 +59,7 @@ fn freestanding_negation_yields_descriptive_error() -> Result {
     Ok(())
 }
 #[test]
-fn freestanding_double_or_triple_dot_defaults_to_head_refs() -> Result {
+fn freestanding_double_or_triple_dot_defaults_to_head_refs() -> TestResult {
     let repo = repo("complex_graph")?;
     assert_eq!(
         parse_spec_no_baseline("..", &repo)?, // git can't communicate what it does here
@@ -85,7 +85,7 @@ fn parent() {
 }
 
 #[test]
-fn tags_navigate_from_their_commit() -> Result {
+fn tags_navigate_from_their_commit() -> TestResult {
     let repo = repo("complex_graph")?;
     for (spec, expected) in [
         ("b-tag^", "d"),

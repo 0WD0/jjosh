@@ -1,4 +1,4 @@
-use crate::Result;
+use crate::TestResult;
 use std::{
     cell::RefCell,
     collections::HashSet,
@@ -55,7 +55,7 @@ fn assert_error_status(
 }
 
 #[test]
-fn http_statuses_distinguish_authentication_authorization_and_capabilities() -> gix_error::TestResult {
+fn http_statuses_distinguish_authentication_authorization_and_capabilities() -> gix_testtools::TestResult {
     use gix_error::Class;
     for (status, expected) in [
         (401, Some(Class::Unauthenticated)),
@@ -110,7 +110,7 @@ fn http_statuses_distinguish_authentication_authorization_and_capabilities() -> 
 }
 
 #[test]
-fn http_status_500_is_communicated_via_special_io_error() -> Result {
+fn http_status_500_is_communicated_via_special_io_error() -> TestResult {
     let (_, _, err) = assert_error_status(500, std::io::ErrorKind::ConnectionAborted)?;
     if cfg!(feature = "http-client-curl") {
         insta::assert_debug_snapshot!(err, "HTTP server errors report the status and retain the retryable I/O kind", @"
@@ -134,7 +134,7 @@ fn http_status_500_is_communicated_via_special_io_error() -> Result {
 }
 
 #[test]
-fn http_identity_is_picked_up_from_url() -> Result {
+fn http_identity_is_picked_up_from_url() -> TestResult {
     let transport = gix_transport::client::blocking_io::http::connect::<Remote>(
         "https://user:pass@example.com/repo".try_into()?,
         Protocol::V2,
@@ -270,7 +270,7 @@ fn http_will_use_pipelining() {
 }
 
 #[test]
-fn http_authentication_error_can_be_differentiated_and_identity_is_transmitted() -> Result {
+fn http_authentication_error_can_be_differentiated_and_identity_is_transmitted() -> TestResult {
     let (server, mut client, err) = assert_error_status(401, std::io::ErrorKind::PermissionDenied)?;
     insta::assert_debug_snapshot!(err, "HTTP authentication failures retain the status and permission-denied cause", @"
     An IO error occurred when talking to the server
@@ -350,7 +350,7 @@ Authorization: Basic dXNlcjpwYXNzd29yZA==
 }
 
 #[test]
-fn authentication_challenges_are_preserved_per_response() -> Result {
+fn authentication_challenges_are_preserved_per_response() -> TestResult {
     let mut error_snapshots = Vec::new();
     let server = mock::Server::new(
         b"HTTP/1.1 401 Unauthorized\r\n\
@@ -454,7 +454,7 @@ fn authentication_challenges_are_preserved_per_response() -> Result {
 /// `Authorization: Basic dmljdGltLXVzZXI6c3VwZXItc2VjcmV0LXRva2Vu`, leaking them to the attacker.
 /// ```
 #[test]
-fn redirected_post_does_not_forward_basic_auth_to_the_new_host() -> Result {
+fn redirected_post_does_not_forward_basic_auth_to_the_new_host() -> TestResult {
     fn has_authorization(lines: &[String]) -> bool {
         lines
             .iter()
@@ -556,19 +556,11 @@ fn redirected_post_does_not_forward_basic_auth_to_the_new_host() -> Result {
         oauth_refresh_token: None,
     })?;
 
-    client
-        .handshake(Service::UploadPack, &[])
-        .map(drop)
-        .expect("redirected handshake should succeed");
+    client.handshake(Service::UploadPack, &[]).map(drop)?;
     let url_after_handshake = client.to_url().as_ref().to_owned();
-    let mut request = client
-        .request(client::WriteMode::Binary, client::MessageKind::Flush, false)
-        .expect("follow-up POST request can be created after redirected handshake");
-    request.write_all(b"0000").expect("flush packet can be written");
-    request
-        .into_read()
-        .map(drop)
-        .expect("follow-up POST response can be read");
+    let mut request = client.request(client::WriteMode::Binary, client::MessageKind::Flush, false)?;
+    request.write_all(b"0000")?;
+    request.into_read().map(drop)?;
 
     let original_get = redirect.join().expect("thread");
     let (redirected_get, redirected_post) = redirected.join().expect("thread");
@@ -605,7 +597,7 @@ fn redirected_post_does_not_forward_basic_auth_to_the_new_host() -> Result {
 }
 
 #[test]
-fn redirected_unauthorized_handshake_updates_url_before_returning() -> Result {
+fn redirected_unauthorized_handshake_updates_url_before_returning() -> TestResult {
     let redirected_listener = std::net::TcpListener::bind("127.0.0.1:0")?;
     let redirected_addr = redirected_listener.local_addr()?;
     let redirected_port = redirected_addr.port();
@@ -704,7 +696,7 @@ fn redirected_unauthorized_handshake_updates_url_before_returning() -> Result {
 }
 
 #[test]
-fn relative_redirected_handshake_updates_url_before_returning() -> Result {
+fn relative_redirected_handshake_updates_url_before_returning() -> TestResult {
     let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
     let addr = listener.local_addr()?;
     let port = addr.port();
@@ -763,7 +755,7 @@ fn relative_redirected_handshake_updates_url_before_returning() -> Result {
 }
 
 #[test]
-fn chained_relative_redirected_unauthorized_handshake_updates_url_from_previous_hop() -> Result {
+fn chained_relative_redirected_unauthorized_handshake_updates_url_from_previous_hop() -> TestResult {
     let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
     let addr = listener.local_addr()?;
     let port = addr.port();
@@ -871,7 +863,7 @@ fn chained_relative_redirected_unauthorized_handshake_updates_url_from_previous_
 }
 
 #[test]
-fn redirects_are_not_followed_with_configured_extra_headers() -> Result {
+fn redirects_are_not_followed_with_configured_extra_headers() -> TestResult {
     let redirected_listener = std::net::TcpListener::bind("127.0.0.1:0")?;
     let redirected_addr = redirected_listener.local_addr()?;
     let redirect_listener = std::net::TcpListener::bind("127.0.0.1:0")?;
@@ -953,7 +945,7 @@ fn redirects_are_not_followed_with_configured_extra_headers() -> Result {
 }
 
 #[test]
-fn http_error_results_in_observable_error() -> Result {
+fn http_error_results_in_observable_error() -> TestResult {
     let (_, _, err) = assert_error_status(404, std::io::ErrorKind::Other)?;
     if cfg!(feature = "http-client-curl") {
         insta::assert_debug_snapshot!(err, "HTTP not-found responses retain their status diagnostic", @"
@@ -977,7 +969,7 @@ fn http_error_results_in_observable_error() -> Result {
 }
 
 #[test]
-fn handshake_v1() -> Result {
+fn handshake_v1() -> TestResult {
     let (server, mut c) = mock::serve_and_connect(
         "v1/http-handshake.response",
         "path/not/important/due/to/mock",
@@ -1112,7 +1104,7 @@ User-Agent: git/oxide-{}
 }
 
 #[test]
-fn clone_v1() -> Result {
+fn clone_v1() -> TestResult {
     let (server, mut c) = mock::serve_and_connect(
         "v1/http-handshake.response",
         "path/not/important/due/to/mock",
@@ -1193,12 +1185,12 @@ Accept: application/x-git-upload-pack-result
 }
 
 #[test]
-fn handshake_and_lsrefs_and_fetch_v2() -> Result {
+fn handshake_and_lsrefs_and_fetch_v2() -> TestResult {
     handshake_and_lsrefs_and_fetch_v2_impl("v2/http-handshake.response")
 }
 
 #[test]
-fn handshake_and_lsrefs_and_fetch_v2_googlesource() -> Result {
+fn handshake_and_lsrefs_and_fetch_v2_googlesource() -> TestResult {
     let (_server, mut c) = mock::serve_and_connect(
         "v2/http-no-newlines-handshake.response",
         "path/not/important/due/to/mock",
@@ -1257,12 +1249,12 @@ fn handshake_and_lsrefs_and_fetch_v2_googlesource() -> Result {
 }
 
 #[test]
-fn handshake_and_lsrefs_and_fetch_v2_service_announced() -> Result {
+fn handshake_and_lsrefs_and_fetch_v2_service_announced() -> TestResult {
     handshake_and_lsrefs_and_fetch_v2_impl("v2/http-handshake-service-announced.response")
 }
 
 #[test]
-fn handshake_v2_surfaces_sha256_object_format() -> Result {
+fn handshake_v2_surfaces_sha256_object_format() -> TestResult {
     let (_server, mut c) = mock::serve_and_connect(
         "v2/http-handshake-sha256.response",
         "path/not/important/due/to/mock",
@@ -1298,7 +1290,7 @@ fn handshake_v2_surfaces_sha256_object_format() -> Result {
     Ok(())
 }
 
-fn handshake_and_lsrefs_and_fetch_v2_impl(handshake_fixture: &str) -> Result {
+fn handshake_and_lsrefs_and_fetch_v2_impl(handshake_fixture: &str) -> TestResult {
     let (server, mut c) = mock::serve_and_connect(handshake_fixture, "path/not/important/due/to/mock", Protocol::V2)?;
     assert!(
         !c.connection_persists_across_multiple_requests(),
@@ -1464,7 +1456,7 @@ Content-Length: 22
 }
 
 #[test]
-fn check_content_type_is_case_insensitive() -> Result {
+fn check_content_type_is_case_insensitive() -> TestResult {
     let (_server, mut client) = mock::serve_and_connect(
         "v2/http-handshake-lowercase-headers.response",
         "path/not/important/due/to/mock",

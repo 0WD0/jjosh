@@ -78,9 +78,9 @@ impl Repository {
                     .filter_map(|proxy| proxy.base().ok())
                     .filter_map(|base| base.strip_prefix(&real_workdir).map(ToOwned::to_owned).ok())
                     .map(|rela_path| {
-                        gix_path::to_unix_separators_on_windows(gix_path::into_bstr(rela_path)).into_owned()
+                        Ok(gix_path::to_unix_separators_on_windows(gix_path::into_bstr(rela_path)?).into_owned())
                     })
-                    .collect();
+                    .collect::<Result<_>>()?;
                 opts.worktree_relative_worktree_dirs = Some(&worktree_relative_worktree_dirs_storage);
             }
         }

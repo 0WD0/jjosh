@@ -951,6 +951,8 @@ mod exe_info {
     fn check_exe_info() {
         let path = exe_info()
             .map(crate::from_bstring)
+            .transpose()
+            .expect("Git reports a representable configuration path")
             .expect("It is present in the test environment (nonempty config)");
 
         assert!(path.is_absolute(), "Git reports an absolute installation path");
@@ -1056,7 +1058,7 @@ mod exe_info {
 
     #[test]
     #[cfg(unix)]
-    fn one_scoped_query_finds_both_config_paths() {
+    fn one_scoped_query_finds_both_config_paths() -> gix_testtools::TestResult {
         let (_tempdir, executable) = fake_git(
             r#"#!/bin/sh
 printf '%s\n' "$*" >> "${0}.log"
@@ -1064,9 +1066,8 @@ printf 'unknown\000file:/installation/gitconfig\000core.one\000system\000file:/s
 "#,
         );
 
-        let paths = config_paths_from_executable_at(executable.clone()).expect("fake Git can be queried");
         assert_eq!(
-            paths,
+            config_paths_from_executable_at(executable.clone())?,
             ConfigPaths {
                 installation: Some("/installation/gitconfig".into()),
                 installation_is_system: false,
@@ -1083,11 +1084,12 @@ printf 'unknown\000file:/installation/gitconfig\000core.one\000system\000file:/s
             invocations[0].contains("--no-includes"),
             "included files must not be mistaken for top-level configuration paths"
         );
+        Ok(())
     }
 
     #[test]
     #[cfg(unix)]
-    fn retries_without_scope_for_old_git() {
+    fn retries_without_scope_for_old_git() -> gix_testtools::TestResult {
         let (_tempdir, executable) = fake_git(
             r#"#!/bin/sh
 printf '%s\n' "$*" >> "${0}.log"
@@ -1098,9 +1100,8 @@ printf 'file:/legacy/gitconfig\000core.one\000'
 "#,
         );
 
-        let paths = config_paths_from_executable_at(executable.clone()).expect("fake Git can be queried");
         assert_eq!(
-            paths,
+            config_paths_from_executable_at(executable.clone())?,
             ConfigPaths {
                 installation: Some("/legacy/gitconfig".into()),
                 ..Default::default()
@@ -1117,6 +1118,7 @@ printf 'file:/legacy/gitconfig\000core.one\000'
             invocations.get(1).is_some_and(|line| !line.contains("--show-scope")),
             "the fallback query omits unsupported scope reporting"
         );
+        Ok(())
     }
 
     #[test]

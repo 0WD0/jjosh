@@ -5,7 +5,7 @@ mod open_read_only_no_follow {
     use gix_fs::{FileOrSymlink, open_read_only_no_follow};
 
     #[test]
-    fn regular_files_can_be_read() -> gix_testtools::Result {
+    fn regular_files_can_be_read() -> gix_testtools::TestResult {
         let dir = gix_testtools::tempfile::tempdir()?;
         let path = dir.path().join("file");
         std::fs::write(&path, b"contents")?;
@@ -23,7 +23,7 @@ mod open_read_only_no_follow {
     }
 
     #[test]
-    fn missing_paths_are_errors_not_symlinks() -> gix_testtools::Result {
+    fn missing_paths_are_errors_not_symlinks() -> gix_testtools::TestResult {
         let dir = gix_testtools::tempfile::tempdir()?;
         let err = open_read_only_no_follow(&dir.path().join("missing"))
             .expect_err("missing paths must not be classified as symlinks");
@@ -37,7 +37,7 @@ mod open_read_only_no_follow {
 
     #[test]
     #[cfg(any(unix, windows))]
-    fn symlinks_are_not_followed() -> gix_testtools::Result {
+    fn symlinks_are_not_followed() -> gix_testtools::TestResult {
         let dir = gix_testtools::scripted_fixture_read_only("symlinks.sh")?;
         if !gix_testtools::fixture_has_symlinks(&dir)? {
             return Ok(());

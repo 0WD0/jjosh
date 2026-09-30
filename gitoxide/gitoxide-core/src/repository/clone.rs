@@ -53,7 +53,7 @@ pub(crate) mod function {
         let url: gix::Url = url.as_ref().try_into()?;
         let directory = directory.map_or_else(
             || {
-                let path = gix::path::from_bstr(Cow::Borrowed(url.path.as_ref()));
+                let path = gix::path::from_bstr(Cow::Borrowed(url.path.as_ref()))?;
                 if !bare && path.extension() == Some(OsStr::new("git")) {
                     path.file_stem().map(Into::into)
                 } else {

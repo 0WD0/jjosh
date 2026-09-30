@@ -125,7 +125,7 @@ pub(super) mod function {
                         if value.trim().is_empty() {
                             programs.clear();
                         } else {
-                            programs.push(gix_credentials::Program::from_custom_definition(value));
+                            programs.push(gix_credentials::Program::from_custom_definition(value)?);
                         }
                     }
                     if let Some(Some(user)) = (!url_had_user_initially).then(|| {

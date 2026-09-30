@@ -28,7 +28,7 @@ fn collecting_processor() -> (impl Processor, mpsc::Receiver<Tree>) {
 }
 
 #[test]
-fn in_thread_keeps_nested_workers_in_the_captured_tree() -> Result<(), Box<dyn Error>> {
+fn in_thread_keeps_nested_workers_in_the_captured_tree() -> TestResult {
     let (dispatch, receiver) = collector();
     let work = tracing::dispatcher::with_default(&dispatch, || {
         let _root = gix_trace::coarse!("root");
@@ -46,24 +46,25 @@ fn in_thread_keeps_nested_workers_in_the_captured_tree() -> Result<(), Box<dyn E
         matches!(receiver.try_recv(), Err(mpsc::TryRecvError::Empty)),
         "the captured parent keeps the tree open after its original guard has dropped"
     );
-    thread::spawn(move || {
+    thread::spawn(move || -> TestResult {
         let (other_dispatch, other_receiver) = collector();
         tracing::dispatcher::with_default(&other_dispatch, || {
             let _other = gix_trace::coarse!("other");
             work();
             gix_trace::info!("restored");
         });
-        let tree = other_receiver.try_recv().expect("the other root has closed");
-        let other = tree.span().expect("the other subscriber receives its own root");
+        let tree = other_receiver.try_recv()?;
+        let other = tree.span()?;
         assert_eq!(other.nodes().len(), 1, "worker spans stay with the captured subscriber");
         assert_eq!(
-            other.nodes()[0].event().expect("the only child is an event").message(),
+            other.nodes()[0].event()?.message(),
             Some("restored"),
             "the worker's prior subscriber and current span are restored"
         );
+        Ok(())
     })
     .join()
-    .expect("workers finish without panicking");
+    .expect("workers finish without panicking")?;
     let tree = receiver.try_recv()?;
     let root = tree.span()?;
     assert_eq!(root.name(), "root", "workers retain the captured parent");
@@ -82,7 +83,7 @@ fn in_thread_keeps_nested_workers_in_the_captured_tree() -> Result<(), Box<dyn E
 }
 
 #[test]
-fn recorded_fields_replace_values_and_fill_empty_fields() -> Result<(), Box<dyn Error>> {
+fn recorded_fields_replace_values_and_fill_empty_fields() -> TestResult {
     let (dispatch, receiver) = collector();
     tracing::dispatcher::with_default(&dispatch, || {
         let span = gix_trace::coarse!(
@@ -109,7 +110,7 @@ fn recorded_fields_replace_values_and_fill_empty_fields() -> Result<(), Box<dyn 
 }
 
 #[test]
-fn unentered_spans_format_with_zero_percentages() -> Result<(), Box<dyn Error>> {
+fn unentered_spans_format_with_zero_percentages() -> TestResult {
     let (dispatch, receiver) = collector();
     tracing::dispatcher::with_default(&dispatch, || {
         let root = tracing::info_span!("unentered");
@@ -126,7 +127,7 @@ fn unentered_spans_format_with_zero_percentages() -> Result<(), Box<dyn Error>> 
 }
 
 #[test]
-fn recording_a_value_can_emit_an_event_from_its_debug_formatter() -> Result<(), Box<dyn Error>> {
+fn recording_a_value_can_emit_an_event_from_its_debug_formatter() -> TestResult {
     struct LogsWhenFormatted;
 
     impl std::fmt::Debug for LogsWhenFormatted {
@@ -137,18 +138,17 @@ fn recording_a_value_can_emit_an_event_from_its_debug_formatter() -> Result<(), 
     }
 
     let (completed, completion) = mpsc::channel();
-    let worker = thread::spawn(move || {
+    let worker = thread::spawn(move || -> TestResult {
         let (dispatch, receiver) = collector();
         tracing::dispatcher::with_default(&dispatch, || {
             let span = gix_trace::coarse!("root", value = tracing::field::Empty);
             span.record("value", tracing::field::debug(LogsWhenFormatted));
         });
-        completed
-            .send(receiver.try_recv().expect("the root span has closed"))
-            .expect("the test is waiting");
+        completed.send(receiver.try_recv()?)?;
+        Ok(())
     });
     let tree = completion.recv_timeout(Duration::from_secs(10))?;
-    worker.join().expect("recording and formatting must not panic");
+    worker.join().expect("recording and formatting must not panic")?;
     let root = tree.span()?;
     assert_eq!(
         root.fields()[0].value(),
@@ -164,7 +164,7 @@ fn recording_a_value_can_emit_an_event_from_its_debug_formatter() -> Result<(), 
 }
 
 #[test]
-fn global_level_filter_after_forest_filters_collection() -> Result<(), Box<dyn Error>> {
+fn global_level_filter_after_forest_filters_collection() -> TestResult {
     let (processor, receiver) = collecting_processor();
     let subscriber = Registry::default()
         .with(ForestLayer::from(processor))
@@ -190,7 +190,7 @@ fn global_level_filter_after_forest_filters_collection() -> Result<(), Box<dyn E
 }
 
 #[test]
-fn global_level_filter_before_forest_filters_collection() -> Result<(), Box<dyn Error>> {
+fn global_level_filter_before_forest_filters_collection() -> TestResult {
     let (processor, receiver) = collecting_processor();
     let subscriber = Registry::default()
         .with(LevelFilter::INFO)
@@ -216,7 +216,7 @@ fn global_level_filter_before_forest_filters_collection() -> Result<(), Box<dyn 
 }
 
 #[test]
-fn forest_with_a_filter_skips_hidden_ancestors() -> Result<(), Box<dyn Error>> {
+fn forest_with_a_filter_skips_hidden_ancestors() -> TestResult {
     let (processor, receiver) = collecting_processor();
     let subscriber = Registry::default()
         .with(tracing_subscriber::fmt::layer().with_writer(std::io::sink))
@@ -264,7 +264,7 @@ fn forest_with_a_filter_skips_hidden_ancestors() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn forest_with_a_filter_promotes_children_of_a_hidden_root() -> Result<(), Box<dyn Error>> {
+fn forest_with_a_filter_promotes_children_of_a_hidden_root() -> TestResult {
     let (processor, receiver) = collecting_processor();
     let subscriber = Registry::default()
         .with(tracing_subscriber::fmt::layer().with_writer(std::io::sink))
@@ -301,7 +301,7 @@ fn forest_with_a_filter_promotes_children_of_a_hidden_root() -> Result<(), Box<d
 }
 
 #[test]
-fn unfiltered_forest_after_a_filtered_layer_retains_all_nodes() -> Result<(), Box<dyn Error>> {
+fn unfiltered_forest_after_a_filtered_layer_retains_all_nodes() -> TestResult {
     let (processor, receiver) = collecting_processor();
     let subscriber = Registry::default()
         .with(
@@ -327,7 +327,7 @@ fn unfiltered_forest_after_a_filtered_layer_retains_all_nodes() -> Result<(), Bo
 }
 
 #[test]
-fn unfiltered_forest_before_a_filtered_layer_retains_all_nodes() -> Result<(), Box<dyn Error>> {
+fn unfiltered_forest_before_a_filtered_layer_retains_all_nodes() -> TestResult {
     let (processor, receiver) = collecting_processor();
     let subscriber = Registry::default().with(ForestLayer::from(processor)).with(
         tracing_subscriber::fmt::layer()
@@ -351,7 +351,7 @@ fn unfiltered_forest_before_a_filtered_layer_retains_all_nodes() -> Result<(), B
 }
 
 #[test]
-fn dynamic_env_filter_can_enable_a_span_by_its_fields() -> Result<(), Box<dyn Error>> {
+fn dynamic_env_filter_can_enable_a_span_by_its_fields() -> TestResult {
     let (processor, receiver) = collecting_processor();
     let subscriber = Registry::default()
         .with(tracing_subscriber::EnvFilter::try_new("[work{enabled=true}]=trace")?)
@@ -382,7 +382,7 @@ fn dynamic_env_filter_can_enable_a_span_by_its_fields() -> Result<(), Box<dyn Er
 }
 
 #[test]
-fn reloading_a_filter_during_field_formatting_keeps_existing_span_state() -> Result<(), Box<dyn Error>> {
+fn reloading_a_filter_during_field_formatting_keeps_existing_span_state() -> TestResult {
     struct ReloadWhenFormatted<F>(F);
 
     impl<F: Fn()> std::fmt::Debug for ReloadWhenFormatted<F> {
@@ -432,7 +432,7 @@ fn reloading_a_filter_during_field_formatting_keeps_existing_span_state() -> Res
 }
 
 #[test]
-fn formatting_filters_nodes_and_promotes_visible_descendants() -> Result<(), Box<dyn Error>> {
+fn formatting_filters_nodes_and_promotes_visible_descendants() -> TestResult {
     let (dispatch, receiver) = collector();
     tracing::dispatcher::with_default(&dispatch, || {
         let _root = tracing::info_span!("root").entered();
@@ -490,7 +490,7 @@ fn formatting_filters_nodes_and_promotes_visible_descendants() -> Result<(), Box
 }
 
 #[test]
-fn filtering_a_root_preserves_its_timing_baseline() -> Result<(), Box<dyn Error>> {
+fn filtering_a_root_preserves_its_timing_baseline() -> TestResult {
     let (dispatch, receiver) = collector();
     tracing::dispatcher::with_default(&dispatch, || {
         let _root = tracing::debug_span!("hidden root").entered();
@@ -530,7 +530,7 @@ fn filtering_a_root_preserves_its_timing_baseline() -> Result<(), Box<dyn Error>
 }
 
 #[test]
-fn nested_trees_preserve_fields_and_messages() -> Result<(), Box<dyn Error>> {
+fn nested_trees_preserve_fields_and_messages() -> TestResult {
     let (dispatch, receiver) = collector();
     tracing::dispatcher::with_default(&dispatch, || {
         let _root = tracing::info_span!("root", operation = "scan").entered();
@@ -623,7 +623,7 @@ fn nested_trees_preserve_fields_and_messages() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn explicit_parents_override_context_and_follows_from_is_not_a_parent() -> Result<(), Box<dyn Error>> {
+fn explicit_parents_override_context_and_follows_from_is_not_a_parent() -> TestResult {
     let (dispatch, receiver) = collector();
     tracing::dispatcher::with_default(&dispatch, || {
         let target = tracing::info_span!("target");
@@ -681,7 +681,7 @@ fn explicit_parents_override_context_and_follows_from_is_not_a_parent() -> Resul
 }
 
 #[test]
-fn interleaved_future_polls_keep_independent_trees() -> Result<(), Box<dyn Error>> {
+fn interleaved_future_polls_keep_independent_trees() -> TestResult {
     use std::{
         future::Future,
         task::{Context, Poll, Waker},
@@ -754,9 +754,9 @@ fn interleaved_future_polls_keep_independent_trees() -> Result<(), Box<dyn Error
 }
 
 #[test]
-fn workers_keep_the_root_open_and_attach_in_completion_order() -> Result<(), Box<dyn Error>> {
+fn workers_keep_the_root_open_and_attach_in_completion_order() -> TestResult {
     let (dispatch, receiver) = collector();
-    tracing::dispatcher::with_default(&dispatch, || {
+    tracing::dispatcher::with_default(&dispatch, || -> TestResult {
         let root = tracing::info_span!("root").entered();
         let (ready, readiness) = mpsc::channel();
         let mut releases = Vec::new();
@@ -768,22 +768,21 @@ fn workers_keep_the_root_open_and_attach_in_completion_order() -> Result<(), Box
             let (release, wait) = mpsc::channel();
             releases.push(release);
             workers.push(thread::spawn(move || {
-                tracing::dispatcher::with_default(&dispatch, move || {
+                tracing::dispatcher::with_default(&dispatch, move || -> TestResult {
                     let worker = tracing::info_span!(parent: &parent, "worker", worker_id).entered();
-                    ready.send(()).expect("the main thread waits for both workers to enter");
+                    ready.send(())?;
                     drop(ready);
-                    wait.recv().expect("the main thread must release each worker");
+                    wait.recv()?;
                     tracing::info!("finished");
                     drop(worker);
                     drop(parent);
-                });
+                    Ok(())
+                })
             }));
         }
         drop(ready);
         for _ in 0..2 {
-            readiness
-                .recv_timeout(Duration::from_secs(10))
-                .expect("both workers must enter before their parent is dropped");
+            readiness.recv_timeout(Duration::from_secs(10))?;
         }
         drop(root);
         assert!(
@@ -791,24 +790,25 @@ fn workers_keep_the_root_open_and_attach_in_completion_order() -> Result<(), Box
             "worker references retain the root after its owner drops it"
         );
 
-        releases[1].send(()).expect("the second worker is waiting");
+        releases[1].send(())?;
         workers
             .pop()
             .expect("two workers were spawned")
             .join()
-            .expect("the second worker must not panic");
+            .expect("the second worker must not panic")?;
         assert!(
             receiver.try_recv().is_err(),
             "one remaining worker still retains the entire tree"
         );
 
-        releases[0].send(()).expect("the first worker is waiting");
+        releases[0].send(())?;
         workers
             .pop()
             .expect("one worker remains")
             .join()
-            .expect("the first worker must not panic");
-    });
+            .expect("the first worker must not panic")?;
+        Ok(())
+    })?;
 
     let tree = receiver.try_recv()?;
     let root = tree.span()?;
@@ -829,13 +829,9 @@ fn workers_keep_the_root_open_and_attach_in_completion_order() -> Result<(), Box
     }
     assert_eq!(
         root.inner_duration(),
-        root.nodes()
-            .iter()
-            .map(|node| node
-                .span()
-                .expect("all root children are worker spans")
-                .total_duration())
-            .sum::<std::time::Duration>(),
+        root.nodes().iter().try_fold(std::time::Duration::ZERO, |total, node| {
+            Ok::<_, gix_error::TestError>(total + node.span()?.total_duration())
+        })?,
         "concurrent child durations are aggregated"
     );
     assert!(
@@ -934,7 +930,7 @@ fn processor_errors_preserve_existing_error_context() -> TestResult {
 }
 
 #[test]
-fn a_failed_formatter_passes_the_intact_tree_to_its_fallback() -> Result<(), Box<dyn Error>> {
+fn a_failed_formatter_passes_the_intact_tree_to_its_fallback() -> TestResult {
     let (sender, receiver) = mpsc::channel();
     let primary = Printer::new().formatter(|_: &Tree| Err::<String, _>(std::io::Error::other("formatter unavailable")));
     let fallback = processor::from_fn(move |tree| {
@@ -969,7 +965,7 @@ fn a_failed_formatter_passes_the_intact_tree_to_its_fallback() -> Result<(), Box
 }
 
 #[test]
-fn pretty_event_output_preserves_the_selected_color_mode() -> Result<(), Box<dyn Error>> {
+fn pretty_event_output_preserves_the_selected_color_mode() -> TestResult {
     let (dispatch, receiver) = collector();
     tracing::dispatcher::with_default(&dispatch, || tracing::info!(answer = 42, "hello"));
     let output = Pretty.fmt(&receiver.try_recv()?)?;

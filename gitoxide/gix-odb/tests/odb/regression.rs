@@ -1,11 +1,11 @@
 mod repo_with_small_packs {
-    use crate::Result;
+
     use gix_object::Find;
 
     use crate::{db_small_packs, hex_to_id};
 
     #[test]
-    fn all_packed_objects_can_be_found() -> Result {
+    fn all_packed_objects_can_be_found() -> gix_testtools::TestResult {
         let store = db_small_packs();
         let mut buf = Vec::new();
         assert!(
@@ -19,7 +19,7 @@ mod repo_with_small_packs {
 
     #[test]
     #[cfg(feature = "parallel")]
-    fn multi_threaded_access_will_not_panic() -> Result {
+    fn multi_threaded_access_will_not_panic() -> gix_testtools::TestResult {
         for arg in ["no", "without-multi-index"] {
             let base = crate::scripted_fixture_read_only_with_args("make_repo_multi_index.sh", Some(arg))?
                 .join(".git")
@@ -59,7 +59,7 @@ mod repo_with_small_packs {
                 "different ordering doesn't change the count"
             );
             for handle in handles {
-                let actual = handle.join().expect("no panic").expect("no error in thread");
+                let actual = handle.join().expect("no panic")?;
                 assert_eq!(actual, expected);
             }
         }

@@ -28,20 +28,20 @@ fn run_test(
 }
 
 #[test]
-fn option_none_if_no_tag_found() -> Result<(), gix_error::Error> {
-    run_test(
+fn option_none_if_no_tag_found() -> gix_testtools::TestResult {
+    Ok(run_test(
         std::convert::identity,
         |_| Default::default(),
         |res, _id| {
             assert!(res?.is_none(), "cannot find anything if there's no candidate");
             Ok(())
         },
-    )
+    )?)
 }
 
 #[test]
-fn fallback_if_configured_in_options_but_no_candidate_or_names() -> Result<(), gix_error::Error> {
-    run_test(
+fn fallback_if_configured_in_options_but_no_candidate_or_names() -> gix_testtools::TestResult {
+    Ok(run_test(
         std::convert::identity,
         |_| describe::Options {
             fallback_to_oid: true,
@@ -58,12 +58,12 @@ fn fallback_if_configured_in_options_but_no_candidate_or_names() -> Result<(), g
             assert_eq!(res.into_format(7).to_string(), id.to_hex_with_len(7).to_string());
             Ok(())
         },
-    )
+    )?)
 }
 
 #[test]
-fn fallback_if_configured_in_options_and_max_candidates_zero() -> Result<(), gix_error::Error> {
-    run_test(
+fn fallback_if_configured_in_options_and_max_candidates_zero() -> gix_testtools::TestResult {
+    Ok(run_test(
         std::convert::identity,
         |_| describe::Options {
             fallback_to_oid: true,
@@ -78,13 +78,13 @@ fn fallback_if_configured_in_options_and_max_candidates_zero() -> Result<(), gix
             assert_eq!(res.into_format(7).to_string(), id.to_hex_with_len(7).to_string());
             Ok(())
         },
-    )
+    )?)
 }
 
 #[test]
-fn not_enough_candidates() -> Result<(), gix_error::Error> {
+fn not_enough_candidates() -> gix_testtools::TestResult {
     let name = Cow::Borrowed(b"at-c5".as_bstr());
-    run_test(
+    Ok(run_test(
         std::convert::identity,
         |_| describe::Options {
             name_by_oid: vec![
@@ -110,11 +110,11 @@ fn not_enough_candidates() -> Result<(), gix_error::Error> {
             );
             Ok(())
         },
-    )
+    )?)
 }
 
 #[test]
-fn typical_usecases() -> Result<(), gix_error::Error> {
+fn typical_usecases() -> gix_testtools::TestResult {
     let name = Cow::Borrowed(b"main".as_bstr());
     run_test(
         std::convert::identity,
@@ -166,7 +166,7 @@ fn typical_usecases() -> Result<(), gix_error::Error> {
         },
     )?;
 
-    run_test(
+    Ok(run_test(
         std::convert::identity,
         |_| describe::Options {
             name_by_oid: vec![
@@ -193,12 +193,12 @@ fn typical_usecases() -> Result<(), gix_error::Error> {
             );
             Ok(())
         },
-    )
+    )?)
 }
 
 #[test]
-fn shallow_yields_no_result_if_provided_refs_are_in_truncated_part_of_history() -> Result<(), gix_error::Error> {
-    run_test(
+fn shallow_yields_no_result_if_provided_refs_are_in_truncated_part_of_history() -> gix_testtools::TestResult {
+    Ok(run_test(
         |_| branches_odb_at("shallow-1-clone"),
         |_| describe::Options {
             name_by_oid: vec![(
@@ -218,13 +218,13 @@ fn shallow_yields_no_result_if_provided_refs_are_in_truncated_part_of_history() 
             );
             Ok(())
         },
-    )
+    )?)
 }
 
 #[test]
-fn shallow_yields_result_if_refs_are_available() -> Result<(), gix_error::Error> {
+fn shallow_yields_result_if_refs_are_available() -> gix_testtools::TestResult {
     let name = Cow::Borrowed(b"at-c5".as_bstr());
-    run_test(
+    Ok(run_test(
         |_| branches_odb_at("shallow-2-clone"),
         |_| describe::Options {
             name_by_oid: vec![(hex_to_id("efd9a841189668f1bab5b8ebade9cd0a1b139a37"), name.clone())]
@@ -245,7 +245,7 @@ fn shallow_yields_result_if_refs_are_available() -> Result<(), gix_error::Error>
             );
             Ok(())
         },
-    )
+    )?)
 }
 
 fn branches_odb_at(name: &str) -> gix_odb::Handle {

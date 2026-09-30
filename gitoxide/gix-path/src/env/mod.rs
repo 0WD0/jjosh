@@ -22,7 +22,7 @@ mod git;
 /// This can invoke the Git binary, which is slow on Windows. An unambiguous Git for Windows
 /// installation identified by `EXEPATH` avoids that invocation.
 pub fn installation_config() -> Option<&'static Path> {
-    git::install_config_path().and_then(|p| crate::try_from_byte_slice(p).ok())
+    git::install_config_path().and_then(|p| crate::from_byte_slice(p).ok())
 }
 
 /// Return whether [`installation_config()`] was reported with system scope by Git.
@@ -50,7 +50,7 @@ pub fn installation_config_prefix() -> Option<&'static Path> {
 /// The caller is responsible for applying `GIT_CONFIG_SYSTEM` and `GIT_CONFIG_NOSYSTEM`.
 pub fn system_config() -> Option<&'static Path> {
     if cfg!(windows) {
-        git::system_config_path().and_then(|p| crate::try_from_byte_slice(p).ok())
+        git::system_config_path().and_then(|p| crate::from_byte_slice(p).ok())
     } else {
         Some(Path::new("/etc/gitconfig"))
     }

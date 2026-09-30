@@ -52,14 +52,14 @@ mod from_tree {
     use gix_attributes::glob::pattern::Case;
 
     use gix_object::tree::EntryKind;
-    use gix_testtools::bstr::ByteSlice;
+    use gix_testtools::{TestResult, bstr::ByteSlice};
     use gix_worktree::stack::state::attributes::Source;
 
     use crate::hex_to_id;
 
     #[test]
-    fn basic_usage_internal() -> gix_testtools::Result {
-        basic_usage(gix_archive::Format::InternalTransientNonPersistable, |buf| {
+    fn basic_usage_internal() -> TestResult {
+        Ok(basic_usage(Format::InternalTransientNonPersistable, |buf| {
             #[cfg(target_pointer_width = "64")]
             let expected_buffer_length = match gix_testtools::object_hash() {
                 gix_hash::Kind::Sha1 => 551,
@@ -137,13 +137,13 @@ mod from_tree {
                 ]
             );
             Ok(())
-        })
+        })?)
     }
 
     #[test]
     #[cfg(feature = "tar")]
-    fn basic_usage_tar() -> gix_testtools::Result {
-        basic_usage(gix_archive::Format::Tar, |buf| {
+    fn basic_usage_tar() -> TestResult {
+        Ok(basic_usage(Format::Tar, |buf| {
             use tar::EntryType;
             let mut ar = tar::Archive::new(buf.as_slice());
             let mut out = Vec::new();
@@ -187,14 +187,14 @@ mod from_tree {
                 .collect::<Vec<_>>()
             );
             Ok(())
-        })
+        })?)
     }
 
     #[test]
     #[cfg(feature = "tar_gz")]
-    fn basic_usage_tar_gz() -> gix_testtools::Result {
-        basic_usage(
-            gix_archive::Format::TarGz {
+    fn basic_usage_tar_gz() -> TestResult {
+        Ok(basic_usage(
+            Format::TarGz {
                 compression_level: Some(9),
             },
             |buf| {
@@ -205,14 +205,14 @@ mod from_tree {
                 );
                 Ok(())
             },
-        )
+        )?)
     }
 
     #[test]
     #[cfg(feature = "zip")]
-    fn basic_usage_zip() -> gix_testtools::Result {
-        basic_usage(
-            gix_archive::Format::Zip {
+    fn basic_usage_zip() -> TestResult {
+        Ok(basic_usage(
+            Format::Zip {
                 compression_level: Some(9),
             },
             |buf| {
@@ -270,7 +270,7 @@ mod from_tree {
                 assert!(found_link, "symlink entry should be found");
                 Ok(())
             },
-        )
+        )?)
     }
 
     fn basic_usage(

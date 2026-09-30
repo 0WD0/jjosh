@@ -3,7 +3,7 @@ use std::{ffi::OsStr, io::ErrorKind};
 use gix_fs::{walkdir_new, walkdir_sorted_new};
 
 #[test]
-fn hidden_entries_and_depth_limits() -> gix_testtools::Result {
+fn hidden_entries_and_depth_limits() -> gix_testtools::TestResult {
     let dir = gix_testtools::scripted_fixture_read_only("walkdir.sh")?.join("hidden");
 
     let mut names = walkdir_new(&dir, false)
@@ -22,7 +22,7 @@ fn hidden_entries_and_depth_limits() -> gix_testtools::Result {
 }
 
 #[test]
-fn sorted_walk_uses_git_directory_order() -> gix_testtools::Result {
+fn sorted_walk_uses_git_directory_order() -> gix_testtools::TestResult {
     let dir = gix_testtools::scripted_fixture_read_only("walkdir.sh")?.join("sorted");
 
     let names = walkdir_sorted_new(&dir, 1, false)
@@ -39,7 +39,7 @@ fn sorted_walk_uses_git_directory_order() -> gix_testtools::Result {
 }
 
 #[test]
-fn unicode_precomposition_applies_to_names_and_paths() -> gix_testtools::Result {
+fn unicode_precomposition_applies_to_names_and_paths() -> gix_testtools::TestResult {
     let dir = gix_testtools::scripted_fixture_read_only("walkdir.sh")?.join("unicode");
     let decomposed = "a\u{308}";
     let root = dir.join(decomposed);
@@ -69,7 +69,7 @@ fn unicode_precomposition_applies_to_names_and_paths() -> gix_testtools::Result 
 }
 
 #[test]
-fn missing_roots_yield_io_errors() -> gix_testtools::Result {
+fn missing_roots_yield_io_errors() -> gix_testtools::TestResult {
     let dir = gix_testtools::scripted_fixture_read_only("walkdir.sh")?;
     let mut entries = walkdir_new(&dir.join("missing"), false).into_iter();
     let err = entries

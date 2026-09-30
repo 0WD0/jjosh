@@ -115,7 +115,7 @@ impl delegate::Revision for Delegate<'_> {
             },
         };
 
-        if !r.log_exists() {
+        if !r.log_exists()? {
             r.follow_to_object()
                 .map_err(|err| error::with_missing_reference(err.into_exn()))?;
         }

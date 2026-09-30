@@ -1,4 +1,4 @@
-use crate::Result;
+use gix_testtools::TestResult;
 use std::path::Path;
 
 use gix_testtools::tempfile::{TempDir, tempdir};
@@ -9,7 +9,7 @@ const IS_DIR: Option<gix_index::entry::Mode> = Some(gix_index::entry::Mode::DIR)
 const IS_SYMLINK: Option<gix_index::entry::Mode> = Some(gix_index::entry::Mode::SYMLINK);
 
 #[test]
-fn root_is_assumed_to_exist_and_files_in_root_do_not_create_directory() -> Result {
+fn root_is_assumed_to_exist_and_files_in_root_do_not_create_directory() -> TestResult {
     let dir = tempdir()?;
     let mut cache = Stack::new(
         dir.path().join("non-existing-root"),
@@ -48,7 +48,7 @@ fn directory_paths_are_created_in_full() {
 }
 
 #[test]
-fn existing_directories_are_fine() -> Result {
+fn existing_directories_are_fine() -> TestResult {
     let (mut cache, tmp) = new_cache();
     std::fs::create_dir(tmp.path().join("dir"))?;
 
@@ -60,7 +60,7 @@ fn existing_directories_are_fine() -> Result {
 }
 
 #[test]
-fn validation_to_each_component() -> Result {
+fn validation_to_each_component() -> TestResult {
     let (mut cache, tmp) = new_cache();
 
     let err = cache
@@ -82,7 +82,7 @@ fn validation_to_each_component() -> Result {
 }
 
 #[test]
-fn symlinks_or_files_in_path_are_forbidden_or_unlinked_when_forced() -> Result {
+fn symlinks_or_files_in_path_are_forbidden_or_unlinked_when_forced() -> TestResult {
     let mut inline_error_diagnostics = Vec::new();
     let (mut cache, tmp) = new_cache();
     let forbidden = tmp.path().join("forbidden");
@@ -140,7 +140,7 @@ fn symlinks_or_files_in_path_are_forbidden_or_unlinked_when_forced() -> Result {
 
 #[test]
 #[cfg(windows)]
-fn terminal_symlinks_are_forbidden_without_force() -> Result {
+fn terminal_symlinks_are_forbidden_without_force() -> TestResult {
     let (mut cache, tmp) = new_cache();
     cache.enable_terminal_symlink_check();
 
@@ -175,7 +175,7 @@ fn terminal_symlinks_are_forbidden_without_force() -> Result {
 }
 
 #[test]
-fn symlink_cached_as_file_is_revalidated_before_use_as_directory() -> Result {
+fn symlink_cached_as_file_is_revalidated_before_use_as_directory() -> TestResult {
     let (mut cache, tmp) = new_cache();
     let forbidden = tmp.path().join("forbidden");
     std::fs::create_dir(&forbidden)?;
@@ -199,7 +199,7 @@ fn symlink_cached_as_file_is_revalidated_before_use_as_directory() -> Result {
 }
 
 #[test]
-fn symlink_cached_as_file_is_unlinked_before_use_as_directory_when_forced() -> Result {
+fn symlink_cached_as_file_is_unlinked_before_use_as_directory_when_forced() -> TestResult {
     let (mut cache, tmp) = new_cache();
     let forbidden = tmp.path().join("forbidden");
     std::fs::create_dir(&forbidden)?;
@@ -226,7 +226,7 @@ fn symlink_cached_as_file_is_unlinked_before_use_as_directory_when_forced() -> R
 }
 
 #[test]
-fn cached_directory_returned_as_terminal_is_revalidated_before_descending() -> Result {
+fn cached_directory_returned_as_terminal_is_revalidated_before_descending() -> TestResult {
     let mut inline_error_diagnostics = Vec::new();
     for relative in ["link", "parent/link", "parent/deeper/link"] {
         for force in [false, true] {
@@ -300,7 +300,7 @@ fn cached_directory_returned_as_terminal_is_revalidated_before_descending() -> R
 }
 
 #[test]
-fn cached_terminal_is_revalidated_when_mode_changes() -> Result {
+fn cached_terminal_is_revalidated_when_mode_changes() -> TestResult {
     let mut error_snapshots = Vec::new();
     let (mut cache, _tmp) = new_cache();
     for relative in [".gitmodules", "parent/.gitmodules"] {

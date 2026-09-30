@@ -104,20 +104,20 @@ mod ansi_c {
     }
 
     mod undo {
+        use std::borrow::Cow;
+
         use bstr::ByteSlice;
         use gix_quote::ansi_c;
 
         macro_rules! test {
             ($name:ident, $input:literal, $expected:literal, $consumed:literal) => {
                 #[test]
-                fn $name() {
+                fn $name() -> gix_error::TestResult {
                     assert_eq!(
-                        ansi_c::undo($input.as_bytes().as_bstr()).expect("valid input"),
-                        (
-                            std::borrow::Cow::Borrowed($expected.as_bytes().as_bstr()),
-                            $consumed
-                        )
+                        ansi_c::undo($input.as_bytes().as_bstr())?,
+                        (Cow::Borrowed($expected.as_bytes().as_bstr()), $consumed)
                     );
+                    Ok(())
                 }
             };
         }
@@ -145,7 +145,7 @@ mod ansi_c {
         fn out_of_quote_characters_can_be_passed_and_will_not_be_consumed() {
             let input = br#""hello there" out of quote"#.as_bstr();
             let (unquoted, consumed) = ansi_c::undo(input).expect("valid input");
-            assert_eq!(unquoted, std::borrow::Cow::Borrowed(b"hello there".as_bstr()));
+            assert_eq!(unquoted, Cow::Borrowed(b"hello there".as_bstr()));
             assert_eq!(&input[consumed..], " out of quote");
         }
 

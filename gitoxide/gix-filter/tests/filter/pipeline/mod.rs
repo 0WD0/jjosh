@@ -1,13 +1,13 @@
-use crate::Result;
 use bstr::ByteSlice;
 use gix_attributes::glob::pattern::Case;
 use gix_filter::{eol, pipeline::convert::to_worktree};
+use gix_testtools::TestResult;
 
 mod convert_to_git;
 mod convert_to_worktree;
 
 #[test]
-fn default_options() -> Result {
+fn default_options() -> TestResult {
     let mut filters = gix_filter::Pipeline::new(Default::default(), gix_testtools::object_hash(), Default::default());
     let out = filters.convert_to_worktree(
         b"hi",

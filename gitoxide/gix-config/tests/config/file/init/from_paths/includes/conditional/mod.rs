@@ -1,4 +1,4 @@
-use crate::Result;
+use crate::{Result, TestResult};
 use std::{fs, path::Path, str::FromStr};
 
 use gix_config::{
@@ -15,7 +15,7 @@ mod hasconfig;
 mod onbranch;
 
 #[test]
-fn include_and_includeif_correct_inclusion_order_and_delayed_resolve_include() -> Result {
+fn include_and_includeif_correct_inclusion_order_and_delayed_resolve_include() -> TestResult {
     let dir = tempdir()?;
     let config_path = dir.path().join("root");
     let first_include_path = dir.path().join("first-incl");

@@ -33,7 +33,6 @@ fn unresolved_delta_base_is_not_found() {
 }
 
 mod method {
-    use crate::Result;
     use std::sync::atomic::AtomicBool;
 
     use gix_features::progress;
@@ -47,7 +46,7 @@ mod method {
     }
 
     #[test]
-    fn verify_checksum() -> Result {
+    fn verify_checksum() -> gix_testtools::TestResult {
         let p = pack_at(SMALL_PACK);
         assert_eq!(
             p.verify_checksum(&mut progress::Discard, &AtomicBool::new(false))?,
@@ -75,7 +74,7 @@ mod method {
     }
 
     #[test]
-    fn verify_checksum_from_memory() -> Result {
+    fn verify_checksum_from_memory() -> gix_testtools::TestResult {
         let p = pack_from_memory_at(SMALL_PACK);
         assert_eq!(
             p.verify_checksum(&mut progress::Discard, &AtomicBool::new(false))?,
@@ -127,7 +126,7 @@ mod method {
     }
 
     #[test]
-    fn iter() -> Result {
+    fn iter() -> gix_testtools::TestResult {
         let pack = pack_at(SMALL_PACK);
         let it = pack.streaming_iter()?;
         assert_eq!(it.count(), pack.num_objects() as usize);

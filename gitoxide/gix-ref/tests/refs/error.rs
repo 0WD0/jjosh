@@ -3,7 +3,7 @@ use gix_error::{Class, Error, ErrorExt, Message, MetadataValue};
 use gix_ref::{file::ReferenceExt, packed, transaction::PreviousValue};
 
 #[test]
-fn missing_references_retain_their_name_and_classification() -> Result {
+fn missing_references_retain_their_name_and_classification() -> gix_testtools::TestResult {
     let mut error_snapshots = Vec::new();
     let store = crate::file::store_with_packed_refs()?;
     let packed = store.open_packed_buffer()?.expect("the fixture has packed refs");
@@ -28,9 +28,8 @@ fn missing_references_retain_their_name_and_classification() -> Result {
         assert_eq!(
             err.downcast_any_ref::<gix_ref::file::find::NotFound>()
                 .expect("the concrete reference lookup error is retained")
-                .name
-                .as_os_str(),
-            missing,
+                .name,
+            "missing",
             "the lookup failure retains the missing reference name"
         );
     }
@@ -46,7 +45,7 @@ fn missing_references_retain_their_name_and_classification() -> Result {
 }
 
 #[test]
-fn peeling_missing_targets_is_classified() -> Result {
+fn peeling_missing_targets_is_classified() -> gix_testtools::TestResult {
     let mut error_snapshots = Vec::new();
     use gix_lock::acquire::Fail;
     use gix_ref::{file::transaction::PackedRefs, transaction::RefEdit};
@@ -130,7 +129,7 @@ fn peeling_missing_targets_is_classified() -> Result {
 }
 
 #[test]
-fn peeling_missing_objects_has_one_classified_diagnostic() -> Result {
+fn peeling_missing_objects_has_one_classified_diagnostic() -> gix_testtools::TestResult {
     let mut error_snapshots = Vec::new();
     for err in peeling_errors(gix_object::find::Never)? {
         error_snapshots.push(gix_testtools::redact_debug_snapshot(&(err), &[]));
@@ -168,7 +167,7 @@ fn peeling_missing_objects_has_one_classified_diagnostic() -> Result {
 }
 
 #[test]
-fn object_lookup_failures_retain_their_causes() -> Result {
+fn object_lookup_failures_retain_their_causes() -> gix_testtools::TestResult {
     let mut error_snapshots = Vec::new();
     struct UnavailableObjects(std::io::ErrorKind);
     impl gix_object::Find for UnavailableObjects {
@@ -279,7 +278,7 @@ fn peeling_errors(objects: impl gix_object::Find) -> Result<[gix_error::Error; 2
 }
 
 #[test]
-fn malformed_tags_are_corruption_instead_of_missing_objects() -> Result {
+fn malformed_tags_are_corruption_instead_of_missing_objects() -> gix_testtools::TestResult {
     struct MalformedTag;
     impl gix_object::Find for MalformedTag {
         fn try_find<'a>(
@@ -316,7 +315,7 @@ fn malformed_tags_are_corruption_instead_of_missing_objects() -> Result {
 }
 
 #[test]
-fn malformed_reference_data_is_classified() -> Result {
+fn malformed_reference_data_is_classified() -> gix_testtools::TestResult {
     let mut error_snapshots = Vec::new();
     let store = crate::file::store_at("make_ref_repository.sh")?;
     let hash = crate::fixture_hash_kind();
@@ -410,7 +409,7 @@ fn malformed_reference_data_is_classified() -> Result {
 }
 
 #[test]
-fn missing_transaction_targets_are_classified() -> Result {
+fn missing_transaction_targets_are_classified() -> gix_testtools::TestResult {
     let mut error_snapshots = Vec::new();
     use gix_lock::acquire::Fail;
     use gix_ref::transaction::RefEdit;
@@ -448,7 +447,7 @@ fn missing_transaction_targets_are_classified() -> Result {
 }
 
 #[test]
-fn invalid_reflog_input_is_classified() -> Result {
+fn invalid_reflog_input_is_classified() -> gix_testtools::TestResult {
     let mut error_snapshots = Vec::new();
     use crate::file::transaction::prepare_and_commit::{committer, create_at, empty_store};
     use gix_lock::acquire::Fail;
@@ -505,7 +504,7 @@ fn invalid_reflog_input_is_classified() -> Result {
 }
 
 #[test]
-fn malformed_packed_names_and_reflog_signatures_retain_parser_errors() -> Result {
+fn malformed_packed_names_and_reflog_signatures_retain_parser_errors() -> gix_testtools::TestResult {
     let hash = crate::fixture_hash_kind();
     let packed = packed::Buffer::from_bytes(
         format!("# pack-refs with: sorted\n{} refs/heads/bad..name\n", hash.null()).as_bytes(),
@@ -547,7 +546,7 @@ fn malformed_packed_names_and_reflog_signatures_retain_parser_errors() -> Result
 }
 
 #[test]
-fn custom_name_conversion_errors_keep_their_sources() -> Result {
+fn custom_name_conversion_errors_keep_their_sources() -> gix_testtools::TestResult {
     let mut error_snapshots = Vec::new();
     struct Name<E>(E);
     impl<E> TryInto<&'static gix_ref::PartialNameRef> for Name<E> {
@@ -610,7 +609,7 @@ fn custom_name_conversion_errors_keep_their_sources() -> Result {
 }
 
 #[test]
-fn a_depth_limit_does_not_imply_corruption() -> Result {
+fn a_depth_limit_does_not_imply_corruption() -> gix_testtools::TestResult {
     let (_keep, store) = crate::file::transaction::prepare_and_commit::empty_store()?;
     let refs = store.git_dir().join("refs/heads");
     std::fs::create_dir_all(&refs)?;
@@ -650,7 +649,7 @@ fn a_depth_limit_does_not_imply_corruption() -> Result {
 }
 
 #[test]
-fn loose_reference_diagnostics_keep_input_with_the_failure() -> Result {
+fn loose_reference_diagnostics_keep_input_with_the_failure() -> gix_testtools::TestResult {
     let hash = crate::fixture_hash_kind();
     let contents = b"invalid\xff";
     let err = gix_ref::file::loose::Reference::try_from_path("HEAD".try_into()?, contents, hash)

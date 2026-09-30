@@ -1,5 +1,5 @@
-use crate::Result;
 use gix_ref::bstr;
+use gix_testtools::{Result, TestResult};
 
 #[cfg(feature = "worktree-mutation")]
 mod add {
@@ -10,7 +10,7 @@ mod add {
     use gix_path::{into_bstr, to_unix_separators_on_windows};
 
     #[test]
-    fn initial_head_reflog_respects_configuration_like_git() -> crate::Result {
+    fn initial_head_reflog_respects_configuration_like_git() -> gix_testtools::TestResult {
         for (log_all_ref_updates, worktree_config) in [
             (None, false),
             (Some("true"), false),
@@ -82,7 +82,7 @@ mod add {
                 );
                 let head = created.find_reference("HEAD")?;
                 assert_eq!(
-                    head.log_exists(),
+                    head.log_exists()?,
                     logging_enabled,
                     "new HEAD logging matches Git for attached={attached}, core.logAllRefUpdates={log_all_ref_updates:?}, worktreeConfig={worktree_config}"
                 );
@@ -131,7 +131,7 @@ mod add {
     }
 
     #[test]
-    fn bisect_and_rebase_reserve_branches_in_main_and_linked_worktrees() -> crate::Result {
+    fn bisect_and_rebase_reserve_branches_in_main_and_linked_worktrees() -> gix_testtools::TestResult {
         for operation in ["bisect", "rebase-merge", "rebase-apply", "rebase-interactive"] {
             for occupied in ["main", "linked"] {
                 let fixture = gix_testtools::scripted_fixture_writable_with_args(
@@ -212,7 +212,7 @@ mod add {
     }
 
     #[test]
-    fn mailbox_application_does_not_reserve_a_rebase_branch() -> crate::Result {
+    fn mailbox_application_does_not_reserve_a_rebase_branch() -> gix_testtools::TestResult {
         let (repo, _fixture) = crate::basic_rw_repo()?;
         let destinations = gix_testtools::tempfile::TempDir::new()?;
         std::fs::write(repo.git_dir().join("HEAD"), format!("{}\n", repo.head_id()?))?;
@@ -226,13 +226,12 @@ mod add {
             gix::worktree::add::Head::Attached(branch("main")),
             gix::progress::Discard,
             &AtomicBool::default(),
-        )
-        .expect("`git am` sequence editor usage doesn't prevent worktree creation");
+        )?;
         Ok(())
     }
 
     #[test]
-    fn worktree_config_is_inherited_before_checkout() -> crate::Result {
+    fn worktree_config_is_inherited_before_checkout() -> gix_testtools::TestResult {
         // MSYS sed's text mode would discard CRLF produced before smudge filtering.
         let sed = if cfg!(windows) { "sed -b" } else { "sed" };
         let fixture = gix_testtools::scripted_fixture_writable_with_args(
@@ -255,7 +254,7 @@ mod add {
             let mut config = source.config_file_mut(&config_path)?;
             config.set_raw_value("core.autocrlf", autocrlf)?;
             config.set_raw_value("core.bare", "false")?;
-            config.set_raw_value("core.worktree", to_unix_separators_on_windows(into_bstr(&work_dir)))?;
+            config.set_raw_value("core.worktree", to_unix_separators_on_windows(into_bstr(&work_dir)?))?;
             config.set_raw_value("filter.inherit.smudge", format!("{sed} s/hello/{name}/"))?;
             config.set_raw_value("filter.inherit.clean", format!("{sed} s/{name}/hello/"))?;
             config.set_raw_value("filter.inherit.required", "true")?;
@@ -308,7 +307,7 @@ mod add {
     }
 
     #[test]
-    fn common_attributes_are_applied_during_checkout() -> crate::Result {
+    fn common_attributes_are_applied_during_checkout() -> gix_testtools::TestResult {
         // Preserve the checkout's line endings when the filter runs under MSYS.
         let sed = if cfg!(windows) { "sed -b" } else { "sed" };
         let (mut source, _fixture) = crate::basic_rw_repo()?;
@@ -354,7 +353,7 @@ mod add {
     }
 
     #[test]
-    fn worktree_config_is_optional_but_copy_errors_roll_back() -> crate::Result {
+    fn worktree_config_is_optional_but_copy_errors_roll_back() -> gix_testtools::TestResult {
         let (mut repo, _fixture) = crate::basic_rw_repo()?;
         let destinations = gix_testtools::tempfile::TempDir::new()?;
         let source_config = repo.git_dir().join("config.worktree");
@@ -415,7 +414,7 @@ mod add {
     }
 
     #[test]
-    fn relative_links_survive_moving_the_repository_and_worktrees_together() -> crate::Result {
+    fn relative_links_survive_moving_the_repository_and_worktrees_together() -> gix_testtools::TestResult {
         use std::fs;
 
         let (repo, _fixture) = crate::basic_rw_repo()?;
@@ -499,7 +498,7 @@ mod add {
     }
 
     #[test]
-    fn relative_worktrees_extension_does_not_enable_relative_links_by_itself() -> crate::Result {
+    fn relative_worktrees_extension_does_not_enable_relative_links_by_itself() -> gix_testtools::TestResult {
         let (mut repo, _fixture) = crate::basic_rw_repo()?;
         let destinations = gix_testtools::tempfile::TempDir::new()?;
         let mut config = repo.config_file_mut(repo.common_dir().join("config"))?;
@@ -522,7 +521,7 @@ mod add {
                 std::fs::read_to_string(linked.git_dir().join("gitdir"))?,
                 format!(
                     "{}\n",
-                    to_unix_separators_on_windows(into_bstr(linked.workdir().expect("linked checkout").join(".git")))
+                    to_unix_separators_on_windows(into_bstr(linked.workdir().expect("linked checkout").join(".git"))?)
                 ),
                 "the extension records compatibility; the worktree setting controls new links"
             );
@@ -531,7 +530,7 @@ mod add {
     }
 
     #[test]
-    fn invalid_repository_format_versions_reject_relative_worktrees() -> crate::Result {
+    fn invalid_repository_format_versions_reject_relative_worktrees() -> gix_testtools::TestResult {
         use gix::config::tree::Core;
         use gix_error::MetadataValue;
 
@@ -590,7 +589,7 @@ mod add {
     }
 
     #[test]
-    fn failed_relative_config_update_rolls_back_worktree_addition() -> crate::Result {
+    fn failed_relative_config_update_rolls_back_worktree_addition() -> gix_testtools::TestResult {
         for (scenario, lock_config) in [
             ("relative-config-lock", true),
             ("relative-config-unknown-extension", false),
@@ -651,7 +650,7 @@ mod add {
     }
 
     #[test]
-    fn attached_and_detached_worktrees_are_checked_out_and_recognized_by_git() -> crate::Result {
+    fn attached_and_detached_worktrees_are_checked_out_and_recognized_by_git() -> gix_testtools::TestResult {
         let (repo, _fixture) = crate::basic_rw_repo()?;
         let destinations = gix_testtools::tempfile::TempDir::new()?;
         let commit_id = repo.head_id()?.detach();
@@ -693,18 +692,18 @@ mod add {
 
         let listing = gix_testtools::git(repo.workdir().expect("non-bare fixture"), "worktree list --porcelain")?;
         assert!(
-            listing.contains(to_unix_separators_on_windows(into_bstr(&attached_path)).to_str()?),
+            listing.contains(to_unix_separators_on_windows(into_bstr(&attached_path)?).to_str()?),
             "Git recognizes the attached worktree"
         );
         assert!(
-            listing.contains(to_unix_separators_on_windows(into_bstr(&detached_path)).to_str()?),
+            listing.contains(to_unix_separators_on_windows(into_bstr(&detached_path)?).to_str()?),
             "Git recognizes the detached worktree"
         );
         Ok(())
     }
 
     #[test]
-    fn linked_worktree_cannot_check_out_a_branch_occupied_in_any_worktree() -> crate::Result {
+    fn linked_worktree_cannot_check_out_a_branch_occupied_in_any_worktree() -> gix_testtools::TestResult {
         let (repo, _fixture) = crate::basic_rw_repo()?;
         assert_eq!(
             repo.worktrees_including_main()?.collect::<gix::Result<Vec<_>>>()?,
@@ -769,7 +768,7 @@ mod add {
     }
 
     #[test]
-    fn lock_suffix_only_destination_names_match_git() -> crate::Result {
+    fn lock_suffix_only_destination_names_match_git() -> gix_testtools::TestResult {
         let (source, _fixture) = crate::basic_rw_repo()?;
         let work_dir = source.workdir().expect("source checkout");
         gix_testtools::git(work_dir, "worktree add --detach git/.lock.lock HEAD")?;
@@ -810,7 +809,7 @@ mod add {
     }
 
     #[test]
-    fn attached_worktrees_ignore_reference_namespaces_like_git() -> crate::Result {
+    fn attached_worktrees_ignore_reference_namespaces_like_git() -> gix_testtools::TestResult {
         for (namespace, from_config) in [("foo", false), ("foo/bar", true)] {
             let (mut source, _fixture) = crate::basic_rw_repo()?;
             let work_dir = source.workdir().expect("source checkout").to_owned();
@@ -918,7 +917,7 @@ mod add {
     }
 
     #[test]
-    fn separate_git_dir_preserves_main_worktree_and_its_occupied_branch() -> crate::Result {
+    fn separate_git_dir_preserves_main_worktree_and_its_occupied_branch() -> gix_testtools::TestResult {
         let fixture = gix_testtools::scripted_fixture_writable_with_args(
             "make_worktree_add_repos.sh",
             ["separate-git-dir"],
@@ -975,7 +974,7 @@ mod add {
     }
 
     #[test]
-    fn adds_a_worktree_from_a_bare_parent() -> crate::Result {
+    fn adds_a_worktree_from_a_bare_parent() -> gix_testtools::TestResult {
         let Some(fixture) = gix_testtools::scripted_fixture_writable_with_args_with_git_version(
             "make_worktree_repo.sh",
             ["bare"],
@@ -1030,7 +1029,7 @@ mod add {
     }
 
     #[test]
-    fn validation_failures_leave_the_destination_absent() -> crate::Result {
+    fn validation_failures_leave_the_destination_absent() -> gix_testtools::TestResult {
         let (repo, _fixture) = crate::basic_rw_repo()?;
         let destinations = gix_testtools::tempfile::TempDir::new()?;
         let destination = destinations.path().join("rejected");
@@ -1093,7 +1092,7 @@ mod add {
     }
 
     #[test]
-    fn registered_destinations_are_rejected_even_when_missing_or_empty() -> crate::Result {
+    fn registered_destinations_are_rejected_even_when_missing_or_empty() -> gix_testtools::TestResult {
         let (repo, _fixture) = crate::basic_rw_repo()?;
         let destinations = gix_testtools::tempfile::TempDir::new()?;
         let destination = destinations.path().join("registered");
@@ -1144,7 +1143,7 @@ mod add {
 
     #[test]
     #[cfg(unix)]
-    fn registered_destinations_are_matched_through_symlinked_parents() -> crate::Result {
+    fn registered_destinations_are_matched_through_symlinked_parents() -> gix_testtools::TestResult {
         let (repo, _fixture) = crate::basic_rw_repo()?;
         let destinations = gix_testtools::tempfile::TempDir::new()?;
         let actual_parent = destinations.path().join("actual");
@@ -1192,7 +1191,7 @@ mod remove {
     };
 
     #[test]
-    fn rejects_empty_targets() -> crate::Result {
+    fn rejects_empty_targets() -> gix_testtools::TestResult {
         let (repo, _fixture) = crate::basic_rw_repo()?;
         let err = repo
             .remove_worktree("", Force::Never, gix::progress::Discard)
@@ -1209,7 +1208,7 @@ mod remove {
     }
 
     #[test]
-    fn removes_worktrees_from_a_repository_opened_with_a_relative_path() -> crate::Result {
+    fn removes_worktrees_from_a_repository_opened_with_a_relative_path() -> gix_testtools::TestResult {
         if gix_testtools::run_in_isolated_process()? {
             return Ok(());
         }
@@ -1244,7 +1243,7 @@ mod remove {
             let _moved_cwd = gix_testtools::set_current_dir(elsewhere.path())?;
 
             assert_eq!(
-                repo.worktree_proxy_by_id(proxy.id())
+                repo.worktree_proxy_by_id(proxy.id()?)?
                     .expect("registration lookup uses the repository CWD")
                     .git_dir(),
                 proxy.git_dir(),
@@ -1269,7 +1268,7 @@ mod remove {
     }
 
     #[test]
-    fn resolves_registered_paths_after_changing_current_directory() -> crate::Result {
+    fn resolves_registered_paths_after_changing_current_directory() -> gix_testtools::TestResult {
         if gix_testtools::run_in_isolated_process()? {
             return Ok(());
         }
@@ -1324,7 +1323,7 @@ mod remove {
     }
 
     #[test]
-    fn removes_a_clean_worktree_by_suffix_without_deleting_its_branch() -> crate::Result {
+    fn removes_a_clean_worktree_by_suffix_without_deleting_its_branch() -> gix_testtools::TestResult {
         let (mut repo, _fixture) = crate::basic_rw_repo()?;
         let destinations = gix_testtools::tempfile::TempDir::new()?;
         let destination = destinations.path().join("nested/topic-checkout");
@@ -1368,7 +1367,7 @@ mod remove {
     }
 
     #[test]
-    fn permits_removing_the_current_linked_worktree_but_not_the_main_worktree() -> crate::Result {
+    fn permits_removing_the_current_linked_worktree_but_not_the_main_worktree() -> gix_testtools::TestResult {
         let (repo, _fixture) = crate::basic_rw_repo()?;
         let destinations = gix_testtools::tempfile::TempDir::new()?;
         let destination = destinations.path().join("current");
@@ -1396,7 +1395,7 @@ mod remove {
     }
 
     #[test]
-    fn dirty_and_locked_worktrees_require_the_corresponding_force_level() -> crate::Result {
+    fn dirty_and_locked_worktrees_require_the_corresponding_force_level() -> gix_testtools::TestResult {
         let (repo, _fixture) = crate::basic_rw_repo()?;
         let destinations = gix_testtools::tempfile::TempDir::new()?;
         let dirty_path = gix_path::realpath(destinations.path().join("dirty"))?;
@@ -1444,7 +1443,7 @@ mod remove {
     }
 
     #[test]
-    fn untracked_files_hidden_by_status_configuration_require_force() -> crate::Result {
+    fn untracked_files_hidden_by_status_configuration_require_force() -> gix_testtools::TestResult {
         let (repo, _fixture) = crate::basic_rw_repo()?;
         let destinations = gix_testtools::tempfile::TempDir::new()?;
         let destination = gix_path::realpath(destinations.path().join("hidden-untracked"))?;
@@ -1499,7 +1498,7 @@ mod remove {
     }
 
     #[test]
-    fn initialized_submodules_require_force() -> crate::Result {
+    fn initialized_submodules_require_force() -> gix_testtools::TestResult {
         let (repo, _fixture) = crate::basic_rw_repo()?;
         let destinations = gix_testtools::tempfile::TempDir::new()?;
         let destination = destinations.path().join("submodules");
@@ -1525,7 +1524,7 @@ mod remove {
     }
 
     #[test]
-    fn backlink_validation_is_never_forced_and_missing_checkouts_are_unregistered() -> crate::Result {
+    fn backlink_validation_is_never_forced_and_missing_checkouts_are_unregistered() -> gix_testtools::TestResult {
         let (repo, _fixture) = crate::basic_rw_repo()?;
         let destinations = gix_testtools::tempfile::TempDir::new()?;
         let invalid_path = destinations.path().join("invalid-backlink");
@@ -1589,7 +1588,7 @@ mod remove {
     }
 
     #[test]
-    fn ambiguous_suffixes_can_be_disambiguated_with_an_exact_path() -> crate::Result {
+    fn ambiguous_suffixes_can_be_disambiguated_with_an_exact_path() -> gix_testtools::TestResult {
         let (repo, _fixture) = crate::basic_rw_repo()?;
         let destinations = gix_testtools::tempfile::TempDir::new()?;
         let first_path = destinations.path().join("one/shared");
@@ -1628,7 +1627,7 @@ mod remove {
 
     #[test]
     #[cfg(windows)]
-    fn canonical_paths_resolve_git_registered_worktrees() -> crate::Result {
+    fn canonical_paths_resolve_git_registered_worktrees() -> gix_testtools::TestResult {
         let (repo, _fixture) = crate::basic_rw_repo()?;
         let destinations = gix_testtools::tempfile::TempDir::new()?;
         let destination = destinations.path().join("topic");
@@ -1676,7 +1675,7 @@ fn expected_buffer_length(repo: &gix::Repository) -> usize {
 
 #[test]
 #[cfg(feature = "worktree-stream")]
-fn stream() -> Result {
+fn stream() -> TestResult {
     let repo = crate::named_repo("make_packed_and_loose.sh")?;
     let mut stream = repo.worktree_stream(repo.head_commit()?.tree_id()?)?.0.into_read();
     assert_eq!(
@@ -1689,7 +1688,7 @@ fn stream() -> Result {
 
 #[test]
 #[cfg(feature = "worktree-archive")]
-fn archive() -> Result {
+fn archive() -> TestResult {
     let repo = crate::named_repo("make_packed_and_loose.sh")?;
     let (stream, _index) = repo.worktree_stream(repo.head_commit()?.tree_id()?)?;
     let mut buf = Vec::<u8>::new();
@@ -1706,12 +1705,12 @@ fn archive() -> Result {
 }
 
 mod with_core_worktree_config {
-    use crate::Result;
+    use gix_testtools::TestResult;
     use std::io::BufRead;
 
     #[test]
     #[cfg(feature = "index")]
-    fn relative() -> Result {
+    fn relative() -> TestResult {
         for (name, is_relative) in [("absolute-worktree", false), ("relative-worktree", true)] {
             let repo = repo(name);
 
@@ -1787,7 +1786,7 @@ mod with_core_worktree_config {
 
     #[test]
     #[cfg(feature = "index")]
-    fn bare_relative() -> Result {
+    fn bare_relative() -> TestResult {
         let repo = repo("bare-relative-worktree");
 
         assert_eq!(
@@ -1806,7 +1805,7 @@ mod with_core_worktree_config {
 
     #[test]
     #[cfg(unix)] // symlinks are used here, let's not try our luck on Windows.
-    fn relative_through_symlinked_ancestor_keeps_callers_path_namespace() -> Result {
+    fn relative_through_symlinked_ancestor_keeps_callers_path_namespace() -> TestResult {
         let link = gix_testtools::scripted_fixture_read_only("make_core_worktree_repo.sh")?.join("symlinked-ancestor");
 
         let repo = gix::open_opts(link.join("relative-worktree"), crate::restricted())?;
@@ -1821,7 +1820,7 @@ mod with_core_worktree_config {
 
     #[test]
     #[cfg(unix)] // symlinks are used here, let's not try our luck on Windows.
-    fn relative_from_symlinked_git_dir() -> Result {
+    fn relative_from_symlinked_git_dir() -> TestResult {
         let fixture = gix_testtools::scripted_fixture_read_only("make_core_worktree_repo.sh")?;
         let root = fixture.join("linked-git-dir-detached-worktree");
         let repo = gix::open_opts(root.join("home"), crate::restricted())?;
@@ -1888,7 +1887,9 @@ mod baseline {
         type Item = Worktree;
 
         fn next(&mut self) -> Option<Self::Item> {
-            let root = gix_path::from_bstr(Cow::Borrowed(fields(self.lines.next()?).1)).into_owned();
+            let root = gix_path::from_bstr(Cow::Borrowed(fields(self.lines.next()?).1))
+                .expect("Git baseline paths can be represented natively")
+                .into_owned();
             let mut bare = false;
             let mut branch = None;
             let mut peeled = gix_hash::ObjectId::null(gix_hash::Kind::Sha1);
@@ -1931,7 +1932,7 @@ mod baseline {
 }
 
 #[test]
-fn worktree_listing_errors_preserve_io_errors() -> Result {
+fn worktree_listing_errors_preserve_io_errors() -> TestResult {
     let (repo, _fixture) = crate::basic_rw_repo()?;
     std::fs::write(repo.common_dir().join("worktrees"), b"not a directory")?;
 
@@ -1954,35 +1955,35 @@ fn worktree_listing_errors_preserve_io_errors() -> Result {
 }
 
 #[test]
-fn from_bare_parent_repo() {
+fn from_bare_parent_repo() -> TestResult {
     let Some(dir) = gix_testtools::scripted_fixture_read_only_with_args_with_git_version(
         "make_worktree_repo.sh",
         ["bare"],
         |version| version >= (2, 31, 0),
-    )
-    .unwrap() else {
-        return;
+    )?
+    else {
+        return Ok(());
     };
-    let repo = gix::open_opts(dir.join("repo.git"), crate::restricted()).expect("fixture repository opens");
+    let repo = gix::open_opts(dir.join("repo.git"), crate::restricted())?;
 
-    run_assertions(repo, true /* bare */);
+    Ok(run_assertions(repo, true /* bare */)?)
 }
 
 #[test]
-fn from_nonbare_parent_repo() {
+fn from_nonbare_parent_repo() -> TestResult {
     let Some(dir) = gix_testtools::scripted_fixture_read_only_with_git_version("make_worktree_repo.sh", |version| {
         version >= (2, 31, 0)
-    })
-    .unwrap() else {
-        return;
+    })?
+    else {
+        return Ok(());
     };
-    let repo = gix::open_opts(dir.join("repo"), crate::restricted()).expect("fixture repository opens");
+    let repo = gix::open_opts(dir.join("repo"), crate::restricted())?;
 
-    run_assertions(repo, false /* bare */);
+    Ok(run_assertions(repo, false /* bare */)?)
 }
 
 #[test]
-fn linked_worktree_proxy_base_with_relative_linking_files() -> Result {
+fn linked_worktree_proxy_base_with_relative_linking_files() -> TestResult {
     let fixture = gix_testtools::scripted_fixture_read_only_needs_archive("make_worktree_relative_linking.sh")?;
     let main = fixture.join("main");
     let linked = fixture.join("linked");
@@ -2013,7 +2014,7 @@ fn linked_worktree_proxy_base_with_relative_linking_files() -> Result {
 
 #[test]
 #[cfg(unix)]
-fn linked_worktree_proxy_base_with_symlinked_main_repo() -> Result {
+fn linked_worktree_proxy_base_with_symlinked_main_repo() -> TestResult {
     let fixture = gix_testtools::scripted_fixture_read_only_needs_archive("make_worktree_relative_linking.sh")?;
     let linked = fixture.join("actual/linked");
     let main_symlink = fixture.join("main-symlink");
@@ -2038,22 +2039,22 @@ fn linked_worktree_proxy_base_with_symlinked_main_repo() -> Result {
 }
 
 #[test]
-fn from_nonbare_parent_repo_set_workdir() -> gix_testtools::Result {
+fn from_nonbare_parent_repo_set_workdir() -> gix_testtools::TestResult {
     let Some(dir) = gix_testtools::scripted_fixture_read_only_with_git_version("make_worktree_repo.sh", |version| {
         version >= (2, 31, 0)
     })?
     else {
         return Ok(());
     };
-    let mut repo = gix::open_opts(dir.join("repo"), crate::restricted()).expect("fixture repository opens");
+    let mut repo = gix::open_opts(dir.join("repo"), crate::restricted())?;
 
     assert!(repo.worktree().is_some_and(|wt| wt.is_main()), "we have main worktree");
 
     let worktrees = repo.worktrees()?;
     assert_eq!(worktrees.len(), 6);
 
-    let linked_wt_dir = worktrees.first().unwrap().base().expect("this linked worktree exists");
-    repo.set_workdir(linked_wt_dir).expect("works as the dir exists");
+    let linked_wt_dir = worktrees.first().unwrap().base()?;
+    repo.set_workdir(linked_wt_dir)?;
 
     assert!(
         repo.worktree().is_some_and(|wt| wt.is_main()),
@@ -2075,7 +2076,7 @@ fn from_nonbare_parent_repo_set_workdir() -> gix_testtools::Result {
     Ok(())
 }
 
-fn run_assertions(main_repo: gix::Repository, should_be_bare: bool) {
+fn run_assertions(main_repo: gix::Repository, should_be_bare: bool) -> Result {
     assert_eq!(main_repo.is_bare(), should_be_bare);
     assert_eq!(main_repo.kind(), gix::repository::Kind::Common);
     let mut baseline = Baseline::collect(
@@ -2154,7 +2155,7 @@ fn run_assertions(main_repo: gix::Repository, should_be_bare: bool) {
             "prunability matches `git worktree list --porcelain`"
         );
         // TODO: check id of expected worktree, but need access to .gitdir from worktree base
-        let proxy_id = actual.id().to_owned();
+        let proxy_id = actual.id()?.to_owned();
         assert_eq!(
             base.is_dir(),
             expected.prunable.is_none(),
@@ -2162,7 +2163,7 @@ fn run_assertions(main_repo: gix::Repository, should_be_bare: bool) {
         );
 
         assert_eq!(
-            main_repo.worktree_proxy_by_id(actual.id()).expect("exists").git_dir(),
+            main_repo.worktree_proxy_by_id(actual.id()?)?.expect("exists").git_dir(),
             actual.git_dir(),
             "we can basically get the same proxy by its ID explicitly"
         );
@@ -2186,7 +2187,7 @@ fn run_assertions(main_repo: gix::Repository, should_be_bare: bool) {
         assert!(!worktree.is_main());
         assert_eq!(worktree.lock_reason(), proxy_lock_reason);
         assert_eq!(worktree.is_locked(), proxy_is_locked);
-        assert_eq!(worktree.id(), Some(proxy_id.as_ref()));
+        assert_eq!(worktree.id()?, Some(proxy_id.as_ref()));
         assert_eq!(
             repo.main_repo().unwrap(),
             main_repo,
@@ -2194,7 +2195,7 @@ fn run_assertions(main_repo: gix::Repository, should_be_bare: bool) {
         );
 
         let proxy_by_id = repo
-            .worktree_proxy_by_id(actual.id())
+            .worktree_proxy_by_id(actual.id()?)?
             .expect("can get the proxy from a linked repo as well");
         assert_eq!(
             proxy_by_id.git_dir(),
@@ -2207,4 +2208,5 @@ fn run_assertions(main_repo: gix::Repository, should_be_bare: bool) {
             "the git directories are effectively the same"
         );
     }
+    Ok(())
 }

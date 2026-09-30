@@ -106,24 +106,37 @@ where
     /// If `root` is `Some(…)` it's used to see `source_file` as relative to itself, if `source_file` is absolute.
     /// If source is relative and should be treated as base, set `root` to `Some("")`.
     /// `parse` is a way to parse bytes to pattern.
-    pub fn from_bytes(bytes: &[u8], source_file: PathBuf, root: Option<&Path>, parse: T) -> Self {
+    /// Returns an error if a source-relative base cannot be represented as Git path bytes.
+    pub fn from_bytes(bytes: &[u8], source_file: PathBuf, root: Option<&Path>, parse: T) -> std::io::Result<Self> {
         let patterns = parse.bytes_to_patterns(bytes, source_file.as_path());
-        let base = root
-            .and_then(|root| source_file.parent().expect("file").strip_prefix(root).ok())
-            .and_then(|base| {
-                (!base.as_os_str().is_empty()).then(|| {
-                    let mut base: BString =
-                        gix_path::to_unix_separators_on_windows(gix_path::into_bstr(base)).into_owned();
-
+        let base = if let Some(root) = root {
+            let parent = source_file.parent().ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "Pattern source must have a parent directory",
+                )
+            })?;
+            parent
+                .strip_prefix(root)
+                .ok()
+                .filter(|base| !base.as_os_str().is_empty())
+                .map(|base| {
+                    let mut base = gix_path::to_unix_separators_on_windows(
+                        gix_path::into_bstr(base).map_err(std::io::Error::other)?,
+                    )
+                    .into_owned();
                     base.push_byte(b'/');
-                    base
+                    Ok::<_, std::io::Error>(base)
                 })
-            });
-        List {
+                .transpose()?
+        } else {
+            None
+        };
+        Ok(List {
             patterns,
             source: Some(source_file),
             base,
-        }
+        })
     }
 
     /// Create a pattern list from the `source` file, which may be located underneath `root`, while optionally
@@ -139,8 +152,9 @@ where
         parse: T,
     ) -> std::io::Result<Option<Self>> {
         let source = source.into();
-        Ok(read_in_full_ignore_missing(&source, follow_symlinks, buf)?
-            .then(|| Self::from_bytes(buf, source, root, parse)))
+        read_in_full_ignore_missing(&source, follow_symlinks, buf)?
+            .then(|| Self::from_bytes(buf, source, root, parse))
+            .transpose()
     }
 }
 

@@ -40,7 +40,7 @@ struct Outcome {
 /// See `tree-cartesian-baseline.sh` for the model and `cartesian-baseline.txt` for the metrics and
 /// all observed differences. Set `GIX_MERGE_UPDATE_CARTESIAN_BASELINE=1` to accept a new status quo.
 #[test]
-fn records_status_quo_sha1() -> Result {
+fn records_status_quo_sha1() -> gix_testtools::TestResult {
     if gix_testtools::object_hash() != gix_hash::Kind::Sha1 {
         return Ok(());
     }
@@ -858,7 +858,7 @@ fn records_status_quo_sha1() -> Result {
 /// load the repository behind a submodule today.
 /// TODO: Allow callers to provide a callback with enough submodule-repository context to perform reachability checks.
 #[test]
-fn records_submodule_status_quo_sha1() -> Result {
+fn records_submodule_status_quo_sha1() -> gix_testtools::TestResult {
     if gix_testtools::object_hash() != gix_hash::Kind::Sha1 {
         return Ok(());
     }

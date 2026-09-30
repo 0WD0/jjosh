@@ -161,10 +161,9 @@ impl Path {
         if self.starts_with(PREFIX) {
             let git_install_dir = git_install_dir.ok_or_raise(|| not_found("git install dir is missing"))?;
             let (_prefix, path_without_trailing_slash) = self.split_at(PREFIX.len());
-            let path_without_trailing_slash =
-                gix_path::try_from_bstring(path_without_trailing_slash).or_raise(|| {
-                    validation("Ill-formed UTF-8 in path past %(prefix)").with_input(path_without_trailing_slash)
-                })?;
+            let path_without_trailing_slash = gix_path::from_bstring(path_without_trailing_slash).or_raise(|| {
+                validation("Ill-formed UTF-8 in path past %(prefix)").with_input(path_without_trailing_slash)
+            })?;
             Ok(git_install_dir.join(path_without_trailing_slash))
         } else if let Some(val) = self.strip_prefix(b"~") {
             let (username, path) = match val.split_once_str(b"/") {
@@ -187,13 +186,13 @@ impl Path {
             };
             if let Some(path) = path {
                 home.push(
-                    gix_path::try_from_byte_slice(path)
+                    gix_path::from_byte_slice(path)
                         .or_raise(|| validation(format!("Ill-formed UTF-8 in {what}")).with_input(path))?,
                 );
             }
             Ok(home)
         } else {
-            Ok(gix_path::from_bstr(self.value.as_bstr()).into_owned())
+            Ok(gix_path::from_bstr(self.value.as_bstr())?.into_owned())
         }
     }
 

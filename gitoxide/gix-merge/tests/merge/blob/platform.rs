@@ -2,7 +2,7 @@ use gix_merge::blob::Platform;
 use gix_worktree::stack::state::attributes;
 
 mod merge {
-    use crate::Result;
+    use gix_testtools::TestResult;
     use std::{convert::Infallible, path::Path, process::Stdio};
 
     use bstr::{BStr, ByteSlice};
@@ -23,7 +23,7 @@ mod merge {
     };
 
     #[test]
-    fn builtin_text_uses_binary_if_needed() -> Result {
+    fn builtin_text_uses_binary_if_needed() -> TestResult {
         let mut platform = new_platform(None, pipeline::Mode::ToGit);
         platform.set_resource(
             gix_hash::Kind::Sha1.null(),
@@ -73,7 +73,7 @@ mod merge {
     }
 
     #[test]
-    fn same_binaries_do_not_count_as_conflicted() -> Result {
+    fn same_binaries_do_not_count_as_conflicted() -> TestResult {
         let mut platform = new_platform(None, pipeline::Mode::ToGit);
         platform.set_resource(
             gix_hash::Kind::Sha1.null(),
@@ -122,7 +122,7 @@ mod merge {
     }
 
     #[test]
-    fn builtin_with_conflict() -> Result {
+    fn builtin_with_conflict() -> TestResult {
         let mut platform = new_platform(None, pipeline::Mode::ToGit);
         let non_existing_ancestor_id = hex_to_id("ffffffffffffffffffffffffffffffffffffffff");
         platform.set_resource(
@@ -267,7 +267,7 @@ theirs
     }
 
     #[test]
-    fn external_driver_failure_is_unclassified() -> gix_error::TestResult {
+    fn external_driver_failure_is_unclassified() -> TestResult {
         for exit_code in [1, 2] {
             let mut platform = new_platform(
                 [gix_merge::blob::Driver {
@@ -313,7 +313,7 @@ theirs
     }
 
     #[test]
-    fn with_external() -> Result {
+    fn with_external() -> TestResult {
         let mut platform = new_platform(
             [gix_merge::blob::Driver {
                 name: "b".into(),
@@ -413,7 +413,7 @@ theirs
     #[test]
     #[cfg(not(windows))] // assertions aren't handling Windows paths, and there is no need.
     /// This test is a complex behavioural test for an external merge driver similar to `mergiraf`.
-    fn with_external_mergiraf_like_driver_uses_worktree_tempfiles_from_context() -> Result {
+    fn with_external_mergiraf_like_driver_uses_worktree_tempfiles_from_context() -> TestResult {
         let mut platform = new_platform(
             [gix_merge::blob::Driver {
                 name: "b".into(),
@@ -480,9 +480,9 @@ cat "%B" >> "%A""#
             );
         }
 
-        let lines: Vec<_> = lines
-            .map(|line| line.to_str().expect("driver output is valid UTF-8"))
-            .collect();
+        let lines = lines
+            .map(ByteSlice::to_str)
+            .collect::<std::result::Result<Vec<_>, _>>()?;
         assert_eq!(
             lines,
             [
@@ -503,7 +503,7 @@ cat "%B" >> "%A""#
     }
 
     #[test]
-    fn missing_buffers_are_empty_buffers() -> Result {
+    fn missing_buffers_are_empty_buffers() -> TestResult {
         let mut platform = new_platform(None, pipeline::Mode::ToGit);
         platform.set_resource(
             gix_hash::Kind::Sha1.null(),
@@ -567,7 +567,7 @@ cat "%B" >> "%A""#
     }
 
     #[test]
-    fn one_buffer_too_large() -> Result {
+    fn one_buffer_too_large() -> TestResult {
         let mut platform = new_platform(None, pipeline::Mode::ToGit);
         platform.filter.options.large_file_threshold_bytes = 9;
         platform.set_resource(
@@ -625,7 +625,7 @@ cat "%B" >> "%A""#
     }
 
     fn cleaned_driver_lines(buf: &[u8]) -> std::io::Result<impl Iterator<Item = &BStr>> {
-        let current_dir = gix_path::into_bstr(std::env::current_dir()?);
+        let current_dir = gix_path::into_bstr(std::env::current_dir()?).expect("fixture path is representable");
         Ok(buf
             .lines()
             .map(move |line| line.strip_prefix(current_dir.as_bytes()).unwrap_or(line).as_bstr()))
@@ -641,17 +641,17 @@ cat "%B" >> "%A""#
 }
 
 mod prepare_merge {
-    use crate::Result;
     use gix_merge::blob::{
         BuiltinDriver, ResourceKind, builtin_driver, pipeline,
         platform::{DriverChoice, resource},
     };
     use gix_object::tree::EntryKind;
+    use gix_testtools::TestResult;
 
     use crate::blob::platform::new_platform;
 
     #[test]
-    fn ancestor_and_current_and_other_do_not_exist() -> Result {
+    fn ancestor_and_current_and_other_do_not_exist() -> TestResult {
         let mut platform = new_platform(None, pipeline::Mode::ToGit);
         platform.set_resource(
             gix_hash::Kind::Sha1.null(),
@@ -676,9 +676,7 @@ mod prepare_merge {
             &gix_object::find::Never,
         )?;
 
-        let state = platform
-            .prepare_merge(&gix_object::find::Never, Default::default())
-            .expect("no validation is done here, let the caller inspect");
+        let state = platform.prepare_merge(&gix_object::find::Never, Default::default())?;
         assert_eq!(state.ancestor.data, resource::Data::Missing);
         assert_eq!(state.current.data, resource::Data::Missing);
         assert_eq!(state.other.data, resource::Data::Missing);
@@ -686,7 +684,7 @@ mod prepare_merge {
     }
 
     #[test]
-    fn driver_selection() -> Result {
+    fn driver_selection() -> TestResult {
         let mut platform = new_platform(
             [
                 gix_merge::blob::Driver {

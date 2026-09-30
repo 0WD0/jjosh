@@ -2,16 +2,16 @@ mod hex_output {
     use crate::hex_to_id;
 
     #[test]
-    fn writes_only_the_significant_hex_digits() {
-        let prefix =
-            gix_hash::Prefix::new(&hex_to_id("abcdefabcdefabcdefabcdefabcdefabcdefabcd"), 7).expect("valid prefix");
+    fn writes_only_the_significant_hex_digits() -> gix_testtools::TestResult {
+        let prefix = gix_hash::Prefix::new(&hex_to_id("abcdefabcdefabcdefabcdefabcdefabcdefabcd"), 7)?;
         let mut buf = [0; 7];
         assert_eq!(prefix.hex_to_buf(&mut buf), "abcdefa");
         assert_eq!(prefix.to_string(), "abcdefa");
 
         let mut written = Vec::new();
-        prefix.write_hex_to(&mut written).expect("in-memory writes succeed");
+        prefix.write_hex_to(&mut written)?;
         assert_eq!(written, b"abcdefa");
+        Ok(())
     }
 }
 
@@ -314,7 +314,7 @@ mod reverse_hex {
     use gix_hash::{ChangeId, Prefix};
 
     #[test]
-    fn matches_change_ids_at_odd_nibbles() -> gix_testtools::Result {
+    fn matches_change_ids_at_odd_nibbles() -> gix_testtools::TestResult {
         let full = "zzyxwvutsrqponmlkzyxwvutsrqponmlkzyxwvut";
         let change_id = ChangeId::from_reverse_hex(full.as_bytes())?;
         let prefix = Prefix::from_reverse_hex_nonempty("zzy")?;
@@ -326,7 +326,7 @@ mod reverse_hex {
     }
 
     #[test]
-    fn validates_reverse_hex_like_forward_hex() -> gix_testtools::Result {
+    fn validates_reverse_hex_like_forward_hex() -> gix_testtools::TestResult {
         insta::assert_debug_snapshot!(Prefix::from_reverse_hex("zzy")
                 .expect_err("three digits are below the safe minimum"), "validates reverse hex like forward hex", @"The minimum hex length of a short object id is 4, got 3");
         let prefix = Prefix::from_reverse_hex("ZZYX")?;

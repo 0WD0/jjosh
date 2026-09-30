@@ -1,5 +1,5 @@
-use crate::Result;
 use gix::{prelude::ObjectIdExt, revision::Spec};
+use gix_testtools::TestResult;
 
 use crate::{
     revision::spec::from_bytes::{parse_spec, parse_spec_no_baseline, repo},
@@ -7,12 +7,12 @@ use crate::{
 };
 
 #[test]
-fn symbolic_references_use_their_own_log_or_the_final_targets() -> gix_error::TestResult {
+fn symbolic_references_use_their_own_log_or_the_final_targets() -> gix_testtools::TestResult {
     let fixture = gix_testtools::scripted_fixture_read_only("make_symbolic_ref_reflogs.sh")?;
     let repo = gix::open_opts(fixture, crate::restricted())?;
     for name in ["refs/symref", "refs/symref-chain"] {
         assert!(
-            !repo.find_reference(name)?.log_exists(),
+            !repo.find_reference(name)?.log_exists()?,
             "{name} must exercise fallback to the final target's reflog"
         );
         for query in ["0", "1", "2", "1979-02-26 00:00:00 +0000"] {
@@ -25,7 +25,7 @@ fn symbolic_references_use_their_own_log_or_the_final_targets() -> gix_error::Te
         }
     }
     assert!(
-        repo.find_reference("refs/heads/symref")?.log_exists(),
+        repo.find_reference("refs/heads/symref")?.log_exists()?,
         "a symbolic branch has its own reflog"
     );
     assert!(
@@ -59,7 +59,7 @@ fn nth_prior_checkout() {
 }
 
 #[test]
-fn nth_prior_checkout_to_deleted_branch_fails_like_git() -> Result {
+fn nth_prior_checkout_to_deleted_branch_fails_like_git() -> TestResult {
     let repo = repo("deleted_prior_checkout")?;
     let err = parse_spec("@{-1}", &repo).expect_err("deleted prior checkout branch must not resolve by object id");
     insta::assert_debug_snapshot!(err.probable_cause(), "error should explain that the reflog name no longer resolves", @r#"
@@ -71,7 +71,7 @@ fn nth_prior_checkout_to_deleted_branch_fails_like_git() -> Result {
 }
 
 #[test]
-fn nth_prior_checkout_to_deleted_branch_named_like_object_matches_git() -> Result {
+fn nth_prior_checkout_to_deleted_branch_named_like_object_matches_git() -> TestResult {
     let repo = repo("deleted_prior_checkout_named_like_object")?;
     assert_eq!(
         parse_spec("@{-1}", &repo)?,

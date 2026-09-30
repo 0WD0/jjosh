@@ -3,7 +3,7 @@ use gix_hash::{ChangeId, ObjectId};
 use crate::hex_to_id;
 
 #[test]
-fn formats_and_parses_exactly_like_jujutsu() -> gix_testtools::Result {
+fn formats_and_parses_exactly_like_jujutsu() -> gix_testtools::TestResult {
     let object_hex = "0123456789abcdef0123456789abcdef01234567";
     let reverse_hex = "zyxwvutsrqponmlkzyxwvutsrqponmlkzyxwvuts";
     let object_id = hex_to_id(object_hex);
@@ -45,7 +45,7 @@ fn formats_and_parses_exactly_like_jujutsu() -> gix_testtools::Result {
 
 #[test]
 #[cfg(feature = "sha256")]
-fn formats_sha256_with_the_same_jj_algorithm() -> gix_testtools::Result {
+fn formats_sha256_with_the_same_jj_algorithm() -> gix_testtools::TestResult {
     let object_hex = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
     let reverse_hex = "zyxwvutsrqponmlkzyxwvutsrqponmlkzyxwvutsrqponmlkzyxwvutsrqponmlk";
     let change_id = ChangeId::from(hex_to_id(object_hex));

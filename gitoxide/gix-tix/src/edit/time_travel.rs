@@ -704,7 +704,7 @@ pub(super) fn ensure_branch_is_available(repository: &gix::Repository, branch: &
     let current = repository
         .worktree()
         .ok_or_raise(|| message("attaching requires a current worktree"))?;
-    let current_id = current.id().map(ToOwned::to_owned);
+    let current_id = current.id()?.map(ToOwned::to_owned);
     if current_id.is_some() {
         ensure_worktree_does_not_own_branch(
             repository
@@ -717,9 +717,10 @@ pub(super) fn ensure_branch_is_available(repository: &gix::Repository, branch: &
         .worktrees()
         .or_raise(|| message("could not enumerate worktrees while checking the remembered branch"))?
     {
+        let proxy_id = proxy.id()?;
         if current_id
             .as_ref()
-            .is_some_and(|current| current.as_slice() == proxy.id().as_bytes())
+            .is_some_and(|current| current.as_slice() == proxy_id.as_bytes())
         {
             continue;
         }
@@ -1506,7 +1507,7 @@ fn checkout_branch(workdir: &Path, name: &gix::refs::FullNameRef) -> Result<()> 
         workdir,
         [
             OsString::from("--no-guess"),
-            gix::path::from_bstr(branch.as_bstr()).into_owned().into_os_string(),
+            gix::path::from_bstr(branch.as_bstr())?.into_owned().into_os_string(),
         ],
     )
 }

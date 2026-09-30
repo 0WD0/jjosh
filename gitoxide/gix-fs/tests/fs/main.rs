@@ -1,4 +1,4 @@
-type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync + 'static>>;
+use gix_testtools::TestResult;
 
 mod capabilities;
 mod dir;

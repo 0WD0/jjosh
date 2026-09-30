@@ -1,10 +1,10 @@
-use crate::Result;
 use gix_diff::blob::{Algorithm, Driver};
+use gix_testtools::TestResult;
 
 use crate::util::named_repo;
 
 #[test]
-fn resource_cache() -> Result {
+fn resource_cache() -> TestResult {
     let repo = named_repo("make_diff_repo.sh")?;
     let index = repo.index()?;
     let cache = gix::diff::resource_cache(

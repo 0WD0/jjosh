@@ -1,5 +1,4 @@
 use std::{
-    borrow::Cow,
     io::Write,
     path::{Path, PathBuf},
 };
@@ -83,7 +82,7 @@ pub fn checkout<'entry, Find>(
 where
     Find: gix_object::Find,
 {
-    let dest_relative = gix_path::try_from_bstr(entry_path)
+    let dest_relative = gix_path::from_bstr(entry_path)
         .or_raise(|| validation("Could not convert path to UTF8").with_input(entry_path))?;
     let path_cache = path_cache
         .at_path(dest_relative.as_ref(), Some(entry.mode), &*objects)
@@ -158,15 +157,8 @@ where
                 )
             })?;
             if symlink {
-                #[cfg_attr(not(windows), allow(unused_mut))]
-                let mut symlink_destination = Cow::Borrowed(
-                    gix_path::try_from_byte_slice(obj.data)
-                        .or_raise(|| validation("Could not convert path to UTF8").with_input(obj.data))?,
-                );
-                #[cfg(windows)]
-                {
-                    symlink_destination = gix_path::to_native_path_on_windows(gix_path::into_bstr(symlink_destination))
-                }
+                let symlink_destination = gix_path::to_native_path_on_windows(BStr::new(obj.data))
+                    .or_raise(|| validation("Could not convert path to UTF8").with_input(obj.data))?;
 
                 try_op_or_unlink(dest, overwrite_existing, |p| {
                     gix_fs::symlink::create(symlink_destination.as_ref(), p)
@@ -386,7 +378,7 @@ pub(crate) enum ExecutableBitChange {
 mod tests {
     #[test]
     #[cfg(windows)]
-    fn forced_operations_never_receive_terminal_symlinks() -> gix_testtools::Result {
+    fn forced_operations_never_receive_terminal_symlinks() -> gix_testtools::TestResult {
         let dir = gix_testtools::tempfile::tempdir()?;
         let target = dir.path().join("target");
         let link = dir.path().join("link");
@@ -417,7 +409,7 @@ mod tests {
 
     #[test]
     #[cfg(any(windows, unix))]
-    fn nonexclusive_open_defers_truncation_until_handle_validation() -> gix_testtools::Result {
+    fn nonexclusive_open_defers_truncation_until_handle_validation() -> gix_testtools::TestResult {
         use std::io::Write;
 
         let dir = gix_testtools::tempfile::tempdir()?;
@@ -455,7 +447,7 @@ mod tests {
 
     #[test]
     #[cfg(any(windows, unix))]
-    fn terminal_symlinks_created_after_precheck_are_rejected_or_replaced() -> gix_testtools::Result {
+    fn terminal_symlinks_created_after_precheck_are_rejected_or_replaced() -> gix_testtools::TestResult {
         use std::{
             io::Write,
             sync::atomic::{AtomicUsize, Ordering},

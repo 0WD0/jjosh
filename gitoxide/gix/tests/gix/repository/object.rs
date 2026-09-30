@@ -1,17 +1,17 @@
-use crate::Result;
 use gix_date::parse::TimeBuf;
 use gix_odb::Header;
 use gix_pack::Find;
 use gix_testtools::tempfile;
+use gix_testtools::{Result, TestResult};
 
 use crate::util::named_subrepo_opts;
 
 mod object_database_impl {
-    use crate::Result;
     use gix_object::{Exists, Find, FindHeader};
+    use gix_testtools::TestResult;
 
     #[test]
-    fn empty_tree_is_always_present() -> Result {
+    fn empty_tree_is_always_present() -> TestResult {
         let repo = crate::named_subrepo_opts("make_basic_repo.sh", "unborn", gix::open::Options::isolated())?;
         let empty_tree = gix::ObjectId::empty_tree(repo.object_hash());
         assert!(repo.exists(&empty_tree));
@@ -34,16 +34,16 @@ mod object_database_impl {
 }
 
 mod edit_tree {
-    use crate::Result;
     use gix::bstr::{BStr, BString};
     use gix_object::tree::EntryKind;
+    use gix_testtools::TestResult;
 
     use crate::util::hex_to_id;
 
     #[test]
     // Some part of the test validation the implementation for this exists, but it's needless nonetheless.
     #[expect(clippy::needless_borrows_for_generic_args)]
-    fn from_head_tree() -> Result {
+    fn from_head_tree() -> TestResult {
         let (repo, _tmp) = crate::repo_rw("make_packed_and_loose.sh")?;
         let head_tree_id = repo.head_tree_id()?;
         assert_eq!(
@@ -153,7 +153,7 @@ mod edit_tree {
     }
 
     #[test]
-    fn submodules_are_not_checked_for_existence() -> Result {
+    fn submodules_are_not_checked_for_existence() -> TestResult {
         let repo = crate::named_subrepo_opts("make_submodules.sh", "with-submodules", gix::open::Options::isolated())?
             .with_object_memory();
         let mut editor = repo.head_tree()?.edit()?;
@@ -167,7 +167,7 @@ mod edit_tree {
     }
 
     #[test]
-    fn remove_leaf_rejects_tree_entries() -> Result {
+    fn remove_leaf_rejects_tree_entries() -> TestResult {
         let (repo, _tmp) = crate::repo_rw("make_packed_and_loose.sh")?;
         let head_tree_id = repo.head_tree_id()?;
         let this_id = hex_to_id("317e9677c3bcffd006f9fc84bbb0a54ef1676197");
@@ -190,7 +190,7 @@ mod edit_tree {
     }
 
     #[test]
-    fn missing_objects_and_illformed_path_components_trigger_error() -> Result {
+    fn missing_objects_and_illformed_path_components_trigger_error() -> TestResult {
         let (repo, _tmp) = crate::repo_rw("make_packed_and_loose.sh")?;
         let tree = repo.head_tree_id()?.object()?.into_tree();
         let mut editor = tree.edit()?;
@@ -208,7 +208,7 @@ mod edit_tree {
             .upsert(
                 "non-existing",
                 EntryKind::Blob,
-                gix_hash::ObjectId::from_hex(missing_id.as_bytes()).expect("valid object id"),
+                gix_hash::ObjectId::from_hex(missing_id.as_bytes())?,
             )?
             .write()
             .unwrap_err();
@@ -282,11 +282,11 @@ mod edit_tree {
     }
 }
 mod write_object {
-    use crate::Result;
     use crate::repository::object::empty_bare_in_memory_repo;
+    use gix_testtools::TestResult;
 
     #[test]
-    fn empty_tree() -> Result {
+    fn empty_tree() -> TestResult {
         let repo = empty_bare_in_memory_repo()?;
         let oid = repo.write_object(gix::objs::TreeRef::empty())?;
         assert_eq!(
@@ -298,7 +298,7 @@ mod write_object {
     }
 
     #[test]
-    fn commit_with_invalid_author() -> Result {
+    fn commit_with_invalid_author() -> TestResult {
         let repo = empty_bare_in_memory_repo()?;
         let actor = gix::actor::Signature {
             name: "1 < 0".into(),
@@ -324,7 +324,7 @@ mod write_object {
     }
 
     #[test]
-    fn blob_write_to_implementation() -> Result {
+    fn blob_write_to_implementation() -> TestResult {
         let repo = empty_bare_in_memory_repo()?;
         let blob = repo.empty_blob();
 
@@ -340,7 +340,7 @@ mod write_object {
 }
 
 mod write_blob {
-    use crate::Result;
+    use gix_testtools::TestResult;
     use std::io::{Seek, SeekFrom};
 
     use crate::repository::{
@@ -349,7 +349,7 @@ mod write_blob {
     };
 
     #[test]
-    fn from_slice() -> Result {
+    fn from_slice() -> TestResult {
         let (_tmp, repo) = empty_bare_repo()?;
         let expected = blob_id(&repo, b"hello world");
         assert!(!repo.has_object(expected));
@@ -373,7 +373,7 @@ mod write_blob {
     }
 
     #[test]
-    fn from_stream() -> Result {
+    fn from_stream() -> TestResult {
         let repo = empty_bare_in_memory_repo()?;
         let mut cursor = std::io::Cursor::new(b"hello world");
         let mut seek_cursor = cursor.clone();
@@ -397,7 +397,7 @@ mod write_blob {
 }
 
 #[test]
-fn writes_avoid_io_using_duplicate_check() -> Result {
+fn writes_avoid_io_using_duplicate_check() -> TestResult {
     let (mut repo, _tmp) = crate::repo_rw("make_packed_and_loose.sh")?;
     let store = gix::odb::loose::Store::at(repo.git_dir().join("objects"), repo.object_hash());
     let loose_count = store.iter().count();
@@ -471,14 +471,14 @@ fn writes_avoid_io_using_duplicate_check() -> Result {
 }
 
 mod find {
-    use crate::Result;
     use gix_pack::Find;
+    use gix_testtools::TestResult;
 
     use crate::basic_repo;
     use crate::repository::object::empty_bare_in_memory_repo;
 
     #[test]
-    fn find_and_try_find_with_and_without_object_cache() -> Result {
+    fn find_and_try_find_with_and_without_object_cache() -> TestResult {
         let mut repo = basic_repo()?;
 
         assert_eq!(
@@ -517,7 +517,7 @@ mod find {
     }
 
     #[test]
-    fn empty_tree_can_always_be_found() -> Result {
+    fn empty_tree_can_always_be_found() -> TestResult {
         let repo = basic_repo()?;
         let empty_tree = gix::hash::ObjectId::empty_tree(repo.object_hash());
         assert_eq!(repo.find_object(empty_tree)?.into_tree().iter().count(), 0);
@@ -556,7 +556,7 @@ mod find {
     }
 
     #[test]
-    fn empty_blob_can_be_found_if_it_exists() -> Result {
+    fn empty_blob_can_be_found_if_it_exists() -> TestResult {
         let repo = basic_repo()?;
         let empty_blob = gix::hash::ObjectId::empty_blob(repo.object_hash());
 
@@ -594,7 +594,7 @@ mod find {
     }
 
     #[test]
-    fn empty_blob() -> Result {
+    fn empty_blob() -> TestResult {
         let repo = empty_bare_in_memory_repo()?;
         let empty_blob = repo.empty_blob();
 
@@ -610,7 +610,7 @@ mod find {
 }
 
 #[test]
-fn empty_objects_are_always_present_but_not_in_plumbing() -> Result {
+fn empty_objects_are_always_present_but_not_in_plumbing() -> TestResult {
     let repo = empty_bare_in_memory_repo()?;
     let empty_blob_id = repo.object_hash().empty_blob();
 
@@ -640,10 +640,10 @@ fn empty_objects_are_always_present_but_not_in_plumbing() -> Result {
 }
 
 mod tag {
-    use crate::Result;
+    use gix_testtools::TestResult;
 
     #[test]
-    fn simple() -> Result {
+    fn simple() -> TestResult {
         let (repo, _keep) = crate::repo_rw("make_basic_repo.sh")?;
         let current_head_id = repo.head_id()?;
         let message = "a multi\nline message";
@@ -672,12 +672,12 @@ mod tag {
 }
 
 mod commit_as {
-    use crate::Result;
     use gix_date::parse::TimeBuf;
+    use gix_testtools::TestResult;
     use gix_testtools::tempfile;
 
     #[test]
-    fn specify_committer_and_author() -> Result {
+    fn specify_committer_and_author() -> TestResult {
         let tmp = tempfile::tempdir()?;
         let repo = crate::init_repo_isolated(&tmp, gix::create::Kind::WithWorktree)?.to_thread_local();
         let empty_tree = repo.empty_tree();
@@ -710,7 +710,7 @@ mod commit_as {
 }
 
 mod commit {
-    use crate::Result;
+    use gix_testtools::TestResult;
     use gix_testtools::tempfile;
 
     use crate::{freeze_time, restricted_and_git, util::hex_to_id};
@@ -731,7 +731,7 @@ mod commit {
     }
 
     #[test]
-    fn parent_in_initial_commit_causes_failure() -> Result {
+    fn parent_in_initial_commit_causes_failure() -> TestResult {
         let tmp = tempfile::tempdir()?;
         let repo = gix::ThreadSafeRepository::init_opts(
             &tmp,
@@ -761,7 +761,7 @@ mod commit {
 
     #[test]
     #[serial_test::serial]
-    fn single_line_initial_commit_empty_tree_ref_nonexisting() -> Result {
+    fn single_line_initial_commit_empty_tree_ref_nonexisting() -> TestResult {
         let _environment = gix_testtools::isolate_git_environment()?;
         let _env = freeze_time();
         let tmp = tempfile::tempdir()?;
@@ -800,19 +800,14 @@ mod commit {
 
     #[test]
     #[serial_test::serial]
-    fn multi_line_commit_message_uses_first_line_in_ref_log_ref_nonexisting() -> Result {
+    fn multi_line_commit_message_uses_first_line_in_ref_log_ref_nonexisting() -> TestResult {
         let _environment = gix_testtools::isolate_git_environment()?;
         let _env = freeze_time();
         let (repo, _keep) = crate::repo_rw_opts("make_basic_repo.sh", restricted_and_git())?;
         let parent = repo.find_reference("HEAD")?.peel_to_id()?;
-        let empty_tree_id = parent.object()?.to_commit_ref_iter().tree_id().expect("tree to be set");
+        let empty_tree_id = parent.object()?.to_commit_ref_iter().tree_id()?;
         assert_eq!(
-            parent
-                .try_object()?
-                .expect("present")
-                .to_commit_ref_iter()
-                .tree_id()
-                .expect("tree to be set"),
+            parent.try_object()?.expect("present").to_commit_ref_iter().tree_id()?,
             empty_tree_id,
             "try and non-try work the same"
         );
@@ -873,7 +868,7 @@ mod commit {
 }
 
 #[test]
-fn new_commit_as() -> Result {
+fn new_commit_as() -> TestResult {
     let repo = empty_bare_in_memory_repo()?;
     let empty_tree = repo.empty_tree();
     let committer = gix::actor::Signature {
@@ -920,7 +915,7 @@ fn new_commit_as() -> Result {
 }
 
 #[test]
-fn new_commit() -> Result {
+fn new_commit() -> TestResult {
     let mut repo = empty_bare_in_memory_repo()?;
     let mut config = repo.config_snapshot_mut();
     config.set_value(&gix::config::tree::User::NAME, "user")?;

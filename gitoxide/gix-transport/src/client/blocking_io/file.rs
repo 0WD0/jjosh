@@ -271,19 +271,22 @@ impl client::blocking_io::Transport for SpawnProcessOnDemand {
     ) -> std::result::Result<SetServiceResponse<'_>, client::Error> {
         let (cmd, ssh_kind, cmd_name) = self.prepare_command(service)?;
         let envs = std::mem::take(&mut self.envs);
-        let into_std_command = |mut cmd: gix_command::Prepare| {
+        let into_std_command = |mut cmd: gix_command::Prepare, command: &std::ffi::OsStr| {
             cmd.stdin = Stdio::piped();
             cmd.stdout = Stdio::piped();
 
-            let mut cmd = std::process::Command::from(cmd);
+            let mut cmd = std::process::Command::try_from(cmd).map_err(|err| client::Error::InvokeProgram {
+                source: std::io::Error::new(std::io::ErrorKind::InvalidInput, err),
+                command: command.to_owned(),
+            })?;
             for env_to_remove in ENV_VARS_TO_REMOVE {
                 cmd.env_remove(env_to_remove);
             }
             cmd.envs(envs.iter().map(|(k, v)| (k, v)));
-            cmd
+            Ok::<_, client::Error>(cmd)
         };
 
-        let mut cmd = into_std_command(cmd);
+        let mut cmd = into_std_command(cmd, &cmd_name)?;
         gix_features::trace::debug!(command = ?cmd, "gix_transport::SpawnProcessOnDemand");
         let mut child = match cmd.spawn() {
             Ok(child) => child,
@@ -291,7 +294,7 @@ impl client::blocking_io::Transport for SpawnProcessOnDemand {
                 // The service program wasn't found in `PATH`, but as `git` itself can be found,
                 // the service can still be run through it (#2313).
                 let (cmd, cmd_name) = self.prepare_fallback_command(service);
-                let mut cmd = into_std_command(cmd);
+                let mut cmd = into_std_command(cmd, &cmd_name)?;
                 gix_features::trace::debug!(command = ?cmd, "gix_transport::SpawnProcessOnDemand (fallback)");
                 cmd.spawn().map_err(|err| client::Error::InvokeProgram {
                     source: err,
@@ -420,7 +423,7 @@ mod tests {
             }
 
             #[test]
-            fn upload_pack_invocation_preserves_scp_like_path_distinction() {
+            fn upload_pack_invocation_preserves_scp_like_path_distinction() -> gix_testtools::TestResult {
                 for (url, expected) in [
                     (
                         "git@forge.com:/path/repo",
@@ -435,18 +438,15 @@ mod tests {
                         &["ssh", "git@forge.com", "git-upload-pack", "'/path/repo'"][..],
                     ),
                 ] {
-                    let url = gix_url::parse(url).expect("valid url");
-                    let cmd = ssh::connect(url, Protocol::V1, Default::default(), false).expect("parse success");
+                    let url = gix_url::parse(url)?;
+                    let cmd = ssh::connect(url, Protocol::V1, Default::default(), false)?;
                     assert_eq!(
-                        command_and_args(
-                            cmd.prepare_command(crate::Service::UploadPack)
-                                .expect("valid command")
-                                .0
-                        ),
+                        command_and_args(cmd.prepare_command(crate::Service::UploadPack)?.0),
                         expected,
                         "the remote shell command must match Git's parsed repository path"
                     );
                 }
+                Ok(())
             }
 
             #[test]
@@ -485,8 +485,10 @@ mod tests {
 
             fn command_and_args(cmd: gix_command::Prepare) -> Vec<String> {
                 let program = cmd.command.clone();
-                let cmd = std::process::Command::from(cmd);
-                let expected_program = std::process::Command::from(gix_command::prepare(&program));
+                let cmd =
+                    std::process::Command::try_from(cmd).expect("command fixture can be represented by the platform");
+                let expected_program = std::process::Command::try_from(gix_command::prepare(&program))
+                    .expect("command fixture can be represented by the platform");
                 assert_eq!(
                     cmd.get_program(),
                     expected_program.get_program(),

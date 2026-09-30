@@ -1,9 +1,9 @@
 mod modules_file {
-    use crate::Result;
     use crate::submodule::repo;
+    use gix_testtools::TestResult;
 
     #[test]
-    fn overrides_respect_section_trust_for_every_modules_source() -> Result {
+    fn overrides_respect_section_trust_for_every_modules_source() -> TestResult {
         use gix::submodule::config::Update;
         use gix_sec::Trust;
 
@@ -62,7 +62,7 @@ mod modules_file {
     }
 
     #[test]
-    fn none_if_not_present() -> Result {
+    fn none_if_not_present() -> TestResult {
         let repo = repo("module1")?;
         assert!(repo.open_modules_file()?.is_none(), "it's OK to not have such a file");
         assert!(
@@ -73,7 +73,7 @@ mod modules_file {
     }
 
     #[test]
-    fn is_read_from_worktree() -> Result {
+    fn is_read_from_worktree() -> TestResult {
         let repo = repo("with-submodules")?;
         let modules = repo.modules()?.expect("present");
         assert_eq!(
@@ -85,7 +85,7 @@ mod modules_file {
     }
 
     #[test]
-    fn is_read_from_index_if_not_in_worktree() -> Result {
+    fn is_read_from_index_if_not_in_worktree() -> TestResult {
         let repo = repo("with-submodules-in-index")?;
         assert!(
             repo.open_modules_file()?.is_none(),
@@ -101,7 +101,7 @@ mod modules_file {
     }
 
     #[test]
-    fn is_read_from_tree_if_not_in_index() -> Result {
+    fn is_read_from_tree_if_not_in_index() -> TestResult {
         let repo = repo("with-submodules-in-tree")?;
         assert!(
             repo.open_modules_file()?.is_none(),
@@ -118,13 +118,13 @@ mod modules_file {
 }
 
 mod submodules {
-    use crate::Result;
     use gix::bstr::BString;
+    use gix_testtools::TestResult;
 
     use crate::{submodule::repo, util::hex_to_id};
 
     #[test]
-    fn all_modules_are_active_by_default() -> Result {
+    fn all_modules_are_active_by_default() -> TestResult {
         let repo = repo("with-submodules")?;
         let id = hex_to_id("e046f3e51d955840619fc7d01fbd9a469663de22");
         assert_eq!(
@@ -159,13 +159,13 @@ mod submodules {
 
 #[cfg(unix)]
 mod advisory {
-    use crate::Result;
+    use gix_testtools::TestResult;
     use gix_testtools::tempfile;
 
     /// Regression test for GHSA-pg4w-g64p-qwhj: a symlinked worktree `.gitmodules` must not allow
     /// attacker-controlled bytes outside the repository to define submodule configuration.
     #[test]
-    fn symlinked_gitmodules_are_rejected() -> Result {
+    fn symlinked_gitmodules_are_rejected() -> TestResult {
         use std::os::unix::fs as unix_fs;
 
         let temp = tempfile::tempdir()?;
@@ -198,7 +198,7 @@ mod advisory {
     }
 
     #[test]
-    fn symlinked_gitmodules_fall_back_to_index_and_tree() -> Result {
+    fn symlinked_gitmodules_fall_back_to_index_and_tree() -> TestResult {
         let temp = tempfile::tempdir()?;
         let repo_dir = temp.path().join("repo");
         crate::init_repo_isolated(&repo_dir, gix::create::Kind::WithWorktree)?;

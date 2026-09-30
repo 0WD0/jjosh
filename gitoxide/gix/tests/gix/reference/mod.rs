@@ -1,8 +1,8 @@
-use crate::Result;
 use gix::remote::Direction;
+use gix_testtools::TestResult;
 
 #[test]
-fn compares_with_name_representations() -> Result {
+fn compares_with_name_representations() -> TestResult {
     use gix::{
         bstr::{BString, ByteSlice},
         refs::{FullName, FullNameRef, Target},
@@ -61,7 +61,7 @@ mod log {
 }
 
 #[test]
-fn remote_name() -> Result {
+fn remote_name() -> TestResult {
     let repo = crate::named_subrepo_opts(
         "make_remote_config_repos.sh",
         "multiple-remotes",
@@ -85,8 +85,8 @@ fn remote_name() -> Result {
 }
 
 mod find {
-    use crate::Result;
     use gix_ref::{FullName, FullNameRef, Target, TargetRef};
+    use gix_testtools::{Result, TestResult};
 
     use crate::util::hex_to_id;
 
@@ -95,7 +95,7 @@ mod find {
     }
 
     #[test]
-    fn missing_reference_is_classified() -> Result {
+    fn missing_reference_is_classified() -> TestResult {
         let err = repo()?
             .find_reference("does-not-exist")
             .expect_err("the reference is missing");
@@ -105,7 +105,7 @@ mod find {
     }
 
     #[test]
-    fn invalid_reference_names_are_classified() -> Result {
+    fn invalid_reference_names_are_classified() -> TestResult {
         let mut error_snapshots = Vec::new();
         let repo = repo()?;
         for err in [
@@ -140,7 +140,7 @@ mod find {
     }
 
     #[test]
-    fn and_peel() -> Result {
+    fn and_peel() -> TestResult {
         let mut error_snapshots = Vec::new();
         let repo = repo()?;
         let mut packed_tag_ref = repo.try_find_reference("dt1")?.expect("tag to exist");
@@ -267,13 +267,13 @@ mod find {
     }
 
     #[test]
-    fn and_follow() -> Result {
+    fn and_follow() -> TestResult {
         let repo = repo()?;
         let mut symbolic_ref = repo.find_reference("multi-link-target1")?;
-        let first_hop = Target::Symbolic(FullName::try_from("refs/tags/multi-link-target2").expect("valid"));
+        let first_hop = Target::Symbolic(FullName::try_from("refs/tags/multi-link-target2")?);
         assert_eq!(symbolic_ref.target(), first_hop.to_ref());
 
-        let second_hop = Target::Symbolic(FullName::try_from("refs/remotes/origin/multi-link-target3").expect("valid"));
+        let second_hop = Target::Symbolic(FullName::try_from("refs/remotes/origin/multi-link-target3")?);
         symbolic_ref = symbolic_ref.follow().expect("another hop")?;
         assert_eq!(symbolic_ref.target(), second_hop.to_ref());
 

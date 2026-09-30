@@ -56,10 +56,9 @@ fn core_dir() {
 }
 
 #[test]
-fn core_dir_program() {
+fn core_dir_program() -> gix_testtools::TestResult {
     let core_dir = gix_path::env::core_dir().expect("Git is always in PATH when we run tests");
-    let programs = std::fs::read_dir(core_dir)
-        .expect("the core directory can be listed")
+    let programs = std::fs::read_dir(core_dir)?
         .filter_map(Result::ok)
         .filter(|entry| entry.file_type().is_ok_and(|t| t.is_file()))
         .filter_map(|entry| {
@@ -109,6 +108,7 @@ fn core_dir_program() {
         None,
         "Windows path separators in installation program names are rejected"
     );
+    Ok(())
 }
 
 #[test]
@@ -140,17 +140,17 @@ fn system_prefix() {
 #[cfg(windows)]
 mod windows_prefix {
     #[test]
-    fn mixed_installation_keeps_mingw64_active() -> gix_testtools::Result {
-        mixed_installation("mingw64")
+    fn mixed_installation_keeps_mingw64_active() -> gix_testtools::TestResult {
+        Ok(mixed_installation("mingw64")?)
     }
 
     #[test]
-    fn mixed_installation_keeps_ucrt64_active() -> gix_testtools::Result {
-        mixed_installation("ucrt64")
+    fn mixed_installation_keeps_ucrt64_active() -> gix_testtools::TestResult {
+        Ok(mixed_installation("ucrt64")?)
     }
 
     #[test]
-    fn shortcut_uses_the_same_installation_and_system_config() -> gix_testtools::Result {
+    fn shortcut_uses_the_same_installation_and_system_config() -> gix_testtools::TestResult {
         if gix_testtools::run_in_isolated_process()? {
             return Ok(());
         }

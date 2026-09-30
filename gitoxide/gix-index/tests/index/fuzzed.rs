@@ -62,29 +62,29 @@ fn malformed_tree_extension_is_ignored_instead_of_panicking() {
 }
 
 #[test]
-fn malformed_fsmonitor_extension_is_ignored_instead_of_panicking() {
+fn malformed_fsmonitor_extension_is_ignored_instead_of_panicking() -> gix_testtools::TestResult {
     let (state, _checksum) = decode_fuzzed(include_bytes!(
         "../../fuzz/artifacts/index_file/crash-6fe328e670c3ca54a4dac7a5c0dc1e51501cf1d9"
-    ))
-    .expect("fuzzed input should decode without panicking");
+    ))?;
 
     assert!(
         state.fs_monitor().is_none(),
         "malformed optional extension must be ignored"
     );
+    Ok(())
 }
 
 #[test]
-fn malformed_untracked_cache_extension_is_ignored_instead_of_panicking() {
+fn malformed_untracked_cache_extension_is_ignored_instead_of_panicking() -> gix_testtools::TestResult {
     let (state, _checksum) = decode_fuzzed(include_bytes!(
         "../../fuzz/artifacts/index_file/crash-b3dc19d67c36fbc5fc4b4f5729df92911dd3a7d5"
-    ))
-    .expect("fuzzed input should decode without panicking");
+    ))?;
 
     assert!(
         state.untracked().is_none(),
         "malformed optional extension must be ignored"
     );
+    Ok(())
 }
 
 #[test]

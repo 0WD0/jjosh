@@ -155,15 +155,15 @@ pub(super) mod inner {
                     let token = if count > 1 {
                         match token.first() {
                             Some(&b'O') => {
-                                cmd.push_str(gix_path::into_bstr(&base_path).as_ref());
+                                cmd.push_str(gix_path::into_bstr(&base_path)?.as_ref());
                                 &token[1..]
                             }
                             Some(&b'A') => {
-                                cmd.push_str(gix_path::into_bstr(&ours_path).as_ref());
+                                cmd.push_str(gix_path::into_bstr(&ours_path)?.as_ref());
                                 &token[1..]
                             }
                             Some(&b'B') => {
-                                cmd.push_str(gix_path::into_bstr(&theirs_path).as_ref());
+                                cmd.push_str(gix_path::into_bstr(&theirs_path)?.as_ref());
                                 &token[1..]
                             }
                             Some(&b'L') => {
@@ -205,13 +205,13 @@ pub(super) mod inner {
                 }
 
                 Ok(merge::Command {
-                    cmd: gix_command::prepare(gix_path::from_bstring(cmd))
+                    cmd: gix_command::prepare(gix_path::from_bstring(cmd)?)
                         .with_context(context)
                         .command_may_be_shell_script()
                         .stdin(Stdio::null())
                         .stdout(Stdio::inherit())
                         .stderr(Stdio::inherit())
-                        .into(),
+                        .try_into()?,
                     current: ours_tmp,
                     current_path: ours_path,
                     ancestor: base_tmp,

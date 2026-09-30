@@ -914,7 +914,7 @@ pub(crate) fn pin_references_reporting(
     }
     if kinds.contains(&DecorationKind::WorktreeDetached) {
         names.extend(
-            crate::history::worktree_checkouts(repository)
+            crate::history::worktree_checkouts(repository)?
                 .into_iter()
                 .filter(|worktree| !worktree.is_current && worktree.is_detached && worktree.id == id)
                 .map(|worktree| worktree.head_reference),

@@ -14,7 +14,7 @@ fn size_of_entry() {
 }
 
 mod new_from_header {
-    use crate::Result;
+
     use std::fs;
 
     use gix_odb::{
@@ -25,7 +25,7 @@ mod new_from_header {
     use crate::{SMALL_PACK, V2_PACKS_AND_INDICES, fixture_path};
 
     #[test]
-    fn header_encode() -> Result {
+    fn header_encode() -> gix_testtools::TestResult {
         for (_, data_file) in V2_PACKS_AND_INDICES {
             let data = fs::read(fixture_path(data_file))?;
             for entry in pack::data::input::BytesToEntriesIter::new_from_header(
@@ -56,7 +56,7 @@ mod new_from_header {
     }
 
     #[test]
-    fn generic_iteration() -> Result {
+    fn generic_iteration() -> gix_testtools::TestResult {
         for compression_mode in &[
             EntryDataMode::Ignore,
             EntryDataMode::Keep,
@@ -104,7 +104,7 @@ mod new_from_header {
     }
 
     #[test]
-    fn version_3_is_accepted() -> Result {
+    fn version_3_is_accepted() -> gix_testtools::TestResult {
         let mut data = fs::read(fixture_path(SMALL_PACK))?;
         data[4..8].copy_from_slice(&3u32.to_be_bytes());
 
@@ -128,7 +128,7 @@ mod new_from_header {
     }
 
     #[test]
-    fn restore_missing_trailer() -> Result {
+    fn restore_missing_trailer() -> gix_testtools::TestResult {
         let pack = fs::read(fixture_path(SMALL_PACK))?;
         let mut iter = pack::data::input::BytesToEntriesIter::new_from_header(
             std::io::BufReader::new(&pack[..pack.len() - 20]),
@@ -147,7 +147,7 @@ mod new_from_header {
     }
 
     #[test]
-    fn restore_partial_pack() -> Result {
+    fn restore_partial_pack() -> gix_testtools::TestResult {
         let pack = fs::read(fixture_path(SMALL_PACK))?;
         let mut iter = pack::data::input::BytesToEntriesIter::new_from_header(
             std::io::BufReader::new(&pack[..pack.len() / 2]),

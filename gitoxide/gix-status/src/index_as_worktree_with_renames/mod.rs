@@ -536,7 +536,7 @@ pub(super) mod function {
                     let platform = attrs.at_entry(rela_path, None, objects).or_raise(|| {
                         message!("Failed to change the attribute context for worktree path {rela_path:?}")
                     })?;
-                    let rela_path = gix_path::from_bstr(rela_path);
+                    let rela_path = gix_path::from_bstr(rela_path)?;
                     let file_path = worktree_root.join(rela_path.as_ref());
                     let file = match std::fs::File::open(&file_path) {
                         Ok(f) => f,
@@ -598,11 +598,11 @@ pub(super) mod function {
                     }
                 }
                 Kind::Symlink => {
-                    let path = worktree_root.join(gix_path::from_bstr(rela_path));
+                    let path = worktree_root.join(gix_path::from_bstr(rela_path)?);
                     let target = gix_path::into_bstr(
                         std::fs::read_link(&path)
                             .or_raise(|| message!("Could not read worktree link \"{}\"", path.display()))?,
-                    );
+                    )?;
                     gix_object::compute_hash(object_hash, gix_object::Kind::Blob, &target)
                         .or_raise(|| message!("Could not hash worktree link \"{}\"", path.display()))?
                 }

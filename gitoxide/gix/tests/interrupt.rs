@@ -1,6 +1,6 @@
 use gix::error::retryable;
 #[test]
-fn iterator_errors_use_the_crate_result() -> gix_testtools::Result {
+fn iterator_errors_use_the_crate_result() -> gix_testtools::TestResult {
     if gix_testtools::run_in_isolated_process()? {
         return Ok(());
     }
@@ -29,7 +29,7 @@ fn iterator_errors_use_the_crate_result() -> gix_testtools::Result {
 }
 
 #[test]
-fn iterator_errors_accept_exceptions_and_preserve_retry_classification() -> gix_testtools::Result {
+fn iterator_errors_accept_exceptions_and_preserve_retry_classification() -> gix_testtools::TestResult {
     use gix::error::ErrorExt;
 
     if gix_testtools::run_in_isolated_process()? {
@@ -68,7 +68,7 @@ mod needs_feature {
     use signal_hook::consts::SIGTERM;
 
     #[test]
-    fn multi_registration() -> gix_testtools::Result {
+    fn multi_registration() -> gix_testtools::TestResult {
         static V1: AtomicUsize = AtomicUsize::new(0);
         static V2: AtomicBool = AtomicBool::new(false);
 
@@ -77,22 +77,20 @@ mod needs_feature {
             gix::interrupt::init_handler(3, || {
                 V1.fetch_add(1, Ordering::SeqCst);
             })
-        }
-        .expect("succeeds");
+        }?;
         assert!(!gix::interrupt::is_triggered());
         assert_eq!(V1.load(Ordering::Relaxed), 0);
         // SAFETY: The closure doesn't use mutexes or memory allocation, so it should be safe to call from a signal handler.
-        let reg2 = unsafe { gix::interrupt::init_handler(2, || V2.store(true, Ordering::SeqCst)) }
-            .expect("multi-initialization is OK");
+        let reg2 = unsafe { gix::interrupt::init_handler(2, || V2.store(true, Ordering::SeqCst)) }?;
         assert!(!V2.load(Ordering::Relaxed));
 
-        signal_hook::low_level::raise(SIGTERM).expect("signal can be raised");
+        signal_hook::low_level::raise(SIGTERM)?;
         assert!(gix::interrupt::is_triggered(), "this happens automatically");
         assert_eq!(V1.load(Ordering::Relaxed), 1, "the first trigger is invoked");
         assert!(!V2.load(Ordering::Relaxed), "the second trigger was ignored");
 
         reg1.deregister()?;
-        signal_hook::low_level::raise(SIGTERM).expect("signal can be raised");
+        signal_hook::low_level::raise(SIGTERM)?;
         assert_eq!(V1.load(Ordering::Relaxed), 2, "the first trigger is still invoked");
 
         assert!(gix::interrupt::is_triggered(), "this happens automatically");
@@ -108,15 +106,13 @@ mod needs_feature {
             gix::interrupt::init_handler(3, || {
                 V1.fetch_add(1, Ordering::SeqCst);
             })
-        }
-        .expect("succeeds");
+        }?;
         assert_eq!(V1.load(Ordering::Relaxed), 2, "nothing changed yet");
         // SAFETY: The closure doesn't use mutexes or memory allocation, so it should be safe to call from a signal handler.
-        let reg2 = unsafe { gix::interrupt::init_handler(2, || V2.store(true, Ordering::SeqCst)) }
-            .expect("multi-initialization is OK");
+        let reg2 = unsafe { gix::interrupt::init_handler(2, || V2.store(true, Ordering::SeqCst)) }?;
         assert!(!V2.load(Ordering::Relaxed));
 
-        signal_hook::low_level::raise(SIGTERM).expect("signal can be raised");
+        signal_hook::low_level::raise(SIGTERM)?;
         assert_eq!(V1.load(Ordering::Relaxed), 3, "the first trigger is invoked");
         assert!(!V2.load(Ordering::Relaxed), "the second trigger was ignored");
 

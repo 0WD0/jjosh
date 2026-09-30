@@ -484,7 +484,8 @@ impl Drop for Worktrees {
 fn inventory(repository: &gix::Repository) -> Result<Vec<Row>> {
     let current = repository
         .worktree()
-        .map(|worktree| worktree.id().map(ToOwned::to_owned));
+        .map(|worktree| worktree.id().map(|id| id.map(ToOwned::to_owned)))
+        .transpose()?;
     let mut entries = Vec::new();
     let main = repository
         .main_repo()
@@ -499,7 +500,7 @@ fn inventory(repository: &gix::Repository) -> Result<Vec<Row>> {
         .worktrees()
         .or_raise(|| message("could not list linked worktrees"))?
     {
-        let id = proxy.id().to_owned();
+        let id = proxy.id()?.to_owned();
         let locked = proxy.is_locked();
         let path = absolute(
             &proxy
@@ -882,7 +883,7 @@ where
             .worktree()
             .ok_or_raise(|| message("created worktree has no worktree directory"))?;
         let name = linked
-            .id()
+            .id()?
             .ok_or_raise(|| message("created worktree has no linked worktree ID"))?;
         let target = gix::refs::Category::LinkedPseudoRef { name }
             .to_full_name("HEAD")
@@ -920,7 +921,7 @@ fn default_path(repository: &gix::Repository, suffix: &gix::bstr::BStr) -> Resul
             *byte = b'-';
         }
     }
-    destination.push(gix::path::from_bstr(suffix.as_bstr()).as_ref());
+    destination.push(gix::path::from_bstr(suffix.as_bstr())?.as_ref());
     Ok(parent.join(destination))
 }
 
@@ -1629,7 +1630,7 @@ mod tests {
             );
             let linked = worktree.worktree().expect("the offspring has a worktree");
             let target = gix::refs::Target::Symbolic(
-                format!("worktrees/{}/HEAD", linked.id().expect("the offspring is linked")).try_into()?,
+                format!("worktrees/{}/HEAD", linked.id()?.expect("the offspring is linked")).try_into()?,
             );
             let pins = crate::history::all_pins(&source)?;
             assert_eq!(

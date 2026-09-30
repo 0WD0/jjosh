@@ -1,8 +1,8 @@
 use gix_config_value::Boolean;
-use gix_error::Result;
+use gix_testtools::TestResult;
 
 #[test]
-fn from_utf8_str() -> Result {
+fn from_utf8_str() -> TestResult {
     assert_eq!(
         Boolean::try_from("yes")?,
         Boolean(true),
@@ -12,7 +12,7 @@ fn from_utf8_str() -> Result {
 }
 
 #[test]
-fn from_str_false() -> Result {
+fn from_str_false() -> TestResult {
     assert!(!Boolean::try_from("no")?.0);
     assert!(!Boolean::try_from("off")?.0);
     assert!(!Boolean::try_from("false")?.0);
@@ -22,7 +22,7 @@ fn from_str_false() -> Result {
 }
 
 #[test]
-fn from_str_true() -> Result {
+fn from_str_true() -> TestResult {
     assert!(Boolean::try_from("yes")?.0);
     assert!(Boolean::try_from("on")?.0);
     assert!(Boolean::try_from("true")?.0);
@@ -33,19 +33,18 @@ fn from_str_true() -> Result {
 }
 
 #[test]
-fn ignores_case() {
+fn ignores_case() -> gix_testtools::TestResult {
     // Random subset
     for word in &["no", "yes", "on", "off", "true", "false"] {
-        let first: bool = Boolean::try_from(*word).expect("valid boolean").into();
-        let second: bool = Boolean::try_from(word.to_uppercase().as_str())
-            .expect("valid boolean")
-            .into();
+        let first: bool = Boolean::try_from(*word)?.into();
+        let second: bool = Boolean::try_from(word.to_uppercase().as_str())?.into();
         assert_eq!(first, second);
     }
+    Ok(())
 }
 
 #[test]
-fn numbers_are_parsed_as_integers() -> Result {
+fn numbers_are_parsed_as_integers() -> TestResult {
     // Use the same bases, suffixes, and full `i64` range as `Integer`.
     for (input, expected) in [
         ("0x10", true),

@@ -1,4 +1,3 @@
-use crate::Result;
 use std::{
     fs, io,
     path::{Path, PathBuf},
@@ -82,7 +81,7 @@ fn alternate_with_content(
 }
 
 #[test]
-fn circular_alternates_are_detected_with_relative_paths() -> Result {
+fn circular_alternates_are_detected_with_relative_paths() -> gix_testtools::TestResult {
     let tmp = gix_testtools::tempfile::TempDir::new()?;
     let tmp = tmp.path().join("sub-dir");
     std::fs::create_dir(&tmp)?;
@@ -121,7 +120,7 @@ fn circular_alternates_are_detected_with_relative_paths() -> Result {
 }
 
 #[test]
-fn alternates_reachable_on_multiple_paths_are_not_a_cycle() -> Result {
+fn alternates_reachable_on_multiple_paths_are_not_a_cycle() -> gix_testtools::TestResult {
     let tmp = gix_testtools::tempfile::TempDir::new()?;
     let tmp = tmp.path();
     let (a, shared) = alternate(tmp.join("a"), tmp.join("shared"))?;
@@ -146,7 +145,7 @@ fn alternates_reachable_on_multiple_paths_are_not_a_cycle() -> Result {
 }
 
 #[test]
-fn cycles_between_alternates_also_listed_by_the_root_are_detected() -> Result {
+fn cycles_between_alternates_also_listed_by_the_root_are_detected() -> gix_testtools::TestResult {
     let tmp = gix_testtools::tempfile::TempDir::new()?;
     let tmp = tmp.path();
     let (a, b) = alternate(tmp.join("a"), tmp.join("b"))?;
@@ -176,7 +175,7 @@ fn cycles_between_alternates_also_listed_by_the_root_are_detected() -> Result {
 }
 
 #[test]
-fn single_link_with_comment_before_path_and_ansi_c_escape() -> Result {
+fn single_link_with_comment_before_path_and_ansi_c_escape() -> gix_testtools::TestResult {
     let tmp = gix_testtools::tempfile::TempDir::new()?;
     let non_alternate = tmp.path().join("actual");
 
@@ -188,7 +187,7 @@ fn single_link_with_comment_before_path_and_ansi_c_escape() -> Result {
 }
 
 #[test]
-fn no_alternate_in_first_objects_dir() -> Result {
+fn no_alternate_in_first_objects_dir() -> gix_testtools::TestResult {
     let tmp = gix_testtools::tempfile::TempDir::new()?;
     assert!(alternate::resolve(tmp.path().to_owned(), &std::env::current_dir()?)?.is_empty());
     Ok(())

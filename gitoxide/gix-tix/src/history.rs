@@ -1522,7 +1522,7 @@ pub(crate) fn ref_tree_revisions(repo: &gix::Repository, include_tags: bool) -> 
         if repo.find_header(id)?.kind() != gix::object::Kind::Commit {
             continue;
         }
-        out.push(gix::path::from_bstr(&name).into_owned().into_os_string());
+        out.push(gix::path::from_bstr(&name)?.into_owned().into_os_string());
     }
     if repo.head().is_ok_and(|head| head.referent_name().is_none()) {
         out.push("HEAD".into());
@@ -1560,7 +1560,7 @@ fn snapshot_inner(
         .filter(|pin| ignored_pin != Some(pin.name.as_bstr()))
         .collect::<Vec<_>>();
     let worktrees = if collect_worktrees {
-        worktree_checkouts(repo)
+        worktree_checkouts(repo)?
     } else {
         Vec::new()
     };
@@ -1593,9 +1593,12 @@ fn snapshot_inner(
     })
 }
 
-pub(crate) fn worktree_checkouts(repo: &gix::Repository) -> Vec<WorktreeCheckout> {
+pub(crate) fn worktree_checkouts(repo: &gix::Repository) -> Result<Vec<WorktreeCheckout>> {
     let mut out = Vec::new();
-    let current_worktree = repo.worktree().map(|worktree| worktree.id().map(ToOwned::to_owned));
+    let current_worktree = repo
+        .worktree()
+        .map(|worktree| worktree.id().map(|id| id.map(ToOwned::to_owned)))
+        .transpose()?;
     match repo.main_repo() {
         Ok(main) if !main.is_bare() => {
             let name = main.workdir().and_then(worktree_basename);
@@ -1607,7 +1610,7 @@ pub(crate) fn worktree_checkouts(repo: &gix::Repository) -> Vec<WorktreeCheckout
     match repo.worktrees() {
         Ok(worktrees) => {
             for proxy in worktrees {
-                let worktree = proxy.id().to_owned();
+                let worktree = proxy.id()?.to_owned();
                 let name = proxy.base().ok().as_deref().and_then(worktree_basename);
                 let is_current = current_worktree
                     .as_ref()
@@ -1632,7 +1635,7 @@ pub(crate) fn worktree_checkouts(repo: &gix::Repository) -> Vec<WorktreeCheckout
             .then_with(|| a.reference.cmp(&b.reference))
     });
     out.dedup();
-    out
+    Ok(out)
 }
 
 fn add_worktree_checkout(
@@ -2112,10 +2115,10 @@ fn auto_hidden_revisions(repo: &gix::Repository) -> Result<Vec<OsString>> {
             branches.insert(upstream);
         }
     }
-    Ok(branches
+    branches
         .into_iter()
-        .map(|name| gix::path::from_bstr(name.as_bstr()).into_owned().into_os_string())
-        .collect())
+        .map(|name| Ok(gix::path::from_bstr(name.as_bstr())?.into_owned().into_os_string()))
+        .collect()
 }
 
 fn attribution_kind(trailer: &gix::objs::commit::message::body::TrailerRef<'_>) -> Option<AttributionKind> {
@@ -2846,7 +2849,7 @@ mod tests {
         let topic = repo.rev_parse_single("topic")?.detach();
         let root = repo.rev_parse_single("main~2")?.detach();
         let remembered = repo.rev_parse_single("remembered")?.detach();
-        let worktrees = worktree_checkouts(&repo);
+        let worktrees = worktree_checkouts(&repo)?;
         assert!(worktrees.iter().any(|worktree| {
             worktree.id == main
                 && worktree.label_id == main
@@ -2935,7 +2938,7 @@ mod tests {
 
         let linked_path = fixture.path().join("topic-wt");
         let linked_repo = crate::test_repository::open(&linked_path)?;
-        let linked_worktrees = worktree_checkouts(&linked_repo);
+        let linked_worktrees = worktree_checkouts(&linked_repo)?;
         assert!(linked_worktrees.iter().any(|worktree| worktree.id == topic
             && worktree.is_current
             && worktree.head_reference == "worktrees/topic-wt/HEAD"));
@@ -2964,7 +2967,7 @@ mod tests {
             .status()?;
         assert!(status.success(), "git detaches the current linked worktree");
         let detached_repo = crate::test_repository::open(&linked_path)?;
-        let detached_worktrees = worktree_checkouts(&detached_repo);
+        let detached_worktrees = worktree_checkouts(&detached_repo)?;
         let current = detached_worktrees
             .iter()
             .find(|worktree| worktree.is_current)
@@ -2988,7 +2991,7 @@ mod tests {
             .status()?;
         assert!(symbolic.success(), "git remembers the detached worktree's branch");
         let remembered_repo = crate::test_repository::open(&linked_path)?;
-        let remembered_worktrees = worktree_checkouts(&remembered_repo);
+        let remembered_worktrees = worktree_checkouts(&remembered_repo)?;
         let current = remembered_worktrees
             .iter()
             .find(|worktree| worktree.is_current)
@@ -4124,7 +4127,7 @@ mod tests {
             !snapshot(&repo, &[], &[], false)?.view_tips.contains(&review),
             "review resources do not retain history"
         );
-        let decorations = decorations(&repo, &[], &worktree_checkouts(&repo))?;
+        let decorations = decorations(&repo, &[], &worktree_checkouts(&repo)?)?;
         assert!(
             decorations.get(&review).is_some_and(|decorations| decorations
                 .iter()
@@ -4155,7 +4158,7 @@ mod tests {
         )?;
 
         assert!(!snapshot(&repo, &[], &[], false)?.view_tips.contains(&stash));
-        let decorations = decorations(&repo, &[], &worktree_checkouts(&repo))?;
+        let decorations = decorations(&repo, &[], &worktree_checkouts(&repo)?)?;
         assert!(
             decorations.get(&head).is_some_and(|decorations| decorations
                 .iter()

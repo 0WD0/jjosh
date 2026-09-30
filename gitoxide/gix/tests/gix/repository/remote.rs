@@ -1,11 +1,11 @@
 mod remote_at {
-    use crate::Result;
     use gix::remote::Direction;
+    use gix_testtools::TestResult;
 
     use crate::remote;
 
     #[test]
-    fn url_and_push_url() -> Result {
+    fn url_and_push_url() -> TestResult {
         let repo = remote::repo("base");
         let fetch_url = "https://github.com/byron/gitoxide";
         let remote = repo.remote_at(fetch_url)?;
@@ -45,7 +45,7 @@ mod remote_at {
     }
 
     #[test]
-    fn url_rewrites_are_respected() -> Result {
+    fn url_rewrites_are_respected() -> TestResult {
         let repo = remote::repo("url-rewriting");
         let remote = repo.remote_at("https://github.com/foobar/gitoxide")?;
 
@@ -95,7 +95,7 @@ mod remote_at {
     }
 
     #[test]
-    fn url_rewrites_can_be_skipped() -> Result {
+    fn url_rewrites_can_be_skipped() -> TestResult {
         let repo = remote::repo("url-rewriting");
         let remote = repo.remote_at_without_url_rewrite("https://github.com/foobar/gitoxide")?;
 
@@ -150,7 +150,7 @@ mod remote_at {
     }
 
     #[test]
-    fn with_url_ignores_bad_push_fallback_rewrites() -> Result {
+    fn with_url_ignores_bad_push_fallback_rewrites() -> TestResult {
         let repo = remote::repo("bad-push-fallback-url-rewriting");
         let remote = repo.remote_at("alias:one")?.with_url("alias:two")?;
 
@@ -169,7 +169,7 @@ mod remote_at {
 }
 
 mod find_remote {
-    use crate::Result;
+    use gix_testtools::TestResult;
     use std::io::BufRead;
 
     use gix::{Repository, remote::Direction};
@@ -178,7 +178,7 @@ mod find_remote {
     use crate::remote;
 
     #[test]
-    fn tags_option() -> Result {
+    fn tags_option() -> TestResult {
         let repo = remote::repo("clone-no-tags");
         for (remote_name, expected) in [
             ("origin", gix::remote::fetch::Tags::None),
@@ -192,7 +192,7 @@ mod find_remote {
     }
 
     #[test]
-    fn typical() -> Result {
+    fn typical() -> TestResult {
         let repo = remote::repo("clone");
         let mut count = 0;
         let base_dir = base_dir(&repo);
@@ -235,7 +235,7 @@ mod find_remote {
     }
 
     #[test]
-    fn missing_fetch_urls_only_fall_back_to_url_shaped_remote_names() -> Result {
+    fn missing_fetch_urls_only_fall_back_to_url_shaped_remote_names() -> TestResult {
         let repo = remote::repo("missing-urls");
         for name in ["no-url", "reset-url"] {
             let remote = repo.find_remote(name)?;
@@ -299,7 +299,7 @@ mod find_remote {
     }
 
     #[test]
-    fn instead_of_url_rewriting() -> Result {
+    fn instead_of_url_rewriting() -> TestResult {
         let repo = remote::repo("url-rewriting");
 
         let baseline = std::fs::read(repo.git_dir().join("baseline.git"))?;
@@ -344,7 +344,7 @@ mod find_remote {
     }
 
     #[test]
-    fn bad_url_rewriting_can_be_handled_much_like_git() -> Result {
+    fn bad_url_rewriting_can_be_handled_much_like_git() -> TestResult {
         let repo = remote::repo("bad-url-rewriting");
 
         let baseline = std::fs::read(repo.git_dir().join("baseline.git"))?;
@@ -398,7 +398,7 @@ mod find_remote {
     }
 
     #[test]
-    fn multiple_urls_are_preserved_in_order_and_single_url_matches_git_first_url() -> Result {
+    fn multiple_urls_are_preserved_in_order_and_single_url_matches_git_first_url() -> TestResult {
         let repo = remote::repo("multiple-urls");
 
         let baseline = std::fs::read(repo.git_dir().join("baseline.git"))?;
@@ -456,7 +456,7 @@ mod find_remote {
     }
 
     #[test]
-    fn multiple_url_rewriting_preserves_successful_rewrites_when_another_url_fails() -> Result {
+    fn multiple_url_rewriting_preserves_successful_rewrites_when_another_url_fails() -> TestResult {
         let repo = remote::repo("multiple-bad-url-rewriting");
 
         let mut remote = repo.try_find_remote_without_url_rewrite("origin").expect("exists")?;
@@ -477,7 +477,7 @@ mod find_remote {
     }
 
     #[test]
-    fn empty_url_values_reset_earlier_url_lists() -> Result {
+    fn empty_url_values_reset_earlier_url_lists() -> TestResult {
         let repo = remote::repo("multiple-urls-with-empty-reset");
 
         let baseline = std::fs::read(repo.git_dir().join("baseline.git"))?;
@@ -517,7 +517,7 @@ mod find_remote {
     }
 
     #[test]
-    fn bad_push_fallback_rewriting_does_not_break_fetch_remote() -> Result {
+    fn bad_push_fallback_rewriting_does_not_break_fetch_remote() -> TestResult {
         let repo = remote::repo("bad-push-fallback-url-rewriting");
 
         let remote = repo.find_remote("origin")?;
@@ -550,7 +550,7 @@ mod find_remote {
     }
 
     #[test]
-    fn bad_explicit_push_url_rewriting_is_reported_as_push_url() -> Result {
+    fn bad_explicit_push_url_rewriting_is_reported_as_push_url() -> TestResult {
         let repo = remote::repo("bad-explicit-push-url-rewriting");
 
         insta::assert_debug_snapshot!(repo.find_remote("origin")
@@ -591,24 +591,27 @@ mod find_remote {
     }
 
     fn base_dir(repo: &Repository) -> String {
-        gix_path::to_unix_separators_on_windows(gix::path::into_bstr(
-            gix::path::realpath(repo.workdir().unwrap())
-                .unwrap()
-                .parent()
-                .unwrap()
-                .join("base"),
-        ))
+        gix_path::to_unix_separators_on_windows(
+            gix::path::into_bstr(
+                gix::path::realpath(repo.workdir().unwrap())
+                    .unwrap()
+                    .parent()
+                    .unwrap()
+                    .join("base"),
+            )
+            .expect("fixture paths can be represented as Git bytes"),
+        )
         .into_owned()
         .to_string()
     }
 }
 
 mod find_fetch_remote {
-    use crate::Result;
     use crate::remote;
+    use gix_testtools::TestResult;
 
     #[test]
-    fn symbol_name() -> Result {
+    fn symbol_name() -> TestResult {
         let repo = remote::repo("clone-no-tags");
         assert_eq!(
             repo.find_fetch_remote(Some("origin".into()))?
@@ -621,7 +624,7 @@ mod find_fetch_remote {
     }
 
     #[test]
-    fn urls() -> Result {
+    fn urls() -> TestResult {
         let repo = remote::repo("clone-no-tags");
         for url in [
             "some-path",
@@ -646,11 +649,11 @@ mod find_fetch_remote {
 
 mod find_default_remote {
 
-    use crate::Result;
     use crate::remote;
+    use gix_testtools::TestResult;
 
     #[test]
-    fn works_on_detached_heads() -> Result {
+    fn works_on_detached_heads() -> TestResult {
         let repo = remote::repo("detached-head");
         assert_eq!(
             repo.find_default_remote(gix::remote::Direction::Fetch)

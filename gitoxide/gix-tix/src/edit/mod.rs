@@ -32,7 +32,7 @@ pub(super) fn loaded_graph(repo: &gix::Repository) -> Result<crate::history::His
             continue;
         }
         revisions.push(
-            gix::path::from_bstr(reference.name().as_bstr())
+            gix::path::from_bstr(reference.name().as_bstr())?
                 .into_owned()
                 .into_os_string(),
         );
@@ -139,7 +139,7 @@ pub(crate) fn edit_document_without_terminal(
         .or_raise(|| message("could not close commit message file"))?;
 
     let editor_display = editor.command.to_string_lossy().into_owned();
-    let mut command = Command::from(editor.arg(&path));
+    let mut command = Command::try_from(editor.arg(&path))?;
     let editor_display = if editor_display == command.get_program().to_string_lossy() {
         String::new()
     } else {

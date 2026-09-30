@@ -1,4 +1,4 @@
-use crate::Result;
+use crate::TestResult;
 use std::fs;
 
 use gix_config::{
@@ -12,7 +12,7 @@ use crate::file::init::from_paths::escape_backslashes;
 
 #[test]
 #[serial]
-fn empty_without_relevant_environment() -> Result {
+fn empty_without_relevant_environment() -> TestResult {
     let _environment = gix_testtools::isolate_git_environment()?.unset("GIT_CONFIG_COUNT");
     let config = File::from_env(Default::default())?;
     assert!(config.is_none());
@@ -21,7 +21,7 @@ fn empty_without_relevant_environment() -> Result {
 
 #[test]
 #[serial]
-fn empty_with_zero_count() -> Result {
+fn empty_with_zero_count() -> TestResult {
     let _environment = gix_testtools::isolate_git_environment()?.set("GIT_CONFIG_COUNT", "0");
     let config = File::from_env(Default::default())?;
     assert!(config.is_none());
@@ -30,7 +30,7 @@ fn empty_with_zero_count() -> Result {
 
 #[test]
 #[serial]
-fn parse_error_with_invalid_count() -> Result {
+fn parse_error_with_invalid_count() -> TestResult {
     let _environment = gix_testtools::isolate_git_environment()?.set("GIT_CONFIG_COUNT", "invalid");
     let err = File::from_env(Default::default()).expect_err("the configuration count is not an integer");
     assert!(err.is_validation(), "invalid counts are validation errors");
@@ -45,7 +45,7 @@ fn parse_error_with_invalid_count() -> Result {
 
 #[test]
 #[serial]
-fn single_key_value_pair() -> Result {
+fn single_key_value_pair() -> TestResult {
     let _environment = gix_testtools::isolate_git_environment()?
         .set("GIT_CONFIG_COUNT", "1")
         .set("GIT_CONFIG_KEY_0", "core.key")
@@ -64,7 +64,7 @@ fn single_key_value_pair() -> Result {
 
 #[test]
 #[serial]
-fn multiple_key_value_pairs() -> Result {
+fn multiple_key_value_pairs() -> TestResult {
     let _environment = gix_testtools::isolate_git_environment()?
         .set("GIT_CONFIG_COUNT", "3")
         .set("GIT_CONFIG_KEY_0", "core.a")
@@ -85,7 +85,7 @@ fn multiple_key_value_pairs() -> Result {
 
 #[test]
 #[serial]
-fn error_on_relative_paths_in_include_paths() -> Result {
+fn error_on_relative_paths_in_include_paths() -> TestResult {
     let _environment = gix_testtools::isolate_git_environment()?
         .set("GIT_CONFIG_COUNT", "1")
         .set("GIT_CONFIG_KEY_0", "include.path")
@@ -114,7 +114,7 @@ fn error_on_relative_paths_in_include_paths() -> Result {
 
 #[test]
 #[serial]
-fn follow_include_paths() -> Result {
+fn follow_include_paths() -> TestResult {
     let _environment = gix_testtools::isolate_git_environment()?;
     let dir = tempdir().unwrap();
     let a_path = dir.path().join("a");

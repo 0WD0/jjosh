@@ -4,12 +4,12 @@ fn config_value_error(message: &'static str, input: &'static str) -> gix::Error 
 }
 
 mod keys {
-    use crate::Result;
     use gix::config::tree::{Key, Section};
     use gix_object::bstr::{BStr, ByteSlice};
+    use gix_testtools::TestResult;
 
     #[test]
-    fn string() -> Result {
+    fn string() -> TestResult {
         assert_eq!(gix::config::tree::Http::USER_AGENT.try_into_string("agent")?, "agent");
         assert!(gix::config::tree::Http::USER_AGENT.validate("agent".into()).is_ok());
 
@@ -275,7 +275,7 @@ mod compression {
     use gix::config::tree::Key;
 
     #[test]
-    fn validate_and_convert() {
+    fn validate_and_convert() -> gix_testtools::TestResult {
         for key in [
             &gix::config::tree::Core::COMPRESSION,
             &gix::config::tree::Core::LOOSE_COMPRESSION,
@@ -290,9 +290,7 @@ mod compression {
         }
 
         assert_eq!(
-            gix::config::tree::Core::COMPRESSION
-                .try_into_compression(Ok(Some(-1)))
-                .expect("git maps -1 to the zlib default"),
+            gix::config::tree::Core::COMPRESSION.try_into_compression(Ok(Some(-1)))?,
             Some(gix::zlib::Compression::DEFAULT)
         );
         assert_eq!(
@@ -312,6 +310,7 @@ mod compression {
                 .try_into_compression(Ok(Some(10)))
                 .is_err()
         );
+        Ok(())
     }
 }
 
@@ -319,7 +318,7 @@ mod branch {
     use gix::config::tree::{Branch, Key, branch};
 
     #[test]
-    fn merge() {
+    fn merge() -> gix_testtools::TestResult {
         assert!(branch::Merge::try_into_fullrefname("refs/heads/main").is_ok());
         assert!(branch::Merge::try_into_fullrefname("main").is_err());
         assert!(
@@ -336,19 +335,17 @@ mod branch {
         );
 
         assert!(Branch::MERGE.full_name(None).is_err());
-        assert_eq!(
-            Branch::MERGE.full_name(Some("name".into())).expect("valid"),
-            "branch.name.merge"
-        );
+        assert_eq!(Branch::MERGE.full_name(Some("name".into()))?, "branch.name.merge");
+        Ok(())
     }
 }
 
 mod ssh {
     #[cfg(feature = "blocking-network-client")]
-    use crate::Result;
+    use gix_testtools::TestResult;
     #[test]
     #[cfg(feature = "blocking-network-client")]
-    fn variant() -> Result {
+    fn variant() -> TestResult {
         use gix::config::tree::Ssh;
         use gix_protocol::transport::client::blocking_io::ssh::ProgramKind;
 
@@ -375,11 +372,11 @@ mod ssh {
 
 #[cfg(feature = "status")]
 mod status {
-    use crate::Result;
     use gix::{config::tree::Status, status::UntrackedFiles};
+    use gix_testtools::TestResult;
 
     #[test]
-    fn default() -> Result {
+    fn default() -> TestResult {
         for (actual, expected) in [
             ("no", UntrackedFiles::None),
             ("normal", UntrackedFiles::Collapsed),
@@ -404,11 +401,11 @@ mod status {
 }
 
 mod push {
-    use crate::Result;
     use gix::{config::tree::Push, push};
+    use gix_testtools::TestResult;
 
     #[test]
-    fn default() -> Result {
+    fn default() -> TestResult {
         for (actual, expected) in [
             ("nothing", push::Default::Nothing),
             ("current", push::Default::Current),
@@ -434,10 +431,10 @@ mod push {
 
 mod fetch {
 
-    use crate::Result;
+    use gix_testtools::TestResult;
     #[test]
     #[cfg(feature = "credentials")]
-    fn algorithm() -> Result {
+    fn algorithm() -> TestResult {
         use gix::{
             config::tree::{Fetch, Key},
             remote::fetch::negotiate::Algorithm,
@@ -468,7 +465,7 @@ mod fetch {
 
     #[test]
     #[cfg(feature = "attributes")]
-    fn recurse_submodule() -> Result {
+    fn recurse_submodule() -> TestResult {
         use gix::{
             bstr::ByteSlice,
             config::tree::{Fetch, Key},
@@ -506,15 +503,15 @@ mod fetch {
 
 #[cfg(feature = "blob-diff")]
 mod diff {
-    use crate::Result;
     use gix::{
         config::tree::{Diff, Key},
         diff::rename::Tracking,
     };
     use gix_diff::blob::Algorithm;
+    use gix_testtools::TestResult;
 
     #[test]
-    fn renames() -> Result {
+    fn renames() -> TestResult {
         assert_eq!(Diff::RENAMES.try_into_renames(Ok(Some(true)))?, Some(Tracking::Renames));
         assert!(Diff::RENAMES.validate("1".into()).is_ok());
         assert_eq!(
@@ -567,7 +564,7 @@ mod diff {
     }
 
     #[test]
-    fn driver_binary() -> Result {
+    fn driver_binary() -> TestResult {
         assert_eq!(
             Diff::DRIVER_BINARY.try_into_binary(Some("auto"))?,
             None,
@@ -599,7 +596,7 @@ mod diff {
     }
 
     #[test]
-    fn algorithm() -> Result {
+    fn algorithm() -> TestResult {
         for (actual, expected) in [
             ("myers", Algorithm::Myers),
             ("Myers", Algorithm::Myers),
@@ -619,12 +616,12 @@ mod diff {
 
 #[cfg(feature = "merge")]
 mod merge {
-    use crate::Result;
     use gix::config::tree::{Key, Merge};
     use gix_merge::blob::builtin_driver::text::ConflictStyle;
+    use gix_testtools::TestResult;
 
     #[test]
-    fn conflict_style() -> Result {
+    fn conflict_style() -> TestResult {
         for (actual, expected) in [
             ("merge", ConflictStyle::Merge),
             ("diff3", ConflictStyle::Diff3),
@@ -646,7 +643,7 @@ mod merge {
 }
 
 mod core {
-    use crate::Result;
+    use gix_testtools::TestResult;
     use std::time::Duration;
 
     use gix::config::tree::{Core, Key};
@@ -657,7 +654,7 @@ mod core {
     }
 
     #[test]
-    fn repository_format_version() -> Result {
+    fn repository_format_version() -> TestResult {
         use gix::repository::FormatVersion;
 
         let key = &Core::REPOSITORY_FORMAT_VERSION;
@@ -766,7 +763,7 @@ mod core {
     }
 
     #[test]
-    fn shared_repository() -> Result {
+    fn shared_repository() -> TestResult {
         for (value, expected) in [
             (None, 0o660),
             (Some("umask"), 0),
@@ -806,7 +803,7 @@ mod core {
     }
 
     #[test]
-    fn timeouts() -> Result {
+    fn timeouts() -> TestResult {
         assert_eq!(
             Core::FILES_REF_LOCK_TIMEOUT.try_into_lock_timeout(Ok(Some(0)))?,
             Some(Fail::Immediately)
@@ -836,7 +833,7 @@ mod core {
 
     #[test]
     #[cfg(feature = "revision")]
-    fn disambiguate() -> Result {
+    fn disambiguate() -> TestResult {
         use gix::revision::spec::parse::ObjectKindHint;
         for (value, expected) in [
             ("none", None),
@@ -861,7 +858,7 @@ mod core {
     }
 
     #[test]
-    fn log_all_ref_updates() -> Result {
+    fn log_all_ref_updates() -> TestResult {
         assert_eq!(
             Core::LOG_ALL_REF_UPDATES.try_into_ref_updates(Ok(Some(true)))?,
             Some(gix_ref::store::WriteReflog::Normal)
@@ -923,7 +920,7 @@ mod core {
     }
 
     #[test]
-    fn abbrev() -> Result {
+    fn abbrev() -> TestResult {
         let object_hash = gix_hash::Kind::Sha1;
         assert_eq!(Core::ABBREV.try_into_abbreviation("4", object_hash)?, Some(4));
         for (input, expected) in [("0x4", 4), ("010", 8), ("0b100", 4), ("40", 40)] {
@@ -967,7 +964,7 @@ mod core {
     }
 
     #[test]
-    fn delta_base_cache_limit() -> Result {
+    fn delta_base_cache_limit() -> TestResult {
         assert_eq!(Core::DELTA_BASE_CACHE_LIMIT.try_into_usize(signed(1))?, Some(1));
         assert_eq!(Core::DELTA_BASE_CACHE_LIMIT.try_into_usize(signed(0))?, Some(0));
         assert!(Core::DELTA_BASE_CACHE_LIMIT.validate("0".into()).is_ok());
@@ -985,7 +982,7 @@ mod core {
     }
 
     #[test]
-    fn check_stat() -> Result {
+    fn check_stat() -> TestResult {
         assert!(Core::CHECK_STAT.try_into_checkstat("default")?);
         assert!(!Core::CHECK_STAT.try_into_checkstat("minimal")?);
         crate::config::key::assert_config_error(
@@ -1005,7 +1002,7 @@ mod core {
 
     #[test]
     #[cfg(feature = "attributes")]
-    fn safecrlf() -> Result {
+    fn safecrlf() -> TestResult {
         for (value, expected) in [
             ("false", gix_filter::pipeline::CrlfRoundTripCheck::Skip),
             ("true", gix_filter::pipeline::CrlfRoundTripCheck::Fail),
@@ -1027,7 +1024,7 @@ mod core {
 
     #[test]
     #[cfg(feature = "attributes")]
-    fn autocrlf() -> Result {
+    fn autocrlf() -> TestResult {
         for (value, expected) in [
             ("false", gix_filter::eol::AutoCrlf::Disabled),
             ("true", gix_filter::eol::AutoCrlf::Enabled),
@@ -1049,7 +1046,7 @@ mod core {
 
     #[test]
     #[cfg(feature = "attributes")]
-    fn eol() -> Result {
+    fn eol() -> TestResult {
         for (value, expected) in [
             ("lf", gix_filter::eol::Mode::Lf),
             ("crlf", gix_filter::eol::Mode::CrLf),
@@ -1069,7 +1066,7 @@ mod core {
 
     #[test]
     #[cfg(feature = "attributes")]
-    fn check_round_trip_encoding() -> Result {
+    fn check_round_trip_encoding() -> TestResult {
         for (value, expected) in [
             (
                 Some("UTF-8 utf-16BE"),
@@ -1101,11 +1098,11 @@ mod core {
 }
 
 mod index {
-    use crate::Result;
     use gix::config::tree::{Index, Key};
+    use gix_testtools::TestResult;
 
     #[test]
-    fn threads() -> Result {
+    fn threads() -> TestResult {
         for (value, expected) in [
             ("false", 1),
             ("true", 0),
@@ -1144,11 +1141,11 @@ mod index {
 }
 
 mod extensions {
-    use crate::Result;
     use gix::config::tree::{Extensions, Key};
+    use gix_testtools::TestResult;
 
     #[test]
-    fn object_format() -> Result {
+    fn object_format() -> TestResult {
         #[cfg(feature = "sha1")]
         {
             assert_eq!(
@@ -1189,15 +1186,15 @@ mod extensions {
 }
 
 mod checkout {
-    use crate::Result;
     use gix::config::tree::{Checkout, Key};
+    use gix_testtools::TestResult;
 
     fn int(value: i64) -> gix::Result<Option<i64>> {
         Ok(Some(value))
     }
 
     #[test]
-    fn workers() -> Result {
+    fn workers() -> TestResult {
         assert!(Checkout::WORKERS.validate("0".into()).is_ok());
         assert_eq!(Checkout::WORKERS.try_from_workers(int(0))?, Some(0));
         assert!(Checkout::WORKERS.validate("-1".into()).is_ok());
@@ -1210,11 +1207,11 @@ mod checkout {
 }
 
 mod pack {
-    use crate::Result;
     use gix::config::tree::{Key, Pack};
+    use gix_testtools::TestResult;
 
     #[test]
-    fn index_version() -> Result {
+    fn index_version() -> TestResult {
         assert_eq!(
             Pack::INDEX_VERSION.try_into_index_version(Ok(Some(1)))?,
             Some(gix_pack::index::Version::V1)
@@ -1245,13 +1242,13 @@ mod pack {
 }
 
 mod protocol {
-    #[cfg(any(feature = "blocking-network-client", feature = "async-network-client"))]
-    use crate::Result;
     use gix::config::tree::{Key, Protocol};
+    #[cfg(any(feature = "blocking-network-client", feature = "async-network-client"))]
+    use gix_testtools::TestResult;
 
     #[cfg(any(feature = "blocking-network-client", feature = "async-network-client"))]
     #[test]
-    fn allow() -> Result {
+    fn allow() -> TestResult {
         let mut error_snapshots = Vec::new();
         use gix::{config::tree::protocol, remote::url::scheme_permission::Allow};
 
@@ -1298,7 +1295,7 @@ mod protocol {
     }
 
     #[test]
-    fn version() {
+    fn version() -> gix_testtools::TestResult {
         for valid in [0, 1, 2] {
             assert!(Protocol::VERSION.validate(valid.to_string().as_str().into()).is_ok());
         }
@@ -1322,12 +1319,7 @@ mod protocol {
                 (Some(1), gix_protocol::transport::Protocol::V1),
                 (Some(2), gix_protocol::transport::Protocol::V2),
             ] {
-                assert_eq!(
-                    Protocol::VERSION
-                        .try_into_protocol_version(Ok(valid))
-                        .expect("valid version"),
-                    expected
-                );
+                assert_eq!(Protocol::VERSION.try_into_protocol_version(Ok(valid))?, expected);
             }
 
             crate::config::key::assert_config_error(
@@ -1339,18 +1331,19 @@ mod protocol {
                 None,
             );
         }
+        Ok(())
     }
 }
 
 mod gpg {
-    use crate::Result;
     use gix::{
         bstr::BStr,
         config::tree::{Gpg, Key, Section, gpg},
     };
+    use gix_testtools::TestResult;
 
     #[test]
-    fn format() -> Result {
+    fn format() -> TestResult {
         use gix_object::signature::Format;
 
         assert_eq!(
@@ -1438,9 +1431,9 @@ mod gpg {
 }
 
 mod notes {
-    use crate::Result;
     use gix::config::tree::{Key, Notes};
     use gix_object::bstr::BString;
+    use gix_testtools::TestResult;
 
     #[test]
     fn display_ref_metadata() {
@@ -1453,7 +1446,7 @@ mod notes {
     }
 
     #[test]
-    fn display_ref_parsing() -> Result {
+    fn display_ref_parsing() -> TestResult {
         assert_eq!(
             Notes::DISPLAY_REF.try_into_display_refs(":refs/notes/review::refs/notes/*:")?,
             vec![BString::from("refs/notes/review"), BString::from("refs/notes/*")],
@@ -1488,13 +1481,13 @@ mod notes {
 
 mod gitoxide {
     mod http {
-        use crate::Result;
+        use gix_testtools::TestResult;
         use std::time::Duration;
 
         use gix::config::tree::{Key, gitoxide};
 
         #[test]
-        fn connect_timeout() -> Result {
+        fn connect_timeout() -> TestResult {
             assert_eq!(
                 gitoxide::Http::CONNECT_TIMEOUT.validated_assignment_fmt(&Duration::from_secs(1).as_millis())?,
                 "gitoxide.http.connectTimeout=1000"
@@ -1520,65 +1513,56 @@ mod gitoxide {
         use gix::config::tree::{Key, gitoxide};
 
         #[test]
-        fn author_and_committer_date() {
+        fn author_and_committer_date() -> gix_testtools::TestResult {
             assert_eq!(
-                gitoxide::Commit::AUTHOR_DATE
-                    .validated_assignment("Thu, 1 Aug 2022 12:45:06 +0800".into())
-                    .expect("valid"),
+                gitoxide::Commit::AUTHOR_DATE.validated_assignment("Thu, 1 Aug 2022 12:45:06 +0800".into())?,
                 "gitoxide.commit.authorDate=Thu, 1 Aug 2022 12:45:06 +0800"
             );
             assert_eq!(
-                gitoxide::Commit::COMMITTER_DATE
-                    .validated_assignment("Thu, 1 Aug 2022 12:45:06 +0800".into())
-                    .expect("valid"),
+                gitoxide::Commit::COMMITTER_DATE.validated_assignment("Thu, 1 Aug 2022 12:45:06 +0800".into())?,
                 "gitoxide.commit.committerDate=Thu, 1 Aug 2022 12:45:06 +0800"
             );
+            Ok(())
         }
     }
     mod author {
         use gix::config::tree::{Key, gitoxide};
 
         #[test]
-        fn name_and_email_fallback() {
+        fn name_and_email_fallback() -> gix_testtools::TestResult {
             assert_eq!(
-                gitoxide::Author::NAME_FALLBACK
-                    .validated_assignment("name".into())
-                    .expect("valid"),
+                gitoxide::Author::NAME_FALLBACK.validated_assignment("name".into())?,
                 "gitoxide.author.nameFallback=name"
             );
             assert_eq!(
-                gitoxide::Author::EMAIL_FALLBACK
-                    .validated_assignment("email".into())
-                    .expect("valid"),
+                gitoxide::Author::EMAIL_FALLBACK.validated_assignment("email".into())?,
                 "gitoxide.author.emailFallback=email"
             );
+            Ok(())
         }
     }
     mod committer {
         use gix::config::tree::{Key, gitoxide};
 
         #[test]
-        fn name_and_email_fallback() {
+        fn name_and_email_fallback() -> gix_testtools::TestResult {
             assert_eq!(
-                gitoxide::Committer::NAME_FALLBACK
-                    .validated_assignment("name".into())
-                    .expect("valid"),
+                gitoxide::Committer::NAME_FALLBACK.validated_assignment("name".into())?,
                 "gitoxide.committer.nameFallback=name"
             );
             assert_eq!(
-                gitoxide::Committer::EMAIL_FALLBACK
-                    .validated_assignment("email".into())
-                    .expect("valid"),
+                gitoxide::Committer::EMAIL_FALLBACK.validated_assignment("email".into())?,
                 "gitoxide.committer.emailFallback=email"
             );
+            Ok(())
         }
     }
     mod objects {
-        use crate::Result;
         use gix::config::tree::{Key, gitoxide};
+        use gix_testtools::TestResult;
 
         #[test]
-        fn alloc_limit() -> Result {
+        fn alloc_limit() -> TestResult {
             assert_eq!(
                 gitoxide::Objects::ALLOC_LIMIT.validated_assignment("16m".into())?,
                 "gitoxide.objects.allocLimit=16m"
@@ -1587,7 +1571,7 @@ mod gitoxide {
         }
 
         #[test]
-        fn alloc_limit_if_reduced_trust() -> Result {
+        fn alloc_limit_if_reduced_trust() -> TestResult {
             assert_eq!(
                 gitoxide::Objects::ALLOC_LIMIT_IF_REDUCED_TRUST.validated_assignment("16m".into())?,
                 "gitoxide.objects.allocLimitIfReducedTrust=16m"
@@ -1602,12 +1586,12 @@ mod gitoxide {
     feature = "blocking-http-transport-curl"
 ))]
 mod http {
-    use crate::Result;
     use gix::config::tree::{Http, Key};
     use gix_object::bstr::ByteSlice;
+    use gix_testtools::TestResult;
 
     #[test]
-    fn follow_redirects() -> Result {
+    fn follow_redirects() -> TestResult {
         use gix_transport::client::blocking_io::http::options::FollowRedirects;
         assert_eq!(
             Http::FOLLOW_REDIRECTS.try_into_follow_redirects("initial", || unreachable!("no call"))?,
@@ -1648,7 +1632,7 @@ mod http {
     }
 
     #[test]
-    fn extra_header() -> Result {
+    fn extra_header() -> TestResult {
         assert_eq!(Http::EXTRA_HEADER.try_into_extra_header(vec!["a", "b"])?, ["a", "b"]);
         assert_eq!(
             Http::EXTRA_HEADER.try_into_extra_header(vec!["a", "b", "", "c", "d"])?,
@@ -1671,7 +1655,7 @@ mod http {
     }
 
     #[test]
-    fn http_version() -> Result {
+    fn http_version() -> TestResult {
         use gix_transport::client::blocking_io::http::options::HttpVersion;
 
         for (actual, expected) in [("HTTP/1.1", HttpVersion::V1_1), ("HTTP/2", HttpVersion::V2)] {
@@ -1694,7 +1678,7 @@ mod http {
     }
 
     #[test]
-    fn ssl_version() -> Result {
+    fn ssl_version() -> TestResult {
         use gix_transport::client::blocking_io::http::options::SslVersion::*;
 
         for (actual, expected) in [
@@ -1725,7 +1709,7 @@ mod http {
     }
 
     #[test]
-    fn proxy_auth_method() -> Result {
+    fn proxy_auth_method() -> TestResult {
         use gix_transport::client::blocking_io::http::options::ProxyAuthMethod::*;
         for (actual, expected) in [
             ("anyauth", AnyAuth),
@@ -1752,14 +1736,14 @@ mod http {
 }
 
 mod remote {
-    use crate::Result;
     use gix::{
         config::tree::{Key, Remote},
         remote,
     };
+    use gix_testtools::TestResult;
 
     #[test]
-    fn tag_opt() -> Result {
+    fn tag_opt() -> TestResult {
         assert_eq!(Remote::TAG_OPT.try_into_tag_opt("--tags")?, remote::fetch::Tags::All);
         assert!(Remote::TAG_OPT.validate("--tags".into()).is_ok());
         assert_eq!(

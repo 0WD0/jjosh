@@ -1,4 +1,4 @@
-use crate::Result;
+use gix_testtools::TestResult;
 use std::path::Path;
 
 use gix_discover::upwards::Options;
@@ -16,7 +16,7 @@ fn assert_repo_is_current_workdir(path: gix_discover::repository::Path, work_dir
 }
 
 #[test]
-fn git_dir_candidate_within_ceiling_allows_discovery() -> Result {
+fn git_dir_candidate_within_ceiling_allows_discovery() -> TestResult {
     let work_dir = repo_path()?;
     let dir = work_dir.join("some/very/deeply/nested/subdir");
     let (repo_path, _trust) = gix_discover::upwards_opts(
@@ -25,15 +25,14 @@ fn git_dir_candidate_within_ceiling_allows_discovery() -> Result {
             ceiling_dirs: vec![work_dir.clone()],
             ..Default::default()
         },
-    )
-    .expect("ceiling dir should allow us to discover the repo");
+    )?;
     assert_repo_is_current_workdir(repo_path, &work_dir);
 
     Ok(())
 }
 
 #[test]
-fn ceiling_dir_is_ignored_if_we_are_standing_on_the_ceiling_and_no_match_is_required() -> Result {
+fn ceiling_dir_is_ignored_if_we_are_standing_on_the_ceiling_and_no_match_is_required() -> TestResult {
     let work_dir = repo_path()?;
     let dir = work_dir.join("some/very/deeply/nested/subdir");
     // the ceiling dir is equal to the input dir, which itself doesn't contain a repository.
@@ -46,15 +45,14 @@ fn ceiling_dir_is_ignored_if_we_are_standing_on_the_ceiling_and_no_match_is_requ
             match_ceiling_dir_or_error: false,
             ..Default::default()
         },
-    )
-    .expect("ceiling dir should be skipped");
+    )?;
     assert_repo_is_current_workdir(repo_path, &work_dir);
 
     Ok(())
 }
 
 #[test]
-fn discovery_fails_if_we_require_a_matching_ceiling_dir_but_are_standing_on_it() -> Result {
+fn discovery_fails_if_we_require_a_matching_ceiling_dir_but_are_standing_on_it() -> TestResult {
     let work_dir = repo_path()?;
     let dir = work_dir.join("some/very/deeply/nested/subdir");
     let err = gix_discover::upwards_opts(
@@ -76,7 +74,7 @@ fn discovery_fails_if_we_require_a_matching_ceiling_dir_but_are_standing_on_it()
 }
 
 #[test]
-fn ceiling_dir_limits_are_respected_and_prevent_discovery() -> Result {
+fn ceiling_dir_limits_are_respected_and_prevent_discovery() -> TestResult {
     let work_dir = repo_path()?;
     let dir = work_dir.join("some/very/deeply/nested/subdir");
 
@@ -104,7 +102,7 @@ fn ceiling_dir_limits_are_respected_and_prevent_discovery() -> Result {
 }
 
 #[test]
-fn no_matching_ceiling_dir_error_can_be_suppressed() -> Result {
+fn no_matching_ceiling_dir_error_can_be_suppressed() -> TestResult {
     let work_dir = repo_path()?;
     let dir = work_dir.join("some/very/deeply/nested/subdir");
     let (repo_path, _trust) = gix_discover::upwards_opts(
@@ -119,15 +117,14 @@ fn no_matching_ceiling_dir_error_can_be_suppressed() -> Result {
             ],
             ..Default::default()
         },
-    )
-    .expect("ceiling dir should allow us to discover the repo");
+    )?;
     assert_repo_is_current_workdir(repo_path, &work_dir);
 
     Ok(())
 }
 
 #[test]
-fn more_restrictive_ceiling_dirs_overrule_less_restrictive_ones() -> Result {
+fn more_restrictive_ceiling_dirs_overrule_less_restrictive_ones() -> TestResult {
     let work_dir = repo_path()?;
     let dir = work_dir.join("some/very/deeply/nested/subdir");
     let err = gix_discover::upwards_opts(
@@ -145,7 +142,7 @@ fn more_restrictive_ceiling_dirs_overrule_less_restrictive_ones() -> Result {
 }
 
 #[test]
-fn ceiling_dirs_are_not_processed_differently_than_the_git_dir_candidate() -> Result {
+fn ceiling_dirs_are_not_processed_differently_than_the_git_dir_candidate() -> TestResult {
     let work_dir = repo_path()?;
     let dir = work_dir.join("some/very/deeply/nested/subdir/../../../../../..");
     let (repo_path, _trust) = gix_discover::upwards_opts(
@@ -155,8 +152,7 @@ fn ceiling_dirs_are_not_processed_differently_than_the_git_dir_candidate() -> Re
             ceiling_dirs: vec![Path::new("./some").into()],
             ..Default::default()
         },
-    )
-    .expect("the repo can be discovered because the relative ceiling doesn't _look_ like it has something to do with the git dir candidate");
+    )?;
 
     assert_ne!(
         &repo_path.as_ref().canonicalize()?,
@@ -168,7 +164,7 @@ fn ceiling_dirs_are_not_processed_differently_than_the_git_dir_candidate() -> Re
 }
 
 #[test]
-fn no_matching_ceiling_dirs_errors_by_default() -> Result {
+fn no_matching_ceiling_dirs_errors_by_default() -> TestResult {
     let relative_work_dir = repo_path()?;
     let dir = relative_work_dir.join("some");
     let res = gix_discover::upwards_opts(
@@ -189,7 +185,7 @@ fn no_matching_ceiling_dirs_errors_by_default() -> Result {
 }
 
 #[test]
-fn ceilings_are_adjusted_to_match_search_dir() -> Result {
+fn ceilings_are_adjusted_to_match_search_dir() -> TestResult {
     let relative_work_dir = repo_path()?;
     let cwd = std::env::current_dir()?;
     let absolute_ceiling_dir = gix_path::realpath_opts(&relative_work_dir, &cwd, 8)?;
@@ -219,7 +215,7 @@ fn ceilings_are_adjusted_to_match_search_dir() -> Result {
 
 #[test]
 #[cfg(unix)]
-fn ceiling_dirs_limit_the_physical_symlink_target() -> Result {
+fn ceiling_dirs_limit_the_physical_symlink_target() -> TestResult {
     let root = gix_testtools::scripted_fixture_read_only("make_symlinked_nested_repo.sh")?;
     let search_dir = root.join("lexical-parent/link/real-dir");
     let err = gix_discover::upwards_opts(

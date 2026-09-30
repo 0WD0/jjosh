@@ -124,7 +124,7 @@ where
         }
 
         let fetch_options = gix_protocol::fetch::Options {
-            shallow_file: repo.shallow_file(),
+            shallow_file: repo.shallow_file()?,
             shallow: &self.shallow,
             tags: con.remote.fetch_tags,
             reject_shallow_remote: Clone::REJECT_SHALLOW

@@ -1,9 +1,9 @@
-use crate::Result;
+use crate::TestResult;
 use bstr::ByteSlice;
 use gix_credentials::protocol::{Context, ContextOptions};
 
 #[test]
-fn authentication_challenges_survive_a_protocol_roundtrip() -> Result {
+fn authentication_challenges_survive_a_protocol_roundtrip() -> TestResult {
     let input = b"protocol=https
 host=github.com
 wwwauth[]=Basic realm=\"GitHub\" domain_hint=\"example\"
@@ -63,26 +63,26 @@ mod write_to {
     use gix_credentials::protocol::{Context, ContextOptions};
 
     #[test]
-    fn quit_is_not_serialized_but_can_be_parsed() {
+    fn quit_is_not_serialized_but_can_be_parsed() -> gix_testtools::TestResult {
         let mut buf = Vec::<u8>::new();
         Context {
             quit: Some(true),
             ..Default::default()
         }
-        .write_to(&mut buf)
-        .unwrap();
+        .write_to(&mut buf)?;
         assert_eq!(
-            Context::from_bytes(&buf, ContextOptions::default()).unwrap(),
+            Context::from_bytes(&buf, ContextOptions::default())?,
             Context::default()
         );
         assert_eq!(
-            Context::from_bytes(b"quit=true\nurl=https://example.com", ContextOptions::default()).unwrap(),
+            Context::from_bytes(b"quit=true\nurl=https://example.com", ContextOptions::default())?,
             Context {
                 quit: Some(true),
                 url: Some("https://example.com".into()),
                 ..Default::default()
             }
         );
+        Ok(())
     }
 
     #[test]
@@ -166,13 +166,11 @@ username=bob";
     }
 
     #[test]
-    fn quit_supports_git_config_boolean_values() {
+    fn quit_supports_git_config_boolean_values() -> gix_testtools::TestResult {
         for true_value in ["1", "42", "-42", "true", "on", "yes"] {
             let input = format!("quit={true_value}");
             assert_eq!(
-                Context::from_bytes(input.as_bytes(), ContextOptions::default())
-                    .unwrap()
-                    .quit,
+                Context::from_bytes(input.as_bytes(), ContextOptions::default())?.quit,
                 Some(true),
                 "{input}"
             );
@@ -180,13 +178,12 @@ username=bob";
         for false_value in ["0", "false", "off", "no"] {
             let input = format!("quit={false_value}");
             assert_eq!(
-                Context::from_bytes(input.as_bytes(), ContextOptions::default())
-                    .unwrap()
-                    .quit,
+                Context::from_bytes(input.as_bytes(), ContextOptions::default())?.quit,
                 Some(false),
                 "{input}"
             );
         }
+        Ok(())
     }
 
     #[test]
@@ -196,14 +193,13 @@ username=bob";
     }
 
     #[test]
-    fn carriage_returns_can_be_allowed() {
+    fn carriage_returns_can_be_allowed() -> gix_testtools::TestResult {
         let ctx = Context::from_bytes(
             b"url=https://example.com/with\rreturn\n",
             ContextOptions {
                 protect_protocol: false,
             },
-        )
-        .expect("CR protection is disabled");
+        )?;
         assert_eq!(ctx.url, Some(b"https://example.com/with\rreturn".as_slice().into()));
         assert_eq!(
             ctx.options,
@@ -214,8 +210,8 @@ username=bob";
         );
 
         let mut out = Vec::new();
-        ctx.write_to(&mut out)
-            .expect("retained options allow the same value to be encoded again");
+        ctx.write_to(&mut out)?;
         assert_eq!(out, b"url=https://example.com/with\rreturn\n");
+        Ok(())
     }
 }

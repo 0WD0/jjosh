@@ -155,7 +155,7 @@ mod isolate_git_environment {
 
     #[test]
     #[serial]
-    fn policy_and_tracked_restoration() -> gix_testtools::Result {
+    fn policy_and_tracked_restoration() -> gix_testtools::TestResult {
         let _restore = RestoreEnvironment::new();
         let disposable = tempfile::tempdir()?;
         let unused = disposable.path().join("unused").to_string_lossy().into_owned();
@@ -246,7 +246,7 @@ mod isolate_git_environment {
 
     #[test]
     #[serial]
-    fn git_commands_do_not_inherit_later_environment_overrides() -> gix_testtools::Result {
+    fn git_commands_do_not_inherit_later_environment_overrides() -> gix_testtools::TestResult {
         let _environment = gix_testtools::isolate_git_environment()?;
         let repo = tempfile::tempdir()?;
         let outside = tempfile::tempdir()?;
@@ -287,7 +287,7 @@ mod isolate_git_environment {
 
     #[test]
     #[serial]
-    fn nested_guards_restore_the_enclosing_scope() -> gix_testtools::Result {
+    fn nested_guards_restore_the_enclosing_scope() -> gix_testtools::TestResult {
         let _restore = RestoreEnvironment::new();
         let _env = Env::new().set(VAR1, "original").set(VAR2, "").unset(VAR3);
         let before = snapshot();
@@ -330,7 +330,7 @@ mod isolate_git_environment {
 
     #[test]
     #[serial]
-    fn early_and_error_returns_restore_the_environment() -> gix_testtools::Result {
+    fn early_and_error_returns_restore_the_environment() -> gix_testtools::TestResult {
         fn leave_scope(fail: bool) -> gix_testtools::Result {
             let _guard = gix_testtools::isolate_git_environment()?
                 .set(VAR1, "changed before returning")
@@ -365,7 +365,7 @@ mod isolate_git_environment {
 
     #[test]
     #[serial]
-    fn panic_unwinding_restores_the_environment() -> gix_testtools::Result {
+    fn panic_unwinding_restores_the_environment() -> gix_testtools::TestResult {
         let _restore = RestoreEnvironment::new();
         let _env = Env::new().set(VAR1, "original").set(VAR2, "").unset(VAR3);
         let before = snapshot();
@@ -387,7 +387,7 @@ mod isolate_git_environment {
     #[cfg(unix)]
     #[test]
     #[serial]
-    fn non_utf8_names_and_values_are_preserved() -> gix_testtools::Result {
+    fn non_utf8_names_and_values_are_preserved() -> gix_testtools::TestResult {
         use std::os::unix::ffi::OsStringExt;
 
         let _restore = RestoreEnvironment::new();

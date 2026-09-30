@@ -90,12 +90,14 @@ impl crate::Repository {
 
     /// Return the worktree that [is identified](Worktree::id) by the given `id`, if it exists at
     /// `.git/worktrees/<id>` and its `gitdir` file exists.
-    /// Return `None` otherwise.
-    pub fn worktree_proxy_by_id<'a>(&self, id: impl Into<&'a BStr>) -> Option<worktree::Proxy<'_>> {
-        worktree::Proxy::new_if_gitdir_file_exists(
+    /// Return `Ok(None)` otherwise, or an error if `id` cannot be represented as a native path.
+    pub fn worktree_proxy_by_id<'a>(&self, id: impl Into<&'a BStr>) -> Result<Option<worktree::Proxy<'_>>> {
+        Ok(worktree::Proxy::new_if_gitdir_file_exists(
             self,
-            self.common_dir().join("worktrees").join(gix_path::from_bstr(id.into())),
-        )
+            self.common_dir()
+                .join("worktrees")
+                .join(gix_path::from_bstr(id.into())?),
+        ))
     }
 
     /// Return the *repository* owning the main worktree, typically from a linked worktree.

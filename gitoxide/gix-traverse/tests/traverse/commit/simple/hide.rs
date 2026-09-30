@@ -28,7 +28,7 @@ fn assert_simple_repo_graph(repo_dir: &std::path::Path) -> Result {
 }
 
 #[test]
-fn disjoint_hidden_and_interesting() -> Result {
+fn disjoint_hidden_and_interesting() -> gix_testtools::TestResult {
     let (repo_dir, odb) = named_fixture("make_repos.sh", "disjoint_branches")?;
 
     insta::assert_snapshot!(git_graph(&repo_dir)?, @r"
@@ -56,7 +56,7 @@ fn disjoint_hidden_and_interesting() -> Result {
 }
 
 #[test]
-fn all_hidden() -> Result {
+fn all_hidden() -> gix_testtools::TestResult {
     let (_repo_dir, odb) = named_fixture("make_repos.sh", "disjoint_branches")?;
     let tips = [
         hex_to_id("e07cf1277ff7c43090f1acfc85a46039e7de1272"), // b3
@@ -73,7 +73,7 @@ fn all_hidden() -> Result {
 }
 
 #[test]
-fn some_hidden_and_all_hidden() -> Result {
+fn some_hidden_and_all_hidden() -> gix_testtools::TestResult {
     let (repo_dir, odb) = named_fixture("make_repos.sh", "simple")?;
 
     assert_simple_repo_graph(&repo_dir)?;
@@ -124,7 +124,7 @@ fn hidden_bug_repo(name: &str) -> Result<(std::path::PathBuf, gix_odb::Handle)> 
 }
 
 #[test]
-fn hidden_tip_with_longer_path_to_shared_ancestor() -> Result {
+fn hidden_tip_with_longer_path_to_shared_ancestor() -> gix_testtools::TestResult {
     // Graph:
     //   A(tip) --> shared
     //            /
@@ -167,7 +167,7 @@ fn hidden_tip_with_longer_path_to_shared_ancestor() -> Result {
 }
 
 #[test]
-fn interesting_tip_with_longer_path_to_shared_ancestor() -> Result {
+fn interesting_tip_with_longer_path_to_shared_ancestor() -> gix_testtools::TestResult {
     // Graph:
     //   A(tip) --> B --> C --> D(shared)
     //                        /
@@ -209,7 +209,7 @@ fn interesting_tip_with_longer_path_to_shared_ancestor() -> Result {
 }
 
 #[test]
-fn without_commit_graph_still_hides_single_visible_tip_correctly() -> Result {
+fn without_commit_graph_still_hides_single_visible_tip_correctly() -> gix_testtools::TestResult {
     let (repo_dir, odb) = named_fixture("make_repos.sh", "simple")?;
     assert_simple_repo_graph(&repo_dir)?;
     let tip_c2 = hex_to_id("ad33ff2d0c4fc77d56b5fbff6f86f332fe792d83");
@@ -228,7 +228,7 @@ fn without_commit_graph_still_hides_single_visible_tip_correctly() -> Result {
 }
 
 #[test]
-fn commit_graph_reduces_odb_lookups_when_hidden_tips_cover_visible_tips() -> Result {
+fn commit_graph_reduces_odb_lookups_when_hidden_tips_cover_visible_tips() -> gix_testtools::TestResult {
     let (repo_dir, odb) = named_fixture("make_repos.sh", "simple")?;
     assert_simple_repo_graph(&repo_dir)?;
     let tips = [
@@ -283,7 +283,7 @@ fn commit_graph_reduces_odb_lookups_when_hidden_tips_cover_visible_tips() -> Res
 }
 
 #[test]
-fn hide_and_commit_graph_call_order_do_not_matter() -> Result {
+fn hide_and_commit_graph_call_order_do_not_matter() -> gix_testtools::TestResult {
     let (repo_dir, odb) = named_fixture("make_repos.sh", "simple")?;
     assert_simple_repo_graph(&repo_dir)?;
     let tip_merge = hex_to_id("f49838d84281c3988eeadd988d97dd358c9f9dc4");

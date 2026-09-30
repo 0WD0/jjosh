@@ -14,7 +14,7 @@
 //!     None,
 //!     &mut collection,
 //!     true,
-//! );
+//! )?;
 //!
 //! let mut out = Outcome::default();
 //! out.initialize_with_selection(&collection, ["text", "eol"]);
@@ -25,6 +25,7 @@
 //!     .map(|m| m.assignment.to_string())
 //!     .collect::<Vec<_>>();
 //! assert_eq!(assignments, vec!["text", "eol=lf"]);
+//! # Ok::<(), std::io::Error>(())
 //! ```
 //!
 //! ## Feature Flags

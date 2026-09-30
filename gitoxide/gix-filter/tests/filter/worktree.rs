@@ -73,12 +73,12 @@ mod encoding {
 }
 
 mod encode_to_git {
-    use crate::Result;
     use bstr::ByteSlice;
     use gix_filter::{worktree, worktree::encode_to_git::RoundTripCheck};
+    use gix_testtools::TestResult;
 
     #[test]
-    fn simple() -> Result {
+    fn simple() -> TestResult {
         let input = &b"hello"[..];
         for round_trip in [RoundTripCheck::Skip, RoundTripCheck::Fail] {
             let mut buf = Vec::new();
@@ -90,12 +90,12 @@ mod encode_to_git {
 }
 
 mod encode_to_worktree {
-    use crate::Result;
     use bstr::ByteSlice;
     use gix_filter::{worktree, worktree::encode_to_git::RoundTripCheck};
+    use gix_testtools::TestResult;
 
     #[test]
-    fn shift_jis() -> Result {
+    fn shift_jis() -> TestResult {
         let input = "ハローワールド";
         let mut buf = Vec::new();
         worktree::encode_to_worktree(input.as_bytes(), encoding_rs::SHIFT_JIS, &mut buf)?;

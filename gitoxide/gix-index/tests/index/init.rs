@@ -1,11 +1,11 @@
-use crate::Result;
+use gix_testtools::TestResult;
 use std::path::Path;
 
 use crate::{odb_at, scripted_fixture_read_only};
 use gix_index::State;
 
 #[test]
-fn from_tree() -> Result {
+fn from_tree() -> gix_testtools::TestResult {
     let fixtures = [
         "make_index/v2.sh",
         "make_index/v2_more_files.sh",
@@ -34,7 +34,7 @@ fn from_tree() -> Result {
 }
 
 #[test]
-fn from_tree_validation() -> Result {
+fn from_tree_validation() -> TestResult {
     let mut error_snapshots = Vec::new();
     use gix_index::validate::path::component::Error;
 
@@ -87,15 +87,13 @@ fn from_tree_validation() -> Result {
 }
 
 #[test]
-fn from_tree_returns_file_directory_conflicts_until_fixed() -> Result {
+fn from_tree_returns_file_directory_conflicts_until_fixed() -> gix_testtools::TestResult {
     let worktree_dir = scripted_fixture_read_only("make_symlink_prefix_reuse_advisory.sh")?;
     let tree_id = tree_id(&worktree_dir);
     let odb = odb_at(worktree_dir.join(".git").join("objects"))?;
 
     let actual_state = State::from_tree(&tree_id, &odb, Default::default())?;
-    actual_state
-        .verify_entries()
-        .expect("valid, even though invariants aren't met");
+    actual_state.verify_entries()?;
 
     let paths: Vec<_> = actual_state
         .entries()

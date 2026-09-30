@@ -52,7 +52,7 @@ pub fn query(
         PathsOrPatterns::Patterns(paths) => Box::new(paths.into_iter()),
     };
     for path in paths {
-        let mode = gix::path::from_bstr(Cow::Borrowed(path.as_ref()))
+        let mode = gix::path::from_bstr(Cow::Borrowed(path.as_ref()))?
             .metadata()
             .ok()
             .map(|m| is_dir_to_mode(m.is_dir()))

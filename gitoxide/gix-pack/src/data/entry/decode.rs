@@ -174,10 +174,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn accepts_non_canonical_pack_entry_header_encoding() {
+    fn accepts_non_canonical_pack_entry_header_encoding() -> gix_testtools::TestResult {
         let pack_offset = 42;
-        let entry = data::Entry::from_bytes(&[0xb3, 0x00], pack_offset, gix_hash::Kind::Sha1)
-            .expect("non-canonical size encodings are accepted by git");
+        let entry = data::Entry::from_bytes(&[0xb3, 0x00], pack_offset, gix_hash::Kind::Sha1)?;
 
         assert_eq!(entry.header, data::entry::Header::Blob);
         assert_eq!(
@@ -200,14 +199,14 @@ mod tests {
         );
         assert_eq!(entry.pack_offset(), pack_offset);
         assert_eq!(entry.data_offset, pack_offset + 2);
+        Ok(())
     }
 
     #[test]
-    fn non_canonical_pack_entry_header_keeps_ofs_delta_base_offsets_correct() {
+    fn non_canonical_pack_entry_header_keeps_ofs_delta_base_offsets_correct() -> gix_testtools::TestResult {
         let pack_offset = 100;
         let base_distance = 5;
-        let entry = data::Entry::from_bytes(&[0xe4, 0x00, base_distance], pack_offset, gix_hash::Kind::Sha1)
-            .expect("non-canonical ofs-delta size encodings are accepted by git");
+        let entry = data::Entry::from_bytes(&[0xe4, 0x00, base_distance], pack_offset, gix_hash::Kind::Sha1)?;
 
         assert_eq!(
             entry.header,
@@ -231,6 +230,7 @@ mod tests {
             Some(pack_offset - u64::from(base_distance)),
             "ofs-delta base distances are relative to the entry start, so preserving `pack_offset()` keeps the base lookup correct"
         );
+        Ok(())
     }
 
     #[test]

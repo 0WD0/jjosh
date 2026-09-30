@@ -51,9 +51,9 @@ impl Proxy<'_> {
     }
 
     /// The name of the worktree, which is derived from its folder within the `worktrees` directory within the parent `.git` folder.
-    pub fn id(&self) -> &BStr {
+    /// Return an error if the directory name cannot be represented as Git bytes.
+    pub fn id(&self) -> Result<&BStr> {
         gix_path::os_str_into_bstr(self.git_dir.file_name().expect("worktrees/ parent dir"))
-            .expect("no illformed UTF-8")
     }
 
     /// Return true if the worktree cannot be pruned, moved or deleted, which is useful if it is located on an external storage device.

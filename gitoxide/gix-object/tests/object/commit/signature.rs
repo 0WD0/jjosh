@@ -11,7 +11,7 @@ use gix_testtools::signature;
 use crate::Result;
 
 #[test]
-fn ssh() -> Result {
+fn ssh() -> gix_testtools::TestResult {
     if !signature::program_available("ssh-keygen") {
         return Ok(());
     }
@@ -32,7 +32,7 @@ fn ssh() -> Result {
 }
 
 #[test]
-fn openpgp() -> Result {
+fn openpgp() -> gix_testtools::TestResult {
     if !signature::program_available("gpg") {
         return Ok(());
     }
@@ -63,7 +63,7 @@ fn openpgp() -> Result {
 }
 
 #[test]
-fn x509() -> Result {
+fn x509() -> gix_testtools::TestResult {
     if !signature::program_available("gpgsm") {
         return Ok(());
     }
@@ -93,7 +93,7 @@ fn x509() -> Result {
 }
 
 #[test]
-fn replaces_the_active_signature() -> Result {
+fn replaces_the_active_signature() -> gix_testtools::TestResult {
     if !signature::program_available("ssh-keygen") {
         return Ok(());
     }
@@ -127,7 +127,7 @@ fn replaces_the_active_signature() -> Result {
 }
 
 #[test]
-fn sha256_uses_its_git_signature_header() -> Result {
+fn sha256_uses_its_git_signature_header() -> gix_testtools::TestResult {
     if !signature::program_available("ssh-keygen") {
         return Ok(());
     }

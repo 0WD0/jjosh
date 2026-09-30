@@ -90,7 +90,7 @@ fn lookup_missing() {
 }
 
 #[test]
-fn general() {
+fn general() -> gix_testtools::TestResult {
     let object_hash = object_hash();
     let (file, path) = multi_index(object_hash);
 
@@ -161,25 +161,22 @@ fn general() {
         let actual_oid = file.oid_at_index(*idx);
         assert_eq!(actual_oid, *expected_oid);
         assert_eq!(file.lookup(actual_oid), Some(*idx));
-        let (pack_id, pack_offset) = file
-            .pack_id_and_pack_offset_at_index(*idx)
-            .expect("fixture contains valid pack and offset references");
+        let (pack_id, pack_offset) = file.pack_id_and_pack_offset_at_index(*idx)?;
         assert_eq!(pack_id, 0, "we only have one pack here");
         assert_eq!(pack_offset, *expected_pack_offset);
     }
 
     let mut count = 0;
     for (idx, entry) in file.iter().enumerate() {
-        let entry = entry.expect("fixture contains valid pack and offset references");
+        let entry = entry?;
         assert_eq!(entry.oid, file.oid_at_index(idx as u32));
-        let (pack_index, pack_offset) = file
-            .pack_id_and_pack_offset_at_index(idx as u32)
-            .expect("fixture contains valid pack and offset references");
+        let (pack_index, pack_offset) = file.pack_id_and_pack_offset_at_index(idx as u32)?;
         assert_eq!(pack_index, entry.pack_index);
         assert_eq!(pack_offset, entry.pack_offset);
         count += 1;
     }
     assert_eq!(count, file.num_objects());
+    Ok(())
 }
 
 #[test]

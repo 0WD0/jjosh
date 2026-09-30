@@ -380,7 +380,7 @@ impl<'index> State<'_, 'index> {
     where
         Find: gix_object::Find,
     {
-        let worktree_path = match self.path_stack.verified_path(gix_path::from_bstr(rela_path).as_ref()) {
+        let worktree_path = match self.path_stack.verified_path(gix_path::from_bstr(rela_path)?.as_ref()) {
             Ok(path) => path,
             Err(err) if crate::stack::is_symlink_step_error(&err) => return Ok(Some(Change::Removed.into())),
             Err(err) if gix_fs::io_err::is_not_found(err.kind(), err.raw_os_error()) => {
@@ -611,7 +611,7 @@ where
         let out = if is_symlink && self.core_symlinks {
             let symlink_path = gix_path::to_unix_separators_on_windows(gix_path::into_bstr(
                 std::fs::read_link(self.path).map_err(gix_hash::io::from_std_io)?,
-            ));
+            )?);
             self.buf.extend_from_slice(&symlink_path);
             self.worktree_bytes.fetch_add(self.buf.len() as u64, Ordering::Relaxed);
             Stream {

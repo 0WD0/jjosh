@@ -3,7 +3,7 @@ use serial_test::serial;
 
 #[test]
 #[serial]
-fn literal_only_combines_with_icase() -> gix_testtools::Result {
+fn literal_only_combines_with_icase() -> gix_testtools::TestResult {
     let _environment = gix_testtools::isolate_git_environment()?;
     {
         let _env = gix_testtools::Env::new()
@@ -37,7 +37,7 @@ fn literal_only_combines_with_icase() -> gix_testtools::Result {
 }
 #[test]
 #[serial]
-fn nothing_is_set_then_it_is_like_the_default_impl() -> gix_testtools::Result {
+fn nothing_is_set_then_it_is_like_the_default_impl() -> gix_testtools::TestResult {
     let _environment = gix_testtools::isolate_git_environment()?;
     assert_eq!(
         Defaults::from_environment(&mut |name| std::env::var_os(name))?,
@@ -48,7 +48,7 @@ fn nothing_is_set_then_it_is_like_the_default_impl() -> gix_testtools::Result {
 
 #[test]
 #[serial]
-fn glob_and_noglob_cause_error() -> gix_testtools::Result {
+fn glob_and_noglob_cause_error() -> gix_testtools::TestResult {
     let _environment = gix_testtools::isolate_git_environment()?
         .set("GIT_GLOB_PATHSPECS", "1")
         .set("GIT_NOGLOB_PATHSPECS", "yes");
@@ -73,7 +73,7 @@ fn invalid_values_retain_the_config_validation_error() {
 
 #[test]
 #[serial]
-fn noglob_works() -> gix_testtools::Result {
+fn noglob_works() -> gix_testtools::TestResult {
     let _environment = gix_testtools::isolate_git_environment()?
         .set("GIT_GLOB_PATHSPECS", "0")
         .set("GIT_NOGLOB_PATHSPECS", "true");
@@ -91,7 +91,7 @@ fn noglob_works() -> gix_testtools::Result {
 
 #[test]
 #[serial]
-fn glob_works() -> gix_testtools::Result {
+fn glob_works() -> gix_testtools::TestResult {
     let _environment = gix_testtools::isolate_git_environment()?.set("GIT_GLOB_PATHSPECS", "yes");
     assert_eq!(
         Defaults::from_environment(&mut |name| std::env::var_os(name))?,

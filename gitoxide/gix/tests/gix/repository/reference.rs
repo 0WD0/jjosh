@@ -1,16 +1,16 @@
-use crate::Result;
+use gix_testtools::TestResult;
 
 mod set_namespace {
-    use crate::Result;
     use gix::refs::transaction::PreviousValue;
     use gix_testtools::tempfile;
+    use gix_testtools::{Result, TestResult};
 
     fn easy_repo_rw() -> Result<(gix::Repository, tempfile::TempDir)> {
         crate::repo_rw("make_references_repo.sh")
     }
 
     #[test]
-    fn affects_edits_and_iteration() -> Result {
+    fn affects_edits_and_iteration() -> TestResult {
         let (mut repo, _keep) = easy_repo_rw()?;
         assert_eq!(
             repo.references()?.all()?.count(),
@@ -78,7 +78,7 @@ mod set_namespace {
 }
 
 #[test]
-fn try_find_reference_with_existing_ref_as_path_prefix_returns_none() -> Result {
+fn try_find_reference_with_existing_ref_as_path_prefix_returns_none() -> TestResult {
     let (repo, _tmp) = crate::repo_rw("make_references_repo.sh")?;
     std::fs::create_dir_all(repo.git_dir().join("refs/heads"))?;
     std::fs::write(
@@ -94,15 +94,15 @@ fn try_find_reference_with_existing_ref_as_path_prefix_returns_none() -> Result 
 }
 
 mod iter_references {
-    use crate::Result;
     use crate::util::hex_to_id;
+    use gix_testtools::{Result, TestResult};
 
     fn repo() -> Result<gix::Repository> {
         crate::repo("make_references_repo.sh").map(|r| r.to_thread_local())
     }
 
     #[test]
-    fn all() -> Result {
+    fn all() -> TestResult {
         let repo = repo()?;
         assert_eq!(
             repo.references()?
@@ -132,7 +132,7 @@ mod iter_references {
     }
 
     #[test]
-    fn prefixed() -> Result {
+    fn prefixed() -> TestResult {
         let repo = repo()?;
         assert_eq!(
             repo.references()?
@@ -163,7 +163,7 @@ mod iter_references {
     }
 
     #[test]
-    fn prefixed_and_peeled() -> Result {
+    fn prefixed_and_peeled() -> TestResult {
         let repo = repo()?;
         assert_eq!(
             repo.references()?
@@ -200,7 +200,7 @@ mod iter_references {
     /// Regression test for https://github.com/GitoxideLabs/gitoxide/issues/2103
     /// This only ensures we can return a reference, not that the code below is correct
     #[test]
-    fn tags() -> Result {
+    fn tags() -> TestResult {
         let repo = repo()?;
         let actual = repo
             .references()?
@@ -215,13 +215,13 @@ mod iter_references {
 
 mod head {
 
-    use crate::Result;
     use gix_ref::transaction::PreviousValue;
+    use gix_testtools::TestResult;
 
     use crate::util::hex_to_id;
 
     #[test]
-    fn symbolic() -> Result {
+    fn symbolic() -> TestResult {
         let repo = crate::basic_repo()?;
         let head = repo.head()?;
         match &head.kind {
@@ -239,7 +239,7 @@ mod head {
     }
 
     #[test]
-    fn detached() -> Result {
+    fn detached() -> TestResult {
         let (repo, _keep) = crate::basic_rw_repo()?;
         repo.reference(
             "HEAD",
