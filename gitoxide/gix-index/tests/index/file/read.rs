@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use gix_error::ExnResult;
+use gix_error::Result;
 
 use bstr::ByteSlice;
 use gix_index::{
@@ -24,7 +24,7 @@ pub(crate) fn loose_file(name: &str) -> gix_index::File {
     verify(file)
 }
 
-pub(crate) fn try_file(name: &str, needs_archive: bool) -> ExnResult<gix_index::File> {
+pub(crate) fn try_file(name: &str, needs_archive: bool) -> Result<gix_index::File> {
     let path = if needs_archive {
         crate::fixture_index_path_needs_archive(name)
     } else {
@@ -213,7 +213,7 @@ fn v2_with_multiple_entries_without_eoie_ext() {
 fn find_shared_index_for(index: impl AsRef<Path>) -> PathBuf {
     let mut matches = std::fs::read_dir(index.as_ref().parent().unwrap())
         .unwrap()
-        .map(Result::unwrap)
+        .map(|entry| entry.expect("directory entries are readable"))
         .filter(|e: &std::fs::DirEntry| e.file_name().into_string().unwrap().starts_with("sharedindex."));
     let res = matches.next().unwrap();
     assert!(matches.next().is_none(), "found more than one shared indices");

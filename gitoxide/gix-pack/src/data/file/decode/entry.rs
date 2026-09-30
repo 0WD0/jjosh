@@ -1,7 +1,8 @@
+use gix_error::Result;
 use smallvec::SmallVec;
 use std::ops::Range;
 
-use gix_error::{ErrorExt, ExnMessageResult, ExnResult, ResourceExhaustionKind, ResultExt, message};
+use gix_error::{OptionExt, ResourceExhaustionKind, ResultExt, bail, message};
 
 use crate::{
     cache, data,
@@ -80,7 +81,7 @@ impl<T> File<T>
 where
     T: crate::FileData,
 {
-    fn decoded_object_size(&self, size: u64) -> ExnResult<usize> {
+    fn decoded_object_size(&self, size: u64) -> Result<usize> {
         decoded_object_size(size, self.alloc_limit_bytes)
     }
 
@@ -94,13 +95,13 @@ where
         entry: &data::Entry,
         inflate: &mut gix_zlib::Inflate,
         out: &mut [u8],
-    ) -> ExnResult<usize> {
-        let size: usize = entry
-            .decompressed_size
-            .try_into()
-            .map_err(|err| allocation_error(ResourceExhaustionKind::AllocationFailure).chain(err))?;
+    ) -> Result<usize> {
+        let size = usize::try_from(entry.decompressed_size)
+            .or_raise(|| allocation_error(ResourceExhaustionKind::AllocationFailure))?;
         if out.len() < size {
-            return Err(gix_error::validation("Output buffer is too small for the decompressed entry").raise_erased());
+            bail!(gix_error::validation(
+                "Output buffer is too small for the decompressed entry"
+            ));
         }
         self.decompress_entry_from_data_offset(entry.data_offset, inflate, &mut out[..size])
     }
@@ -108,12 +109,12 @@ where
     /// Obtain the [`Entry`][crate::data::Entry] at the given `offset` into the pack.
     ///
     /// The `offset` is typically obtained from the pack index file.
-    pub fn entry(&self, offset: data::Offset) -> ExnMessageResult<data::Entry> {
+    pub fn entry(&self, offset: data::Offset) -> Result<data::Entry> {
         let pack_offset: usize = offset.try_into().expect("offset representable by machine");
         if pack_offset > self.data.len() {
-            return Err(
-                gix_error::corruption("Pack entry is truncated: an entry offset pointing beyond pack data").raise(),
-            );
+            bail!(gix_error::corruption(
+                "Pack entry is truncated: an entry offset pointing beyond pack data"
+            ));
         }
 
         let object_data = &self.data[pack_offset..];
@@ -130,7 +131,7 @@ where
         data_offset: data::Offset,
         inflate: &mut gix_zlib::Inflate,
         out: &mut [u8],
-    ) -> ExnResult<usize> {
+    ) -> Result<usize> {
         let (consumed_in, _consumed_out) =
             self.decompress_complete_entry_from_data_offset(data_offset, inflate, out)?;
         Ok(consumed_in)
@@ -148,14 +149,13 @@ where
         data_offset: data::Offset,
         inflate: &mut gix_zlib::Inflate,
         out: &mut [u8],
-    ) -> ExnResult<(usize, usize)> {
+    ) -> Result<(usize, usize)> {
         let (status, consumed_in, consumed_out) =
             self.decompress_entry_from_data_offset_unchecked(data_offset, inflate, out)?;
         if status != gix_zlib::Status::StreamEnd || consumed_out != out.len() {
-            return Err(gix_error::corruption(
+            bail!(gix_error::corruption(
                 "Pack entry is truncated: pack entry decompressed size does not match entry header",
-            )
-            .raise_erased());
+            ));
         }
         Ok((consumed_in, consumed_out))
     }
@@ -169,19 +169,18 @@ where
         data_offset: data::Offset,
         inflate: &mut gix_zlib::Inflate,
         out: &mut [u8],
-    ) -> ExnResult<(gix_zlib::Status, usize, usize)> {
+    ) -> Result<(gix_zlib::Status, usize, usize)> {
         let offset: usize = data_offset.try_into().expect("offset representable by machine");
         if offset >= self.data.len() {
-            return Err(gix_error::corruption(
+            bail!(gix_error::corruption(
                 "Pack entry is truncated: an entry data offset pointing beyond pack data",
-            )
-            .raise_erased());
+            ));
         }
 
         inflate.reset();
         inflate
             .once(&self.data[offset..], out)
-            .or_raise_erased(|| message("Failed to decompress pack entry"))
+            .or_raise(|| message("Failed to decompress pack entry"))
     }
 
     /// Decode an entry, resolving delta's as needed, while growing the `out` vector if there is not enough
@@ -202,14 +201,14 @@ where
         inflate: &mut gix_zlib::Inflate,
         resolve: &dyn Fn(&gix_hash::oid, &mut Vec<u8>) -> Option<ResolvedBase>,
         delta_cache: &mut dyn cache::DecodeEntry,
-    ) -> ExnResult<Outcome> {
+    ) -> Result<Outcome> {
         use crate::data::entry::Header::*;
         match entry.header {
             Tree | Blob | Commit | Tag => {
                 let size = self.decoded_object_size(entry.decompressed_size)?;
                 if let Some(additional) = size.checked_sub(out.len()) {
                     out.try_reserve(additional)
-                        .or_raise_erased(|| message("Entry too large to fit in memory"))?;
+                        .or_raise(|| message("Entry too large to fit in memory"))?;
                 }
                 out.resize(size, 0);
                 self.decompress_entry(&entry, inflate, out.as_mut_slice())
@@ -235,7 +234,7 @@ where
         inflate: &mut gix_zlib::Inflate,
         out: &mut Vec<u8>,
         cache: &mut dyn cache::DecodeEntry,
-    ) -> ExnResult<Outcome> {
+    ) -> Result<Outcome> {
         // all deltas, from the one that produces the desired object (first) to the oldest at the end of the chain
         let mut chain = SmallVec::<[Delta; 10]>::default();
         let first_entry = last.clone();
@@ -261,12 +260,12 @@ where
             // TODO: is this assumption actually true?
             total_delta_data_size = total_delta_data_size
                 .checked_add(cursor.decompressed_size)
-                .ok_or_else(|| allocation_error(ResourceExhaustionKind::AllocationFailure))?;
+                .ok_or_raise(|| allocation_error(ResourceExhaustionKind::AllocationFailure))?;
             if self
                 .alloc_limit_bytes
                 .is_some_and(|limit| total_delta_data_size > limit as u64)
             {
-                return Err(allocation_error(ResourceExhaustionKind::AllocationLimit));
+                bail!(allocation_error(ResourceExhaustionKind::AllocationLimit));
             }
             let decompressed_size = self.decoded_object_size(cursor.decompressed_size)?;
             chain.push(Delta {
@@ -289,8 +288,8 @@ where
                                 "Pack entry is truncated: an ofs-delta base distance pointing before pack start",
                             )
                         })
-                        .or_erased()?;
-                    self.entry(offset).or_erased()?
+                        .or_error()?;
+                    self.entry(offset)?
                 }
                 Header::RefDelta { base_id } => match resolve(base_id.as_ref(), out) {
                     Some(ResolvedBase::InPack(entry)) => entry,
@@ -299,7 +298,7 @@ where
                         object_kind = Some(kind);
                         break;
                     }
-                    None => return Err(DeltaBaseUnresolved(base_id).raise_erased()),
+                    None => bail!(DeltaBaseUnresolved(base_id)),
                 },
                 _ => unreachable!("cursor.is_delta() only allows deltas here"),
             };
@@ -318,9 +317,8 @@ where
         // First pass will decompress all delta data and keep it in our output buffer
         // [<possibly resolved base object>]<delta-1..delta-n>...
         // so that we can find the biggest result size.
-        let total_delta_data_size: usize = total_delta_data_size
-            .try_into()
-            .map_err(|err| allocation_error(ResourceExhaustionKind::AllocationFailure).chain(err))?;
+        let total_delta_data_size = usize::try_from(total_delta_data_size)
+            .or_raise(|| allocation_error(ResourceExhaustionKind::AllocationFailure))?;
 
         let chain_len = chain.len();
         let actual_base_size = match base_buffer_size {
@@ -334,10 +332,10 @@ where
                 start: delta_start,
                 end: delta_start
                     .checked_add(total_delta_data_size)
-                    .ok_or_else(|| allocation_error(ResourceExhaustionKind::AllocationFailure))?,
+                    .ok_or_raise(|| allocation_error(ResourceExhaustionKind::AllocationFailure))?,
             };
             out.try_reserve(delta_range.end.saturating_sub(out.len()))
-                .or_raise_erased(|| message("Entry too large to fit in memory"))?;
+                .or_raise(|| message("Entry too large to fit in memory"))?;
             out.resize(delta_range.end, 0);
 
             let mut instructions = &mut out[delta_range.clone()];
@@ -356,18 +354,17 @@ where
                 }
 
                 let current_delta = &instructions[..consumed_out];
-                let (base_size, offset) = delta::decode_header_size(current_delta).or_erased()?;
+                let (base_size, offset) = delta::decode_header_size(current_delta)?;
                 let mut bytes_consumed_by_header = offset;
                 delta.base_size = self.decoded_object_size(base_size)?;
                 if delta.base_size != expected_base_size {
-                    return Err(gix_error::corruption(
+                    bail!(gix_error::corruption(
                         "Corrupt delta data: delta base size does not match base object size",
-                    )
-                    .raise_erased());
+                    ));
                 }
                 biggest_result_size = biggest_result_size.max(base_size);
 
-                let (result_size, offset) = delta::decode_header_size(&current_delta[offset..]).or_erased()?;
+                let (result_size, offset) = delta::decode_header_size(&current_delta[offset..])?;
                 bytes_consumed_by_header += offset;
                 biggest_result_size = biggest_result_size.max(result_size);
                 delta.result_size = self.decoded_object_size(result_size)?;
@@ -393,9 +390,9 @@ where
             let out_size = first_buffer_size
                 .checked_add(second_buffer_size)
                 .and_then(|size| size.checked_add(total_delta_data_size))
-                .ok_or_else(|| allocation_error(ResourceExhaustionKind::AllocationFailure))?;
+                .ok_or_raise(|| allocation_error(ResourceExhaustionKind::AllocationFailure))?;
             out.try_reserve(out_size.saturating_sub(out.len()))
-                .or_raise_erased(|| message("Entry too large to fit in memory"))?;
+                .or_raise(|| message("Entry too large to fit in memory"))?;
             out.resize(out_size, 0);
 
             // Now 'rescue' the deltas, because in the next step we possibly overwrite that portion
@@ -403,7 +400,7 @@ where
             let second_buffer_end = {
                 let end = first_buffer_size
                     .checked_add(second_buffer_size)
-                    .ok_or_else(|| allocation_error(ResourceExhaustionKind::AllocationFailure))?;
+                    .ok_or_raise(|| allocation_error(ResourceExhaustionKind::AllocationFailure))?;
                 // Move the decompressed delta instructions behind the two work buffers so they remain intact
                 // while we repurpose the front of `out` for base-object materialization and delta application.
                 out.copy_within(delta_range, end);
@@ -447,7 +444,7 @@ where
             if delta_idx + 1 == chain_len {
                 last_result_size = Some(result_size);
             }
-            delta::apply(&source_buf[..base_size], &mut target_buf[..result_size], data).or_erased()?;
+            delta::apply(&source_buf[..base_size], &mut target_buf[..result_size], data)?;
             // use the target as source for the next delta
             std::mem::swap(&mut source_buf, &mut target_buf);
         }
@@ -491,12 +488,10 @@ where
 }
 
 /// Convert user-controlled sizes from pack data into allocation sizes while enforcing the configured allocation cap.
-fn decoded_object_size(size: u64, alloc_limit_bytes: Option<usize>) -> ExnResult<usize> {
-    let size: usize = size
-        .try_into()
-        .map_err(|err| allocation_error(ResourceExhaustionKind::AllocationFailure).chain(err))?;
+fn decoded_object_size(size: u64, alloc_limit_bytes: Option<usize>) -> Result<usize> {
+    let size = usize::try_from(size).or_raise(|| allocation_error(ResourceExhaustionKind::AllocationFailure))?;
     if alloc_limit_bytes.is_some_and(|limit| size > limit) {
-        return Err(allocation_error(ResourceExhaustionKind::AllocationLimit));
+        bail!(allocation_error(ResourceExhaustionKind::AllocationLimit));
     }
     Ok(size)
 }

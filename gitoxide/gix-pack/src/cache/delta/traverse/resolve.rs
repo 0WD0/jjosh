@@ -1,6 +1,7 @@
+use gix_error::Result;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use gix_error::{ErrorExt, ExnResult, ResourceExhaustionKind, ResultExt, message};
+use gix_error::{OptionExt, ResourceExhaustionKind, ResultExt, bail, message};
 use gix_features::{
     progress::Progress,
     threading::{self, OwnShared},
@@ -75,7 +76,7 @@ fn attach_ref_delta_children<T: Send>(
     decompressed: &[u8],
     ref_delta_children: Option<&super::SharedRefDeltaChildren>,
     object_hash: gix_hash::Kind,
-) -> ExnResult {
+) -> Result {
     let Some(ref_delta_children) = ref_delta_children else {
         return Ok(());
     };
@@ -86,7 +87,7 @@ fn attach_ref_delta_children<T: Send>(
 
     let kind = entry.header.as_kind().expect("a fully resolved object has a base kind");
     let id = gix_object::compute_hash(object_hash, kind, decompressed)
-        .or_raise_erased(|| message("Failed to hash an object while resolving in-pack ref-deltas"))?;
+        .or_raise(|| message("Failed to hash an object while resolving in-pack ref-deltas"))?;
     if let Some(children) = threading::lock(ref_delta_children).remove(&id) {
         node.add_children(children);
     }
@@ -144,12 +145,12 @@ pub(super) unsafe fn all<T, F, MBFN, R>(
     object_hash: gix_hash::Kind,
     alloc_limit_bytes: Option<usize>,
     should_interrupt: &AtomicBool,
-) -> ExnResult
+) -> Result
 where
     T: Send,
     R: Send + Sync,
     F: for<'r> Fn(EntryRange, &'r R) -> Option<&'r [u8]> + Send + Clone,
-    MBFN: FnMut(&mut T, &dyn Progress, Context<'_>) -> ExnResult + Send + Clone,
+    MBFN: FnMut(&mut T, &dyn Progress, Context<'_>) -> Result + Send + Clone,
 {
     let work = items
         .iter_mut()
@@ -222,12 +223,12 @@ fn resolve_serial<T, F, MBFN, R>(
     object_hash: gix_hash::Kind,
     alloc_limit_bytes: Option<usize>,
     should_interrupt: &AtomicBool,
-) -> ExnResult
+) -> Result
 where
     T: Send,
     R: Send + Sync,
     F: for<'r> Fn(EntryRange, &'r R) -> Option<&'r [u8]> + Send + Clone,
-    MBFN: FnMut(&mut T, &dyn Progress, Context<'_>) -> ExnResult + Send + Clone,
+    MBFN: FnMut(&mut T, &dyn Progress, Context<'_>) -> Result + Send + Clone,
 {
     let mut delta_bytes = Vec::new();
     let mut fully_resolved_delta_bytes = Vec::new();
@@ -279,13 +280,14 @@ fn resolve_parallel<T, F, MBFN, R>(
     object_hash: gix_hash::Kind,
     alloc_limit_bytes: Option<usize>,
     should_interrupt: &AtomicBool,
-) -> ExnResult
+) -> Result
 where
     T: Send,
     R: Send + Sync,
     F: for<'r> Fn(EntryRange, &'r R) -> Option<&'r [u8]> + Send + Clone,
-    MBFN: FnMut(&mut T, &dyn Progress, Context<'_>) -> ExnResult + Send + Clone,
+    MBFN: FnMut(&mut T, &dyn Progress, Context<'_>) -> Result + Send + Clone,
 {
+    use gix_error::ErrorExt;
     use std::sync::atomic::AtomicUsize;
 
     if num_threads == 0 {
@@ -378,9 +380,7 @@ where
                             std::panic::resume_unwind(payload);
                         }
                     }
-                    return Err(err
-                        .and_raise(message("Failed to spawn thread when switching to work-stealing mode"))
-                        .erased());
+                    return Err(err.and_raise(message("Failed to spawn thread when switching to work-stealing mode")));
                 }
             }
         }
@@ -462,12 +462,12 @@ fn resolve_task<'a, T, F, MBFN, R>(
     objects: &gix_features::progress::StepShared,
     size: &gix_features::progress::StepShared,
     mut push: impl FnMut(WorkItem<'a, T>),
-) -> ExnResult
+) -> Result
 where
     T: Send,
     R: Send + Sync,
     F: for<'r> Fn(EntryRange, &'r R) -> Option<&'r [u8]> + Send,
-    MBFN: FnMut(&mut T, &dyn Progress, Context<'_>) -> ExnResult + Send,
+    MBFN: FnMut(&mut T, &dyn Progress, Context<'_>) -> Result + Send,
 {
     let is_root = parent.is_none();
     // Root buffers either become shared bases or are dropped after inspection. Keeping leaf-root allocations out of
@@ -483,24 +483,21 @@ where
             object_hash,
             alloc_limit_bytes,
         )?;
-        let (base_size, consumed) = data::delta::decode_header_size(delta_bytes).or_erased()?;
+        let (base_size, consumed) = data::delta::decode_header_size(delta_bytes)?;
         let base_size = decoded_size_limited(base_size, alloc_limit_bytes)?;
         if parent.bytes.len() != base_size {
-            return Err(
-                gix_error::corruption("Corrupt delta data: delta base size does not match base object size")
-                    .raise_erased(),
-            );
+            bail!(gix_error::corruption(
+                "Corrupt delta data: delta base size does not match base object size"
+            ));
         }
-        let (result_size, result_header_size) =
-            data::delta::decode_header_size(&delta_bytes[consumed..]).or_erased()?;
+        let (result_size, result_header_size) = data::delta::decode_header_size(&delta_bytes[consumed..])?;
         let result_size = decoded_size_limited(result_size, alloc_limit_bytes)?;
         resize_with_limit(fully_resolved_delta_bytes, result_size, alloc_limit_bytes)?;
         data::delta::apply(
             &parent.bytes,
             fully_resolved_delta_bytes,
             &delta_bytes[consumed + result_header_size..],
-        )
-        .or_erased()?;
+        )?;
         entry.header = parent.entry.header;
         (entry, entry_end)
     } else {
@@ -579,10 +576,10 @@ fn inspect<T, MBFN>(
     modify_base: &mut MBFN,
     objects: &gix_features::progress::StepShared,
     size: &gix_features::progress::StepShared,
-) -> ExnResult
+) -> Result
 where
     T: Send,
-    MBFN: FnMut(&mut T, &dyn Progress, Context<'_>) -> ExnResult + Send,
+    MBFN: FnMut(&mut T, &dyn Progress, Context<'_>) -> Result + Send,
 {
     modify_base(
         node.data(),
@@ -594,7 +591,7 @@ where
             level,
         },
     )
-    .or_raise_erased(|| message("One of the object inspectors failed"))?;
+    .or_raise(|| message("One of the object inspectors failed"))?;
     objects.fetch_add(1, Ordering::Relaxed);
     size.fetch_add(resolved.bytes.len(), Ordering::Relaxed);
     Ok(())
@@ -612,18 +609,17 @@ fn decompress_from_resolver<F, R>(
     resolve_data: &R,
     object_hash: gix_hash::Kind,
     alloc_limit_bytes: Option<usize>,
-) -> ExnResult<(data::Entry, u64)>
+) -> Result<(data::Entry, u64)>
 where
     F: for<'r> Fn(EntryRange, &'r R) -> Option<&'r [u8]> + Send,
 {
-    let bytes = resolve(slice.clone(), resolve_data).ok_or_else(|| {
+    let bytes = resolve(slice.clone(), resolve_data).ok_or_raise(|| {
         gix_error::message!(
             "The resolver failed to obtain the pack entry bytes for the entry at {}",
             slice.start
         )
-        .raise_erased()
     })?;
-    let entry = data::Entry::from_bytes(bytes, slice.start, object_hash).or_erased()?;
+    let entry = data::Entry::from_bytes(bytes, slice.start, object_hash)?;
     let compressed = &bytes[entry.header_size()..];
     let decompressed_len = decoded_size_limited(entry.decompressed_size, alloc_limit_bytes)?;
     decompress_all_at_once_with(inflate, compressed, decompressed_len, out, alloc_limit_bytes)?;
@@ -636,31 +632,29 @@ fn decompress_all_at_once_with(
     decompressed_len: usize,
     out: &mut Vec<u8>,
     alloc_limit_bytes: Option<usize>,
-) -> ExnResult {
+) -> Result {
     resize_with_limit(out, decompressed_len, alloc_limit_bytes)?;
     inflate.reset();
     inflate
         .once(b, out)
-        .or_raise_erased(|| message("Failed to decompress entry"))?;
+        .or_raise(|| message("Failed to decompress entry"))?;
     Ok(())
 }
 
-fn decoded_size_limited(size: u64, alloc_limit_bytes: Option<usize>) -> ExnResult<usize> {
-    let size: usize = size
-        .try_into()
-        .map_err(|err| allocation_error(ResourceExhaustionKind::AllocationFailure).chain(err))?;
+fn decoded_size_limited(size: u64, alloc_limit_bytes: Option<usize>) -> Result<usize> {
+    let size = usize::try_from(size).or_raise(|| allocation_error(ResourceExhaustionKind::AllocationFailure))?;
     if alloc_limit_bytes.is_some_and(|limit| size > limit) {
-        return Err(allocation_error(ResourceExhaustionKind::AllocationLimit));
+        bail!(allocation_error(ResourceExhaustionKind::AllocationLimit));
     }
     Ok(size)
 }
 
-fn resize_with_limit(out: &mut Vec<u8>, len: usize, alloc_limit_bytes: Option<usize>) -> ExnResult {
+fn resize_with_limit(out: &mut Vec<u8>, len: usize, alloc_limit_bytes: Option<usize>) -> Result {
     if alloc_limit_bytes.is_some_and(|limit| len > limit) {
-        return Err(allocation_error(ResourceExhaustionKind::AllocationLimit));
+        bail!(allocation_error(ResourceExhaustionKind::AllocationLimit));
     }
     out.try_reserve(len.saturating_sub(out.len()))
-        .or_raise_erased(|| message("Entry too large to fit in memory"))?;
+        .or_raise(|| message("Entry too large to fit in memory"))?;
     out.resize(len, 0);
     Ok(())
 }
@@ -673,7 +667,7 @@ mod tests {
         time::Duration,
     };
 
-    use gix_error::ExnResult;
+    use gix_error::Result;
 
     use gix_features::progress;
 
@@ -717,7 +711,7 @@ mod tests {
                 if context.level == 1 {
                     calls_at_first_child.fetch_min(resolve_calls.load(Ordering::Relaxed), Ordering::Relaxed);
                 }
-                Ok::<_, gix_error::Exn>(())
+                Ok(())
             },
         )
         .expect("valid delta tree");
@@ -759,7 +753,7 @@ mod tests {
                     std::thread::sleep(Duration::from_millis(20));
                     active.fetch_sub(1, Ordering::Relaxed);
                 }
-                Ok::<_, gix_error::Exn>(())
+                Ok(())
             },
         )
         .expect("valid delta tree");
@@ -835,14 +829,14 @@ mod tests {
         insta::assert_debug_snapshot!(err, "delta result sizes above the cap must be rejected before resizing the output buffer", @"Entry too large to fit in memory");
     }
 
-    fn traverse_with_limit(tree: Tree<()>, pack: &Vec<u8>) -> ExnResult {
+    fn traverse_with_limit(tree: Tree<()>, pack: &Vec<u8>) -> Result {
         traverse(
             tree,
             pack,
             Some(1),
             Some(0),
             |slice, pack| pack.get(slice.start as usize..slice.end as usize),
-            |(), _progress, _context| Ok::<_, gix_error::Exn>(()),
+            |(), _progress, _context| Ok(()),
         )
     }
 
@@ -853,10 +847,10 @@ mod tests {
         alloc_limit_bytes: Option<usize>,
         resolve: F,
         inspect: MBFN,
-    ) -> ExnResult
+    ) -> Result
     where
         F: for<'r> Fn(data::EntryRange, &'r Vec<u8>) -> Option<&'r [u8]> + Send + Clone,
-        MBFN: FnMut(&mut (), &dyn progress::Progress, traverse::Context<'_>) -> ExnResult + Send + Clone,
+        MBFN: FnMut(&mut (), &dyn progress::Progress, traverse::Context<'_>) -> Result + Send + Clone,
     {
         let should_interrupt = AtomicBool::new(false);
         let mut size_progress = progress::Discard;

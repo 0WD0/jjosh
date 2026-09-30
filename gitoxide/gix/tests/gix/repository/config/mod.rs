@@ -86,11 +86,7 @@ fn invalid_stat_boolean_is_validation_error() -> Result {
         ),
         (
             "core.checkStat",
-            Message {
-                message: "Invalid configuration value",
-                class: Validation,
-                values: {"input": Bytes("invalid"), "key": String("core.checkStat")},
-            },
+            Invalid configuration value, "input"="invalid", "key"="core.checkStat",
         ),
     ]
     "#);

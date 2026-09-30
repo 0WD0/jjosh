@@ -1,10 +1,9 @@
-#![allow(clippy::result_large_err)]
-use gix_error::ResultExt;
-
 use std::path::{Path, PathBuf};
 
+use gix_error::{ResultExt, bail};
+
 use crate::{
-    Error, Repository, Result, ThreadSafeRepository,
+    Repository, Result, ThreadSafeRepository,
     bstr::{BStr, BString, ByteSlice},
     worktree::Proxy,
 };
@@ -41,8 +40,8 @@ impl Proxy<'_> {
     /// Read the absolute location of the checkout, the base of the work tree.
     /// Relative registrations are resolved against the private Git directory.
     /// Note that the location might not exist.
-    pub fn base(&self) -> std::io::Result<PathBuf> {
-        Ok(gix_discover::path::without_dot_git_dir(self.dot_git()?))
+    pub fn base(&self) -> Result<PathBuf> {
+        Ok(gix_discover::path::without_dot_git_dir(self.dot_git().or_error()?))
     }
 
     /// The absolute git directory for the work tree, typically contained within the parent git dir.
@@ -102,12 +101,9 @@ impl Proxy<'_> {
     ///
     /// Note that it won't fail if the worktree doesn't exist.
     pub fn into_repo(self) -> Result<Repository> {
-        let base = self.base().or_erased()?;
+        let base = self.base()?;
         if !base.is_dir() {
-            return Err(Error::from_error(gix_error::message!(
-                "Worktree at '{}' is inaccessible",
-                base.display()
-            )));
+            bail!(gix_error::message!("Worktree at '{}' is inaccessible", base.display()));
         }
         let options = self.parent.options.clone().without_repository_environment_overrides();
         let common_dir = self.parent.current_dir().join(self.parent.common_dir());

@@ -1,5 +1,5 @@
 use crate::{extension, extension::Signature, util::from_be_u32};
-use gix_error::ExnMessageResult;
+use gix_error::{Result, bail};
 
 pub(crate) fn header(data: &[u8]) -> (Signature, u32, &[u8]) {
     let (signature, data) = data.split_at(4);
@@ -11,8 +11,8 @@ pub(crate) fn all(
     maybe_beginning_of_extensions: &[u8],
     object_hash: gix_hash::Kind,
     alloc_limit_bytes: Option<usize>,
-) -> ExnMessageResult<(Outcome, &[u8])> {
-    use gix_error::{ErrorExt, ResultExt, message};
+) -> Result<(Outcome, &[u8])> {
+    use gix_error::{ResultExt, message};
 
     let mut ext_iter = match extension::Iter::new_without_checksum(maybe_beginning_of_extensions, object_hash) {
         Some(iter) => iter,
@@ -49,20 +49,18 @@ pub(crate) fn all(
                 extension::sparse::SIGNATURE => {
                     if !ext_data.is_empty() {
                         // only used as a marker, if this changes we need this implementation.
-                        return Err(message!(
+                        bail!(message!(
                             "Encountered mandatory extension '{}' which isn't implemented yet",
                             String::from_utf8_lossy(&mandatory)
-                        )
-                        .raise());
+                        ));
                     }
                     ext.is_sparse = true;
                 }
                 unknown => {
-                    return Err(message!(
+                    bail!(message!(
                         "Encountered mandatory extension '{}' which isn't implemented yet",
                         String::from_utf8_lossy(&unknown)
-                    )
-                    .raise());
+                    ));
                 }
             },
             _unknown => {} // skip unknown extensions, too

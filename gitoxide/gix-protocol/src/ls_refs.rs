@@ -6,7 +6,7 @@ pub(crate) mod function {
     use std::collections::HashSet;
 
     use bstr::{BString, ByteVec};
-    use gix_error::{ExnResult, ResultExt, message};
+    use gix_error::{ResultExt, message};
     use gix_features::progress::Progress;
     use gix_transport::client::Capabilities;
 
@@ -110,7 +110,7 @@ pub(crate) mod function {
                 mut transport: impl $transport,
                 progress: &mut impl Progress,
                 trace: bool,
-            ) -> ExnResult<Vec<Ref>> {
+            ) -> gix_error::Result<Vec<Ref>> {
                 let _span = gix_features::trace::detail!("gix_protocol::LsRefsCommand::invoke()", mode = $mode);
                 Command::LsRefs
                     .validate_argument_prefixes(
@@ -119,7 +119,7 @@ pub(crate) mod function {
                         &self.arguments,
                         &self.features,
                     )
-                    .or_raise_erased(|| message("Invalid ls-refs arguments or capabilities"))?;
+                    .or_raise(|| message("Invalid ls-refs arguments or capabilities"))?;
 
                 progress.step();
                 progress.set_name("list refs".into());
@@ -135,7 +135,7 @@ pub(crate) mod function {
                         trace,
                     )
                     .await
-                    .or_raise_erased(|| message("Could not invoke ls-refs"))?;
+                    .or_raise(|| message("Could not invoke ls-refs"))?;
                 $from_v2_refs(&mut remote_refs).await
             }
         };
@@ -234,8 +234,7 @@ pub(crate) mod function {
                 );
                 let err = super::LsRefsCommand::new(None, &capabilities, ("agent", Some("test".into())))
                     .invoke_blocking(transport, &mut gix_features::progress::Discard, false)
-                    .expect_err("the transport write fails")
-                    .into_error();
+                    .expect_err("the transport write fails");
                 error_snapshots.push(gix_testtools::redact_debug_snapshot(&(err), &[]));
                 assert_eq!(err.can_retry_lenient(), retryable, "preserve retry policy for {kind:?}");
                 assert!(

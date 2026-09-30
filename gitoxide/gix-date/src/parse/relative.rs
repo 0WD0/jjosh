@@ -1,9 +1,9 @@
 use std::str::FromStr;
 
-use gix_error::{ExnMessageResult, ResultExt, validation};
+use gix_error::{OptionExt, Result, ResultExt, validation};
 use jiff::{SignedDuration, Zoned, civil, tz::TimeZone};
 
-pub fn parse(input: &str, now: Option<Zoned>) -> Option<ExnMessageResult<Zoned>> {
+pub fn parse(input: &str, now: Option<Zoned>) -> Option<Result<Zoned>> {
     // First try named dates
     if let Some(result) = parse_named(input, now.as_ref()) {
         return Some(result);
@@ -14,7 +14,7 @@ pub fn parse(input: &str, now: Option<Zoned>) -> Option<ExnMessageResult<Zoned>>
 }
 
 /// Parse named relative dates like "now", "today", "yesterday".
-fn parse_named(input: &str, now: Option<&Zoned>) -> Option<ExnMessageResult<Zoned>> {
+fn parse_named(input: &str, now: Option<&Zoned>) -> Option<Result<Zoned>> {
     let input = input.trim();
     let duration = if input.eq_ignore_ascii_case("now") {
         SignedDuration::ZERO
@@ -139,7 +139,7 @@ fn unit(period: &str, ago: bool) -> Option<(&str, Unit)> {
 /// Seconds-based units subtract from the timestamp, while months and years only step down the
 /// respective fields and normalize later, so that repeated units accumulate and a day beyond
 /// the end of the target month rolls over.
-fn subtract_pairs(now: Option<Zoned>, pairs: &[Pair<'_>]) -> ExnMessageResult<Zoned> {
+fn subtract_pairs(now: Option<Zoned>, pairs: &[Pair<'_>]) -> Result<Zoned> {
     /// The calendar and clock fields for subtraction.
     struct Fields {
         year: i16,
@@ -164,7 +164,7 @@ fn subtract_pairs(now: Option<Zoned>, pairs: &[Pair<'_>]) -> ExnMessageResult<Zo
     impl Fields {
         /// Turn the fields back into a point in time: a day beyond the end of the month rolls over into the
         /// following month. One month before May 31st is thus May 1st, a day after April 30th.
-        fn normalize(&self) -> ExnMessageResult<Zoned> {
+        fn normalize(&self) -> Result<Zoned> {
             let first_of_month = civil::Date::new(self.year, self.month, 1).or_raise(|| {
                 gix_error::validation(format!("Date lies out of range: {}-{:02}", self.year, self.month))
             })?;
@@ -178,7 +178,7 @@ fn subtract_pairs(now: Option<Zoned>, pairs: &[Pair<'_>]) -> ExnMessageResult<Zo
         }
     }
 
-    let now = now.ok_or(validation("Missing current time"))?;
+    let now = now.ok_or_raise(|| validation("Missing current time"))?;
     let mut fields = Fields::from(now);
     for Pair { period, count, unit } in pairs {
         let err = || gix_error::validation(format!("Couldn't parse span from '{period} {count}'"));
@@ -187,17 +187,17 @@ fn subtract_pairs(now: Option<Zoned>, pairs: &[Pair<'_>]) -> ExnMessageResult<Zo
                 let seconds = count
                     .checked_mul(*factor)
                     .map(SignedDuration::from_secs)
-                    .ok_or_else(err)?;
+                    .ok_or_raise(err)?;
                 let ts = fields.normalize()?.timestamp().checked_sub(seconds).or_raise(err)?;
                 fields = ts.to_zoned(fields.timezone.clone()).into();
             }
             Unit::Months(factor) => {
-                let months = count.checked_mul(*factor).ok_or_else(err)?;
+                let months = count.checked_mul(*factor).ok_or_raise(err)?;
                 fields = fields.normalize()?.into();
                 let total = (i64::from(fields.year) * 12 + i64::from(fields.month) - 1)
                     .checked_sub(months)
-                    .ok_or_else(err)?;
-                fields.year = i16::try_from(total.div_euclid(12)).ok().ok_or_else(err)?;
+                    .ok_or_raise(err)?;
+                fields.year = i16::try_from(total.div_euclid(12)).ok().ok_or_raise(err)?;
                 fields.month = i8::try_from(total.rem_euclid(12) + 1).expect("a value in 1..=12");
             }
         }
@@ -205,8 +205,8 @@ fn subtract_pairs(now: Option<Zoned>, pairs: &[Pair<'_>]) -> ExnMessageResult<Zo
     fields.normalize()
 }
 
-fn subtract_duration(now: Option<&Zoned>, duration: SignedDuration) -> ExnMessageResult<Zoned> {
-    let now = now.ok_or(validation("Missing current time"))?;
+fn subtract_duration(now: Option<&Zoned>, duration: SignedDuration) -> Result<Zoned> {
+    let now = now.ok_or_raise(|| validation("Missing current time"))?;
     now.timestamp()
         .checked_sub(duration)
         .map(|timestamp| timestamp.to_zoned(now.time_zone().clone()))

@@ -1,5 +1,4 @@
 use crate::Result;
-use gix_error::ExnResult;
 use gix_revision::merge_base;
 
 use crate::odb_at;
@@ -7,7 +6,7 @@ use crate::odb_at;
 #[test]
 fn lookup_failures_retain_their_causes() {
     let mut error_snapshots = Vec::new();
-    use gix_error::{ErrorExt, ResultExt};
+    use gix_error::ErrorExt;
 
     struct FailingLookup(std::io::ErrorKind);
 
@@ -16,8 +15,8 @@ fn lookup_failures_retain_their_causes() {
             &self,
             _id: &gix_hash::oid,
             _buffer: &'a mut Vec<u8>,
-        ) -> ExnResult<Option<gix_object::Data<'a>>> {
-            Err(std::io::Error::from(self.0).raise_erased())
+        ) -> gix_error::Result<Option<gix_object::Data<'a>>> {
+            Err(std::io::Error::from(self.0).raise())
         }
     }
 
@@ -25,9 +24,7 @@ fn lookup_failures_retain_their_causes() {
         let mut graph = gix_revision::Graph::new(FailingLookup(kind), None);
         let hash = gix_testtools::object_hash();
         let err = merge_base(hash.null(), &[hash.empty_blob()], &mut graph)
-            .or_erased()
-            .expect_err("the custom object store always fails")
-            .into_error();
+            .expect_err("the custom object store always fails");
         error_snapshots.push(gix_testtools::redact_debug_snapshot(&(err), &[]));
         assert_eq!(
             err.downcast_any_ref::<std::io::Error>().map(std::io::Error::kind),
@@ -61,8 +58,7 @@ fn validate() -> Result {
                 .then(|| gix_commitgraph::Graph::from_info_dir(&odb.store_ref().path().join("info")).unwrap());
             for expected in baseline::parse_expectations(&baseline_path)? {
                 let mut graph = gix_revision::Graph::new(&odb, cache.as_ref());
-                let actual =
-                    merge_base(expected.first, &expected.others, &mut graph).map_err(gix_error::Exn::into_error)?;
+                let actual = merge_base(expected.first, &expected.others, &mut graph)?;
                 assert_eq!(
                     actual,
                     expected.bases,
@@ -73,8 +69,7 @@ fn validate() -> Result {
             }
             let mut graph = gix_revision::Graph::new(&odb, cache.as_ref());
             for expected in baseline::parse_expectations(&baseline_path)? {
-                let actual =
-                    merge_base(expected.first, &expected.others, &mut graph).map_err(gix_error::Exn::into_error)?;
+                let actual = merge_base(expected.first, &expected.others, &mut graph)?;
                 assert_eq!(
                     actual,
                     expected.bases,
@@ -181,8 +176,7 @@ mod octopus {
         let mut heap = permutohedron::Heap::new(&mut heads);
         while let Some(heads) = heap.next_permutation() {
             let actual =
-                gix_revision::merge_base::octopus(*heads.first().expect("three heads"), &heads[1..], &mut graph)
-                    .map_err(gix_error::Exn::into_error)?
+                gix_revision::merge_base::octopus(*heads.first().expect("three heads"), &heads[1..], &mut graph)?
                     .expect("a merge base");
             assert_eq!(actual, first_commit);
         }
@@ -202,8 +196,7 @@ mod octopus {
         let mut heap = permutohedron::Heap::new(&mut heads);
         while let Some(heads) = heap.next_permutation() {
             let actual =
-                gix_revision::merge_base::octopus(*heads.first().expect("three heads"), &heads[1..], &mut graph)
-                    .map_err(gix_error::Exn::into_error)?
+                gix_revision::merge_base::octopus(*heads.first().expect("three heads"), &heads[1..], &mut graph)?
                     .expect("a merge base");
             assert_eq!(actual, base);
         }
@@ -223,8 +216,7 @@ mod octopus {
         let mut heap = permutohedron::Heap::new(&mut heads);
         while let Some(heads) = heap.next_permutation() {
             let actual =
-                gix_revision::merge_base::octopus(*heads.first().expect("three heads"), &heads[1..], &mut graph)
-                    .map_err(gix_error::Exn::into_error)?
+                gix_revision::merge_base::octopus(*heads.first().expect("three heads"), &heads[1..], &mut graph)?
                     .expect("a merge base");
             assert_eq!(actual, base);
         }

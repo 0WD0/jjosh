@@ -8,7 +8,7 @@
 //! newlines and the `=` separator are rewritten according to [`Options`](crate::parse::format::Options).
 
 use bstr::BString;
-use gix_error::ExnMessageResult;
+use gix_error::Result;
 
 use crate::parse::{self, EventRef};
 
@@ -78,7 +78,7 @@ impl Default for Options {
 /// # Errors
 ///
 /// Returns an error classified as [`gix_error::Class::Validation`] if `input` is not a syntactically valid git-config file.
-pub fn normalize(input: &[u8], options: &Options) -> ExnMessageResult<BString> {
+pub fn normalize(input: &[u8], options: &Options) -> Result<BString> {
     let parsed = parse::Events::from_bytes(input, None)?;
     let events: Vec<_> = parsed.iter().collect();
     Ok(normalize_events(&events, options))

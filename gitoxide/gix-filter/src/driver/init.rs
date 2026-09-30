@@ -1,6 +1,5 @@
+use gix_error::Result;
 use std::process::Stdio;
-
-use gix_error::ExnMessageResult;
 
 use bstr::{BStr, BString};
 
@@ -20,7 +19,7 @@ impl State {
         driver: &Driver,
         operation: Operation,
         rela_path: &BStr,
-    ) -> ExnMessageResult<Option<Process<'_>>> {
+    ) -> Result<Option<Process<'_>>> {
         match driver.process.as_ref() {
             Some(process) => {
                 let client = match self.running.remove(process) {
@@ -69,10 +68,7 @@ impl State {
     }
 }
 
-fn spawn_driver(
-    cmd: BString,
-    context: &gix_command::Context,
-) -> ExnMessageResult<(std::process::Child, std::process::Command)> {
+fn spawn_driver(cmd: BString, context: &gix_command::Context) -> Result<(std::process::Child, std::process::Command)> {
     let mut cmd: std::process::Command = gix_command::prepare(gix_path::from_bstr(cmd).into_owned())
         .command_may_be_shell_script()
         .with_context(context.clone())

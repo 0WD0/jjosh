@@ -1,4 +1,4 @@
-use gix_error::ExnMessageResult;
+use gix_error::Result;
 use std::{borrow::Cow, iter::FusedIterator, ops::Range, slice};
 
 use bstr::{BStr, BString, ByteSlice, ByteVec};
@@ -222,7 +222,7 @@ impl BodyData {
         })
     }
 
-    pub(crate) fn copy_to_backing_in(&self, source: &[u8], target: &mut Vec<u8>) -> ExnMessageResult<Self> {
+    pub(crate) fn copy_to_backing_in(&self, source: &[u8], target: &mut Vec<u8>) -> Result<Self> {
         Ok(BodyData(
             self.0
                 .iter()

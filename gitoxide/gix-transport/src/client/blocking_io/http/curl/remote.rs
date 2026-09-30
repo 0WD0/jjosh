@@ -11,7 +11,7 @@ use std::{
 
 use bstr::ByteSlice;
 use curl::easy::{Auth, Easy2};
-use gix_error::{ErrorExt, ExnMessageResult, ExnResult, OptionExt, ResultExt, message};
+use gix_error::{Error, ErrorExt, OptionExt, Result, ResultExt, message};
 use gix_features::io::pipe;
 use parking_lot::Mutex;
 
@@ -100,7 +100,7 @@ impl Handler {
 
     fn transfer_error(&mut self, err: curl::Error) -> io::Error {
         match self.io_error.take() {
-            Some(source) => io::Error::new(source.kind(), source.and_raise(err).into_error()),
+            Some(source) => io::Error::new(source.kind(), source.and_raise(err)),
             None => io::Error::new(
                 if curl_is_retryable(&err) {
                     io::ErrorKind::ConnectionReset
@@ -125,22 +125,22 @@ impl Handler {
         self.redirect_action = redirect_action;
     }
 
-    fn parse_status_inner(data: &[u8]) -> ExnResult<usize> {
+    fn parse_status_inner(data: &[u8]) -> Result<usize> {
         let code = data
             .split(|b| *b == b' ')
             .nth(1)
-            .ok_or_raise_erased(|| message("Expected HTTP/<VERSION> STATUS"))?;
-        let code = std::str::from_utf8(code).or_erased()?;
-        code.parse::<usize>().or_erased()
+            .ok_or_raise(|| message("Expected HTTP/<VERSION> STATUS"))?;
+        let code = std::str::from_utf8(code).or_error()?;
+        code.parse::<usize>().or_error()
     }
-    fn parse_status(data: &[u8], follow: FollowRedirects) -> Option<(usize, gix_error::Exn)> {
+    fn parse_status(data: &[u8], follow: FollowRedirects) -> Option<(usize, Error)> {
         let valid_end = match follow {
             FollowRedirects::Initial | FollowRedirects::All => 308,
             FollowRedirects::None => 299,
         };
         match Self::parse_status_inner(data) {
             Ok(status) if !(200..=valid_end).contains(&status) => {
-                Some((status, message!("Received HTTP status {status}").raise_erased()))
+                Some((status, message!("Received HTTP status {status}").raise()))
             }
             Ok(_) => None,
             Err(err) => Some((500, err)),
@@ -292,7 +292,7 @@ fn normalize_url_path(path: &str) -> String {
 }
 
 impl curl::easy::Handler for Handler {
-    fn write(&mut self, data: &[u8]) -> Result<usize, curl::easy::WriteError> {
+    fn write(&mut self, data: &[u8]) -> std::result::Result<usize, curl::easy::WriteError> {
         drop(self.send_header.take()); // signal header readers to stop trying
         match self.send_data.as_mut() {
             Some(writer) => writer.write_all(data).map(|_| data.len()).or_else(|err| {
@@ -302,7 +302,7 @@ impl curl::easy::Handler for Handler {
             None => Ok(0), // nothing more to receive, reader is done
         }
     }
-    fn read(&mut self, data: &mut [u8]) -> Result<usize, curl::easy::ReadError> {
+    fn read(&mut self, data: &mut [u8]) -> std::result::Result<usize, curl::easy::ReadError> {
         match self.receive_body.as_mut() {
             Some(StreamOrBuffer::Stream(reader)) => reader.read(data),
             Some(StreamOrBuffer::Buffer(cursor)) => cursor.read(data),
@@ -354,7 +354,7 @@ impl curl::easy::Handler for Handler {
                 if self.redirect_action == RedirectAction::RejectConfiguredHeaders && is_redirect_status(status) {
                     Some((
                         status,
-                        message("refusing to follow redirect after request headers were configured").raise_erased(),
+                        message("refusing to follow redirect after request headers were configured").raise(),
                     ))
                 } else {
                     Handler::parse_status(data, self.follow)
@@ -374,7 +374,7 @@ impl curl::easy::Handler for Handler {
                             } else {
                                 io::ErrorKind::Other
                             },
-                            err.into_error(),
+                            err,
                         )))
                         .ok();
                 }
@@ -399,7 +399,7 @@ pub struct Response {
 }
 
 type Worker = (
-    thread::JoinHandle<ExnMessageResult>,
+    thread::JoinHandle<Result>,
     SyncSender<Request>,
     Receiver<Response>,
     SharedRedirectedBaseUrl,
@@ -410,7 +410,7 @@ pub fn new() -> Worker {
     let redirected_base_url_shared_out = redirected_base_url_shared.clone();
     let (req_send, req_recv) = sync_channel(0);
     let (res_send, res_recv) = sync_channel(0);
-    let handle = std::thread::spawn(move || -> ExnMessageResult {
+    let handle = std::thread::spawn(move || -> Result {
         let mut handle = Easy2::new(Handler::default());
         // We don't wait for the possibility for pipelining to become clear, and curl tries to reuse connections by default anyway.
         curl!(handle.pipewait(false));
@@ -870,7 +870,33 @@ mod resolve_location_path_tests {
 mod tests {
     use curl::easy::Handler as _;
 
-    use super::{Handler, StreamOrBuffer, io, pipe};
+    use super::{FollowRedirects, Handler, StreamOrBuffer, io, pipe};
+
+    #[test]
+    fn malformed_statuses_preserve_native_errors() {
+        let (utf8_status, utf8_error) =
+            Handler::parse_status(b"HTTP/1.1 \xff", FollowRedirects::None).expect("a non-UTF-8 status is rejected");
+        let (number_status, number_error) =
+            Handler::parse_status(b"HTTP/1.1 invalid", FollowRedirects::None).expect("a nonnumeric status is rejected");
+        assert!(
+            utf8_error.downcast_any_ref::<std::str::Utf8Error>().is_some(),
+            "status decoding retains its native UTF-8 error"
+        );
+        assert!(
+            number_error.downcast_any_ref::<std::num::ParseIntError>().is_some(),
+            "status parsing retains its native numeric error"
+        );
+        for (status, err) in [(utf8_status, utf8_error), (number_status, number_error)] {
+            assert_eq!(status, 500, "malformed statuses use the existing server-error fallback");
+            let sources: Vec<_> = err.iter_errors_with_locations().collect();
+            assert_eq!(sources.len(), 1, "propagation adds no diagnostic frames");
+            assert_eq!(
+                sources[0].location().expect("the parser error was raised").file(),
+                file!(),
+                "native parser errors capture their caller before propagation"
+            );
+        }
+    }
 
     #[test]
     fn aborted_uploads_preserve_the_callback_error() {

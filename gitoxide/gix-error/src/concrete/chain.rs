@@ -60,6 +60,9 @@ impl std::error::Error for ChainedError {
 /// lead from `owner` to the error represented by this handle. Zero represents `owner`. [`Self::error()`] follows that
 /// path whenever the borrowed error is needed.
 ///
+/// Scan the native chain once at construction, stopping at nested [`crate::Error`] boundaries. Recording its length and
+/// location-bearing prefix lets [`Self::source()`] advance without repeatedly resolving sources from `owner`.
+///
 /// Resolving a handle assumes that an error's source chain remains stable while the owning error is alive, as conventional
 /// [`std::error::Error`] implementations do.
 pub(crate) struct ErrorHandle {
@@ -67,16 +70,36 @@ pub(crate) struct ErrorHandle {
     owner: Arc<dyn std::error::Error + Send + Sync + 'static>,
     /// The number of native source links, including I/O payloads, from `owner` to this handle's error.
     source_depth: usize,
-    /// Whether this error retains its frame's location, directly or through transparent marker sources.
-    has_frame_location: bool,
+    /// The depth of the last source before the native chain ends or reaches a nested `Error` boundary.
+    source_count: usize,
+    /// The deepest source that inherits the frame's location through transparent marker sources.
+    frame_location_depth: usize,
 }
 
 impl ErrorHandle {
     pub(crate) fn new(error: Box<dyn std::error::Error + Send + Sync + 'static>) -> Self {
+        let error = match error.downcast::<Self>() {
+            Ok(handle) => return *handle,
+            Err(error) => error,
+        };
+        let mut source: &(dyn std::error::Error + 'static) = error.as_ref();
+        let mut source_count = 0;
+        let mut frame_location_depth = 0;
+        while !source.is::<crate::Error>() {
+            let Some(next) = crate::error::native_source(source) else {
+                break;
+            };
+            if frame_location_depth == source_count && crate::error::is_transparent_marker(source) {
+                frame_location_depth += 1;
+            }
+            source_count += 1;
+            source = next;
+        }
         ErrorHandle {
             owner: error.into(),
             source_depth: 0,
-            has_frame_location: true,
+            source_count,
+            frame_location_depth,
         }
     }
 
@@ -90,17 +113,50 @@ impl ErrorHandle {
     }
 
     pub(crate) fn source(&self) -> Option<Self> {
-        let error = self.error();
-        crate::error::native_source(error)?;
-        Some(ErrorHandle {
+        (self.source_depth < self.source_count).then(|| ErrorHandle {
             owner: Arc::clone(&self.owner),
             source_depth: self.source_depth + 1,
-            has_frame_location: self.has_frame_location && crate::error::is_transparent_marker(error),
+            source_count: self.source_count,
+            frame_location_depth: self.frame_location_depth,
         })
     }
 
     #[cfg(all(feature = "auto-chain-error", not(feature = "tree-error")))]
+    pub(crate) fn is_native_source(&self) -> bool {
+        self.source_depth != 0
+    }
+
+    #[cfg(all(feature = "auto-chain-error", not(feature = "tree-error")))]
+    pub(crate) fn into_owned_error(self) -> Box<dyn std::error::Error + Send + Sync + 'static> {
+        debug_assert_eq!(self.source_depth, 0, "only explicit frames own an error");
+        Box::new(self)
+    }
+
+    pub(crate) fn owned_error(&self) -> &(dyn std::error::Error + Send + Sync + 'static) {
+        debug_assert_eq!(self.source_depth, 0, "only explicit frames own an error");
+        self.owner.as_ref()
+    }
+
+    #[cfg(all(feature = "auto-chain-error", not(feature = "tree-error")))]
     pub(crate) fn has_frame_location(&self) -> bool {
-        self.has_frame_location
+        self.source_depth <= self.frame_location_depth
+    }
+}
+
+impl Display for ErrorHandle {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(self.error(), f)
+    }
+}
+
+impl Debug for ErrorHandle {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Debug::fmt(self.error(), f)
+    }
+}
+
+impl std::error::Error for ErrorHandle {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        crate::error::native_source(self.error())
     }
 }

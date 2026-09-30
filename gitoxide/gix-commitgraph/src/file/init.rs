@@ -1,6 +1,7 @@
+use gix_error::Result;
 use std::path::{Path, PathBuf};
 
-use gix_error::{ErrorExt, Exn, ExnMessageResult, Message, ResultExt, message};
+use gix_error::{ErrorExt, ResultExt, bail, message};
 
 use crate::{
     File,
@@ -17,7 +18,7 @@ const MIN_FILE_SIZE: usize = HEADER_LEN
 
 impl File {
     /// Try to parse the commit graph file at `path`.
-    pub fn at(path: impl AsRef<Path>) -> ExnMessageResult<File> {
+    pub fn at(path: impl AsRef<Path>) -> Result<File> {
         Self::try_from(path.as_ref())
     }
 
@@ -26,22 +27,22 @@ impl File {
     ///
     /// Note that `path` is only used for verification of the hash its basename contains, but otherwise
     /// is not of importance.
-    pub fn new(data: memmap2::Mmap, path: PathBuf) -> ExnMessageResult<File> {
+    pub fn new(data: memmap2::Mmap, path: PathBuf) -> Result<File> {
         let data_size = data.len();
         if data_size < MIN_FILE_SIZE {
-            return Err(message("Commit-graph file too small even for an empty graph").raise());
+            bail!(message("Commit-graph file too small even for an empty graph"));
         }
 
         let mut ofs = 0;
         if &data[ofs..ofs + SIGNATURE.len()] != SIGNATURE {
-            return Err(message("Commit-graph file does not start with expected signature").raise());
+            bail!(message("Commit-graph file does not start with expected signature"));
         }
         ofs += SIGNATURE.len();
 
         match data[ofs] {
             1 => (),
             x => {
-                return Err(message!("Unsupported commit-graph file version: {x}").raise());
+                bail!(message!("Unsupported commit-graph file version: {x}"));
             }
         }
         ofs += 1;
@@ -62,22 +63,22 @@ impl File {
             .or_raise(|| message!("Couldn't read commit-graph file with {chunk_count} chunks at offset {ofs}"))?;
 
         let base_graphs_list_offset = chunks
-            .validated_usize_offset_by_id(BASE_GRAPHS_LIST_CHUNK_ID, |chunk_range| {
+            .validated_usize_offset_by_id(BASE_GRAPHS_LIST_CHUNK_ID, |chunk_range| -> Result<_> {
                 let chunk_size = chunk_range.len();
                 if chunk_size % object_hash.len_in_bytes() != 0 {
-                    return Err(message!("Commit-graph chunk {BASE_GRAPHS_LIST_CHUNK_ID:?} has invalid size: {msg}",
+                    bail!(message!("Commit-graph chunk {BASE_GRAPHS_LIST_CHUNK_ID:?} has invalid size: {msg}",
                         msg = format!(
                             "chunk size {} is not a multiple of {}",
                             chunk_size,
                             object_hash.len_in_bytes()
                         ),
-                    ).raise());
+                    ));
                 }
                 let chunk_base_graph_count: u32 = (chunk_size / object_hash.len_in_bytes())
                     .try_into()
                     .expect("base graph count to fit in 32-bits");
                 if chunk_base_graph_count != u32::from(base_graph_count) {
-                    return Err(message!("Commit-graph {BASE_GRAPHS_LIST_CHUNK_ID:?} chunk contains {chunk_base_graph_count} base graphs, but commit-graph file header claims {base_graph_count} base graphs").raise())
+                    bail!(message!("Commit-graph {BASE_GRAPHS_LIST_CHUNK_ID:?} chunk contains {chunk_base_graph_count} base graphs, but commit-graph file header claims {base_graph_count} base graphs"))
                 }
                 Ok(chunk_range.start)
             })
@@ -85,12 +86,12 @@ impl File {
             .transpose()?;
 
         let (commit_data_offset, commit_data_count): (_, u32) = chunks
-            .validated_usize_offset_by_id(COMMIT_DATA_CHUNK_ID, |chunk_range| {
+            .validated_usize_offset_by_id(COMMIT_DATA_CHUNK_ID, |chunk_range| -> Result<_> {
                 let chunk_size = chunk_range.len();
 
                 let entry_size = object_hash.len_in_bytes() + COMMIT_DATA_ENTRY_SIZE_SANS_HASH;
                 if chunk_size % entry_size != 0 {
-                    return Err(message!("Commit-graph chunk {COMMIT_DATA_CHUNK_ID:?} has invalid size: chunk size {chunk_size} is not a multiple of {entry_size}").raise())
+                    bail!(message!("Commit-graph chunk {COMMIT_DATA_CHUNK_ID:?} has invalid size: chunk size {chunk_size} is not a multiple of {entry_size}"))
                 }
                 Ok((
                     chunk_range.start,
@@ -101,23 +102,23 @@ impl File {
             })??;
 
         let fan_offset = chunks
-            .validated_usize_offset_by_id(OID_FAN_CHUNK_ID, |chunk_range| {
+            .validated_usize_offset_by_id(OID_FAN_CHUNK_ID, |chunk_range| -> Result<_> {
                 let chunk_size = chunk_range.len();
 
                 let expected_size = 4 * FAN_LEN;
                 if chunk_size != expected_size {
-                    return Err(message!("Commit-graph chunk {OID_FAN_CHUNK_ID:?} has invalid size: expected chunk length {expected_size}, got {chunk_size}").raise())
+                    bail!(message!("Commit-graph chunk {OID_FAN_CHUNK_ID:?} has invalid size: expected chunk length {expected_size}, got {chunk_size}"))
                 }
                 Ok(chunk_range.start)
             })?
             .or_raise(|| message("Error getting offset for OID fan chunk"))?;
 
         let (oid_lookup_offset, oid_lookup_count): (_, u32) = chunks
-            .validated_usize_offset_by_id(OID_LOOKUP_CHUNK_ID, |chunk_range| {
+            .validated_usize_offset_by_id(OID_LOOKUP_CHUNK_ID, |chunk_range| -> Result<_> {
                 let chunk_size = chunk_range.len();
 
                 if chunk_size % object_hash.len_in_bytes() != 0 {
-                    return Err(message!("Commit-graph chunk {OID_LOOKUP_CHUNK_ID:?} has invalid size: chunk size {chunk_size} is not a multiple of {hash_len}", hash_len = object_hash.len_in_bytes()).raise())
+                    bail!(message!("Commit-graph chunk {OID_LOOKUP_CHUNK_ID:?} has invalid size: chunk size {chunk_size} is not a multiple of {hash_len}", hash_len = object_hash.len_in_bytes()))
                 }
                 Ok((
                     chunk_range.start,
@@ -132,32 +133,33 @@ impl File {
 
         let trailer = &data[chunks.highest_offset() as usize..];
         if trailer.len() != object_hash.len_in_bytes() {
-            return Err(message!(
+            bail!(message!(
                 "Expected commit-graph trailer to contain {} bytes, got {}",
                 object_hash.len_in_bytes(),
                 trailer.len()
-            )
-            .raise());
+            ));
         }
 
         if base_graph_count > 0 && base_graphs_list_offset.is_none() {
-            return Err(message!("Chunk named {BASE_GRAPHS_LIST_CHUNK_ID:?} was not found in chunk file index").into());
+            bail!(message!(
+                "Chunk named {BASE_GRAPHS_LIST_CHUNK_ID:?} was not found in chunk file index"
+            ));
         }
 
         let (fan, _) = read_fan(&data[fan_offset..]);
         if oid_lookup_count != fan[255] {
-            return Err(message!("Commit-graph {OID_FAN_CHUNK_ID:?} chunk contains {chunk1_commits} commits, but {OID_LOOKUP_CHUNK_ID:?} chunk contains {chunk2_commits} commits",
+            bail!(message!(
+                "Commit-graph {OID_FAN_CHUNK_ID:?} chunk contains {chunk1_commits} commits, but {OID_LOOKUP_CHUNK_ID:?} chunk contains {chunk2_commits} commits",
                 chunk1_commits = fan[255],
                 chunk2_commits = oid_lookup_count,
-            ).raise());
+            ));
         }
         if commit_data_count != fan[255] {
-            return Err(
-                message!("Commit-graph {OID_FAN_CHUNK_ID:?} chunk contains {chunk1_commits} commits, but {COMMIT_DATA_CHUNK_ID:?} chunk contains {chunk2_commits} commits",
-                    chunk1_commits = fan[255],
-                    chunk2_commits = commit_data_count,
-                ).raise(),
-            );
+            bail!(message!(
+                "Commit-graph {OID_FAN_CHUNK_ID:?} chunk contains {chunk1_commits} commits, but {COMMIT_DATA_CHUNK_ID:?} chunk contains {chunk2_commits} commits",
+                chunk1_commits = fan[255],
+                chunk2_commits = commit_data_count,
+            ));
         }
         Ok(File {
             base_graph_count,
@@ -175,9 +177,9 @@ impl File {
 }
 
 impl TryFrom<&Path> for File {
-    type Error = Exn<Message>;
+    type Error = gix_error::Error;
 
-    fn try_from(path: &Path) -> Result<Self, Self::Error> {
+    fn try_from(path: &Path) -> Result<Self> {
         let data = std::fs::File::open(path)
             .and_then(|file| {
                 // SAFETY: we have to take the risk of somebody changing the file underneath. Git never writes into the same file.

@@ -12,18 +12,14 @@ pub use gix_object::signature::{
 };
 
 pub(crate) fn verify(commit: &crate::Commit<'_>) -> Result<Option<Outcome>> {
-    let Some((signature, signed_data)) = commit
-        .signature()
-        .or_raise(|| gix_error::message("Could not decode the commit signature"))?
-    else {
+    let Some((signature, signed_data)) = commit.signature()? else {
         return Ok(None);
     };
     let config = commit.repo.config_snapshot();
     let minimum_trust = config
         .string(Gpg::MIN_TRUST_LEVEL)
         .map(|value| Gpg::MIN_TRUST_LEVEL.try_into_trust_level(value))
-        .transpose()
-        .or_raise(|| gix_error::message("The configured minimum signature trust level is invalid"))?
+        .transpose()?
         .unwrap_or_default();
     let format = Format::from_signature(&signature)
         .ok_or_else(|| Error::from_error(gix_error::corruption("The signature format is unsupported")))?;

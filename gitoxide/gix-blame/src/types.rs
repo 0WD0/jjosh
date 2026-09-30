@@ -1,5 +1,5 @@
-use gix_error::ExnMessageResult;
-use gix_error::validation;
+use gix_error::Result;
+use gix_error::{bail, validation};
 use gix_hash::ObjectId;
 use gix_object::bstr::BString;
 use smallvec::SmallVec;
@@ -55,7 +55,7 @@ impl BlameRanges {
     ///
     /// Note that the input range is 1-based inclusive, as used by git, and
     /// the output is a zero-based `BlameRanges` instance.
-    pub fn from_one_based_inclusive_range(range: RangeInclusive<u32>) -> ExnMessageResult<Self> {
+    pub fn from_one_based_inclusive_range(range: RangeInclusive<u32>) -> Result<Self> {
         let zero_based_range = Self::inclusive_to_zero_based_exclusive(range)?;
         Ok(Self::PartialFile(vec![zero_based_range]))
     }
@@ -66,7 +66,7 @@ impl BlameRanges {
     /// the output is a zero-based `BlameRanges` instance.
     ///
     /// If the input vector is empty, the result will be `WholeFile`.
-    pub fn from_one_based_inclusive_ranges(ranges: Vec<RangeInclusive<u32>>) -> ExnMessageResult<Self> {
+    pub fn from_one_based_inclusive_ranges(ranges: Vec<RangeInclusive<u32>>) -> Result<Self> {
         if ranges.is_empty() {
             return Ok(Self::WholeFile);
         }
@@ -83,11 +83,11 @@ impl BlameRanges {
     }
 
     /// Convert a 1-based inclusive range to a 0-based exclusive range.
-    fn inclusive_to_zero_based_exclusive(range: RangeInclusive<u32>) -> ExnMessageResult<Range<u32>> {
+    fn inclusive_to_zero_based_exclusive(range: RangeInclusive<u32>) -> Result<Range<u32>> {
         if range.start() == &0 {
-            return Err(validation(
+            bail!(validation(
                 "Invalid line range was given, line range is expected to be a 1-based inclusive range in the format '<start>,<end>'",
-            ).into());
+            ));
         }
         let start = range.start() - 1;
         let end = *range.end();
@@ -99,7 +99,7 @@ impl BlameRanges {
     /// Add a single range to blame.
     ///
     /// The new range will be merged with any overlapping existing ranges.
-    pub fn add_one_based_inclusive_range(&mut self, new_range: RangeInclusive<u32>) -> ExnMessageResult {
+    pub fn add_one_based_inclusive_range(&mut self, new_range: RangeInclusive<u32>) -> Result {
         let zero_based_range = Self::inclusive_to_zero_based_exclusive(new_range)?;
         self.merge_zero_based_exclusive_range(zero_based_range);
 

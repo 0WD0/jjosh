@@ -1,4 +1,4 @@
-use gix_error::{ExnMessageResult, ResultExt};
+use gix_error::{ErrorExt, OptionExt, Result, ResultExt};
 use gix_object::bstr::{BStr, ByteSlice};
 
 use crate::{parse, store_impl::packed};
@@ -30,7 +30,7 @@ impl Default for Header {
 ///
 /// On success, `input` is advanced past the line ending. The returned slice
 /// does not include the line ending.
-fn until_line_end_without_separator<'a>(input: &mut &'a [u8]) -> Result<&'a BStr, ()> {
+fn until_line_end_without_separator<'a>(input: &mut &'a [u8]) -> std::result::Result<&'a BStr, ()> {
     let line_end = input.iter().position(|b| *b == b'\r' || *b == b'\n').ok_or(())?;
     let out = input[..line_end].as_bstr();
     let mut maybe_start_of_newline = &input[line_end..];
@@ -48,7 +48,7 @@ fn until_line_end_without_separator<'a>(input: &mut &'a [u8]) -> Result<&'a BStr
 ///
 /// On success, `input` is advanced past the entire header line, including its
 /// line ending.
-pub fn header(input: &mut &[u8]) -> Result<Header, ()> {
+pub fn header(input: &mut &[u8]) -> std::result::Result<Header, ()> {
     let Some(rest) = input.strip_prefix(b"# pack-refs with: ") else {
         return Err(());
     };
@@ -77,17 +77,18 @@ pub fn header(input: &mut &[u8]) -> Result<Header, ()> {
 ///
 /// On success, `input` is advanced past the reference line and, if present, the
 /// peeled object line.
-pub fn reference<'a>(input: &mut &'a [u8], object_hash: gix_hash::Kind) -> ExnMessageResult<packed::Reference<'a>> {
+pub fn reference<'a>(input: &mut &'a [u8], object_hash: gix_hash::Kind) -> Result<packed::Reference<'a>> {
     let invalid = || gix_error::corruption("Malformed packed reference");
-    let target = parse::hex_hash(input, object_hash).map_err(|()| invalid())?;
-    *input = input.strip_prefix(b" ").ok_or_else(invalid)?;
-    let name = <&crate::FullNameRef>::try_from(until_line_end_without_separator(input).map_err(|()| invalid())?)
-        .or_raise(invalid)?;
+    let target = parse::hex_hash(input, object_hash).map_err(|()| invalid().raise())?;
+    *input = input.strip_prefix(b" ").ok_or_raise(invalid)?;
+    let name =
+        <&crate::FullNameRef>::try_from(until_line_end_without_separator(input).map_err(|()| invalid().raise())?)
+            .or_raise(invalid)?;
 
     let object = if let Some(rest) = input.strip_prefix(b"^") {
         *input = rest;
-        let object = parse::hex_hash(input, object_hash).map_err(|()| invalid())?;
-        parse::newline(input).map_err(|()| invalid())?;
+        let object = parse::hex_hash(input, object_hash).map_err(|()| invalid().raise())?;
+        parse::newline(input).map_err(|()| invalid().raise())?;
         Some(object)
     } else {
         None

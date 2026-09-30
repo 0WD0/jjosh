@@ -1,6 +1,7 @@
 use std::borrow::Borrow;
 
 use bstr::{BStr, ByteSlice};
+use gix_error::{OptionExt, Result};
 use gix_features::threading::OwnShared;
 
 use crate::{Name, NameRef};
@@ -24,11 +25,11 @@ impl AsRef<str> for NameRef<'_> {
 }
 
 impl<'a> TryFrom<&'a BStr> for NameRef<'a> {
-    type Error = gix_error::Message;
+    type Error = gix_error::Error;
 
-    /// Invalid name bytes are stored as `input` in [`gix_error::Message::values`].
-    /// After [wrapping](gix_error::Error::from_error()), inspect them with [metadata](gix_error::Error::metadata()).
-    fn try_from(attr: &'a BStr) -> Result<Self, Self::Error> {
+    /// Invalid names produce a [validation error](gix_error::Error::is_validation()),
+    /// with the original bytes stored as `input` [metadata](gix_error::Error::metadata()).
+    fn try_from(attr: &'a BStr) -> Result<Self> {
         fn attr_valid(attr: &BStr) -> bool {
             if attr.is_empty() || attr.first() == Some(&b'-') {
                 return false;
@@ -40,7 +41,7 @@ impl<'a> TryFrom<&'a BStr> for NameRef<'a> {
 
         attr_valid(attr)
             .then(|| NameRef(attr.to_str().expect("no illformed utf8")))
-            .ok_or_else(|| {
+            .ok_or_raise(|| {
                 gix_error::validation("Attribute has non-ascii characters or starts with '-'").with("input", attr)
             })
     }
@@ -72,7 +73,7 @@ impl Borrow<str> for Name {
 
 #[cfg(feature = "serde")]
 impl serde::Serialize for Name {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
@@ -82,7 +83,7 @@ impl serde::Serialize for Name {
 
 #[cfg(feature = "serde")]
 impl<'de> serde::Deserialize<'de> for Name {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {

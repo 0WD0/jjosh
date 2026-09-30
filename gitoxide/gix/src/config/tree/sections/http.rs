@@ -93,11 +93,6 @@ pub type ProxyAuthMethod = keys::Any<validate::ProxyAuthMethod>;
 pub type Version = keys::Any<validate::Version>;
 
 mod key_impls {
-    #[cfg(any(
-        feature = "blocking-http-transport-reqwest",
-        feature = "blocking-http-transport-curl"
-    ))]
-    use crate::Error;
     use crate::{
         Result,
         config::tree::{
@@ -110,7 +105,7 @@ mod key_impls {
         feature = "blocking-http-transport-reqwest",
         feature = "blocking-http-transport-curl"
     ))]
-    use gix_error::{ExnResult, ResultExt};
+    use gix_error::{ResultExt, bail};
 
     impl SslVersion {
         pub const fn new_ssl_version(name: &'static str, section: &'static dyn Section) -> Self {
@@ -137,15 +132,19 @@ mod key_impls {
         pub fn try_into_follow_redirects(
             &'static self,
             value: impl gix_utils::AsBStr,
-            boolean: impl FnOnce() -> ExnResult<Option<bool>>,
+            boolean: impl FnOnce() -> Result<Option<bool>>,
         ) -> Result<crate::protocol::transport::client::blocking_io::http::options::FollowRedirects> {
             use crate::{bstr::ByteSlice, protocol::transport::client::blocking_io::http::options::FollowRedirects};
             let value = value.as_bstr();
             Ok(if value.as_bstr().as_bytes() == b"initial" {
                 FollowRedirects::Initial
-            } else if let Some(value) = boolean()
-                .or_raise(|| crate::config::key::error_with_value(self, "Invalid configuration value", value))?
-            {
+            } else if let Some(value) = boolean().or_raise(|| {
+                crate::config::key::error_with_value(
+                    self,
+                    "The follow redirects value must be 'initial', or boolean true or false",
+                    value,
+                )
+            })? {
                 if value {
                     FollowRedirects::All
                 } else {
@@ -190,11 +189,11 @@ mod key_impls {
                 b"HTTP/1.1" => HttpVersion::V1_1,
                 b"HTTP/2" => HttpVersion::V2,
                 _ => {
-                    return Err(Error::from_error(crate::config::key::error_with_value(
+                    bail!(crate::config::key::error_with_value(
                         self,
-                        "Invalid configuration value",
+                        "The HTTP version must be 'HTTP/2' or 'HTTP/1.1'",
                         value,
-                    )));
+                    ));
                 }
             })
         }
@@ -220,11 +219,11 @@ mod key_impls {
                 b"negotiate" => ProxyAuthMethod::Negotiate,
                 b"ntlm" => ProxyAuthMethod::Ntlm,
                 _ => {
-                    return Err(Error::from_error(crate::config::key::error_with_value(
+                    bail!(crate::config::key::error_with_value(
                         self,
                         "Invalid configuration value",
                         value,
-                    )));
+                    ));
                 }
             })
         }
@@ -253,11 +252,7 @@ mod key_impls {
                 b"tlsv1.2" => TlsV1_2,
                 b"tlsv1.3" => TlsV1_3,
                 _ => {
-                    return Err(Error::from_error(crate::config::key::error_with_value(
-                        self,
-                        "Invalid SSL version",
-                        value,
-                    )));
+                    bail!(crate::config::key::error_with_value(self, "Invalid SSL version", value));
                 }
             })
         }
@@ -268,19 +263,19 @@ pub mod validate {
     use gix_error::ResultExt;
 
     use crate::{
-        ExnResult,
+        Result,
         bstr::{BStr, ByteSlice},
         config::tree::keys::Validate,
     };
 
     pub struct SslVersion;
     impl Validate for SslVersion {
-        fn validate(&self, _value: &BStr) -> ExnResult {
+        fn validate(&self, _value: &BStr) -> Result {
             #[cfg(any(
                 feature = "blocking-http-transport-reqwest",
                 feature = "blocking-http-transport-curl"
             ))]
-            super::Http::SSL_VERSION.try_into_ssl_version(_value).or_erased()?;
+            super::Http::SSL_VERSION.try_into_ssl_version(_value)?;
 
             Ok(())
         }
@@ -288,14 +283,12 @@ pub mod validate {
 
     pub struct ProxyAuthMethod;
     impl Validate for ProxyAuthMethod {
-        fn validate(&self, _value: &BStr) -> ExnResult {
+        fn validate(&self, _value: &BStr) -> Result {
             #[cfg(any(
                 feature = "blocking-http-transport-reqwest",
                 feature = "blocking-http-transport-curl"
             ))]
-            super::Http::PROXY_AUTH_METHOD
-                .try_into_proxy_auth_method(_value)
-                .or_erased()?;
+            super::Http::PROXY_AUTH_METHOD.try_into_proxy_auth_method(_value)?;
 
             Ok(())
         }
@@ -303,12 +296,12 @@ pub mod validate {
 
     pub struct Version;
     impl Validate for Version {
-        fn validate(&self, _value: &BStr) -> ExnResult {
+        fn validate(&self, _value: &BStr) -> Result {
             #[cfg(any(
                 feature = "blocking-http-transport-reqwest",
                 feature = "blocking-http-transport-curl"
             ))]
-            super::Http::VERSION.try_into_http_version(_value).or_erased()?;
+            super::Http::VERSION.try_into_http_version(_value)?;
 
             Ok(())
         }
@@ -316,24 +309,21 @@ pub mod validate {
 
     pub struct ExtraHeader;
     impl Validate for ExtraHeader {
-        fn validate(&self, value: &BStr) -> ExnResult {
-            value.to_str().or_erased()?;
+        fn validate(&self, value: &BStr) -> Result {
+            value.to_str().or_error()?;
             Ok(())
         }
     }
 
     pub struct FollowRedirects;
     impl Validate for FollowRedirects {
-        fn validate(&self, _value: &BStr) -> ExnResult {
+        fn validate(&self, _value: &BStr) -> Result {
             #[cfg(any(
                 feature = "blocking-http-transport-reqwest",
                 feature = "blocking-http-transport-curl"
             ))]
             super::Http::FOLLOW_REDIRECTS
-                .try_into_follow_redirects(_value, || {
-                    gix_config::Boolean::try_from(_value).map(|b| Some(b.0)).or_erased()
-                })
-                .or_erased()?;
+                .try_into_follow_redirects(_value, || gix_config::Boolean::try_from(_value).map(|b| Some(b.0)))?;
             Ok(())
         }
     }

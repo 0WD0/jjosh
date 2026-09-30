@@ -1,7 +1,8 @@
+use gix_error::Result;
 use std::{borrow::Cow, cell::RefCell, cmp::Ordering};
 
 use bstr::BStr;
-use gix_error::{ErrorExt, ExnMessageResult, ExnResult, message};
+use gix_error::{ErrorExt, bail, message};
 use gix_filter::attributes::glob::pattern::Case;
 
 use super::{Action, ChangeRef, RewriteOptions};
@@ -30,25 +31,25 @@ use crate::rewrites;
 pub fn diff<'rhs, 'lhs: 'rhs, Find>(
     lhs: &'lhs gix_index::State,
     rhs: &'rhs gix_index::State,
-    mut cb: impl FnMut(ChangeRef<'lhs, 'rhs>) -> ExnResult<Action>,
+    mut cb: impl FnMut(ChangeRef<'lhs, 'rhs>) -> Result<Action>,
     rewrite_options: Option<RewriteOptions<'_, Find>>,
     pathspec: &mut gix_pathspec::Search,
     pathspec_attributes: &mut dyn FnMut(&BStr, Case, bool, &mut gix_attributes::search::Outcome) -> bool,
-) -> ExnMessageResult<Option<rewrites::Outcome>>
+) -> Result<Option<rewrites::Outcome>>
 where
     Find: gix_object::FindObjectOrHeader,
 {
     if lhs.is_sparse() || rhs.is_sparse() {
-        return Err(message("Cannot diff indices that contain sparse entries").raise());
+        bail!(message("Cannot diff indices that contain sparse entries"));
     }
     if lhs
         .entries()
         .iter()
         .any(|e| e.stage() != gix_index::entry::Stage::Unconflicted)
     {
-        return Err(
-            message("Unmerged entries aren't allowed in the left-hand index, only in the right-hand index").raise(),
-        );
+        bail!(message(
+            "Unmerged entries aren't allowed in the left-hand index, only in the right-hand index"
+        ));
     }
 
     let lhs_range = lhs
@@ -224,9 +225,9 @@ where
 
 fn emit_deletion<'rhs, 'lhs: 'rhs>(
     (idx, path, entry): (usize, &'lhs BStr, &'lhs gix_index::Entry),
-    mut cb: impl FnMut(ChangeRef<'lhs, 'rhs>) -> ExnResult<Action>,
+    mut cb: impl FnMut(ChangeRef<'lhs, 'rhs>) -> Result<Action>,
     tracker: Option<&mut rewrites::Tracker<ChangeRef<'lhs, 'rhs>>>,
-) -> ExnMessageResult<Action> {
+) -> Result<Action> {
     let change = ChangeRef::Deletion {
         location: Cow::Borrowed(path),
         index: idx,
@@ -247,9 +248,9 @@ fn emit_deletion<'rhs, 'lhs: 'rhs>(
 
 fn emit_addition<'rhs, 'lhs: 'rhs>(
     (idx, path, entry): (usize, &'rhs BStr, &'rhs gix_index::Entry),
-    mut cb: impl FnMut(ChangeRef<'lhs, 'rhs>) -> ExnResult<Action>,
+    mut cb: impl FnMut(ChangeRef<'lhs, 'rhs>) -> Result<Action>,
     tracker: Option<&mut rewrites::Tracker<ChangeRef<'lhs, 'rhs>>>,
-) -> ExnMessageResult<Action> {
+) -> Result<Action> {
     if ignore_unmerged_and_intent_to_add((idx, path, entry)) {
         return Ok(std::ops::ControlFlow::Continue(()));
     }
@@ -272,8 +273,8 @@ fn emit_addition<'rhs, 'lhs: 'rhs>(
     cb(change).map_err(callback_error)
 }
 
-fn callback_error(err: gix_error::Exn) -> gix_error::Exn<gix_error::Message> {
-    err.raise(message("The callback indicated failure"))
+fn callback_error(err: gix_error::Error) -> gix_error::Error {
+    err.and_raise(message("The callback indicated failure"))
 }
 
 fn ignore_unmerged_and_intent_to_add<'rhs, 'lhs: 'rhs>(

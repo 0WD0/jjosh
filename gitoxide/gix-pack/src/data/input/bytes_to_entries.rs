@@ -1,6 +1,7 @@
+use gix_error::Result;
 use std::{fs, io};
 
-use gix_error::{ErrorExt, ExnResult, ResultExt, message};
+use gix_error::{ErrorExt, ResultExt, bail, message};
 use gix_hash::{Hasher, ObjectId};
 use gix_zlib::Decompress;
 
@@ -51,7 +52,7 @@ where
         mode: input::Mode,
         compressed: input::EntryDataMode,
         object_hash: gix_hash::Kind,
-    ) -> ExnResult<BytesToEntriesIter<BR>> {
+    ) -> Result<BytesToEntriesIter<BR>> {
         let mut header_data = [0u8; crate::data::header::SIZE];
         read.read_exact(&mut header_data).map_err(io_error)?;
 
@@ -76,7 +77,7 @@ where
         })
     }
 
-    fn next_inner(&mut self) -> ExnResult<input::Entry> {
+    fn next_inner(&mut self) -> Result<input::Entry> {
         self.objects_left -= 1; // even an error counts as objects
 
         // Read header
@@ -115,11 +116,10 @@ where
 
         let bytes_copied = io::copy(&mut decompressed_reader, &mut io::sink()).map_err(io_error)?;
         if bytes_copied != entry.decompressed_size {
-            return Err(gix_error::corruption(format!(
+            bail!(gix_error::corruption(format!(
                 "pack is incomplete: it was decompressed into {bytes_copied} bytes but {} bytes where expected.",
                 entry.decompressed_size
-            ))
-            .raise_erased());
+            )));
         }
 
         let pack_offset = self.offset;
@@ -170,7 +170,7 @@ where
         })
     }
 
-    fn try_read_trailer(&mut self) -> ExnResult<Option<ObjectId>> {
+    fn try_read_trailer(&mut self) -> Result<Option<ObjectId>> {
         Ok(if self.objects_left == 0 {
             let mut id = gix_hash::ObjectId::null(self.object_hash);
             if let Err(err) = self.read.read_exact(id.as_mut_slice())
@@ -180,26 +180,19 @@ where
             }
 
             if let Some(hash) = self.hash.take() {
-                let actual_id = hash
-                    .try_finalize()
-                    .map_err(gix_hash::io::from_hasher)
-                    .map_err(hash_io_error)?;
+                let actual_id = hash.try_finalize().map_err(hash_io_error)?;
                 if self.mode == input::Mode::Restore {
                     id = actual_id;
                 } else {
                     actual_id
                         .verify(&id)
-                        .or_raise_erased(|| message("Failed to verify pack checksum in trailer"))?;
+                        .or_raise(|| message("Failed to verify pack checksum in trailer"))?;
                 }
             }
             Some(id)
         } else if self.mode == input::Mode::Restore {
             let hash = self.hash.clone().expect("in restore mode a hash is set");
-            Some(
-                hash.try_finalize()
-                    .map_err(gix_hash::io::from_hasher)
-                    .map_err(hash_io_error)?,
-            )
+            Some(hash.try_finalize().map_err(hash_io_error)?)
         } else {
             None
         })
@@ -214,7 +207,7 @@ impl<R> Iterator for BytesToEntriesIter<R>
 where
     R: io::BufRead,
 {
-    type Item = ExnResult<input::Entry>;
+    type Item = Result<input::Entry>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.had_error || self.objects_left == 0 {
@@ -283,7 +276,7 @@ where
     T: crate::FileData,
 {
     /// Returns an iterator over [`Entries`][crate::data::input::Entry], without making use of the memory mapping.
-    pub fn streaming_iter(&self) -> ExnResult<BytesToEntriesIter<impl io::BufRead>> {
+    pub fn streaming_iter(&self) -> Result<BytesToEntriesIter<impl io::BufRead>> {
         let reader = io::BufReader::with_capacity(4096 * 8, fs::File::open(&self.path).map_err(io_error)?);
         BytesToEntriesIter::new_from_header(
             reader,
@@ -294,14 +287,12 @@ where
     }
 }
 
-fn io_error(err: io::Error) -> gix_error::Exn {
+fn io_error(err: io::Error) -> gix_error::Error {
     err.and_raise(message("An IO operation failed while streaming an entry"))
-        .erased()
 }
 
-fn hash_io_error(err: gix_error::Exn) -> gix_error::Exn {
-    err.raise(message("An IO operation failed while streaming an entry"))
-        .erased()
+fn hash_io_error(err: gix_error::Error) -> gix_error::Error {
+    err.and_raise(message("An IO operation failed while streaming an entry"))
 }
 
 /// The boxed variant is faster for what we do (moving the decompressor in and out a lot)

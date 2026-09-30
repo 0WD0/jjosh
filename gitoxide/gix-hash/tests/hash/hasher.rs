@@ -1,4 +1,4 @@
-use gix_error::ExnMessageResult;
+use gix_error::Result;
 use gix_hash::{Hasher, ObjectId};
 use gix_testtools::size_ok;
 
@@ -50,7 +50,7 @@ fn size_of_hasher_sha1_and_sha256() {
 
 #[test]
 fn size_of_try_finalize_return_type() {
-    let actual = std::mem::size_of::<ExnMessageResult<ObjectId>>();
+    let actual = std::mem::size_of::<Result<ObjectId>>();
     assert!(
         size_ok(actual, 40),
         "The return value should stay within its 40-byte 64-bit baseline: {actual}"

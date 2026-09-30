@@ -5,14 +5,12 @@ use std::{
 };
 
 use gix_discover::DOT_GIT_DIR;
-use gix_error::{ErrorExt, ResultExt};
+use gix_error::{ErrorExt, ResultExt, bail};
 
 use crate::{Error, Result};
 
 fn io_error(source: std::io::Error, action: &str, path: &Path) -> Error {
-    source
-        .and_raise(gix_error::message!("{action} at '{}'", path.display()))
-        .into()
+    source.and_raise(gix_error::message!("{action} at '{}'", path.display()))
 }
 
 /// The kind of repository to create.
@@ -177,10 +175,10 @@ pub(crate) fn into_with_capabilities(
             .map_err(|err| io_error(err, "Could not open data", &dot_git))?
             .count();
         if num_entries_in_dot_git != 0 {
-            return Err(Error::from_error(
+            bail!(
                 gix_error::validation("Refusing to initialize the non-empty directory as")
-                    .with("input", dot_git.display().to_string().into_bytes()),
-            ));
+                    .with("input", dot_git.display().to_string().into_bytes())
+            );
         }
     }
 
@@ -188,10 +186,10 @@ pub(crate) fn into_with_capabilities(
         dot_git.push(DOT_GIT_DIR);
 
         if dot_git.is_dir() {
-            return Err(Error::from_error(
+            bail!(
                 gix_error::validation("Refusing to initialize an existing directory")
-                    .with("input", dot_git.display().to_string().into_bytes()),
-            ));
+                    .with("input", dot_git.display().to_string().into_bytes())
+            );
         }
     }
     create_dir(&dot_git)?;
@@ -250,28 +248,25 @@ pub(crate) fn into_with_capabilities(
             let caps = fs_capabilities.unwrap_or_else(|| gix_fs::Capabilities::probe(&dot_git));
             let mut core = config.new_section("core", None).expect("valid section name");
 
-            core.push("filemode", bool(caps.executable_bit)).or_erased()?;
-            core.push("bare", bool(bare)).or_erased()?;
-            core.push("logallrefupdates", bool(!bare)).or_erased()?;
+            core.push("filemode", bool(caps.executable_bit))?;
+            core.push("bare", bool(bare))?;
+            core.push("logallrefupdates", bool(!bare))?;
             if !caps.symlink {
-                core.push("symlinks", bool(false)).or_erased()?;
+                core.push("symlinks", bool(false))?;
             }
-            core.push("ignorecase", bool(caps.ignore_case)).or_erased()?;
-            core.push("precomposeunicode", bool(caps.precompose_unicode))
-                .or_erased()?;
+            core.push("ignorecase", bool(caps.ignore_case))?;
+            core.push("precomposeunicode", bool(caps.precompose_unicode))?;
 
             match object_hash {
                 #[cfg(feature = "sha256")]
                 Some(gix_hash::Kind::Sha256) => {
-                    core.push("repositoryformatversion", "1").or_erased()?;
+                    core.push("repositoryformatversion", "1")?;
 
                     let mut extensions = config.new_section("extensions", None).expect("valid section name");
-                    extensions
-                        .push("objectformat", gix_hash::Kind::Sha256.to_string())
-                        .or_erased()?;
+                    extensions.push("objectformat", gix_hash::Kind::Sha256.to_string())?;
                 }
                 _ => {
-                    core.push("repositoryformatversion", "0").or_erased()?;
+                    core.push("repositoryformatversion", "0")?;
                 }
             }
 

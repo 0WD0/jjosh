@@ -1,10 +1,11 @@
 //! Auxiliary types used by graph verification methods.
+use gix_error::Result;
 use std::{
     cmp::{max, min},
     collections::BTreeMap,
 };
 
-use gix_error::{ErrorExt, ExnMessageResult, ResultExt, message};
+use gix_error::{ResultExt, bail, message};
 
 use crate::{
     GENERATION_NUMBER_MAX, Graph, Position,
@@ -33,18 +34,17 @@ impl Graph {
     /// When `processor` returns an error, the entire verification is stopped and the error returned.
     pub fn verify_integrity<E>(
         &self,
-        mut processor: impl FnMut(&file::Commit<'_>) -> Result<(), E>,
-    ) -> ExnMessageResult<Outcome>
+        mut processor: impl FnMut(&file::Commit<'_>) -> std::result::Result<(), E>,
+    ) -> Result<Outcome>
     where
         E: std::error::Error + Send + Sync + 'static,
     {
         if self.files.len() > 256 {
             // A file in a split chain can only have up to 255 base files.
-            return Err(message!(
+            bail!(message!(
                 "Commit-graph should be composed of at most 256 files but actually contains {} files",
                 self.files.len()
-            )
-            .raise());
+            ));
         }
 
         let mut stats = Outcome {
@@ -60,13 +60,12 @@ impl Graph {
         let mut file_start_pos = Position(0);
         for (file_index, file) in self.files.iter().enumerate() {
             if usize::from(file.base_graph_count()) != file_index {
-                return Err(message!(
+                bail!(message!(
                     "'{}' should have {} base graphs, but claims {} base graphs",
                     file.path().display(),
                     file_index,
                     file.base_graph_count()
-                )
-                .raise());
+                ));
             }
 
             for (base_graph_index, (expected, actual)) in self
@@ -78,14 +77,13 @@ impl Graph {
                 .enumerate()
             {
                 if actual != expected {
-                    return Err(message!(
+                    bail!(message!(
                         "'{}' base graph at index {} should have ID {} but is {}",
                         file.path().display(),
                         base_graph_index,
                         expected,
                         actual
-                    )
-                    .raise());
+                    ));
                 }
             }
 
@@ -93,14 +91,13 @@ impl Graph {
             let file_stats = file.traverse(|commit| {
                 let mut max_parent_generation = 0u32;
                 for parent_pos in commit.iter_parents() {
-                    let parent_pos = parent_pos.map_err(gix_error::Exn::erased)?;
+                    let parent_pos = parent_pos?;
                     if parent_pos >= next_file_start_pos {
-                        return Err(message!(
+                        bail!(message!(
                             "Commit {} has parent position {parent_pos} that is out of range (should be in range 0-{})",
                             commit.id(),
                             Position(next_file_start_pos.0 - 1)
-                        )
-                        .raise_erased());
+                        ));
                     }
                     let parent = self.commit_at(parent_pos);
                     max_parent_generation = max(max_parent_generation, parent.generation());
@@ -110,15 +107,14 @@ impl Graph {
                 // generation should be GENERATION_NUMBER_MAX too.
                 let expected_generation = min(max_parent_generation + 1, GENERATION_NUMBER_MAX);
                 if commit.generation() != expected_generation {
-                    return Err(message!(
+                    bail!(message!(
                         "Commit {}'s generation should be {expected_generation} but is {}",
                         commit.id(),
                         commit.generation()
-                    )
-                    .raise_erased());
+                    ));
                 }
 
-                processor(commit).or_raise_erased(|| message!("processor failed on commit {id}", id = commit.id()))?;
+                processor(commit).or_error()?;
 
                 Ok(())
             })?;

@@ -1,15 +1,16 @@
+use gix_error::Result;
 use std::{
     borrow::Cow,
     mem::size_of,
     path::{Path, PathBuf},
 };
 
-use gix_error::{ErrorExt, ExnResult, ResultExt, message};
+use gix_error::{ErrorExt, ResultExt, bail, message};
 
 use crate::index::{self, FAN_LEN, V2_SIGNATURE, Version};
 
-fn corrupt(message: impl Into<Cow<'static, str>>) -> gix_error::Exn {
-    gix_error::corruption(message).raise_erased()
+fn corrupt(message: impl Into<Cow<'static, str>>) -> gix_error::Error {
+    gix_error::corruption(message).raise()
 }
 
 const N32_SIZE: usize = size_of::<u32>();
@@ -20,13 +21,13 @@ impl index::File<crate::MMap> {
     ///
     /// The `object_hash` is a way to read (and write) the same file format with different hashes, as the hash kind
     /// isn't stored within the file format itself.
-    pub fn at(path: impl AsRef<Path>, object_hash: gix_hash::Kind) -> ExnResult<Self> {
+    pub fn at(path: impl AsRef<Path>, object_hash: gix_hash::Kind) -> Result<Self> {
         Self::at_inner(path.as_ref(), object_hash)
     }
 
-    fn at_inner(path: &Path, object_hash: gix_hash::Kind) -> ExnResult<Self> {
+    fn at_inner(path: &Path, object_hash: gix_hash::Kind) -> Result<Self> {
         let data = crate::mmap::read_only(path)
-            .or_raise_erased(|| message!("Could not open pack index file at '{}'", path.display()))?;
+            .or_raise(|| message!("Could not open pack index file at '{}'", path.display()))?;
         Self::from_data(data, path.to_owned(), object_hash)
     }
 }
@@ -36,7 +37,7 @@ where
     T: crate::FileData,
 {
     /// Instantiate an index file from `data` as assumed to be read or memory-mapped from `path`.
-    pub fn from_data(data: T, path: PathBuf, object_hash: gix_hash::Kind) -> ExnResult<Self> {
+    pub fn from_data(data: T, path: PathBuf, object_hash: gix_hash::Kind) -> Result<Self> {
         let idx_len = data.len();
         let hash_len = object_hash.len_in_bytes();
 
@@ -60,9 +61,7 @@ where
                     let (vd, dr) = d.split_at(N32_SIZE);
                     let version = crate::read_u32(vd);
                     if version != Version::V2 as u32 {
-                        return Err(
-                            gix_error::validation(format!("Unsupported index version: {version})")).raise_erased()
-                        );
+                        bail!(gix_error::validation(format!("Unsupported index version: {version})")));
                     }
                     dr
                 } else {
@@ -99,14 +98,14 @@ fn read_fan(d: &[u8]) -> ([u32; FAN_LEN], usize) {
     (fan, FAN_LEN * N32_SIZE)
 }
 
-fn validate_fan(fan: &[u32; FAN_LEN]) -> ExnResult {
+fn validate_fan(fan: &[u32; FAN_LEN]) -> Result {
     if !crate::fan_is_monotonically_increasing(fan) {
         return Err(corrupt("Pack index fan-out table must be monotonically increasing"));
     }
     Ok(())
 }
 
-fn validate_size(data: &[u8], kind: Version, num_objects: u32, hash_len: usize) -> ExnResult {
+fn validate_size(data: &[u8], kind: Version, num_objects: u32, hash_len: usize) -> Result {
     let num_objects = num_objects as usize;
     let footer_size = hash_len * 2;
     let expected_size = match kind {
@@ -158,8 +157,8 @@ fn validate_size(data: &[u8], kind: Version, num_objects: u32, hash_len: usize) 
                 .and_then(|expected_size| {
                     if large_offsets > 0 && max_large_offset_index >= large_offsets {
                         return Err(corrupt(format!(
-                                "Pack index references large offset {max_large_offset_index}, but only {large_offsets} large offsets are present"
-                            )));
+                            "Pack index references large offset {max_large_offset_index}, but only {large_offsets} large offsets are present"
+                        )));
                     }
                     Ok(expected_size)
                 })?

@@ -5,7 +5,7 @@ use crate::{
     bstr::ByteSlice,
     config::tree::{Gpg, Key, User, gpg},
 };
-use gix_error::ResultExt;
+use gix_error::{ResultExt, bail};
 
 use gix_object::signature::sign::is_literal_ssh_key;
 pub use gix_object::signature::{Format, sign::Options};
@@ -13,8 +13,7 @@ pub use gix_object::signature::{Format, sign::Options};
 pub(crate) fn sign<'repo>(commit: &crate::Commit<'repo>) -> Result<crate::Commit<'repo>> {
     let options = commit.repo.commit_signing_options()?;
     let signed = commit
-        .decode()
-        .or_raise(|| gix_error::message("Could not decode the commit before signing"))?
+        .decode()?
         .sign(options)
         .or_raise(|| gix_error::message("Could not sign the commit"))?;
     let id = commit.repo.write_object(&signed)?;
@@ -70,11 +69,7 @@ pub(crate) fn signing_options(repo: &crate::Repository) -> Result<Options> {
 }
 
 pub(crate) fn signing_options_if_enabled(repo: &crate::Repository) -> Result<Option<Options>> {
-    let enabled = repo
-        .config
-        .may_sign_commits()
-        .or_raise(|| gix_error::message("Could not determine whether commit signing is enabled"))?
-        .then(|| signing_options(repo));
+    let enabled = repo.config.may_sign_commits()?.then(|| signing_options(repo));
     enabled.transpose()
 }
 
@@ -104,16 +99,16 @@ fn default_ssh_key(config: &crate::config::Snapshot<'_>) -> Result<Option<OsStri
         .wait_with_output()
         .or_raise(|| gix_error::message!("Could not execute gpg.ssh.defaultKeyCommand {program:?}"))?;
     if !output.status.success() {
-        return Err(Error::from_error(gix_error::message!(
+        bail!(gix_error::message!(
             "gpg.ssh.defaultKeyCommand failed: {:?}",
             output.stderr.as_bstr()
-        )));
+        ));
     }
     let key = output.stdout.as_bstr().lines().next().unwrap_or_default().trim();
     if is_literal_ssh_key(key).is_none() {
-        return Err(Error::from_error(gix_error::message!(
+        bail!(gix_error::message!(
             "gpg.ssh.defaultKeyCommand returned an invalid key: {key:?}"
-        )));
+        ));
     }
     Ok(Some(gix_path::from_bstr(key.as_bstr()).into_owned().into_os_string()))
 }

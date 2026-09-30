@@ -1,6 +1,7 @@
+use gix_error::Result;
 use std::{collections::HashSet, io::Write, str::FromStr};
 
-use gix_error::ExnMessageResult;
+use gix_error::bail;
 
 use bstr::{BStr, BString, ByteVec};
 use gix_packetline::blocking_io::{StreamingPeekableIter, Writer, encode};
@@ -20,8 +21,8 @@ impl Client {
         welcome_prefix: &str,
         versions: &[usize],
         desired_capabilities: &[&str],
-    ) -> ExnMessageResult<Self> {
-        use gix_error::{ErrorExt, ResultExt, message};
+    ) -> Result<Self> {
+        use gix_error::{ResultExt, message};
 
         let mut out = Writer::new(process.stdin.take().expect("configured stdin when spawning"));
         out.write_all(format!("{welcome_prefix}-client").as_bytes())
@@ -47,7 +48,7 @@ impl Client {
             .strip_prefix(welcome_prefix)
             .is_none_or(|rest| rest.trim_end() != "-server")
         {
-            return Err(message!("Wanted '{welcome_prefix}-server, got  '{buf}'").raise());
+            bail!(message!("Wanted '{welcome_prefix}-server, got  '{buf}'"));
         }
 
         buf.clear();
@@ -59,16 +60,15 @@ impl Client {
         {
             Some(version) => version,
             None => {
-                return Err(message!("Needed 'version=<integer>', got  '{buf}'").raise());
+                bail!(message!("Needed 'version=<integer>', got  '{buf}'"));
             }
         };
 
         if !versions.contains(&chosen_version) {
-            return Err(message!(
+            bail!(message!(
                 "Server offered {chosen_version}, we only support  '{}'",
                 versions.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ")
-            )
-            .raise());
+            ));
         }
 
         if read
@@ -76,7 +76,7 @@ impl Client {
             .or_raise(|| message("Failed to read or write to the process"))?
             != 0
         {
-            return Err(message!("expected flush packet, got '{buf}'").raise());
+            bail!(message!("expected flush packet, got '{buf}'"));
         }
         for capability in desired_capabilities {
             out.write_all(format!("capability={capability}").as_bytes())
@@ -100,10 +100,9 @@ impl Client {
                 Some(cap) => {
                     let cap = cap.trim_end();
                     if !desired_capabilities.contains(&cap) {
-                        return Err(message!(
+                        bail!(message!(
                             "The server sent the '{cap}' capability which isn't among the ones we desire can support"
-                        )
-                        .raise());
+                        ));
                     }
                     capabilities.insert(cap.to_owned());
                 }
@@ -127,7 +126,7 @@ impl Client {
         command: &str,
         meta: &mut dyn Iterator<Item = (&str, BString)>,
         content: &mut dyn std::io::Read,
-    ) -> ExnMessageResult<process::Status> {
+    ) -> Result<process::Status> {
         use gix_error::{ResultExt, message};
 
         self.send_command_and_meta(command, meta)?;
@@ -150,7 +149,7 @@ impl Client {
         command: &str,
         meta: &mut dyn Iterator<Item = (&'a str, BString)>,
         inspect_line: &mut dyn FnMut(&BStr),
-    ) -> ExnMessageResult<process::Status> {
+    ) -> Result<process::Status> {
         use gix_error::{ResultExt, message};
 
         self.send_command_and_meta(command, meta)?;
@@ -186,11 +185,7 @@ impl Client {
 }
 
 impl Client {
-    fn send_command_and_meta(
-        &mut self,
-        command: &str,
-        meta: &mut dyn Iterator<Item = (&str, BString)>,
-    ) -> ExnMessageResult {
+    fn send_command_and_meta(&mut self, command: &str, meta: &mut dyn Iterator<Item = (&str, BString)>) -> Result {
         use gix_error::{ResultExt, message};
 
         self.input

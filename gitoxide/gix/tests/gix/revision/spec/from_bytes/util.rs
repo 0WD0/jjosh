@@ -1,4 +1,3 @@
-#![allow(clippy::result_large_err)]
 use crate::Result;
 use std::{collections::HashMap, path::Path, str::FromStr};
 

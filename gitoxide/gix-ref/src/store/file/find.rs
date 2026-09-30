@@ -1,4 +1,4 @@
-use gix_error::{ErrorExt, ExnResult, Message, ResultExt, message};
+use gix_error::{ErrorExt, Message, Result, ResultExt, message};
 
 use std::{
     borrow::Cow,
@@ -34,16 +34,16 @@ impl file::Store {
     ///   for a version with more control.
     ///
     /// [git-lookup-docs]: https://github.com/git/git/blob/5d5b1473453400224ebb126bf3947e0a3276bdf5/Documentation/revisions.txt#L34-L46
-    pub fn try_find<'a, Name, E>(&self, partial: Name) -> ExnResult<Option<Reference>>
+    pub fn try_find<'a, Name, E>(&self, partial: Name) -> Result<Option<Reference>>
     where
         Name: TryInto<&'a PartialNameRef, Error = E>,
-        Result<&'a PartialNameRef, E>: ResultExt<Success = &'a PartialNameRef>,
+        std::result::Result<&'a PartialNameRef, E>: ResultExt<Success = &'a PartialNameRef>,
     {
         let packed = self.assure_packed_refs_uptodate()?;
         self.find_one_with_verified_input(
             partial
                 .try_into()
-                .or_raise_erased(|| message("The ref name or path is not a valid ref name"))?,
+                .or_raise(|| message("The ref name or path is not a valid ref name"))?,
             packed.as_ref().map(|b| &***b),
         )
     }
@@ -53,15 +53,15 @@ impl file::Store {
     /// Find only loose references, that is references that aren't in the packed-refs buffer.
     /// All symbolic references are loose references.
     /// `HEAD` is always a loose reference.
-    pub fn try_find_loose<'a, Name, E>(&self, partial: Name) -> ExnResult<Option<loose::Reference>>
+    pub fn try_find_loose<'a, Name, E>(&self, partial: Name) -> Result<Option<loose::Reference>>
     where
         Name: TryInto<&'a PartialNameRef, Error = E>,
-        Result<&'a PartialNameRef, E>: ResultExt<Success = &'a PartialNameRef>,
+        std::result::Result<&'a PartialNameRef, E>: ResultExt<Success = &'a PartialNameRef>,
     {
         self.find_one_with_verified_input(
             partial
                 .try_into()
-                .or_raise_erased(|| message("The ref name or path is not a valid ref name"))?,
+                .or_raise(|| message("The ref name or path is not a valid ref name"))?,
             None,
         )
         .map(|r| r.map(Into::into))
@@ -72,15 +72,15 @@ impl file::Store {
         &self,
         partial: Name,
         packed: Option<&packed::Buffer>,
-    ) -> ExnResult<Option<Reference>>
+    ) -> Result<Option<Reference>>
     where
         Name: TryInto<&'a PartialNameRef, Error = E>,
-        Result<&'a PartialNameRef, E>: ResultExt<Success = &'a PartialNameRef>,
+        std::result::Result<&'a PartialNameRef, E>: ResultExt<Success = &'a PartialNameRef>,
     {
         self.find_one_with_verified_input(
             partial
                 .try_into()
-                .or_raise_erased(|| message("The ref name or path is not a valid ref name"))?,
+                .or_raise(|| message("The ref name or path is not a valid ref name"))?,
             packed,
         )
     }
@@ -89,7 +89,7 @@ impl file::Store {
         &self,
         partial_name: &PartialNameRef,
         packed: Option<&packed::Buffer>,
-    ) -> ExnResult<Option<Reference>> {
+    ) -> Result<Option<Reference>> {
         let mut buf = BString::default();
         let mut precomposed_partial_name_storage = packed.filter(|_| self.precompose_unicode).and_then(|_| {
             use gix_object::bstr::ByteSlice;
@@ -151,7 +151,7 @@ impl file::Store {
         }
     }
 
-    /// Resolve and read a candidate. Read failures include [metadata](gix_error::Exn::metadata()) `path` (native path),
+    /// Resolve and read a candidate. Read failures include [metadata](gix_error::Error::metadata()) `path` (native path),
     /// the file that failed.
     fn find_inner(
         &self,
@@ -161,7 +161,7 @@ impl file::Store {
         packed: Option<&packed::Buffer>,
         path_buf: &mut BString,
         consider_pseudo_ref: bool,
-    ) -> ExnResult<Option<Reference>> {
+    ) -> Result<Option<Reference>> {
         let full_name = precomposed_partial_name
             .unwrap_or(partial_name)
             .construct_full_name_ref(inbetween, path_buf, consider_pseudo_ref);
@@ -179,9 +179,7 @@ impl file::Store {
             Ok(content_buf) => content_buf,
             Err(err) if err.kind() == io::ErrorKind::NotADirectory => return Ok(None),
             Err(err) => {
-                return Err(err
-                    .and_raise(read_reference_error(self.reference_path(full_name)))
-                    .erased());
+                return Err(err.and_raise(read_reference_error(self.reference_path(full_name))));
             }
         };
 
@@ -230,7 +228,7 @@ impl file::Store {
                             }
                             r
                         })
-                        .or_raise_erased(|| ReferenceDecode {
+                        .or_raise(|| ReferenceDecode {
                             relative_path: full_name.to_path().to_owned(),
                         })?,
                 ))
@@ -374,29 +372,29 @@ fn path_has_file_prefix(base: &Path, relative_path: &Path) -> bool {
 
 impl file::Store {
     /// Similar to [`file::Store::try_find()`] but a non-existing ref is treated as error.
-    pub fn find<'a, Name, E>(&self, partial: Name) -> ExnResult<Reference>
+    pub fn find<'a, Name, E>(&self, partial: Name) -> Result<Reference>
     where
         Name: TryInto<&'a PartialNameRef, Error = E>,
-        Result<&'a PartialNameRef, E>: ResultExt<Success = &'a PartialNameRef>,
+        std::result::Result<&'a PartialNameRef, E>: ResultExt<Success = &'a PartialNameRef>,
     {
         let packed = self.assure_packed_refs_uptodate()?;
         self.find_existing_inner(partial, packed.as_ref().map(|b| &***b))
     }
 
     /// Similar to [`file::Store::find()`], but supports a stable packed buffer.
-    pub fn find_packed<'a, Name, E>(&self, partial: Name, packed: Option<&packed::Buffer>) -> ExnResult<Reference>
+    pub fn find_packed<'a, Name, E>(&self, partial: Name, packed: Option<&packed::Buffer>) -> Result<Reference>
     where
         Name: TryInto<&'a PartialNameRef, Error = E>,
-        Result<&'a PartialNameRef, E>: ResultExt<Success = &'a PartialNameRef>,
+        std::result::Result<&'a PartialNameRef, E>: ResultExt<Success = &'a PartialNameRef>,
     {
         self.find_existing_inner(partial, packed)
     }
 
     /// Similar to [`file::Store::find()`] won't handle packed-refs.
-    pub fn find_loose<'a, Name, E>(&self, partial: Name) -> ExnResult<loose::Reference>
+    pub fn find_loose<'a, Name, E>(&self, partial: Name) -> Result<loose::Reference>
     where
         Name: TryInto<&'a PartialNameRef, Error = E>,
-        Result<&'a PartialNameRef, E>: ResultExt<Success = &'a PartialNameRef>,
+        std::result::Result<&'a PartialNameRef, E>: ResultExt<Success = &'a PartialNameRef>,
     {
         self.find_existing_inner(partial, None).map(Into::into)
     }
@@ -406,26 +404,26 @@ impl file::Store {
         &self,
         partial: Name,
         packed: Option<&packed::Buffer>,
-    ) -> ExnResult<Reference>
+    ) -> Result<Reference>
     where
         Name: TryInto<&'a PartialNameRef, Error = E>,
-        Result<&'a PartialNameRef, E>: ResultExt<Success = &'a PartialNameRef>,
+        std::result::Result<&'a PartialNameRef, E>: ResultExt<Success = &'a PartialNameRef>,
     {
         let path = partial
             .try_into()
-            .or_raise_erased(|| message("The ref name or path is not a valid ref name"))?;
+            .or_raise(|| message("The ref name or path is not a valid ref name"))?;
         match self.find_one_with_verified_input(path, packed) {
             Ok(Some(r)) => Ok(r),
             Ok(None) => Err(NotFound {
                 name: path.to_partial_path().to_owned(),
             }
-            .raise_erased()),
+            .raise()),
             Err(err) => Err(err),
         }
     }
 }
 
-/// The raised error's [metadata](gix_error::Exn::metadata()) `path` (native path) identifies the reference file that
+/// The raised error's [metadata](gix_error::Error::metadata()) `path` (native path) identifies the reference file that
 /// could not be read.
 pub(super) fn read_reference_error(path: impl Into<PathBuf>) -> Message {
     Message::new("Could not read reference").with("path", path.into())

@@ -1,7 +1,8 @@
+use gix_error::Result;
 use std::borrow::Cow;
 
 use bstr::{BStr, ByteSlice};
-use gix_error::{ErrorExt, ExnMessageResult, ResultExt, validation};
+use gix_error::{ErrorExt, OptionExt, ResultExt, validation};
 
 use crate::{AssignmentRef, Name, NameRef, StateRef};
 
@@ -28,15 +29,14 @@ pub struct Iter<'a> {
 
 impl<'a> Iter<'a> {
     /// Create a new instance to parse attribute assignments from `input`.
-    /// Iterator errors store invalid name bytes as `input` in [`gix_error::Message::values`].
-    /// After [wrapping](gix_error::Error::from_error()), inspect them with [metadata](gix_error::Error::metadata()).
+    /// Iterator errors include invalid name bytes as `input` [metadata](gix_error::Error::metadata()).
     pub fn new(input: &'a BStr) -> Self {
         Iter {
             attrs: input.split(is_blank as fn(&u8) -> bool),
         }
     }
 
-    fn parse_attr(&self, attr: &'a [u8]) -> ExnMessageResult<AssignmentRef<'a>> {
+    fn parse_attr(&self, attr: &'a [u8]) -> Result<AssignmentRef<'a>> {
         let mut tokens = attr.splitn(2, |b| *b == b'=');
         let attr = tokens.next().expect("attr itself").as_bstr();
         let possibly_value = tokens.next();
@@ -51,27 +51,26 @@ impl<'a> Iter<'a> {
     }
 }
 
-fn check_attr(attr: &BStr) -> ExnMessageResult<NameRef<'_>> {
-    Ok(NameRef::try_from(attr).and_then(|name| {
-        (!name.as_str().starts_with("builtin_")).then_some(name).ok_or_else(|| {
-            gix_error::validation("Attribute name uses the reserved 'builtin_' prefix").with("input", attr)
-        })
-    })?)
+fn check_attr(attr: &BStr) -> Result<NameRef<'_>> {
+    let name = NameRef::try_from(attr)?;
+    (!name.as_str().starts_with("builtin_"))
+        .then_some(name)
+        .ok_or_raise(|| validation("Attribute name uses the reserved 'builtin_' prefix").with("input", attr))
 }
 
 impl<'a> Iterator for Iter<'a> {
-    type Item = ExnMessageResult<AssignmentRef<'a>>;
+    type Item = Result<AssignmentRef<'a>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let attr = self.attrs.find(|a| !a.is_empty())?;
-        self.parse_attr(attr).into()
+        Some(self.parse_attr(attr))
     }
 }
 
 /// Instantiation
 impl<'a> Lines<'a> {
     /// Create a new instance to parse all attributes in all lines of the input `bytes`.
-    /// Iterator errors include invalid macro name or pattern bytes as `input` [metadata](gix_error::Exn::metadata()).
+    /// Iterator errors include invalid macro name or pattern bytes as `input` [metadata](gix_error::Error::metadata()).
     pub fn new(bytes: &'a [u8]) -> Self {
         let bom = unicode_bom::Bom::from(bytes);
         Lines {
@@ -82,7 +81,7 @@ impl<'a> Lines<'a> {
 }
 
 impl<'a> Iterator for Lines<'a> {
-    type Item = ExnMessageResult<(Kind, Iter<'a>, usize)>;
+    type Item = Result<(Kind, Iter<'a>, usize)>;
 
     fn next(&mut self) -> Option<Self::Item> {
         fn skip_blanks(line: &BStr) -> &BStr {
@@ -103,7 +102,7 @@ impl<'a> Iterator for Lines<'a> {
     }
 }
 
-fn parse_line(line: &BStr, line_number: usize) -> Option<ExnMessageResult<(Kind, Iter<'_>, usize)>> {
+fn parse_line(line: &BStr, line_number: usize) -> Option<Result<(Kind, Iter<'_>, usize)>> {
     if line.is_empty() {
         return None;
     }

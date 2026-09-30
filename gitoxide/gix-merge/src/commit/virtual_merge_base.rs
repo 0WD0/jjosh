@@ -12,7 +12,8 @@ pub struct Outcome {
 }
 
 pub(super) mod function {
-    use gix_error::{ErrorExt, ExnMessageResult, ResultExt, message};
+    use gix_error::Result;
+    use gix_error::{ResultExt, bail, message};
     use gix_object::FindExt;
 
     use crate::{
@@ -38,7 +39,7 @@ pub(super) mod function {
         objects: &'objects (impl gix_object::FindObjectOrHeader + gix_object::Write),
         abbreviate_hash: &mut dyn FnMut(&gix_hash::oid) -> String,
         mut options: crate::tree::Options,
-    ) -> ExnMessageResult<super::Outcome> {
+    ) -> Result<super::Outcome> {
         let mut merged_commit_id = first_commit;
         others.push(second_commit);
 
@@ -77,16 +78,11 @@ pub(super) mod function {
                 content_merge: treat_as_unresolved::ContentMerge::Markers,
                 tree_merge: treat_as_unresolved::TreeMerge::Undecidable,
             }) {
-                return Err(message(
+                bail!(message(
                     "Conflicts occurred when trying to resolve multiple merge-bases by merging them. This is most certainly a bug.",
-                )
-                .raise());
+                ));
             }
-            let merged_tree_id = out
-                .tree_merge
-                .tree
-                .write(|tree| objects.write(tree))
-                .or_raise(|| message("Failed to write tree for merged merge-base or virtual commit"))?;
+            let merged_tree_id = out.tree_merge.tree.write(|tree| objects.write(tree))?;
 
             tree_id = Some(merged_tree_id);
             merged_commit_id = create_virtual_commit(objects, merged_commit_id, next_commit_id, merged_tree_id)?;
@@ -99,15 +95,13 @@ pub(super) mod function {
             virtual_merge_bases: nonempty::NonEmpty::from_vec(virtual_merge_bases)
                 .expect("the virtual merge-base process always creates at least one commit"),
             commit_id: merged_commit_id,
-            tree_id: tree_id
-                .map_or_else(
-                    || {
-                        let mut buf = Vec::new();
-                        objects.find_commit(&merged_commit_id, &mut buf).map(|c| c.tree())
-                    },
-                    Ok,
-                )
-                .or_raise(|| message("Could not find commit to use as basis for a virtual commit"))?,
+            tree_id: tree_id.map_or_else(
+                || {
+                    let mut buf = Vec::new();
+                    objects.find_commit(&merged_commit_id, &mut buf).map(|c| c.tree())
+                },
+                Ok,
+            )?,
         })
     }
 
@@ -116,7 +110,7 @@ pub(super) mod function {
         parent_a: gix_hash::ObjectId,
         parent_b: gix_hash::ObjectId,
         tree_id: gix_hash::ObjectId,
-    ) -> ExnMessageResult<gix_hash::ObjectId> {
+    ) -> Result<gix_hash::ObjectId> {
         let mut buf = Vec::new();
         let commit_ref = objects
             .find_commit(&parent_a, &mut buf)

@@ -17,7 +17,8 @@ impl Command {
 #[cfg(any(test, feature = "async-client", feature = "blocking-client"))]
 mod with_io {
     use bstr::{BString, ByteSlice};
-    use gix_error::ExnMessageResult;
+
+    use gix_error::{Result, bail};
     use gix_transport::client::Capabilities;
 
     use crate::{Command, command::Feature};
@@ -176,17 +177,16 @@ mod with_io {
             server: &Capabilities,
             arguments: &[BString],
             features: &[Feature],
-        ) -> ExnMessageResult {
+        ) -> Result {
             let allowed = self.all_argument_prefixes();
             for arg in arguments {
                 if allowed.iter().any(|allowed| arg.starts_with(allowed.as_bytes())) {
                     continue;
                 }
-                return Err(gix_error::validation(format!(
+                bail!(gix_error::validation(format!(
                     "{}: argument {arg} is not known or allowed",
                     self.as_str()
-                ))
-                .into());
+                )));
             }
             match version {
                 gix_transport::Protocol::V0 | gix_transport::Protocol::V1 => {
@@ -197,11 +197,10 @@ mod with_io {
                         {
                             continue;
                         }
-                        return Err(gix_error::validation(format!(
+                        bail!(gix_error::validation(format!(
                             "{}: capability {feature} is not supported",
                             self.as_str()
-                        ))
-                        .into());
+                        )));
                     }
                 }
                 gix_transport::Protocol::V2 => {
@@ -222,11 +221,10 @@ mod with_io {
                         match *feature {
                             "agent" | "object-format" => {}
                             _ => {
-                                return Err(gix_error::validation(format!(
+                                bail!(gix_error::validation(format!(
                                     "{}: capability {feature} is not supported",
                                     self.as_str()
-                                ))
-                                .into());
+                                )));
                             }
                         }
                     }

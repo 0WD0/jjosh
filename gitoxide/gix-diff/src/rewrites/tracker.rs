@@ -8,10 +8,11 @@
 // TODO: Rewrite this based on what Git actually this, as long as there are test-cases for any 'complication'.
 //       In practice, even this simplified version seems to have worked pretty well.
 
+use gix_error::Result;
 use std::ops::Range;
 
 use bstr::{BStr, ByteSlice};
-use gix_error::{ExnMessageResult, ResultExt};
+use gix_error::ResultExt;
 use gix_object::tree::{EntryKind, EntryMode};
 
 use crate::{
@@ -204,9 +205,9 @@ impl<T: Change> Tracker<T> {
         diff_cache: &mut crate::blob::Platform,
         objects: &impl gix_object::FindObjectOrHeader,
         mut push_source_tree: PushSourceTreeFn,
-    ) -> ExnMessageResult<Outcome>
+    ) -> Result<Outcome>
     where
-        PushSourceTreeFn: FnMut(&mut dyn FnMut(T, &BStr)) -> Result<(), E>,
+        PushSourceTreeFn: FnMut(&mut dyn FnMut(T, &BStr)) -> std::result::Result<(), E>,
         E: std::error::Error + Send + Sync + 'static,
     {
         fn is_parent(change: &impl Change) -> bool {
@@ -361,7 +362,7 @@ impl<T: Change> Tracker<T> {
         diff_cache: &mut crate::blob::Platform,
         objects: &impl gix_object::FindObjectOrHeader,
         filter: Option<fn(&T) -> bool>,
-    ) -> ExnMessageResult {
+    ) -> Result {
         // we try to cheaply reduce the set of possibilities first, before possibly looking more exhaustively.
         let needs_second_pass = !needs_exact_match(percentage);
 
@@ -412,7 +413,7 @@ impl<T: Change> Tracker<T> {
         diff_cache: &mut crate::blob::Platform,
         objects: &impl gix_object::FindObjectOrHeader,
         filter: Option<fn(&T) -> bool>,
-    ) -> ExnMessageResult<Action> {
+    ) -> Result<Action> {
         let mut dest_ofs = 0;
         let mut num_checks = 0;
         let max_checks = {
@@ -523,7 +524,7 @@ impl<T: Change> Tracker<T> {
         kind: visit::SourceKind,
         src_parent_id: ChangeId,
         dst_parent_id: ChangeId,
-    ) -> ExnMessageResult<Action> {
+    ) -> Result<Action> {
         debug_assert_ne!(
             src_parent_id, dst_parent_id,
             "src and destination directories must be distinct"
@@ -586,7 +587,7 @@ impl<T: Change> Tracker<T> {
     fn match_renamed_directories(
         &mut self,
         cb: &mut impl FnMut(visit::Destination<'_, T>, Option<visit::Source<'_, T>>) -> Action,
-    ) -> ExnMessageResult {
+    ) -> Result {
         fn unemitted_directory_matching_relation_id<T: Change>(items: &[Item<T>], child_id: ChangeId) -> Option<usize> {
             items.iter().position(|i| {
                 !i.emitted && matches!(i.change.relation(), Some(Relation::Parent(pid)) if pid == child_id)
@@ -692,7 +693,7 @@ fn find_match<'a, T: Change>(
     diff_cache: &mut crate::blob::Platform,
     path_backing: &[u8],
     num_checks: &mut usize,
-) -> ExnMessageResult<Option<SourceTuple<'a, T>>> {
+) -> Result<Option<SourceTuple<'a, T>>> {
     let (item_id, item_mode) = item.change.id_and_entry_mode();
     // Symlinks and gitlinks only participate in exact-ID matching; neither has meaningful blob similarity here.
     if needs_exact_match(percentage) || item_mode.is_link() || item_mode.is_commit() {
@@ -743,23 +744,27 @@ fn find_match<'a, T: Change>(
             .filter(|(src_idx, src)| *src_idx != item_idx && src.is_source_for_destination_of(kind, item_mode))
         {
             if !has_new {
-                diff_cache.set_resource(
-                    item_id.to_owned(),
-                    item_mode.kind(),
-                    item.location(path_backing),
-                    ResourceKind::NewOrDestination,
-                    objects,
-                )?;
+                diff_cache
+                    .set_resource(
+                        item_id.to_owned(),
+                        item_mode.kind(),
+                        item.location(path_backing),
+                        ResourceKind::NewOrDestination,
+                        objects,
+                    )
+                    .or_raise(|| gix_error::message("Could not set destination for similarity checking"))?;
                 has_new = true;
             }
             let (src_id, src_mode) = src.change.id_and_entry_mode();
-            diff_cache.set_resource(
-                src_id.to_owned(),
-                src_mode.kind(),
-                src.location(path_backing),
-                ResourceKind::OldOrSource,
-                objects,
-            )?;
+            diff_cache
+                .set_resource(
+                    src_id.to_owned(),
+                    src_mode.kind(),
+                    src.location(path_backing),
+                    ResourceKind::OldOrSource,
+                    objects,
+                )
+                .or_raise(|| gix_error::message("Could not set source for similarity checking"))?;
             let prep = diff_cache
                 .prepare_diff()
                 .or_raise(|| gix_error::message("Could not prepare resources for similarity checking"))?;

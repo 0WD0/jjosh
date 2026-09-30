@@ -4,7 +4,7 @@ use std::io;
 use crate::transport::client::async_io::ExtendedBufRead;
 #[crate::bisync::only_sync]
 use crate::transport::client::blocking_io::ExtendedBufRead;
-use gix_error::{ErrorExt, ExnResult, message};
+use gix_error::{Error, ErrorExt, Result, bail, message};
 use gix_transport::{Protocol, client, client::MessageKind};
 
 use crate::fetch::{
@@ -17,8 +17,8 @@ async fn parse_v2_section<'a, T>(
     line: &mut String,
     reader: &mut impl ExtendedBufRead<'a>,
     res: &mut Vec<T>,
-    parse: impl Fn(&str) -> ExnResult<T>,
-) -> ExnResult<bool> {
+    parse: impl Fn(&str) -> Result<T>,
+) -> Result<bool> {
     line.clear();
     while reader.readline_str(line).await.map_err(read_error)? != 0 {
         res.push(parse(line)?);
@@ -53,7 +53,7 @@ impl Response {
         reader: &mut impl ExtendedBufRead<'a>,
         client_expects_pack: bool,
         wants_to_negotiate: bool,
-    ) -> ExnResult<Response> {
+    ) -> Result<Response> {
         match version {
             Protocol::V0 | Protocol::V1 => {
                 let mut line = String::new();
@@ -152,10 +152,9 @@ impl Response {
                             break 'section true;
                         }
                         _ => {
-                            return Err(
-                                gix_error::corruption(format!("Unknown or unsupported header: {line:?}"))
-                                    .raise_erased(),
-                            );
+                            bail!(gix_error::corruption(format!(
+                                "Unknown or unsupported header: {line:?}"
+                            )));
                         }
                     }
                 };
@@ -170,11 +169,13 @@ impl Response {
     }
 }
 
-fn read_error(err: io::Error) -> gix_error::Exn {
+fn read_error(err: io::Error) -> Error {
     let err = if err.kind() == io::ErrorKind::Other {
         match err.into_inner() {
             Some(err) => match err.downcast::<gix_transport::packetline::read::Error>() {
-                Ok(err) => return (*err).and_raise(message("Failed to read from line reader")).erased(),
+                Ok(err) => {
+                    return (*err).and_raise(message("Failed to read from line reader"));
+                }
                 Err(err) => io::Error::other(err),
             },
             None => io::ErrorKind::Other.into(),
@@ -185,15 +186,15 @@ fn read_error(err: io::Error) -> gix_error::Exn {
     transport_error(err.into())
 }
 
-fn transport_error(err: client::Error) -> gix_error::Exn {
-    err.and_raise(message("Failed to read from line reader")).erased()
+fn transport_error(err: client::Error) -> Error {
+    err.and_raise(message("Failed to read from line reader"))
 }
 
 #[cfg(test)]
 mod tests {
     #[test]
     fn line_reader_io_preserves_classification() {
-        let err = super::read_error(std::io::ErrorKind::ConnectionAborted.into()).into_error();
+        let err = super::read_error(std::io::ErrorKind::ConnectionAborted.into());
         insta::assert_debug_snapshot!(err, "connection failures remain retryable while reading packet lines", @"
         Failed to read from line reader
         |
@@ -211,7 +212,7 @@ mod tests {
             "wrapping I/O does not add an explicit retry marker"
         );
 
-        let err = super::read_error(std::io::ErrorKind::OutOfMemory.into()).into_error();
+        let err = super::read_error(std::io::ErrorKind::OutOfMemory.into());
         insta::assert_debug_snapshot!(err, "memory exhaustion isn't retryable by the conservative policy", @"
         Failed to read from line reader
         |

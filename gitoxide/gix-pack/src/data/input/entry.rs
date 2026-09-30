@@ -1,6 +1,7 @@
+use gix_error::Result;
 use std::io::Write;
 
-use gix_error::{ErrorExt, ExnResult, message};
+use gix_error::{ErrorExt, message};
 
 use crate::data::{entry::Header, input};
 
@@ -13,7 +14,7 @@ impl input::Entry {
         obj: &gix_object::Data<'_>,
         pack_offset: u64,
         compression: gix_zlib::Compression,
-    ) -> ExnResult<Self> {
+    ) -> Result<Self> {
         let header = to_header(obj.kind);
         let compressed = compress_data(obj, compression)?;
         let compressed_size = compressed.len() as u64;
@@ -57,14 +58,12 @@ fn to_header(kind: gix_object::Kind) -> Header {
     }
 }
 
-fn compress_data(obj: &gix_object::Data<'_>, compression: gix_zlib::Compression) -> ExnResult<Vec<u8>> {
+fn compress_data(obj: &gix_object::Data<'_>, compression: gix_zlib::Compression) -> Result<Vec<u8>> {
     let mut out = gix_zlib::stream::deflate::Write::new(Vec::new(), compression);
     if let Err(err) = std::io::copy(&mut &*obj.data, &mut out) {
         match err.kind() {
             std::io::ErrorKind::Other => {
-                return Err(err
-                    .and_raise(message("An IO operation failed while streaming an entry"))
-                    .erased());
+                return Err(err.and_raise(message("An IO operation failed while streaming an entry")));
             }
             err => {
                 unreachable!("Should never see other errors than zlib, but got {:?}", err)

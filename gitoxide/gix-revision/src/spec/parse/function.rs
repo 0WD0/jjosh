@@ -5,7 +5,7 @@ use crate::{
     spec::parse::{Delegate, delegate, delegate::SiblingBranch},
 };
 use bstr::{BStr, BString, ByteSlice, ByteVec};
-use gix_error::{ErrorExt, Exn, ExnMessageResult, ExnResult, ResultExt};
+use gix_error::{ErrorExt, Result, ResultExt, bail};
 
 /// Parse a git [`revspec`](https://git-scm.com/docs/git-rev-parse#_specifying_revisions) and call `delegate` for each token
 /// successfully parsed.
@@ -14,8 +14,8 @@ use gix_error::{ErrorExt, Exn, ExnMessageResult, ExnResult, ResultExt};
 /// Returns `Ok(())` if all of `input` was consumed, or the error if either the `revspec` syntax was incorrect or
 /// the `delegate` failed to perform the request.
 /// Errors with input context include the offending or unconsumed `input` bytes as
-/// [metadata](gix_error::Exn::metadata()).
-pub fn parse(mut input: &BStr, delegate: &mut impl Delegate) -> ExnMessageResult {
+/// [metadata](gix_error::Error::metadata()).
+pub fn parse(mut input: &BStr, delegate: &mut impl Delegate) -> Result {
     use delegate::{Kind, Revision};
     let mut delegate = InterceptRev::new(delegate);
     let mut prev_kind = None;
@@ -42,10 +42,9 @@ pub fn parse(mut input: &BStr, delegate: &mut impl Delegate) -> ExnMessageResult
     }
     if let Some((rest, kind)) = try_range(input) {
         if let Some(prev_kind) = prev_kind {
-            return Err(gix_error::validation(format!(
+            bail!(gix_error::validation(format!(
                 "cannot set spec kind more than once (was {prev_kind:?}, now {kind:?})"
-            ))
-            .raise());
+            )));
         }
         if !found_revision {
             delegate
@@ -78,7 +77,8 @@ pub fn parse(mut input: &BStr, delegate: &mut impl Delegate) -> ExnMessageResult
 mod intercept {
     use crate::spec::parse::{Delegate, delegate};
     use bstr::{BStr, BString};
-    use gix_error::ExnResult;
+
+    use gix_error::Result;
 
     #[derive(PartialEq, Eq, Debug, Hash, Ord, PartialOrd, Clone)]
     pub(crate) enum PrefixHintOwned {
@@ -135,7 +135,7 @@ mod intercept {
     where
         T: Delegate,
     {
-        fn done(&mut self) -> ExnResult {
+        fn done(&mut self) -> Result<()> {
             self.done = true;
             self.inner.done()
         }
@@ -145,7 +145,7 @@ mod intercept {
     where
         T: Delegate,
     {
-        fn find_ref(&mut self, name: &BStr) -> ExnResult {
+        fn find_ref(&mut self, name: &BStr) -> Result<()> {
             self.last_ref = name.to_owned().into();
             self.inner.find_ref(name)
         }
@@ -154,20 +154,20 @@ mod intercept {
             &mut self,
             prefix: gix_hash::Prefix,
             hint: Option<delegate::PrefixHint<'_>>,
-        ) -> ExnResult {
+        ) -> Result<()> {
             self.last_prefix = Some((prefix, hint.map(Into::into)));
             self.inner.disambiguate_prefix(prefix, hint)
         }
 
-        fn reflog(&mut self, query: delegate::ReflogLookup) -> ExnResult {
+        fn reflog(&mut self, query: delegate::ReflogLookup) -> Result<()> {
             self.inner.reflog(query)
         }
 
-        fn nth_checked_out_branch(&mut self, branch_no: usize) -> ExnResult {
+        fn nth_checked_out_branch(&mut self, branch_no: usize) -> Result<()> {
             self.inner.nth_checked_out_branch(branch_no)
         }
 
-        fn sibling_branch(&mut self, kind: delegate::SiblingBranch) -> ExnResult {
+        fn sibling_branch(&mut self, kind: delegate::SiblingBranch) -> Result<()> {
             self.inner.sibling_branch(kind)
         }
     }
@@ -176,19 +176,19 @@ mod intercept {
     where
         T: Delegate,
     {
-        fn traverse(&mut self, kind: delegate::Traversal) -> ExnResult {
+        fn traverse(&mut self, kind: delegate::Traversal) -> Result<()> {
             self.inner.traverse(kind)
         }
 
-        fn peel_until(&mut self, kind: delegate::PeelTo<'_>) -> ExnResult {
+        fn peel_until(&mut self, kind: delegate::PeelTo<'_>) -> Result<()> {
             self.inner.peel_until(kind)
         }
 
-        fn find(&mut self, regex: &BStr, negated: bool) -> ExnResult {
+        fn find(&mut self, regex: &BStr, negated: bool) -> Result<()> {
             self.inner.find(regex, negated)
         }
 
-        fn index_lookup(&mut self, path: &BStr, stage: u8) -> ExnResult {
+        fn index_lookup(&mut self, path: &BStr, stage: u8) -> Result<()> {
             self.inner.index_lookup(path, stage)
         }
     }
@@ -197,7 +197,7 @@ mod intercept {
     where
         T: Delegate,
     {
-        fn kind(&mut self, kind: crate::spec::Kind) -> ExnResult {
+        fn kind(&mut self, kind: crate::spec::Kind) -> Result<()> {
             self.inner.kind(kind)
         }
     }
@@ -207,13 +207,13 @@ use intercept::InterceptRev;
 trait ResultExt2 {
     fn or_else_none<F>(self, f: F) -> Option<()>
     where
-        F: FnOnce(Exn);
+        F: FnOnce(gix_error::Error);
 }
 
-impl ResultExt2 for ExnResult {
+impl ResultExt2 for Result {
     fn or_else_none<F>(self, f: F) -> Option<()>
     where
-        F: FnOnce(Exn),
+        F: FnOnce(gix_error::Error),
     {
         match self {
             Ok(()) => Some(()),
@@ -229,7 +229,7 @@ fn try_set_prefix(
     delegate: &mut impl Delegate,
     hex_name: &BStr,
     hint: Option<delegate::PrefixHint<'_>>,
-    errors: &mut Vec<Exn>,
+    errors: &mut Vec<gix_error::Error>,
 ) -> Option<()> {
     gix_hash::Prefix::from_hex(hex_name.to_str().expect("hexadecimal only"))
         .ok()
@@ -288,7 +288,7 @@ fn short_describe_prefix(name: &BStr) -> Option<&BStr> {
 }
 
 type InsideParensRestConsumed<'a> = (std::borrow::Cow<'a, BStr>, &'a BStr, usize);
-fn parens(input: &[u8]) -> ExnMessageResult<Option<InsideParensRestConsumed<'_>>> {
+fn parens(input: &[u8]) -> Result<Option<InsideParensRestConsumed<'_>>> {
     if input.first() != Some(&b'{') {
         return Ok(None);
     }
@@ -345,11 +345,13 @@ fn parens(input: &[u8]) -> ExnMessageResult<Option<InsideParensRestConsumed<'_>>
             return Ok(Some((inner, input[idx + 1..].as_bstr(), idx + 1)));
         }
     }
-    Err(gix_error::validation("unclosed brace pair").with("input", input).into())
+    Err(gix_error::validation("unclosed brace pair")
+        .with("input", input)
+        .raise())
 }
 
-fn try_parse<T: FromStr + PartialEq + Default>(input: &BStr) -> ExnMessageResult<Option<T>> {
-    Ok(input
+fn try_parse<T: FromStr + PartialEq + Default>(input: &BStr) -> Result<Option<T>> {
+    input
         .to_str()
         .ok()
         .and_then(|n| {
@@ -362,31 +364,31 @@ fn try_parse<T: FromStr + PartialEq + Default>(input: &BStr) -> ExnMessageResult
                 Ok(n)
             })
         })
-        .transpose()?)
+        .transpose()
+        .or_error()
 }
 
-fn revision<'a, T>(mut input: &'a BStr, delegate: &mut InterceptRev<'_, T>) -> ExnMessageResult<&'a BStr>
+fn revision<'a, T>(mut input: &'a BStr, delegate: &mut InterceptRev<'_, T>) -> Result<&'a BStr>
 where
     T: Delegate,
 {
     use delegate::{Navigate, Revision};
-    fn consume_all(res: ExnResult, err: impl FnOnce() -> String) -> ExnMessageResult<&'static BStr> {
+    fn consume_all(res: Result, err: impl FnOnce() -> String) -> Result<&'static BStr> {
         res.map(|_| "".into()).or_raise(|| gix_error::validation(err()))
     }
     match input.as_bytes() {
         [b':'] => {
-            return Err(gix_error::validation(
+            bail!(gix_error::validation(
                 "':' must be followed by either slash and regex or path to lookup in HEAD tree",
-            )
-            .raise());
+            ));
         }
         [b':', b'/'] => {
-            return Err(gix_error::validation("':/' must be followed by a regular expression").raise());
+            bail!(gix_error::validation("':/' must be followed by a regular expression"));
         }
         [b':', b'/', regex @ ..] => {
             let (regex, negated) = parse_regex_prefix(regex.as_bstr())?;
             if regex.is_empty() {
-                return Err(gix_error::validation("unconsumed input").with("input", input).raise());
+                bail!(gix_error::validation("unconsumed input").with("input", input));
             }
             return consume_all(delegate.find(regex, negated), || {
                 format!("Delegate couldn't find '{regex}' (negated: {negated})")
@@ -507,10 +509,12 @@ where
     input = {
         if let Some(b'@') = sep {
             let past_sep = input[sep_pos.map_or(input.len(), |pos| pos + 1)..].as_bstr();
-            let (nav, rest, _consumed) = parens(past_sep)?.ok_or_else(|| {
-                gix_error::validation("@ character must be standalone or followed by {<content>}")
-                    .with("input", &input[sep_pos.unwrap_or(input.len())..])
-            })?;
+            let (nav, rest, _consumed) = parens(past_sep)?
+                .ok_or_else(|| {
+                    gix_error::validation("@ character must be standalone or followed by {<content>}")
+                        .with("input", &input[sep_pos.unwrap_or(input.len())..])
+                })
+                .or_error()?;
             let nav = nav.as_ref();
             if let Some(n) = try_parse::<isize>(nav)? {
                 if n < 0 {
@@ -522,11 +526,10 @@ where
                             .with("input", nav)
                         })?;
                     } else {
-                        return Err(gix_error::validation(
-                            "reference name must be followed by positive numbers in @{n}",
-                        )
-                        .with("input", nav)
-                        .raise());
+                        bail!(
+                            gix_error::validation("reference name must be followed by positive numbers in @{n}",)
+                                .with("input", nav)
+                        );
                     }
                 } else if has_ref_or_implied_name {
                     let lookup = if n >= 100000000 {
@@ -548,9 +551,7 @@ where
                         gix_error::validation(format!("delegate.reflog({lookup:?}) failed")).with("input", nav)
                     })?;
                 } else {
-                    return Err(gix_error::validation("reflog entries require a ref name")
-                        .with("input", *name)
-                        .raise());
+                    bail!(gix_error::validation("reflog entries require a ref name").with("input", *name));
                 }
             } else if let Some(kind) = SiblingBranch::parse(nav) {
                 if has_ref_or_implied_name {
@@ -578,14 +579,12 @@ where
                     gix_error::validation(format!("delegate.reflog({lookup:?}) failed")).with("input", nav)
                 })?;
             } else {
-                return Err(gix_error::validation("reflog entries require a ref name")
-                    .with("input", *name)
-                    .raise());
+                bail!(gix_error::validation("reflog entries require a ref name").with("input", *name));
             }
             rest
         } else {
             if sep_pos == Some(0) && sep == Some(b'~') {
-                return Err(gix_error::validation("tilde needs to follow an anchor, like @~").raise());
+                bail!(gix_error::validation("tilde needs to follow an anchor, like @~"));
             }
             input[sep_pos.unwrap_or(input.len())..].as_bstr()
         }
@@ -594,7 +593,7 @@ where
     navigate(input, delegate)
 }
 
-fn navigate<'a, T>(input: &'a BStr, delegate: &mut InterceptRev<'_, T>) -> ExnMessageResult<&'a BStr>
+fn navigate<'a, T>(input: &'a BStr, delegate: &mut InterceptRev<'_, T>) -> Result<&'a BStr>
 where
     T: Delegate,
 {
@@ -629,7 +628,8 @@ where
                                 .ok_or_else(|| {
                                     gix_error::validation("could not parse number")
                                         .with("input", past_sep.expect("present"))
-                                })?
+                                })
+                                .or_error()?
                                 .try_into()
                                 .expect("non-negative"),
                         );
@@ -657,9 +657,7 @@ where
                                     .with("input", past_sep.unwrap_or_default())
                             })?;
                         } else {
-                            return Err(gix_error::validation("unconsumed input")
-                                .with("input", &input[cursor..])
-                                .raise());
+                            bail!(gix_error::validation("unconsumed input").with("input", &input[cursor..]));
                         }
                         cursor += consumed;
                         let rest = input[cursor..].as_bstr();
@@ -697,9 +695,7 @@ where
                             continue;
                         }
                         invalid => {
-                            return Err(gix_error::validation("cannot peel to unknown target")
-                                .with("input", invalid)
-                                .raise());
+                            bail!(gix_error::validation("cannot peel to unknown target").with("input", invalid));
                         }
                     };
                     delegate.peel_until(target).or_raise(|| {
@@ -747,44 +743,37 @@ where
     Ok("".into())
 }
 
-fn parse_regex_prefix(regex: &BStr) -> ExnMessageResult<(&BStr, bool)> {
+fn parse_regex_prefix(regex: &BStr) -> Result<(&BStr, bool)> {
     Ok(match regex.strip_prefix(b"!") {
         Some(regex) if regex.first() == Some(&b'!') => (regex.as_bstr(), false),
         Some(regex) if regex.first() == Some(&b'-') => (regex[1..].as_bstr(), true),
         Some(_regex) => {
-            return Err(gix_error::validation("need one character after /!, typically -")
-                .with("input", regex)
-                .into());
+            bail!(gix_error::validation("need one character after /!, typically -").with("input", regex));
         }
         None => (regex, false),
     })
 }
 
-fn try_parse_usize(input: &BStr) -> ExnMessageResult<Option<(usize, usize)>> {
+fn try_parse_usize(input: &BStr) -> Result<Option<(usize, usize)>> {
     let mut bytes = input.iter().peekable();
     if bytes.peek().filter(|&&&b| b == b'-' || b == b'+').is_some() {
-        return Err(
-            gix_error::validation("negative or explicitly positive numbers are invalid here")
-                .with("input", input)
-                .into(),
-        );
+        bail!(gix_error::validation("negative or explicitly positive numbers are invalid here").with("input", input));
     }
     let num_digits = bytes.take_while(|b| b.is_ascii_digit()).count();
     if num_digits == 0 {
         return Ok(None);
     }
     let input = &input[..num_digits];
-    let number =
-        try_parse(input)?.ok_or_else(|| gix_error::validation("could not parse number").with("input", input))?;
+    let number = try_parse(input)?
+        .ok_or_else(|| gix_error::validation("could not parse number").with("input", input))
+        .or_error()?;
     Ok(Some((number, num_digits)))
 }
 
-fn try_parse_isize(input: &BStr) -> ExnMessageResult<Option<(isize, bool, usize)>> {
+fn try_parse_isize(input: &BStr) -> Result<Option<(isize, bool, usize)>> {
     let mut bytes = input.iter().peekable();
     if bytes.peek().filter(|&&&b| b == b'+').is_some() {
-        return Err(gix_error::validation("explicitly positive numbers are invalid here")
-            .with("input", input)
-            .into());
+        bail!(gix_error::validation("explicitly positive numbers are invalid here").with("input", input));
     }
     let negative = bytes.peek() == Some(&&b'-');
     let num_digits = bytes.take_while(|b| b.is_ascii_digit() || *b == &b'-').count();
@@ -794,8 +783,9 @@ fn try_parse_isize(input: &BStr) -> ExnMessageResult<Option<(isize, bool, usize)
         return Ok(Some((-1, negative, num_digits)));
     }
     let input = &input[..num_digits];
-    let number =
-        try_parse(input)?.ok_or_else(|| gix_error::validation("could not parse number").with("input", input))?;
+    let number = try_parse(input)?
+        .ok_or_else(|| gix_error::validation("could not parse number").with("input", input))
+        .or_error()?;
     Ok(Some((number, negative, num_digits)))
 }
 

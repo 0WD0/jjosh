@@ -1,6 +1,7 @@
+use gix_error::Result;
 use std::{cmp::Ordering, sync::atomic::AtomicBool, time::Instant};
 
-use gix_error::{ErrorExt, ExnResult, retryable};
+use gix_error::{OptionExt, bail, retryable};
 use gix_features::progress::{Count, DynNestedProgress, Progress};
 
 use crate::{exact_vec, index, multi_index::File};
@@ -47,7 +48,7 @@ where
         &self,
         progress: &mut dyn Progress,
         should_interrupt: &AtomicBool,
-    ) -> ExnResult<gix_hash::ObjectId> {
+    ) -> Result<gix_hash::ObjectId> {
         crate::verify::checksum_on_disk_or_mmap(
             self.path(),
             &self.data,
@@ -65,7 +66,7 @@ where
         &self,
         progress: &mut dyn DynNestedProgress,
         should_interrupt: &AtomicBool,
-    ) -> ExnResult<gix_hash::ObjectId> {
+    ) -> Result<gix_hash::ObjectId> {
         self.verify_integrity_inner(
             progress,
             should_interrupt,
@@ -83,7 +84,7 @@ where
         progress: &mut dyn DynNestedProgress,
         should_interrupt: &AtomicBool,
         options: index::verify::integrity::Options<F>,
-    ) -> ExnResult<integrity::Outcome>
+    ) -> Result<integrity::Outcome>
     where
         C: crate::cache::DecodeEntry,
         F: Fn() -> C + Send + Clone,
@@ -97,17 +98,16 @@ where
         should_interrupt: &AtomicBool,
         deep_check: bool,
         options: index::verify::integrity::Options<F>,
-    ) -> ExnResult<integrity::Outcome>
+    ) -> Result<integrity::Outcome>
     where
         C: crate::cache::DecodeEntry,
         F: Fn() -> C + Send + Clone,
     {
-        let parent = self.path.parent().ok_or_else(|| {
+        let parent = self.path.parent().ok_or_raise(|| {
             gix_error::validation(format!(
                 "The multi-index path '{}' has no parent directory",
                 self.path.display()
             ))
-            .raise_erased()
         })?;
 
         let actual_index_checksum = self.verify_checksum(
@@ -119,14 +119,13 @@ where
         )?;
 
         if let Some(first_invalid) = crate::verify::fan(&self.fan) {
-            return Err(gix_error::corruption(format!(
+            bail!(gix_error::corruption(format!(
                 "The fan at index {first_invalid} is out of order as it's larger then the following value."
-            ))
-            .raise_erased());
+            )));
         }
 
         if self.num_objects == 0 {
-            return Err(gix_error::corruption("The multi-index claims to have no objects").raise_erased());
+            bail!(gix_error::corruption("The multi-index claims to have no objects"));
         }
 
         let mut pack_traverse_statistics = Vec::new();
@@ -147,10 +146,9 @@ where
                 let rhs = self.oid_at_index(entry_index + 1);
 
                 if rhs.cmp(lhs) != Ordering::Greater {
-                    return Err(gix_error::corruption(format!(
+                    bail!(gix_error::corruption(format!(
                         "The object id at multi-index entry {entry_index} wasn't in order"
-                    ))
-                    .raise_erased());
+                    )));
                 }
                 let (pack_id, _) = self.pack_id_and_pack_offset_at_index(entry_index);
                 pack_ids_and_offsets.push((pack_id, entry_index));
@@ -207,24 +205,22 @@ where
                 for entry_id in multi_index_entries_to_check.iter().map(|e| e.1) {
                     let oid = self.oid_at_index(entry_id);
                     let (_, expected_pack_offset) = self.pack_id_and_pack_offset_at_index(entry_id);
-                    let entry_in_bundle_index = index.lookup(oid).ok_or_else(|| {
+                    let entry_in_bundle_index = index.lookup(oid).ok_or_raise(|| {
                         gix_error::corruption(format!(
                             "{oid} wasn't found in the index referenced in the multi-pack index"
                         ))
-                        .raise_erased()
                     })?;
                     let actual_pack_offset = index.pack_offset_at_index(entry_in_bundle_index);
                     if actual_pack_offset != expected_pack_offset {
-                        return Err(gix_error::corruption(format!(
+                        bail!(gix_error::corruption(format!(
                             "Object {oid} should be at pack-offset {expected_pack_offset} but was found at {actual_pack_offset}"
-                        ))
-                        .raise_erased());
+                        )));
                     }
                     offsets_progress.inc();
                 }
 
                 if should_interrupt.load(std::sync::atomic::Ordering::Relaxed) {
-                    return Err(retryable("Interrupted").raise_erased());
+                    bail!(retryable("Interrupted"));
                 }
                 offsets_progress.show_throughput(offset_start);
             }

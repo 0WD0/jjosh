@@ -1,10 +1,11 @@
+use gix_error::Result;
 use std::{
     borrow::Cow,
     path::{Path, PathBuf},
 };
 
 use bstr::{BStr, BString, ByteSlice};
-use gix_error::{ErrorExt, ExnResult, OptionExt, ResultExt, validation};
+use gix_error::{OptionExt, ResultExt, bail, validation};
 
 use crate::{
     EntryRef, entry,
@@ -49,7 +50,7 @@ pub fn walk(
     mut ctx: Context<'_>,
     options: Options<'_>,
     delegate: &mut dyn Delegate,
-) -> ExnResult<(Outcome, PathBuf)> {
+) -> Result<(Outcome, PathBuf)> {
     let root = match ctx.explicit_traversal_root {
         Some(root) => root.to_owned(),
         None => ctx
@@ -89,7 +90,10 @@ pub fn walk(
     );
     if !can_recurse {
         if buf.is_empty() && !root_info.disk_kind.is_some_and(|kind| kind.is_dir()) {
-            return Err(validation(format!("Worktree root at '{}' is not a directory", root.display())).raise_erased());
+            bail!(validation(format!(
+                "Worktree root at '{}' is not a directory",
+                root.display()
+            )));
         }
         if options.precompose_unicode {
             buf = gix_path::into_bstr(gix_utils::str::precompose_path(gix_path::from_bstr(buf))).into_owned();
@@ -129,12 +133,12 @@ pub fn walk(
 /// Note that we only check symlinks on the way from `worktree_root` to `root`,
 /// so `worktree_root` may go through a symlink.
 /// Returns `(worktree_root, normalized_worktree_relative_root)`.
-fn assure_no_symlink_in_root<'root>(worktree_root: &Path, root: &'root Path) -> ExnResult<(PathBuf, Cow<'root, Path>)> {
+fn assure_no_symlink_in_root<'root>(worktree_root: &Path, root: &'root Path) -> Result<(PathBuf, Cow<'root, Path>)> {
     let mut current = worktree_root.to_owned();
     let worktree_relative = root
         .strip_prefix(worktree_root)
         .expect("BUG: root was created from worktree_root + prefix");
-    let worktree_relative = gix_path::normalize(worktree_relative.into(), Path::new("")).ok_or_raise_erased(|| {
+    let worktree_relative = gix_path::normalize(worktree_relative.into(), Path::new("")).ok_or_raise(|| {
         validation(format!(
             "Traversal root '{}' contains relative path components and could not be normalized",
             root.display()
@@ -145,14 +149,13 @@ fn assure_no_symlink_in_root<'root>(worktree_root: &Path, root: &'root Path) -> 
         current.push(component);
         let meta = current
             .symlink_metadata()
-            .or_raise_erased(|| gix_error::message!("Could not obtain symlink metadata on '{}'", current.display()))?;
+            .or_raise(|| gix_error::message!("Could not obtain symlink metadata on '{}'", current.display()))?;
         if meta.is_symlink() {
-            return Err(validation(format!(
+            bail!(validation(format!(
                 "A symlink was found at component {idx} of traversal root '{}' as seen from worktree root '{}'",
                 root.display(),
                 worktree_root.display()
-            ))
-            .raise_erased());
+            )));
         }
     }
     Ok((current, worktree_relative))

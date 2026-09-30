@@ -8,7 +8,7 @@
 use std::borrow::Cow;
 
 use gix_date::SecondsSinceUnixEpoch;
-use gix_error::{ExnMessageResult, ExnResult, ResultExt, message};
+use gix_error::{ErrorExt, Result, ResultExt, message};
 use gix_negotiate::Flags;
 use gix_ref::file::ReferenceExt;
 
@@ -102,13 +102,13 @@ pub struct Round {
 pub fn mark_complete_and_common_ref<Out, F>(
     objects: &(impl gix_object::Find + gix_object::FindHeader + gix_object::Exists),
     refs: &gix_ref::file::Store,
-    alternates: impl FnOnce() -> ExnResult<Out>,
+    alternates: impl FnOnce() -> Result<Out>,
     negotiator: &mut dyn gix_negotiate::Negotiator,
     graph: &mut gix_negotiate::Graph<'_, '_>,
     ref_map: &RefMap,
     shallow: &Shallow,
     mapping_is_ignored: impl Fn(&refmap::Mapping) -> bool,
-) -> ExnMessageResult<Action>
+) -> Result<Action>
 where
     Out: Iterator<Item = (gix_ref::file::Store, F)>,
     F: gix_object::Find,
@@ -158,8 +158,7 @@ where
 
         if let Some(commit) = want_id
             .and_then(|id| graph.get_or_insert_commit(id.into(), |_| {}).transpose())
-            .transpose()
-            .or_raise(|| message("Could not look up commit in graph"))?
+            .transpose()?
         {
             remote_ref_target_known[mapping_idx] = true;
             cutoff_date = cutoff_date.unwrap_or_default().max(commit.commit_time).into();
@@ -198,7 +197,7 @@ where
         Cow::Borrowed(&queue)
     };
 
-    gix_trace::detail!("mark known_common").into_scope(|| -> ExnMessageResult<_> {
+    gix_trace::detail!("mark known_common").into_scope(|| -> Result {
         // mark all complete advertised refs as common refs.
         for mapping in ref_map
             .mappings
@@ -223,7 +222,7 @@ where
 
     // As negotiators currently may rely on getting `known_common` calls first and tips after, we adhere to that which is the only
     // reason we cached the set of tips.
-    gix_trace::detail!("mark tips", num_tips = tips.len()).into_scope(|| -> ExnMessageResult<_> {
+    gix_trace::detail!("mark tips", num_tips = tips.len()).into_scope(|| -> Result {
         for tip in tips.iter_unordered() {
             negotiator
                 .add_tip(*tip, graph)
@@ -324,7 +323,7 @@ fn mark_recent_complete_commits(
     queue: &mut Queue,
     graph: &mut gix_negotiate::Graph<'_, '_>,
     cutoff: SecondsSinceUnixEpoch,
-) -> ExnMessageResult {
+) -> Result {
     let _span = gix_trace::detail!("mark_recent_complete", queue_len = queue.len());
     while let Some(id) = queue
         .peek()
@@ -355,7 +354,7 @@ fn mark_all_refs_in_repo(
     graph: &mut gix_negotiate::Graph<'_, '_>,
     queue: &mut Queue,
     mark: Flags,
-) -> ExnMessageResult {
+) -> Result {
     let _span = gix_trace::detail!("mark_all_refs");
     for local_ref in store
         .iter()
@@ -370,7 +369,7 @@ fn mark_all_refs_in_repo(
         let id = match local_ref.peel_to_id_packed(store, objects, packed.as_ref().map(|b| &***b)) {
             Ok(id) => id,
             Err(err) if err.downcast_any_ref::<gix_ref::file::find::NotFound>().is_some() => continue,
-            Err(err) => return Err(err).or_raise(|| message("Could not peel reference to ID")),
+            Err(err) => return Err(err.and_raise(message("Could not peel reference to ID"))),
         };
         let mut is_complete = false;
         if let Some(commit) = graph
@@ -448,7 +447,7 @@ pub fn one_round(
     state: &mut one_round::State,
     arguments: &mut crate::fetch::Arguments,
     previous_response: Option<&crate::fetch::Response>,
-) -> ExnMessageResult<(Round, bool)> {
+) -> Result<(Round, bool)> {
     let mut seen_ack = false;
     if let Some(response) = previous_response {
         use crate::fetch::response::Acknowledgement;
@@ -456,9 +455,7 @@ pub fn one_round(
             match ack {
                 Acknowledgement::Common(id) => {
                     seen_ack = true;
-                    negotiator
-                        .in_common_with_remote(*id, graph)
-                        .or_raise(|| message("Could not mark remote-common commit"))?;
+                    negotiator.in_common_with_remote(*id, graph)?;
                     if let Some(common) = &mut state.common_commits {
                         common.push(*id);
                     }
@@ -482,7 +479,7 @@ pub fn one_round(
 
     let mut haves_added = 0;
     for have_id in (0..state.haves_to_send).map_while(|_| negotiator.next_have(graph)) {
-        arguments.have(have_id.or_raise(|| message("Could not obtain next negotiation commit"))?);
+        arguments.have(have_id?);
         haves_added += 1;
     }
     // Note that we are differing from the git implementation, which does an extra-round of with no new haves sent at all.

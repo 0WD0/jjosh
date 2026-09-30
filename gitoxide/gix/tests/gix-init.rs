@@ -1,5 +1,3 @@
-#![allow(clippy::result_large_err)]
-
 use std::path::Path;
 
 use gix::open::Permissions;

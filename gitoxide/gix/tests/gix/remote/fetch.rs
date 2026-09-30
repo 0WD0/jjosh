@@ -271,6 +271,8 @@ mod blocking_and_async_io {
     #[test]
     #[cfg(feature = "blocking-network-client")]
     fn collate_fetch_error() -> std::result::Result<(), gix_error::Error> {
+        use gix::error::ResultExt;
+
         let (repo, _tmp) = try_repo_rw("two-origins")?;
         let remote = repo
             .head()?
@@ -284,11 +286,7 @@ mod blocking_and_async_io {
             .receive(gix::progress::Discard, &AtomicBool::default())?;
 
         assert!(
-            repo.path()
-                .join("HEAD")
-                .metadata()
-                .map_err(gix::Error::from_error)?
-                .is_file(),
+            repo.path().join("HEAD").metadata().or_error()?.is_file(),
             "just to show off the 'Other' error type"
         );
         Ok(())
@@ -319,9 +317,7 @@ mod blocking_and_async_io {
                     r.repo().objects.store_ref().path().join("info").join("alternates"),
                     format!(
                         "{}\n",
-                        gix::path::realpath(remote_repo.objects.store_ref().path())
-                            .or_erased()?
-                            .display()
+                        gix::path::realpath(remote_repo.objects.store_ref().path())?.display()
                     )
                     .as_bytes(),
                 )
@@ -842,12 +838,7 @@ mod blocking_and_async_io {
             .await
             .unwrap_err();
 
-        insta::assert_debug_snapshot!(err, "fetching a missing explicit ref fails even if ls refs returns nothing", @r#"
-        Message {
-            message: "None of the refspec(s) refs/heads/does-not-exist matched any of the 0 refs on the remote",
-            class: Validation,
-        }
-        "#);
+        insta::assert_debug_snapshot!(err, "fetching a missing explicit ref fails even if ls refs returns nothing", @"None of the refspec(s) refs/heads/does-not-exist matched any of the 0 refs on the remote");
         Ok(())
     }
 

@@ -2,7 +2,7 @@ use std::io::Write;
 
 use gix_object::{FindExt, bstr::BStr};
 
-use gix_error::{ExnMessageResult, ResultExt, message};
+use gix_error::{Result, ResultExt, message};
 
 use crate::{AdditionalEntry, SharedErrorSlot, Stream, entry, protocol};
 
@@ -38,7 +38,11 @@ pub fn from_tree<Find, E>(
     tree: gix_hash::ObjectId,
     objects: Find,
     pipeline: gix_filter::Pipeline,
-    attributes: impl FnMut(&BStr, gix_object::tree::EntryMode, &mut gix_attributes::search::Outcome) -> Result<(), E>
+    attributes: impl FnMut(
+        &BStr,
+        gix_object::tree::EntryMode,
+        &mut gix_attributes::search::Outcome,
+    ) -> std::result::Result<(), E>
     + Send
     + 'static,
 ) -> Stream
@@ -65,7 +69,7 @@ where
                         *slot = Some(err);
                     } else {
                         drop(slot);
-                        write.channel.send(Err(std::io::Error::other(err.into_error()))).ok();
+                        write.channel.send(Err(std::io::Error::other(err))).ok();
                     }
                 }
             }
@@ -78,13 +82,17 @@ fn run<Find, E>(
     tree: gix_hash::ObjectId,
     objects: Find,
     mut pipeline: gix_filter::Pipeline,
-    mut attributes: impl FnMut(&BStr, gix_object::tree::EntryMode, &mut gix_attributes::search::Outcome) -> Result<(), E>
+    mut attributes: impl FnMut(
+        &BStr,
+        gix_object::tree::EntryMode,
+        &mut gix_attributes::search::Outcome,
+    ) -> std::result::Result<(), E>
     + Send
     + 'static,
     out: &mut gix_features::io::pipe::Writer,
     err: SharedErrorSlot,
     additional_entries: std::sync::mpsc::Receiver<AdditionalEntry>,
-) -> ExnMessageResult
+) -> Result
 where
     Find: gix_object::Find + Clone,
     E: std::error::Error + Send + Sync + 'static,

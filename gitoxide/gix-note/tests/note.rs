@@ -1,10 +1,11 @@
+use gix_error::Result;
 use std::{
     cell::Cell,
     collections::BTreeSet,
     io::{self, Read},
 };
 
-use gix_error::{ErrorExt, ExnResult};
+use gix_error::bail;
 use gix_hash::{Kind, ObjectId, oid};
 use gix_object::{
     FindExt, Tree, Write,
@@ -16,13 +17,13 @@ type ObjectDb = gix_odb::memory::Proxy<gix_object::find::Never>;
 
 mod one_shot {
     use super::*;
-    use gix_error::ExnResult;
+    use gix_error::Result;
 
     pub fn get(
         root_tree_id: ObjectId,
         annotated_object_id: &oid,
         objects: &impl gix_object::Find,
-    ) -> ExnResult<Option<ObjectId>> {
+    ) -> Result<Option<ObjectId>> {
         let mut state = gix_note::State::new(root_tree_id, objects)?;
         state.get(annotated_object_id, objects)
     }
@@ -32,7 +33,7 @@ mod one_shot {
         annotated_object_id: ObjectId,
         note_blob_id: ObjectId,
         objects: &(impl gix_object::Find + Write),
-    ) -> ExnResult<gix_note::Edit> {
+    ) -> Result<gix_note::Edit> {
         let mut state = gix_note::State::new(root_tree_id, objects)?;
         state.replace(annotated_object_id, note_blob_id, objects)
     }
@@ -41,7 +42,7 @@ mod one_shot {
         root_tree_id: ObjectId,
         annotated_object_id: ObjectId,
         objects: &(impl gix_object::Find + Write),
-    ) -> ExnResult<gix_note::Edit> {
+    ) -> Result<gix_note::Edit> {
         let mut state = gix_note::State::new(root_tree_id, objects)?;
         state.remove(annotated_object_id, objects)
     }
@@ -66,32 +67,32 @@ impl CountingObjectDb {
         }
     }
 
-    fn maybe_fail_write(&self) -> ExnResult {
+    fn maybe_fail_write(&self) -> Result {
         if self.fail_next_write.replace(false) {
-            return Err(io::Error::other("injected write failure").raise_erased());
+            bail!(io::Error::other("injected write failure"));
         }
         Ok(())
     }
 }
 
 impl gix_object::Find for CountingObjectDb {
-    fn try_find<'a>(&self, id: &gix_hash::oid, buffer: &'a mut Vec<u8>) -> ExnResult<Option<gix_object::Data<'a>>> {
+    fn try_find<'a>(&self, id: &gix_hash::oid, buffer: &'a mut Vec<u8>) -> Result<Option<gix_object::Data<'a>>> {
         self.reads.set(self.reads.get() + 1);
         if self.fail_next_read.replace(false) {
-            return Err(io::Error::other("injected read failure").raise_erased());
+            bail!(io::Error::other("injected read failure"));
         }
         self.inner.try_find(id, buffer)
     }
 }
 
 impl gix_object::Write for CountingObjectDb {
-    fn write_buf_with_known_id(&self, kind: gix_object::Kind, from: &[u8], id: ObjectId) -> ExnResult<ObjectId> {
+    fn write_buf_with_known_id(&self, kind: gix_object::Kind, from: &[u8], id: ObjectId) -> Result<ObjectId> {
         self.writes.set(self.writes.get() + 1);
         self.maybe_fail_write()?;
         self.inner.write_buf_with_known_id(kind, from, id)
     }
 
-    fn write_stream(&self, kind: gix_object::Kind, size: u64, from: &mut dyn Read) -> ExnResult<ObjectId> {
+    fn write_stream(&self, kind: gix_object::Kind, size: u64, from: &mut dyn Read) -> Result<ObjectId> {
         self.writes.set(self.writes.get() + 1);
         self.maybe_fail_write()?;
         self.inner.write_stream(kind, size, from)
@@ -103,7 +104,7 @@ impl gix_object::Write for CountingObjectDb {
         size: u64,
         from: &mut dyn Read,
         id: ObjectId,
-    ) -> ExnResult<ObjectId> {
+    ) -> Result<ObjectId> {
         self.writes.set(self.writes.get() + 1);
         self.maybe_fail_write()?;
         self.inner.write_stream_with_known_id(kind, size, from, id)
@@ -273,7 +274,7 @@ fn staged_edits_reuse_state_without_writing_trees() -> gix_testtools::Result {
     let mut state = gix_note::State::new(root_tree_id, &objects)?;
     let annotated_object_ids = (0..512_u32)
         .map(|index| gix_object::compute_hash(kind, gix_object::Kind::Blob, &index.to_le_bytes()))
-        .collect::<Result<Vec<_>, _>>()?;
+        .collect::<std::result::Result<Vec<_>, _>>()?;
     objects.writes.set(0);
     for &annotated_object_id in &annotated_object_ids {
         assert_eq!(
@@ -365,9 +366,16 @@ fn state_recovers_after_failed_operations() -> gix_testtools::Result {
     let mut state = gix_note::State::new(root, &objects)?;
 
     objects.fail_next_read.set(true);
-    state
+    let err = state
         .get(&annotated, &objects)
         .expect_err("the injected subtree read fails");
+    assert_eq!(
+        err.downcast_any_ref::<io::Error>()
+            .expect("the injected read error remains available for downcasting")
+            .to_string(),
+        "injected read failure",
+        "resetting the state preserves the original read error"
+    );
     assert_eq!(state.root_tree_id(), root, "a failed lookup retains the current root");
     assert_eq!(
         state.get(&annotated, &objects)?,
@@ -376,9 +384,16 @@ fn state_recovers_after_failed_operations() -> gix_testtools::Result {
     );
 
     objects.fail_next_write.set(true);
-    state
+    let err = state
         .replace(annotated, replacement, &objects)
         .expect_err("the injected tree write fails");
+    assert_eq!(
+        err.downcast_any_ref::<io::Error>()
+            .expect("the injected write error remains available for downcasting")
+            .to_string(),
+        "injected write failure",
+        "resetting the state preserves the original write error"
+    );
     assert_eq!(state.root_tree_id(), root, "a failed edit retains the current root");
     assert_eq!(
         state.get(&annotated, &objects)?,

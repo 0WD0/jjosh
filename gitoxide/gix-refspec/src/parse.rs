@@ -10,13 +10,12 @@ pub enum Operation {
 pub(crate) mod function {
     use crate::{RefSpecRef, parse::Operation, types::Mode};
     use bstr::{BStr, ByteSlice};
-    use gix_error::ErrorExt;
-    use gix_error::ExnMessageResult;
+    use gix_error::{ErrorExt, Result, ResultExt, bail};
 
     /// Parse `spec` for use in `operation` and return it if it is valid.
     /// Patterns with more than one `*` include the offending source or destination bytes as `input`
-    /// [metadata](gix_error::Exn::metadata()).
-    pub fn parse(mut spec: &BStr, operation: Operation) -> ExnMessageResult<RefSpecRef<'_>> {
+    /// [metadata](gix_error::Error::metadata()).
+    pub fn parse(mut spec: &BStr, operation: Operation) -> Result<RefSpecRef<'_>> {
         fn fetch_head_only(mode: Mode) -> RefSpecRef<'static> {
             RefSpecRef {
                 mode,
@@ -50,10 +49,9 @@ pub(crate) mod function {
         let (mut src, dst) = match spec.rfind_byte(b':') {
             Some(pos) => {
                 if mode == Mode::Negative {
-                    return Err(gix_error::validation(
+                    bail!(gix_error::validation(
                         "Negative refspecs cannot have destinations as they exclude sources",
-                    )
-                    .raise());
+                    ));
                 }
 
                 let (src, dst) = spec.split_at(pos);
@@ -71,7 +69,7 @@ pub(crate) mod function {
                     },
                     (Some(src), None) => match operation {
                         Operation::Push => {
-                            return Err(gix_error::validation("Cannot push into an empty destination").raise());
+                            bail!(gix_error::validation("Cannot push into an empty destination"));
                         }
                         Operation::Fetch => (Some(src), None),
                     },
@@ -99,20 +97,19 @@ pub(crate) mod function {
             && src_had_pattern != dst_had_pattern
             && !(operation == Operation::Push && dst.is_none())
         {
-            return Err(gix_error::validation(
+            bail!(gix_error::validation(
                 "Both sides of a two-sided specification need a pattern, like 'a/*:b/*'",
-            )
-            .raise());
+            ));
         }
 
         if mode == Mode::Negative {
             match src {
                 Some(spec) => {
                     if looks_like_object_hash(spec) {
-                        return Err(gix_error::validation("Negative specs must not be object hashes").raise());
+                        bail!(gix_error::validation("Negative specs must not be object hashes"));
                     }
                 }
-                None => return Err(gix_error::validation("Negative specs must not be empty").raise()),
+                None => bail!(gix_error::validation("Negative specs must not be empty")),
             }
         }
 
@@ -128,40 +125,35 @@ pub(crate) mod function {
         spec.len() >= gix_hash::Kind::shortest().len_in_hex() && spec.iter().all(u8::is_ascii_hexdigit)
     }
 
-    fn validate_partial_name_with_single_glob(spec: &BStr) -> ExnMessageResult {
+    fn validate_partial_name_with_single_glob(
+        spec: &BStr,
+    ) -> std::result::Result<(), gix_validate::reference::name::Error> {
         let mut buf = smallvec::SmallVec::<[u8; 256]>::with_capacity(spec.len());
         buf.extend_from_slice(spec);
         let glob_pos = buf.find_byte(b'*').expect("glob present");
         buf[glob_pos] = b'a';
-        gix_validate::reference::name_partial(buf.as_bstr()).map_err(|source| {
-            let message = source.to_string();
-            source.and_raise(gix_error::validation(message))
-        })?;
+        gix_validate::reference::name_partial(buf.as_bstr())?;
         Ok(())
     }
 
     /// Validate `spec`, and return it along with whether it holds a glob.
     ///
     /// `any_name` skips the check entirely, for the one side Git leaves unchecked.
-    fn validated(spec: Option<&BStr>, any_name: bool) -> ExnMessageResult<(Option<&BStr>, bool)> {
+    fn validated(spec: Option<&BStr>, any_name: bool) -> Result<(Option<&BStr>, bool)> {
         match spec {
             Some(spec) => {
                 let glob_count = spec.iter().filter(|b| **b == b'*').take(2).count();
                 if glob_count > 1 {
-                    return Err(
+                    bail!(
                         gix_error::validation("refspec patterns may only contain a single '*' character")
                             .with("input", spec)
-                            .raise(),
                     );
                 }
                 let has_globs = glob_count > 0;
                 if has_globs {
-                    validate_partial_name_with_single_glob(spec)?;
+                    validate_partial_name_with_single_glob(spec).or_error()?;
                 } else if !any_name {
-                    gix_validate::reference::name_partial(spec).map_err(|source| {
-                        let message = source.to_string();
-                        source.and_raise(gix_error::validation(message))
-                    })?;
+                    gix_validate::reference::name_partial(spec).or_error()?;
                 }
                 Ok((Some(spec), has_globs))
             }

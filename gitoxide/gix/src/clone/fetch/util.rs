@@ -1,6 +1,6 @@
 use std::io::Write;
 
-use gix_error::{ExnMessageResult, ResultExt};
+use gix_error::ResultExt;
 use gix_ref::{
     Category, FullNameRef, PartialName,
     transaction::{LogChange, RefLog},
@@ -61,14 +61,12 @@ pub(super) fn reinitialize_with_object_hash(
     config
         .section_mut("core", None)
         .expect("freshly initialized repository has a core section")
-        .set("repositoryformatversion", if is_sha256 { "1" } else { "0" })
-        .or_erased()?;
+        .set("repositoryformatversion", if is_sha256 { "1" } else { "0" })?;
     if is_sha256 {
         config
             .section_mut_or_create_new("extensions", None)
             .expect("valid section name")
-            .set("objectformat", object_hash.to_string())
-            .or_erased()?;
+            .set("objectformat", object_hash.to_string())?;
     } else {
         // In a freshly initialized repository, this section exists solely to carry `objectformat`.
         config.remove_section("extensions", None);
@@ -119,10 +117,12 @@ fn write_to_local_config(config: &gix_config::File, mode: WriteMode) -> std::io:
 /// This is used after writing clone-specific local configuration to `.git/config`,
 /// as the `repo` handle was opened before that write and won't observe it until
 /// it is either updated in memory or reopened.
-pub fn append_config_to_repo_config(repo: &mut Repository, config: gix_config::File) -> ExnMessageResult {
+pub fn append_config_to_repo_config(repo: &mut Repository, config: gix_config::File) -> Result {
     let repo_config = gix_features::threading::OwnShared::make_mut(&mut repo.config.resolved);
-    repo_config.append(config)?;
-    Ok(())
+    repo_config
+        .append(config)
+        .or_raise(|| gix_error::message("Failed to append repository configuration"))
+        .map(|_| ())
 }
 
 /// HEAD cannot be written by means of refspec by design, so we have to do it manually here. Also create the pointed-to ref
@@ -312,12 +312,12 @@ pub(super) fn find_custom_refname<'a>(
         return Ok((item.target, item.full_ref_name));
     }
     if !requested_name.starts_with(b"refs/") {
-        let branch_name = Category::LocalBranch.to_full_name(requested_name).or_erased()?;
+        let branch_name = Category::LocalBranch.to_full_name(requested_name).or_error()?;
         if let Some(item) = find_item(branch_name.as_bstr()) {
             return Ok((item.target, item.full_ref_name));
         }
 
-        let tag_name = Category::Tag.to_full_name(requested_name).or_erased()?;
+        let tag_name = Category::Tag.to_full_name(requested_name).or_error()?;
         if let Some(item) = find_item(tag_name.as_bstr()) {
             return Ok((item.target, item.full_ref_name));
         }
@@ -393,9 +393,9 @@ fn setup_branch_config(
         let mut section = config
             .new_section("branch", short_name)
             .expect("section header name is always valid per naming rules, our input branch name is valid");
-        section.push("remote", remote_name).or_erased()?;
-        section.push("merge", branch.as_bstr()).or_erased()?;
-        write_to_local_config(&config, WriteMode::Overwrite).or_erased()?;
+        section.push("remote", remote_name)?;
+        section.push("merge", branch.as_bstr())?;
+        write_to_local_config(&config, WriteMode::Overwrite).or_error()?;
         config.commit().expect("configuration we set is valid");
     }
     Ok(())

@@ -3,7 +3,7 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
-use gix_error::{ErrorExt, ResultExt, message};
+use gix_error::{ErrorExt, ResultExt, bail, ensure, message};
 use gix_features::progress::{NestedProgress, Progress};
 
 use crate::{Result, repository::FormatVersion};
@@ -104,16 +104,14 @@ impl crate::Repository {
         let (head_target, commit_id, root_tree_id) = match head {
             Head::Attached(name) => {
                 if name.category() != Some(gix_ref::Category::LocalBranch) {
-                    return Err(Error::NotLocalBranch { name }.raise().into());
+                    bail!(Error::NotLocalBranch { name });
                 }
                 let checked_out = self.checked_out_branches_without_namespace()?;
                 if let Some(worktree_dirs) = checked_out.get(&name) {
-                    return Err(Error::CheckedOut {
+                    bail!(Error::CheckedOut {
                         name,
                         worktree_dirs: worktree_dirs.clone(),
-                    }
-                    .raise()
-                    .into());
+                    });
                 }
                 let mut source = self.clone();
                 source.clear_namespace();
@@ -133,9 +131,7 @@ impl crate::Repository {
                 (gix_ref::Target::Object(commit_id), commit_id, root_tree_id)
             }
         };
-        if should_interrupt.load(Ordering::Relaxed) {
-            return Err(Error::Interrupted.raise().into());
-        }
+        ensure!(!should_interrupt.load(Ordering::Relaxed), Error::Interrupted);
 
         let main_repo = self
             .main_repo()
@@ -171,18 +167,14 @@ impl crate::Repository {
                     Ok(path) => path == canonical_destination,
                     Err(err) if err.kind() == std::io::ErrorKind::NotFound => false,
                     Err(err) => {
-                        return Err(err
-                            .and_raise(message("Failed to resolve a registered worktree directory"))
-                            .into());
+                        bail!(err.and_raise(message("Failed to resolve a registered worktree directory")));
                     }
                 }
             };
             if same_destination {
-                return Err(Error::DestinationRegistered {
+                bail!(Error::DestinationRegistered {
                     destination: destination.to_owned(),
-                }
-                .raise()
-                .into());
+                });
             }
         }
         if relative_paths {
@@ -288,9 +280,7 @@ impl crate::Repository {
         )?;
         files.show_throughput(started);
         bytes.show_throughput(started);
-        if should_interrupt.load(Ordering::Relaxed) {
-            return Err(Error::Interrupted.raise().into());
-        }
+        ensure!(!should_interrupt.load(Ordering::Relaxed), Error::Interrupted);
         index
             .write(Default::default())
             .or_raise(|| message("Could not write the linked worktree index"))?;
@@ -306,9 +296,7 @@ fn copy_worktree_config(source: &Path, destination: &Path) -> Result<()> {
         Ok(config) => config,
         Err(err) if err.is_not_found() => return Ok(()),
         Err(err) => {
-            return Err(err
-                .raise(message("Could not read the source worktree configuration"))
-                .into());
+            bail!(err.and_raise(message("Could not read the source worktree configuration")));
         }
     };
     if Core::BARE.enrich_error(config.boolean(Core::BARE))?.unwrap_or_default()

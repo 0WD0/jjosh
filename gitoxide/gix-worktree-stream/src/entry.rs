@@ -1,16 +1,17 @@
+use gix_error::Result;
 use std::{
     io::{ErrorKind, Read},
     path::PathBuf,
 };
 
-use gix_error::{ErrorExt, ExnMessageResult};
+use gix_error::ErrorExt;
 use gix_object::bstr::BStr;
 
 use crate::{Entry, Stream, protocol};
 
 impl Stream {
     /// Access the next entry of the stream or `None` if there is nothing more to read.
-    pub fn next_entry(&mut self) -> ExnMessageResult<Option<Entry<'_>>> {
+    pub fn next_entry(&mut self) -> Result<Option<Entry<'_>>> {
         assert!(
             self.path_buf.is_some(),
             "BUG: must consume and drop entry before getting the next one"
@@ -121,7 +122,7 @@ impl std::io::Read for Entry<'_> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         let buf_len = buf.len();
         if let Some(err) = self.parent.err.lock().take() {
-            return Err(std::io::Error::other(err.into_error()));
+            return Err(std::io::Error::other(err));
         }
         let bytes_read = match self.remaining.as_mut() {
             None => {

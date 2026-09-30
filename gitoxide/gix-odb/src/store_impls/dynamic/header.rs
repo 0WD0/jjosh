@@ -1,6 +1,7 @@
+use gix_error::Result;
 use std::ops::Deref;
 
-use gix_error::{ErrorExt, ExnResult, ResultExt, not_found};
+use gix_error::{OptionExt, ResultExt, bail, not_found};
 use gix_hash::oid;
 
 use crate::{
@@ -15,7 +16,7 @@ impl<S> super::Handle<S>
 where
     S: Deref<Target = super::Store> + Clone,
 {
-    /// Delta resolution failures include [metadata](gix_error::Exn::metadata()) `object_id` and `base_id` (hex text).
+    /// Delta resolution failures include [metadata](gix_error::Error::metadata()) `object_id` and `base_id` (hex text).
     /// Recursion limits include `object_id` (hex text) and `max_depth` (unsigned).
     pub(crate) fn try_header_inner<'b>(
         &'b self,
@@ -23,10 +24,13 @@ where
         inflate: &mut gix_zlib::Inflate,
         snapshot: &mut load_index::Snapshot,
         recursion: Option<DeltaBaseRecursion<'_>>,
-    ) -> ExnResult<Option<Header>> {
+    ) -> Result<Option<Header>> {
         if let Some(r) = recursion {
             if r.depth >= self.max_recursion_depth {
-                return Err(delta_base_recursion_limit_error(self.max_recursion_depth, r.original_id).raise_erased());
+                bail!(delta_base_recursion_limit_error(
+                    self.max_recursion_depth,
+                    r.original_id
+                ));
             }
         } else if !self.ignore_replacements
             && let Ok(pos) = self
@@ -49,7 +53,7 @@ where
                     {
                         let pack = match possibly_pack {
                             Some(pack) => pack,
-                            None => match self.store.load_pack(pack_id, marker).or_erased()? {
+                            None => match self.store.load_pack(pack_id, marker).or_error()? {
                                 Some(pack) => {
                                     *possibly_pack = Some(pack);
                                     possibly_pack.as_deref().expect("just put it in")
@@ -72,7 +76,7 @@ where
                                 }
                             },
                         };
-                        let entry = pack.entry(pack_offset).or_erased()?;
+                        let entry = pack.entry(pack_offset)?;
                         let res = match pack.decode_header(entry, inflate, &|id| {
                             index_file.pack_offset_by_id(id).and_then(|pack_offset| {
                                 pack.entry(pack_offset)
@@ -102,12 +106,11 @@ where
                                             .map(DeltaBaseRecursion::inc_depth)
                                             .or_else(|| DeltaBaseRecursion::new(id).into()),
                                     )
-                                    .or_raise_erased(context)?
-                                    .ok_or_else(|| {
+                                    .or_raise(context)?
+                                    .ok_or_raise(|| {
                                         not_found("Could not resolve delta base object: delta base object is missing")
                                             .with("base_id", base_id.to_string())
                                             .with("object_id", id.to_string())
-                                            .raise_erased()
                                     })?;
                                 let handle::index_lookup::Outcome {
                                     object_index:
@@ -136,7 +139,7 @@ where
                                 let pack = possibly_pack
                                     .as_ref()
                                     .expect("pack to still be available like just now");
-                                let entry = pack.entry(pack_offset).or_erased()?;
+                                let entry = pack.entry(pack_offset)?;
                                 pack.decode_header(entry, inflate, &|id| {
                                     index_file
                                         .pack_offset_by_id(id)
@@ -188,7 +191,7 @@ impl<S> crate::Header for super::Handle<S>
 where
     S: Deref<Target = super::Store> + Clone,
 {
-    fn try_header(&self, id: &oid) -> ExnResult<Option<Header>> {
+    fn try_header(&self, id: &oid) -> Result<Option<Header>> {
         let mut snapshot = self.snapshot.borrow_mut();
         let mut inflate = self.inflate.borrow_mut();
         self.try_header_inner(id, &mut inflate, &mut snapshot, None)

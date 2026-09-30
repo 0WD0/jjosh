@@ -1,6 +1,5 @@
 use crate::data;
-use gix_error::ErrorExt;
-use gix_error::ExnResult;
+use gix_error::{Result, bail};
 
 pub(crate) const N32_SIZE: usize = std::mem::size_of::<u32>();
 
@@ -8,16 +7,18 @@ pub(crate) const N32_SIZE: usize = std::mem::size_of::<u32>();
 pub const SIZE: usize = b"PACK".len() + N32_SIZE * 2;
 
 /// Parses the first 12 bytes of a pack file, returning the pack version as well as the number of objects contained in the pack.
-pub fn decode(data: &[u8; SIZE]) -> ExnResult<(data::Version, u32)> {
+pub fn decode(data: &[u8; SIZE]) -> Result<(data::Version, u32)> {
     let mut ofs = 0;
     if &data[ofs..ofs + b"PACK".len()] != b"PACK" {
-        return Err(gix_error::corruption("Pack data type not recognized").raise_erased());
+        bail!(gix_error::corruption("Pack data type not recognized"));
     }
     ofs += N32_SIZE;
     let kind = match crate::read_u32(&data[ofs..ofs + N32_SIZE]) {
         2 => data::Version::V2,
         3 => data::Version::V3,
-        v => return Err(gix_error::validation(format!("Unsupported pack version: {v}")).raise_erased()),
+        v => {
+            bail!(gix_error::validation(format!("Unsupported pack version: {v}")));
+        }
     };
     ofs += N32_SIZE;
     let num_objects = crate::read_u32(&data[ofs..ofs + N32_SIZE]);

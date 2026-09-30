@@ -212,11 +212,7 @@ mod edit_tree {
             )?
             .write()
             .unwrap_err();
-        insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&(err), &[]), "each entry to be written is checked for existence", @r#"
-        Message {
-            message: "The object Oid(1) (100644) at 'non-existing' could not be found",
-        }
-        "#);
+        insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&(err), &[]), "each entry to be written is checked for existence", @"The object Oid(1) (100644) at 'non-existing' could not be found");
 
         let this_id = hex_to_id("317e9677c3bcffd006f9fc84bbb0a54ef1676197");
         let err = editor
@@ -245,7 +241,7 @@ mod edit_tree {
             repo: &Repository,
             name: Option<&BStr>,
         ) -> anyhow::Result<termtree::Tree<String>> {
-            let tree = repo.find_tree(tree_id)?.decode().map_err(gix::Error::from)?.to_owned();
+            let tree = repo.find_tree(tree_id)?.decode()?.to_owned();
             let mut termtree = termtree::Tree::new(if let Some(name) = name {
                 if tree.entries.is_empty() {
                     format!("{name} (empty)")

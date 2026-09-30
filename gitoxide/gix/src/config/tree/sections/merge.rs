@@ -64,9 +64,10 @@ pub type ConflictStyle = keys::Any<validate::ConflictStyle>;
 
 #[cfg(feature = "merge")]
 mod conflict_style {
+    use gix_error::bail;
     use gix_merge::blob::builtin_driver::text;
 
-    use crate::{Error, Result, bstr::ByteSlice, config, config::tree::sections::merge::ConflictStyle};
+    use crate::{Result, bstr::ByteSlice, config, config::tree::sections::merge::ConflictStyle};
 
     impl ConflictStyle {
         /// Derive the diff algorithm identified by `name`, case-insensitively.
@@ -79,11 +80,7 @@ mod conflict_style {
             } else if name.as_bstr() == "zdiff3" {
                 text::ConflictStyle::ZealousDiff3
             } else {
-                return Err(Error::from_error(config::key::error_with_value(
-                    self,
-                    "Invalid configuration value",
-                    name,
-                )));
+                bail!(config::key::error_with_value(self, "Invalid configuration value", name));
             };
             Ok(style)
         }
@@ -92,10 +89,9 @@ mod conflict_style {
 
 #[cfg(feature = "merge")]
 mod validate {
-    use gix_error::ResultExt;
 
     use crate::{
-        ExnResult,
+        Result,
         bstr::BStr,
         config::tree::{Merge, keys},
     };
@@ -103,8 +99,8 @@ mod validate {
     #[derive(Clone, Copy)]
     pub struct ConflictStyle;
     impl keys::Validate for ConflictStyle {
-        fn validate(&self, value: &BStr) -> ExnResult {
-            Merge::CONFLICT_STYLE.try_into_conflict_style(value).or_erased()?;
+        fn validate(&self, value: &BStr) -> Result {
+            Merge::CONFLICT_STYLE.try_into_conflict_style(value)?;
             Ok(())
         }
     }

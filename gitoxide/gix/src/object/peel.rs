@@ -1,6 +1,8 @@
 //!
 #![allow(clippy::empty_docs)]
-use crate::{Commit, Error, Object, Result, Tree, object::Kind};
+use gix_error::bail;
+
+use crate::{Commit, Object, Result, Tree, object::Kind};
 
 impl<'repo> Object<'repo> {
     // TODO: tests
@@ -31,11 +33,11 @@ impl<'repo> Object<'repo> {
                     self = repo.find_object(target_id)?;
                 }
                 Kind::Tree | Kind::Blob => {
-                    return Err(Error::from_error(gix_error::validation(format!(
+                    bail!(gix_error::validation(format!(
                         "Last encountered object {} was {} while trying to peel to {kind}",
                         self.id().shorten().unwrap_or_else(|_| self.id.into()),
                         self.kind,
-                    ))));
+                    )));
                 }
             }
         }

@@ -5,7 +5,7 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use gix_error::{ErrorExt, ResultExt, message};
+use gix_error::{ErrorExt, ResultExt, bail, message};
 
 use super::FileTransaction;
 use crate::Result;
@@ -49,9 +49,7 @@ impl FileTransaction {
                 gix_config::File::new(gix_config::file::Metadata::from(source).at(path).with(trust))
             }
             Err(err) => {
-                return Err(err
-                    .and_raise(message!("Could not read the configuration file at {path:?}"))
-                    .into());
+                bail!(err.and_raise(message!("Could not read the configuration file at {path:?}")));
             }
         };
         Ok(FileTransaction { lock, config })

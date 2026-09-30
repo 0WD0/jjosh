@@ -1,10 +1,11 @@
+use gix_error::bail;
 #[cfg(feature = "async-network-client")]
 use gix_transport::client::async_io::Transport;
 #[cfg(feature = "blocking-network-client")]
 use gix_transport::client::blocking_io::Transport;
 
 use crate::{
-    Error, Progress, Result,
+    Progress, Result,
     bstr::BString,
     remote,
     remote::{
@@ -136,9 +137,9 @@ where
         options: ref_map::Options,
     ) -> Result<PrepareDetached<'remote, T>> {
         if self.remote.fetch_refspecs().is_empty() && options.extra_refspecs.is_empty() {
-            return Err(Error::from_error(gix_error::validation(
+            bail!(gix_error::validation(
                 "Cannot perform a meaningful fetch operation without any configured ref-specs",
-            )));
+            ));
         }
         let ref_map = self.ref_map_by_ref(repo, progress, options).await?;
         Ok(PrepareDetached {

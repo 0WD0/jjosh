@@ -5,7 +5,7 @@ use gix_ref::{
 };
 
 use crate::{Reference, Result, bstr::BString, ext::ReferenceExt, reference};
-use gix_error::{ErrorExt, ResultExt};
+use gix_error::ResultExt;
 
 /// Obtain and alter references comfortably
 impl crate::Repository {
@@ -20,11 +20,8 @@ impl crate::Repository {
         constraint: PreviousValue,
     ) -> Result<Reference<'_>> {
         let id = target.into();
-        let name = format!("refs/tags/{}", name.as_ref()).try_into().map_err(
-            |err: gix_validate::reference::name::Error| {
-                err.and_raise(gix_error::validation("The tag reference name is invalid"))
-            },
-        )?;
+        let name = FullName::try_from(format!("refs/tags/{}", name.as_ref()))
+            .or_raise(|| gix_error::validation("The tag reference name is invalid"))?;
         let mut edits = self.edit_reference(RefEdit::update(name, id, constraint, ""))?;
         assert_eq!(edits.len(), 1, "reference splits should ever happen");
         let edit = edits.pop().expect("exactly one item");
@@ -51,15 +48,12 @@ impl crate::Repository {
     }
 
     /// Set the reference namespace to the given value, like `"foo"` or `"foo/bar"`.
-    pub fn set_namespace<'a, Name, E>(
-        &mut self,
-        namespace: Name,
-    ) -> std::result::Result<Option<gix_ref::Namespace>, gix_validate::reference::name::Error>
+    pub fn set_namespace<'a, Name, E>(&mut self, namespace: Name) -> Result<Option<gix_ref::Namespace>>
     where
         Name: TryInto<&'a PartialNameRef, Error = E>,
         gix_validate::reference::name::Error: From<E>,
     {
-        let namespace = gix_ref::namespace::expand(namespace)?;
+        let namespace = gix_ref::namespace::expand(namespace).or_error()?;
         Ok(self.refs.namespace.replace(namespace))
     }
 
@@ -86,7 +80,7 @@ impl crate::Repository {
         self.reference_inner(
             name.try_into()
                 .map_err(gix_validate::reference::name::Error::from)
-                .map_err(|err| err.and_raise(gix_error::validation("The reference name is invalid")))?,
+                .or_raise(|| gix_error::validation("The reference name is invalid"))?,
             target.into(),
             constraint,
             log_message.into(),
@@ -142,19 +136,16 @@ impl crate::Repository {
         edits: impl IntoIterator<Item = RefEdit>,
         committer: Option<gix_actor::SignatureRef<'_>>,
     ) -> Result<Vec<RefEdit>> {
-        let (file_lock_fail, packed_refs_lock_fail) = self.config.lock_timeout().map_err(|err| {
-            err.and_raise(gix_error::message(
+        let (file_lock_fail, packed_refs_lock_fail) = self.config.lock_timeout().or_raise(|| {
+            gix_error::message(
                 "Could not interpret core.filesRefLockTimeout or core.packedRefsTimeout, it must be the number in \
                  milliseconds to wait for locks or negative to wait forever",
-            ))
+            )
         })?;
-        Ok(self
-            .refs
+        self.refs
             .transaction()
-            .prepare(edits, file_lock_fail, packed_refs_lock_fail)
-            .or_erased()?
+            .prepare(edits, file_lock_fail, packed_refs_lock_fail)?
             .commit(committer)
-            .or_erased()?)
     }
 
     /// Return the repository head, an abstraction to help dealing with the `HEAD` reference.
@@ -251,7 +242,7 @@ impl crate::Repository {
     /// is freshly initialized and doesn't have any commits yet. It could also fail if the
     /// head does not point to a commit.
     pub fn head_tree_id(&self) -> Result<crate::Id<'_>> {
-        Ok(self.head_commit()?.tree_id().or_erased()?)
+        self.head_commit()?.tree_id()
     }
 
     /// Like [`Self::head_tree_id()`], but will return an empty tree hash if the repository HEAD is unborn.
@@ -260,7 +251,7 @@ impl crate::Repository {
         if head.is_unborn() {
             Ok(self.empty_tree().id())
         } else {
-            Ok(head.peel_to_commit()?.tree_id().or_erased()?)
+            head.peel_to_commit()?.tree_id()
         }
     }
 

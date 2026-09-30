@@ -3,16 +3,16 @@ pub use crate::client::non_io_types::connect::Options;
 #[cfg(feature = "async-std")]
 pub(crate) mod function {
     use crate::client::{async_io::Transport, git::async_io::Connection};
-    use gix_error::ExnMessageResult;
-    use gix_error::{ErrorExt, ResultExt, message};
+    use gix_error::Result;
+    use gix_error::{ResultExt, bail, message};
 
     /// A general purpose connector connecting to a repository identified by the given `url`.
     ///
     /// This includes connections to
-    /// [git daemons][crate::client::git::connect()] only at the moment.
+    /// [git daemons][Connection::new_tcp()] only at the moment.
     ///
     /// Use `options` to further control specifics of the transport resulting from the connection.
-    pub async fn connect<Url, E>(url: Url, options: super::Options) -> ExnMessageResult<Box<dyn Transport + Send>>
+    pub async fn connect<Url, E>(url: Url, options: super::Options) -> Result<Box<dyn Transport + Send>>
     where
         Url: TryInto<gix_url::Url, Error = E>,
         E: std::error::Error + Send + Sync + 'static,
@@ -21,12 +21,11 @@ pub(crate) mod function {
         Ok(match url.scheme {
             gix_url::Scheme::Git => {
                 if url.user().is_some() {
-                    return Err(message!(
+                    bail!(message!(
                         "The url {:?} contains information that would not be used by the {} protocol",
                         url.to_bstring(),
                         url.scheme
-                    )
-                    .raise());
+                    ));
                 }
                 let path = std::mem::take(&mut url.path);
                 Box::new(
@@ -41,7 +40,9 @@ pub(crate) mod function {
                     .or_raise(|| message("connection failed"))?,
                 )
             }
-            scheme => return Err(message!("The '{scheme}' protocol is currently unsupported").raise()),
+            scheme => {
+                bail!(message!("The '{scheme}' protocol is currently unsupported"));
+            }
         })
     }
 }

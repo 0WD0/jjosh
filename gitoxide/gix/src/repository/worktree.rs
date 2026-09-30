@@ -1,11 +1,11 @@
 use std::{collections::BTreeMap, path::PathBuf};
 
 use crate::{
-    Error, ExnMessageResult, Result, Worktree,
+    Result, Worktree,
     bstr::{BStr, ByteSlice},
     worktree,
 };
-use gix_error::{ErrorExt, ResultExt};
+use gix_error::{ErrorExt, ResultExt, bail};
 
 /// Interact with individual worktrees and their information.
 impl crate::Repository {
@@ -61,10 +61,10 @@ impl crate::Repository {
         let iter = match std::fs::read_dir(self.current_dir().join(self.common_dir()).join("worktrees")) {
             Ok(iter) => iter,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(res),
-            Err(err) => return Err(Error::from_error(err)),
+            Err(err) => bail!(err),
         };
         for entry in iter {
-            let entry = entry.map_err(Error::from_error)?;
+            let entry = entry.or_error()?;
             let worktree_git_dir = entry.path();
             res.extend(worktree::Proxy::new_if_gitdir_file_exists(self, worktree_git_dir));
         }
@@ -142,10 +142,10 @@ impl crate::Repository {
         let id = id.into();
         let header = self.objects.header(id)?;
         if !header.kind().is_tree() {
-            return Err(Error::from_error(gix_error::validation(format!(
+            bail!(gix_error::validation(format!(
                 "Needed {id} to be a tree to turn into a workspace stream, got {}",
                 header.kind()
-            ))));
+            )));
         }
 
         // TODO(perf): potential performance improvements could be to use the index at `HEAD` if possible (`index_from_head_tree…()`)
@@ -153,8 +153,7 @@ impl crate::Repository {
         //             an object cache between the copies of the ODB handles isn't trivial and needs a lock.
         let index = self.index_from_tree(&id)?;
         let mut cache = self
-            .attributes_only(&index, gix_worktree::stack::state::attributes::Source::IdMapping)
-            .or_erased()?
+            .attributes_only(&index, gix_worktree::stack::state::attributes::Source::IdMapping)?
             .detach();
         let pipeline = gix_filter::Pipeline::new(
             self.command_context()?,
@@ -209,11 +208,9 @@ impl crate::Repository {
             &mut stream,
             |stream| {
                 if should_interrupt.load(std::sync::atomic::Ordering::Relaxed) {
-                    return Err(gix_error::ErrorExt::raise_erased(gix_error::message(
-                        "Cancelled by user",
-                    )));
+                    bail!(gix_error::message("Cancelled by user"));
                 }
-                let res = stream.next_entry().or_erased();
+                let res = stream.next_entry();
                 blobs.inc();
                 res
             },
@@ -228,7 +225,7 @@ impl crate::Repository {
 ///
 /// Do nothing if `head` is absent or its repository has no worktree, and fail if a symbolic
 /// reference in the chain cannot be followed or an operation's branch file cannot be read.
-fn insert_head(head: Option<crate::Head<'_>>, out: &mut BTreeMap<gix_ref::FullName, Vec<PathBuf>>) -> ExnMessageResult {
+fn insert_head(head: Option<crate::Head<'_>>, out: &mut BTreeMap<gix_ref::FullName, Vec<PathBuf>>) -> Result {
     let Some((head, workdir)) = head.and_then(|head| head.repo.workdir().map(|workdir| (head, workdir))) else {
         return Ok(());
     };

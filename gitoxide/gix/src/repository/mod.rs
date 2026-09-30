@@ -75,7 +75,7 @@ impl FormatVersion {
                     if let Some(subsection) = section.header().subsection_name() {
                         error = error.with("subsection", subsection);
                     }
-                    return Err(crate::Error::from_error(error));
+                    gix_error::bail!(error);
                 }
             }
         }

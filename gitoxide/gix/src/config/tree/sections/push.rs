@@ -22,7 +22,9 @@ impl Section for Push {
 pub type Default = keys::Any<validate::Default>;
 
 mod default {
-    use crate::{Error, Result, bstr::ByteSlice, config, config::tree::push::Default, push};
+    use gix_error::bail;
+
+    use crate::{Result, bstr::ByteSlice, config, config::tree::push::Default, push};
 
     impl Default {
         /// Try to interpret `value` as `push.default`.
@@ -35,11 +37,11 @@ mod default {
                 b"simple" => push::Default::Simple,
                 b"matching" => push::Default::Matching,
                 _ => {
-                    return Err(Error::from_error(config::key::error_with_value(
+                    bail!(config::key::error_with_value(
                         self,
                         "Invalid configuration value",
                         value,
-                    )));
+                    ));
                 }
             })
         }
@@ -49,13 +51,12 @@ mod default {
 mod validate {
     #[derive(Clone, Copy)]
     pub struct Default;
-    use gix_error::ResultExt;
 
-    use crate::{ExnResult, bstr::BStr, config::tree::keys::Validate};
+    use crate::{Result, bstr::BStr, config::tree::keys::Validate};
 
     impl Validate for Default {
-        fn validate(&self, value: &BStr) -> ExnResult {
-            super::Push::DEFAULT.try_into_default(value).or_erased()?;
+        fn validate(&self, value: &BStr) -> Result {
+            super::Push::DEFAULT.try_into_default(value)?;
             Ok(())
         }
     }

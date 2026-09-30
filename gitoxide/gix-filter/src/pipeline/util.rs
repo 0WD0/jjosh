@@ -1,4 +1,4 @@
-use gix_error::ExnMessageResult;
+use gix_error::{ErrorExt, Result};
 use std::path::Path;
 
 use bstr::BStr;
@@ -30,7 +30,7 @@ impl<'driver> Configuration<'driver> {
         attributes: &mut dyn FnMut(&BStr, &mut gix_attributes::search::Outcome),
         config: eol::Configuration,
         ignore_unknown_encoding: bool,
-    ) -> ExnMessageResult<Configuration<'driver>> {
+    ) -> Result<Configuration<'driver>> {
         fn extract_driver<'a>(drivers: &'a [Driver], attr: &gix_attributes::search::Match<'_>) -> Option<&'a Driver> {
             if let StateRef::Value(name) = attr.assignment.state {
                 drivers.iter().find(|d| d.name == name.as_bstr())
@@ -42,10 +42,10 @@ impl<'driver> Configuration<'driver> {
         fn extract_encoding(
             attr: &gix_attributes::search::Match<'_>,
             ignore_unknown: bool,
-        ) -> ExnMessageResult<Option<&'static encoding_rs::Encoding>> {
+        ) -> Result<Option<&'static encoding_rs::Encoding>> {
             match attr.assignment.state {
                 StateRef::Set | StateRef::Unset => {
-                    Err(gix_error::validation("Encodings must be names, like UTF-16, and cannot be booleans.").into())
+                    Err(gix_error::validation("Encodings must be names, like UTF-16, and cannot be booleans.").raise())
                 }
                 StateRef::Value(name) => match encoding_rs::Encoding::for_label(name.as_bstr()) {
                     Some(encoding) => Ok({
@@ -65,7 +65,7 @@ impl<'driver> Configuration<'driver> {
                         "The encoding named '{}' isn't available",
                         name.as_bstr()
                     ))
-                    .into()),
+                    .raise()),
                 },
                 StateRef::Unspecified => Ok(None),
             }

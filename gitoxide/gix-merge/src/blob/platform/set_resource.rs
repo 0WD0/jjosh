@@ -1,6 +1,6 @@
 use bstr::BStr;
-use gix_error::ExnMessageResult;
-use gix_error::{ErrorExt, ResultExt, message};
+use gix_error::Result;
+use gix_error::{ResultExt, bail, message};
 
 use crate::blob::{Platform, ResourceKind, platform::Resource};
 
@@ -24,12 +24,12 @@ impl Platform {
         rela_path: &BStr,
         kind: ResourceKind,
         objects: &impl gix_object::FindObjectOrHeader,
-    ) -> ExnMessageResult {
+    ) -> Result {
         if !matches!(
             mode,
             gix_object::tree::EntryKind::Blob | gix_object::tree::EntryKind::BlobExecutable
         ) {
-            return Err(message!("Can only diff blobs, not {mode:?}").raise());
+            bail!(message!("Can only diff blobs, not {mode:?}"));
         }
         let entry = self
             .attr_stack

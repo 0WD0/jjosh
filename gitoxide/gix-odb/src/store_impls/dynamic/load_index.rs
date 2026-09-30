@@ -10,7 +10,7 @@ use std::{
     time::SystemTime,
 };
 
-use gix_error::{ErrorExt, ExnResult, Message, ResultExt};
+use gix_error::{ErrorExt, Message, OptionExt, Result, ResultExt, bail};
 
 use crate::store::{IndexCtx, RefreshMode, handle, types};
 
@@ -27,7 +27,7 @@ use crate::store::types::{Generation, IndexAndPacks, MutableIndexAndPack, PackId
 
 impl super::Store {
     /// Load all indices, refreshing from disk only if needed.
-    pub(crate) fn load_all_indices(&self) -> ExnResult<Snapshot> {
+    pub(crate) fn load_all_indices(&self) -> Result<Snapshot> {
         let mut snapshot = self.collect_snapshot();
         while let Some(new_snapshot) = self.load_one_index(IndexCtx {
             refresh_mode: RefreshMode::Never,
@@ -48,7 +48,7 @@ impl super::Store {
             marker,
             loose_compression,
         }: IndexCtx,
-    ) -> ExnResult<Option<Snapshot>> {
+    ) -> Result<Option<Snapshot>> {
         let index = self.index.load();
         if !index.is_initialized() {
             return self.consolidate_with_disk_state(
@@ -162,7 +162,7 @@ impl super::Store {
 
     /// refresh and possibly clear out our existing data structures, causing all pack ids to be invalidated.
     /// `load_new_index` is an optimization to at least provide one newly loaded pack after refreshing the slot map.
-    /// Capacity failures include [metadata](gix_error::Exn::metadata()) `current` (unsigned slot count), `needed`
+    /// Capacity failures include [metadata](gix_error::Error::metadata()) `current` (unsigned slot count), `needed`
     /// (unsigned additional slots),
     /// or `limit` (unsigned maximum generation).
     pub(crate) fn consolidate_with_disk_state(
@@ -170,7 +170,7 @@ impl super::Store {
         needs_init: bool,
         load_new_index: bool,
         loose_compression: gix_zlib::Compression,
-    ) -> ExnResult<Option<Snapshot>> {
+    ) -> Result<Option<Snapshot>> {
         let index = self.index.load();
         let previous_index_state = Arc::as_ptr(&index) as usize;
 
@@ -294,10 +294,11 @@ impl super::Store {
         while let Some((mut index_info, mtime, move_from_slot_idx)) = index_paths_to_add.pop_front() {
             'increment_slot_index: loop {
                 if num_indices_checked == self.files.len() {
-                    return Err(Message::new("The object database has too few index slots")
-                        .with("current", self.files.len())
-                        .with("needed", index_paths_to_add.len() + 1) // include the index just popped off
-                        .raise_erased());
+                    bail!(
+                        Message::new("The object database has too few index slots")
+                            .with("current", self.files.len())
+                            .with("needed", index_paths_to_add.len() + 1) // include the index just popped off
+                    );
                 }
                 // Don't allow duplicate indicates, we need a 1:1 mapping.
                 if new_slot_map_indices.contains(&next_possibly_free_index) {
@@ -366,11 +367,9 @@ impl super::Store {
         );
 
         let generation = if needs_generation_change {
-            index.generation.checked_add(1).ok_or_else(|| {
+            index.generation.checked_add(1).ok_or_raise(|| {
                 // A wrapped generation could return an object from the wrong pack.
-                Message::new("Cannot advance the object database generation")
-                    .with("limit", Generation::MAX)
-                    .raise_erased()
+                Message::new("Cannot advance the object database generation").with("limit", Generation::MAX)
             })?
         } else {
             index.generation
@@ -438,7 +437,7 @@ impl super::Store {
         })
     }
 
-    /// Read failures include [metadata](gix_error::Exn::metadata()) `path` (native directory or index path). Multi-pack
+    /// Read failures include [metadata](gix_error::Error::metadata()) `path` (native directory or index path). Multi-pack
     /// capacity failures
     /// also include `actual` and `limit` (unsigned pack counts).
     pub(crate) fn collect_indices_and_mtime_sorted_by_size(
@@ -446,7 +445,7 @@ impl super::Store {
         initial_capacity: Option<usize>,
         multi_pack_index_object_hash: Option<gix_hash::Kind>,
         alloc_limit_bytes: Option<usize>,
-    ) -> ExnResult<Vec<(Either, SystemTime, u64)>> {
+    ) -> Result<Vec<(Either, SystemTime, u64)>> {
         let mut indices_by_modification_time = Vec::with_capacity(initial_capacity.unwrap_or_default());
         for db_path in db_paths {
             let packs = db_path.join("pack");
@@ -454,13 +453,11 @@ impl super::Store {
                 Ok(e) => e,
                 Err(err) if err.kind() == std::io::ErrorKind::NotFound => continue,
                 Err(err) => {
-                    return Err(err
-                        .and_raise(Message::new("Could not read pack directory").with("path", packs))
-                        .erased());
+                    return Err(err.and_raise(Message::new("Could not read pack directory").with("path", packs)));
                 }
             };
             let indices = entries
-                .filter_map(Result::ok)
+                .filter_map(std::result::Result::ok)
                 .filter_map(|e| e.metadata().map(|md| (e.path(), md)).ok())
                 .filter(|(_, md)| md.file_type().is_file())
                 .filter(|(p, _)| {
@@ -469,12 +466,12 @@ impl super::Store {
                         || (multi_pack_index_object_hash.is_some() && ext.is_none() && is_multipack_index(p))
                 })
                 .map(|(p, md)| {
-                    let mtime = md.modified().or_raise_erased(|| {
+                    let mtime = md.modified().or_raise(|| {
                         Message::new("Could not read index modification time").with("path", p.as_path())
                     })?;
                     Ok((p, mtime, md.len()))
                 })
-                .collect::<ExnResult<Vec<_>>>()?;
+                .collect::<Result<Vec<_>>>()?;
 
             let multi_index_info = multi_pack_index_object_hash
                 .and_then(|hash| {
@@ -494,7 +491,7 @@ impl super::Store {
                                         .with("path", p.as_path())
                                         .with("actual", t.0.num_indices())
                                         .with("limit", PackId::max_packs_in_multi_index())
-                                        .raise_erased())
+                                        .raise())
                                 } else {
                                     Ok(t)
                                 }
@@ -543,7 +540,7 @@ impl super::Store {
         mtime: SystemTime,
         current_generation: Generation,
         needs_stable_indices: bool,
-    ) -> Result<bool, Either> {
+    ) -> std::result::Result<bool, Either> {
         let (dest_slot_was_empty, generation) = match &**dest_slot.files.load() {
             Some(bundle) => {
                 if bundle.index_path() == index_info.path() || (bundle.is_disposable() && needs_stable_indices) {

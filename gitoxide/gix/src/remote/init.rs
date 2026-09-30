@@ -50,7 +50,7 @@ impl<'repo> Remote<'repo> {
         Url: TryInto<gix_url::Url, Error = E>,
         E: std::error::Error + Send + Sync + 'static,
     {
-        Self::from_fetch_url_inner(url.try_into().or_erased()?, should_rewrite_urls, repo)
+        Self::from_fetch_url_inner(url.try_into().or_error()?, should_rewrite_urls, repo)
     }
 
     fn from_fetch_url_inner(url: gix_url::Url, should_rewrite_urls: bool, repo: &'repo Repository) -> Result<Self> {
@@ -85,12 +85,12 @@ pub(crate) fn rewrite_url(
         .url_rewrite()
         .longest(url, direction)
         .map(|url| {
-            gix_url::parse(&url).map_err(|err| {
+            gix_url::parse(&url).or_raise(|| {
                 let kind = match error_kind {
                     remote::Direction::Fetch => "fetch",
                     remote::Direction::Push => "push",
                 };
-                Error::from(err.raise(gix_error::message!("The rewritten {kind} url {url:?} failed to parse")))
+                gix_error::message!("The rewritten {kind} url {url:?} failed to parse")
             })
         })
         .transpose()

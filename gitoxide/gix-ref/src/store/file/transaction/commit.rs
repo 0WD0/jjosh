@@ -1,4 +1,4 @@
-use gix_error::{ErrorExt, ExnResult, Message, ResultExt, message};
+use gix_error::{ErrorExt, Message, Result, ResultExt, message};
 
 use crate::{
     Target,
@@ -27,14 +27,14 @@ impl Transaction<'_, '_> {
     ///   along with empty parent directories
     ///
     /// Note that transactions will be prepared automatically as needed.
-    /// Per-reference failures include [metadata](gix_error::Exn::metadata()) `reference` (bytes), the affected name.
+    /// Per-reference failures include [metadata](gix_error::Error::metadata()) `reference` (bytes), the affected name.
     /// A missing reflog identity is identifiable as [`file::log::create_or_update::MissingCommitter`](crate::file::log::create_or_update::MissingCommitter).
-    pub fn commit<'a>(self, committer: impl Into<Option<gix_actor::SignatureRef<'a>>>) -> ExnResult<Vec<RefEdit>> {
+    pub fn commit<'a>(self, committer: impl Into<Option<gix_actor::SignatureRef<'a>>>) -> Result<Vec<RefEdit>> {
         self.commit_inner(committer.into())
     }
 
-    /// Per-reference failures include [metadata](gix_error::Exn::metadata()) `reference` (bytes), the affected name.
-    fn commit_inner(self, committer: Option<gix_actor::SignatureRef<'_>>) -> ExnResult<Vec<RefEdit>> {
+    /// Per-reference failures include [metadata](gix_error::Error::metadata()) `reference` (bytes), the affected name.
+    fn commit_inner(self, committer: Option<gix_actor::SignatureRef<'_>>) -> Result<Vec<RefEdit>> {
         let mut updates = self.updates.expect("BUG: must call prepare before commit");
         let delete_loose_refs = matches!(
             self.packed_refs,
@@ -88,7 +88,7 @@ impl Transaction<'_, '_> {
                                         log.message.as_ref(),
                                         log.force_create_reflog,
                                     )
-                                    .or_raise_erased(|| {
+                                    .or_raise(|| {
                                         Message::new("Could not update reflog")
                                             .with("reference", change.update.name.as_bstr())
                                     })?;
@@ -114,9 +114,9 @@ impl Transaction<'_, '_> {
                         };
 
                         if let Some(err) = err {
-                            return Err(err
-                                .and_raise(Message::new("Could not commit reference").with("reference", change.name()))
-                                .erased());
+                            return Err(err.and_raise(
+                                Message::new("Could not commit reference").with("reference", change.name()),
+                            ));
                         }
                     }
                 }
@@ -134,9 +134,9 @@ impl Transaction<'_, '_> {
                     let reflog_path = reflog_root.join(relative_name);
                     if let Err(err) = std::fs::remove_file(&reflog_path) {
                         if err.kind() != std::io::ErrorKind::NotFound {
-                            return Err(err
-                                .and_raise(Message::new("Could not delete reflog").with("reference", change.name()))
-                                .erased());
+                            return Err(
+                                err.and_raise(Message::new("Could not delete reflog").with("reference", change.name()))
+                            );
                         }
                     } else {
                         gix_tempfile::remove_dir::empty_upward_until_boundary(
@@ -151,7 +151,7 @@ impl Transaction<'_, '_> {
 
         if let Some(t) = self.packed_transaction {
             t.commit()
-                .or_raise_erased(|| message("Could not commit packed-ref transaction"))?;
+                .or_raise(|| message("Could not commit packed-ref transaction"))?;
             // Always refresh ourselves right away to avoid races. We ignore errors as there may be many reasons this fails, and it's not
             // critical to be done here. In other words, the pack may be refreshed at a later time and then it might work.
             self.store.force_refresh_packed_buffer().ok();
@@ -172,9 +172,9 @@ impl Transaction<'_, '_> {
                 if let Err(err) = std::fs::remove_file(reference_path)
                     && err.kind() != std::io::ErrorKind::NotFound
                 {
-                    return Err(err
-                        .and_raise(Message::new("Could not delete reference").with("reference", change.name()))
-                        .erased());
+                    return Err(
+                        err.and_raise(Message::new("Could not delete reference").with("reference", change.name()))
+                    );
                 }
                 drop(lock);
             }

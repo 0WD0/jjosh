@@ -1,18 +1,35 @@
 use gix_credentials::program::main;
-use gix_error::ExnResult;
-use std::io::Cursor;
+use gix_error::Result;
+use std::{ffi::OsString, io::Cursor};
 
 #[test]
-#[cfg(unix)]
-fn invalid_non_utf8_action_is_preserved() {
-    use std::{ffi::OsString, os::unix::ffi::OsStringExt};
+fn action_aliases_are_accepted() -> Result {
+    for (input, expected) in [
+        ("get", "get"),
+        ("fill", "get"),
+        ("store", "store"),
+        ("approve", "store"),
+        ("erase", "erase"),
+        ("reject", "erase"),
+    ] {
+        assert_eq!(
+            main::Action::try_from(OsString::from(input))?.as_str(),
+            expected,
+            "helper and Git action names select the same action"
+        );
+    }
+    Ok(())
+}
 
-    let err = main::Action::try_from(OsString::from_vec(vec![0xff])).expect_err("the action is invalid");
-    assert_eq!(
-        err.values.get("input"),
-        Some(&gix_error::MetadataValue::Bytes(vec![0xff].into())),
-        "the invalid action is retained"
-    );
+#[test]
+fn invalid_actions_are_validation_errors() {
+    for input in ["", "invalid", "Get", "get "] {
+        let err = main::Action::try_from(OsString::from(input)).expect_err("the action is invalid");
+        assert!(
+            err.is_validation(),
+            "invalid actions are classified as validation errors"
+        );
+    }
 }
 
 #[test]
@@ -28,7 +45,7 @@ fn context_options_apply_to_input_and_output() {
         Cursor::new(input),
         &mut output,
         options,
-        |_action, context| -> ExnResult<Option<gix_credentials::protocol::Context>> {
+        |_action, context| -> Result<Option<gix_credentials::protocol::Context>> {
             assert_eq!(
                 context.url.as_ref().map(|url| url.as_slice()),
                 Some(&input[4..input.len() - 1])
@@ -55,7 +72,7 @@ fn protocol_and_host_without_url_is_valid() {
         Cursor::new(input),
         &mut output,
         gix_credentials::protocol::ContextOptions::default(),
-        |_action, context| -> ExnResult<Option<gix_credentials::protocol::Context>> {
+        |_action, context| -> Result<Option<gix_credentials::protocol::Context>> {
             assert_eq!(context.protocol.as_deref(), Some("https"));
             assert_eq!(context.host.as_deref(), Some("github.com"));
             assert_eq!(context.url, None, "the URL isn't automatically populated");
@@ -88,7 +105,7 @@ fn missing_protocol_with_only_host_or_protocol_fails() {
             Cursor::new(input),
             &mut output,
             gix_credentials::protocol::ContextOptions::default(),
-            |_action, _context| -> ExnResult<Option<gix_credentials::protocol::Context>> {
+            |_action, _context| -> Result<Option<gix_credentials::protocol::Context>> {
                 called = true;
                 Ok(None)
             },
@@ -118,7 +135,7 @@ fn url_alone_is_valid() {
         Cursor::new(input),
         &mut output,
         gix_credentials::protocol::ContextOptions::default(),
-        |_action, context| -> ExnResult<Option<gix_credentials::protocol::Context>> {
+        |_action, context| -> Result<Option<gix_credentials::protocol::Context>> {
             called = true;
             assert_eq!(context.url.unwrap(), "https://github.com");
             assert_eq!(context.host, None, "not auto-populated");

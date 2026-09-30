@@ -41,6 +41,13 @@
 //! Most extensions to existing objects provide an `obj_with_extension.attach(&repo).an_easier_version_of_a_method()` for simpler
 //! call signatures.
 //!
+//! ### Errors
+
+//! Fallible APIs defined by this crate use [`Result<T>`], including iterator items and callbacks.
+//! [`Error`] implements [`std::error::Error`] and preserves underlying causes, classifications, and diagnostic metadata.
+//! Use [`Error::downcast_any_ref()`] to inspect concrete causes. Re-exported plumbing APIs and implementations of
+//! external traits retain the error types required by those APIs.
+//!
 //! ### `ThreadSafe` Mode
 //!
 //! By default, the [`Repository`] isn't `Sync` and thus can't be used in certain contexts which require the `Sync` trait.
@@ -103,7 +110,6 @@
 )]
 #![cfg_attr(all(doc, feature = "document-features"), feature(doc_cfg))]
 #![deny(missing_docs, unsafe_code)]
-#![allow(clippy::result_large_err)]
 
 // Re-exports to make this a potential one-stop shop crate avoiding people from having to reference various crates themselves.
 // This also means that their major version changes affect our major version, but that's alright as we directly expose their
@@ -425,17 +431,15 @@ pub fn config(git_dir: Option<&std::path::Path>, options: &open::Options) -> Res
 /// do not have to exist. No configuration transaction is opened, no lock is acquired, and no directories are created.
 /// Discovering the Git installation path, or the system path on Windows, may invoke Git.
 pub fn config_path(source: config::Source, options: &open::Options) -> Result<std::path::PathBuf> {
-    use gix_error::{ErrorExt, ResultExt, message};
+    use gix_error::{OptionExt, ResultExt, message};
 
     if !matches!(
         source,
         config::Source::GitInstallation | config::Source::System | config::Source::Git | config::Source::User
     ) {
-        return Err(
-            message!("Configuration source {source:?} requires a repository or has no physical file")
-                .raise()
-                .into(),
-        );
+        gix_error::bail!(message!(
+            "Configuration source {source:?} requires a repository or has no physical file"
+        ));
     }
     let path = config::cache::source_path(
         source,
@@ -444,7 +448,7 @@ pub fn config_path(source: config::Source, options: &open::Options) -> Result<st
         options.permissions.config,
         &mut config::Cache::make_source_env(options.permissions.env),
     )
-    .ok_or_else(|| message!("Configuration source {source:?} has no available path with these options").raise())?;
+    .ok_or_raise(|| message!("Configuration source {source:?} has no available path with these options"))?;
     Ok(if path.is_absolute() {
         path
     } else {
@@ -471,7 +475,7 @@ pub fn config_path(source: config::Source, options: &open::Options) -> Result<st
 /// ```no_run
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// let mut file = gix::config_mut(gix::config::Source::User, &gix::open::Options::default())?;
-/// file.set_raw_value("user.name", "Ada Lovelace").map_err(|err| err.into_error())?;
+/// file.set_raw_value("user.name", "Ada Lovelace")?;
 /// file.commit()?;
 /// # Ok(()) }
 /// ```

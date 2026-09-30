@@ -1,5 +1,5 @@
 use crate::Result;
-use gix_error::{ErrorExt, ResultExt};
+use gix_error::{ErrorExt, ResultExt, bail};
 use gix_ref::{
     Category, FullName, Target,
     transaction::{PreviousValue, RefEdit},
@@ -111,19 +111,17 @@ impl crate::Repository {
 
         for name in &names {
             if name.category_and_short_name().map(|(category, _)| category) != Some(Category::LocalBranch) {
-                return Err(gix_error::message!("{name:?} is not a local branch").raise().into());
+                bail!(gix_error::message!("{name:?} is not a local branch"));
             }
         }
 
         let checked_out = self.checked_out_branches()?;
         for name in &names {
             if let Some(worktree_dirs) = checked_out.get(name) {
-                return Err(delete::CheckedOutError {
+                bail!(delete::CheckedOutError {
                     name: name.clone(),
                     worktree_dirs: worktree_dirs.clone(),
-                }
-                .raise()
-                .into());
+                });
             }
         }
 
@@ -140,9 +138,7 @@ impl crate::Repository {
             Ok(config) => Some(config),
             Err(err) if err.is_not_found() => None,
             Err(err) => {
-                return Err(err
-                    .raise(gix_error::message("Could not read the local configuration"))
-                    .into());
+                bail!(err.and_raise(gix_error::message("Could not read the local configuration")));
             }
         };
         let removed_config = config

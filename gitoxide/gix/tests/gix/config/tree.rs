@@ -1,4 +1,4 @@
-fn config_value_error(message: &'static str, input: &'static str) -> gix_error::Exn<gix_error::Message> {
+fn config_value_error(message: &'static str, input: &'static str) -> gix::Error {
     use gix_error::ErrorExt;
     gix_error::validation(message).with("input", input.as_bytes()).raise()
 }
@@ -99,14 +99,114 @@ mod keys {
     }
 
     #[test]
+    fn unsigned_integer_validator_rejects_suffix_overflow() {
+        use gix::config::tree::keys::{Validate, validate::UnsignedInteger};
+
+        for input in ["9223372036854775807k", "-9223372036854775808G"] {
+            let error = UnsignedInteger
+                .validate(input.into())
+                .expect_err("suffix multiplication must fit in i64");
+            assert!(
+                error.is_validation(),
+                "the validator classifies suffix overflow without an outer key wrapper"
+            );
+            assert_eq!(
+                error
+                    .metadata()
+                    .next()
+                    .expect("the validator retains its input")
+                    .get("input"),
+                Some(&gix_error::MetadataValue::from(input.as_bytes())),
+                "suffix overflow retains the original integer spelling"
+            );
+        }
+    }
+
+    #[test]
+    fn unsigned_integer_validator_rejects_negative_values() {
+        use gix::config::tree::keys::{Validate, validate::UnsignedInteger};
+
+        for input in ["-1", "-1k", "-9223372036854775808"] {
+            let error = UnsignedInteger
+                .validate(input.into())
+                .expect_err("negative values cannot be represented as usize");
+            assert!(
+                error.is_validation(),
+                "the validator classifies target range failures without an outer key wrapper"
+            );
+            assert_eq!(
+                error
+                    .metadata()
+                    .next()
+                    .expect("the validator retains its input")
+                    .get("input"),
+                Some(&gix_error::MetadataValue::from(input.as_bytes())),
+                "target range failures retain the original integer spelling"
+            );
+            assert!(
+                error.downcast_any_ref::<std::num::TryFromIntError>().is_some(),
+                "the validator preserves the concrete signed-to-unsigned conversion error"
+            );
+        }
+    }
+
+    #[test]
+    fn integer_validation_preserves_parser_context() {
+        use gix::config::tree::{Checkout, Core, Index, Pack, Protocol, gitoxide};
+
+        for (key, name, environment) in [
+            (
+                &Core::DELTA_BASE_CACHE_LIMIT as &dyn Key,
+                "core.deltaBaseCacheLimit",
+                Some("GIX_PACK_CACHE_MEMORY"),
+            ),
+            (&Core::FILES_REF_LOCK_TIMEOUT, "core.filesRefLockTimeout", None),
+            (&Core::COMPRESSION, "core.compression", None),
+            (&gitoxide::Http::CONNECT_TIMEOUT, "gitoxide.http.connectTimeout", None),
+            (&Checkout::WORKERS, "checkout.workers", None),
+            (&Core::ABBREV, "core.abbrev", None),
+            (&Core::REPOSITORY_FORMAT_VERSION, "core.repositoryFormatVersion", None),
+            (&Index::THREADS, "index.threads", None),
+            (&Pack::INDEX_VERSION, "pack.indexVersion", None),
+            (&Protocol::VERSION, "protocol.version", None),
+        ] {
+            for input in [
+                b"9223372036854775807k".as_bstr(),
+                b"not an integer".as_bstr(),
+                b"\xff".as_bstr(),
+            ] {
+                let error = key.validate(input).expect_err("invalid integers must be rejected");
+                crate::config::key::assert_config_error(&error, name, Some(input.into()), environment);
+                let parser_metadata = error.metadata().last().expect("the parser retains its input context");
+                assert_eq!(
+                    parser_metadata.get("input"),
+                    Some(&gix_error::MetadataValue::from(input)),
+                    "{name} preserves the parser's original input bytes"
+                );
+                assert!(
+                    !parser_metadata.contains_key("key"),
+                    "{name} retains the parser's metadata separately from key metadata"
+                );
+                if input == b"\xff".as_bstr() {
+                    assert!(
+                        error.downcast_any_ref::<std::str::Utf8Error>().is_some(),
+                        "{name} retains the parser's concrete UTF-8 error"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn unsigned_integer() {
         let mut diagnostics = Vec::new();
         let mut error_snapshots = Vec::new();
-        for valid in [0, 1, 100_124] {
+        for valid in ["0", "1", "100124", "0x10k", "010", "0b10", "-0G"] {
             assert!(
                 gix::config::tree::Core::DELTA_BASE_CACHE_LIMIT
-                    .validate(valid.to_string().as_bytes().into())
-                    .is_ok()
+                    .validate(valid.into())
+                    .is_ok(),
+                "unsigned validation accepts Git integer syntax {valid:?}"
             );
         }
 
@@ -120,7 +220,12 @@ mod keys {
                 err.downcast_any_ref::<std::num::TryFromIntError>().is_some(),
                 "the signed-to-unsigned conversion failure remains available"
             );
-            assert!(err.is_validation());
+            crate::config::key::assert_config_error(
+                &err,
+                "core.deltaBaseCacheLimit",
+                Some(invalid.to_string().as_bytes().into()),
+                Some("GIX_PACK_CACHE_MEMORY"),
+            );
         }
 
         let out_of_bounds = ((i64::MAX as u64) + 1).to_string();
@@ -139,12 +244,12 @@ mod keys {
         [
             Invalid configuration value, "environment_override"="GIX_PACK_CACHE_MEMORY", "input"="-1", "key"="core.deltaBaseCacheLimit"
             |
-            └─ unsigned integer is out of range, "input"="-1"
+            └─ integer is out of range for `usize`, "input"="-1"
             |
             └─ out of range integral type conversion attempted,
             Invalid configuration value, "environment_override"="GIX_PACK_CACHE_MEMORY", "input"="-100", "key"="core.deltaBaseCacheLimit"
             |
-            └─ unsigned integer is out of range, "input"="-100"
+            └─ integer is out of range for `usize`, "input"="-100"
             |
             └─ out of range integral type conversion attempted,
         ]
@@ -153,12 +258,12 @@ mod keys {
         [
             Invalid configuration value, "environment_override"="GIX_PACK_CACHE_MEMORY", "input"="-1", "key"="core.deltaBaseCacheLimit"
             |
-            └─ unsigned integer is out of range, "input"="-1"
+            └─ integer is out of range for `usize`, "input"="-1"
             |
             └─ out of range integral type conversion attempted,
             Invalid configuration value, "environment_override"="GIX_PACK_CACHE_MEMORY", "input"="-100", "key"="core.deltaBaseCacheLimit"
             |
-            └─ unsigned integer is out of range, "input"="-100"
+            └─ integer is out of range for `usize`, "input"="-100"
             |
             └─ out of range integral type conversion attempted,
         ]
@@ -390,6 +495,11 @@ mod fetch {
             Some("foo".as_bytes().into()),
             None,
         );
+        assert_eq!(
+            Fetch::RECURSE_SUBMODULES.try_into_recurse_submodules(Ok(None))?,
+            None,
+            "an unset configuration value remains unspecified"
+        );
         Ok(())
     }
 }
@@ -501,16 +611,8 @@ mod diff {
             assert_eq!(Diff::ALGORITHM.try_into_algorithm(actual)?, expected);
             assert!(Diff::ALGORITHM.validate(actual.into()).is_ok());
         }
-        insta::assert_debug_snapshot!(Diff::ALGORITHM.try_into_algorithm("patience").expect_err("algorithm"), "algorithm", @r#"
-        Unimplemented {
-            name: "patience",
-        }
-        "#);
-        insta::assert_debug_snapshot!(Diff::ALGORITHM.try_into_algorithm("foo").expect_err("algorithm"), "algorithm", @r#"
-        Unknown {
-            name: "foo",
-        }
-        "#);
+        insta::assert_debug_snapshot!(Diff::ALGORITHM.try_into_algorithm("patience").expect_err("algorithm"), "algorithm", @"The 'patience' algorithm is not yet implemented");
+        insta::assert_debug_snapshot!(Diff::ALGORITHM.try_into_algorithm("foo").expect_err("algorithm"), "algorithm", @"Unknown diff algorithm named 'foo'");
         Ok(())
     }
 }
@@ -547,12 +649,10 @@ mod core {
     use crate::Result;
     use std::time::Duration;
 
-    use gix_error::ExnMessageResult;
-
     use gix::config::tree::{Core, Key};
     use gix_lock::acquire::Fail;
 
-    fn signed(value: i64) -> ExnMessageResult<Option<i64>> {
+    fn signed(value: i64) -> gix::Result<Option<i64>> {
         Ok(Some(value))
     }
 
@@ -805,7 +905,19 @@ mod core {
     fn abbrev() -> Result {
         let object_hash = gix_hash::Kind::Sha1;
         assert_eq!(Core::ABBREV.try_into_abbreviation("4", object_hash)?, Some(4));
+        for (input, expected) in [("0x4", 4), ("010", 8), ("0b100", 4), ("40", 40)] {
+            assert_eq!(
+                Core::ABBREV.try_into_abbreviation(input, object_hash)?,
+                Some(expected),
+                "abbreviation lengths accept Git integer syntax within the existing range"
+            );
+        }
         assert_eq!(Core::ABBREV.try_into_abbreviation("auto", object_hash)?, None);
+        assert_eq!(
+            Core::ABBREV.try_into_abbreviation(" auto ", object_hash)?,
+            None,
+            "automatic abbreviation still ignores surrounding whitespace"
+        );
         assert_eq!(
             Core::ABBREV.try_into_abbreviation("AUto", object_hash)?,
             None,
@@ -825,7 +937,14 @@ mod core {
             class: Validation,
         }
         "#);
-        for invalid in ["foo", "3", "41"] {
+        for input in ["0", "0k", "off"] {
+            assert_eq!(
+                Core::ABBREV.try_into_abbreviation(input, object_hash)?,
+                Some(object_hash.len_in_hex()),
+                "false values still disable abbreviation"
+            );
+        }
+        for invalid in ["foo", "-1", "3", "41", "1k", "9223372036854775807k"] {
             assert!(Core::ABBREV.try_into_abbreviation(invalid, object_hash).is_err());
         }
         Ok(())
@@ -971,15 +1090,33 @@ mod core {
 }
 
 mod index {
+    use crate::Result;
     use gix::config::tree::{Index, Key};
 
     #[test]
-    fn threads() {
-        for (value, expected) in [("false", 1), ("true", 0), ("0", 0), ("1", 1), ("2", 2), ("12", 12)] {
+    fn threads() -> Result {
+        for (value, expected) in [
+            ("false", 1),
+            ("true", 0),
+            ("", 1),
+            ("off", 1),
+            ("ON", 0),
+            ("0", 0),
+            ("1", 1),
+            ("2", 2),
+            ("12", 12),
+            ("0k", 0),
+            ("1k", 1024),
+            ("0x10", 16),
+            ("010", 8),
+            ("0b10", 2),
+            ("-1", 0),
+            ("-1k", 0),
+        ] {
             assert_eq!(
-                Index::THREADS.try_into_index_threads(value).unwrap(),
+                Index::THREADS.try_into_index_threads(value)?,
                 expected,
-                "{value}"
+                "{value:?} retains its numeric or boolean meaning"
             );
             assert!(Index::THREADS.validate(value.into()).is_ok());
         }
@@ -991,6 +1128,7 @@ mod index {
             Some("nothing".as_bytes().into()),
             None,
         );
+        Ok(())
     }
 }
 
@@ -1042,9 +1180,8 @@ mod extensions {
 mod checkout {
     use crate::Result;
     use gix::config::tree::{Checkout, Key};
-    use gix_error::ExnMessageResult;
 
-    fn int(value: i64) -> ExnMessageResult<Option<i64>> {
+    fn int(value: i64) -> gix::Result<Option<i64>> {
         Ok(Some(value))
     }
 
@@ -1119,10 +1256,20 @@ mod protocol {
                 assert_eq!(key.try_into_allow(input, protocol_name_parameter)?, expected);
                 assert!(key.validate(input.into()).is_ok());
             }
-            error_snapshots.push(gix_testtools::redact_debug_snapshot(
-                &(key.try_into_allow("User", protocol_name_parameter).unwrap_err()),
-                &[],
-            ));
+            let err = key
+                .try_into_allow("User", protocol_name_parameter)
+                .expect_err("protocol permissions are case-sensitive");
+            assert_eq!(
+                err.probable_cause().to_string(),
+                r#"Unknown protocol permission "User", "input"="User""#,
+                "the configuration context preserves the parser's error"
+            );
+            assert_eq!(
+                err.metadata().next().expect("the parser retains its input")["input"],
+                gix_error::MetadataValue::Bytes("User".into()),
+                "the original input remains available through the error chain"
+            );
+            error_snapshots.push(gix_testtools::redact_debug_snapshot(&err.error(), &[]));
         }
         insta::assert_debug_snapshot!(error_snapshots, "allow", @r#"
         [
@@ -1151,6 +1298,7 @@ mod protocol {
         insta::assert_debug_snapshot!(err.probable_cause(), "version", @r#"
         Message {
             message: "protocol version 5 is unknown",
+            class: Validation,
         }
         "#);
         assert!(err.is_validation());
@@ -1425,12 +1573,19 @@ mod http {
             assert!(Http::FOLLOW_REDIRECTS.validate(actual.into()).is_ok());
         }
 
+        let error = Http::FOLLOW_REDIRECTS
+            .try_into_follow_redirects("something", || {
+                Err(crate::config::tree::config_value_error("invalid", "value"))
+            })
+            .expect_err("invalid configuration");
+        assert!(
+            error
+                .to_string()
+                .starts_with("The follow redirects value must be 'initial', or boolean true or false"),
+            "the converter supplies allowed-value guidance without relying on its caller"
+        );
         crate::config::key::assert_config_error(
-            &Http::FOLLOW_REDIRECTS
-                .try_into_follow_redirects("something", || {
-                    Err(crate::config::tree::config_value_error("invalid", "value").erased())
-                })
-                .expect_err("invalid configuration"),
+            &error,
             "http.followRedirects",
             Some("something".as_bytes().into()),
             None,
@@ -1471,14 +1626,16 @@ mod http {
             assert!(Http::VERSION.validate(actual.into()).is_ok());
         }
 
-        crate::config::key::assert_config_error(
-            &Http::VERSION
-                .try_into_http_version("invalid")
-                .expect_err("invalid configuration"),
-            "http.version",
-            Some("invalid".as_bytes().into()),
-            None,
+        let error = Http::VERSION
+            .try_into_http_version("invalid")
+            .expect_err("invalid configuration");
+        assert!(
+            error
+                .to_string()
+                .starts_with("The HTTP version must be 'HTTP/2' or 'HTTP/1.1'"),
+            "the converter supplies allowed-value guidance without relying on its caller"
         );
+        crate::config::key::assert_config_error(&error, "http.version", Some("invalid".as_bytes().into()), None);
         assert!(Http::VERSION.validate("invalid".into()).is_err());
         Ok(())
     }

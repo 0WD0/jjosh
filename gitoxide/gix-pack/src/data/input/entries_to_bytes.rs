@@ -1,6 +1,8 @@
+use gix_error::Result;
+
 use std::iter::Peekable;
 
-use gix_error::{ExnResult, message};
+use gix_error::{ErrorExt, message};
 
 use crate::data::input;
 
@@ -29,7 +31,7 @@ pub struct EntriesToBytesIter<I: Iterator, W> {
 
 impl<I, W> EntriesToBytesIter<I, W>
 where
-    I: Iterator<Item = ExnResult<input::Entry>>,
+    I: Iterator<Item = Result<input::Entry>>,
     W: std::io::Read + std::io::Write + std::io::Seek,
 {
     /// Create a new instance reading [entries][input::Entry] from an `input` iterator and write pack data bytes to
@@ -54,7 +56,7 @@ where
         self.trailer
     }
 
-    fn next_inner(&mut self, entry: input::Entry) -> ExnResult<input::Entry> {
+    fn next_inner(&mut self, entry: input::Entry) -> Result<input::Entry> {
         if self.num_entries == 0 {
             let header_bytes = crate::data::header::encode(self.data_version, 0);
             self.output
@@ -77,7 +79,7 @@ where
         Ok(entry)
     }
 
-    fn write_header_and_digest(&mut self, last_entry: Option<&mut input::Entry>) -> ExnResult {
+    fn write_header_and_digest(&mut self, last_entry: Option<&mut input::Entry>) -> Result {
         let header_bytes = crate::data::header::encode(self.data_version, self.num_entries);
         let num_bytes_written = if last_entry.is_some() {
             self.output.stream_position().map_err(gix_hash::io::from_std_io)?
@@ -115,11 +117,11 @@ where
 
 impl<I, W> Iterator for EntriesToBytesIter<I, W>
 where
-    I: Iterator<Item = ExnResult<input::Entry>>,
+    I: Iterator<Item = Result<input::Entry>>,
     W: std::io::Read + std::io::Write + std::io::Seek,
 {
     /// The amount of bytes written to `out` if `Ok` or the error `E` received from the input.
-    type Item = ExnResult<input::Entry>;
+    type Item = Result<input::Entry>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.is_done {
@@ -155,7 +157,6 @@ where
     }
 }
 
-fn hash_io_error(err: gix_error::Exn) -> gix_error::Exn {
-    err.raise(message("An IO operation failed while streaming an entry"))
-        .erased()
+fn hash_io_error(err: gix_error::Error) -> gix_error::Error {
+    err.and_raise(message("An IO operation failed while streaming an entry"))
 }

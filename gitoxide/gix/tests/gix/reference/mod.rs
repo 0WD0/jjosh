@@ -201,12 +201,7 @@ mod find {
 
         let err = tag_ref.peel_to_kind(gix::object::Kind::Blob).unwrap_err();
         let empty_tree_id = hex_to_id("4b825dc642cb6eb9a060e54bf8d69288fbee4904");
-        insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[(&empty_tree_id.to_string()[..7], "<tree-id>")]), "peeling reports the final object and the requested type", @r#"
-        Message {
-            message: "Last encountered object <tree-id> was tree while trying to peel to blob",
-            class: Validation,
-        }
-        "#);
+        insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[(&empty_tree_id.to_string()[..7], "<tree-id>")]), "peeling reports the final object and the requested type", @"Last encountered object <tree-id> was tree while trying to peel to blob");
         match tag_ref.peel_to_blob() {
             Ok(_) => {
                 unreachable!("target is a commit")
@@ -261,14 +256,11 @@ mod find {
             "as it was read from a packed-ref, it contains peeling information nonetheless"
         );
 
-        insta::assert_debug_snapshot!(error_snapshots, "and peel", @r#"
+        insta::assert_debug_snapshot!(error_snapshots, "and peel", @"
         [
-            Message {
-                message: "Last encountered object <tree-id> was tree while trying to peel to blob",
-                class: Validation,
-            },
+            Last encountered object <tree-id> was tree while trying to peel to blob,
         ]
-        "#);
+        ");
         Ok(())
     }
 

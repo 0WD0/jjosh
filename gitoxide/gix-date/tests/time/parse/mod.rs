@@ -1,5 +1,5 @@
 use gix_date::Time;
-use gix_error::ExnMessageResult;
+use gix_error::Result;
 
 #[test]
 fn time_without_offset_defaults_to_utc() {
@@ -8,6 +8,29 @@ fn time_without_offset_defaults_to_utc() {
     assert!(result.is_ok(), "Git parses datetime without offset, defaulting to UTC");
     let time = result.unwrap();
     assert_eq!(time.offset, 0, "Offset should default to UTC (+0000)");
+}
+
+#[test]
+fn from_str_errors_are_classified_and_retain_input() {
+    for input in ["", "not a time", "2005-04-07T22:13:09", "invalid 🕰"] {
+        let err: gix_error::Error = input
+            .parse::<Time>()
+            .expect_err("FromStr only accepts raw Git signature times");
+        assert!(err.is_validation(), "invalid times remain validation failures");
+        assert_eq!(
+            err.metadata().next().and_then(|values| values.get("input")),
+            Some(&gix_error::MetadataValue::Bytes(input.as_bytes().into())),
+            "the public error preserves the exact invalid input bytes"
+        );
+        assert_eq!(
+            err.probable_cause()
+                .downcast_ref::<gix_error::Message>()
+                .expect("the validation message remains available for inspection")
+                .message,
+            "invalid time",
+            "raising the error preserves the original diagnostic"
+        );
+    }
 }
 
 #[test]
@@ -62,7 +85,7 @@ fn git_rfc2822() {
 }
 
 #[test]
-fn raw() -> ExnMessageResult {
+fn raw() -> Result {
     assert_eq!(
         gix_date::parse("1660874655 +0800", None)?,
         Time {

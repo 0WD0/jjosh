@@ -1,5 +1,5 @@
 use bstr::ByteSlice;
-use gix_error::ExnMessageResult;
+use gix_error::Result;
 
 use crate::parse::parse_signature;
 use crate::{Tag, TagRef};
@@ -14,12 +14,8 @@ pub mod ref_iter;
 
 impl<'a> TagRef<'a> {
     /// Deserialize a tag from `data`.
-    pub fn from_bytes(mut data: &'a [u8], hash_kind: gix_hash::Kind) -> ExnMessageResult<TagRef<'a>> {
-        let input = &mut data;
-        match decode::git_tag(input, hash_kind) {
-            Ok(tag) => Ok(tag),
-            Err(err) => Err(err),
-        }
+    pub fn from_bytes(mut data: &'a [u8], hash_kind: gix_hash::Kind) -> Result<TagRef<'a>> {
+        decode::git_tag(&mut data, hash_kind)
     }
     /// The object this tag points to as `Id`.
     pub fn target(&self) -> gix_hash::ObjectId {
@@ -27,7 +23,7 @@ impl<'a> TagRef<'a> {
     }
 
     /// Return the tagger, if present.
-    pub fn tagger(&self) -> ExnMessageResult<Option<gix_actor::SignatureRef<'a>>> {
+    pub fn tagger(&self) -> Result<Option<gix_actor::SignatureRef<'a>>> {
         Ok(self
             .tagger
             .map(parse_signature)
@@ -43,7 +39,7 @@ impl<'a> TagRef<'a> {
     }
 
     /// Copy all data into a fully-owned instance.
-    pub fn into_owned(self) -> ExnMessageResult<crate::Tag> {
+    pub fn into_owned(self) -> Result<crate::Tag> {
         self.try_into()
     }
 }

@@ -1,8 +1,6 @@
 use crate::Result;
 use std::sync::atomic::AtomicBool;
 
-use gix_error::ExnResult;
-
 use gix_features::{
     parallel::{InOrderIter, reduce::Finalize},
     progress,
@@ -443,7 +441,7 @@ fn tree_additions_from_each_merge_parent_are_kept() -> Result {
         .take_object_memory()
         .expect("in-memory object storage is still enabled");
     let db = gix_pack::testing::Memory::new(objects.drain());
-    let mut input = std::iter::once(Ok::<_, gix_error::Exn>(merge_commit_id));
+    let mut input = std::iter::once(Ok::<_, gix_error::Error>(merge_commit_id));
 
     let (counts, stats) = output::count::objects_unthreaded(
         &db,
@@ -490,6 +488,7 @@ fn tree_additions_from_each_merge_parent_are_kept() -> Result {
 /// configured level, defaulting to what `git` uses.
 #[test]
 fn entry_sizes_depend_on_compression_level() -> Result {
+    use gix_error::Result;
     use gix_object::WriteTo;
     let (tree_id, buf) = {
         // Deterministic pseudo-random bytes (xorshift64*), so tree content is stable across runs.
@@ -532,7 +531,7 @@ fn entry_sizes_depend_on_compression_level() -> Result {
         (tree_id, buf)
     };
 
-    let entry_size = |compression| -> ExnResult<usize> {
+    let entry_size = |compression| -> Result<usize> {
         Ok(output::Entry::from_data(
             &output::Count::from_data(tree_id, None),
             &gix_object::Data::new(&buf, gix_object::Kind::Tree, gix_hash::Kind::Sha1),
@@ -586,7 +585,7 @@ fn write_and_verify(
     let (num_written_bytes, pack_hash) = {
         let num_entries = entries.len();
         let mut pack_writer = output::bytes::FromEntriesIter::new(
-            std::iter::once(Ok::<_, gix_error::Exn>(entries)),
+            std::iter::once(Ok::<_, gix_error::Error>(entries)),
             &mut pack_file,
             num_entries as u32,
             pack::data::Version::V2,

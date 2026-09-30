@@ -1,6 +1,5 @@
 use bstr::{BStr, BString, ByteSlice};
-use gix_error::ExnResult;
-use gix_error::{ErrorExt, ResultExt};
+use gix_error::{ErrorExt, OptionExt, Result, ResultExt, bail};
 
 use crate::{fetch::response::ShallowUpdate, handshake::Ref};
 
@@ -93,7 +92,7 @@ impl InternalRef {
 
 pub(crate) fn from_capabilities<'a>(
     capabilities: impl Iterator<Item = gix_transport::client::capabilities::Capability<'a>>,
-) -> ExnResult<Vec<InternalRef>> {
+) -> Result<Vec<InternalRef>> {
     let mut out_refs = Vec::new();
     let symref_values = capabilities.filter_map(|c| {
         if c.name() == b"symref".as_bstr() {
@@ -103,17 +102,15 @@ pub(crate) fn from_capabilities<'a>(
         }
     });
     for symref in symref_values {
-        let (left, right) = symref.split_at(symref.find_byte(b':').ok_or_else(|| {
+        let (left, right) = symref.split_at(symref.find_byte(b':').ok_or_raise(|| {
             gix_error::corruption(format!(
                 "{symref:?} could not be parsed. A symref is expected to look like <NAME>:<target>."
             ))
-            .raise_erased()
         })?);
         if left.is_empty() || right.is_empty() {
-            return Err(gix_error::corruption(format!(
+            bail!(gix_error::corruption(format!(
                 "{symref:?} could not be parsed. A symref is expected to look like <NAME>:<target>."
-            ))
-            .raise_erased());
+            )));
         }
         out_refs.push(InternalRef::SymbolicForLookup {
             path: left.into(),
@@ -131,20 +128,18 @@ pub(in crate::handshake::refs) fn parse_v1(
     out_refs: &mut Vec<InternalRef>,
     out_shallow: &mut Vec<ShallowUpdate>,
     line: &BStr,
-) -> ExnResult {
+) -> Result {
     let trimmed = line.trim_end();
-    let (hex_hash, path) = trimmed.split_at(trimmed.find(b" ").ok_or_else(|| {
+    let (hex_hash, path) = trimmed.split_at(trimmed.find(b" ").ok_or_raise(|| {
         gix_error::corruption(format!(
             "{trimmed:?} could not be parsed. A V1 ref line should be '<hex-hash> <path>'."
         ))
-        .raise_erased()
     })?);
     let path = &path[1..];
     if path.is_empty() {
-        return Err(gix_error::corruption(format!(
+        bail!(gix_error::corruption(format!(
             "{trimmed:?} could not be parsed. A V1 ref line should be '<hex-hash> <path>'."
-        ))
-        .raise_erased());
+        )));
     }
     match path.strip_suffix(b"^{}") {
         Some(stripped) => {
@@ -152,20 +147,20 @@ pub(in crate::handshake::refs) fn parse_v1(
                 // this is a special dummy-ref just for the sake of getting capabilities across in a repo that is empty.
                 return Ok(());
             }
-            let (previous_path, tag) = out_refs.pop().and_then(InternalRef::unpack_direct).ok_or_else(|| {
-                gix_error::corruption("Expecting peeled refs to be preceded by direct refs").raise_erased()
-            })?;
+            let (previous_path, tag) = out_refs
+                .pop()
+                .and_then(InternalRef::unpack_direct)
+                .ok_or_raise(|| gix_error::corruption("Expecting peeled refs to be preceded by direct refs"))?;
             if previous_path != stripped {
-                return Err(gix_error::corruption(
+                bail!(gix_error::corruption(
                     "Expecting peeled refs to have the same base path as the previous, unpeeled one",
-                )
-                .raise_erased());
+                ));
             }
             out_refs.push(InternalRef::Peeled {
                 path: previous_path,
                 tag,
                 object: gix_hash::ObjectId::from_hex(hex_hash.as_bytes())
-                    .or_raise_erased(|| gix_error::corruption("Could not decode peeled object ID"))?,
+                    .or_raise(|| gix_error::corruption("Could not decode peeled object ID"))?,
             });
         }
         None => {
@@ -173,12 +168,12 @@ pub(in crate::handshake::refs) fn parse_v1(
                 Ok(id) => id,
                 Err(_) if hex_hash.as_bstr() == "shallow" => {
                     let id = gix_hash::ObjectId::from_hex(path)
-                        .or_raise_erased(|| gix_error::corruption("Could not decode shallow object ID"))?;
+                        .or_raise(|| gix_error::corruption("Could not decode shallow object ID"))?;
                     out_shallow.push(ShallowUpdate::Shallow(id));
                     return Ok(());
                 }
                 Err(err) => {
-                    return Err(err.raise(gix_error::corruption("Could not decode object ID")).erased());
+                    return Err(err.and_raise(gix_error::corruption("Could not decode object ID")));
                 }
             };
             match out_refs
@@ -205,7 +200,7 @@ pub(in crate::handshake::refs) fn parse_v1(
     Ok(())
 }
 
-pub(in crate::handshake::refs) fn parse_v2(line: &BStr) -> ExnResult<Ref> {
+pub(in crate::handshake::refs) fn parse_v2(line: &BStr) -> Result<Ref> {
     let trimmed = line.trim_end();
     let mut tokens = trimmed.splitn(4, |b| *b == b' ');
     match (tokens.next(), tokens.next()) {
@@ -215,14 +210,13 @@ pub(in crate::handshake::refs) fn parse_v2(line: &BStr) -> ExnResult<Ref> {
             } else {
                 Some(
                     gix_hash::ObjectId::from_hex(hex_hash.as_bytes())
-                        .or_raise_erased(|| gix_error::corruption("Could not decode object ID"))?,
+                        .or_raise(|| gix_error::corruption("Could not decode object ID"))?,
                 )
             };
             if path.is_empty() {
-                return Err(gix_error::corruption(format!(
+                bail!(gix_error::corruption(format!(
                     "{trimmed:?} could not be parsed. A V2 ref line should be '<hex-hash> <path>[ (peeled|symref-target):<value>'."
-                ))
-                .raise_erased());
+                )));
             }
             let mut symref_target = None;
             let mut peeled = None;
@@ -231,59 +225,53 @@ pub(in crate::handshake::refs) fn parse_v2(line: &BStr) -> ExnResult<Ref> {
                 match (tokens.next(), tokens.next()) {
                     (Some(attribute), Some(value)) => {
                         if value.is_empty() {
-                            return Err(gix_error::corruption(format!(
+                            bail!(gix_error::corruption(format!(
                                 "{trimmed:?} could not be parsed. A V2 ref line should be '<hex-hash> <path>[ (peeled|symref-target):<value>'."
-                            ))
-                            .raise_erased());
+                            )));
                         }
                         match attribute {
                             b"peeled" => {
                                 peeled = Some(
                                     gix_hash::ObjectId::from_hex(value.as_bytes())
-                                        .or_raise_erased(|| gix_error::corruption("Could not decode peeled object ID"))?,
+                                        .or_raise(|| gix_error::corruption("Could not decode peeled object ID"))?,
                                 );
                             }
                             b"symref-target" => {
                                 symref_target = Some(value);
                             }
                             _ => {
-                                return Err(gix_error::corruption(format!(
+                                bail!(gix_error::corruption(format!(
                                     "The ref attribute {attribute:?} is unknown. Found in line {trimmed:?}"
-                                ))
-                                .raise_erased());
+                                )));
                             }
                         }
                     }
                     _ => {
-                        return Err(gix_error::corruption(format!(
+                        bail!(gix_error::corruption(format!(
                             "{trimmed:?} could not be parsed. A V2 ref line should be '<hex-hash> <path>[ (peeled|symref-target):<value>'."
-                        ))
-                        .raise_erased());
+                        )));
                     }
                 }
             }
             if tokens.next().is_some() {
-                return Err(gix_error::corruption(format!(
+                bail!(gix_error::corruption(format!(
                     "{trimmed:?} could not be parsed. A V2 ref line should be '<hex-hash> <path>[ (peeled|symref-target):<value>'."
-                ))
-                .raise_erased());
+                )));
             }
             Ok(match (symref_target, peeled) {
                 (Some(target_name), peeled) => match target_name {
                     b"(null)" => match peeled {
                         None => Ref::Direct {
                             full_ref_name: path.into(),
-                            object: id.ok_or_else(|| {
+                            object: id.ok_or_raise(|| {
                                 gix_error::corruption("got 'unborn' while (null) was a symref target")
-                                    .raise_erased()
                             })?,
                         },
                         Some(peeled) => Ref::Peeled {
                             full_ref_name: path.into(),
                             object: peeled,
-                            tag: id.ok_or_else(|| {
+                            tag: id.ok_or_raise(|| {
                                 gix_error::corruption("got 'unborn' while (null) was a symref target")
-                                    .raise_erased()
                             })?,
                         },
                     },
@@ -303,13 +291,11 @@ pub(in crate::handshake::refs) fn parse_v2(line: &BStr) -> ExnResult<Ref> {
                 (None, Some(peeled)) => Ref::Peeled {
                     full_ref_name: path.into(),
                     object: peeled,
-                    tag: id.ok_or_else(|| {
-                        gix_error::corruption("got 'unborn' as tag target").raise_erased()
-                    })?,
+                    tag: id.ok_or_raise(|| gix_error::corruption("got 'unborn' as tag target"))?,
                 },
                 (None, None) => Ref::Direct {
-                    object: id.ok_or_else(|| {
-                        gix_error::corruption("got 'unborn' as object name of direct reference").raise_erased()
+                    object: id.ok_or_raise(|| {
+                        gix_error::corruption("got 'unborn' as object name of direct reference")
                     })?,
                     full_ref_name: path.into(),
                 },
@@ -318,7 +304,7 @@ pub(in crate::handshake::refs) fn parse_v2(line: &BStr) -> ExnResult<Ref> {
         _ => Err(gix_error::corruption(format!(
             "{trimmed:?} could not be parsed. A V2 ref line should be '<hex-hash> <path>[ (peeled|symref-target):<value>'."
         ))
-        .raise_erased()),
+        .raise()),
     }
 }
 

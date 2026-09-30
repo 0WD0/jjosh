@@ -13,15 +13,9 @@ fn revspecs_are_disallowed() {
     }
     insta::assert_debug_snapshot!(diagnostics, "revspecs are disallowed", @r#"
     [
-        Reference name contains invalid byte: "~"
-        |
-        └─ Reference name contains invalid byte: "~",
-        Reference name contains invalid byte: "^"
-        |
-        └─ Reference name contains invalid byte: "^",
-        Reference name contains invalid byte: "~"
-        |
-        └─ Reference name contains invalid byte: "~",
+        Reference name contains invalid byte: "~",
+        Reference name contains invalid byte: "^",
+        Reference name contains invalid byte: "~",
     ]
     "#);
 }

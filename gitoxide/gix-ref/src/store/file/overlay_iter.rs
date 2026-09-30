@@ -1,4 +1,4 @@
-use gix_error::{ExnMessageResult, ExnResult, ResultExt, message};
+use gix_error::{Result, ResultExt, message};
 
 use gix_object::bstr::ByteSlice;
 use gix_path::RelativePath;
@@ -66,25 +66,25 @@ impl<'p> LooseThenPacked<'p, '_> {
         }
     }
 
-    fn convert_packed(&mut self, packed: ExnMessageResult<packed::Reference<'p>>) -> ExnResult<Reference> {
-        packed.map(Into::into).map(|r| self.strip_namespace(r)).or_erased()
+    fn convert_packed(&mut self, packed: Result<packed::Reference<'p>>) -> Result<Reference> {
+        packed.map(Into::into).map(|r| self.strip_namespace(r))
     }
 
-    /// Read failures include [metadata](gix_error::Exn::metadata()) `path` (native path), the loose reference being
+    /// Read failures include [metadata](gix_error::Error::metadata()) `path` (native path), the loose reference being
     /// visited.
-    fn convert_loose(&mut self, res: std::io::Result<(PathBuf, FullName)>) -> ExnResult<Reference> {
+    fn convert_loose(&mut self, res: std::io::Result<(PathBuf, FullName)>) -> Result<Reference> {
         let buf = &mut self.buf;
         let git_dir = self.git_dir;
         let common_dir = self.common_dir;
-        let (refpath, name) = res.or_raise_erased(|| message("Could not traverse reference directory"))?;
+        let (refpath, name) = res.or_raise(|| message("Could not traverse reference directory"))?;
         std::fs::File::open(&refpath)
             .and_then(|mut f| {
                 buf.clear();
                 f.read_to_end(buf)
             })
-            .or_raise_erased(|| file::find::read_reference_error(refpath.as_path()))?;
+            .or_raise(|| file::find::read_reference_error(refpath.as_path()))?;
         loose::Reference::try_from_path(name, buf, self.object_hash)
-            .or_raise_erased(|| {
+            .or_raise(|| {
                 let relative_path = refpath
                     .strip_prefix(git_dir)
                     .ok()
@@ -100,7 +100,7 @@ impl<'p> LooseThenPacked<'p, '_> {
 }
 
 impl Iterator for LooseThenPacked<'_, '_> {
-    type Item = ExnResult<Reference>;
+    type Item = Result<Reference>;
 
     fn next(&mut self) -> Option<Self::Item> {
         fn advance_to_non_private(iter: &mut Peekable<SortedLoosePaths>) {
@@ -209,7 +209,7 @@ impl file::Store {
     ///
     /// Note that since packed-refs are storing refs as precomposed unicode if [`Self::precompose_unicode`] is true, for consistency
     /// we also return loose references as precomposed unicode.
-    pub fn iter(&self) -> ExnResult<Platform<'_>> {
+    pub fn iter(&self) -> Result<Platform<'_>> {
         Ok(Platform {
             store: self,
             packed: self.assure_packed_refs_uptodate()?,
@@ -397,10 +397,7 @@ impl file::Store {
             }
             Some(namespace) => {
                 let prefix = namespace.to_owned().into_namespaced_prefix(prefix);
-                let prefix = prefix
-                    .as_bstr()
-                    .try_into()
-                    .map_err(|err: gix_error::Exn<gix_error::Message>| std::io::Error::other(err.into_error()))?;
+                let prefix = prefix.as_bstr().try_into().map_err(std::io::Error::other)?;
                 let git_dir_info = IterInfo::from_prefix(self.git_dir(), prefix, self.precompose_unicode)?;
                 let common_dir_info = self
                     .common_dir()
@@ -427,7 +424,7 @@ impl file::Store {
                         Some(prefix) => packed.iter_prefixed(prefix.into_owned()),
                         None => packed.iter(),
                     }
-                    .map_err(|err| std::io::Error::other(err.into_error()))?
+                    .map_err(std::io::Error::other)?
                     .peekable(),
                 ),
                 None => None,

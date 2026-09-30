@@ -1,17 +1,11 @@
-#![allow(clippy::result_large_err)]
 use std::{path::PathBuf, time::Duration};
 
 use gix_config::file::Metadata;
-#[cfg(feature = "blob-diff")]
-use gix_error::ErrorExt;
-#[cfg(any(feature = "attributes", feature = "excludes"))]
 use gix_error::ResultExt;
 use gix_lock::acquire::Fail;
 
-#[cfg(feature = "attributes")]
-use crate::ExnMessageResult;
 use crate::{
-    ExnResult, Result, config,
+    Result, config,
     config::{
         Cache,
         cache::util::{ApplyLeniency, ApplyLeniencyDefaultValue},
@@ -24,9 +18,7 @@ use crate::{
 /// Access
 impl Cache {
     #[cfg(feature = "blob-diff")]
-    pub(crate) fn diff_algorithm(
-        &self,
-    ) -> std::result::Result<gix_diff::blob::Algorithm, config::diff::algorithm::Error> {
+    pub(crate) fn diff_algorithm(&self) -> Result<gix_diff::blob::Algorithm> {
         use crate::config::{cache::util::ApplyLeniencyDefault, diff::algorithm::Error, tree::Diff};
         self.diff_algorithm
             .get_or_try_init(|| {
@@ -36,9 +28,11 @@ impl Cache {
                     .unwrap_or_else(|| Diff::ALGORITHM.default_value_or_panic().into());
                 config::tree::Diff::ALGORITHM
                     .try_into_algorithm(name)
-                    .or_else(|err| match err {
-                        Error::Unimplemented { .. } if self.lenient_config => Ok(gix_diff::blob::Algorithm::Histogram),
-                        err => Err(err),
+                    .or_else(|err| match err.downcast_any_ref::<Error>() {
+                        Some(Error::Unimplemented { .. }) if self.lenient_config => {
+                            Ok(gix_diff::blob::Algorithm::Histogram)
+                        }
+                        _ => Err(err),
                     })
                     .with_lenient_default(self.lenient_config)
             })
@@ -75,12 +69,7 @@ impl Cache {
                 driver.is_binary = config::tree::Diff::DRIVER_BINARY
                     .try_into_binary(binary)
                     .with_leniency(self.lenient_config)
-                    .map_err(|err| {
-                        err.and_raise(gix_error::message!(
-                            "Failed to parse value of 'diff.{}.binary'",
-                            driver.name
-                        ))
-                    })?;
+                    .or_raise(|| gix_error::message!("Failed to parse value of 'diff.{}.binary'", driver.name))?;
             }
             if let Some(command) = section.value(config::tree::Diff::DRIVER_COMMAND.name) {
                 driver.command = command.into();
@@ -91,19 +80,14 @@ impl Cache {
             if let Some(algorithm) = section.value("algorithm") {
                 driver.algorithm = config::tree::Diff::DRIVER_ALGORITHM
                     .try_into_algorithm(algorithm)
-                    .or_else(|err| match err {
-                        config::diff::algorithm::Error::Unimplemented { .. } if self.lenient_config => {
+                    .or_else(|err| match err.downcast_any_ref::<config::diff::algorithm::Error>() {
+                        Some(config::diff::algorithm::Error::Unimplemented { .. }) if self.lenient_config => {
                             Ok(gix_diff::blob::Algorithm::Histogram)
                         }
-                        err => Err(err),
+                        _ => Err(err),
                     })
                     .with_lenient_default(self.lenient_config)
-                    .map_err(|err| {
-                        err.and_raise(gix_error::message!(
-                            "Failed to parse value of 'diff.{}.algorithm'",
-                            driver.name
-                        ))
-                    })?
+                    .or_raise(|| gix_error::message!("Failed to parse value of 'diff.{}.algorithm'", driver.name))?
                     .into();
             }
         }
@@ -262,13 +246,13 @@ impl Cache {
 
     /// The path to the user-level excludes file to ignore certain files in the worktree.
     #[cfg(feature = "excludes")]
-    pub(crate) fn excludes_file(&self) -> ExnResult<Option<PathBuf>> {
+    pub(crate) fn excludes_file(&self) -> Result<Option<PathBuf>> {
         self.trusted_file_path(Core::EXCLUDES_FILE)
     }
 
     /// A helper to obtain a file from trusted configuration at `section_name`, `subsection_name`, and `key`, which is interpolated
     /// if present.
-    pub(crate) fn trusted_file_path(&self, key: impl gix_config::AsKey) -> ExnResult<Option<PathBuf>> {
+    pub(crate) fn trusted_file_path(&self, key: impl gix_config::AsKey) -> Result<Option<PathBuf>> {
         trusted_file_path(
             &self.resolved,
             key,
@@ -408,13 +392,12 @@ impl Cache {
         source: gix_worktree::stack::state::ignore::Source,
         buf: &mut Vec<u8>,
     ) -> Result<gix_worktree::stack::state::Ignore> {
-        let excludes_file = match self.excludes_file().map_err(|err| {
-            err.raise(gix_error::message(
-                "The value for `core.excludesFile` could not be read from configuration",
-            ))
-        })? {
+        let excludes_file = match self
+            .excludes_file()
+            .or_raise(|| gix_error::message("The value for `core.excludesFile` could not be read from configuration"))?
+        {
             Some(user_path) => Some(user_path),
-            None => self.xdg_config_path("ignore").or_erased()?,
+            None => self.xdg_config_path("ignore").or_error()?,
         };
         let parse_ignore = self.ignore_pattern_parser()?;
         Ok(gix_worktree::stack::state::Ignore::new(
@@ -470,7 +453,7 @@ impl Cache {
     }
 
     #[cfg(feature = "attributes")]
-    pub(crate) fn pathspec_defaults(&self) -> ExnMessageResult<gix_pathspec::Defaults> {
+    pub(crate) fn pathspec_defaults(&self) -> Result<gix_pathspec::Defaults> {
         use crate::config::tree::gitoxide;
         let res = gix_pathspec::Defaults::from_environment(&mut |name| {
             let key = [
@@ -489,7 +472,7 @@ impl Cache {
         if res.is_err() && self.lenient_config {
             Ok(gix_pathspec::Defaults::default())
         } else {
-            res
+            res.or_raise(|| gix_error::message("Invalid pathspec configuration"))
         }
     }
 
@@ -595,7 +578,7 @@ pub(crate) fn trusted_file_path(
     filter: impl FnMut(&Metadata) -> bool,
     lenient_config: bool,
     environment: crate::open::permissions::Environment,
-) -> ExnResult<Option<PathBuf>> {
+) -> Result<Option<PathBuf>> {
     let Some(path) = config.path_filter(key, filter) else {
         return Ok(None);
     };

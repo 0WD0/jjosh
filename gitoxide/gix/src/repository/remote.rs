@@ -1,4 +1,3 @@
-#![allow(clippy::result_large_err)]
 use crate::{Error, Remote, Result, bstr::BStr, config, remote};
 use gix_error::{ErrorExt, ResultExt};
 
@@ -194,15 +193,9 @@ impl crate::Repository {
             specs
                 .into_iter()
                 .map(|spec| {
-                    key.try_into_refspec(spec, op).map_err(|err| {
-                        Error::from(
-                            err.and_raise(
-                                gix_error::validation(format!(
-                                    "{kind} ref-spec under `remote.{name_or_url}` was invalid"
-                                ))
-                                .with("input", name_or_url.to_owned()),
-                            ),
-                        )
+                    key.try_into_refspec(spec, op).or_raise(|| {
+                        gix_error::validation(format!("{kind} ref-spec under `remote.{name_or_url}` was invalid"))
+                            .with("input", name_or_url.to_owned())
                     })
                 })
                 .collect::<std::result::Result<Vec<_>, _>>()
@@ -243,15 +236,11 @@ impl crate::Repository {
                     effective_urls
                         .into_iter()
                         .map(|url| {
-                            key.try_into_url(url).map_err(|err| {
-                                Error::from(
-                                    err.and_raise(
-                                        gix_error::validation(format!(
-                                            "The {kind} url under `remote.{name_or_url}` was invalid"
-                                        ))
-                                        .with("input", name_or_url.to_owned()),
-                                    ),
-                                )
+                            key.try_into_url(url).or_raise(|| {
+                                gix_error::validation(format!(
+                                    "The {kind} url under `remote.{name_or_url}` was invalid"
+                                ))
+                                .with("input", name_or_url.to_owned())
                             })
                         })
                         .collect()
@@ -281,15 +270,14 @@ impl crate::Repository {
                     gix_refspec::parse::Operation::Push,
                 )
             });
-        let fetch_tags = config
-            .string_filter(&format!("remote.{}.{}", name_or_url, "tagOpt"), &mut filter)
-            .map(|value| {
-                config::tree::Remote::TAG_OPT.try_into_tag_opt(value).map_err(|err| {
-                    Error::from(err.and_raise(gix_error::message(
+        let fetch_tags =
+            config
+                .string_filter(&format!("remote.{}.{}", name_or_url, "tagOpt"), &mut filter)
+                .map(|value| {
+                    config::tree::Remote::TAG_OPT.try_into_tag_opt(value).or_raise(|| gix_error::message(
                         "The value for 'remote.<name>.tagOpt` is invalid and must either be '--tags' or '--no-tags'",
-                    )))
-                })
-            });
+                    ))
+                });
         let fetch_tags = match fetch_tags {
             Some(Ok(v)) => v,
             Some(Err(err)) => return Some(Err(err)),
@@ -328,13 +316,11 @@ impl crate::Repository {
                         Ok(url) if name_is_url || url.scheme != gix_url::Scheme::File => urls.push(url),
                         Ok(_) => {}
                         Err(source) if name_is_url => {
-                            return Some(Err(Error::from(
-                                source.and_raise(
-                                    gix_error::validation(format!(
-                                        "The fetch url under `remote.{name_or_url}` was invalid"
-                                    ))
-                                    .with("input", name_or_url.to_owned()),
-                                ),
+                            return Some(Err(source.and_raise(
+                                gix_error::validation(format!(
+                                    "The fetch url under `remote.{name_or_url}` was invalid"
+                                ))
+                                .with("input", name_or_url.to_owned()),
                             )));
                         }
                         Err(_) => {}

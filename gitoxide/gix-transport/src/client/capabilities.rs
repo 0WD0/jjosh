@@ -1,6 +1,6 @@
 use bstr::{BStr, BString, ByteSlice};
-use gix_error::ExnMessageResult;
-use gix_error::{ErrorExt, message};
+use gix_error::Result;
+use gix_error::{OptionExt, bail, message};
 
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use crate::{Protocol, client};
@@ -65,12 +65,12 @@ impl Capabilities {
     /// Parse capabilities from the given `bytes`.
     ///
     /// Useful in case they are encoded within a `ref` behind a null byte.
-    pub fn from_bytes(bytes: &[u8]) -> ExnMessageResult<(Capabilities, usize)> {
+    pub fn from_bytes(bytes: &[u8]) -> Result<(Capabilities, usize)> {
         let delimiter_pos = bytes
             .find_byte(0)
-            .ok_or_else(|| message("Capabilities were missing entirely as there was no 0 byte").raise())?;
+            .ok_or_raise(|| message("Capabilities were missing entirely as there was no 0 byte"))?;
         if delimiter_pos + 1 == bytes.len() {
-            return Err(message("there was not a single capability behind the delimiter").raise());
+            bail!(message("there was not a single capability behind the delimiter"));
         }
         let capabilities = &bytes[delimiter_pos + 1..];
         Ok((
@@ -88,21 +88,21 @@ impl Capabilities {
     /// Useful for parsing capabilities from a data sent from a server, and to avoid having to deal with
     /// blocking and async traits for as long as possible. There is no value in parsing a few bytes
     /// in a non-blocking fashion.
-    pub fn from_lines(lines_buf: BString) -> ExnMessageResult<Capabilities> {
+    pub fn from_lines(lines_buf: BString) -> Result<Capabilities> {
         let mut lines = <_ as bstr::ByteSlice>::lines(lines_buf.as_slice().trim());
         let version_line = lines
             .next()
-            .ok_or_else(|| message("a version line was expected, but none was retrieved").raise())?;
+            .ok_or_raise(|| message("a version line was expected, but none was retrieved"))?;
         let (name, value) = version_line.split_at(
             version_line
                 .find(b" ")
-                .ok_or_else(|| message!("expected 'version X', got {version_line:?}").raise())?,
+                .ok_or_raise(|| message!("expected 'version X', got {version_line:?}"))?,
         );
         if name != b"version" {
-            return Err(message!("expected 'version X', got {version_line:?}").raise());
+            bail!(message!("expected 'version X', got {version_line:?}"));
         }
         if value != b" 2" {
-            return Err(message!("Got unsupported version {value:?}, expected 2").raise());
+            bail!(message!("Got unsupported version {value:?}, expected 2"));
         }
         Ok(Capabilities {
             value_sep: b'\n',
@@ -131,7 +131,9 @@ impl Capabilities {
 /// internal use
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 impl Capabilities {
-    fn extract_protocol(capabilities_or_version: gix_packetline::TextRef<'_>) -> Result<Protocol, client::Error> {
+    fn extract_protocol(
+        capabilities_or_version: gix_packetline::TextRef<'_>,
+    ) -> std::result::Result<Protocol, client::Error> {
         let line = capabilities_or_version.as_bstr();
         let version = if line.starts_with_str("version ") {
             if line.len() != "version X".len() {
@@ -253,7 +255,7 @@ pub mod async_recv {
     pub struct Handshake<'a> {
         /// The [`Capabilities`] the remote advertised.
         pub capabilities: Capabilities,
-        /// The remote refs as an [`AsyncBufRead`].
+        /// The remote refs as an [`AsyncBufRead`][futures_io::AsyncBufRead].
         ///
         /// This is `Some` only when protocol v1 is used. The [`AsyncRead`] must be exhausted by
         /// the caller.

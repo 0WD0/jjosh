@@ -1,3 +1,4 @@
+use gix_error::Result;
 use std::{
     path::Path,
     slice::Chunks,
@@ -6,7 +7,7 @@ use std::{
 
 use bstr::BStr;
 use filetime::FileTime;
-use gix_error::{ErrorExt, ExnResult, ResultExt, message};
+use gix_error::{ErrorExt, ResultExt, message};
 use gix_features::parallel::{Reduce, in_parallel_if};
 use gix_filter::pipeline::convert::ToGitOutcome;
 use gix_object::FindExt;
@@ -67,7 +68,7 @@ pub fn index_as_worktree<'index, T, U, Find>(
         should_interrupt,
     }: Context<'_>,
     options: Options,
-) -> ExnResult<Outcome>
+) -> Result<Outcome>
 where
     T: Send,
     U: Send,
@@ -255,7 +256,7 @@ struct State<'a, 'b> {
     odb_reads: &'a AtomicUsize,
 }
 
-type StatusResult<'index, T, U> = ExnResult<(&'index gix_index::Entry, usize, &'index BStr, EntryStatus<T, U>)>;
+type StatusResult<'index, T, U> = Result<(&'index gix_index::Entry, usize, &'index BStr, EntryStatus<T, U>)>;
 
 impl<'index> State<'_, 'index> {
     #[expect(clippy::too_many_arguments)]
@@ -375,7 +376,7 @@ impl<'index> State<'_, 'index> {
         diff: &mut impl CompareBlobs<Output = T>,
         submodule: &mut impl SubmoduleStatus<Output = U>,
         objects: &Find,
-    ) -> ExnResult<Option<EntryStatus<T, U>>>
+    ) -> Result<Option<EntryStatus<T, U>>>
     where
         Find: gix_object::Find,
     {
@@ -386,9 +387,7 @@ impl<'index> State<'_, 'index> {
                 return Ok(Some(Change::Removed.into()));
             }
             Err(err) => {
-                return Err(err
-                    .and_raise(gix_error::message!("Could not access worktree path {rela_path:?}"))
-                    .erased());
+                return Err(err.and_raise(gix_error::message!("Could not access worktree path {rela_path:?}")));
             }
         };
 
@@ -419,9 +418,9 @@ impl<'index> State<'_, 'index> {
         // The only exception here are submodules which are part of the index despite being directories.
         if metadata.is_dir() {
             if entry.mode.is_submodule() {
-                let status = submodule.status(entry, rela_path).or_raise_erased(|| {
-                    gix_error::message!("Could not determine status for submodule at '{rela_path}'")
-                })?;
+                let status = submodule
+                    .status(entry, rela_path)
+                    .or_raise(|| gix_error::message!("Could not determine status for submodule at '{rela_path}'"))?;
                 return Ok(status.map(|status| Change::SubmoduleModification(status).into()));
             } else {
                 return Ok(Some(Change::Removed.into()));
@@ -435,10 +434,10 @@ impl<'index> State<'_, 'index> {
         #[cfg(windows)]
         let new_stat = metadata
             .to_stat()
-            .or_raise_erased(|| message("The clock was off when reading file metadata"))?;
+            .or_raise(|| message("The clock was off when reading file metadata"))?;
         #[cfg(not(windows))]
         let new_stat = gix_index::entry::Stat::from_fs(&metadata)
-            .or_raise_erased(|| message("The clock was off when reading file metadata"))?;
+            .or_raise(|| message("The clock was off when reading file metadata"))?;
 
         #[cfg(windows)]
         let mode_change = metadata.mode_change(entry.mode, self.options.fs.symlink, self.options.fs.executable_bit);
@@ -551,9 +550,9 @@ impl<'index, T, U, C: VisitEntry<'index, ContentChange = T, SubmoduleStatus = U>
 
     type Output = ();
 
-    type Error = gix_error::Exn;
+    type Error = gix_error::Error;
 
-    fn feed(&mut self, items: Self::Input) -> Result<Self::FeedProduce, Self::Error> {
+    fn feed(&mut self, items: Self::Input) -> Result<Self::FeedProduce> {
         for item in items {
             let (entry, entry_index, path, status) = item?;
             self.collector
@@ -562,7 +561,7 @@ impl<'index, T, U, C: VisitEntry<'index, ContentChange = T, SubmoduleStatus = U>
         Ok(())
     }
 
-    fn finalize(self) -> Result<Self::Output, Self::Error> {
+    fn finalize(self) -> Result<Self::Output> {
         Ok(())
     }
 }
@@ -591,10 +590,10 @@ impl<'a, Find> traits::ReadData<'a> for ReadDataImpl<'a, Find>
 where
     Find: gix_object::Find,
 {
-    fn read_blob(self) -> ExnResult<&'a [u8]> {
+    fn read_blob(self) -> Result<&'a [u8]> {
         self.objects
             .find_blob(self.id, self.buf)
-            .or_raise_erased(|| message("Failed to obtain blob from object database"))
+            .or_raise(|| message("Failed to obtain blob from object database"))
             .map(|b| {
                 self.odb_reads.fetch_add(1, Ordering::Relaxed);
                 self.odb_bytes.fetch_add(b.data.len() as u64, Ordering::Relaxed);
@@ -602,7 +601,7 @@ where
             })
     }
 
-    fn stream_worktree_file(self) -> ExnResult<Stream<'a>> {
+    fn stream_worktree_file(self) -> Result<Stream<'a>> {
         self.buf.clear();
         // symlinks are only stored as actual symlinks if the FS supports it otherwise they are just
         // normal files with their content equal to the linked path (so can be read normally)
@@ -637,7 +636,7 @@ where
                     },
                     &mut |buf| self.objects.find_blob(self.id, buf).map(|_| Some(())),
                 )
-                .or_raise_erased(|| message("Could not convert worktree file to Git format"))?;
+                .or_raise(|| message("Could not convert worktree file to Git format"))?;
             let len = match out {
                 ToGitOutcome::Unchanged(_) => Some(self.file_len),
                 ToGitOutcome::Process(_) | ToGitOutcome::Buffer(_) => None,
@@ -732,15 +731,13 @@ impl Conflict {
     }
 }
 
-fn live_metadata(worktree_path: &Path) -> ExnResult<Option<gix_index::fs::Metadata>> {
+fn live_metadata(worktree_path: &Path) -> Result<Option<gix_index::fs::Metadata>> {
     match gix_index::fs::Metadata::from_path_no_follow(worktree_path) {
         Ok(md) => Ok(Some(md)),
         Err(err) if gix_fs::io_err::is_not_found(err.kind(), err.raw_os_error()) => Ok(None),
-        Err(err) => Err(err
-            .and_raise(gix_error::message!(
-                "Could not read metadata for worktree path '{}'",
-                worktree_path.display()
-            ))
-            .erased()),
+        Err(err) => Err(err.and_raise(gix_error::message!(
+            "Could not read metadata for worktree path '{}'",
+            worktree_path.display()
+        ))),
     }
 }

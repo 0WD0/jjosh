@@ -10,11 +10,7 @@ fn empty() {
 #[test]
 fn empty_component() {
     let err = assert_reference_error("refs/heads/test:refs/remotes//test", Operation::Fetch);
-    insta::assert_debug_snapshot!(err, "empty component", @"
-    Reference name cannot contain repeated slashes
-    |
-    └─ Reference name cannot contain repeated slashes
-    ");
+    insta::assert_debug_snapshot!(err, "empty component", @"Reference name cannot contain repeated slashes");
     assert!(matches!(
         err.downcast_any_ref::<gix_validate::reference::name::Error>(),
         Some(gix_validate::reference::name::Error::RepeatedSlash)
@@ -24,11 +20,7 @@ fn empty_component() {
 #[test]
 fn whitespace() {
     let err = assert_reference_error("refs/heads/test:refs/remotes/ /test", Operation::Fetch);
-    insta::assert_debug_snapshot!(err, "whitespace", @r#"
-    Reference name contains invalid byte: " "
-    |
-    └─ Reference name contains invalid byte: " "
-    "#);
+    insta::assert_debug_snapshot!(err, "whitespace", @r#"Reference name contains invalid byte: " ""#);
     assert!(matches!(
         err.downcast_any_ref::<gix_validate::reference::name::Error>(),
         Some(gix_validate::reference::name::Error::InvalidByte { .. })
@@ -51,12 +43,8 @@ fn destination_cannot_be_a_lone_at_sign() {
     }
     insta::assert_debug_snapshot!(error_snapshots, "destination cannot be a lone at sign", @r#"
     [
-        Reference name is reserved and cannot be used: "@"
-        |
-        └─ Reference name is reserved and cannot be used: "@",
-        Reference name is reserved and cannot be used: "@"
-        |
-        └─ Reference name is reserved and cannot be used: "@",
+        Reference name is reserved and cannot be used: "@",
+        Reference name is reserved and cannot be used: "@",
     ]
     "#);
 }
@@ -103,31 +91,15 @@ fn patterns_may_contain_only_one_asterisk() {
         refspec patterns may only contain a single '*' character, "input"="a**",
         refspec patterns may only contain a single '*' character, "input"="**/",
         refspec patterns may only contain a single '*' character, "input"="refs/heads/qa/*/*",
-        Reference name contains invalid byte: "?"
-        |
-        └─ Reference name contains invalid byte: "?",
-        Reference name contains invalid byte: "["
-        |
-        └─ Reference name contains invalid byte: "[",
-        Reference name cannot contain repeated dots
-        |
-        └─ Reference name cannot contain repeated dots,
-        Reference name cannot end with a slash
-        |
-        └─ Reference name cannot end with a slash,
+        Reference name contains invalid byte: "?",
+        Reference name contains invalid byte: "[",
+        Reference name cannot contain repeated dots,
+        Reference name cannot end with a slash,
         refspec patterns may only contain a single '*' character, "input"="refs/heads/qa/*/*",
-        Reference name contains invalid byte: "?"
-        |
-        └─ Reference name contains invalid byte: "?",
-        Reference name contains invalid byte: "["
-        |
-        └─ Reference name contains invalid byte: "[",
-        Reference name cannot contain repeated dots
-        |
-        └─ Reference name cannot contain repeated dots,
-        Reference name cannot end with a slash
-        |
-        └─ Reference name cannot end with a slash,
+        Reference name contains invalid byte: "?",
+        Reference name contains invalid byte: "[",
+        Reference name cannot contain repeated dots,
+        Reference name cannot end with a slash,
     ]
     "#);
 }
@@ -143,15 +115,9 @@ fn one_sided_push_patterns_still_use_refspec_pattern_syntax() {
     }
     insta::assert_debug_snapshot!(diagnostics, "one sided push patterns still use refspec pattern syntax", @r#"
     [
-        Reference name contains invalid byte: "["
-        |
-        └─ Reference name contains invalid byte: "[",
-        Reference name contains invalid byte: "?"
-        |
-        └─ Reference name contains invalid byte: "?",
-        Reference name cannot contain repeated dots
-        |
-        └─ Reference name cannot contain repeated dots,
+        Reference name contains invalid byte: "[",
+        Reference name contains invalid byte: "?",
+        Reference name cannot contain repeated dots,
     ]
     "#);
 }

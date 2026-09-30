@@ -66,7 +66,7 @@ mod http_authentication {
             .with_credentials(|action| {
                 obtained = Some(authenticate(action));
                 // Stop after credential lookup, before the transport sends these dummy credentials.
-                Err(gix_error::message("The handler asked to stop trying to obtain credentials").raise_erased())
+                Err(gix_error::message("The handler asked to stop trying to obtain credentials").raise())
             })
             .ref_map(gix::progress::Discard, Default::default());
         server.join().expect("the HTTP fixture thread does not panic")?;
@@ -75,8 +75,7 @@ mod http_authentication {
             "the callback stops the handshake after credential lookup"
         );
         let outcome = obtained
-            .expect("the 401 response invokes the credential callback")
-            .map_err(gix_error::Exn::into_error)?
+            .expect("the 401 response invokes the credential callback")?
             .expect("the cached credential is complete");
         assert_eq!(
             outcome.identity.username, "cached-user",
@@ -128,16 +127,8 @@ mod blocking_io {
             }
             insta::assert_debug_snapshot!(error_snapshots, "deny", @r#"
             [
-                Message {
-                    message: "Protocol File is denied per configuration",
-                    class: Validation,
-                    values: {"input": Bytes("<fixture>/base")},
-                },
-                Message {
-                    message: "Protocol File is denied per configuration",
-                    class: Validation,
-                    values: {"input": Bytes("<fixture>/base")},
-                },
+                Protocol File is denied per configuration, "input"="<fixture>/base",
+                Protocol File is denied per configuration, "input"="<fixture>/base",
             ]
             "#);
         }

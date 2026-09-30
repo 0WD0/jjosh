@@ -26,7 +26,7 @@ where
     /// URLs to authenticate with.
     pub fn with_credentials<'b>(
         self,
-        helper: impl FnMut(gix_credentials::helper::Action) -> gix_credentials::protocol::Result + 'b,
+        helper: impl FnMut(gix_credentials::helper::Action) -> Result<Option<gix_credentials::protocol::Outcome>> + 'b,
     ) -> Connection<'remote, 'b, 'repo, T> {
         Connection {
             remote: self.remote,
@@ -69,7 +69,7 @@ where
     /// Like [`with_credentials()`](Self::with_credentials()), but without consuming the connection.
     pub fn set_credentials(
         &mut self,
-        helper: impl FnMut(gix_credentials::helper::Action) -> gix_credentials::protocol::Result + 'auth,
+        helper: impl FnMut(gix_credentials::helper::Action) -> Result<Option<gix_credentials::protocol::Outcome>> + 'auth,
     ) -> &mut Self {
         self.authenticate = Some(Box::new(helper));
         self
@@ -144,13 +144,13 @@ fn configured_credentials_for_current_url(repo: crate::Repository) -> Authentica
             let url = action
                 .context()
                 .and_then(|ctx| ctx.url.clone().or_else(|| ctx.to_url()))
-                .ok_or_raise_erased(|| {
+                .ok_or_raise(|| {
                     gix_error::validation("Either 'url' field or both 'protocol' and 'host' fields must be provided")
                 })?;
             let (mut cascade, _action_with_normalized_url, prompt_opts) = repo
                 .config_snapshot()
-                .credential_helpers(gix_url::parse(&url).or_erased()?)
-                .or_raise_erased(|| gix_error::corruption("Credential helper configuration is invalid"))?;
+                .credential_helpers(gix_url::parse(&url)?)
+                .or_raise(|| gix_error::corruption("Credential helper configuration is invalid"))?;
             let outcome = cascade.invoke(action, prompt_opts.clone());
             previous_cascade_and_prompt = Some((cascade, prompt_opts));
             outcome

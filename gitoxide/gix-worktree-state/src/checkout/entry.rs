@@ -5,7 +5,7 @@ use std::{
 };
 
 use bstr::BStr;
-use gix_error::{ExnResult, ResultExt, message};
+use gix_error::{Result, ResultExt, message};
 use gix_filter::{
     driver::apply::MaybeDelayed,
     pipeline::convert::{ToWorktreeOutcome, to_worktree},
@@ -57,7 +57,7 @@ impl Outcome<'_> {
 }
 
 /// Check out an entry, retaining invalid path or symlink target bytes as `input`
-/// [metadata](gix_error::Exn::metadata()) if UTF-8 conversion fails.
+/// [metadata](gix_error::Error::metadata()) if UTF-8 conversion fails.
 #[cfg_attr(not(unix), allow(unused_variables))]
 pub fn checkout<'entry, Find>(
     entry: &'entry mut Entry,
@@ -79,39 +79,37 @@ pub fn checkout<'entry, Find>(
         filter_process_delay,
         ..
     }: crate::checkout::chunk::Options,
-) -> ExnResult<Outcome<'entry>>
+) -> Result<Outcome<'entry>>
 where
     Find: gix_object::Find,
 {
     let dest_relative = gix_path::try_from_bstr(entry_path)
-        .or_raise_erased(|| gix_error::validation("Could not convert path to UTF8").with("input", entry_path))?;
+        .or_raise(|| gix_error::validation("Could not convert path to UTF8").with("input", entry_path))?;
     let path_cache = path_cache
         .at_path(dest_relative.as_ref(), Some(entry.mode), &*objects)
-        .or_erased()?;
+        .or_error()?;
     let dest = path_cache.path();
 
     let object_size = match entry.mode {
         gix_index::entry::Mode::FILE | gix_index::entry::Mode::FILE_EXECUTABLE => {
-            let obj = (*objects).find_blob(&entry.id, buf).or_raise_erased(|| {
+            let obj = (*objects).find_blob(&entry.id, buf).or_raise(|| {
                 message!(
                     "object for checkout at {} could not be retrieved from object database",
                     dest.display()
                 )
             })?;
 
-            let filtered = filters
-                .convert_to_worktree(
-                    obj.data,
-                    entry_path,
-                    &mut |_, attrs| {
-                        path_cache.matching_attributes(attrs);
-                    },
-                    to_worktree::Options {
-                        can_delay: filter_process_delay,
-                        unknown_encoding: to_worktree::UnknownEncoding::Ignore,
-                    },
-                )
-                .or_erased()?;
+            let filtered = filters.convert_to_worktree(
+                obj.data,
+                entry_path,
+                &mut |_, attrs| {
+                    path_cache.matching_attributes(attrs);
+                },
+                to_worktree::Options {
+                    can_delay: filter_process_delay,
+                    unknown_encoding: to_worktree::UnknownEncoding::Ignore,
+                },
+            )?;
             let (num_bytes, file, executable_bit_change) = match filtered {
                 ToWorktreeOutcome::Unchanged(buf) | ToWorktreeOutcome::Buffer(buf) => {
                     let (mut file, flag) = open_file(
@@ -121,8 +119,8 @@ where
                         executable_bit,
                         entry.mode,
                     )
-                    .or_erased()?;
-                    file.write_all(buf).or_erased()?;
+                    .or_error()?;
+                    file.write_all(buf).or_error()?;
                     (buf.len(), file, flag)
                 }
                 ToWorktreeOutcome::Process(MaybeDelayed::Immediate(mut filtered)) => {
@@ -133,8 +131,8 @@ where
                         executable_bit,
                         entry.mode,
                     )
-                    .or_erased()?;
-                    let num_bytes = std::io::copy(&mut filtered, &mut file).or_erased()? as usize;
+                    .or_error()?;
+                    let num_bytes = std::io::copy(&mut filtered, &mut file).or_error()? as usize;
                     (num_bytes, file, flag)
                 }
                 ToWorktreeOutcome::Process(MaybeDelayed::Delayed(key)) => {
@@ -153,7 +151,7 @@ where
             num_bytes
         }
         gix_index::entry::Mode::SYMLINK => {
-            let obj = (*objects).find_blob(&entry.id, buf).or_raise_erased(|| {
+            let obj = (*objects).find_blob(&entry.id, buf).or_raise(|| {
                 message!(
                     "object for checkout at {} could not be retrieved from object database",
                     dest.display()
@@ -162,7 +160,7 @@ where
             if symlink {
                 #[cfg_attr(not(windows), allow(unused_mut))]
                 let mut symlink_destination =
-                    Cow::Borrowed(gix_path::try_from_byte_slice(obj.data).or_raise_erased(|| {
+                    Cow::Borrowed(gix_path::try_from_byte_slice(obj.data).or_raise(|| {
                         gix_error::validation("Could not convert path to UTF8").with("input", obj.data)
                     })?);
                 #[cfg(windows)]
@@ -173,17 +171,17 @@ where
                 try_op_or_unlink(dest, overwrite_existing, |p| {
                     gix_fs::symlink::create(symlink_destination.as_ref(), p)
                 })
-                .or_erased()?;
+                .or_error()?;
             } else {
                 let mut file = try_op_or_unlink(dest, overwrite_existing, |p| {
                     open_options(destination_is_initially_empty, overwrite_existing).open(p)
                 })
-                .or_erased()?;
-                file.write_all(obj.data).or_erased()?;
-                file.close().or_erased()?;
+                .or_error()?;
+                file.write_all(obj.data).or_error()?;
+                file.close().or_error()?;
             }
 
-            entry.stat = Stat::from_fs(&gix_index::fs::Metadata::from_path_no_follow(dest).or_erased()?).or_erased()?;
+            entry.stat = Stat::from_fs(&gix_index::fs::Metadata::from_path_no_follow(dest).or_error()?).or_error()?;
             obj.data.len()
         }
         gix_index::entry::Mode::DIR => {
@@ -302,27 +300,27 @@ pub(crate) fn finalize_entry(
     file: std::fs::File,
     desired_bytes: u64,
     #[cfg_attr(windows, allow(unused_variables))] executable_bit_change: ExecutableBitChange,
-) -> ExnResult {
+) -> Result {
     // For possibly existing, overwritten files, we must change the file mode explicitly to match the index.
     #[cfg(unix)]
     match executable_bit_change {
         ExecutableBitChange::NoChange => {}
-        ExecutableBitChange::Set => adjust_executable_bits(&file, true).or_erased()?,
-        ExecutableBitChange::Remove => adjust_executable_bits(&file, false).or_erased()?,
+        ExecutableBitChange::Set => adjust_executable_bits(&file, true).or_error()?,
+        ExecutableBitChange::Remove => adjust_executable_bits(&file, false).or_error()?,
     }
 
-    let md = &gix_index::fs::Metadata::from_file(&file).or_erased()?;
+    let md = &gix_index::fs::Metadata::from_file(&file).or_error()?;
     // A last sanity check: if the file wasn't truncated upon opening, which is good in case something
     // goes wrong during writing, not everything is lost, then after writing the file is smaller than it was
     // before, it needs truncation. We do that here.
     let needs_truncation = md.len() > desired_bytes;
     if needs_truncation {
-        file.set_len(desired_bytes).or_erased()?;
+        file.set_len(desired_bytes).or_error()?;
     }
     // NOTE: we don't call `file.sync_all()` here knowing that some filesystems don't handle this well.
     //       revisit this once there is a bug to fix.
-    entry.stat = Stat::from_fs(md).or_erased()?;
-    file.close().or_erased()?;
+    entry.stat = Stat::from_fs(md).or_error()?;
+    file.close().or_error()?;
     Ok(())
 }
 
@@ -330,7 +328,7 @@ pub(crate) fn finalize_entry(
 ///
 /// See `adjust_mode_executable_bits` for the exact details of how the mode is transformed.
 #[cfg(unix)]
-fn adjust_executable_bits(file: &std::fs::File, executable: bool) -> Result<(), std::io::Error> {
+fn adjust_executable_bits(file: &std::fs::File, executable: bool) -> std::io::Result<()> {
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
     let old_mode = file.metadata()?.mode();
     let new_mode = adjust_mode_executable_bits(old_mode, executable);

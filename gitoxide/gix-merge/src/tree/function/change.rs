@@ -10,7 +10,7 @@
 
 use bstr::{BString, ByteSlice};
 use gix_diff::{tree::recorder::Location, tree_with_rewrites::Change};
-use gix_error::ExnResult;
+use gix_error::Result;
 use gix_error::ResultExt;
 use gix_object::FindExt;
 
@@ -100,19 +100,19 @@ pub(super) fn collect(
     diff_resource_cache: &mut gix_diff::blob::Platform,
     diff_state: &mut gix_diff::tree::State,
     rewrites: Option<gix_diff::Rewrites>,
-) -> ExnResult<SideState> {
+) -> Result<SideState> {
     let mut changes = Vec::new();
     if base_tree != side_tree {
         let side_tree = objects
             .find_tree_iter(side_tree, side_buf)
-            .or_raise_erased(|| gix_error::message("Tree merge failed"))?;
+            .or_raise(|| gix_error::message("Tree merge failed"))?;
         gix_diff::tree_with_rewrites(
             gix_object::TreeRefIter::from_bytes(base_buf, base_tree.kind()),
             side_tree,
             diff_resource_cache,
             diff_state,
             objects,
-            |change| -> ExnResult<_> {
+            |change| {
                 track(change, &mut changes);
                 Ok(std::ops::ControlFlow::Continue(()))
             },
@@ -121,7 +121,7 @@ pub(super) fn collect(
                 rewrites,
             },
         )
-        .or_raise_erased(|| gix_error::message("Tree merge failed"))?;
+        .or_raise(|| gix_error::message("Tree merge failed"))?;
     }
     Ok(SideState::from_changes(changes))
 }

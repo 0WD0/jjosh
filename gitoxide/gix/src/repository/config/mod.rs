@@ -38,7 +38,7 @@ impl crate::Repository {
     /// [`config_file_mut()`](Self::config_file_mut) to edit it.
     pub fn config_path(&self, source: config::Source) -> Result<std::path::PathBuf> {
         use config::Source;
-        use gix_error::{ErrorExt, message};
+        use gix_error::{OptionExt, message};
 
         let path = match source {
             Source::Local => self.common_dir().join("config"),
@@ -52,16 +52,12 @@ impl crate::Repository {
                     options.permissions.config,
                     &mut config::Cache::make_source_env(options.permissions.env),
                 )
-                .ok_or_else(|| {
-                    message!("Configuration source {source:?} has no available path with these options").raise()
-                })?
+                .ok_or_raise(|| message!("Configuration source {source:?} has no available path with these options"))?
             }
             _ => {
-                return Err(
-                    message!("Configuration source {source:?} requires a repository or has no physical file")
-                        .raise()
-                        .into(),
-                );
+                gix_error::bail!(message!(
+                    "Configuration source {source:?} requires a repository or has no physical file"
+                ));
             }
         };
         Ok(self.current_dir().join(path))
@@ -300,7 +296,7 @@ impl crate::Repository {
     ///
     /// In case of merges, a diff is performed under the hood in order to learn which hunks need merging.
     #[cfg(feature = "blob-diff")]
-    pub fn diff_algorithm(&self) -> std::result::Result<gix_diff::blob::Algorithm, config::diff::algorithm::Error> {
+    pub fn diff_algorithm(&self) -> Result<gix_diff::blob::Algorithm> {
         self.config.diff_algorithm()
     }
 }

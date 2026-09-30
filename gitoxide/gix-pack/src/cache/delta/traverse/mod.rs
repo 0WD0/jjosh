@@ -1,6 +1,7 @@
+use gix_error::Result;
 use std::sync::atomic::AtomicBool;
 
-use gix_error::{ErrorExt, ExnResult, retryable};
+use gix_error::{ErrorExt, bail, retryable};
 use gix_features::{
     progress::{self, DynNestedProgress, Progress},
     threading,
@@ -19,12 +20,12 @@ pub(crate) mod util;
 pub(super) type SharedRefDeltaChildren = OwnShared<Mutable<super::tree::RefDeltaChildren>>;
 
 #[cold]
-pub(super) fn allocation_error(kind: gix_error::ResourceExhaustionKind) -> gix_error::Exn {
-    gix_error::resource_exhaustion(kind, "Entry too large to fit in memory").raise_erased()
+pub(super) fn allocation_error(kind: gix_error::ResourceExhaustionKind) -> gix_error::Message {
+    gix_error::resource_exhaustion(kind, "Entry too large to fit in memory")
 }
 
-pub(super) fn interrupted() -> gix_error::Exn {
-    retryable("Interrupted").raise_erased()
+pub(super) fn interrupted() -> gix_error::Error {
+    retryable("Interrupted").raise()
 }
 
 /// Additional context passed to the `inspect_object(…)` function of the [`Tree::traverse()`] method.
@@ -102,11 +103,11 @@ where
             object_hash,
             alloc_limit_bytes,
         }: Options<'_, '_>,
-    ) -> ExnResult<Outcome<T>>
+    ) -> Result<Outcome<T>>
     where
         F: for<'r> Fn(EntryRange, &'r R) -> Option<&'r [u8]> + Send + Clone,
         R: Send + Sync,
-        MBFN: FnMut(&mut T, &dyn Progress, Context<'_>) -> ExnResult + Send + Clone,
+        MBFN: FnMut(&mut T, &dyn Progress, Context<'_>) -> Result + Send + Clone,
     {
         self.set_pack_entries_end_and_resolve_ref_offsets(pack_entries_end)?;
 
@@ -149,9 +150,9 @@ where
         if let Some(ref_delta_children) = ref_delta_children
             && let Some((base_id, _children)) = threading::lock(&ref_delta_children).first_key_value()
         {
-            return Err(
-                gix_error::not_found(format!("The ref-delta base object {base_id} could not be found")).raise_erased(),
-            );
+            bail!(gix_error::not_found(format!(
+                "The ref-delta base object {base_id} could not be found"
+            )));
         }
 
         object_progress.show_throughput(start);

@@ -21,15 +21,15 @@ impl Pack {
 pub type IndexVersion = keys::Any<validate::IndexVersion>;
 
 mod index_version {
-    use gix_error::ResultExt;
+    use gix_error::{ResultExt, bail};
 
-    use crate::{Error, ExnMessageResult, Result, config, config::tree::sections::pack::IndexVersion};
+    use crate::{Result, config, config::tree::sections::pack::IndexVersion};
 
     impl IndexVersion {
         /// Try to interpret an integer value as index version.
         pub fn try_into_index_version(
             &'static self,
-            value: ExnMessageResult<Option<i64>>,
+            value: Result<Option<i64>>,
         ) -> Result<Option<gix_pack::index::Version>> {
             let Some(value) = value.or_raise(|| config::key::error(self, "Invalid pack index version"))? else {
                 return Ok(None);
@@ -38,11 +38,7 @@ mod index_version {
                 1 => gix_pack::index::Version::V1,
                 2 => gix_pack::index::Version::V2,
                 _ => {
-                    return Err(Error::from_error(config::key::error_with_value(
-                        self,
-                        "Invalid pack index version",
-                        value,
-                    )));
+                    bail!(config::key::error_with_value(self, "Invalid pack index version", value));
                 }
             }))
         }
@@ -60,26 +56,14 @@ impl Section for Pack {
 }
 
 mod validate {
-    use crate::{ExnResult, bstr::BStr, config::tree::keys};
-    use gix_error::{ErrorExt, ResultExt};
+    use crate::{Result, bstr::BStr, config::tree::keys};
 
     #[derive(Clone, Copy)]
     pub struct IndexVersion;
     impl keys::Validate for IndexVersion {
-        fn validate(&self, value: &BStr) -> ExnResult {
+        fn validate(&self, value: &BStr) -> Result {
             super::Pack::INDEX_VERSION
-                .try_into_index_version(
-                    gix_config::Integer::try_from(value)
-                        .and_then(|int| {
-                            int.to_decimal().ok_or_else(|| {
-                                gix_error::validation("integer out of range")
-                                    .with("input", value)
-                                    .raise()
-                            })
-                        })
-                        .map(Some),
-                )
-                .or_erased()?;
+                .try_into_index_version(gix_config::Integer::from_bytes::<i64>(value).map(Some))?;
             Ok(())
         }
     }

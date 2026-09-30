@@ -56,7 +56,9 @@ impl Section for Remote {
 pub type TagOpt = keys::Any<validate::TagOpt>;
 
 mod tag_opts {
-    use crate::{Error, Result, bstr::ByteSlice, config, config::tree::remote::TagOpt, remote};
+    use gix_error::bail;
+
+    use crate::{Result, bstr::ByteSlice, config, config::tree::remote::TagOpt, remote};
 
     impl TagOpt {
         /// Try to interpret `value` as tag option.
@@ -72,11 +74,11 @@ mod tag_opts {
                 b"--tags" => remote::fetch::Tags::All,
                 b"--no-tags" => remote::fetch::Tags::None,
                 _ => {
-                    return Err(Error::from_error(config::key::error_with_value(
+                    bail!(config::key::error_with_value(
                         self,
                         "Invalid configuration value",
                         value,
-                    )));
+                    ));
                 }
             })
         }
@@ -84,14 +86,13 @@ mod tag_opts {
 }
 
 pub mod validate {
-    use gix_error::ResultExt;
 
-    use crate::{ExnResult, bstr::BStr, config::tree::keys::Validate};
+    use crate::{Result, bstr::BStr, config::tree::keys::Validate};
 
     pub struct TagOpt;
     impl Validate for TagOpt {
-        fn validate(&self, value: &BStr) -> ExnResult {
-            super::Remote::TAG_OPT.try_into_tag_opt(value).or_erased()?;
+        fn validate(&self, value: &BStr) -> Result {
+            super::Remote::TAG_OPT.try_into_tag_opt(value)?;
             Ok(())
         }
     }

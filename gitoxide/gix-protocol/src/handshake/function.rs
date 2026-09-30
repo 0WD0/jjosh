@@ -1,6 +1,6 @@
 use crate::bisync::bisync;
-use gix_error::ExnResult;
-use gix_error::{ErrorExt, ResultExt, message};
+use gix_error::Result;
+use gix_error::{ErrorExt, OptionExt, ResultExt, bail, message};
 use gix_features::{progress, progress::Progress};
 use gix_transport::{Service, client};
 
@@ -23,9 +23,9 @@ pub async fn handshake<AuthFn, T>(
     mut authenticate: AuthFn,
     extra_parameters: Vec<(String, Option<String>)>,
     progress: &mut impl Progress,
-) -> ExnResult<Handshake>
+) -> Result<Handshake>
 where
-    AuthFn: FnMut(credentials::helper::Action) -> credentials::protocol::Result,
+    AuthFn: FnMut(credentials::helper::Action) -> Result<Option<credentials::protocol::Outcome>>,
     T: Transport,
 {
     let _span = gix_features::trace::detail!("gix_protocol::handshake()", service = ?service, extra_parameters = ?extra_parameters);
@@ -56,37 +56,35 @@ where
                 drop(result); // needed to workaround this: https://github.com/rust-lang/rust/issues/76149
                 let url = transport.to_url().into_owned();
                 progress.set_name("authentication".into());
-                let credentials::protocol::Outcome { identity, next } =
-                    authenticate(credentials::helper::Action::Get(credentials::protocol::Context {
+                let credentials::protocol::Outcome { identity, next } = authenticate(credentials::helper::Action::Get(
+                    credentials::protocol::Context {
                         url: Some(url.clone()),
                         www_authenticate,
                         ..Default::default()
-                    }))
-                    .or_raise_erased(|| message("Failed to obtain credentials"))?
-                    .ok_or_else(|| {
-                        message(
+                    },
+                ))
+                .or_raise(|| message("Failed to obtain credentials"))?
+                .ok_or_raise(|| {
+                    message(
                         "No credentials were returned at all as if the credential helper isn't functioning unknowingly",
                     )
-                    .raise_erased()
-                    })?;
+                })?;
                 transport
                     .set_identity(identity)
-                    .or_raise_erased(|| message("Could not set transport identity"))?;
+                    .or_raise(|| message("Could not set transport identity"))?;
                 progress.step();
                 progress.set_name("handshake (authenticated)".into());
                 match transport.handshake(service, &extra_parameters).await {
                     Ok(v) => {
-                        authenticate(next.store()).or_raise_erased(|| message("Failed to store credentials"))?;
+                        authenticate(next.store()).or_raise(|| message("Failed to store credentials"))?;
                         Ok(v)
                     }
                     // Still no permission? Reject the credentials.
                     Err(client::Error::Io(err)) if err.kind() == std::io::ErrorKind::PermissionDenied => {
-                        authenticate(next.erase()).or_raise_erased(|| message("Failed to erase credentials"))?;
-                        return Err(err
-                            .and_raise(message!(
-                                "Credentials provided for \"{url}\" were not accepted by the remote"
-                            ))
-                            .erased());
+                        authenticate(next.erase()).or_raise(|| message("Failed to erase credentials"))?;
+                        return Err(err.and_raise(message!(
+                            "Credentials provided for \"{url}\" were not accepted by the remote"
+                        )));
                     }
                     // Otherwise, do nothing, as we don't know if it actually got to try the credentials.
                     // If they were previously stored, they remain. In the worst case, the user has to enter them again
@@ -96,13 +94,12 @@ where
             }
             Err(err) => Err(err),
         }
-        .or_raise_erased(|| message("Transport handshake failed"))?;
+        .or_raise(|| message("Transport handshake failed"))?;
 
         if !supported_versions.is_empty() && !supported_versions.contains(&actual_protocol) {
-            return Err(gix_error::validation(format!(
+            bail!(gix_error::validation(format!(
                 "The transport didn't accept the advertised server version {actual_protocol:?} and closed the connection client side"
-            ))
-            .raise_erased());
+            )));
         }
 
         let parsed_refs = match refs {

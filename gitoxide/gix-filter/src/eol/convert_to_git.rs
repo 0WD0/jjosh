@@ -1,6 +1,5 @@
+use gix_error::Result;
 use std::path::Path;
-
-use gix_error::ExnResult;
 
 /// Additional context for use with [`convert_to_git`][super::convert_to_git()].
 #[derive(Default, Copy, Clone)]
@@ -29,11 +28,12 @@ pub enum RoundTripCheck<'a> {
 }
 
 /// A function that writes a buffer like `fn(&mut buf)` with by tes of an object in the index that is the one that should be converted.
-pub type IndexObjectFn<'a> = dyn FnMut(&mut Vec<u8>) -> ExnResult<Option<()>> + 'a;
+pub type IndexObjectFn<'a> = dyn FnMut(&mut Vec<u8>) -> Result<Option<()>> + 'a;
 
 pub(crate) mod function {
     use bstr::ByteSlice;
-    use gix_error::ExnMessageResult;
+
+    use gix_error::{Result, bail};
 
     use crate::{
         clear_and_set_capacity,
@@ -61,8 +61,8 @@ pub(crate) mod function {
             round_trip_check,
             config,
         }: Options<'_>,
-    ) -> ExnMessageResult<bool> {
-        use gix_error::{ErrorExt, ResultExt, message};
+    ) -> Result<bool> {
+        use gix_error::{ResultExt, message};
 
         if digest == AttributesDigest::Binary || src.is_empty() {
             return Ok(false);
@@ -106,7 +106,7 @@ pub(crate) mod function {
                 // CRLF would not be restored by checkout
                 match round_trip_check {
                     RoundTripCheck::Fail { rela_path } => {
-                        return Err(message!("CRLF would be replaced by LF in '{}'", rela_path.display()).raise());
+                        bail!(message!("CRLF would be replaced by LF in '{}'", rela_path.display()));
                     }
                     #[allow(unused_variables, reason = "Used when tracing is enabled at compile time.")]
                     RoundTripCheck::Warn { rela_path } => {
@@ -120,7 +120,7 @@ pub(crate) mod function {
                 // CRLF would be added by checkout
                 match round_trip_check {
                     RoundTripCheck::Fail { rela_path } => {
-                        return Err(message!("LF would be replaced by CRLF in '{}'", rela_path.display()).raise());
+                        bail!(message!("LF would be replaced by CRLF in '{}'", rela_path.display()));
                     }
                     #[allow(unused_variables, reason = "Used when tracing is enabled at compile time.")]
                     RoundTripCheck::Warn { rela_path } => {

@@ -214,8 +214,7 @@ fn git_index_file_overrides_the_index_in_the_git_dir() -> Result {
     #[cfg(feature = "index")]
     {
         gix::index::File::from_state(gix::index::State::new(repo.object_hash()), index_file)
-            .write(Default::default())
-            .map_err(gix::Exn::into_error)?;
+            .write(Default::default())?;
         assert!(
             repo.index()?.entries().is_empty(),
             "the configured index is read, and it's initially empty"
@@ -285,7 +284,7 @@ fn git_index_file_receives_writes_while_the_git_dir_index_is_locked() -> Result 
     assert!(!index_file.exists());
     std::fs::write(repo.git_dir().join("index.lock"), [])?;
     let mut index = (**repo.index_or_empty()?).clone();
-    index.write(Default::default()).map_err(gix::Exn::into_error)?;
+    index.write(Default::default())?;
 
     assert!(index_file.is_file(), "the write lands on the configured index");
     assert_eq!(
@@ -508,13 +507,7 @@ fn non_bare_split_worktree_invalid_worktree_path_boolean() -> Result {
     )
     .expect_err("a bare worktree-path key is invalid in strict mode");
     assert!(err.is_validation(), "in strict mode, we fail just like git does");
-    insta::assert_debug_snapshot!(err, "non bare split worktree invalid worktree path boolean", @r#"
-    Message {
-        message: "Invalid configuration value",
-        class: Validation,
-        values: {"environment_override": String("GIT_WORK_TREE"), "key": String("core.worktree")},
-    }
-    "#);
+    insta::assert_debug_snapshot!(err, "non bare split worktree invalid worktree path boolean", @r#"Invalid configuration value, "environment_override"="GIT_WORK_TREE", "key"="core.worktree""#);
     Ok(())
 }
 

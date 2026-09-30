@@ -1,8 +1,8 @@
-use gix_error::{ExnMessageResult, ExnResult};
+use gix_error::Result;
 /// An implementation for HTTP requests via `reqwest`.
 pub struct Remote {
     /// A worker thread which performs the actual request.
-    handle: Option<std::thread::JoinHandle<ExnMessageResult>>,
+    handle: Option<std::thread::JoinHandle<Result>>,
     /// A channel to send requests (work) to the worker thread.
     request: std::sync::mpsc::SyncSender<remote::Request>,
     /// A channel to receive the result of the prior request.
@@ -15,7 +15,7 @@ pub struct Remote {
 
 /// A function to configure a single request prior to sending it, support most complex configuration beyond what's possible with
 /// basic `git` http configuration.
-pub type ConfigureRequestFn = dyn FnMut(&mut reqwest::blocking::Request) -> ExnResult + Send + Sync + 'static;
+pub type ConfigureRequestFn = dyn FnMut(&mut reqwest::blocking::Request) -> Result + Send + Sync + 'static;
 
 /// Options to configure the reqwest HTTP handler.
 #[derive(Default)]

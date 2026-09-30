@@ -7,7 +7,7 @@ use crate::{color, integer};
 /// Note that `git-config` allows color values to simply be a collection of
 /// [`color::Attribute`]s, and does not require a [`color::Name`] for either the
 /// foreground or background color.
-/// Conversion errors expose invalid `input` bytes as [metadata](gix_error::Exn::metadata()).
+/// Conversion errors expose invalid `input` bytes as [metadata](gix_error::Error::metadata()).
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default)]
 pub struct Color {
     /// A provided foreground color
@@ -20,13 +20,13 @@ pub struct Color {
 
 /// Any value that can be interpreted as an integer.
 ///
-/// This supports any numeric value that can fit in a [`i64`], excluding the
-/// suffix. The suffix is parsed separately from the value itself, so if you
-/// wish to obtain the true value of the integer, you must account for the
-/// suffix after fetching the value. [`integer::Suffix`] provides
-/// [`bitwise_offset()`][integer::Suffix::bitwise_offset] to help with the
-/// math, or [`to_decimal()`][Integer::to_decimal()] for obtaining a usable value in one step.
-/// Conversion errors expose invalid `input` bytes as [metadata](gix_error::Exn::metadata()).
+/// Use [`Integer::from_bytes()`] to parse raw input, apply any suffix multiplier, and convert
+/// to a signed or unsigned integer in one step, with classified errors for invalid or overflowing values.
+///
+/// Converting to this type with [`TryFrom`] instead preserves the suffix separately from the value,
+/// which must fit in an [`i64`] before applying the suffix. Use [`Integer::to_decimal()`] to obtain
+/// the multiplied value of an already-parsed integer.
+/// Conversion errors expose invalid `input` bytes as [metadata](gix_error::Error::metadata()).
 #[derive(Default, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct Integer {
     /// The value, without any suffix modification
@@ -36,7 +36,7 @@ pub struct Integer {
 }
 
 /// Any value that can be interpreted as a boolean.
-/// Conversion errors expose invalid `input` bytes as [metadata](gix_error::Exn::metadata()).
+/// Conversion errors expose invalid `input` bytes as [metadata](gix_error::Error::metadata()).
 #[derive(Default, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct Boolean(
     /// The interpreted boolean value.

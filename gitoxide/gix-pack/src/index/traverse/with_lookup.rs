@@ -1,6 +1,5 @@
+use gix_error::Result;
 use std::sync::atomic::{AtomicBool, Ordering};
-
-use gix_error::ExnResult;
 
 use gix_features::{
     parallel::{self, in_parallel_if},
@@ -81,10 +80,10 @@ where
             check,
             make_pack_lookup_cache,
         }: Options<F>,
-    ) -> ExnResult<Outcome>
+    ) -> Result<Outcome>
     where
         C: crate::cache::DecodeEntry,
-        Processor: FnMut(gix_object::Kind, &[u8], &index::Entry, &dyn Progress) -> ExnResult + Send + Clone,
+        Processor: FnMut(gix_object::Kind, &[u8], &index::Entry, &dyn Progress) -> Result + Send + Clone,
         F: Fn() -> C + Send + Clone,
         D: crate::FileData + Send + Sync,
     {
@@ -145,7 +144,7 @@ where
                     state_per_thread,
                     move |entries: &[index::Entry],
                           (cache, buf, inflate, progress)|
-                          -> ExnResult<Vec<data::decode::entry::Outcome>> {
+                          -> Result<Vec<data::decode::entry::Outcome>> {
                         progress.init(
                             Some(entries.len()),
                             gix_features::progress::count_with_decimals("objects", 2),

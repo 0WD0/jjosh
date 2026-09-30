@@ -1,4 +1,3 @@
-#![allow(clippy::result_large_err)]
 use std::any::Any;
 
 use crate::{Result, bstr::BStr};
@@ -53,7 +52,6 @@ impl crate::Repository {
                         };
 
                         use crate::{
-                            Error,
                             bstr::BString,
                             config,
                             config::{
@@ -61,36 +59,39 @@ impl crate::Repository {
                                 tree::{Key, Remote, gitoxide},
                             },
                         };
-                        use gix_error::ErrorExt;
+
                         fn try_to_string(
                             v: BString,
                             lenient: bool,
-                            key_str: impl Into<BString>,
+                            remote_name: Option<&BStr>,
                             key: &'static config::tree::keys::String,
                         ) -> Result<Option<String>> {
-                            let key_str = key_str.into();
-                            key.try_into_string(v)
-                                .map_err(|err| {
-                                    Error::from(err.and_raise(gix_error::message!(
-                                        "Could not decode value at key {:?} as UTF-8 string",
-                                        key_str
-                                    )))
-                                })
-                                .map(Some)
-                                .with_leniency(lenient)
+                            let value = key.try_into_string(v);
+                            let value = match remote_name {
+                                Some(name) => {
+                                    value.or_raise(|| gix_error::message!("Invalid configuration for remote {name:?}"))
+                                }
+                                None => value,
+                            };
+                            value.map(Some).with_leniency(lenient)
                         }
 
                         fn proxy_auth_method(
-                            value_and_key: Option<(BString, BString, &'static config::tree::http::ProxyAuthMethod)>,
+                            value_and_key: Option<(
+                                BString,
+                                Option<&BStr>,
+                                &'static config::tree::http::ProxyAuthMethod,
+                            )>,
                         ) -> Result<ProxyAuthMethod> {
                             let value = value_and_key
-                                .map(|(method, key, key_type)| {
-                                    let _ = &key; // CodeQL doesn't inspect formatting macro arguments.
-                                    key_type.try_into_proxy_auth_method(method).map_err(|err| {
-                                        err.and_raise(gix_error::message!(
-                                            "The proxy authentication at key `{key}` is invalid"
-                                        ))
-                                    })
+                                .map(|(method, remote_name, key)| {
+                                    let method = key.try_into_proxy_auth_method(method);
+                                    match remote_name {
+                                        Some(name) => method.or_raise(|| {
+                                            gix_error::message!("Invalid configuration for remote {name:?}")
+                                        }),
+                                        None => method,
+                                    }
                                 })
                                 .transpose()?
                                 .unwrap_or_default();
@@ -118,11 +119,13 @@ impl crate::Repository {
                         }
 
                         fn proxy(
-                            value: Option<(BString, BString, &'static config::tree::keys::String)>,
+                            value: Option<(BString, Option<&BStr>, &'static config::tree::keys::String)>,
                             lenient: bool,
                         ) -> Result<Option<String>> {
                             Ok(value
-                                .and_then(|(v, k, key)| try_to_string(v, lenient, k.clone(), key).transpose())
+                                .and_then(|(v, remote_name, key)| {
+                                    try_to_string(v, lenient, remote_name, key).transpose()
+                                })
                                 .transpose()?
                                 .map(|mut proxy| {
                                     if !proxy.trim().is_empty() && !proxy.contains("://") {
@@ -144,33 +147,17 @@ impl crate::Repository {
                             config
                                 .strings_filter(key, &mut trusted_only)
                                 .map(|values| config::tree::Http::EXTRA_HEADER.try_into_extra_header(values))
-                                .transpose()
-                                .map_err(|err| {
-                                    err.and_raise(gix_error::message!(
-                                        "Could not decode value at key {key:?} as UTF-8 string"
-                                    ))
-                                })?
+                                .transpose()?
                                 .unwrap_or_default()
                         };
 
                         opts.follow_redirects = {
                             let key = "http.followRedirects";
 
-                            config::tree::Http::FOLLOW_REDIRECTS
-                                .try_into_follow_redirects(
-                                    config.string_filter(key, &mut trusted_only).unwrap_or_default(),
-                                    || {
-                                        config
-                                            .boolean_filter(key, &mut trusted_only)
-                                            .with_leniency(lenient)
-                                            .or_erased()
-                                    },
-                                )
-                                .map_err(|err| {
-                                    err.and_raise(gix_error::message!(
-                                        "The follow redirects value must be 'initial', or boolean true or false"
-                                    ))
-                                })?
+                            config::tree::Http::FOLLOW_REDIRECTS.try_into_follow_redirects(
+                                config.string_filter(key, &mut trusted_only).unwrap_or_default(),
+                                || config.boolean_filter(key, &mut trusted_only).with_leniency(lenient),
+                            )?
                         };
 
                         opts.low_speed_time_seconds = config::tree::Http::LOW_SPEED_TIME
@@ -189,20 +176,20 @@ impl crate::Repository {
                                             &format!("remote.{}.{}", name, Remote::PROXY.name),
                                             &mut trusted_only,
                                         )
-                                        .map(|v| (v, format!("remote.{name}.proxy").into(), &Remote::PROXY))
+                                        .map(|v| (v, Some(name), &Remote::PROXY))
                                 })
                                 .or_else(|| {
                                     let key = "http.proxy";
                                     debug_assert_eq!(key, config::tree::Http::PROXY.logical_name());
                                     let http_proxy = config
                                         .string_filter(key, &mut trusted_only)
-                                        .map(|v| (v, key.into(), &config::tree::Http::PROXY))
+                                        .map(|v| (v, None, &config::tree::Http::PROXY))
                                         .or_else(|| {
                                             let key = "gitoxide.http.proxy";
                                             debug_assert_eq!(key, gitoxide::Http::PROXY.logical_name());
                                             config
                                                 .string_filter(key, &mut trusted_only)
-                                                .map(|v| (v, key.into(), &gitoxide::Http::PROXY))
+                                                .map(|v| (v, None, &gitoxide::Http::PROXY))
                                         });
                                     if url.scheme == Https {
                                         http_proxy.or_else(|| {
@@ -210,7 +197,7 @@ impl crate::Repository {
                                             debug_assert_eq!(key, gitoxide::Https::PROXY.logical_name());
                                             config
                                                 .string_filter(key, &mut trusted_only)
-                                                .map(|v| (v, key.into(), &gitoxide::Https::PROXY))
+                                                .map(|v| (v, None, &gitoxide::Https::PROXY))
                                         })
                                     } else {
                                         http_proxy
@@ -221,7 +208,7 @@ impl crate::Repository {
                                     debug_assert_eq!(key, gitoxide::Http::ALL_PROXY.logical_name());
                                     config
                                         .string_filter(key, &mut trusted_only)
-                                        .map(|v| (v, key.into(), &gitoxide::Http::ALL_PROXY))
+                                        .map(|v| (v, None, &gitoxide::Http::ALL_PROXY))
                                 }),
                             lenient,
                         )?;
@@ -230,7 +217,7 @@ impl crate::Repository {
                             debug_assert_eq!(key, gitoxide::Http::NO_PROXY.logical_name());
                             opts.no_proxy = config
                                 .string_filter(key, &mut trusted_only)
-                                .and_then(|v| try_to_string(v, lenient, key, &gitoxide::Http::NO_PROXY).transpose())
+                                .and_then(|v| try_to_string(v, lenient, None, &gitoxide::Http::NO_PROXY).transpose())
                                 .transpose()?;
                         }
                         opts.proxy_auth_method = proxy_auth_method({
@@ -238,7 +225,7 @@ impl crate::Repository {
                             debug_assert_eq!(key, gitoxide::Http::PROXY_AUTH_METHOD.logical_name());
                             config
                                 .string_filter(key, &mut trusted_only)
-                                .map(|v| (v, key.into(), &gitoxide::Http::PROXY_AUTH_METHOD))
+                                .map(|v| (v, None, &gitoxide::Http::PROXY_AUTH_METHOD))
                                 .or_else(|| {
                                     remote_name
                                         .and_then(|name| {
@@ -247,20 +234,14 @@ impl crate::Repository {
                                                     &format!("remote.{name}.proxyAuthMethod"),
                                                     &mut trusted_only,
                                                 )
-                                                .map(|v| {
-                                                    (
-                                                        v,
-                                                        format!("remote.{name}.proxyAuthMethod").into(),
-                                                        &Remote::PROXY_AUTH_METHOD,
-                                                    )
-                                                })
+                                                .map(|v| (v, Some(name), &Remote::PROXY_AUTH_METHOD))
                                         })
                                         .or_else(|| {
                                             let key = "http.proxyAuthMethod";
                                             debug_assert_eq!(key, config::tree::Http::PROXY_AUTH_METHOD.logical_name());
                                             config
                                                 .string_filter(key, &mut trusted_only)
-                                                .map(|v| (v, key.into(), &config::tree::Http::PROXY_AUTH_METHOD))
+                                                .map(|v| (v, None, &config::tree::Http::PROXY_AUTH_METHOD))
                                         })
                                 })
                         })?;
@@ -298,7 +279,7 @@ impl crate::Repository {
                             opts.user_agent = config
                                 .string_filter(key, &mut trusted_only)
                                 .and_then(|v| {
-                                    try_to_string(v, lenient, key, &config::tree::Http::USER_AGENT).transpose()
+                                    try_to_string(v, lenient, None, &config::tree::Http::USER_AGENT).transpose()
                                 })
                                 .transpose()?
                                 .or_else(|| Some(crate::env::agent().into()));
@@ -308,13 +289,7 @@ impl crate::Repository {
                             let key = "http.version";
                             opts.http_version = config
                                 .string_filter(key, &mut trusted_only)
-                                .map(|v| {
-                                    config::tree::Http::VERSION.try_into_http_version(v).map_err(|err| {
-                                        err.and_raise(gix_error::message!(
-                                            "The HTTP version must be 'HTTP/2' or 'HTTP/1.1'"
-                                        ))
-                                    })
-                                })
+                                .map(|v| config::tree::Http::VERSION.try_into_http_version(v))
                                 .transpose()?;
                         }
 
@@ -348,9 +323,7 @@ impl crate::Repository {
                                 })
                                 .transpose()
                                 .with_leniency(lenient)
-                                .map_err(|err| {
-                                    err.raise(gix_error::message!("Could not interpolate path at key {key:?}"))
-                                })?;
+                                .or_raise(|| gix_error::message!("Could not interpolate path at key {key:?}"))?;
                         }
 
                         {
@@ -423,9 +396,7 @@ impl crate::Repository {
                         Ok(Some(Box::new(opts) as Box<dyn Any>))
                     }
                 };
-                options
-                    .or_raise(|| gix_error::message("Could obtain configuration for an HTTP url"))
-                    .map_err(Into::into)
+                options.or_raise(|| gix_error::message("Could obtain configuration for an HTTP url"))
             }
             File | Git | Ssh | Ext | Helper(_) | HelperUrl(_) => Ok(None),
         }

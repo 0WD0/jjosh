@@ -1,5 +1,3 @@
-#![allow(clippy::result_large_err)]
-
 use crate::{
     Result, config,
     config::tree::{Core, gitoxide},

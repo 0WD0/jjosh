@@ -1,4 +1,4 @@
-use gix_error::{ErrorExt, ExnMessageResult, ResultExt};
+use gix_error::{OptionExt, Result, ResultExt, bail};
 use std::io;
 
 use gix_features::decode::leb64_from_read;
@@ -13,11 +13,7 @@ fn corrupt(message: &'static str) -> gix_error::Message {
 /// Decoding
 impl data::Entry {
     /// Decode an entry from the given entry data `d`, providing the `pack_offset` to allow tracking the start of the entry data section.
-    pub fn from_bytes(
-        d: &[u8],
-        pack_offset: data::Offset,
-        object_hash: gix_hash::Kind,
-    ) -> ExnMessageResult<data::Entry> {
+    pub fn from_bytes(d: &[u8], pack_offset: data::Offset, object_hash: gix_hash::Kind) -> Result<data::Entry> {
         let (type_id, size, mut consumed) = parse_header_info(d)?;
         let hash_len = object_hash.len_in_bytes();
 
@@ -35,7 +31,7 @@ impl data::Entry {
                 let hash = d
                     .get(consumed..)
                     .and_then(|d| d.get(..hash_len))
-                    .ok_or_else(|| corrupt("ref-delta base object id"))?;
+                    .ok_or_raise(|| corrupt("ref-delta base object id"))?;
                 let delta = RefDelta {
                     base_id: gix_hash::ObjectId::try_from(hash)
                         .or_raise(|| corrupt("unsupported object hash length"))?,
@@ -48,7 +44,7 @@ impl data::Entry {
             COMMIT => Commit,
             TAG => Tag,
             other => {
-                return Err(gix_error::corruption(format!("Object type {other} is unsupported")).raise());
+                bail!(gix_error::corruption(format!("Object type {other} is unsupported")));
             }
         };
         Ok(data::Entry {
@@ -95,12 +91,12 @@ impl data::Entry {
             decompressed_size: size,
             data_offset: pack_offset + consumed as u64,
             encoded_header_size: encoded_header_size(consumed)
-                .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err.into_error()))?,
+                .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?,
         })
     }
 }
 
-fn encoded_header_size(consumed: usize) -> ExnMessageResult<u16> {
+fn encoded_header_size(consumed: usize) -> Result<u16> {
     u16::try_from(consumed).or_raise(|| corrupt("entry header size does not fit into u16"))
 }
 
@@ -130,10 +126,10 @@ fn streaming_parse_header_info(read: &mut dyn io::Read) -> std::result::Result<(
 
 /// Parses the header of a pack-entry, yielding object type id, decompressed object size, and consumed bytes
 #[inline]
-fn parse_header_info(data: &[u8]) -> ExnMessageResult<(u8, u64, usize)> {
+fn parse_header_info(data: &[u8]) -> Result<(u8, u64, usize)> {
     let mut c = *data
         .first()
-        .ok_or_else(|| corrupt("need a pack entry header, got empty input"))?;
+        .ok_or_raise(|| corrupt("need a pack entry header, got empty input"))?;
     let mut i = 1;
     let type_id = (c >> 4) & 0b0000_0111;
     let mut size = u64::from(c) & 0b0000_1111;
@@ -141,34 +137,34 @@ fn parse_header_info(data: &[u8]) -> ExnMessageResult<(u8, u64, usize)> {
     while c & 0b1000_0000 != 0 {
         c = *data
             .get(i)
-            .ok_or_else(|| corrupt("pack entry header continuation byte"))?;
+            .ok_or_raise(|| corrupt("pack entry header continuation byte"))?;
         i += 1;
         let component = u64::from(c & 0b0111_1111)
             .checked_shl(shift)
-            .ok_or_else(|| gix_error::corruption("Pack entry header value overflowed while decoding"))?;
+            .ok_or_raise(|| gix_error::corruption("Pack entry header value overflowed while decoding"))?;
         size = size
             .checked_add(component)
-            .ok_or_else(|| gix_error::corruption("Pack entry header value overflowed while decoding"))?;
+            .ok_or_raise(|| gix_error::corruption("Pack entry header value overflowed while decoding"))?;
         shift += 7;
     }
     Ok((type_id, size, i))
 }
 
-fn parse_leb64(data: &[u8]) -> ExnMessageResult<(u64, usize)> {
+fn parse_leb64(data: &[u8]) -> Result<(u64, usize)> {
     let mut i = 0;
-    let mut c = *data.first().ok_or_else(|| corrupt("an ofs-delta base distance"))?;
+    let mut c = *data.first().ok_or_raise(|| corrupt("an ofs-delta base distance"))?;
     i += 1;
     let mut value = u64::from(c) & 0x7f;
     while c & 0x80 != 0 {
         c = *data
             .get(i)
-            .ok_or_else(|| corrupt("an ofs-delta base distance continuation byte"))?;
+            .ok_or_raise(|| corrupt("an ofs-delta base distance continuation byte"))?;
         i += 1;
         value = value
             .checked_add(1)
             .and_then(|value| value.checked_shl(7))
             .and_then(|value| value.checked_add(u64::from(c) & 0x7f))
-            .ok_or_else(|| gix_error::corruption("Pack entry header value overflowed while decoding"))?;
+            .ok_or_raise(|| gix_error::corruption("Pack entry header value overflowed while decoding"))?;
     }
     Ok((value, i))
 }
