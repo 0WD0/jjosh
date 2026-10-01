@@ -6,8 +6,9 @@ pub mod bisync {
 
 use std::{
     error::Error,
-    io::Write,
+    io::{Read, Write},
     sync::{Arc, Mutex},
+    time::Duration,
 };
 
 use gix_transport::{
@@ -49,6 +50,50 @@ fn request_failure_without_status_preserves_error_source() {
         io_error.source().is_some(),
         "the underlying error must be preserved as source(), not stringified: {io_error:?}"
     );
+}
+
+#[test]
+fn response_body_can_resume_after_reqwest_default_read_timeout() -> Result<(), Box<dyn Error + Send + Sync>> {
+    const PREFIX: &[u8] = b"before pause\n";
+    const SUFFIX: &[u8] = b"after pause\n";
+    let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+    let addr = listener.local_addr()?;
+    let (prefix_read, resume) = std::sync::mpsc::sync_channel(0);
+    let server = std::thread::spawn(move || -> std::io::Result<()> {
+        let (stream, _) = listener.accept()?;
+        let mut reader = std::io::BufReader::new(stream);
+        read_request_lines(&mut reader);
+        reader.get_mut().write_all(
+            format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                PREFIX.len() + SUFFIX.len()
+            )
+            .as_bytes(),
+        )?;
+        reader.get_mut().write_all(PREFIX)?;
+        // Start the pause only after the consumer has read the first part of the body.
+        resume
+            .recv_timeout(Duration::from_secs(10))
+            .map_err(std::io::Error::other)?;
+        std::thread::sleep(Duration::from_secs(33));
+        reader.get_mut().write_all(SUFFIX)
+    });
+
+    let url = format!("http://{addr}/response");
+    let mut remote = http::reqwest::Remote::default();
+    let mut response = http::Http::get(&mut remote, &url, &url, std::iter::empty::<&str>())?;
+    std::io::copy(&mut response.headers, &mut std::io::sink())?;
+    let mut prefix = [0; PREFIX.len()];
+    response.body.read_exact(&mut prefix)?;
+    assert_eq!(prefix, PREFIX);
+    prefix_read.send(())?;
+    let mut suffix = Vec::new();
+    let received = response.body.read_to_end(&mut suffix);
+    let served = server.join().expect("HTTP server thread must not panic");
+    received?;
+    served?;
+    assert_eq!(suffix, SUFFIX);
+    Ok(())
 }
 
 #[test]
