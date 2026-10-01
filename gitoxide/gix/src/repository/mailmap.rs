@@ -42,7 +42,7 @@ impl crate::Repository {
                 });
             }
             Some(root) => {
-                if let Ok(mut file) = gix_features::fs::open_options_no_follow()
+                if let Ok(mut file) = gix_fs::open_options_no_follow()
                     .read(true)
                     .open(root.join(".mailmap"))
                     .map_err(|e| {

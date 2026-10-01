@@ -79,7 +79,6 @@ cargo check -p gix-url --all-features
 cargo check -p gix-status --all-features
 cargo check -p gix-features --all-features
 cargo check -p gix-features --features parallel
-cargo check -p gix-features --features fs-read-dir
 cargo check -p gix-features --features progress
 cargo check -p gix-features --features io-pipe
 cargo check -p gix-features --features crc32

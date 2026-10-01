@@ -30,11 +30,8 @@ use crate::{
 ///
 /// ### Performance Notes
 ///
-/// In theory, parallel directory traversal can be significantly faster, and what's possible for our current
-/// `gix_features::fs::WalkDir` implementation is to abstract a `filter_entry()` method so it works both for
-/// the iterator from the `walkdir` crate as well as from `jwalk`. However, doing so as initial version
-/// has the risk of not being significantly harder if not impossible to implement as flow-control is very
-/// limited.
+/// Parallel traversal is abandoned as it's not worth managing a thread-pool over this, also given that
+/// traversal is rare in typical Git usage.
 ///
 /// Thus the decision was made to start out with something akin to the Git implementation, get all tests and
 /// baseline comparison to pass, and see if an iterator with just `filter_entry` would be capable of dealing with

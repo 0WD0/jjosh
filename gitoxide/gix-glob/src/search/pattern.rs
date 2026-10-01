@@ -44,7 +44,7 @@ fn read_in_full_ignore_missing(path: &Path, follow_symlinks: bool, buf: &mut Vec
     let file = if follow_symlinks {
         std::fs::File::open(path)
     } else {
-        gix_features::fs::open_options_no_follow().read(true).open(path)
+        gix_fs::open_options_no_follow().read(true).open(path)
     };
     Ok(match file {
         Ok(mut file) => {

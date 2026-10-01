@@ -3,8 +3,6 @@
 const HEADER_MAX_SIZE: usize = 64;
 use std::path::{Path, PathBuf};
 
-use gix_features::fs;
-
 /// Options for use in [`Store::at_opts()`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Options {
@@ -100,7 +98,7 @@ pub mod verify;
 
 /// The type for an iterator over `Result<gix_hash::ObjectId, Error>)`
 pub struct Iter {
-    inner: fs::walkdir::DirEntryIter,
+    inner: gix_fs::walkdir::DirEntryIter,
     hash_hex_len: usize,
 }
 

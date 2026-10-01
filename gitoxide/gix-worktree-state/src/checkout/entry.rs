@@ -253,7 +253,7 @@ fn try_unlink_path_recursively(path: &Path, path_meta: &std::fs::Metadata) -> st
 }
 
 fn open_options(destination_is_initially_empty: bool, overwrite_existing: bool) -> std::fs::OpenOptions {
-    let mut options = gix_features::fs::open_options_no_follow();
+    let mut options = gix_fs::open_options_no_follow();
     options
         .create_new(destination_is_initially_empty && !overwrite_existing)
         .create(!destination_is_initially_empty || overwrite_existing)

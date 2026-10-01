@@ -26,9 +26,6 @@ progress-unit-human-numbers = ["prodash?/unit-human"]
 ## Provide human readable byte units for progress bars.
 progress-unit-bytes = ["dep:bytesize", "prodash?/unit-bytes"]
 
-## Provide utilities suitable for working with the `std::fs::read_dir()`.
-fs-read-dir = ["dep:gix-utils"]
-
 ## Implement `tracing` with `tracing-core`, which provides applications with valuable performance details if they opt-in to it.
 ##
 ## Note that this may have overhead as well, thus instrumentations should be used stategically, only providing coarse tracing by default and adding details
@@ -47,9 +44,6 @@ parallel = ["dep:crossbeam-channel", "dep:parking_lot"]
 ## If enabled, OnceCell will be made available for interior mutability either in sync or unsync forms.
 ## Note: This still uses once_cell because std::sync::OnceLock::get_or_try_init() is not yet stable.
 once_cell = ["dep:once_cell"]
-## Makes facilities of the `walkdir` crate partially available.
-## In conjunction with the **parallel** feature, directory walking will be parallel instead behind a compatible interface.
-walkdir = ["dep:walkdir", "dep:gix-path", "dep:gix-utils"]
 #* an in-memory unidirectional pipe using `bytes` as efficient transfer mechanism.
 io-pipe = ["dep:bytes"]
 ## provide a proven and fast `crc32` implementation.
@@ -84,15 +78,9 @@ required-features = ["io-pipe"]
 gix-error = { version = "^0.4.0", path = "../gix-error" }
 gix-trace = { version = "^0.2.0", path = "../gix-trace" }
 
-# for walkdir
-gix-path = { version = "^0.13.0", path = "../gix-path", optional = true }
-gix-utils = { version = "^0.4.0", path = "../gix-utils", optional = true }
-
 # 'parallel' feature
 crossbeam-channel = { version = "0.5.15", optional = true }
 parking_lot = { version = "0.12.4", default-features = false, optional = true }
-
-walkdir = { version = "2.3.2", optional = true } # used when parallel is off
 
 # hashing
 crc32fast = { version = "1.5.0", optional = true }
@@ -109,9 +97,6 @@ bytes = { version = "1.11.1", optional = true }
 once_cell = { version = "1.21.3", optional = true }
 
 document-features = { version = "0.2.0", optional = true }
-
-[target.'cfg(unix)'.dependencies]
-libc = { version = "0.2.186" }
 
 [package.metadata.docs.rs]
 all-features = true
