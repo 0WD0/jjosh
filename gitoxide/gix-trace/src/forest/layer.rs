@@ -17,6 +17,8 @@ pub(crate) struct OpenedSpan {
     span: tree::Span,
     start: Instant,
     active_entries: usize,
+    #[cfg(feature = "forest-cpu-time")]
+    cpu: super::cpu::Span,
 }
 
 impl OpenedSpan {
@@ -35,6 +37,8 @@ impl OpenedSpan {
             ),
             start: Instant::now(),
             active_entries: 0,
+            #[cfg(feature = "forest-cpu-time")]
+            cpu: super::cpu::Span::default(),
         }
     }
 
@@ -46,9 +50,13 @@ impl OpenedSpan {
         if self.active_entries == 1 {
             self.start = now;
         }
+        #[cfg(feature = "forest-cpu-time")]
+        self.cpu.enter();
     }
 
     fn exit(&mut self, now: Instant) {
+        #[cfg(feature = "forest-cpu-time")]
+        self.cpu.exit();
         self.active_entries = self
             .active_entries
             .checked_sub(1)
@@ -59,6 +67,13 @@ impl OpenedSpan {
     }
 
     fn close(self) -> tree::Span {
+        #[cfg(feature = "forest-cpu-time")]
+        {
+            let mut span = self.span;
+            span.base_cpu_time = self.cpu.time();
+            span
+        }
+        #[cfg(not(feature = "forest-cpu-time"))]
         self.span
     }
 
@@ -68,6 +83,14 @@ impl OpenedSpan {
 
     fn record_span(&mut self, span: tree::Span) {
         self.span.inner_duration += span.total_duration();
+        #[cfg(feature = "forest-cpu-time")]
+        {
+            self.span.inner_cpu_time = self
+                .span
+                .inner_cpu_time
+                .zip(span.total_cpu_time())
+                .and_then(|(total, child)| total.checked_add(child));
+        }
         self.span.nodes.push(Tree::Span(span));
     }
 }
@@ -288,16 +311,19 @@ where
 /// the root span or emits an event outside any span. Configure a [`ForestLayer`]
 /// manually to customize processing and output.
 ///
+/// Returns an error if a global subscriber or logger was already installed.
+///
 /// # Examples
 /// ```
 /// use tracing::{info, info_span};
 ///
-/// gix_trace::forest::init();
+/// gix_trace::forest::init()?;
 ///
 /// info!("Hello, world!");
 /// info_span!("my_span").in_scope(|| {
 ///     info!("Relevant information");
 /// });
+/// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 /// Produces output like:
 /// ```log
@@ -305,8 +331,8 @@ where
 /// INFO     my_span [ 26.0µs | 100.000% ]
 /// INFO     ┕━ ｉ [info]: Relevant information
 /// ```
-pub fn init() {
-    Registry::default().with(ForestLayer::default()).init();
+pub fn init() -> Result<(), TryInitError> {
+    Registry::default().with(ForestLayer::default()).try_init()
 }
 
 /// Initializes a global subscriber for cargo tests with a [`ForestLayer`] using the default
@@ -350,6 +376,8 @@ mod tests {
             ),
             start: Instant::now(),
             active_entries: 0,
+            #[cfg(feature = "forest-cpu-time")]
+            cpu: super::super::cpu::Span::default(),
         }
     }
 

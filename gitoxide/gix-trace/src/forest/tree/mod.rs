@@ -39,8 +39,45 @@ pub struct Span {
     /// The sum of child spans' total durations, including overlaps between children.
     pub(crate) inner_duration: Duration,
 
+    #[cfg(feature = "forest-cpu-time")]
+    pub(crate) base_cpu_time: Option<CpuTime>,
+
+    #[cfg(feature = "forest-cpu-time")]
+    pub(crate) inner_cpu_time: Option<CpuTime>,
+
     /// Events and spans collected while the span was open.
     pub(crate) nodes: Vec<Tree>,
+}
+
+/// CPU time consumed in user mode and kernel mode, excluding time blocked on I/O or sleeping.
+///
+/// Available with `forest-cpu-time`. Concurrent threads contribute separately, so
+/// their accumulated CPU time can exceed elapsed wall-clock time. Counter resolution
+/// depends on the operating system; short operations may measure as zero.
+#[cfg(feature = "forest-cpu-time")]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CpuTime {
+    /// CPU time executing user-space code.
+    pub user: Duration,
+    /// CPU time executing kernel code on behalf of the measured threads.
+    pub system: Duration,
+}
+
+#[cfg(feature = "forest-cpu-time")]
+impl CpuTime {
+    pub(crate) fn checked_add(self, other: Self) -> Option<Self> {
+        Some(Self {
+            user: self.user.checked_add(other.user)?,
+            system: self.system.checked_add(other.system)?,
+        })
+    }
+
+    pub(crate) fn checked_sub(self, earlier: Self) -> Option<Self> {
+        Some(Self {
+            user: self.user.checked_sub(earlier.user)?,
+            system: self.system.checked_sub(earlier.system)?,
+        })
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -179,6 +216,10 @@ impl Span {
             name,
             total_duration: Duration::ZERO,
             inner_duration: Duration::ZERO,
+            #[cfg(feature = "forest-cpu-time")]
+            base_cpu_time: crate::forest::cpu::initial_time(),
+            #[cfg(feature = "forest-cpu-time")]
+            inner_cpu_time: crate::forest::cpu::initial_time(),
             nodes: Vec::new(),
         }
     }
@@ -231,5 +272,39 @@ impl Span {
         self.total_duration
             .checked_sub(self.inner_duration)
             .expect("the forest layer raises the total duration to at least the sum of its children")
+    }
+
+    /// Returns this span's own CPU time plus its children's total CPU time.
+    ///
+    /// Children contribute even when they run on other threads or while their
+    /// parent is not entered. Returns `None` on unsupported platforms or if any
+    /// contributing measurement failed, went backwards, or overflowed.
+    #[cfg(feature = "forest-cpu-time")]
+    pub fn total_cpu_time(&self) -> Option<CpuTime> {
+        self.base_cpu_time?.checked_add(self.inner_cpu_time?)
+    }
+
+    /// Returns CPU time charged directly to this span, excluding other active spans.
+    ///
+    /// Each thread charges its most recently entered distinct forest span. Re-entering
+    /// an already active span leaves the current span unchanged, as in the tracing
+    /// registry. Nested spans with a different explicit parent or subscriber also
+    /// receive their own CPU time. Concurrent entries contribute separately, and
+    /// instrumented futures accumulate time only while they are polled or dropped.
+    ///
+    /// Returns `None` on unsupported platforms or if this span's own measurement
+    /// failed, went backwards, or overflowed.
+    #[cfg(feature = "forest-cpu-time")]
+    pub fn base_cpu_time(&self) -> Option<CpuTime> {
+        self.base_cpu_time
+    }
+
+    /// Returns the sum of the child spans' total CPU times, including parallel work.
+    ///
+    /// Returns `None` on unsupported platforms or if any child measurement is
+    /// unavailable or their sum overflowed.
+    #[cfg(feature = "forest-cpu-time")]
+    pub fn inner_cpu_time(&self) -> Option<CpuTime> {
+        self.inner_cpu_time
     }
 }

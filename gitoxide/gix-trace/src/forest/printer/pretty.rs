@@ -38,6 +38,11 @@ use tracing::Level;
 /// exceed wall-clock time; see [`Span::total_duration`].
 /// A root with zero duration displays `0.00%` for all percentages.
 ///
+/// With `forest-cpu-time`, an additional `[ user: <TIME> | sys: <TIME> ]` shows
+/// inclusive user and kernel CPU time. This is omitted on unsupported platforms
+/// or when measurements are incomplete. CPU times exclude blocked time and
+/// include parallel children; elapsed-time percentages are unchanged.
+///
 /// Use [`Pretty::with_max_level`] to omit less important nodes from the output
 /// while retaining their more important descendants and the original durations.
 ///
@@ -204,6 +209,16 @@ impl Pretty {
 
         write!(writer, "{percent_total_of_root_duration:.2}% ]")?;
 
+        #[cfg(feature = "forest-cpu-time")]
+        if let Some(cpu) = span.total_cpu_time() {
+            write!(
+                writer,
+                " [ user: {} | sys: {} ]",
+                DurationDisplay(cpu.user.as_nanos() as f64),
+                DurationDisplay(cpu.system.as_nanos() as f64),
+            )?;
+        }
+
         for (n, field) in span.shared.fields.iter().enumerate() {
             write!(
                 writer,
@@ -337,5 +352,32 @@ impl fmt::Display for ColorLevel {
         write!(f, "{}", style.prefix())?;
         f.pad(self.0.as_str())?;
         write!(f, "{}", style.suffix())
+    }
+}
+
+#[cfg(all(test, feature = "forest-cpu-time"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unavailable_cpu_time_is_omitted() -> gix_error::TestResult {
+        let zero = Some(crate::forest::tree::CpuTime::default());
+        for (base, inner) in [(None, None), (None, zero), (zero, None)] {
+            let mut span = Span::new(
+                Shared {
+                    level: tracing::Level::INFO,
+                    fields: Default::default(),
+                },
+                "operation",
+            );
+            span.base_cpu_time = base;
+            span.inner_cpu_time = inner;
+            let rendered = Pretty.fmt(&Tree::Span(span))?;
+            assert!(
+                rendered.ends_with("operation [ 0.00ns | 0.00% ]\n"),
+                "missing own or child CPU measurements leave only elapsed timing: {rendered:?}"
+            );
+        }
+        Ok(())
     }
 }

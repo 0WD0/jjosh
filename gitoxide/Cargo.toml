@@ -56,7 +56,7 @@ max-pure = ["hashes", "max-control", "http-client-reqwest", "gitoxide-core-block
 
 ## Like `max`, but with more control for configuration. See the *Package Maintainers* headline for more information.
 ## Needs to chose its own hash(es).
-max-control = ["tracing", "fast", "pretty-cli", "tix", "gitoxide-core-tools", "prodash-render-line", "prodash/render-line-autoconfigure", "gix/revparse-regex"]
+max-control = ["tracing-cpu-time", "fast", "pretty-cli", "tix", "gitoxide-core-tools", "prodash-render-line", "prodash/render-line-autoconfigure", "gix/revparse-regex"]
 
 ## All the good stuff, with less fanciness for smaller binaries.
 ##
@@ -112,6 +112,10 @@ fast-safe = ["fast"]
 
 ## Enable tracing in `gitoxide-core`.
 tracing = ["dep:anstream", "dep:tracing", "gitoxide-core/tracing", "gix-features/tracing", "gix-features/tracing-detail"]
+
+## Also measure user and kernel CPU time in trace trees on supported Unix platforms.
+## Sampling adds overhead on span entry and exit.
+tracing-cpu-time = ["tracing", "gitoxide-core/tracing-cpu-time"]
 
 ## Use `clap` to build the prettiest, best documented and most user-friendly CLI at the expense of binary size.
 pretty-cli = ["gitoxide-core/serde", "prodash/progress-tree", "prodash/progress-tree-log", "prodash/local-time", "env_logger/humantime", "env_logger/color", "env_logger/auto-color"]

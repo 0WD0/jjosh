@@ -2613,6 +2613,7 @@ version = "0.2.0"
 dependencies = [
  "document-features",
  "gix-error",
+ "libc",
  "nu-ansi-term",
  "smallvec",
  "tracing",

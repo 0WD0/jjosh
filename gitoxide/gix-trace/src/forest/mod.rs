@@ -101,7 +101,29 @@
 //! wall-clock time. These durations describe aggregate tracing activity, not CPU time.
 //! Giving each worker its own child span makes that worker's events and activity visible
 //! separately.
+//!
+//! # CPU time
+//!
+//! Enable `forest-cpu-time` to also collect user and kernel CPU time on Linux, macOS,
+//! FreeBSD, and OpenBSD. Each thread charges CPU time to its most recently entered
+//! distinct forest span. Re-entering an active ancestor keeps its child current.
+//! Concurrent entries contribute independently; suspended futures accumulate no CPU
+//! time between polls. Time blocked on I/O or sleeping is excluded, as is CPU work in
+//! uninstrumented worker threads and child processes.
+//!
+//! A completed `tree::Span` exposes `base_cpu_time()` for its own work,
+//! `inner_cpu_time()` for its children's work, and `total_cpu_time()` for their sum.
+//! The sum includes parallel children and children running while their parent is not
+//! entered. CPU accounting is separate from the existing elapsed-time measurements.
+//! The pretty printer appends inclusive times as `[ user: 12.00ms | sys: 3.00ms ]`.
+//!
+//! Sampling adds a system call on entry and exit, and tracing overhead contributes
+//! to measured CPU time. OS accounting resolution can make short spans measure as
+//! zero. Unsupported platforms and incomplete measurements return `None`, and the
+//! pretty printer omits CPU times. Disabling the feature removes CPU sampling and its state.
 
+#[cfg(feature = "forest-cpu-time")]
+mod cpu;
 mod fail;
 mod layer;
 pub mod printer;

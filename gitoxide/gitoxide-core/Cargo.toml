@@ -47,6 +47,9 @@ async-client = ["gix/async-network-client-async-std", "gix-transport-configurati
 ## Collect trace trees and configure buffered CLI trace output.
 tracing = ["dep:gix-trace", "dep:tracing-subscriber", "dep:tracing"]
 
+## Also measure user and kernel CPU time in trace trees on supported Unix platforms.
+tracing-cpu-time = ["tracing", "gix-trace/forest-cpu-time"]
+
 ## Data structures implement `serde::Serialize` and `serde::Deserialize`.
 serde = ["gix/serde", "dep:serde_json", "dep:serde", "bytesize/serde"]
 
