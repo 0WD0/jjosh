@@ -100,13 +100,13 @@ pub mod pretty {
         progress: &gix::progress::prodash::tree::Root,
     ) -> anyhow::Result<()> {
         if enable {
-            let processor = tracing_forest::Printer::new().formatter({
+            let processor = gix_trace::forest::Printer::new().formatter({
                 let progress = std::sync::Mutex::new(progress.add_child("tracing"));
-                move |tree: &tracing_forest::tree::Tree| -> Result<String, std::fmt::Error> {
+                move |tree: &gix_trace::forest::Tree| -> Result<String, std::fmt::Error> {
                     use gix::Progress;
-                    use tracing_forest::Formatter;
+                    use gix_trace::forest::Formatter;
                     let progress = &mut progress.lock().unwrap();
-                    let tree = tracing_forest::printer::Pretty.fmt(tree)?;
+                    let tree = gix_trace::forest::printer::Pretty.fmt(tree)?;
                     if reverse_lines {
                         for line in tree.lines().rev() {
                             progress.info(line.into());
@@ -120,7 +120,7 @@ pub mod pretty {
                 }
             });
             use tracing_subscriber::layer::SubscriberExt;
-            let subscriber = tracing_subscriber::Registry::default().with(tracing_forest::ForestLayer::from(processor));
+            let subscriber = tracing_subscriber::Registry::default().with(gix_trace::ForestLayer::from(processor));
             tracing::subscriber::set_global_default(subscriber)?;
         } else {
             tracing::subscriber::set_global_default(tracing_subscriber::Registry::default())?;

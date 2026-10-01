@@ -103,6 +103,12 @@ unit-tests:
     env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-index --features parallel --no-fail-fast
     cargo nextest run -p gix-packetline --features blocking-io --test blocking-packetline --no-fail-fast
     cargo nextest run -p gix-packetline --features async-io --test async-packetline --no-fail-fast
+    # Cover tracing modes and both forest renderers independently of workspace feature unification.
+    cargo nextest run -p gix-trace --no-default-features --no-fail-fast
+    cargo nextest run -p gix-trace --no-default-features --features tracing --no-fail-fast
+    cargo nextest run -p gix-trace --no-default-features --features tracing,tracing-detail --no-fail-fast
+    cargo nextest run -p gix-trace --no-default-features --features forest --no-fail-fast
+    cargo nextest run -p gix-trace --all-features --no-fail-fast
     cargo nextest run -p gix-transport --features http-client-curl --no-fail-fast
     cargo nextest run -p gix-transport --features http-client-curl,http-client-insecure-credentials --test blocking-transport-http-only --no-fail-fast
     cargo nextest run -p gix-transport --features http-client-reqwest --no-fail-fast
@@ -142,6 +148,8 @@ doc-tests:
     cargo test --workspace --doc --no-fail-fast
     # `cargo nextest` doesn't run doctests, so cover feature-gated examples explicitly here.
     cargo test -p gix-packetline --doc --features blocking-io --no-fail-fast
+    cargo test -p gix-trace --doc --no-default-features --features forest --no-fail-fast
+    cargo test -p gix-trace --doc --no-default-features --features forest-ansi,tracing-detail --no-fail-fast
     cargo test -p gix --doc --no-default-features --no-fail-fast
     cargo test -p gix --doc --no-default-features --features revision --no-fail-fast
 

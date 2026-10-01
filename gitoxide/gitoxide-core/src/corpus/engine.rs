@@ -106,7 +106,7 @@ impl Engine {
                     break 'tasks_loop;
                 }
                 let mut run_progress = repo_progress.add_child("set later");
-                let (_guard, current_id) = corpus::trace::override_thread_subscriber(
+                let _guard = corpus::trace::override_thread_subscriber(
                     db_path.as_str(),
                     self.state.trace_to_progress.then(|| repo_progress.add_child("trace")),
                     self.state.reverse_trace_lines,
@@ -125,9 +125,7 @@ impl Engine {
                             .display()
                     ));
 
-                    // TODO: wait for new release of `tracing-forest` to be able to provide run_id via span attributes
                     let mut run = Self::insert_run(&self.con, gitoxide_id, runner_id, *task_id, repo.id)?;
-                    current_id.store(run.id, Ordering::SeqCst);
                     tracing::info_span!("run", run_id = run.id).in_scope(|| {
                         task.perform(
                             &mut run,
@@ -181,14 +179,11 @@ impl Engine {
                                 .expect("corpus contains repo")
                                 .display()
                         ));
-                        let current_id = match subscriber {
-                            Ok((_guard, current_id)) => current_id,
-                            Err(err) => {
-                                progress.fail(format!("{err:#?}"));
-                                should_interrupt.store(true, Ordering::SeqCst);
-                                return Ok(());
-                            }
-                        };
+                        if let Err(err) = subscriber {
+                            progress.fail(format!("{err:#?}"));
+                            should_interrupt.store(true, Ordering::SeqCst);
+                            return Ok(());
+                        }
                         let con = match con {
                             Ok(con) => con,
                             Err(err) => {
@@ -198,7 +193,6 @@ impl Engine {
                             }
                         };
                         let mut run = Self::insert_run(con, gitoxide_id, runner_id, *task_id, repo.id)?;
-                        current_id.store(run.id, Ordering::SeqCst);
                         tracing::info_span!("run", run_id = run.id).in_scope(|| {
                             task.perform(&mut run, &repo.path, progress, Some(1), should_interrupt);
                         });

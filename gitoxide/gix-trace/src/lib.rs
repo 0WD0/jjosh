@@ -3,6 +3,7 @@
 //!
 //! The application is supposed to explicitly turn on tracing via `gix-features`.
 //! Crates that use `gix-features` should use `gix_features::trace`, and those who don't can use `gix_trace` directly.
+//! Enable `forest` to collect and print trace trees; its module documentation explains connecting worker spans to their parent.
 //! ## Feature Flags
 #![cfg_attr(
     all(doc, feature = "document-features"),
@@ -10,6 +11,27 @@
 )]
 #![cfg_attr(all(doc, feature = "document-features"), feature(doc_cfg))]
 #![deny(missing_docs, unsafe_code)]
+
+#[cfg(feature = "forest")]
+pub mod forest;
+
+/// A [`tracing_subscriber::Layer`] that collects and processes trace data while preserving
+/// contextual coherence.
+///
+/// Completed root spans and events without parents are passed to the configured
+/// [`forest::Processor`]. Processing failures panic unless handled by a fallback from
+/// [`forest::Processor::or`].
+/// Span fields retain their latest recorded values in the order they were first
+/// recorded. Overlapping or nested entries into the same span count elapsed time
+/// once, from the first entry until the last exit.
+///
+/// See [`forest`] for configuration and connecting worker threads to their parent span.
+#[cfg(feature = "forest")]
+#[derive(Clone, Debug)]
+pub struct ForestLayer<P, T> {
+    processor: P,
+    tag: T,
+}
 
 /// The level at which the tracing item should be created.
 ///
