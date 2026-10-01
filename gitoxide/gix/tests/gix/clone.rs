@@ -704,6 +704,53 @@ mod blocking_io {
     }
 
     #[test]
+    #[serial_test::serial]
+    fn fetch_and_checkout_ignores_repository_local_environment_of_the_caller() -> Result {
+        let _environment = gix_testtools::isolate_git_environment()?;
+        let caller = gix_testtools::tempfile::TempDir::new()?;
+        let caller_index = caller.path().join("index");
+        let caller_worktree = caller.path().join("worktree");
+        std::fs::create_dir(&caller_worktree)?;
+        // Git sets `GIT_INDEX_FILE` for hooks like `pre-commit`, and hook runners may set `GIT_WORK_TREE`.
+        // Both describe the repository running the hook, never the one being cloned.
+        let _environment = _environment
+            .set("GIT_INDEX_FILE", caller_index.display().to_string())
+            .set("GIT_WORK_TREE", caller_worktree.display().to_string());
+
+        let tmp = gix_testtools::tempfile::TempDir::new()?;
+        let mut prepare = gix::clone::PrepareFetch::new(
+            remote::repo("base").path(),
+            tmp.path(),
+            gix::create::Kind::WithWorktree,
+            Default::default(),
+            crate::util::restricted_and_git(),
+        )?;
+        let (mut checkout, _out) = prepare.fetch_then_checkout(gix::progress::Discard, &AtomicBool::default())?;
+        let (repo, _) = checkout.main_worktree(gix::progress::Discard, &AtomicBool::default())?;
+
+        assert!(!caller_index.exists(), "the caller's index must not be written");
+        assert_eq!(
+            std::fs::read_dir(&caller_worktree)?.count(),
+            0,
+            "the caller's worktree must not receive the checkout"
+        );
+        assert_eq!(
+            std::fs::canonicalize(repo.workdir().expect("non-bare"))?,
+            std::fs::canonicalize(tmp.path())?,
+            "the clone checks out into its destination"
+        );
+        assert_eq!(
+            repo.index_path(),
+            repo.git_dir().join("index"),
+            "the clone keeps its index in its own git directory"
+        );
+        let index = repo.index()?;
+        assert_eq!(index.entries().len(), 1, "All entries are known as per HEAD tree");
+        assure_index_entries_on_disk(&index, tmp.path());
+        Ok(())
+    }
+
+    #[test]
     fn fetch_and_checkout() -> Result {
         if gix_testtools::run_in_isolated_process()? {
             return Ok(());

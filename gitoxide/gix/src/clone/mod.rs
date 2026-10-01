@@ -113,8 +113,11 @@ impl PrepareFetch {
         path: &std::path::Path,
         kind: crate::create::Kind,
         mut create_opts: crate::create::Options,
-        mut open_opts: crate::open::Options,
+        open_opts: crate::open::Options,
     ) -> Result<Self> {
+        // Variables like `GIT_WORK_TREE` and `GIT_INDEX_FILE` describe the repository the caller runs in,
+        // for instance one whose hook is running, and never the repository this clone creates.
+        let mut open_opts = open_opts.without_repository_environment_overrides();
         if create_opts.destination_must_be_empty.is_none() {
             create_opts.destination_must_be_empty = Some(true);
         }
