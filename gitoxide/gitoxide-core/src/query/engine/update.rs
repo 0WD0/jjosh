@@ -87,7 +87,7 @@ pub fn update(
         let mut known_commits = all_commits.clone();
         known_commits.sort();
 
-        let db_thread = scope.spawn({
+        let db_thread = scope.spawn(gix::trace::in_thread({
             move || -> anyhow::Result<()> {
                 let trans = con.transaction()?;
                 {
@@ -136,7 +136,7 @@ pub fn update(
                 trans.commit()?;
                 Ok(())
             }
-        });
+        }));
 
         let rewrites = {
             // These are either configured, or we set them to the default. There is no turning them off.
@@ -169,7 +169,7 @@ pub fn update(
             let (tx, rx) = crossbeam_channel::unbounded::<Packet>();
             let stat_workers = (0..threads)
                 .map(|_| {
-                    scope.spawn({
+                    scope.spawn(gix::trace::in_thread({
                         let stat_counter = stat_counter.clone();
                         let change_counter = change_counter.clone();
                         let lines_counter = lines_counter.clone();
@@ -336,7 +336,7 @@ pub fn update(
                             }
                             Ok(())
                         }
-                    })
+                    }))
                 })
                 .collect::<Vec<_>>();
             (tx, stat_workers)

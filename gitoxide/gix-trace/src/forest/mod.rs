@@ -38,11 +38,9 @@
 //!
 //! # Connecting worker threads to their parent span
 //!
-//! Threads do not inherit the current span or a scoped default subscriber. A global
-//! subscriber is visible to new threads, but capturing and installing the current
-//! [`tracing::Dispatch`] also works when the caller uses a scoped subscriber, as in tests.
-//! Capture [`tracing::Span::current()`] before spawning, then create a **distinct** worker
-//! span with an explicit `parent` while the captured dispatch is installed:
+//! Threads do not inherit the current span or a scoped default subscriber. Wrap the
+//! thread's closure with [`crate::in_thread()`] before spawning to capture both and
+//! restore them in the worker. Spans created in the worker then inherit the parent:
 //!
 //! ```
 //! use gix_error::{message, ErrorExt};
@@ -60,17 +58,10 @@
 //!
 //! tracing::subscriber::with_default(subscriber, || {
 //!     let root = gix_trace::coarse!("operation");
-//!     let parent = tracing::Span::current();
-//!     let dispatch = tracing::dispatcher::get_default(Clone::clone);
-//!     let worker = thread::spawn(move || {
-//!         // Move the parent handle into the installed dispatch's scope, too.
-//!         tracing::dispatcher::with_default(&dispatch, move || {
-//!             let worker_span = tracing::info_span!(parent: &parent, "worker").entered();
-//!             gix_trace::info!("work completed");
-//!             drop(worker_span);
-//!             drop(parent);
-//!         });
-//!     });
+//!     let worker = thread::spawn(gix_trace::in_thread(|| {
+//!         let _worker = gix_trace::coarse!("worker");
+//!         gix_trace::info!("work completed");
+//!     }));
 //!     worker.join().expect("worker must finish without panicking");
 //!     drop(root);
 //! });
@@ -83,14 +74,14 @@
 //! ```
 //!
 //! [`crate::Span`] is already an entered guard when tracing is enabled and must stay on
-//! its creating thread. Transfer an ordinary [`tracing::Span`] handle as above, and enter
-//! a new child in each worker. [`tracing::Span::follows_from`] records a causal relation;
+//! its creating thread. [`crate::in_thread()`] transfers an ordinary [`tracing::Span`]
+//! handle and enters it on the worker. [`tracing::Span::follows_from`] records a causal relation;
 //! it does not establish the parent relationship used to build these trees.
 //!
 //! A span closes only after all its handles and child references are dropped. Leaving
 //! an entered scope alone may therefore leave a tree buffered, and a worker can keep
 //! its parent open after the spawning thread drops its own handle. Drop worker and
-//! parent handles before leaving the installed dispatch, then join workers before
+//! parent handles before leaving the installed dispatch (as [`crate::in_thread()`] does), then join workers before
 //! inspecting completed output. Child spans are attached in completion order, which
 //! can differ from their creation order across threads.
 //!

@@ -71,7 +71,7 @@ where
             let join_tree_index = if let Some(tree_id) = obtain_tree_id()? {
                 std::thread::Builder::new()
                     .name("gix::status::tree_index::producer".into())
-                    .spawn({
+                    .spawn(crate::trace::in_thread({
                         let repo = self.repo.clone().into_sync();
                         let should_interrupt = should_interrupt.clone();
                         let tx = tx.clone();
@@ -106,7 +106,7 @@ where
                                 },
                             )
                         }
-                    })
+                    }))
                     .or_raise(|| gix_error::message("Failed to spawn producer thread"))?
                     .into()
             } else {
@@ -115,7 +115,7 @@ where
             let mut collect = Collect { tx };
             let join_index_worktree = std::thread::Builder::new()
                 .name("gix::status::index_worktree::producer".into())
-                .spawn({
+                .spawn(crate::trace::in_thread({
                     let repo = self.repo.clone().into_sync();
                     let options = self.index_worktree_options;
                     let should_interrupt = should_interrupt.clone();
@@ -140,7 +140,7 @@ where
                             skip_hash,
                         })
                     }
-                })
+                }))
                 .or_raise(|| gix_error::message("Failed to spawn producer thread"))?;
 
             Ok(Iter {

@@ -134,7 +134,7 @@ where
             let (tx, rx) = std::sync::mpsc::channel::<(u32, Vec<u8>)>();
             let mailmap = repo.open_mailmap();
 
-            let extract_signatures = scope.spawn(move || -> anyhow::Result<Vec<_>> {
+            let extract_signatures = scope.spawn(gix::trace::in_thread(move || -> anyhow::Result<Vec<_>> {
                 let mut out = Vec::new();
                 for (commit_idx, commit_data) in rx {
                     if let Ok((commit_author, authors)) = commit_author_identities(&commit_data, commit_id.kind()) {
@@ -180,7 +180,7 @@ where
                         .then(a.0.cmp(&b.0))
                 });
                 Ok(out)
-            });
+            }));
 
             let (stats_progresses, stats_counters) = if needs_stats {
                 {

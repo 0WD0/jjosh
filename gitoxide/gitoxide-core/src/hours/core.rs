@@ -91,7 +91,7 @@ pub fn spawn_tree_delta_threads<'scope>(
     let (tx, rx) = crossbeam_channel::unbounded::<Vec<(CommitIdx, Option<gix::hash::ObjectId>, gix::hash::ObjectId)>>();
     let stat_workers = (0..threads)
         .map(|_| {
-            scope.spawn({
+            scope.spawn(gix::trace::in_thread({
                 let stats_counters = stat_counters.clone();
                 let mut repo = repo.clone();
                 repo.object_cache_size_if_unset((850 * 1024 * 1024) / threads);
@@ -187,7 +187,7 @@ pub fn spawn_tree_delta_threads<'scope>(
                     }
                     Ok(out)
                 }
-            })
+            }))
         })
         .collect::<Vec<_>>();
     (tx, stat_workers)

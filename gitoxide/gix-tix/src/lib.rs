@@ -639,7 +639,7 @@ impl LineDiffWorkers {
                 jobs.push(job_sender);
                 let result_sender = result_sender.clone();
                 let repository = repository.clone();
-                std::thread::spawn(move || {
+                std::thread::spawn(gix::trace::in_thread(move || {
                     let mut repository = repository.to_thread_local();
                     repository.object_cache_size(OBJECT_CACHE_SIZE);
                     let mut state: Option<LineDiffState> = None;
@@ -679,7 +679,7 @@ impl LineDiffWorkers {
                             }
                         }
                     }
-                })
+                }))
             })
             .collect();
         Ok(LineDiffWorkers { jobs, results, workers })
@@ -3831,9 +3831,9 @@ fn event_loop(
 
 fn start_lane_worker(rows: Vec<SharedCommitRow>) -> mpsc::Receiver<(Vec<SharedCommitRow>, app::Graph, Duration)> {
     let (sender, receiver) = mpsc::channel();
-    std::thread::spawn(move || {
+    std::thread::spawn(gix::trace::in_thread(move || {
         let _ = sender.send(app::compute_lanes(rows));
-    });
+    }));
     receiver
 }
 
@@ -3863,7 +3863,7 @@ fn start_signature_verification(
     ids: Vec<gix::ObjectId>,
 ) -> mpsc::Receiver<Vec<SignatureVerification>> {
     let (sender, receiver) = mpsc::channel();
-    std::thread::spawn(move || {
+    std::thread::spawn(gix::trace::in_thread(move || {
         let results = match open_repository(&repository_path, bare, false) {
             Ok(mut repository) => {
                 repository.object_cache_size(None);
@@ -3888,7 +3888,7 @@ fn start_signature_verification(
             Err(_) => ids.into_iter().map(|id| (id, false)).collect(),
         };
         let _ = sender.send(results);
-    });
+    }));
     receiver
 }
 
@@ -3904,7 +3904,7 @@ fn start_history(
     let (sender, receiver) = mpsc::channel();
     let revisions = revisions.to_vec();
     let hidden_revisions = hidden_revisions.to_vec();
-    std::thread::spawn(move || {
+    std::thread::spawn(gix::trace::in_thread(move || {
         let mut repository = repository.to_thread_local();
         repository.object_cache_size_if_unset(OBJECT_CACHE_SIZE);
         let result = history::load(
@@ -3919,7 +3919,7 @@ fn start_history(
         if let Err(err) = result {
             let _ = sender.send(Err(err));
         }
-    });
+    }));
     (cancelled, receiver)
 }
 
@@ -3939,7 +3939,7 @@ fn start_history_refresh(
     kind: RefreshKind,
 ) -> mpsc::Receiver<(RefreshKind, HistoryGraph, Result<history::Refresh>)> {
     let (sender, receiver) = mpsc::channel();
-    std::thread::spawn(move || {
+    std::thread::spawn(gix::trace::in_thread(move || {
         let result = open_repository(&repository_path, bare, true)
             .context("could not reopen repository for history refresh")
             .and_then(|mut repository| {
@@ -3954,7 +3954,7 @@ fn start_history_refresh(
                 )
             });
         let _ = sender.send((kind, graph, result));
-    });
+    }));
     receiver
 }
 
@@ -5707,13 +5707,13 @@ fn run_with_rebase_selection<T: Send>(
 ) -> Result<T> {
     std::thread::scope(|scope| {
         let (sender, receiver) = mpsc::channel();
-        let worker = scope.spawn(move || {
+        let worker = scope.spawn(gix::trace::in_thread(move || {
             let mut report = |id| {
                 let _ = sender.send(TravelWorkerEvent::Rebased(id));
             };
             let result = operation(&mut report);
             let _ = sender.send(TravelWorkerEvent::Complete(result));
-        });
+        }));
         let mut last_draw: Option<Instant> = None;
         let mut latest = None;
         let mut rendered = None;
@@ -5796,13 +5796,13 @@ fn run_with_todo_progress<T: Send>(
 ) -> Result<T> {
     std::thread::scope(|scope| {
         let (sender, receiver) = mpsc::sync_channel(1);
-        let worker = scope.spawn(move || {
+        let worker = scope.spawn(gix::trace::in_thread(move || {
             let mut report = |progress| {
                 let _ = sender.try_send(RebaseWorkerEvent::Progress(progress));
             };
             let result = operation(&mut report);
             let _ = sender.send(RebaseWorkerEvent::Complete(result));
-        });
+        }));
         let started = Instant::now();
         let mut last_draw = started;
         let mut latest = None;

@@ -218,13 +218,13 @@ impl WriterThread {
         let handle = std::thread::Builder::new()
             .name("gix-filter-stdin-writer".into())
             .stack_size(128 * 1024)
-            .spawn(move || {
+            .spawn(gix_trace::in_thread(move || {
                 use std::io::Write;
                 stdin.write_all(&data)?;
                 // Explicitly drop stdin to close the pipe and signal EOF to the child
                 drop(stdin);
                 Ok(())
-            })?;
+            }))?;
 
         Ok(Self { handle: Some(handle) })
     }

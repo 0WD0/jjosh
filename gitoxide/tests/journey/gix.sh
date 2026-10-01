@@ -84,6 +84,18 @@ title "gix tracing"
       done
     done
   fi
+  
+  it "keeps status worker spans under the command's root span" && {
+    git init -q status-repo
+    printf 'tracked\n' >status-repo/tracked
+    git -C status-repo add tracked
+    git -C status-repo commit -qm initial
+    expect_run $SUCCESSFULLY capture-trace -tt --no-verbose -r status-repo status
+    for span in gix::tree_index_status gix::index_worktree_status gix_status::index_as_worktree walk; do
+      expect_run $SUCCESSFULLY grep -Fq "$span [" trace-err
+    done
+    expect_run $SUCCESSFULLY test "$(grep -Ec '^(INFO|DEBUG) +[[:alnum:]_].* \[' trace-err)" = 1
+  }
 )
 fi
 

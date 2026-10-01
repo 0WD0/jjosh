@@ -71,6 +71,36 @@ mod disabled;
 #[cfg(not(feature = "tracing"))]
 pub use disabled::Span;
 
+/// Capture the current span and subscriber, restoring both while the returned closure runs.
+///
+/// Wrap a thread's closure before spawning it so spans and events in the thread retain
+/// their parent, including when a subscriber was installed only on the calling thread.
+/// With tracing disabled this returns `f` unchanged.
+///
+/// ```
+/// let _span = gix_trace::coarse!("operation");
+/// std::thread::scope(|scope| {
+///     scope.spawn(gix_trace::in_thread(|| {
+///         let _span = gix_trace::coarse!("worker");
+///     }));
+/// });
+/// ```
+pub fn in_thread<T>(f: impl FnOnce() -> T) -> impl FnOnce() -> T {
+    #[cfg(feature = "tracing")]
+    {
+        let dispatch = tracing::dispatcher::get_default(Clone::clone);
+        let parent = tracing::Span::current();
+        move || {
+            tracing::dispatcher::with_default(&dispatch, move || {
+                let _parent = parent.entered();
+                f()
+            })
+        }
+    }
+    #[cfg(not(feature = "tracing"))]
+    f
+}
+
 ///
 pub mod event {
     #[cfg(feature = "tracing")]

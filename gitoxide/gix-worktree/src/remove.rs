@@ -398,7 +398,7 @@ fn remove_leaves(
         let remove_chunk = &remove_chunk;
         let handles: Vec<_> = leaves
             .chunks(leaves.len().div_ceil(num_threads))
-            .map(|chunk| scope.spawn(move || remove_chunk(chunk)))
+            .map(|chunk| scope.spawn(gix_features::trace::in_thread(move || remove_chunk(chunk))))
             .collect();
         handles.into_iter().fold(None, |first_error, handle| {
             let error = handle.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic));

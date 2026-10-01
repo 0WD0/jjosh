@@ -267,7 +267,7 @@ impl Engine {
                     let (path_tx, path_rx) = crossbeam_channel::bounded(threads * 2);
                     let (repo_tx, repo_rx) = std::sync::mpsc::channel::<(PathBuf, anyhow::Result<db::Repo>)>();
                     (0..threads).for_each(|_| {
-                        scope.spawn({
+                        scope.spawn(gix::trace::in_thread({
                             let path_rx = path_rx.clone();
                             let repo_tx = repo_tx.clone();
                             move || -> anyhow::Result<_> {
@@ -280,13 +280,13 @@ impl Engine {
                                 }
                                 Ok(())
                             }
-                        });
+                        }));
                     });
                     (path_tx, repo_rx)
                 };
 
                 let find_progress = progress.add_child("find");
-                let write_db = scope.spawn(move || -> anyhow::Result<Vec<db::Repo>> {
+                let write_db = scope.spawn(gix::trace::in_thread(move || -> anyhow::Result<Vec<db::Repo>> {
                     progress.set_name("write to DB".into());
                     progress.init(None, gix::progress::count("repos"));
 
@@ -310,7 +310,7 @@ impl Engine {
                     transaction.commit()?;
                     progress.show_throughput(start);
                     Ok(out)
-                });
+                }));
 
                 let repos = gix::interrupt::Iter::new(
                     find_git_repository_workdirs(corpus_path, find_progress, false, Some(threads)),

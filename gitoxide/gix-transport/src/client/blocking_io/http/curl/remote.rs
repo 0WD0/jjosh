@@ -410,7 +410,7 @@ pub fn new() -> Worker {
     let redirected_base_url_shared_out = redirected_base_url_shared.clone();
     let (req_send, req_recv) = sync_channel(0);
     let (res_send, res_recv) = sync_channel(0);
-    let handle = std::thread::spawn(move || -> Result {
+    let handle = std::thread::spawn(gix_features::trace::in_thread(move || -> Result {
         let mut handle = Easy2::new(Handler::default());
         // We don't wait for the possibility for pipelining to become clear, and curl tries to reuse connections by default anyway.
         curl!(handle.pipewait(false));
@@ -650,7 +650,7 @@ pub fn new() -> Worker {
             }
         }
         Ok(())
-    });
+    }));
     (handle, req_send, res_recv, redirected_base_url_shared_out)
 }
 

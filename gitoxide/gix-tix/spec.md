@@ -1269,6 +1269,8 @@ space first; changes blocks adapt within the remaining history width.
   without animating or retaining intermediate history layouts.
 - While the terminal is unfocused, filesystem-attributed redraws replace footer
   separators with persistent orange discs. Focus restores normal separators.
+- Spawned workers inherit the active tracing subscriber and parent span so their
+  diagnostics remain connected to the operation that started them.
 - Filesystem responses receive correlated IDs in daily tracing logs, including
   semantic trigger, coalesced paths, phases, presentation count, elapsed time,
   and outcome. Logs use the platform application-log directory, retain seven

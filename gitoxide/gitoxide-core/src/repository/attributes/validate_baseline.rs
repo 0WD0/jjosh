@@ -73,7 +73,7 @@ pub(crate) mod function {
         let (tx_base, rx_base) = std::sync::mpsc::channel::<(String, Baseline)>();
         let feed_attrs = {
             let (tx, rx) = std::sync::mpsc::sync_channel::<BString>(100);
-            std::thread::spawn({
+            std::thread::spawn(gix::trace::in_thread({
                 let path = repo.path().to_owned();
                 let tx_base = tx_base.clone();
                 let mut progress = progress.add_child("attributes");
@@ -87,7 +87,7 @@ pub(crate) mod function {
                             .current_dir(path)
                             .spawn()?;
 
-                    std::thread::spawn({
+                    std::thread::spawn(gix::trace::in_thread({
                         let mut stdin = child.stdin.take().expect("we configured it");
                         move || -> anyhow::Result<()> {
                             progress.init(num_entries, gix::progress::count("paths"));
@@ -100,7 +100,7 @@ pub(crate) mod function {
                             progress.show_throughput(start);
                             Ok(())
                         }
-                    });
+                    }));
 
                     let stdout = std::io::BufReader::new(child.stdout.take().expect("we configured it"));
                     let mut lines = stdout.lines().map_while(Result::ok).peekable();
@@ -113,7 +113,7 @@ pub(crate) mod function {
 
                     Ok(())
                 }
-            });
+            }));
             tx
         };
         let work_dir = ignore
@@ -126,7 +126,7 @@ pub(crate) mod function {
             .transpose()?;
         let feed_excludes = ignore.then(|| {
             let (tx, rx) = std::sync::mpsc::sync_channel::<BString>(100);
-            std::thread::spawn({
+            std::thread::spawn(gix::trace::in_thread({
                 let path = work_dir.expect("present if we are here");
                 let tx_base = tx_base.clone();
                 let mut progress = progress.add_child("excludes");
@@ -140,7 +140,7 @@ pub(crate) mod function {
                             .current_dir(path)
                             .spawn()?;
 
-                    std::thread::spawn({
+                    std::thread::spawn(gix::trace::in_thread({
                         let mut stdin = child.stdin.take().expect("we configured it");
                         move || -> anyhow::Result<()> {
                             progress.init(num_entries, gix::progress::count("paths"));
@@ -153,7 +153,7 @@ pub(crate) mod function {
                             progress.show_throughput(start);
                             Ok(())
                         }
-                    });
+                    }));
 
                     let stdout = std::io::BufReader::new(child.stdout.take().expect("we configured it"));
                     for line in stdout.lines() {
@@ -170,12 +170,12 @@ pub(crate) mod function {
 
                     Ok(())
                 }
-            });
+            }));
             tx
         });
         drop(tx_base);
 
-        std::thread::spawn(move || {
+        std::thread::spawn(gix::trace::in_thread(move || {
             for path in paths {
                 if feed_attrs.send(path.clone()).is_err() {
                     break;
@@ -184,7 +184,7 @@ pub(crate) mod function {
                     break;
                 }
             }
-        });
+        }));
 
         let (mut cache, _index) = attributes_cache(&repo)?;
         let mut matches = cache.attribute_matches();

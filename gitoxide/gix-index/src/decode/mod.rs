@@ -85,9 +85,12 @@ impl State {
                             || {
                                 gix_features::parallel::build_thread()
                                     .name("gix-index.from_bytes.load-extensions".into())
-                                    .spawn_scoped(scope, || {
-                                        extension::decode::all(extensions_data, object_hash, alloc_limit_bytes)
-                                    })
+                                    .spawn_scoped(
+                                        scope,
+                                        gix_features::trace::in_thread(|| {
+                                            extension::decode::all(extensions_data, object_hash, alloc_limit_bytes)
+                                        }),
+                                    )
                                     .expect("valid name")
                             }
                         });
@@ -102,46 +105,49 @@ impl State {
                                 threads.push(
                                     gix_features::parallel::build_thread()
                                         .name(format!("gix-index.from_bytes.read-entries.{id}"))
-                                        .spawn_scoped(scope, move || {
-                                            let num_entries_for_chunks =
-                                                chunks.iter().map(|c| c.num_entries).sum::<u32>() as usize;
-                                            let mut entries = vec_with_capacity(num_entries_for_chunks)?;
-                                            let path_backing_buffer_size_for_chunks =
-                                                entries::estimate_path_storage_requirements_in_bytes(
-                                                    num_entries_for_chunks as u32,
-                                                    data.len() / num_chunks,
-                                                    start_of_extensions.map(|ofs| ofs / num_chunks),
-                                                    object_hash,
-                                                    version,
-                                                );
-                                            let mut path_backing =
-                                                vec_with_capacity(path_backing_buffer_size_for_chunks)?;
-                                            let mut is_sparse = false;
-                                            for offset in chunks {
-                                                let (
-                                                    entries::Outcome {
-                                                        is_sparse: chunk_is_sparse,
+                                        .spawn_scoped(
+                                            scope,
+                                            gix_features::trace::in_thread(move || {
+                                                let num_entries_for_chunks =
+                                                    chunks.iter().map(|c| c.num_entries).sum::<u32>() as usize;
+                                                let mut entries = vec_with_capacity(num_entries_for_chunks)?;
+                                                let path_backing_buffer_size_for_chunks =
+                                                    entries::estimate_path_storage_requirements_in_bytes(
+                                                        num_entries_for_chunks as u32,
+                                                        data.len() / num_chunks,
+                                                        start_of_extensions.map(|ofs| ofs / num_chunks),
+                                                        object_hash,
+                                                        version,
+                                                    );
+                                                let mut path_backing =
+                                                    vec_with_capacity(path_backing_buffer_size_for_chunks)?;
+                                                let mut is_sparse = false;
+                                                for offset in chunks {
+                                                    let (
+                                                        entries::Outcome {
+                                                            is_sparse: chunk_is_sparse,
+                                                        },
+                                                        _data,
+                                                    ) = entries::chunk(
+                                                        &data[offset.from_beginning_of_file as usize..],
+                                                        &mut entries,
+                                                        &mut path_backing,
+                                                        offset.num_entries,
+                                                        object_hash,
+                                                        version,
+                                                    )?;
+                                                    is_sparse |= chunk_is_sparse;
+                                                }
+                                                Ok::<_, gix_error::Error>((
+                                                    id,
+                                                    EntriesOutcome {
+                                                        entries,
+                                                        path_backing,
+                                                        is_sparse,
                                                     },
-                                                    _data,
-                                                ) = entries::chunk(
-                                                    &data[offset.from_beginning_of_file as usize..],
-                                                    &mut entries,
-                                                    &mut path_backing,
-                                                    offset.num_entries,
-                                                    object_hash,
-                                                    version,
-                                                )?;
-                                                is_sparse |= chunk_is_sparse;
-                                            }
-                                            Ok::<_, gix_error::Error>((
-                                                id,
-                                                EntriesOutcome {
-                                                    entries,
-                                                    path_backing,
-                                                    is_sparse,
-                                                },
-                                            ))
-                                        })
+                                                ))
+                                            }),
+                                        )
                                         .expect("valid name"),
                                 );
                             }

@@ -28,6 +28,60 @@ fn collecting_processor() -> (impl Processor, mpsc::Receiver<Tree>) {
 }
 
 #[test]
+fn in_thread_keeps_nested_workers_in_the_captured_tree() -> Result<(), Box<dyn Error>> {
+    let (dispatch, receiver) = collector();
+    let work = tracing::dispatcher::with_default(&dispatch, || {
+        let _root = gix_trace::coarse!("root");
+        gix_trace::in_thread(|| {
+            let _worker = gix_trace::coarse!("worker");
+            thread::scope(|scope| {
+                scope.spawn(gix_trace::in_thread(|| {
+                    let _nested = gix_trace::coarse!("nested");
+                    gix_trace::info!("finished");
+                }));
+            });
+        })
+    });
+    assert!(
+        matches!(receiver.try_recv(), Err(mpsc::TryRecvError::Empty)),
+        "the captured parent keeps the tree open after its original guard has dropped"
+    );
+    thread::spawn(move || {
+        let (other_dispatch, other_receiver) = collector();
+        tracing::dispatcher::with_default(&other_dispatch, || {
+            let _other = gix_trace::coarse!("other");
+            work();
+            gix_trace::info!("restored");
+        });
+        let tree = other_receiver.try_recv().expect("the other root has closed");
+        let other = tree.span().expect("the other subscriber receives its own root");
+        assert_eq!(other.nodes().len(), 1, "worker spans stay with the captured subscriber");
+        assert_eq!(
+            other.nodes()[0].event().expect("the only child is an event").message(),
+            Some("restored"),
+            "the worker's prior subscriber and current span are restored"
+        );
+    })
+    .join()
+    .expect("workers finish without panicking");
+    let tree = receiver.try_recv()?;
+    let root = tree.span()?;
+    assert_eq!(root.name(), "root", "workers retain the captured parent");
+    assert_eq!(root.nodes().len(), 1, "the worker is the root's only child");
+    let worker = root.nodes()[0].span()?;
+    assert_eq!(worker.name(), "worker", "unscoped workers inherit the captured span");
+    assert_eq!(worker.nodes().len(), 1, "nested workers stay in their immediate parent");
+    let nested = worker.nodes()[0].span()?;
+    assert_eq!(nested.name(), "nested", "scoped workers inherit the worker span");
+    assert_eq!(nested.nodes()[0].event()?.message(), Some("finished"));
+    assert!(
+        receiver.try_recv().is_err(),
+        "all worker output belongs to one completed tree"
+    );
+    Ok(())
+}
+
+#[test]
 fn recorded_fields_replace_values_and_fill_empty_fields() -> Result<(), Box<dyn Error>> {
     let (dispatch, receiver) = collector();
     tracing::dispatcher::with_default(&dispatch, || {
