@@ -172,7 +172,10 @@ pub mod tools {
     mod validator {
         use std::{ffi::OsStr, path::PathBuf};
 
-        use anyhow::Context;
+        use gix::{
+            Result,
+            error::{ErrorExt, ResultExt, message},
+        };
 
         #[derive(Clone)]
         pub struct IsRepo;
@@ -185,7 +188,7 @@ pub mod tools {
                 cmd: &clap::Command,
                 _arg: Option<&clap::Arg>,
                 value: &OsStr,
-            ) -> Result<Self::Value, clap::Error> {
+            ) -> std::result::Result<Self::Value, clap::Error> {
                 assure_is_repo(value).map_err(|e| {
                     let mut err = clap::Error::new(clap::error::ErrorKind::InvalidValue).with_cmd(cmd);
                     err.insert(
@@ -198,20 +201,17 @@ pub mod tools {
             }
         }
 
-        fn assure_is_repo(dir: &OsStr) -> anyhow::Result<()> {
+        fn assure_is_repo(dir: &OsStr) -> Result<()> {
             let git_dir = PathBuf::from(dir).join(".git");
             let p = gix::path::realpath(&git_dir)
-                .with_context(|| format!("Could not canonicalize git repository at '{}'", git_dir.display()))?;
+                .or_raise(|| message!("Could not canonicalize git repository at \"{}\"", git_dir.display()))?;
             if p.extension().unwrap_or_default() == "git"
                 || p.file_name().unwrap_or_default() == ".git"
                 || p.join("HEAD").is_file()
             {
                 Ok(())
             } else {
-                Err(anyhow::anyhow!(
-                    "Path '{}' needs to be a directory containing '.git/'",
-                    p.display()
-                ))
+                Err(message!("Path \"{}\" needs to be a directory containing \".git/\"", p.display()).raise())
             }
         }
     }

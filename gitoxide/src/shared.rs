@@ -44,7 +44,7 @@ fn progress_tree() -> LogCreator {
 pub mod pretty {
     use std::io::{self, stderr, stdout};
 
-    use anyhow::Result;
+    use gix::{Result, error::ResultExt};
     use gix_features::progress;
 
     use crate::shared::ProgressRange;
@@ -79,7 +79,7 @@ pub mod pretty {
         let res = gix::trace::coarse!("run")
             .into_scope(|| run(progress::DoOrDiscard::from(Some(sub_progress)), &mut out, &mut err));
         handle.shutdown_and_wait();
-        write_output(&out, &err, &mut stdout(), &mut stderr())?;
+        write_output(&out, &err, &mut stdout(), &mut stderr()).or_error()?;
         res
     }
 
@@ -135,18 +135,23 @@ pub mod pretty {
     }
 
     #[cfg(feature = "tracing")]
-    pub(crate) fn init_tracing(trace: u8) -> anyhow::Result<TraceGuard> {
+    pub(crate) fn init_tracing(trace: u8) -> Result<TraceGuard> {
         if trace == 0 {
             return Ok(TraceGuard(None));
         }
         let output = TraceOutput::default();
-        tracing::dispatcher::set_global_default(gitoxide_core::trace::subscriber(trace, output.clone(), None)?)?;
+        tracing::dispatcher::set_global_default(gitoxide_core::trace::subscriber(trace, output.clone(), None)?)
+            .or_error()?;
         Ok(TraceGuard(Some(output)))
     }
 
     #[cfg(not(feature = "tracing"))]
-    pub(crate) fn init_tracing(trace: u8) -> anyhow::Result<TraceGuard> {
-        anyhow::ensure!(trace == 0, "tracing support is not compiled in");
+    pub(crate) fn init_tracing(trace: u8) -> Result<TraceGuard> {
+        use gix::error::bail;
+
+        if trace != 0 {
+            bail!(gix::error::unsupported("tracing support is not compiled in"));
+        }
         Ok(TraceGuard(None))
     }
 
@@ -155,11 +160,12 @@ pub mod pretty {
         use std::io::Write;
 
         use anstream::{AutoStream, ColorChoice};
+        use gix::error::TestResult;
 
         use super::TraceOutput;
 
         #[test]
-        fn terminal_adaptation_preserves_or_strips_forest_colors() -> anyhow::Result<()> {
+        fn terminal_adaptation_preserves_or_strips_forest_colors() -> TestResult {
             let output = TraceOutput::default();
             let dispatch = gitoxide_core::trace::subscriber(1, output.clone(), None)?;
             tracing::dispatcher::with_default(&dispatch, || tracing::info!("visible event"));

@@ -67,12 +67,13 @@ fn tree_json(tree: &Tree) -> serde_json::Value {
 
 #[cfg(test)]
 mod tests {
+    use gix::error::TestResult;
     use std::path::Path;
 
     use crate::{corpus::db, trace::Output};
 
     #[test]
-    fn requested_trace_mode_controls_deferred_format_and_level() -> anyhow::Result<()> {
+    fn requested_trace_mode_controls_deferred_format_and_level() -> TestResult<()> {
         let fixture = tempfile::tempdir()?;
 
         let forest_info = messages(fixture.path(), 1)?;
@@ -119,7 +120,7 @@ mod tests {
     }
 
     #[test]
-    fn display_modes_do_not_filter_the_stored_trace() -> anyhow::Result<()> {
+    fn display_modes_do_not_filter_the_stored_trace() -> TestResult<()> {
         let fixture = tempfile::tempdir()?;
         for trace in 0..=4 {
             let db_path = fixture.path().join(format!("stored-{trace}.db"));
@@ -170,7 +171,7 @@ mod tests {
     }
 
     #[test]
-    fn delayed_run_spans_keep_their_ids_and_unrelated_roots_only_display() -> anyhow::Result<()> {
+    fn delayed_run_spans_keep_their_ids_and_unrelated_roots_only_display() -> TestResult<()> {
         let fixture = tempfile::tempdir()?;
         let db_path = fixture.path().join("run-ids.db");
         let connection = db::create(&db_path)?;
@@ -223,7 +224,7 @@ mod tests {
     }
 
     #[test]
-    fn concurrent_run_roots_share_a_dispatch_without_mixing_storage_or_output() -> anyhow::Result<()> {
+    fn concurrent_run_roots_share_a_dispatch_without_mixing_storage_or_output() -> TestResult<()> {
         let fixture = tempfile::tempdir()?;
         for trace in [0, 1, 3, 4] {
             let db_path = fixture.path().join(format!("concurrent-{trace}.db"));
@@ -287,7 +288,7 @@ mod tests {
         Ok(())
     }
 
-    fn messages(root: &Path, trace: u8) -> anyhow::Result<Vec<String>> {
+    fn messages(root: &Path, trace: u8) -> TestResult<Vec<String>> {
         let db_path = root.join(format!("trace-{trace}.db"));
         drop(db::create(&db_path)?);
         let output = Output::default();
@@ -311,7 +312,7 @@ mod tests {
 #[cfg(test)]
 mod serialization_tests {
     use super::*;
-    use gix::error::{ErrorExt, message};
+    use gix::error::{ErrorExt, TestResult, message};
     use gix_trace::{
         ForestLayer,
         forest::{Tag, processor},
@@ -319,7 +320,7 @@ mod serialization_tests {
     use tracing_subscriber::layer::SubscriberExt;
 
     #[test]
-    fn serialization_preserves_the_corpus_json_shape() -> anyhow::Result<()> {
+    fn serialization_preserves_the_corpus_json_shape() -> TestResult<()> {
         let (sender, receiver) = std::sync::mpsc::channel();
         let processor = processor::from_fn(move |tree| {
             sender

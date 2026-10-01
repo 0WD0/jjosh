@@ -68,7 +68,7 @@ lean = ["hashes", "fast", "tracing", "pretty-cli", "tix", "http-client-curl-open
 ## This build is essentially limited to local operations without any fanciness. It does not have `gix clone`.
 ##
 ## Optimized for size, no parallelism thus much slower, progress line rendering.
-small = ["hashes", "pretty-cli", "prodash-render-line", "is-terminal"]
+small = ["hashes", "pretty-cli", "prodash-render-line"]
 
 ## Like lean, but uses Rusts async implementations for networking.
 ##
@@ -90,7 +90,7 @@ lean-async = ["hashes", "fast", "tracing", "pretty-cli", "tix", "gitoxide-core-t
 #! ### Building Blocks
 #! Typical combinations of features of our dependencies, some of which are referred to in the `gitoxide` crate's code for conditional compilation.
 
-## Flatten error trees into chains with source locations for `anyhow` reports.
+## Flatten error trees into chains with source locations in error reports.
 auto-chain-error = ["gix/auto-chain-error"]
 
 ## Provide support for all known hashes. If this isn't enabled, select an individual hash algorithms.
@@ -122,7 +122,7 @@ pretty-cli = ["gitoxide-core/serde", "prodash/progress-tree", "prodash/progress-
 
 ## The `--verbose` flag will be powered by an interactive progress mechanism that doubles as log as well as interactive progress
 ## that appears after a short duration.
-prodash-render-line-crossterm = ["prodash-render-line", "prodash/render-line-crossterm", "prodash/signal-hook", "is-terminal", "crosstermion"]
+prodash-render-line-crossterm = ["prodash-render-line", "prodash/render-line-crossterm", "prodash/signal-hook", "crosstermion"]
 
 ## Progress reporting by visually drawing lines into the terminal without switching to an alternate window.
 prodash-render-line = ["prodash/render-line", "prodash-render-line-crossterm", "gix/progress-tree"]
@@ -170,8 +170,6 @@ http-client-reqwest = ["gix/blocking-http-transport-reqwest-rust-tls"]
 gitoxide-core-async-client = ["gitoxide-core/async-client", "futures-lite"]
 
 [dependencies]
-anyhow = "1.0.98"
-
 gitoxide-core = { version = "^0.62.0", path = "gitoxide-core" }
 gix-features = { version = "^0.50.0", path = "gix-features" }
 gix = { version = "^0.88.0", path = "gix", default-features = false }
@@ -179,8 +177,7 @@ gix-tix = { version = "^0.4.0", path = "gix-tix", default-features = false, opti
 
 clap = { version = "4.5.42", features = ["derive", "cargo"] }
 clap_complete = "4.5.55"
-prodash = { version = "31.0.0", optional = true }
-is-terminal = { version = "0.4.0", optional = true }
+prodash = { version = "31.0.1", optional = true }
 env_logger = { version = "0.11.8", default-features = false }
 crosstermion = { version = "0.16.0", optional = true, default-features = false }
 futures-lite = { version = "2.1.0", optional = true }

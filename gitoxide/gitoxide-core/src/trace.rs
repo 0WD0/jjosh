@@ -5,10 +5,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use gix::{
-    Result,
-    error::{bail, message},
-};
+use gix::{Result, error::bail};
 use gix_trace::forest::{Printer, Processor, Tree, printer::Pretty, processor};
 use tracing_subscriber::{Layer, filter::LevelFilter, layer::SubscriberExt};
 
@@ -69,7 +66,7 @@ fn trace_settings(trace: u8) -> Result<(LevelFilter, LevelFilter)> {
         2 => (LevelFilter::DEBUG, LevelFilter::OFF),
         3 => (LevelFilter::OFF, LevelFilter::DEBUG),
         4 => (LevelFilter::OFF, LevelFilter::TRACE),
-        _ => bail!(message("trace level must be between zero and four")),
+        _ => bail!(gix::error::validation("trace level must be between zero and four")),
     })
 }
 
@@ -91,11 +88,13 @@ impl Write for Writer {
 
 #[cfg(test)]
 mod tests {
+    use gix::error::TestResult;
+
     use super::{Output, subscriber, trace_settings};
     use tracing_subscriber::filter::LevelFilter;
 
     #[test]
-    fn trace_repetitions_choose_format_and_level() -> anyhow::Result<()> {
+    fn trace_repetitions_choose_format_and_level() -> TestResult<()> {
         for (trace, expected) in [
             (0, (LevelFilter::OFF, LevelFilter::OFF)),
             (1, (LevelFilter::INFO, LevelFilter::OFF)),
@@ -109,17 +108,17 @@ mod tests {
                 "each repetition selects its display mode"
             );
         }
+        let error = trace_settings(5).expect_err("only four trace display levels exist");
         assert_eq!(
-            trace_settings(5)
-                .expect_err("only four trace display levels exist")
-                .to_string(),
-            "trace level must be between zero and four"
+            error.error().to_string(),
+            "trace level must be between zero and four",
+            "invalid levels report the supported range independently of source locations"
         );
         Ok(())
     }
 
     #[test]
-    fn disabled_display_without_a_processor_is_a_noop() -> anyhow::Result<()> {
+    fn disabled_display_without_a_processor_is_a_noop() -> TestResult<()> {
         let output = Output::default();
         let dispatch = subscriber(0, output.clone(), None)?;
         tracing::dispatcher::with_default(&dispatch, || {
@@ -134,7 +133,7 @@ mod tests {
     }
 
     #[test]
-    fn flat_traces_include_closed_spans_in_the_deferred_output() -> anyhow::Result<()> {
+    fn flat_traces_include_closed_spans_in_the_deferred_output() -> TestResult<()> {
         let output = Output::default();
         let dispatch = subscriber(3, output.clone(), None)?;
         tracing::dispatcher::with_default(&dispatch, || {

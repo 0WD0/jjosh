@@ -54,7 +54,7 @@ pub struct DirectoryError {
 
 impl fmt::Display for DirectoryError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Could not remove '{}': {}", self.path.display(), self.source)
+        write!(f, "Could not remove \"{}\": {}", self.path.display(), self.source)
     }
 }
 
@@ -89,7 +89,7 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::RelativePath { path } => write!(f, "Removal root '{}' must be an absolute path", path.display()),
+            Self::RelativePath { path } => write!(f, "Removal root \"{}\" must be an absolute path", path.display()),
             Self::Worktree(_) => f.write_str("Could not fully remove the linked-worktree checkout"),
             Self::GitDir(_) => f.write_str("Could not fully remove the linked-worktree administration"),
             Self::Both { worktree, git_dir } => write!(

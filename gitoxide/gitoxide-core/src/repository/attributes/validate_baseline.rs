@@ -17,11 +17,11 @@ pub(crate) mod function {
         sync::atomic::Ordering,
     };
 
-    use anyhow::{anyhow, bail};
     use gix::{
-        Count, Progress,
+        Count, Progress, Result,
         attrs::{Assignment, NameRef},
         bstr::{BString, ByteSlice},
+        error::{OptionExt, ResultExt, bail, message},
     };
 
     use crate::{
@@ -40,15 +40,15 @@ pub(crate) mod function {
             statistics,
             mut ignore,
         }: Options,
-    ) -> anyhow::Result<()> {
+    ) -> Result<()> {
         if format != OutputFormat::Human {
-            bail!("JSON output isn't implemented yet");
+            bail!(gix::error::unsupported("JSON output isn't implemented yet"));
         }
 
         if repo.is_bare() {
             writeln!(
                 err,
-                "Repo at '{repo}' is bare - disabling git-ignore baseline as `git check-ignore` needs a worktree",
+                "Repo at \"{repo}\" is bare - disabling git-ignore baseline as `git check-ignore` needs a worktree",
                 repo = repo.path().display()
             )
             .ok();
@@ -59,7 +59,7 @@ pub(crate) mod function {
             {
                 let repo = repo.clone();
                 let num_entries = &mut num_entries;
-                move || -> anyhow::Result<_> {
+                move || -> Result<_> {
                     let index = repo.index_or_load_from_head()?.into_owned();
                     let (entries, path_backing) = index.into_parts().0.into_entries();
                     *num_entries = Some(entries.len());
@@ -67,7 +67,7 @@ pub(crate) mod function {
                     Ok(iter as Box<dyn Iterator<Item = BString> + Send + 'static>)
                 }
             },
-            |paths| anyhow::Result::Ok(Box::new(paths)),
+            |paths| Result::Ok(Box::new(paths)),
         )?;
 
         let (tx_base, rx_base) = std::sync::mpsc::channel::<(String, Baseline)>();
@@ -77,7 +77,7 @@ pub(crate) mod function {
                 let path = repo.path().to_owned();
                 let tx_base = tx_base.clone();
                 let mut progress = progress.add_child("attributes");
-                move || -> anyhow::Result<()> {
+                move || -> Result<()> {
                     let mut child =
                         std::process::Command::from(gix::command::prepare(gix::path::env::exe_invocation()))
                             .args(["check-attr", "--stdin", "-a"])
@@ -85,17 +85,18 @@ pub(crate) mod function {
                             .stdout(std::process::Stdio::piped())
                             .stderr(std::process::Stdio::null())
                             .current_dir(path)
-                            .spawn()?;
+                            .spawn()
+                            .or_error()?;
 
                     std::thread::spawn(gix::trace::in_thread({
                         let mut stdin = child.stdin.take().expect("we configured it");
-                        move || -> anyhow::Result<()> {
+                        move || -> Result<()> {
                             progress.init(num_entries, gix::progress::count("paths"));
                             let start = std::time::Instant::now();
                             for path in rx {
                                 progress.inc();
-                                stdin.write_all(&path)?;
-                                stdin.write_all(b"\n")?;
+                                stdin.write_all(&path).or_error()?;
+                                stdin.write_all(b"\n").or_error()?;
                             }
                             progress.show_throughput(start);
                             Ok(())
@@ -103,7 +104,7 @@ pub(crate) mod function {
                     }));
 
                     let stdout = std::io::BufReader::new(child.stdout.take().expect("we configured it"));
-                    let mut lines = stdout.lines().map_while(Result::ok).peekable();
+                    let mut lines = stdout.lines().map_while(std::result::Result::ok).peekable();
                     while let Some(baseline) = parse_attributes(&mut lines) {
                         if tx_base.send(baseline).is_err() {
                             child.kill().ok();
@@ -118,10 +119,9 @@ pub(crate) mod function {
         };
         let work_dir = ignore
             .then(|| {
-                #[expect(clippy::unnecessary_debug_formatting)]
-                repo.workdir()
-                    .map(ToOwned::to_owned)
-                    .ok_or_else(|| anyhow!("repository at {:?} must have a worktree checkout", repo.path()))
+                repo.workdir().map(ToOwned::to_owned).ok_or_raise(|| {
+                    message!("repository at {:?} must have a worktree checkout", repo.path()).unsupported()
+                })
             })
             .transpose()?;
         let feed_excludes = ignore.then(|| {
@@ -130,7 +130,7 @@ pub(crate) mod function {
                 let path = work_dir.expect("present if we are here");
                 let tx_base = tx_base.clone();
                 let mut progress = progress.add_child("excludes");
-                move || -> anyhow::Result<()> {
+                move || -> Result<()> {
                     let mut child =
                         std::process::Command::from(gix::command::prepare(gix::path::env::exe_invocation()))
                             .args(["check-ignore", "--stdin", "-nv", "--no-index"])
@@ -138,17 +138,18 @@ pub(crate) mod function {
                             .stdout(std::process::Stdio::piped())
                             .stderr(std::process::Stdio::null())
                             .current_dir(path)
-                            .spawn()?;
+                            .spawn()
+                            .or_error()?;
 
                     std::thread::spawn(gix::trace::in_thread({
                         let mut stdin = child.stdin.take().expect("we configured it");
-                        move || -> anyhow::Result<()> {
+                        move || -> Result<()> {
                             progress.init(num_entries, gix::progress::count("paths"));
                             let start = std::time::Instant::now();
                             for path in rx {
                                 progress.inc();
-                                stdin.write_all(path.as_ref())?;
-                                stdin.write_all(b"\n")?;
+                                stdin.write_all(path.as_ref()).or_error()?;
+                                stdin.write_all(b"\n").or_error()?;
                             }
                             progress.show_throughput(start);
                             Ok(())
@@ -157,7 +158,7 @@ pub(crate) mod function {
 
                     let stdout = std::io::BufReader::new(child.stdout.take().expect("we configured it"));
                     for line in stdout.lines() {
-                        let line = line?;
+                        let line = line.or_error()?;
                         if let Some(baseline) = parse_exclude(&line) {
                             if tx_base.send(baseline).is_err() {
                                 child.kill().ok();
@@ -239,7 +240,7 @@ pub(crate) mod function {
         }
 
         if let Some(stats) = statistics.then(|| cache.take_statistics()) {
-            out.flush()?;
+            out.flush().or_error()?;
             writeln!(err, "{stats:#?}").ok();
         }
         progress.show_throughput(start);

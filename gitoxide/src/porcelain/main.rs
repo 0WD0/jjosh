@@ -3,9 +3,12 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
-use anyhow::{Result, anyhow};
 use clap::{CommandFactory, Parser};
 use gitoxide_core as core;
+use gix::{
+    Result,
+    error::{OptionExt, ResultExt, message},
+};
 
 use crate::{
     porcelain::options::{Args, Subcommands},
@@ -62,7 +65,7 @@ pub fn main() -> Result<()> {
                             },
                         )?;
                         match cmd {
-                            None => writeln!(err, "Choose a command for the query engine")?,
+                            None => writeln!(err, "Choose a command for the query engine").or_error()?,
                             Some(crate::porcelain::options::tools::query::Command::TracePath { path }) => {
                                 engine.run(
                                     query::Command::TracePath {
@@ -159,11 +162,11 @@ pub fn main() -> Result<()> {
 
             let shell = shell
                 .or_else(clap_complete::Shell::from_env)
-                .ok_or_else(|| anyhow!("The shell could not be derived from the environment"))?;
+                .ok_or_raise(|| message("The shell could not be derived from the environment"))?;
 
             let bin_name = app.get_name().to_owned();
             if let Some(out_dir) = out_dir {
-                clap_complete::generate_to(shell, &mut app, bin_name, &out_dir)?;
+                clap_complete::generate_to(shell, &mut app, bin_name, &out_dir).or_error()?;
             } else {
                 clap_complete::generate(shell, &mut app, bin_name, &mut std::io::stdout());
             }

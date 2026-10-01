@@ -1,6 +1,6 @@
 use filetime::FileTime;
 
-use gix_error::Result;
+use gix_error::{Error, Result};
 
 use crate::{Entry, State, Version, entry, extension};
 
@@ -8,7 +8,7 @@ mod entries;
 ///
 pub mod header;
 
-use gix_error::{ErrorExt, ResourceExhaustionKind, ResultExt, bail, corruption, message, resource_exhaustion};
+use gix_error::{ResourceExhaustionKind, ResultExt, bail, corruption, message};
 use gix_features::parallel::InOrderIter;
 
 use crate::util::read_u32;
@@ -138,7 +138,7 @@ impl State {
                                                     )?;
                                                     is_sparse |= chunk_is_sparse;
                                                 }
-                                                Ok::<_, gix_error::Error>((
+                                                Ok::<_, Error>((
                                                     id,
                                                     EntriesOutcome {
                                                         entries,
@@ -344,6 +344,6 @@ fn ensure_in_alloc_limit(size: usize, alloc_limit_bytes: Option<usize>) -> Resul
     Ok(())
 }
 
-fn allocation_error(kind: ResourceExhaustionKind) -> gix_error::Error {
-    resource_exhaustion(kind, "Index data would require more memory than can be reserved").raise()
+fn allocation_error(kind: ResourceExhaustionKind) -> Error {
+    message("Index data would require more memory than can be reserved").resource_exhaustion_error(kind)
 }

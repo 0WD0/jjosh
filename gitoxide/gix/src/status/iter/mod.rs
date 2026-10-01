@@ -1,6 +1,6 @@
 use std::sync::atomic::Ordering;
 
-use gix_error::ResultExt;
+use crate::error::{ResultExt, message};
 use gix_status::index_as_worktree::{Change, EntryStatus};
 
 use crate::{
@@ -50,7 +50,7 @@ where
                 Some(None) => Some(
                     self.repo
                         .head_tree_id_or_empty()
-                        .or_raise(|| gix_error::message("Could not obtain the tree id pointed to by `HEAD`"))?
+                        .or_raise(|| message("Could not obtain the tree id pointed to by `HEAD`"))?
                         .into(),
                 ),
                 Some(Some(tree_id)) => Some(tree_id),
@@ -107,7 +107,7 @@ where
                             )
                         }
                     }))
-                    .or_raise(|| gix_error::message("Failed to spawn producer thread"))?
+                    .or_raise(|| message("Failed to spawn producer thread"))?
                     .into()
             } else {
                 None
@@ -141,7 +141,7 @@ where
                         })
                     }
                 }))
-                .or_raise(|| gix_error::message("Failed to spawn producer thread"))?;
+                .or_raise(|| message("Failed to spawn producer thread"))?;
 
             Ok(Iter {
                 rx_and_join: Some((rx, join_index_worktree, join_tree_index)),

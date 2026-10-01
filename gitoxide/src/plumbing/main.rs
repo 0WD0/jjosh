@@ -1,5 +1,5 @@
 use std::{
-    io::{BufReader, stdin},
+    io::{BufReader, IsTerminal, stdin},
     path::PathBuf,
     sync::{
         Arc,
@@ -7,11 +7,14 @@ use std::{
     },
 };
 
-use anyhow::{Context, Result, anyhow};
 use clap::{CommandFactory, Parser};
 use gitoxide_core as core;
 use gitoxide_core::{pack::verify, repository::PathsOrPatterns};
-use gix::bstr::{BString, io::BufReadExt};
+use gix::{
+    Result,
+    bstr::{BString, io::BufReadExt},
+    error::{OptionExt, ResultExt, bail, message},
+};
 
 use crate::{
     plumbing::{
@@ -97,7 +100,7 @@ pub fn main() -> Result<()> {
             if !config.is_empty() {
                 repo.config_snapshot_mut()
                     .append_config(config.iter(), gix::config::Source::Cli)
-                    .context("Unable to parse command-line configuration")?;
+                    .or_raise(|| message("Unable to parse command-line configuration"))?;
             }
             {
                 let mut config_mut = repo.config_snapshot_mut();
@@ -410,7 +413,7 @@ pub fn main() -> Result<()> {
             treeish,
         }) => prepare_and_run("archive", auto_verbose, None, move |progress, _out, _err| {
             if add_virtual_file.len() % 2 != 0 {
-                anyhow::bail!(
+                bail!(
                     "Virtual files must be specified in pairs of two: slash/separated/path content, got {}",
                     add_virtual_file.join(", ")
                 )
@@ -466,7 +469,7 @@ pub fn main() -> Result<()> {
                     db,
                     core::corpus::engine::State {
                         gitoxide_version: option_env!("GIX_VERSION")
-                            .ok_or_else(|| anyhow::anyhow!("GIX_VERSION must be set in build-script"))?
+                            .ok_or_raise(|| message("GIX_VERSION must be set in build-script"))?
                             .into(),
                         progress: root_progress,
                         trace,
@@ -968,9 +971,8 @@ pub fn main() -> Result<()> {
                             let input = if let Some(path) = pack_path {
                                 PathOrRead::Path(path)
                             } else {
-                                use is_terminal::IsTerminal;
                                 if std::io::stdin().is_terminal() {
-                                    anyhow::bail!(
+                                    bail!(
                                         "Refusing to read from standard input as no path is given, but it's a terminal."
                                     )
                                 }
@@ -1227,7 +1229,10 @@ pub fn main() -> Result<()> {
                     let repo = repository(Mode::Strict)?;
                     let pathspecs = if pathspec.is_empty() {
                         PathsOrPatterns::Paths(Box::new(
-                            stdin_or_bail()?.byte_lines().filter_map(Result::ok).map(BString::from),
+                            stdin_or_bail()?
+                                .byte_lines()
+                                .filter_map(std::result::Result::ok)
+                                .map(BString::from),
                         ))
                     } else {
                         PathsOrPatterns::Patterns(pathspec)
@@ -1248,9 +1253,12 @@ pub fn main() -> Result<()> {
                 move |progress, out, err| {
                     core::repository::attributes::validate_baseline(
                         repository(Mode::StrictWithGitInstallConfig)?,
-                        stdin_or_bail()
-                            .ok()
-                            .map(|stdin| stdin.byte_lines().filter_map(Result::ok).map(gix::bstr::BString::from)),
+                        stdin_or_bail().ok().map(|stdin| {
+                            stdin
+                                .byte_lines()
+                                .filter_map(std::result::Result::ok)
+                                .map(gix::bstr::BString::from)
+                        }),
                         progress,
                         out,
                         err,
@@ -1273,7 +1281,10 @@ pub fn main() -> Result<()> {
                 let repo = repository(Mode::Strict)?;
                 let paths = if paths.is_empty() {
                     PathsOrPatterns::Paths(Box::new(
-                        stdin_or_bail()?.byte_lines().filter_map(Result::ok).map(BString::from),
+                        stdin_or_bail()?
+                            .byte_lines()
+                            .filter_map(std::result::Result::ok)
+                            .map(BString::from),
                     ))
                 } else {
                     PathsOrPatterns::Patterns(paths)
@@ -1364,11 +1375,11 @@ pub fn main() -> Result<()> {
 
                 let shell = shell
                     .or_else(clap_complete::Shell::from_env)
-                    .ok_or_else(|| anyhow!("The shell could not be derived from the environment"))?;
+                    .ok_or_raise(|| message("The shell could not be derived from the environment"))?;
 
                 let bin_name = app.get_name().to_owned();
                 if let Some(out_dir) = out_dir {
-                    clap_complete::generate_to(shell, &mut app, bin_name, &out_dir)?;
+                    clap_complete::generate_to(shell, &mut app, bin_name, &out_dir).or_error()?;
                 } else {
                     clap_complete::generate(shell, &mut app, bin_name, out);
                 }
@@ -1380,9 +1391,8 @@ pub fn main() -> Result<()> {
 }
 
 fn stdin_or_bail() -> Result<std::io::BufReader<std::io::Stdin>> {
-    use is_terminal::IsTerminal;
     if std::io::stdin().is_terminal() {
-        anyhow::bail!("Refusing to read from standard input while a terminal is connected")
+        bail!("Refusing to read from standard input while a terminal is connected")
     }
     Ok(BufReader::new(stdin()))
 }

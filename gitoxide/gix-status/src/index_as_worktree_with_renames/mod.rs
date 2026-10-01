@@ -421,7 +421,7 @@ pub(super) mod function {
     }
 
     mod rewrite {
-        use gix_error::{ErrorExt, Result, ResultExt};
+        use gix_error::{ErrorExt, Result, ResultExt, message};
 
         use crate::{
             index_as_worktree::{Change, EntryStatus},
@@ -534,7 +534,7 @@ pub(super) mod function {
                 }
                 Kind::File => {
                     let platform = attrs.at_entry(rela_path, None, objects).or_raise(|| {
-                        gix_error::message!("Failed to change the attribute context for worktree path {rela_path:?}")
+                        message!("Failed to change the attribute context for worktree path {rela_path:?}")
                     })?;
                     let rela_path = gix_path::from_bstr(rela_path);
                     let file_path = worktree_root.join(rela_path.as_ref());
@@ -554,8 +554,8 @@ pub(super) mod function {
                             return Ok(object_hash.null());
                         }
                         Err(err) => {
-                            return Err(err.and_raise(gix_error::message!(
-                                "Could not open worktree file '{}' for reading",
+                            return Err(err.and_raise(message!(
+                                "Could not open worktree file \"{}\" for reading",
                                 file_path.display()
                             )));
                         }
@@ -569,9 +569,7 @@ pub(super) mod function {
                             },
                             &mut |_buf| Ok(None),
                         )
-                        .or_raise(|| {
-                            gix_error::message!("Could not convert worktree file {rela_path:?} to Git format")
-                        })?;
+                        .or_raise(|| message!("Could not convert worktree file {rela_path:?} to Git format"))?;
                     match out {
                         ToGitOutcome::Unchanged(mut file) => gix_object::compute_stream_hash(
                             object_hash,
@@ -580,28 +578,22 @@ pub(super) mod function {
                             file_path
                                 .metadata()
                                 .or_raise(|| {
-                                    gix_error::message!(
-                                        "Could not read metadata for worktree file '{}'",
-                                        file_path.display()
-                                    )
+                                    message!("Could not read metadata for worktree file \"{}\"", file_path.display())
                                 })?
                                 .len(),
                             &mut gix_features::progress::Discard,
                             should_interrupt,
                         )
-                        .or_raise(|| gix_error::message!("Could not hash worktree file '{}'", file_path.display()))?,
+                        .or_raise(|| message!("Could not hash worktree file \"{}\"", file_path.display()))?,
                         ToGitOutcome::Buffer(buf) => gix_object::compute_hash(object_hash, gix_object::Kind::Blob, buf)
-                            .or_raise(|| {
-                                gix_error::message!("Could not hash worktree file '{}'", file_path.display())
-                            })?,
+                            .or_raise(|| message!("Could not hash worktree file \"{}\"", file_path.display()))?,
                         ToGitOutcome::Process(mut stream) => {
                             buf.clear();
                             stream.read_to_end(buf).or_raise(|| {
-                                gix_error::message!("Could not read filtered worktree file '{}'", file_path.display())
+                                message!("Could not read filtered worktree file \"{}\"", file_path.display())
                             })?;
-                            gix_object::compute_hash(object_hash, gix_object::Kind::Blob, buf).or_raise(|| {
-                                gix_error::message!("Could not hash worktree file '{}'", file_path.display())
-                            })?
+                            gix_object::compute_hash(object_hash, gix_object::Kind::Blob, buf)
+                                .or_raise(|| message!("Could not hash worktree file \"{}\"", file_path.display()))?
                         }
                     }
                 }
@@ -609,10 +601,10 @@ pub(super) mod function {
                     let path = worktree_root.join(gix_path::from_bstr(rela_path));
                     let target = gix_path::into_bstr(
                         std::fs::read_link(&path)
-                            .or_raise(|| gix_error::message!("Could not read worktree link '{}'", path.display()))?,
+                            .or_raise(|| message!("Could not read worktree link \"{}\"", path.display()))?,
                     );
                     gix_object::compute_hash(object_hash, gix_object::Kind::Blob, &target)
-                        .or_raise(|| gix_error::message!("Could not hash worktree link '{}'", path.display()))?
+                        .or_raise(|| message!("Could not hash worktree link \"{}\"", path.display()))?
                 }
                 Kind::Directory | Kind::Repository => object_hash.null(),
             })
