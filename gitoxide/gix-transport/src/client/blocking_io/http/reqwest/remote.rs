@@ -62,6 +62,8 @@ impl Default for Remote {
             // received and the sender of the request might restart us.
             let client = reqwest::blocking::ClientBuilder::new()
                 .connect_timeout(std::time::Duration::from_secs(20))
+                // Pack generation and streaming may pause longer than reqwest's default read timeout.
+                .timeout(None)
                 .http1_title_case_headers()
                 .redirect(reqwest::redirect::Policy::custom({
                     let redirect_action = redirect_action.clone();

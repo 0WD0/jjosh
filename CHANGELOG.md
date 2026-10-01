@@ -16,6 +16,7 @@
 
 ### 主要能力
 
+- Git HTTP 后端不再继承 reqwest 默认的 30 秒响应读取等待限制，避免服务端生成或传输 pack 暂停时误中断 fetch；现有 20 秒连接超时保持不变，不增加自动重试。
 - Git fetch 仅使用当前 endpoint 已保留的原始提交作为协商起点，不再扫描 monorepo 及 alternate 对象库的全部引用，避免大量内部保留引用拖慢小型上游仓库的获取。
   首次获取不发送无关历史，后续获取仍进行增量协商；advertisement-pinned 对象请求和默认完整历史语义不变。
 - project push 的提交元数据校验按实际发布范围执行：只改 project 外内容、因此会从投影历史中被裁掉的 revision，不再因为空描述、外部冲突或 private 标记阻断该 project；真正进入发布历史的 revision 仍沿用 JJ 的完整校验。
