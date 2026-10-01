@@ -11,7 +11,7 @@ jjosh 扩展 [[file:jj/][Jujutsu]]，让一个本地仓库里的多个项目与�
 
 * 安装与准备
 
-需要 Rust 1.95+、Git，以及本仓库中的 =jj/=、=josh/=、=gitoxide/= 本地源码。
+需要 Rust 1.98+、Git，以及本仓库中的 =jj/=、=josh/=、=gitoxide/= 本地源码。
 在仓库根目录构建并加入 PATH：
 
 #+begin_src sh
