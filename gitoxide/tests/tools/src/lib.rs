@@ -2001,6 +2001,7 @@ pub fn normalize_debug_snapshot(value: &dyn std::fmt::Debug) -> (String, Vec<gix
 /// with forward slashes. Windows path suffixes use forward slashes; backslashes in
 /// other input remain unchanged. Use complete paths for unquoted paths containing whitespace.
 /// Platform-specific I/O messages and pretty-debug OS errors are replaced by their [`std::io::ErrorKind`].
+/// Integer conversion error messages are normalized across Rust versions.
 ///
 /// The returned value owns its text and prints it without adding quotes or escaping newlines.
 pub fn redact_debug_snapshot(
@@ -2088,6 +2089,12 @@ pub fn redact_debug_snapshot(
         .collect();
     for (from, to) in os_debug {
         text = text.replace(&from, &to);
+    }
+    for message in [
+        "number too small to fit in target type",
+        "number too large to fit in target type",
+    ] {
+        text = text.replace(message, "out of range integral type conversion attempted");
     }
     Diagnostic(normalize_hashes(&text).0)
 }

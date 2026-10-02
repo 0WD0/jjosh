@@ -39,6 +39,16 @@ mod isolation {
 
     #[test]
     fn redact_debug_snapshot_preserves_diagnostics_and_object_identity() {
+        for error in [
+            u8::try_from(-1).expect_err("negative values cannot fit in u8"),
+            i8::try_from(128).expect_err("128 exceeds i8::MAX"),
+        ] {
+            assert_eq!(
+                format!("{:?}", redact_debug_snapshot(&format_args!("{error}"), &[])),
+                "out of range integral type conversion attempted",
+                "integer conversion diagnostics remain stable across Rust versions"
+            );
+        }
         for (input, replacements, expected) in [
             (
                 "read /tmp/random/repo/objects/pack failed: NotFound\nsource: /tmp/random/repo/config",

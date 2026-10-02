@@ -471,6 +471,7 @@ mod delegate {
         /// Everything is tucked away behind type-safety so 'nothing can go wrong'©. Runtime assertions assure invalid
         /// features or arguments don't make it to the server in the first place.
         /// Please note that this trait mostly corresponds to what V2 would look like, even though V1 is supported as well.
+        #[allow(clippy::double_must_use)] // `async_trait` generates `#[must_use]` on boxed futures.
         #[async_trait(?Send)]
         pub trait Delegate: DelegateBlocking {
             /// Receive a pack provided from the given `input`, and the caller should consider it to be blocking as

@@ -93,6 +93,10 @@ impl PrepareFetch {
     ///
     /// # Deviation
     ///
+    /// Unlike `git clone`, repository-local environment overrides such as `GIT_WORK_TREE` and `GIT_INDEX_FILE` are ignored.
+    /// This prevents cloning from a Git hook from writing the clone's index or files into the caller's repository.
+    /// Editor and notes preferences (`GIT_EDITOR` and `GIT_NOTES_REF`) are still honored.
+    ///
     /// Similar to `git`, a missing user name and email configuration is not terminal and we will fill it in with dummy values. However,
     /// instead of deriving values from the system, ours are hardcoded to indicate what happened.
     pub fn new<Url, E>(
@@ -115,8 +119,7 @@ impl PrepareFetch {
         mut create_opts: crate::create::Options,
         open_opts: crate::open::Options,
     ) -> Result<Self> {
-        // Variables like `GIT_WORK_TREE` and `GIT_INDEX_FILE` describe the repository the caller runs in,
-        // for instance one whose hook is running, and never the repository this clone creates.
+        // Keep inherited repository paths from redirecting this clone into the caller's repository.
         let mut open_opts = open_opts.without_repository_environment_overrides();
         if create_opts.destination_must_be_empty.is_none() {
             create_opts.destination_must_be_empty = Some(true);

@@ -241,7 +241,7 @@ mod tests {
             err.downcast_any_ref::<std::num::TryFromIntError>().is_some(),
             "the integer conversion failure remains available"
         );
-        insta::assert_debug_snapshot!(err, "entry header lengths that cannot be stored in the Entry metadata must be rejected", @"
+        insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[]), "entry header lengths that cannot be stored in the Entry metadata must be rejected", @"
         Pack entry is truncated: entry header size does not fit into u16
         |
         └─ out of range integral type conversion attempted

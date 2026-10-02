@@ -431,20 +431,10 @@ fn apply_environment_overrides(
             } else {
                 Permission::Deny
             },
-            &[
-                {
-                    let key = &Core::WORKTREE;
-                    (env(key), key.name)
-                },
-                {
-                    let key = &Core::NOTES_REF;
-                    (env(key), key.name)
-                },
-                {
-                    let key = &Core::EDITOR;
-                    (env(key), key.name)
-                },
-            ][..],
+            &[{
+                let key = &Core::WORKTREE;
+                (env(key), key.name)
+            }][..],
         ),
         (
             "http",
@@ -764,6 +754,7 @@ fn apply_environment_overrides(
         }
     }
 
+    // These should be independent of the use_repository_local_environment condition.
     {
         let mut section = env_override
             .new_section("core", None)
@@ -773,6 +764,14 @@ fn apply_environment_overrides(
             {
                 let key = &Core::DELTA_BASE_CACHE_LIMIT;
                 (env(key), key.name, objects)
+            },
+            {
+                let key = &Core::EDITOR;
+                (env(key), key.name, git_prefix)
+            },
+            {
+                let key = &Core::NOTES_REF;
+                (env(key), key.name, git_prefix)
             },
             {
                 let key = &Core::SSH_COMMAND;
