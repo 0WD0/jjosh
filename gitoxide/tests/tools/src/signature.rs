@@ -3,7 +3,7 @@
 //! The bundled, passwordless SSH, OpenPGP, and X.509 identities are copied or imported
 //! into disposable directories with suitably restrictive permissions. Callers are
 //! responsible for checking that the required signing [`crate::signature::program_available()`] and must keep the
-//! returned [`tempfile::TempDir`](crate::tempfile::TempDir) alive while using it.
+//! returned [`tempfile::TempDir`] alive while using it.
 //!
 //! These public test identities provide no security and must never be used outside tests.
 

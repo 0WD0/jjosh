@@ -50,6 +50,7 @@
 )]
 #![cfg_attr(all(doc, feature = "document-features"), feature(doc_cfg))]
 #![deny(missing_docs, unsafe_code)]
+#![allow(rustdoc::redundant_explicit_links)] // Rust 1.99 flags links in re-exported documentation.
 
 pub mod file;
 

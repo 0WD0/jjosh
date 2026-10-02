@@ -721,6 +721,7 @@ fn allow_or_disallow_symlinks() -> Result {
 }
 
 #[test]
+#[allow(deprecated)] // `try_update` is newer than our MSRV; keep using `fetch_update`.
 fn keep_going_collects_results() {
     let mut opts = opts_from_probe();
     opts.keep_going = true;

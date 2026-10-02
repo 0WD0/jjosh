@@ -344,6 +344,7 @@ pedantic = { level = "warn", priority = -1 }
 
 #
 # Reviewed and allowed lints
+assert_is_empty = "allow" # Keep emptiness assertions usable without requiring `Debug` and `PartialEq`.
 needless_continue = "allow"
 enum_glob_use = "allow"  # x97
 missing_errors_doc = "allow"  # x1792

@@ -1374,6 +1374,50 @@ mod blocking_io {
 }
 
 #[test]
+fn clone_ignores_repository_paths_and_keeps_preferences() -> Result {
+    if gix_testtools::run_in_isolated_process()? {
+        return Ok(());
+    }
+    let caller = gix_testtools::tempfile::TempDir::new()?;
+    let destination = caller.path().join("clone");
+    let _environment = gix_testtools::Env::new()
+        .set("GIT_WORK_TREE", caller.path().display().to_string())
+        .set("GIT_INDEX_FILE", caller.path().join("index").display().to_string())
+        .set("GIT_EDITOR", "git-editor")
+        .set("GIT_NOTES_REF", "refs/notes/custom");
+    let repo = gix::clone::PrepareFetch::new(
+        "https://example.invalid/repo",
+        &destination,
+        gix::create::Kind::WithWorktree,
+        Default::default(),
+        crate::util::restricted_and_git(),
+    )?
+    .persist();
+
+    assert_eq!(
+        std::fs::canonicalize(repo.workdir().expect("non-bare"))?,
+        std::fs::canonicalize(&destination)?,
+        "the clone uses its destination as worktree"
+    );
+    assert_eq!(
+        repo.index_path(),
+        repo.git_dir().join("index"),
+        "the clone keeps its index in its own git directory"
+    );
+    assert_eq!(
+        repo.editor(),
+        Some("git-editor".into()),
+        "the clone honors the caller's editor preference"
+    );
+    assert_eq!(
+        repo.config_snapshot().string(gix::config::tree::Core::NOTES_REF),
+        Some("refs/notes/custom".into()),
+        "the clone honors the caller's notes reference preference"
+    );
+    Ok(())
+}
+
+#[test]
 fn clone_and_early_persist_without_receive() -> Result {
     let tmp = gix_testtools::tempfile::TempDir::new()?;
     let repo = gix::clone::PrepareFetch::new(
