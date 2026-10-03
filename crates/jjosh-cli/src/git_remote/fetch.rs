@@ -452,7 +452,6 @@ pub(super) async fn run(
                 raw_terms.insert(
                     format!("{prefix}{}", name.as_str()),
                     target
-                        .as_merge()
                         .iter()
                         .map(|term| ConversionTerm {
                             canonical: term.as_ref().map(|id| imported.ids[id].clone()),
@@ -460,11 +459,7 @@ pub(super) async fn run(
                         })
                         .collect(),
                 );
-                let target = RefTarget::from_merge(
-                    target
-                        .as_merge()
-                        .map(|term| term.as_ref().map(|id| imported.ids[id].clone())),
-                );
+                let target = target.map(|term| term.as_ref().map(|id| imported.ids[id].clone()));
                 converted.insert(
                     format!("{prefix}{}", name.as_str()),
                     Converted::native(target)?,
@@ -480,7 +475,7 @@ pub(super) async fn run(
                 .local_bookmarks
                 .values()
                 .chain(source.view.local_tags.values())
-                .flat_map(|target| target.as_merge().iter().flatten()),
+                .flat_map(|target| target.iter().flatten()),
         )
         .map_err(user_error)?;
         transaction.flush_mem_odb().map_err(user_error)?;

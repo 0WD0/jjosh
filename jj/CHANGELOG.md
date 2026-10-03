@@ -26,6 +26,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 * `jj split` now opens a single editor session to edit descriptions for the
   split commits.
 
+* `jj undo` and `jj redo` now refuse to undo/redo an operation that was
+  performed in another workspace. Use `--allow-cross-workspace` to undo/redo
+  it anyway.
+
 ### Deprecations
 
 ### New features
@@ -34,7 +38,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   to access resolved tree values, formatted as their full object IDs, including
   Git submodule commit IDs.
 
-* Git-format diff hunk headers now include nearby source symbols for many common
+* Diff hunk headers now include nearby source symbols for many common
   programming and markup languages.
 
 * `jj workspace add` supports `--colocate`/`--no-colocate` flags to control
@@ -75,6 +79,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   disable them. This can be used to disable built-in aliases or disable aliases
   in later layers (such as repo config files).
 
+* `ui.editor` now supports `$path` and `$line` substitution variables. Example:
+  `ui.editor = ["emacs", "+$line", "$path"]`
+
 ### Fixed bugs
 
 * On Windows, `jj` no longer hangs when a subprocess needs to prompt the user,
@@ -94,6 +101,25 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   recorded path. Previously the path metadata was lost, leaving the workspace
   in a broken state after undo.
   [#9991](https://github.com/jj-vcs/jj/issues/9991)
+
+* `at_operation()` can now be used with operations that are not ancestors of
+  the current operation (e.g. sibling operations created by concurrent
+  commands). Previously, evaluating such expressions failed if they resolved
+  to commits missing from the current operation's index.
+
+* `.gitignore` files are now respected even if they aren't materialized in the
+  working copy because they are excluded by the sparse patterns. Previously,
+  ignored files could become tracked in a sparse working copy.
+  [#2289](https://github.com/jj-vcs/jj/issues/2289)
+
+* In-tree ignore files (`.gitignore`) are no longer read through symlinks,
+  matching `git` behavior. Such files are now silently skipped instead of having
+  their symlink target applied. `$GIT_DIR/info/exclude` and `core.excludesFile`
+  are unaffected and still follow symlinks, as `git` does.
+  [#7161](https://github.com/jj-vcs/jj/issues/7161)
+
+* `jj workspace list` templates are now labeled with `workspace name`,
+  `workspace root`, etc.
 
 ## [0.45.1] - 2026-09-03
 
@@ -4595,7 +4621,7 @@ Thanks to the people who made this release happen!
 * A default revset-alias function `trunk()` now exists. If you previously
   defined
   your own `trunk()` alias it will continue to overwrite the built-in one.
-  Check [revsets.toml](docs/revsets.toml)
+  Check [revsets.toml](https://github.com/jj-vcs/jj/blob/main/cli/src/config/revsets.toml)
   and [revsets.md](docs/revsets.md)
   to understand how the function can be adapted.
 

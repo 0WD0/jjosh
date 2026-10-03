@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![expect(missing_docs)]
+//! Types for repository views and operations.
 
 use std::any::Any;
 use std::collections::BTreeMap;
@@ -45,101 +45,37 @@ use crate::ref_name::RemoteRefSymbol;
 use crate::ref_name::WorkspaceNameBuf;
 use crate::working_copy_patterns::WorkingCopyPatterns;
 
-id_type!(pub ViewId { hex() });
-id_type!(pub OperationId { hex() });
-id_type!(pub WorkingCopyPatternsId { hex() });
+id_type!(
+    /// Identifier for a [`View`] object.
+    pub ViewId { hex() }
+);
+id_type!(
+    /// Identifier for an [`Operation`] object.
+    pub OperationId { hex() }
+);
+id_type!(
+    /// Identifier for a canonical sparse selection and working-copy layout.
+    pub WorkingCopyPatternsId { hex() }
+);
 
-#[derive(ContentHash, PartialEq, Eq, Hash, Clone, Debug, serde::Serialize)]
-#[serde(transparent)]
-pub struct RefTarget {
-    merge: Merge<Option<CommitId>>,
-}
+/// Non-conflicting target pointing to no commit.
+///
+/// This will typically be used in place of `None` returned by a map lookup.
+pub static ABSENT_REF_TARGET: RefTarget = RefTarget::absent();
+/// Remote ref pointing to no commit.
+///
+/// This will typically be used in place of `None` returned by a map lookup.
+pub static ABSENT_REMOTE_REF: RemoteRef = RemoteRef::absent();
 
-impl Default for RefTarget {
-    fn default() -> Self {
-        Self::absent()
-    }
-}
-
-impl RefTarget {
-    /// Creates non-conflicting target pointing to no commit.
-    pub const fn absent() -> Self {
-        Self::from_merge(Merge::absent())
-    }
-
-    /// Returns non-conflicting target pointing to no commit.
-    ///
-    /// This will typically be used in place of `None` returned by map lookup.
-    pub const fn absent_ref() -> &'static Self {
-        static TARGET: RefTarget = RefTarget::absent();
-        &TARGET
-    }
-
-    /// Creates non-conflicting target that optionally points to a commit.
-    pub fn resolved(maybe_id: Option<CommitId>) -> Self {
-        Self::from_merge(Merge::resolved(maybe_id))
-    }
-
-    /// Creates non-conflicting target pointing to a commit.
-    pub fn normal(id: CommitId) -> Self {
-        Self::from_merge(Merge::normal(id))
-    }
-
-    /// Creates target from removed/added ids.
-    pub fn from_legacy_form(
-        removed_ids: impl IntoIterator<Item = CommitId>,
-        added_ids: impl IntoIterator<Item = CommitId>,
-    ) -> Self {
-        Self::from_merge(Merge::from_legacy_form(removed_ids, added_ids))
-    }
-
-    pub const fn from_merge(merge: Merge<Option<CommitId>>) -> Self {
-        Self { merge }
-    }
-
-    /// Returns the underlying value if this target is non-conflicting.
-    pub fn as_resolved(&self) -> Option<&Option<CommitId>> {
-        self.merge.as_resolved()
-    }
-
-    /// Returns id if this target is non-conflicting and points to a commit.
-    pub fn as_normal(&self) -> Option<&CommitId> {
-        self.merge.as_normal()
-    }
-
-    /// Returns true if this target points to no commit.
-    pub fn is_absent(&self) -> bool {
-        self.merge.is_absent()
-    }
-
-    /// Returns true if this target points to any commit. Conflicting target is
-    /// always "present" as it should have at least one commit id.
-    pub fn is_present(&self) -> bool {
-        self.merge.is_present()
-    }
-
-    /// Whether this target has conflicts.
-    pub fn has_conflict(&self) -> bool {
-        !self.merge.is_resolved()
-    }
-
-    pub fn removed_ids(&self) -> impl Iterator<Item = &CommitId> {
-        self.merge.removes().flatten()
-    }
-
-    pub fn added_ids(&self) -> impl Iterator<Item = &CommitId> {
-        self.merge.adds().flatten()
-    }
-
-    pub fn as_merge(&self) -> &Merge<Option<CommitId>> {
-        &self.merge
-    }
-}
+/// Bookmark or tag target.
+pub type RefTarget = Merge<Option<CommitId>>;
 
 /// Remote bookmark or tag.
 #[derive(ContentHash, Clone, Debug, Eq, Hash, PartialEq)]
 pub struct RemoteRef {
+    /// Target commits.
     pub target: RefTarget,
+    /// Whether the ref is tracked or not.
     pub state: RemoteRefState,
 }
 
@@ -150,14 +86,6 @@ impl RemoteRef {
             target: RefTarget::absent(),
             state: RemoteRefState::New,
         }
-    }
-
-    /// Returns remote ref pointing to no commit.
-    ///
-    /// This will typically be used in place of `None` returned by map lookup.
-    pub const fn absent_ref() -> &'static Self {
-        static TARGET: RemoteRef = RemoteRef::absent();
-        &TARGET
     }
 
     /// Returns true if the target points to no commit.
@@ -183,7 +111,7 @@ impl RemoteRef {
         if self.is_tracked() {
             &self.target
         } else {
-            RefTarget::absent_ref()
+            &ABSENT_REF_TARGET
         }
     }
 }
@@ -200,8 +128,10 @@ pub enum RemoteRefState {
 
 /// Helper to strip redundant `Option<T>` from `RefTarget` lookup result.
 pub trait RefTargetOptionExt {
+    /// The resulting type after flattening.
     type Value;
 
+    /// Flattens nested structure.
     fn flatten(self) -> Self::Value;
 }
 
@@ -217,7 +147,7 @@ impl<'a> RefTargetOptionExt for Option<&'a RefTarget> {
     type Value = &'a RefTarget;
 
     fn flatten(self) -> Self::Value {
-        self.unwrap_or_else(|| RefTarget::absent_ref())
+        self.unwrap_or(&ABSENT_REF_TARGET)
     }
 }
 
@@ -233,7 +163,7 @@ impl<'a> RefTargetOptionExt for Option<&'a RemoteRef> {
     type Value = &'a RemoteRef;
 
     fn flatten(self) -> Self::Value {
-        self.unwrap_or_else(|| RemoteRef::absent_ref())
+        self.unwrap_or(&ABSENT_REMOTE_REF)
     }
 }
 
@@ -252,13 +182,18 @@ pub struct LocalRemoteRefTarget<'a> {
 pub struct View {
     /// All head commits. There should be at least one head commit.
     pub head_ids: HashSet<CommitId>,
+    /// Local bookmark names and targets.
     pub local_bookmarks: BTreeMap<RefNameBuf, RefTarget>,
+    /// Local tag names and targets.
     pub local_tags: BTreeMap<RefNameBuf, RefTarget>,
+    /// Remote names and views.
     pub remote_views: BTreeMap<RemoteNameBuf, RemoteView>,
+    /// Git ref names and targets.
     pub git_refs: BTreeMap<GitRefNameBuf, RefTarget>,
     /// The commit each workspace's Git HEAD points to, keyed by workspace name.
     // TODO: Do we want to store the current bookmark name too?
     pub git_heads: BTreeMap<WorkspaceNameBuf, RefTarget>,
+    /// Workspace names and checked-out commits.
     // The commit that *should be* checked out in the workspace. Note that the working copy
     // (.jj/working_copy/) has the source of truth about which commit *is* checked out (to be
     // precise: the commit to which we most recently completed an update to).
@@ -266,12 +201,16 @@ pub struct View {
     /// Desired canonical sparse selection and layout object IDs.
     /// Missing entries retain unknown-history, working-copy-local configuration.
     pub wc_sparse_patterns: BTreeMap<WorkspaceNameBuf, Merge<Option<WorkingCopyPatternsId>>>,
+    /// Operation-owned project definitions.
     pub project_state: ProjectState,
+    /// Current remote connection membership.
     pub remote_connections: BTreeMap<RemoteNameBuf, Merge<Option<ConnectionId>>>,
     /// Identity snapshots belonging to retained remote tracking state, not membership.
     pub observed_remote_connections: BTreeMap<RemoteNameBuf, Merge<Option<ConnectionId>>>,
+    /// Scoped names observed for retained remote connection identities.
     pub observed_remote_names:
         BTreeMap<ConnectionId, Merge<Option<crate::project::ScopedRemoteName>>>,
+    /// Immutable conversion evidence for retained remote refs.
     pub project_observations: BTreeMap<ObservationKey, Merge<Option<ConversionObservation>>>,
 }
 
@@ -333,16 +272,18 @@ impl View {
 /// Represents the state of the remote repo.
 #[derive(ContentHash, Clone, Debug, Default, Eq, PartialEq)]
 pub struct RemoteView {
+    /// Bookmark names, targets, and states.
     // TODO: Do we need to support tombstones for remote bookmarks? For example, if the bookmark
     // has been deleted locally and you pull from a remote, maybe it should make a difference
     // whether the bookmark is known to have existed on the remote. We may not want to resurrect
     // the bookmark if the bookmark's state on the remote was just not known.
     pub bookmarks: BTreeMap<RefNameBuf, RemoteRef>,
+    /// Tag names, targets, and states.
     pub tags: BTreeMap<RefNameBuf, RemoteRef>,
 }
 
 /// Iterates pair of local and remote refs by name.
-pub(crate) fn merge_join_ref_views<'a>(
+pub fn merge_join_ref_views<'a>(
     local_refs: &'a BTreeMap<RefNameBuf, RefTarget>,
     remote_views: &'a BTreeMap<RemoteNameBuf, RemoteView>,
     get_remote_refs: impl FnMut(&RemoteView) -> &BTreeMap<RefNameBuf, RemoteRef>,
@@ -358,7 +299,7 @@ pub(crate) fn merge_join_ref_views<'a>(
         let (name, local_target) = if let Some((symbol, _)) = remote_refs_iter.peek() {
             local_refs_iter
                 .next_if(|&(local_name, _)| local_name <= symbol.name)
-                .unwrap_or((symbol.name, RefTarget::absent_ref()))
+                .unwrap_or((symbol.name, &ABSENT_REF_TARGET))
         } else {
             local_refs_iter.next()?
         };
@@ -375,7 +316,7 @@ pub(crate) fn merge_join_ref_views<'a>(
 }
 
 /// Iterates `(symbol, remote_ref)`s in lexicographical order.
-pub(crate) fn flatten_remote_refs(
+pub fn flatten_remote_refs(
     remote_views: &BTreeMap<RemoteNameBuf, RemoteView>,
     mut get_remote_refs: impl FnMut(&RemoteView) -> &BTreeMap<RefNameBuf, RemoteRef>,
 ) -> impl Iterator<Item = (RemoteRefSymbol<'_>, &RemoteRef)> {
@@ -389,10 +330,13 @@ pub(crate) fn flatten_remote_refs(
         .kmerge_by(|(symbol1, _), (symbol2, _)| symbol1 < symbol2)
 }
 
+/// Start and end times of an [`Operation`].
+// Could be aliased to Range<Timestamp> if needed.
 #[derive(Clone, ContentHash, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct TimestampRange {
-    // Could be aliased to Range<Timestamp> if needed.
+    /// Time when the operation started.
     pub start: Timestamp,
+    /// Time when the operation ended.
     pub end: Timestamp,
 }
 
@@ -410,9 +354,12 @@ pub struct TimestampRange {
 /// concurrent operation.
 #[derive(ContentHash, PartialEq, Eq, Clone, Debug, serde::Serialize)]
 pub struct Operation {
+    /// [`View`] produced by this operation.
     #[serde(skip)] // TODO: should be exposed?
     pub view_id: ViewId,
+    /// Parent operations.
     pub parents: Vec<OperationId>,
+    /// Details of this operation.
     #[serde(flatten)]
     pub metadata: OperationMetadata,
     /// Mapping from new commit to its predecessors, or `None` if predecessors
@@ -435,6 +382,7 @@ pub struct Operation {
 }
 
 impl Operation {
+    /// Creates the root operation for the given view.
     pub fn make_root(root_view_id: ViewId) -> Self {
         let timestamp = Timestamp {
             timestamp: MillisSinceEpoch(0),
@@ -465,18 +413,23 @@ impl Operation {
     }
 }
 
+/// Details recorded for an [`Operation`].
 #[derive(ContentHash, PartialEq, Eq, Clone, Debug, serde::Serialize)]
 pub struct OperationMetadata {
+    /// Start and end times.
     pub time: TimestampRange,
-    // Whatever is useful to the user, such as exact command line call
+    /// User-facing short description.
     pub description: String,
+    /// Host where the operation ran.
     pub hostname: String,
+    /// User who ran the operation.
     pub username: String,
     /// Whether this operation represents a pure snapshotting of the working
     /// copy.
     pub is_snapshot: bool,
     /// The workspace this operation was performed in, if any
     pub workspace_name: Option<WorkspaceNameBuf>,
+    /// Additional metadata.
     pub attributes: BTreeMap<String, String>,
 }
 
@@ -487,53 +440,76 @@ pub struct RootOperationData {
     pub root_commit_id: CommitId,
 }
 
+/// Error while reading or writing operation store objects.
 #[derive(Debug, Error)]
 pub enum OpStoreError {
+    /// The requested object does not exist.
     #[error("Object {hash} of type {object_type} not found")]
     ObjectNotFound {
+        /// Type of the object.
         object_type: String,
+        /// Identifier of the object.
         hash: String,
+        /// Underlying error.
         source: Box<dyn std::error::Error + Send + Sync>,
     },
+    /// Object could not be read.
     #[error("Error when reading object {hash} of type {object_type}")]
     ReadObject {
+        /// Type of the object.
         object_type: String,
+        /// Identifier of the object.
         hash: String,
+        /// Underlying error.
         source: Box<dyn std::error::Error + Send + Sync>,
     },
+    /// Object could not be written.
     #[error("Could not write object of type {object_type}")]
     WriteObject {
+        /// Type of the object.
         object_type: &'static str,
+        /// Underlying error.
         source: Box<dyn std::error::Error + Send + Sync>,
     },
+    /// Some other error that doesn't fit into the above categories.
     #[error(transparent)]
     Other(Box<dyn std::error::Error + Send + Sync>),
 }
 
+/// Result of [`OpStore`] operations.
 pub type OpStoreResult<T> = Result<T, OpStoreError>;
 
+/// Interface for operation store backends.
 #[async_trait]
 pub trait OpStore: Any + Send + Sync + Debug {
+    /// A unique name that identifies this backend.
     fn name(&self) -> &str;
 
+    /// The root operation ID.
     fn root_operation_id(&self) -> &OperationId;
 
+    /// Reads a view by ID.
     async fn read_view(&self, id: &ViewId) -> OpStoreResult<View>;
 
+    /// Writes a view and returns its ID.
     async fn write_view(&self, contents: &View) -> OpStoreResult<ViewId>;
 
+    /// Reads a canonical sparse selection and working-copy layout by ID.
     async fn read_working_copy_patterns(
         &self,
         id: &WorkingCopyPatternsId,
     ) -> OpStoreResult<WorkingCopyPatterns>;
 
+    /// Writes a canonical sparse selection and working-copy layout.
     async fn write_working_copy_patterns(
         &self,
         contents: &WorkingCopyPatterns,
     ) -> OpStoreResult<WorkingCopyPatternsId>;
 
+    /// Reads an operation by ID.
     async fn read_operation(&self, id: &OperationId) -> OpStoreResult<Operation>;
 
+    /// Writes an operation and returns its ID.
     async fn write_operation(&self, contents: &Operation) -> OpStoreResult<OperationId>;
 
     /// Resolves an unambiguous operation ID prefix.
@@ -665,7 +641,7 @@ mod tests {
             vec![(
                 "bookmark1".as_ref(),
                 LocalRemoteRefTarget {
-                    local_target: RefTarget::absent_ref(),
+                    local_target: &RefTarget::absent(),
                     remote_refs: vec![("remote1".as_ref(), &remote1_bookmark1_remote_ref)],
                 },
             )],

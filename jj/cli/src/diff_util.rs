@@ -15,9 +15,12 @@
 use std::borrow::Cow;
 use std::cmp::max;
 use std::cmp::min;
+use std::collections::HashMap;
+use std::ffi::OsString;
 use std::io;
 use std::iter;
 use std::ops::Range;
+use std::path;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -97,9 +100,9 @@ use crate::merge_tools::DiffToolMode;
 use crate::merge_tools::ExternalMergeTool;
 use crate::merge_tools::generate_diff;
 use crate::merge_tools::invoke_external_diff;
-use crate::merge_tools::new_utf8_temp_dir;
 use crate::source_symbol::SourceLanguage;
 use crate::source_symbol::SourceSymbolScanner;
+use crate::source_symbol::source_symbol_from_line;
 use crate::templater::TemplateRenderer;
 use crate::text_util;
 use crate::ui::Ui;
@@ -723,6 +726,11 @@ pub fn show_diff_bytes<T: AsRef<[u8]> + Eq>(
     if !contents.is_changed() {
         return Ok(());
     }
+    let language = paths
+        .after
+        .rsplit(path::is_separator)
+        .next()
+        .and_then(SourceLanguage::from_file_name);
     for format in formats {
         match format {
             // Omit diff from "short" formats. Printing dummy file path wouldn't
@@ -749,6 +757,7 @@ pub fn show_diff_bytes<T: AsRef<[u8]> + Eq>(
                 }
                 show_color_words_diff_hunks(
                     *formatter,
+                    language,
                     contents,
                     Diff::new(&ConflictLabels::unlabeled(), &ConflictLabels::unlabeled()),
                     options,
@@ -836,6 +845,7 @@ impl ColorWordsDiffOptions {
 
 fn show_color_words_diff_hunks<T: AsRef<[u8]>>(
     formatter: &mut dyn Formatter,
+    language: Option<SourceLanguage>,
     contents: Diff<&Merge<T>>,
     conflict_labels: Diff<&ConflictLabels>,
     options: &ColorWordsDiffOptions,
@@ -846,7 +856,14 @@ fn show_color_words_diff_hunks<T: AsRef<[u8]>>(
     if let (Some(left), Some(right)) = (contents.before.as_resolved(), contents.after.as_resolved())
     {
         let contents = Diff::new(left, right).map(BStr::new);
-        show_color_words_resolved_hunks(formatter, contents, line_number, labels, options)?;
+        show_color_words_resolved_hunks(
+            formatter,
+            language,
+            contents,
+            line_number,
+            labels,
+            options,
+        )?;
         return Ok(());
     }
     match options.conflict {
@@ -856,6 +873,7 @@ fn show_color_words_diff_hunks<T: AsRef<[u8]>>(
             });
             show_color_words_resolved_hunks(
                 formatter,
+                language,
                 contents.as_ref().map(BStr::new),
                 line_number,
                 labels,
@@ -866,6 +884,7 @@ fn show_color_words_diff_hunks<T: AsRef<[u8]>>(
             let contents = contents.map(|side| files::merge(side, &materialize_options.merge));
             show_color_words_conflict_hunks(
                 formatter,
+                language,
                 contents.as_ref(),
                 line_number,
                 labels,
@@ -878,6 +897,7 @@ fn show_color_words_diff_hunks<T: AsRef<[u8]>>(
 
 fn show_color_words_conflict_hunks(
     formatter: &mut dyn Formatter,
+    language: Option<SourceLanguage>,
     contents: Diff<&Merge<BString>>,
     mut line_number: DiffLineNumber,
     labels: Diff<&str>,
@@ -902,16 +922,16 @@ fn show_color_words_conflict_hunks(
                 contexts.push(Diff::new(hunk.lefts.first(), hunk.rights.first()));
             }
             DiffHunkKind::Different => {
-                let num_after = if emitted { options.context } else { 0 };
-                let num_before = options.context;
+                let num_leading = if emitted { options.context } else { 0 };
+                let num_trailing = options.context;
                 line_number = show_color_words_context_lines(
                     formatter,
+                    language,
                     &contexts,
                     line_number,
                     labels,
                     options,
-                    num_after,
-                    num_before,
+                    (num_leading, num_trailing),
                 )?;
                 contexts.clear();
                 emitted = true;
@@ -928,6 +948,7 @@ fn show_color_words_conflict_hunks(
                 } else {
                     show_color_words_unresolved_hunk(
                         formatter,
+                        language,
                         &hunk,
                         line_number,
                         labels,
@@ -938,21 +959,22 @@ fn show_color_words_conflict_hunks(
         }
     }
 
-    let num_after = if emitted { options.context } else { 0 };
-    let num_before = 0;
+    let num_leading = if emitted { options.context } else { 0 };
+    let num_trailing = 0;
     show_color_words_context_lines(
         formatter,
+        None, // no source symbol at the end
         &contexts,
         line_number,
         labels,
         options,
-        num_after,
-        num_before,
+        (num_leading, num_trailing),
     )
 }
 
 fn show_color_words_unresolved_hunk(
     formatter: &mut dyn Formatter,
+    language: Option<SourceLanguage>,
     hunk: &ConflictDiffHunk,
     line_number: DiffLineNumber,
     labels: Diff<&str>,
@@ -998,8 +1020,14 @@ fn show_color_words_unresolved_hunk(
             false => labels.invert(),
         };
         // Individual hunk pair may be largely the same, so diff it again.
-        let new_line_number =
-            show_color_words_resolved_hunks(formatter, contents, line_number, labels, options)?;
+        let new_line_number = show_color_words_resolved_hunks(
+            formatter,
+            language,
+            contents,
+            line_number,
+            labels,
+            options,
+        )?;
         // Take max to assign unique line numbers to trailing hunks. The line
         // numbers can't be real anyway because preceding conflict hunks might
         // have been resolved.
@@ -1013,6 +1041,7 @@ fn show_color_words_unresolved_hunk(
 
 fn show_color_words_resolved_hunks(
     formatter: &mut dyn Formatter,
+    language: Option<SourceLanguage>,
     contents: Diff<&BStr>,
     mut line_number: DiffLineNumber,
     labels: Diff<&str>,
@@ -1033,16 +1062,16 @@ fn show_color_words_resolved_hunks(
                 context = Some(hunk_contents);
             }
             DiffHunkKind::Different => {
-                let num_after = if emitted { options.context } else { 0 };
-                let num_before = options.context;
+                let num_leading = if emitted { options.context } else { 0 };
+                let num_trailing = options.context;
                 line_number = show_color_words_context_lines(
                     formatter,
+                    language,
                     context.as_slice(),
                     line_number,
                     labels,
                     options,
-                    num_after,
-                    num_before,
+                    (num_leading, num_trailing),
                 )?;
                 context = None;
                 emitted = true;
@@ -1057,30 +1086,29 @@ fn show_color_words_resolved_hunks(
         }
     }
 
-    let num_after = if emitted { options.context } else { 0 };
-    let num_before = 0;
+    let num_leading = if emitted { options.context } else { 0 };
+    let num_trailing = 0;
     show_color_words_context_lines(
         formatter,
+        None, // no source symbol at the end
         context.as_slice(),
         line_number,
         labels,
         options,
-        num_after,
-        num_before,
+        (num_leading, num_trailing),
     )
 }
 
-/// Prints `num_after` lines, ellipsis, and `num_before` lines.
+/// Prints `num_leading` lines, ellipsis, and `num_trailing` lines.
 fn show_color_words_context_lines(
     formatter: &mut dyn Formatter,
+    language: Option<SourceLanguage>,
     contexts: &[Diff<&BStr>],
     mut line_number: DiffLineNumber,
     labels: Diff<&str>,
     options: &ColorWordsDiffOptions,
-    num_after: usize,
-    num_before: usize,
+    (num_leading, num_trailing): (usize, usize),
 ) -> io::Result<DiffLineNumber> {
-    const SKIPPED_CONTEXT_LINE: &str = "    ...\n";
     let extract = |after: bool| -> (Vec<&[u8]>, Vec<&[u8]>, u32) {
         let mut lines = contexts
             .iter()
@@ -1093,10 +1121,10 @@ fn show_color_words_context_lines(
             })
             .flat_map(|side| side.split_inclusive(|b| *b == b'\n'))
             .fuse();
-        let after_lines = lines.by_ref().take(num_after).collect();
-        let before_lines = lines.by_ref().rev().take(num_before + 1).collect();
+        let leading_lines = lines.by_ref().take(num_leading).collect();
+        let trailing_lines = lines.by_ref().rev().take(num_trailing + 1).collect();
         let num_skipped: u32 = lines.count().try_into().unwrap();
-        (after_lines, before_lines, num_skipped)
+        (leading_lines, trailing_lines, num_skipped)
     };
     let show = |formatter: &mut dyn Formatter,
                 [left_lines, right_lines]: [&[&[u8]]; 2],
@@ -1133,25 +1161,48 @@ fn show_color_words_context_lines(
         }
     };
 
-    let (left_after, mut left_before, num_left_skipped) = extract(false);
-    let (right_after, mut right_before, num_right_skipped) = extract(true);
-    line_number = show(formatter, [&left_after, &right_after], line_number)?;
+    let (left_leading, mut left_trailing, num_left_skipped) = extract(false);
+    let (right_leading, mut right_trailing, num_right_skipped) = extract(true);
+    line_number = show(formatter, [&left_leading, &right_leading], line_number)?;
     if num_left_skipped > 0 || num_right_skipped > 0 {
-        write!(formatter, "{SKIPPED_CONTEXT_LINE}")?;
+        // Show the last symbol line as context for the skipped range, but omit
+        // it if a new symbol line immediately follows.
+        let symbol_line = language.and_then(|lang| {
+            let mut lines = contexts
+                .iter()
+                .flat_map(|contents| contents.after.split_inclusive(|b| *b == b'\n'))
+                .fuse();
+            lines.by_ref().take(num_leading).for_each(drop);
+            let next_line = lines.by_ref().rev().take(num_trailing).last();
+            next_line
+                .and_then(|line| source_symbol_from_line(lang, line))
+                .is_none()
+                .then(|| lines.rfind(|line| source_symbol_from_line(lang, line).is_some()))
+                .flatten()
+        });
+        if let Some(line) = symbol_line {
+            write!(formatter, "    ...    ")?;
+            formatter.labeled("context").write_all(line)?;
+            if !line.ends_with(b"\n") {
+                writeln!(formatter)?;
+            }
+        } else {
+            writeln!(formatter, "    ...")?;
+        }
         line_number.left += num_left_skipped;
         line_number.right += num_right_skipped;
-        if left_before.len() > num_before {
-            left_before.pop();
+        if left_trailing.len() > num_trailing {
+            left_trailing.pop();
             line_number.left += 1;
         }
-        if right_before.len() > num_before {
-            right_before.pop();
+        if right_trailing.len() > num_trailing {
+            right_trailing.pop();
             line_number.right += 1;
         }
     }
-    left_before.reverse();
-    right_before.reverse();
-    line_number = show(formatter, [&left_before, &right_before], line_number)?;
+    left_trailing.reverse();
+    right_trailing.reverse();
+    line_number = show(formatter, [&left_trailing, &right_trailing], line_number)?;
     Ok(line_number)
 }
 
@@ -1452,6 +1503,10 @@ pub async fn show_color_words_diff(
         let right_path = path.target();
         let left_ui_path = path_converter.format_file_path(left_path);
         let right_ui_path = path_converter.format_file_path(right_path);
+        let language = right_path
+            .components()
+            .next_back()
+            .and_then(|name| SourceLanguage::from_file_name(name.as_internal_str()));
         let Diff {
             before: left_value,
             after: right_value,
@@ -1490,6 +1545,7 @@ pub async fn show_color_words_diff(
             } else {
                 show_color_words_diff_hunks(
                     formatter,
+                    language,
                     Diff::new(&empty_content(), &right_content.contents.file_content),
                     Diff::new(
                         &ConflictLabels::unlabeled(),
@@ -1561,6 +1617,7 @@ pub async fn show_color_words_diff(
             } else if left_content.contents != right_content.contents {
                 show_color_words_diff_hunks(
                     formatter,
+                    language,
                     Diff::new(
                         &left_content.contents.file_content,
                         &right_content.contents.file_content,
@@ -1587,6 +1644,7 @@ pub async fn show_color_words_diff(
             } else {
                 show_color_words_diff_hunks(
                     formatter,
+                    language,
                     Diff::new(&left_content.contents.file_content, &empty_content()),
                     Diff::new(
                         &left_content.contents.conflict_labels,
@@ -1624,7 +1682,7 @@ pub async fn show_file_by_file_diff(
         Ok(fs_path)
     };
 
-    let temp_dir = new_utf8_temp_dir("jj-diff-")?;
+    let temp_dir = tempfile::Builder::new().prefix("jj-diff-").tempdir()?;
     let left_wc_dir = temp_dir.path().join("left");
     let right_wc_dir = temp_dir.path().join("right");
     let mut diff_stream = materialized_diff_stream(store, tree_diff, conflict_labels);
@@ -1659,24 +1717,20 @@ pub async fn show_file_by_file_diff(
         }
         let left_path = create_file(left_path, &left_wc_dir, left_value).await?;
         let right_path = create_file(right_path, &right_wc_dir, right_value).await?;
-        let patterns = &maplit::hashmap! {
+        let patterns: HashMap<&str, OsString> = maplit::hashmap! {
             "left" => left_path
                 .strip_prefix(temp_dir.path())
                 .expect("path should be relative to temp_dir")
-                .to_str()
-                .expect("temp_dir should be valid utf-8")
-                .to_owned(),
+                .into(),
             "right" => right_path
                 .strip_prefix(temp_dir.path())
                 .expect("path should be relative to temp_dir")
-                .to_str()
-                .expect("temp_dir should be valid utf-8")
-                .to_owned(),
-            "width" => width.to_string(),
+                .into(),
+            "width" => width.to_string().into(),
         };
 
         let mut writer = formatter.raw()?;
-        invoke_external_diff(ui, writer.as_mut(), tool, temp_dir.path(), patterns)
+        invoke_external_diff(ui, writer.as_mut(), tool, temp_dir.path(), &patterns)
             .map_err(DiffRenderError::DiffGenerate)?;
     }
     Ok::<(), DiffRenderError>(())

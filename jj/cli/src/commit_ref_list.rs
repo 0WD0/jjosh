@@ -75,10 +75,10 @@ pub fn collect_items<'a>(
             predicates.name_matcher.is_match(name.as_str())
                 || targets
                     .local_target
-                    .added_ids()
+                    .present_adds()
                     .any(|id| predicates.matched_local_targets.contains(id))
         })
-        .filter(|(_, targets)| !predicates.conflicted || targets.local_target.has_conflict());
+        .filter(|(_, targets)| !predicates.conflicted || !targets.local_target.is_resolved());
     for (name, targets) in refs_to_list {
         let LocalRemoteRefTarget {
             local_target,
@@ -220,7 +220,7 @@ pub fn sort(
     if sort_keys.iter().any(|key| key.is_commit_dependant()) {
         commits = items
             .iter()
-            .filter_map(|item| item.primary.target().added_ids().next())
+            .filter_map(|item| item.primary.target().present_adds().next())
             .map(|commit_id| {
                 store
                     .get_commit(commit_id)
@@ -238,7 +238,7 @@ fn sort_inner(
     commits: &HashMap<CommitId, Arc<backend::Commit>>,
 ) {
     let to_commit = |item: &RefListItem| {
-        let id = item.primary.target().added_ids().next()?;
+        let id = item.primary.target().present_adds().next()?;
         commits.get(id)
     };
 
@@ -484,7 +484,7 @@ mod tests {
         sort_inner(items, sort_keys, commits);
 
         let to_commit = |item: &RefListItem| {
-            let id = item.primary.target().added_ids().next()?;
+            let id = item.primary.target().present_adds().next()?;
             commits.get(id)
         };
 

@@ -21,6 +21,7 @@ mod untrack;
 use std::io;
 
 use itertools::Itertools as _;
+use jj_lib::op_store::ABSENT_REMOTE_REF;
 use jj_lib::op_store::RemoteRef;
 use jj_lib::ref_name::RefName;
 use jj_lib::ref_name::RemoteName;
@@ -96,7 +97,10 @@ fn resolve_trackable_remote_tags<'a>(
         writeln!(
             ui.warning_default(),
             "No matching remote tags for names: {}",
-            unmatched_symbols.iter().map(|symbol| view.remote_ref_symbol(*symbol)).join(", ")
+            unmatched_symbols
+                .iter()
+                .map(|symbol| view.remote_ref_symbol(*symbol))
+                .join(", ")
         )?;
     }
     Ok(trackable_refs)
@@ -127,7 +131,7 @@ fn trackable_remote_tags_matching<'a>(
                 && jj_lib::revset::remote_ref_matches_scope(view, symbol)
                     .map_err(crate::command_error::user_error)?
             {
-                matches.push((symbol, RemoteRef::absent_ref()));
+                matches.push((symbol, &ABSENT_REMOTE_REF));
             }
         }
     }

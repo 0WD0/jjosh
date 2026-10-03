@@ -1513,7 +1513,7 @@ fn evaluate_revset_expression<'repo>(
     let revset = expression
         .resolve_user_expression(repo, &symbol_resolver)
         .map_err(|err| make_error().with_source(err))?
-        .evaluate(repo)
+        .evaluate()
         .map_err(|err| make_error().with_source(err))?;
     Ok(revset)
 }
@@ -1739,9 +1739,9 @@ impl CommitRef {
         self.target.is_present()
     }
 
-    /// Whether the ref target has conflicts.
-    pub fn has_conflict(&self) -> bool {
-        self.target.has_conflict()
+    /// Whether the ref target is resolved.
+    pub fn is_resolved(&self) -> bool {
+        self.target.is_resolved()
     }
 
     /// Returns true if this ref is tracked by a local ref. The local ref might
@@ -1766,8 +1766,8 @@ impl CommitRef {
         tracking
             .ahead_count
             .get_or_try_init(|| {
-                let self_ids = self.target.added_ids().cloned().collect_vec();
-                let other_ids = tracking.target.added_ids().cloned().collect_vec();
+                let self_ids = self.target.present_adds().cloned().collect_vec();
+                let other_ids = tracking.target.present_adds().cloned().collect_vec();
                 Ok(revset::walk_revs(repo, &self_ids, &other_ids)?.count_estimate()?)
             })
             .copied()
@@ -1781,8 +1781,8 @@ impl CommitRef {
         tracking
             .behind_count
             .get_or_try_init(|| {
-                let self_ids = self.target.added_ids().cloned().collect_vec();
-                let other_ids = tracking.target.added_ids().cloned().collect_vec();
+                let self_ids = self.target.present_adds().cloned().collect_vec();
+                let other_ids = tracking.target.present_adds().cloned().collect_vec();
                 Ok(revset::walk_revs(repo, &other_ids, &self_ids)?.count_estimate()?)
             })
             .copied()
@@ -1799,7 +1799,7 @@ impl Template for Rc<CommitRef> {
         }
         // Don't show both conflict and unsynced sigils as conflicted ref wouldn't
         // be pushed.
-        if self.has_conflict() {
+        if !self.is_resolved() {
             write!(formatter, "??")?;
         } else if self.is_local() && !self.synced {
             write!(formatter, "*")?;
@@ -1949,7 +1949,7 @@ fn builtin_commit_ref_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, 
         "conflict",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
-            let out_property = self_property.map(|commit_ref| commit_ref.has_conflict());
+            let out_property = self_property.map(|commit_ref| !commit_ref.is_resolved());
             Ok(out_property.into_dyn_wrapped())
         },
     );
@@ -1971,7 +1971,7 @@ fn builtin_commit_ref_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, 
             function.expect_no_arguments()?;
             let repo = language.repo;
             let out_property = self_property.and_then(|commit_ref| {
-                let ids = commit_ref.target.removed_ids();
+                let ids = commit_ref.target.present_removes();
                 let commits: Vec<_> = ids.map(|id| repo.store().get_commit(id)).try_collect()?;
                 Ok(commits)
             });
@@ -1984,7 +1984,7 @@ fn builtin_commit_ref_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, 
             function.expect_no_arguments()?;
             let repo = language.repo;
             let out_property = self_property.and_then(|commit_ref| {
-                let ids = commit_ref.target.added_ids();
+                let ids = commit_ref.target.present_adds();
                 let commits: Vec<_> = ids.map(|id| repo.store().get_commit(id)).try_collect()?;
                 Ok(commits)
             });
@@ -2080,11 +2080,11 @@ fn build_local_remote_refs_index<'a>(
                 local_target.clone(),
                 remote_refs.iter().map(|&(_, remote_ref)| remote_ref),
             );
-            index.insert(local_target.added_ids(), commit_ref);
+            index.insert(local_target.present_adds(), commit_ref);
         }
         for (remote_name, remote_ref) in remote_refs {
             let commit_ref = CommitRef::remote(name, remote_name, remote_ref.clone(), local_target);
-            index.insert(remote_ref.target.added_ids(), commit_ref);
+            index.insert(remote_ref.target.present_adds(), commit_ref);
         }
     }
     Ok(index)
@@ -2096,7 +2096,7 @@ fn build_commit_refs_index<'a, K: Into<String>>(
     let mut index = CommitRefsIndex::default();
     for (name, target) in ref_pairs {
         let commit_ref = CommitRef::local_only(name, target.clone());
-        index.insert(target.added_ids(), commit_ref);
+        index.insert(target.present_adds(), commit_ref);
     }
     index
 }
@@ -3308,7 +3308,7 @@ mod tests {
             .set_value("debug.commit-timestamp", "2001-02-03T04:05:06+07:00")
             .unwrap();
         config.add_layer(layer);
-        UserSettings::from_config(config).unwrap()
+        testutils::user_settings_from_config(config)
     }
 
     #[test]

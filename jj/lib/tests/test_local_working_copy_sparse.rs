@@ -38,6 +38,7 @@ use testutils::TestResult;
 use testutils::TestWorkspace;
 use testutils::commit_with_tree;
 use testutils::create_tree;
+use testutils::create_tree_with;
 use testutils::repo_path;
 
 fn paths_to_fileset(paths: &[&RepoPath]) -> WorkingCopyPatterns {
@@ -884,5 +885,277 @@ fn test_mapping_rejects_symlink_parent_before_removing_old_files() -> TestResult
         "outside"
     );
     locked_ws.finish(repo.op_id().clone()).block_on()?;
+    Ok(())
+}
+
+/// Test that tracked .gitignore files are respected even if they aren't
+/// materialized in the working copy because of the sparse patterns.
+/// https://github.com/jj-vcs/jj/issues/2289
+#[test]
+fn test_sparse_commit_gitignore_sparsed_away() -> TestResult {
+    let mut test_workspace = TestWorkspace::init();
+    let repo = &test_workspace.repo;
+    let working_copy_path = test_workspace.workspace.workspace_root().to_owned();
+
+    let root_gitignore_path = repo_path(".gitignore");
+    let dir1_gitignore_path = repo_path("dir1/.gitignore");
+    let dir1_subdir1_path = repo_path("dir1/subdir1");
+    let dir1_subdir1_file1_path = repo_path("dir1/subdir1/file1");
+    let dir1_subdir1_file2_path = repo_path("dir1/subdir1/file2");
+    let dir1_subdir1_file3_path = repo_path("dir1/subdir1/file3");
+
+    let tree = create_tree(
+        repo,
+        &[
+            (root_gitignore_path, "file1\n"),
+            (dir1_gitignore_path, "file2\n"),
+        ],
+    );
+    let commit = commit_with_tree(repo.store(), tree);
+    test_workspace
+        .workspace
+        .check_out(repo.op_id().clone(), None, &commit)
+        .block_on()?;
+
+    // Set sparse patterns to only dir1/subdir1/, so that both .gitignore files
+    // are removed from disk.
+    let mut locked_ws = test_workspace
+        .workspace
+        .start_working_copy_mutation()
+        .block_on()?;
+    let sparse_patterns = paths_to_fileset(&[dir1_subdir1_path]);
+    locked_ws
+        .locked_wc()
+        .set_sparse_patterns(sparse_patterns)
+        .block_on()?;
+    locked_ws.finish(repo.op_id().clone()).block_on()?;
+    assert!(
+        !root_gitignore_path
+            .to_fs_path_unchecked(&working_copy_path)
+            .exists()
+    );
+    assert!(
+        !dir1_gitignore_path
+            .to_fs_path_unchecked(&working_copy_path)
+            .exists()
+    );
+
+    std::fs::create_dir_all(dir1_subdir1_path.to_fs_path_unchecked(&working_copy_path))?;
+    for path in [
+        dir1_subdir1_file1_path,
+        dir1_subdir1_file2_path,
+        dir1_subdir1_file3_path,
+    ] {
+        std::fs::write(path.to_fs_path_unchecked(&working_copy_path), "contents")?;
+    }
+
+    // file1 is ignored by the root .gitignore and file2 by dir1/.gitignore, so
+    // only file3 should be tracked (in addition to the sparsed-away files.)
+    let modified_tree = test_workspace.snapshot()?;
+    let entries = modified_tree.entries().map(|(path, _)| path).collect_vec();
+    assert_eq!(
+        entries.iter().map(AsRef::as_ref).collect_vec(),
+        vec![
+            root_gitignore_path,
+            dir1_gitignore_path,
+            dir1_subdir1_file3_path,
+        ]
+    );
+    Ok(())
+}
+
+/// A symlinked `.gitignore` read from the tree must not contribute any
+/// patterns. Git doesn't follow such symlinks either, so that the rules
+/// don't depend on whether the file is read from the filesystem or from a
+/// tree. See the "NOTES" section of gitignore(5).
+#[test]
+fn test_sparse_commit_gitignore_symlink_not_followed() -> TestResult {
+    let mut test_workspace = TestWorkspace::init();
+    let repo = &test_workspace.repo;
+    let working_copy_path = test_workspace.workspace.workspace_root().to_owned();
+
+    let dir1_gitignore_path = repo_path("dir1/.gitignore");
+    let dir1_file1_path = repo_path("dir1/file1");
+    let dir1_subdir1_path = repo_path("dir1/subdir1");
+    let dir1_subdir1_file1_path = repo_path("dir1/subdir1/file1");
+
+    // `dir1/.gitignore` is a symlink pointing at `file1`. Both the symlink
+    // target itself and the contents of `dir1/file1` would ignore
+    // `dir1/subdir1/file1` if either were incorrectly used as patterns.
+    let tree = create_tree_with(repo, |builder| {
+        builder.file(dir1_file1_path, "file1\n");
+        builder.symlink(dir1_gitignore_path, "file1");
+    });
+    let commit = commit_with_tree(repo.store(), tree);
+    test_workspace
+        .workspace
+        .check_out(repo.op_id().clone(), None, &commit)
+        .block_on()?;
+
+    // Set sparse patterns to only dir1/subdir1/, so that the symlinked
+    // .gitignore has to be read from the tree.
+    let mut locked_ws = test_workspace
+        .workspace
+        .start_working_copy_mutation()
+        .block_on()?;
+    let sparse_patterns = paths_to_fileset(&[dir1_subdir1_path]);
+    locked_ws
+        .locked_wc()
+        .set_sparse_patterns(sparse_patterns)
+        .block_on()?;
+    locked_ws.finish(repo.op_id().clone()).block_on()?;
+    assert!(
+        !dir1_gitignore_path
+            .to_fs_path_unchecked(&working_copy_path)
+            .exists()
+    );
+
+    std::fs::create_dir_all(dir1_subdir1_path.to_fs_path_unchecked(&working_copy_path))?;
+    std::fs::write(
+        dir1_subdir1_file1_path.to_fs_path_unchecked(&working_copy_path),
+        "contents",
+    )?;
+
+    // The symlink contributes no patterns, so the new file is tracked.
+    let modified_tree = test_workspace.snapshot()?;
+    let entries = modified_tree.entries().map(|(path, _)| path).collect_vec();
+    assert_eq!(
+        entries.iter().map(|path| path.as_ref()).collect_vec(),
+        vec![
+            dir1_gitignore_path,
+            dir1_file1_path,
+            dir1_subdir1_file1_path,
+        ]
+    );
+    Ok(())
+}
+
+#[test]
+fn test_mapped_sparse_gitignore_uses_canonical_fallback_and_physical_rules() -> TestResult {
+    for destination in ["", "view/project"] {
+        let mut test_workspace = TestWorkspace::init();
+        let repo = test_workspace.repo.clone();
+        let tree = create_tree(
+            &repo,
+            &[
+                (repo_path(".gitignore"), "from-other-source\n"),
+                (repo_path("view/.gitignore"), "from-other-source\n"),
+                (repo_path("view/project/.gitignore"), "from-other-source\n"),
+                (repo_path("app/.gitignore"), "/cache/\nfrom-tree\n"),
+                (repo_path("app/sub/.gitignore"), "nested-tree\n"),
+                (repo_path("app/tracked"), "tracked"),
+                (repo_path("app/sub/tracked"), "nested tracked"),
+            ],
+        );
+        let commit = commit_with_tree(repo.store(), tree.clone());
+        let mut patterns = WorkingCopyPatterns::all();
+        for path in ["app/.gitignore", "app/sub/.gitignore"] {
+            patterns.rules.push(SparseRule {
+                include: false,
+                expression: SparseExpression::FilePath(repo_path(path).to_owned()),
+            });
+        }
+        patterns.mappings = vec![mapping("app", destination)];
+        let mut locked_ws = test_workspace
+            .workspace
+            .start_working_copy_mutation()
+            .block_on()?;
+        locked_ws
+            .locked_wc()
+            .check_out_with_sparse_patterns(&commit, patterns)
+            .block_on()?;
+        locked_ws.finish(repo.op_id().clone()).block_on()?;
+        let root = test_workspace.workspace.workspace_root().join(destination);
+        assert!(!root.join(".gitignore").exists());
+        assert!(!root.join("sub/.gitignore").exists());
+        std::fs::create_dir(root.join("cache"))?;
+        for path in [
+            "from-tree",
+            "from-other-source",
+            "cache/artifact",
+            "sub/nested-tree",
+            "sub/kept",
+        ] {
+            std::fs::write(root.join(path), "new")?;
+        }
+
+        // Canonical ignore files apply relative to their mapped directory.
+        // Unrelated canonical files at physical coordinates must not contribute.
+        let snapshot = test_workspace.snapshot()?;
+        let added = tree
+            .diff_stream(&snapshot, &EverythingMatcher)
+            .map(|entry| entry.path)
+            .collect::<Vec<_>>()
+            .block_on();
+        assert_eq!(
+            added,
+            vec![
+                repo_path("app/from-other-source").to_owned(),
+                repo_path("app/sub/kept").to_owned(),
+            ]
+        );
+
+        // Even an excluded on-disk .gitignore overrides the canonical fallback.
+        std::fs::write(root.join(".gitignore"), "/cache/\nfrom-disk\n")?;
+        std::fs::write(root.join("from-disk"), "ignored on disk")?;
+        let snapshot = test_workspace.snapshot()?;
+        assert!(
+            snapshot
+                .path_value(repo_path("app/from-tree"))
+                .block_on()?
+                .is_present()
+        );
+        for path in ["app/from-disk", "app/cache/artifact", "app/sub/nested-tree"] {
+            assert!(snapshot.path_value(repo_path(path)).block_on()?.is_absent());
+        }
+        assert_eq!(
+            snapshot
+                .path_value(repo_path("app/.gitignore"))
+                .block_on()?,
+            tree.path_value(repo_path("app/.gitignore")).block_on()?
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn test_mapped_sparse_deleted_gitignore_does_not_use_tree_fallback() -> TestResult {
+    let mut test_workspace = TestWorkspace::init();
+    let repo = test_workspace.repo.clone();
+    let tree = create_tree(
+        &repo,
+        &[
+            (repo_path("app/.gitignore"), "new\n"),
+            (repo_path("app/tracked"), "tracked"),
+        ],
+    );
+    let commit = commit_with_tree(repo.store(), tree);
+    let mut patterns = WorkingCopyPatterns::all();
+    patterns.mappings = vec![mapping("app", "view")];
+    let mut locked_ws = test_workspace
+        .workspace
+        .start_working_copy_mutation()
+        .block_on()?;
+    locked_ws
+        .locked_wc()
+        .check_out_with_sparse_patterns(&commit, patterns)
+        .block_on()?;
+    locked_ws.finish(repo.op_id().clone()).block_on()?;
+    let root = test_workspace.workspace.workspace_root().join("view");
+    std::fs::remove_file(root.join(".gitignore"))?;
+    std::fs::write(root.join("new"), "new")?;
+    let snapshot = test_workspace.snapshot()?;
+    assert!(
+        snapshot
+            .path_value(repo_path("app/.gitignore"))
+            .block_on()?
+            .is_absent()
+    );
+    assert!(
+        snapshot
+            .path_value(repo_path("app/new"))
+            .block_on()?
+            .is_present()
+    );
     Ok(())
 }

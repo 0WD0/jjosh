@@ -24,7 +24,6 @@ fn main() -> Result<()> {
         "simple_op_store.proto",
         "simple_store.proto",
         "simple_workspace_store.proto",
-        "working_copy_patterns.proto",
     ];
 
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
@@ -40,6 +39,22 @@ fn main() -> Result<()> {
                 .into_iter()
                 .map(|x| protos_dir.join(x))
                 .collect::<Vec<_>>(),
-            &[protos_dir],
-        )
+            &[&protos_dir],
+        )?;
+
+    let core_protos_dir = root
+        .parent()
+        .unwrap()
+        .join("core/src/working_copy_patterns");
+    std::fs::create_dir_all(&core_protos_dir)?;
+    prost_build::Config::new()
+        .out_dir(&core_protos_dir)
+        .compile_protos(
+            &[protos_dir.join("working_copy_patterns.proto")],
+            &[&protos_dir],
+        )?;
+    std::fs::rename(
+        core_protos_dir.join("working_copy_patterns.rs"),
+        core_protos_dir.join("proto.rs"),
+    )
 }

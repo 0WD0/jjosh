@@ -610,9 +610,7 @@ impl Plan {
 
     fn extend_into(&self, destination: &mut View, ids: Option<&HashMap<CommitId, CommitId>>) {
         let map_id = |id: &CommitId| ids.map_or_else(|| id.clone(), |ids| ids[id].clone());
-        let map_reference = |target: &RefTarget| {
-            RefTarget::from_merge(target.as_merge().map(|id| id.as_ref().map(&map_id)))
-        };
+        let map_reference = |target: &RefTarget| target.map(|id| id.as_ref().map(&map_id));
         if ids.is_some() {
             destination
                 .head_ids

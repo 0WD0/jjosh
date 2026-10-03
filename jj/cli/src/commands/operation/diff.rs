@@ -250,10 +250,12 @@ fn resolve_op_diff_changes_exprs(
         .symbol_resolvers();
     let from_repo_symbol_resolver = SymbolResolver::new(from_repo, extensions);
     let to_repo_symbol_resolver = SymbolResolver::new(to_repo, extensions);
-    let from_op_diff_changes_expr =
-        op_diff_changes_expr.resolve_user_expression(from_repo, &from_repo_symbol_resolver)?;
-    let to_op_diff_changes_expr =
-        op_diff_changes_expr.resolve_user_expression(to_repo, &to_repo_symbol_resolver)?;
+    let (from_op_diff_changes_expr, _other_repos) = op_diff_changes_expr
+        .resolve_user_expression(from_repo, &from_repo_symbol_resolver)?
+        .into_inner();
+    let (to_op_diff_changes_expr, _other_repos) = op_diff_changes_expr
+        .resolve_user_expression(to_repo, &to_repo_symbol_resolver)?
+        .into_inner();
     Ok((from_op_diff_changes_expr, to_op_diff_changes_expr))
 }
 
@@ -846,15 +848,15 @@ async fn write_ref_target_summary(
     if ref_target.is_absent() {
         write_prefix(formatter, added, prefix)?;
         writeln!(formatter, "(absent)")?;
-    } else if ref_target.has_conflict() {
-        for commit_id in ref_target.added_ids() {
+    } else if !ref_target.is_resolved() {
+        for commit_id in ref_target.present_adds() {
             write_prefix(formatter, added, prefix)?;
             write!(formatter, "(added) ")?;
             let commit = repo.store().get_commit_async(commit_id).await?;
             commit_summary_template.format(&commit, formatter)?;
             writeln!(formatter)?;
         }
-        for commit_id in ref_target.removed_ids() {
+        for commit_id in ref_target.present_removes() {
             write_prefix(formatter, added, prefix)?;
             write!(formatter, "(removed) ")?;
             let commit = repo.store().get_commit_async(commit_id).await?;

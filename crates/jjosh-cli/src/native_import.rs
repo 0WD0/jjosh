@@ -319,11 +319,7 @@ pub(crate) async fn rewrite_graph(
 }
 
 fn map_reference(target: &RefTarget, ids: &HashMap<CommitId, CommitId>) -> RefTarget {
-    RefTarget::from_merge(
-        target
-            .as_merge()
-            .map(|term| term.as_ref().map(|id| ids[id].clone())),
-    )
+    target.map(|term| term.as_ref().map(|id| ids[id].clone()))
 }
 
 pub(crate) fn map_outer_view(

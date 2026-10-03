@@ -243,7 +243,7 @@ async fn validate_cached_source_ancestry(
     head: &CommitId,
 ) -> Result<(), CommandError> {
     for (kind, name, target) in cached_source_targets(repo.view(), &scope.name) {
-        for cached in target.added_ids() {
+        for cached in target.present_adds() {
             // Recorded Git tag mirrors may point at an annotation, unlike the
             // peeled commit targets in remote_views.
             let raw = gix::ObjectId::try_from(cached.as_bytes()).map_err(user_error)?;

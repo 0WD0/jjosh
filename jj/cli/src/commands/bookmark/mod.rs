@@ -28,6 +28,7 @@ use std::io;
 use itertools::Itertools as _;
 use jj_lib::backend::CommitId;
 use jj_lib::iter_util::fallible_any;
+use jj_lib::op_store::ABSENT_REMOTE_REF;
 use jj_lib::op_store::RefTarget;
 use jj_lib::op_store::RemoteRef;
 use jj_lib::ref_name::RefName;
@@ -139,7 +140,10 @@ fn resolve_trackable_remote_bookmarks<'a>(
         writeln!(
             ui.warning_default(),
             "No matching remote bookmarks for names: {}",
-            unmatched_symbols.iter().map(|symbol| view.remote_ref_symbol(*symbol)).join(", ")
+            unmatched_symbols
+                .iter()
+                .map(|symbol| view.remote_ref_symbol(*symbol))
+                .join(", ")
         )?;
     }
     Ok(trackable_refs)
@@ -170,7 +174,7 @@ fn trackable_remote_bookmarks_matching<'a>(
                 && jj_lib::revset::remote_ref_matches_scope(view, symbol)
                     .map_err(crate::command_error::user_error)?
             {
-                matches.push((symbol, RemoteRef::absent_ref()));
+                matches.push((symbol, &ABSENT_REMOTE_REF));
             }
         }
     }
@@ -186,7 +190,7 @@ async fn is_fast_forward(
         // Strictly speaking, "all" old targets should be ancestors, but we allow
         // conflict resolution by setting bookmark to "any" of the old target
         // descendants.
-        let found = fallible_any(old_target.added_ids(), async |old| {
+        let found = fallible_any(old_target.present_adds(), async |old| {
             repo.index().is_ancestor(old, new_target_id).await
         })
         .await?;
