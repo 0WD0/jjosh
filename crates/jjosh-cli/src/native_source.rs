@@ -114,7 +114,7 @@ impl NativeSource {
             .values()
             .chain(selected.local_tags.values())
         {
-            selected.head_ids.extend(target.added_ids().cloned());
+            selected.head_ids.extend(target.present_adds().cloned());
         }
         let source = Self::read_view(loader.store().clone(), selected, &[]).await?;
         state.verify(loader).await?;

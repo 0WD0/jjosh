@@ -16,6 +16,7 @@
 
 ### 主要能力
 
+- 跟随上游将 operation-store 类型及项目、稀疏配置的底层表示移至 `jj-core`；保留现有 View 哈希、protobuf 编码和 `simple_op_store_projects_v3` 格式，已有仓库与 operation 历史无需迁移。
 - Git HTTP 后端不再继承 reqwest 默认的 30 秒响应读取等待限制，避免服务端生成或传输 pack 暂停时误中断 fetch；现有 20 秒连接超时保持不变，不增加自动重试。
 - Git fetch 仅使用当前 endpoint 已保留的原始提交作为协商起点，不再扫描 monorepo 及 alternate 对象库的全部引用，避免大量内部保留引用拖慢小型上游仓库的获取。
   首次获取不发送无关历史，后续获取仍进行增量协商；advertisement-pinned 对象请求和默认完整历史语义不变。
@@ -35,6 +36,7 @@
 
 ### 工作副本
 
+- 稀疏选择排除的 `.gitignore` 可从已提交的 canonical 树读取；路径映射工作区先解析其 canonical 归属，再按物理目录应用忽略规则，磁盘上的 `.gitignore` 仍优先。
 - `jjosh sparse set` 使用普通 fileset；`--add` / `--remove` 形成有序选择规则。
 - `jjosh sparse map set SOURCE=DEST` 将 canonical 路径映射到物理工作目录位置，不改变 commit 中的路径、project canonical root 或远端表示。
 - sparse/layout 是 operation-versioned 的工作副本状态；恢复历史 operation 可以恢复期望布局，但不会把已发生的外部发布或本机 remote 配置一起回退。

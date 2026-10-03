@@ -78,10 +78,7 @@ pub(crate) async fn cmd_status(
         workspace_command.env().path_converter(),
     )?;
     let repo = workspace_command.repo();
-    let maybe_wc_commit = workspace_command
-        .get_wc_commit_id()
-        .map(|id| repo.store().get_commit(id))
-        .transpose()?;
+    let maybe_wc_commit = workspace_command.get_wc_commit().await?;
     let fileset_expression = workspace_command.parse_file_patterns(ui, &args.paths)?;
     let matcher = fileset_expression.to_matcher();
     ui.request_pager();
@@ -209,13 +206,13 @@ pub(crate) async fn cmd_status(
     let conflicted_local_bookmarks = repo
         .view()
         .local_bookmarks()
-        .filter(|(_, target)| target.has_conflict())
+        .filter(|(_, target)| !target.is_resolved())
         .map(|(bookmark_name, _)| bookmark_name)
         .collect_vec();
     let conflicted_remote_bookmarks = repo
         .view()
         .all_remote_bookmarks()
-        .filter(|(_, remote_ref)| remote_ref.target.has_conflict())
+        .filter(|(_, remote_ref)| !remote_ref.target.is_resolved())
         .map(|(symbol, _)| repo.view().remote_ref_symbol(symbol))
         .collect_vec();
     if !conflicted_local_bookmarks.is_empty() {

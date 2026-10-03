@@ -48,7 +48,6 @@ use self::builtin::BuiltinToolError;
 use self::builtin::edit_diff_builtin;
 use self::builtin::edit_merge_builtin;
 use self::diff_working_copies::DiffCheckoutError;
-pub(crate) use self::diff_working_copies::new_utf8_temp_dir;
 pub use self::external::DiffToolMode;
 pub use self::external::ExternalMergeTool;
 use self::external::ExternalToolError;
@@ -513,7 +512,7 @@ mod tests {
     fn test_get_diff_editor_with_name() {
         let get = |name, config_text| {
             let config = config_from_string(config_text);
-            let settings = UserSettings::from_config(config).unwrap();
+            let settings = testutils::user_settings_from_config(config);
             DiffEditor::with_name(
                 name,
                 &settings,
@@ -592,7 +591,7 @@ mod tests {
         let get = |text| {
             let config = config_from_string(text);
             let ui = Ui::with_config(&config).unwrap();
-            let settings = UserSettings::from_config(config).unwrap();
+            let settings = testutils::user_settings_from_config(config);
             DiffEditor::from_settings(
                 &ui,
                 &settings,
@@ -808,7 +807,7 @@ mod tests {
     fn test_get_merge_editor_with_name() {
         let get = |name, config_text| {
             let config = config_from_string(config_text);
-            let settings = UserSettings::from_config(config).unwrap();
+            let settings = testutils::user_settings_from_config(config);
             let path_converter = RepoPathUiConverter::Fs {
                 cwd: "".into(),
                 base: "".into(),
@@ -869,7 +868,7 @@ mod tests {
         let get = |text| {
             let config = config_from_string(text);
             let ui = Ui::with_config(&config).unwrap();
-            let settings = UserSettings::from_config(config).unwrap();
+            let settings = testutils::user_settings_from_config(config);
             let path_converter = RepoPathUiConverter::Fs {
                 cwd: "".into(),
                 base: "".into(),

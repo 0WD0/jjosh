@@ -48,7 +48,7 @@ fn stable_settings() -> UserSettings {
         .set_value("debug.commit-timestamp", "2001-02-03T04:05:06+07:00")
         .unwrap();
     config.add_layer(layer);
-    UserSettings::from_config(config).unwrap()
+    testutils::user_settings_from_config(config)
 }
 
 fn write_new_commit<'a>(
@@ -164,7 +164,11 @@ fn verify_optimized(
     expression: &Arc<ResolvedRevsetExpression>,
 ) -> Result<(), TestCaseError> {
     let optimized_revset = expression.clone().evaluate(repo).unwrap();
-    let unoptimized_revset = expression.clone().evaluate_unoptimized(repo).unwrap();
+    let other_repos = [];
+    let unoptimized_revset = expression
+        .clone()
+        .evaluate_unoptimized(repo, &other_repos)
+        .unwrap();
     let optimized_ids: Vec<_> = optimized_revset.stream().try_collect().block_on().unwrap();
     let unoptimized_ids: Vec<_> = unoptimized_revset
         .stream()

@@ -30,6 +30,7 @@ use crate::index::Index;
 use crate::index::IndexResult;
 use crate::merge::Merge;
 use crate::op_store;
+use crate::op_store::ABSENT_REMOTE_REF;
 use crate::op_store::LocalRemoteRefTarget;
 use crate::op_store::RefTarget;
 use crate::op_store::RefTargetOptionExt as _;
@@ -497,7 +498,7 @@ impl View {
         // The evidence expression is independent of ancestry simplification of
         // RefTarget. Each surviving positive target must nevertheless have an
         // actual positive witness; do not zip term positions.
-        for canonical in target.as_merge().adds() {
+        for canonical in target.adds() {
             if !evidence.adds().flatten().any(|observation| {
                 observation
                     .terms
@@ -732,7 +733,7 @@ impl View {
         commit_id: &CommitId,
     ) -> impl Iterator<Item = (&RefName, &RefTarget)> {
         self.local_bookmarks()
-            .filter(|(_, target)| target.added_ids().contains(commit_id))
+            .filter(|(_, target)| target.present_adds().contains(commit_id))
     }
 
     /// Iterates local bookmark `(name, target)`s matching the given pattern.
@@ -816,7 +817,7 @@ impl View {
         if let Some(remote_view) = self.data.remote_views.get(symbol.remote) {
             remote_view.bookmarks.get(symbol.name).flatten()
         } else {
-            RemoteRef::absent_ref()
+            &ABSENT_REMOTE_REF
         }
     }
 
@@ -862,7 +863,7 @@ impl View {
     ///
     /// Note that this does *not* take into account whether the local bookmark
     /// tracks the remote bookmark or not. Missing values are represented as
-    /// RefTarget::absent_ref() or RemoteRef::absent_ref().
+    /// `&RefTarget::absent()` or `&RemoteRef::absent()`.
     pub fn local_remote_bookmarks(
         &self,
         remote_name: &RemoteName,
@@ -888,7 +889,7 @@ impl View {
     ///
     /// Note that this does *not* take into account whether the local bookmark
     /// tracks the remote bookmark or not. Missing values are represented as
-    /// RefTarget::absent_ref() or RemoteRef::absent_ref().
+    /// `&RefTarget::absent()` or `&RemoteRef::absent()`.
     pub fn local_remote_bookmarks_matching<'a, 'b>(
         &'a self,
         bookmark_matcher: &'b StringMatcher,
@@ -1085,7 +1086,7 @@ impl View {
         if let Some(remote_view) = self.data.remote_views.get(symbol.remote) {
             remote_view.tags.get(symbol.name).flatten()
         } else {
-            RemoteRef::absent_ref()
+            &ABSENT_REMOTE_REF
         }
     }
 
@@ -1112,7 +1113,7 @@ impl View {
     ///
     /// Note that this does *not* take into account whether the local tag tracks
     /// the remote tag or not. Missing values are represented as
-    /// [`RefTarget::absent_ref()`] or [`RemoteRef::absent_ref()`].
+    /// `&RefTarget::absent()` or `&RemoteRef::absent()`.
     pub fn local_remote_tags(
         &self,
         remote_name: &RemoteName,
@@ -1136,7 +1137,7 @@ impl View {
     ///
     /// Note that this does *not* take into account whether the local tag tracks
     /// the remote tag or not. Missing values are represented as
-    /// RefTarget::absent_ref() or RemoteRef::absent_ref().
+    /// `&RefTarget::absent()` or `&RemoteRef::absent()`.
     pub fn local_remote_tags_matching<'a, 'b>(
         &'a self,
         tag_matcher: &'b StringMatcher,
@@ -1197,7 +1198,7 @@ impl View {
         // Include both added/removed ids since ancestry information of old
         // references will be needed while merging views.
         fn ref_target_ids(target: &RefTarget) -> impl Iterator<Item = &CommitId> {
-            target.as_merge().iter().flatten()
+            target.iter().flatten()
         }
 
         // Some of the fields (e.g. wc_commit_ids) would be redundant, but let's
@@ -1327,7 +1328,7 @@ mod tests {
         view.set_remote_bookmark(remote_symbol("foo", "new"), absent_tracked_ref.clone());
         assert_eq!(
             view.get_remote_bookmark(remote_symbol("foo", "new")),
-            RemoteRef::absent_ref()
+            &RemoteRef::absent()
         );
 
         // Present remote ref can be tracked by absent local ref
@@ -1352,7 +1353,7 @@ mod tests {
         view.set_local_bookmark_target("foo".as_ref(), RefTarget::absent());
         assert_eq!(
             view.get_remote_bookmark(remote_symbol("foo", "new")),
-            RemoteRef::absent_ref()
+            &RemoteRef::absent()
         );
         assert_eq!(
             view.get_remote_bookmark(remote_symbol("foo", "present")),
@@ -1379,7 +1380,7 @@ mod tests {
         view.set_remote_tag(remote_symbol("foo", "new"), absent_tracked_ref.clone());
         assert_eq!(
             view.get_remote_tag(remote_symbol("foo", "new")),
-            RemoteRef::absent_ref()
+            &RemoteRef::absent()
         );
 
         // Present remote ref can be tracked by absent local ref
@@ -1404,7 +1405,7 @@ mod tests {
         view.set_local_tag_target("foo".as_ref(), RefTarget::absent());
         assert_eq!(
             view.get_remote_tag(remote_symbol("foo", "new")),
-            RemoteRef::absent_ref()
+            &RemoteRef::absent()
         );
         assert_eq!(
             view.get_remote_tag(remote_symbol("foo", "present")),

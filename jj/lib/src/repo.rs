@@ -330,13 +330,13 @@ impl ReadonlyRepo {
         self.index.as_ref()
     }
 
-    fn change_id_index(&self) -> &dyn ChangeIdIndex {
+    fn change_id_index(&self) -> IndexResult<&dyn ChangeIdIndex> {
         self.change_id_index
-            .get_or_init(|| {
+            .get_or_try_init(|| {
                 self.readonly_index()
                     .change_id_index(&mut self.view().heads().iter())
             })
-            .as_ref()
+            .map(AsRef::as_ref)
     }
 
     pub fn op_heads_store(&self) -> &Arc<dyn OpHeadsStore> {
@@ -396,14 +396,14 @@ impl Repo for ReadonlyRepo {
         &self,
         prefix: &HexPrefix,
     ) -> IndexResult<PrefixResolution<ResolvedChangeTargets>> {
-        self.change_id_index().resolve_prefix(prefix).await
+        self.change_id_index()?.resolve_prefix(prefix).await
     }
 
     async fn shortest_unique_change_id_prefix_len(
         &self,
         target_id: &ChangeId,
     ) -> IndexResult<usize> {
-        self.change_id_index()
+        self.change_id_index()?
             .shortest_unique_prefix_len(target_id)
             .await
     }
@@ -1311,7 +1311,7 @@ impl MutableRepo {
             .view()
             .local_bookmarks()
             .flat_map(|(name, target)| {
-                target.added_ids().filter_map(|id| {
+                target.present_adds().filter_map(|id| {
                     let change = rewrite_mapping.get_key_value(id)?;
                     Some((name.to_owned(), change))
                 })
@@ -1329,7 +1329,7 @@ impl MutableRepo {
             } else {
                 let ids = itertools::intersperse(new_commit_ids, old_commit_id)
                     .map(|id| Some(id.clone()));
-                RefTarget::from_merge(MergeBuilder::from_iter(ids).build())
+                MergeBuilder::from_iter(ids).build()
             };
 
             self.merge_local_bookmark(&bookmark_name, &old_target, &new_target)
@@ -1754,8 +1754,9 @@ impl MutableRepo {
                     .filter(|&(name, _)| name != workspace_name)
                     .map(|(_, wc_id)| wc_id),
                 view.local_bookmarks()
-                    .flat_map(|(_, target)| target.added_ids()),
-                view.local_tags().flat_map(|(_, target)| target.added_ids()),
+                    .flat_map(|(_, target)| target.present_adds()),
+                view.local_tags()
+                    .flat_map(|(_, target)| target.present_adds()),
             )
             .any(|id| id == commit_id)
         };
@@ -1886,7 +1887,7 @@ impl MutableRepo {
     }
 
     pub fn set_local_bookmark_target(&mut self, name: &RefName, target: RefTarget) {
-        for id in target.added_ids() {
+        for id in target.present_adds() {
             self.view.add_head(id);
         }
         self.view.set_local_bookmark_target(name, target);
@@ -2315,7 +2316,9 @@ impl Repo for MutableRepo {
         &self,
         prefix: &HexPrefix,
     ) -> IndexResult<PrefixResolution<ResolvedChangeTargets>> {
-        let change_id_index = self.index.change_id_index(&mut self.view().heads().iter());
+        let change_id_index = self
+            .index
+            .change_id_index(&mut self.view().heads().iter())?;
         change_id_index.resolve_prefix(prefix).await
     }
 
@@ -2323,7 +2326,9 @@ impl Repo for MutableRepo {
         &self,
         target_id: &ChangeId,
     ) -> IndexResult<usize> {
-        let change_id_index = self.index.change_id_index(&mut self.view().heads().iter());
+        let change_id_index = self
+            .index
+            .change_id_index(&mut self.view().heads().iter())?;
         change_id_index.shortest_unique_prefix_len(target_id).await
     }
 }

@@ -656,7 +656,7 @@ fn test_rename_remote() {
     );
     assert_eq!(
         mut_repo.get_remote_bookmark(remote_symbol("main", "origin")),
-        RemoteRef::absent_ref()
+        &RemoteRef::absent()
     );
 }
 

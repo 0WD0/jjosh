@@ -53,6 +53,8 @@ use jj_lib::merge::Merge;
 use jj_lib::merged_tree::MergedTree;
 use jj_lib::object_id::ObjectId as _;
 use jj_lib::repo::Repo as _;
+use jj_lib::working_copy::CheckoutError;
+use jj_lib::working_copy::SnapshotError;
 use jj_lib::working_copy::SnapshotOptions;
 use jj_lib::working_copy_patterns::WorkingCopyPatterns;
 use jj_lib::working_copy_patterns::WorkingCopyPatternsError;
@@ -74,8 +76,18 @@ use crate::ui::Ui;
 
 #[derive(Debug, thiserror::Error)]
 enum RunError {
-    #[error("failed to checkout the commit {}", .0)]
-    FailedCheckout(CommitId),
+    #[error("failed to checkout the commit {commit_id}")]
+    FailedCheckout {
+        commit_id: CommitId,
+        #[source]
+        source: CheckoutError,
+    },
+    #[error("failed to snapshot the working copy for commit {commit_id}")]
+    FailedSnapshot {
+        commit_id: CommitId,
+        #[source]
+        source: SnapshotError,
+    },
     #[error("the command '{}' failed with {}", .0, .1)]
     CommandFailure(String, ExitStatus),
     #[error(transparent)]
@@ -268,7 +280,10 @@ impl WorkspacePool {
 
         tree_state
             .check_out_with_sparse_patterns(&commit.tree(), self.sparsity.clone())
-            .map_err(|_| RunError::FailedCheckout(commit.id().clone()))?;
+            .map_err(|source| RunError::FailedCheckout {
+                commit_id: commit.id().clone(),
+                source,
+            })?;
 
         // If we checked out a revision with a completely empty tree,
         // TreeState::check_out() deletes the working_copy directory because it
@@ -288,7 +303,13 @@ impl WorkspacePool {
         // - Check out again to reset tree state
         if is_reused_workspace {
             let options = self.snapshot_options(base_ignores);
-            tree_state.snapshot(&options).await.unwrap();
+            tree_state
+                .snapshot(&options)
+                .await
+                .map_err(|source| RunError::FailedSnapshot {
+                    commit_id: commit.id().clone(),
+                    source,
+                })?;
             let post_snapshot_tree = tree_state.current_tree().clone();
             let original_tree = commit.tree();
             let mut diff = original_tree.diff_stream(&post_snapshot_tree, &EverythingMatcher);
@@ -314,9 +335,12 @@ impl WorkspacePool {
                 }
             }
             if !added_paths.is_empty() {
-                tree_state
-                    .check_out(&original_tree)
-                    .map_err(|_| RunError::FailedCheckout(commit.id().clone()))?;
+                tree_state.check_out(&original_tree).map_err(|source| {
+                    RunError::FailedCheckout {
+                        commit_id: commit.id().clone(),
+                        source,
+                    }
+                })?;
             }
         }
 
@@ -527,7 +551,14 @@ async fn rewrite_commit(
 
     let options = pool.snapshot_options(base_ignores);
     tracing::debug!("trying to snapshot the new tree");
-    let (dirty, stats) = workspace.tree_state.snapshot(&options).await.unwrap();
+    let (dirty, stats) = workspace
+        .tree_state
+        .snapshot(&options)
+        .await
+        .map_err(|source| RunError::FailedSnapshot {
+            commit_id: commit.id().clone(),
+            source,
+        })?;
     if !dirty {
         tracing::debug!(
             "commit {} was not modified as the passed command did not modify any tracked files",

@@ -67,7 +67,7 @@ fn format_patterns(patterns: &WorkingCopyPatterns) -> String {
     for rule in &patterns.rules {
         output.push_str(if rule.include { "+ " } else { "- " });
         output.push_str(&jj_lib::fileset::format_expression(
-            &rule.expression.to_expression(),
+            &jj_lib::fileset::FilesetExpression::from(&rule.expression),
         ));
         output.push('\n');
     }
