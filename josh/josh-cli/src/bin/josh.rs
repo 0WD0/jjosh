@@ -70,6 +70,10 @@ pub enum RepoCommand {
 
     /// Run workspaces in containers
     Compose(ComposeArgs),
+
+    /// Manage test-forge state (test-suite plumbing)
+    #[command(hide = true)]
+    Forge(josh_cli::commands::forge_cmd::ForgeArgs),
 }
 
 /// Commands that don't require a git repository
@@ -144,7 +148,7 @@ pub enum RemoteCommand {
     Add(RemoteAddArgs),
 }
 
-#[derive(Debug, clap::Parser)]
+#[derive(Debug, Clone, clap::Parser)]
 pub struct RemoteAddArgs {
     /// Remote name
     #[arg()]
@@ -155,8 +159,12 @@ pub struct RemoteAddArgs {
     pub url: String,
 
     /// Workspace/projection identifier or path to spec
-    #[arg()]
-    pub filter: String,
+    #[arg(required_unless_present = "submodules", conflicts_with = "submodules")]
+    pub filter: Option<String>,
+
+    /// Derive a combined gitlink view and links from HEAD's .gitmodules
+    #[arg(long = "submodules")]
+    pub submodules: bool,
 
     /// Separate push destination (a fork) for `josh changes publish`.
     ///
@@ -329,6 +337,7 @@ fn run_repo(cmd: &RepoCommand, distributed_cache: bool) -> anyhow::Result<()> {
         RepoCommand::Link(args) => josh_cli::commands::link::handle_link(args, &transaction),
         RepoCommand::Compose(args) => josh_cli::commands::run::handle_compose(args, &transaction),
         RepoCommand::Cache(args) => josh_cli::commands::cache::handle_cache(args, &transaction),
+        RepoCommand::Forge(args) => josh_cli::commands::forge_cmd::handle_forge(args, &transaction),
     }?;
     if !ephemeral_compose {
         transaction.flush_mem_odb()?;
@@ -347,12 +356,13 @@ fn clone_repo(args: &CloneArgs) -> anyhow::Result<std::path::PathBuf> {
     let remote_add_args = RemoteAddArgs {
         name: "origin".to_string(),
         url: args.url.clone(),
-        filter: args.filter.clone(),
+        filter: Some(args.filter.clone()),
         push_url: args.push_url.clone(),
         forge_args: args.forge_args.clone(),
+        submodules: false,
     };
 
-    handle_remote_add_repo(&remote_add_args, &output_dir)?;
+    handle_remote_add_repo(&remote_add_args, &output_dir, &args.filter)?;
 
     Ok(output_dir)
 }
@@ -435,12 +445,35 @@ fn handle_remote(
     match &args.command {
         RemoteCommand::Add(add_args) => {
             let repo_path = normalize_repo_path(transaction.path());
-            handle_remote_add_repo(add_args, &repo_path)
+            let filter = if add_args.submodules {
+                josh_core::filter::check_experimental_features_enabled(
+                    "josh remote add --submodules",
+                )?;
+                if transaction
+                    .config_string(&format!("remote.{}.url", add_args.name))?
+                    .is_some()
+                {
+                    anyhow::bail!("Remote '{}' already exists", add_args.name);
+                }
+                let filter =
+                    josh_cli::commands::link::add_submodule_links(transaction, &add_args.url)?;
+                josh_core::filter::spec(filter)
+            } else {
+                add_args
+                    .filter
+                    .clone()
+                    .context("filter is required unless --submodules is used")?
+            };
+            handle_remote_add_repo(add_args, &repo_path, &filter)
         }
     }
 }
 
-fn handle_remote_add_repo(args: &RemoteAddArgs, repo_path: &std::path::Path) -> anyhow::Result<()> {
+fn handle_remote_add_repo(
+    args: &RemoteAddArgs,
+    repo_path: &std::path::Path,
+    filter_to_store: &str,
+) -> anyhow::Result<()> {
     let remote_url = to_absolute_remote_url(&args.url)?;
     let forge = if args.forge_args.no_forge {
         None
@@ -455,14 +488,17 @@ fn handle_remote_add_repo(args: &RemoteAddArgs, repo_path: &std::path::Path) -> 
         repo_path,
         &args.name,
         &remote_url,
-        &args.filter,
+        filter_to_store,
         forge,
         args.push_url.as_deref(),
         args.forge_args.gerrit_mode,
         &[],
     )?;
 
-    eprintln!("Added remote '{}' with filter '{}'", args.name, args.filter);
+    eprintln!(
+        "Added remote '{}' with filter '{}'",
+        args.name, filter_to_store
+    );
 
     Ok(())
 }

@@ -179,10 +179,10 @@ pub fn prepare_projected_commit(
 struct PreparedPush {
     to_push: Vec<PushRef>,
     pr_infos: Vec<josh_github_changes::PrInfo>,
-    /// The commit being published, mapped into upstream space.
-    published_oid: gix_hash::ObjectId,
-    /// The upstream-space commit the published history is based on.
-    base_oid: gix_hash::ObjectId,
+    /// The commit selected from the local, filtered history.
+    local_oid: gix_hash::ObjectId,
+    /// The local, filtered commit corresponding to the upstream base.
+    local_base_oid: gix_hash::ObjectId,
 }
 
 fn prepare_push(
@@ -241,7 +241,7 @@ fn prepare_push(
     let PreparedProjectedCommit {
         unfiltered_oid,
         original_target,
-        ..
+        old_filtered_oid,
     } = prepare_projected_commit(transaction, filter, local_commit, destination, base, merge)?;
 
     // Gerrit publishing pushes to the magic ref `refs/for/<branch>` instead of
@@ -289,8 +289,8 @@ fn prepare_push(
     Ok(PreparedPush {
         to_push,
         pr_infos,
-        published_oid: unfiltered_oid,
-        base_oid: original_target,
+        local_oid: local_commit,
+        local_base_oid: old_filtered_oid,
     })
 }
 
@@ -668,9 +668,10 @@ struct PreparedLinkPush {
     to_push: Vec<PushRef>,
 }
 
-/// Build the push for every configured link: project the upstream-space
-/// commits through each link's filter into change refs. Pure computation, run
-/// before any push so errors fail the publish before any remote is touched.
+/// Build the push for every configured link: project the local combined
+/// history through each link's filter into change refs. Using the local
+/// history is required for links that export an embedded gitlink history:
+/// reverse filtering has already collapsed that history back into a pointer.
 /// Links with no surviving changes are kept with an empty push so the
 /// executor can report the skip.
 fn prepare_link_pushes(
@@ -706,8 +707,8 @@ fn prepare_link_pushes(
                         transaction,
                         author,
                         &link.tracked_ref,
-                        prepared.published_oid,
-                        prepared.base_oid,
+                        prepared.local_oid,
+                        prepared.local_base_oid,
                         view.filter,
                     )
                 })
