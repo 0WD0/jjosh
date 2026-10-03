@@ -44,12 +44,88 @@ Abbreviated commit SHAs must select the same compose input.
   $ test "$(josh compose list-jobs --all "${short}")" = "${workspace}"
   $ josh compose graph HEAD | sed -E 's/[0-9a-f]{40}/OID/g'
   direction: down
-  image_OID: "image OID"
+  image_OID: "image friendly image"
   job_OID: "ephemeral-workspace"
   image_OID -> job_OID: "image"
   $ test -n "${workspace}"
   $ git cat-file -e "${workspace}" 2>/dev/null
   [1]
+
+Compose run status lines use the image label rather than its content hash.
+
+  $ mkdir bin
+  $ printf '%s\n' '#!/bin/sh' 'if [ "$1" = image ]; then exit 1; fi' 'if [ "$1" = build ]; then cat >/dev/null; fi' 'exit 0' > bin/docker
+  $ chmod +x bin/docker
+  $ PATH="${PWD}/bin:${PATH}" josh compose run --backend docker HEAD 2>&1 | sed -E 's/[0-9a-f]{40}/OID/g'
+  [ephemeral-workspace] Running (OID)
+  [image:friendly image] Building...
+  [image:friendly image] Built successfully
+  [ephemeral-workspace] SUCCESS
+
+Cached stdout is replayed only for the requested workspace, not its dependencies.
+
+  $ git init -q ${TESTTMP}/cache-output
+  $ cd ${TESTTMP}/cache-output
+  $ mkdir -p bin image-context images jobs worktree
+  $ echo 'FROM scratch' > image-context/Dockerfile
+  $ echo contents > worktree/file
+  $ cat > images/test.josh <<'EOF'
+  > :$label="cache output"
+  > context = :/image-context
+  > EOF
+  $ cat > jobs/dependency.josh <<'EOF'
+  > :$label="dependency"
+  > :$output="none"
+  > :#image[:+images/test]
+  > :$cmd="dependency stdout"
+  > worktree = :/worktree
+  > EOF
+  $ cat > compose.josh <<'EOF'
+  > :$label="requested"
+  > :$output="none"
+  > :#image[:+images/test]
+  > :$cmd="requested stdout"
+  > inputs = :[
+  >     :#dependency[:+jobs/dependency]
+  > ]
+  > worktree = :/worktree
+  > EOF
+  $ git add .
+  $ git commit -q -m "add cached output workspaces"
+  $ cat > bin/docker <<'EOF'
+  > #!/bin/sh
+  > if [ "$1" = image ]; then test -e image-built; exit $?; fi
+  > if [ "$1" = build ]; then cat >/dev/null; touch image-built; exit 0; fi
+  > if [ "$1" = run ]; then
+  >     for arg do command=$arg; done
+  >     case "$command" in *stdout) printf '%s\n' "$command";; esac
+  > fi
+  > exit 0
+  > EOF
+  $ chmod +x bin/docker
+  $ PATH="${PWD}/bin:${PATH}" josh compose run --backend docker HEAD 2>&1 | sed -E 's/[0-9a-f]{40}/OID/g'
+  [dependency] Running (OID)
+  [image:cache output] Building...
+  [image:cache output] Built successfully
+  dependency stdout
+  [dependency] SUCCESS
+  [requested] Running (OID)
+  [image:cache output] Already built
+  requested stdout
+  [requested] SUCCESS
+  $ PATH="${PWD}/bin:${PATH}" josh compose run --backend docker HEAD 2>&1 | sed -E 's/[0-9a-f]{40}/OID/g'
+  [requested] Using cached output (OID)
+  requested stdout
+  $ sed 's/requested stdout/updated requested stdout/' compose.josh > compose.josh.new
+  $ mv compose.josh.new compose.josh
+  $ git add compose.josh
+  $ git commit -q -m "update requested workspace"
+  $ PATH="${PWD}/bin:${PATH}" josh compose run --backend docker HEAD 2>&1 | sed -E 's/[0-9a-f]{40}/OID/g'
+  [dependency] Using cached output (OID)
+  [requested] Running (OID)
+  [image:cache output] Already built
+  updated requested stdout
+  [requested] SUCCESS
 
 Revision object expressions resolve across every compose planning command.
 
