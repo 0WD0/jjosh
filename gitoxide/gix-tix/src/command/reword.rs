@@ -283,7 +283,8 @@ mod tests {
 
         let mut message_args = args("HEAD");
         message_args.edit.message = vec![OsString::from_wide(&[0xd800])];
-        let err = explicit_message(&message_args.edit, &b""[..]).expect_err("lone surrogates are not UTF-8");
+        let err = explicit_message(&message_args.edit.message, message_args.edit.file.as_deref(), &b""[..])
+            .expect_err("lone surrogates are not UTF-8");
         assert_eq!(err.to_string(), "message 1 is not valid UTF-8");
         assert!(err.is_validation());
         assert!(
