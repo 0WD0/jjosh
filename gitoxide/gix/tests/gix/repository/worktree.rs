@@ -1626,6 +1626,35 @@ mod remove {
         Ok(())
     }
 
+    #[test]
+    #[cfg(windows)]
+    fn canonical_paths_resolve_git_registered_worktrees() -> crate::Result {
+        let (repo, _fixture) = crate::basic_rw_repo()?;
+        let destinations = gix_testtools::tempfile::TempDir::new()?;
+        let destination = destinations.path().join("topic");
+        let output = gix_testtools::git_command(repo.workdir().expect("non-bare fixture"))
+            .args(["worktree", "add", "--detach"])
+            .arg(&destination)
+            .output()?;
+        assert!(
+            output.status.success(),
+            "Git registers the disposable worktree: {output:?}"
+        );
+        let canonical = destination.canonicalize()?;
+        let target = repo.prepare_remove_worktree(&canonical)?;
+        assert_eq!(
+            target.base().canonicalize()?,
+            canonical,
+            "canonical, verbatim, and short Windows names identify the same registered worktree"
+        );
+        target.remove(Force::Never, gix::progress::Discard)?;
+        assert!(
+            !destination.exists(),
+            "the equivalent path removes the intended worktree"
+        );
+        Ok(())
+    }
+
     fn branch(name: &str) -> FullName {
         format!("refs/heads/{name}").try_into().expect("valid test branch name")
     }

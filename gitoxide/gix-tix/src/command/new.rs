@@ -30,7 +30,7 @@ pub(super) fn run(repository: gix::Repository, args: Args) -> Result<()> {
         .or_raise(|| message("could not read HEAD before creating a commit"))?
         .id()
         .map(gix::Id::detach);
-    let graph = crate::edit::loaded_graph(&repository)?;
+    let graph = crate::edit::loaded_view_graph(&repository)?;
     let source = if args.index {
         crate::edit::create::Source::Index
     } else if args.worktree_untracked {
@@ -54,7 +54,7 @@ pub(super) fn run(repository: gix::Repository, args: Args) -> Result<()> {
         bail!("the new commit would be empty; use --allow-empty to create it anyway");
     }
 
-    let explicit = super::reword::explicit_message(&args.edit, std::io::stdin())?;
+    let explicit = super::reword::explicit_message(&args.edit.message, args.edit.file.as_deref(), std::io::stdin())?;
     let outcome = if let Some(message) = explicit {
         let mut repository = crate::open_repository(&repository_path, bare, false)
             .or_raise(|| gix::error::message("could not reopen repository before creating commit"))?;
@@ -81,6 +81,9 @@ pub(super) fn run(repository: gix::Repository, args: Args) -> Result<()> {
     let selected = outcome
         .selected
         .ok_or_raise(|| message("creating a commit did not produce a selection"))?;
+    if let Some(notice) = &outcome.notice {
+        eprintln!("{notice}");
+    }
     println!("{}", crate::change_id::display(&repository, selected, 7)?);
     super::print_ref_rewrites(&repository, &outcome.ref_rewrites)?;
     super::record_undo(&repository, "create commit", Ok(outcome.ref_changes));
@@ -89,7 +92,7 @@ pub(super) fn run(repository: gix::Repository, args: Args) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use std::{path::Path, process::Command};
+    use std::path::Path;
 
     use super::*;
 
@@ -109,7 +112,7 @@ mod tests {
     }
 
     fn git(path: &Path, args: &[&str]) -> gix_testtools::Result<Vec<u8>> {
-        let output = Command::new("git").arg("-C").arg(path).args(args).output()?;
+        let output = gix_testtools::git_command(path).args(args).output()?;
         if !output.status.success() {
             return Err(format!(
                 "git {} failed: {}",
@@ -121,24 +124,89 @@ mod tests {
         Ok(output.stdout)
     }
 
-    #[test]
-    fn explicit_message_uses_the_default_staged_tree_and_author() -> gix_testtools::Result {
-        let fixture = gix_testtools::scripted_fixture_writable("create_commit.sh")?;
-        run(
-            crate::test_repository::open_with(fixture.path(), ["core.editor=false"])?,
-            args(),
-        )?;
+    fn prepare_pending_ancestry(path: &Path, hide_pending: bool) -> gix_testtools::Result<gix::ObjectId> {
+        let repository = crate::test_repository::open(path)?;
+        let old_tip = repository.head_id()?.detach();
+        let middle = repository.rev_parse_single("HEAD~1")?.detach();
+        let base = repository.rev_parse_single("HEAD~2")?.detach();
 
-        assert_eq!(git(fixture.path(), &["show", "HEAD:tracked"])?, b"staged\n");
-        assert_eq!(
-            git(fixture.path(), &["log", "-1", "--format=%B"])?,
-            b"new title\n\nnew body\n\n"
-        );
-        assert_eq!(
-            git(fixture.path(), &["log", "-1", "--format=%an <%ae>"])?,
-            b"New Author <new@example.com>\n"
-        );
-        assert_eq!(std::fs::read(fixture.path().join("tracked"))?, b"unstaged\n");
+        let mut pending = repository.find_commit(middle)?.decode()?.into_owned()?;
+        pending
+            .extra_headers
+            .push(("tix-rebase-parent".into(), base.to_string().into()));
+        let pending = repository.write_object(&pending)?.detach();
+        let mut boundary = repository.find_commit(old_tip)?.decode()?.into_owned()?;
+        boundary.parents = [pending].into_iter().collect();
+        boundary.message = "hidden base".into();
+        let boundary = repository.write_object(&boundary)?.detach();
+        let mut head = repository.find_commit(old_tip)?.decode()?.into_owned()?;
+        head.parents = [boundary].into_iter().collect();
+        head.message = "head".into();
+        let head = repository.write_object(&head)?.detach();
+        repository
+            .find_reference("refs/heads/main")?
+            .set_target_id(head, "prepare pending ancestry")?;
+        if hide_pending {
+            repository.reference(
+                "refs/heads/base",
+                boundary,
+                gix::refs::transaction::PreviousValue::MustNotExist,
+                "prepare inferred hidden base",
+            )?;
+            let boundary = boundary.to_string();
+            drop(repository);
+            git(path, &["config", "remote.origin.url", "."])?;
+            git(
+                path,
+                &["config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"],
+            )?;
+            git(path, &["update-ref", "refs/remotes/origin/base", &boundary])?;
+            git(
+                path,
+                &["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/base"],
+            )?;
+        }
+        std::fs::write(path.join("new"), b"new\n")?;
+        git(path, &["add", "new"])?;
+        Ok(head)
+    }
+
+    #[test]
+    fn explicit_messages_override_configured_defaults_and_keep_staging_and_author() -> gix_testtools::Result {
+        for initial_message in ["Configured title\n\nConfigured body", ""] {
+            for from_file in [false, true] {
+                let fixture = gix_testtools::scripted_fixture_writable("create_commit.sh")?;
+                let mut input = args();
+                if from_file {
+                    let path = fixture.path().join("message");
+                    std::fs::write(&path, "new title\n\nnew body\n")?;
+                    input.edit.message.clear();
+                    input.edit.file = Some(path);
+                }
+                run(
+                    crate::test_repository::open_with(
+                        fixture.path(),
+                        [
+                            "core.editor=false".to_owned(),
+                            format!("tix.new.message={initial_message}"),
+                        ],
+                    )?,
+                    input,
+                )?;
+
+                assert_eq!(git(fixture.path(), &["show", "HEAD:tracked"])?, b"staged\n");
+                assert_eq!(
+                    git(fixture.path(), &["log", "-1", "--format=%B"])?,
+                    b"new title\n\nnew body\n\n",
+                    "explicit input overrides the configured text without opening an editor (file: {from_file})"
+                );
+                assert_eq!(
+                    git(fixture.path(), &["log", "-1", "--format=%an <%ae>"])?,
+                    b"New Author <new@example.com>\n"
+                );
+                assert_eq!(std::fs::read(fixture.path().join("tracked"))?, b"unstaged\n");
+            }
+        }
         Ok(())
     }
 
@@ -159,6 +227,90 @@ mod tests {
             .todo,
             "--todo marks a non-interactive new commit"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn new_sources_preserve_pending_ancestors_with_or_without_hidden_tips() -> gix_testtools::Result {
+        for hide_pending in [false, true] {
+            for source in ["default", "index", "worktree", "worktree-untracked"] {
+                let fixture = gix_testtools::scripted_fixture_writable("rebase_edit.sh")?;
+                let parent_commit_id = prepare_pending_ancestry(fixture.path(), hide_pending)?;
+                std::fs::write(fixture.path().join("tip"), b"unstaged tip\n")?;
+                let repository = crate::test_repository::open(fixture.path())?;
+                let pending_commit_id = repository.rev_parse_single("HEAD~2")?.detach();
+                let before = gix_testtools::repository::snapshot(fixture.path())?;
+                let mut input = args();
+                input.index = source == "index";
+                input.worktree = source == "worktree";
+                input.worktree_untracked = source == "worktree-untracked";
+                run(repository, input)?;
+
+                let repository = crate::test_repository::open(fixture.path())?;
+                assert_eq!(
+                    repository.head_commit()?.parent_ids().collect::<Vec<_>>(),
+                    [parent_commit_id],
+                    "{source}, hidden={hide_pending}: creation retains the exact selected parent and its ancestry"
+                );
+                assert!(
+                    crate::edit::rebase::is_pending(
+                        &repository.find_commit(pending_commit_id)?.decode()?.into_owned()?
+                    ),
+                    "older pending history stays pending"
+                );
+                let after = gix_testtools::repository::snapshot(fixture.path())?;
+                for reference in before
+                    .references
+                    .iter()
+                    .filter(|reference| reference.name != "refs/heads/main")
+                {
+                    assert!(
+                        after.references.contains(reference),
+                        "{source}, hidden={hide_pending}: creation preserves unrelated refs and their targets"
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn new_sources_reject_a_pending_parent_without_observable_changes() -> gix_testtools::Result {
+        for source in ["default", "index", "worktree", "worktree-untracked"] {
+            let fixture = gix_testtools::scripted_fixture_writable("rebase_edit.sh")?;
+            let parent_commit_id = prepare_pending_ancestry(fixture.path(), false)?;
+            std::fs::write(fixture.path().join("tip"), b"unstaged tip\n")?;
+            let repository = crate::test_repository::open(fixture.path())?;
+            let mut parent = repository.find_commit(parent_commit_id)?.decode()?.into_owned()?;
+            parent
+                .extra_headers
+                .push(("tix-rebase-parent".into(), parent.parents[0].to_string().into()));
+            let pending_commit_id = repository.write_object(&parent)?.detach();
+            repository
+                .find_reference("refs/heads/main")?
+                .set_target_id(pending_commit_id, "prepare pending creation parent")?;
+            let before = gix_testtools::repository::snapshot(fixture.path())?;
+            let index_before = std::fs::read(repository.index_path())?;
+            let mut input = args();
+            input.index = source == "index";
+            input.worktree = source == "worktree";
+            input.worktree_untracked = source == "worktree-untracked";
+            let err = run(repository, input).expect_err("a pending parent blocks creating a commit");
+            assert!(
+                format!("{err:#}").contains("the selected parent has a pending rebase"),
+                "{source}: the error identifies the pending parent: {err:#}"
+            );
+            assert_eq!(
+                gix_testtools::repository::snapshot(fixture.path())?,
+                before,
+                "rejected creation preserves refs, ancestry, index, worktree, and undo state"
+            );
+            assert_eq!(
+                std::fs::read(crate::test_repository::open(fixture.path())?.index_path())?,
+                index_before,
+                "rejected creation leaves the index byte-identical"
+            );
+        }
         Ok(())
     }
 
@@ -207,6 +359,9 @@ mod tests {
     #[test]
     fn worktree_untracked_includes_untracked_but_not_staged_or_ignored_files() -> gix_testtools::Result {
         let fixture = gix_testtools::scripted_fixture_writable("create_commit.sh")?;
+        std::fs::create_dir_all(fixture.path().join("untracked-dir/nested"))?;
+        std::fs::write(fixture.path().join("untracked-dir/nested/file"), b"nested untracked\n")?;
+        std::fs::write(fixture.path().join("untracked-dir/nested/ignored"), b"ignored\n")?;
         std::fs::write(fixture.path().join("staged-only"), b"staged only\n")?;
         git(fixture.path(), &["add", "staged-only"])?;
         std::fs::write(fixture.path().join(".git/info/exclude"), b"ignored\n")?;
@@ -217,6 +372,15 @@ mod tests {
 
         assert_eq!(git(fixture.path(), &["show", "HEAD:tracked"])?, b"unstaged\n");
         assert_eq!(git(fixture.path(), &["show", "HEAD:untracked"])?, b"untracked\n");
+        assert_eq!(
+            git(fixture.path(), &["show", "HEAD:untracked-dir/nested/file"])?,
+            b"nested untracked\n",
+            "commit creation includes the files inside collapsed untracked directories"
+        );
+        assert!(
+            git(fixture.path(), &["cat-file", "-e", "HEAD:untracked-dir/nested/ignored"]).is_err(),
+            "ignored contents stay excluded"
+        );
         assert!(git(fixture.path(), &["cat-file", "-e", "HEAD:staged-only"]).is_err());
         assert!(git(fixture.path(), &["cat-file", "-e", "HEAD:ignored"]).is_err());
         Ok(())
@@ -288,17 +452,26 @@ mod tests {
 
     #[test]
     fn unchanged_editor_input_creates_nothing() -> gix_testtools::Result {
-        let fixture = gix_testtools::scripted_fixture_writable("create_commit.sh")?;
-        let old = git(fixture.path(), &["rev-parse", "HEAD"])?;
-        let mut editor = args();
-        editor.edit.message.clear();
-        editor.edit.author = None;
-        run(
-            crate::test_repository::open_with(fixture.path(), ["core.editor=:"])?,
-            editor,
-        )?;
+        for initial_message in [None, Some("Configured title\n\nConfigured body"), Some("")] {
+            let fixture = gix_testtools::scripted_fixture_writable("create_commit.sh")?;
+            let before = gix_testtools::repository::snapshot(fixture.path())?;
+            let mut editor = args();
+            editor.edit.message.clear();
+            editor.edit.author = None;
+            run(
+                crate::test_repository::open_with(
+                    fixture.path(),
+                    initial_message.map(|message| format!("tix.new.message={message}")),
+                )?,
+                editor,
+            )?;
 
-        assert_eq!(git(fixture.path(), &["rev-parse", "HEAD"])?, old);
+            assert_eq!(
+                gix_testtools::repository::snapshot(fixture.path())?,
+                before,
+                "an unchanged editor document leaves the repository untouched regardless of its initial message"
+            );
+        }
         Ok(())
     }
 }

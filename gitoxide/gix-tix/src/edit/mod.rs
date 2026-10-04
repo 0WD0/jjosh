@@ -5,6 +5,11 @@ use gix::{
     error::{OptionExt, ResultExt, bail, message},
 };
 
+pub(crate) fn is_internal_ref(name: &gix::bstr::BStr) -> bool {
+    undo::is_queue_ref(name) || rebase::session::is_ref(name)
+}
+
+#[cfg(test)]
 pub(super) fn loaded_graph(repo: &gix::Repository) -> Result<crate::history::HistoryGraph> {
     if repo.head_id().is_err() {
         return Ok(crate::history::HistoryGraph::default());
@@ -17,7 +22,8 @@ pub(super) fn loaded_graph(repo: &gix::Repository) -> Result<crate::history::His
                 .name()
                 .as_bstr()
                 .starts_with(crate::history::REVIEW_STASH_PREFIX)
-            || undo::is_queue_ref(reference.name().as_bstr())
+            || is_internal_ref(reference.name().as_bstr())
+            || replay_refs::is_ref(reference.name().as_bstr())
         {
             continue;
         }
@@ -38,17 +44,11 @@ pub(super) fn loaded_graph(repo: &gix::Repository) -> Result<crate::history::His
 }
 
 pub(super) fn loaded_view_graph(repo: &gix::Repository) -> Result<crate::history::HistoryGraph> {
-    load_graph(repo, &[], &[])
+    let hidden = crate::history::available_hidden_revisions(repo, &[], true)?.0;
+    load_graph(repo, &[], &hidden)
 }
 
-pub(super) fn loaded_view_graph_with(
-    repo: &gix::Repository,
-    revisions: &[std::ffi::OsString],
-) -> Result<crate::history::HistoryGraph> {
-    load_graph(repo, revisions, &[])
-}
-
-pub(super) fn loaded_view_graph_with_hidden(
+pub(super) fn loaded_explicit_view_graph(
     repo: &gix::Repository,
     revisions: &[std::ffi::OsString],
     hidden_revisions: &[std::ffi::OsString],
@@ -84,16 +84,21 @@ fn load_graph(
     graph.ok_or_raise(|| message("history traversal did not produce a graph"))
 }
 
+pub(crate) mod auto_merge;
 pub(crate) mod create;
-pub(crate) mod forget;
+pub(crate) mod delete;
+pub(crate) mod discard;
+pub(crate) mod enrich;
 pub(crate) mod head;
 pub(crate) mod rebase;
+pub(crate) mod replay_refs;
 pub(crate) mod review;
 pub(crate) mod reword;
 pub(crate) mod split;
 pub(crate) mod stash;
 pub(crate) mod time_travel;
 pub(crate) mod todo;
+pub(crate) mod transplant;
 pub(crate) mod undo;
 
 #[tracing::instrument(skip_all, fields(filename))]
@@ -140,6 +145,13 @@ pub(crate) fn edit_document_without_terminal(
     } else {
         format!(" {editor_display}")
     };
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // gix-command uses CREATE_NO_WINDOW for background helpers. Interactive editors
+        // must inherit our console instead of running in a separate, invisible console.
+        command.creation_flags(0);
+    }
     let status = command
         .status()
         .or_raise(|| message!("could not launch Git editor{editor_display}").with_program(command.get_program()))?;
@@ -152,12 +164,63 @@ pub(crate) fn edit_document_without_terminal(
 
 #[cfg(test)]
 mod tests {
-    use std::{path::Path, process::Command};
+    use std::path::Path;
 
     use super::*;
 
+    #[cfg(windows)]
+    #[test]
+    fn editor_inherits_the_windows_console() -> gix_testtools::Result {
+        if gix_testtools::run_in_isolated_process()? {
+            return Ok(());
+        }
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        if std::env::var_os("GIX_TIX_TEST_CONSOLE").is_none() {
+            // Cargo may run without a console. Give this test its own hidden console so
+            // inheritance is observable without opening a window or using the user's terminal.
+            let output_dir = gix_testtools::tempfile::tempdir()?;
+            let thread = std::thread::current();
+            let test_name = thread.name().expect("libtest names its test threads");
+            let mut command = Command::new("pwsh");
+            let output = gix_testtools::configure_git_environment(&mut command, output_dir.path())
+                .env("GIX_TIX_TEST_CONSOLE", "1")
+                .args(["-NoProfile", "-NonInteractive", "-File"])
+                .arg(fixtures.join("with-console.ps1"))
+                .arg(std::env::current_exe()?)
+                .arg(test_name)
+                .arg(output_dir.path())
+                .output()?;
+            assert!(
+                output.status.success(),
+                "the editor test succeeds in its private console: {}\n{}\n{}",
+                output.status,
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return Ok(());
+        }
+
+        let fixture = gix_testtools::scripted_fixture_writable("create_commit.sh")?;
+        let editor = format!(
+            "pwsh -NoProfile -NonInteractive -File \"{}\" {}",
+            fixtures.join("console-editor.ps1").display(),
+            std::process::id()
+        );
+        let repo = crate::test_repository::open_with(fixture.path(), [format!("core.editor={editor}")])?;
+        for shell in [false, true] {
+            let editor = repo.editor_command()?.expect("the console editor is configured");
+            let editor = if shell { editor.with_shell() } else { editor };
+            assert_eq!(
+                edit_document_without_terminal(editor, b"original\n", "tix-console-editor.md")?,
+                Some(b"edited with an inherited console\n".to_vec()),
+                "both direct and shell editors share the caller's console and edit the file (shell: {shell})"
+            );
+        }
+        Ok(())
+    }
+
     fn git(path: &Path, args: &[&str]) -> gix_testtools::Result<Vec<u8>> {
-        let output = Command::new("git").arg("-C").arg(path).args(args).output()?;
+        let output = gix_testtools::git_command(path).args(args).output()?;
         if !output.status.success() {
             return Err(format!(
                 "git {} failed: {}",

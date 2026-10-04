@@ -1,4 +1,4 @@
-use std::{io::Write, path::Path, process::Command};
+use std::{io::Write, path::Path};
 
 use gix::{
     ObjectId, Result,
@@ -10,6 +10,7 @@ use super::rebase;
 
 pub(crate) struct Outcome {
     pub selected: Option<ObjectId>,
+    pub notice: Option<String>,
     pub review_return: Option<gix::refs::FullName>,
     pub ref_changes: Vec<super::undo::RefChange>,
 }
@@ -24,7 +25,7 @@ impl Perform {
     fn complete(self) -> Result<Outcome> {
         match self {
             Perform::Complete(outcome) => Ok(outcome),
-            Perform::Conflict(_) => bail!("forgetting the commit would cause a merge conflict"),
+            Perform::Conflict(_) => bail!("deleting the commit would cause a merge conflict"),
         }
     }
 }
@@ -76,6 +77,7 @@ pub(crate) fn perform_conflict(
             rebase::Edit::Remove { target: id },
             rebase::Signature::RedoIfNeeded,
             rebase::Tree::LeaveAsIsAndMark,
+            None,
             report,
         )
     } else {
@@ -92,6 +94,7 @@ pub(crate) fn perform_conflict(
     Ok(match result {
         rebase::Perform::Complete(outcome) => Perform::Complete(Outcome {
             selected: outcome.selected,
+            notice: outcome.notice,
             review_return,
             ref_changes: outcome.ref_changes,
         }),
@@ -113,46 +116,40 @@ pub(super) fn preflight_tree_transition(
 ) -> Result<()> {
     let mut index = gix::tempfile::writable_at(
         std::env::temp_dir().join(format!(
-            "tix-forget-index-{}-{old}-{:?}",
+            "tix-delete-index-{}-{old}-{:?}",
             std::process::id(),
             std::thread::current().id()
         )),
         gix::tempfile::ContainingDirectory::Exists,
         gix::tempfile::AutoRemove::Tempfile,
     )
-    .or_raise(|| message("could not create a temporary index for forget preflight"))?;
+    .or_raise(|| message("could not create a temporary index for delete preflight"))?;
     index
-        .write_all(
-            &std::fs::read(repo.index_path()).or_raise(|| message("could not read the index before forgetting"))?,
-        )
-        .or_raise(|| message("could not copy the index for forget preflight"))?;
+        .write_all(&std::fs::read(repo.index_path()).or_raise(|| message("could not read the index before deleting"))?)
+        .or_raise(|| message("could not copy the index for delete preflight"))?;
     index
         .flush()
-        .or_raise(|| message("could not flush the forget preflight index"))?;
+        .or_raise(|| message("could not flush the delete preflight index"))?;
     let index = index
         .take()
-        .ok_or_raise(|| message("the forget preflight index disappeared"))?;
-    let refresh = Command::new("git")
-        .arg("-C")
-        .arg(workdir)
+        .ok_or_raise(|| message("the delete preflight index disappeared"))?;
+    let refresh = crate::git_command(workdir)
         .env("GIT_INDEX_FILE", index.path())
         .args(["update-index", "-q", "--refresh"])
         .output()
-        .or_raise(|| message("could not refresh the index before forgetting"))?;
+        .or_raise(|| message("could not refresh the index before deleting"))?;
     if !refresh.status.success() {
         bail!("{}", refresh.stderr.to_str_lossy().trim());
     }
     run_read_tree(workdir, Some(index.path()), true, old, new)
-        .or_raise(|| message("local changes conflict with forgetting this commit"))
+        .or_raise(|| message("local changes conflict with deleting this commit"))
 }
 
 pub(super) fn apply_tree_transition(workdir: &Path, old: ObjectId, new: ObjectId) -> Result<()> {
-    let refresh = Command::new("git")
-        .arg("-C")
-        .arg(workdir)
+    let refresh = crate::git_command(workdir)
         .args(["update-index", "-q", "--refresh"])
         .output()
-        .or_raise(|| message("could not refresh the index before applying forget"))?;
+        .or_raise(|| message("could not refresh the index before applying delete"))?;
     if !refresh.status.success() {
         bail!("{}", refresh.stderr.to_str_lossy().trim());
     }
@@ -160,8 +157,8 @@ pub(super) fn apply_tree_transition(workdir: &Path, old: ObjectId, new: ObjectId
 }
 
 fn run_read_tree(workdir: &Path, index: Option<&Path>, dry_run: bool, old: ObjectId, new: ObjectId) -> Result<()> {
-    let mut command = Command::new("git");
-    command.arg("-C").arg(workdir).arg("read-tree");
+    let mut command = crate::git_command(workdir);
+    command.arg("read-tree");
     if let Some(index) = index {
         command.env("GIT_INDEX_FILE", index);
     }
@@ -190,7 +187,7 @@ mod tests {
     }
 
     #[test]
-    fn forgets_a_tip_atomically_and_preserves_untracked_files() -> gix_testtools::Result {
+    fn deletes_a_tip_atomically_and_preserves_untracked_files() -> gix_testtools::Result {
         let fixture = gix_testtools::scripted_fixture_writable("forget_commit.sh")?;
         crate::test_repository::disable_autocrlf(fixture.path())?;
         let repository = open(fixture.path())?;
@@ -236,7 +233,7 @@ mod tests {
             assert_eq!(
                 repository.find_reference(name)?.id(),
                 parent,
-                "{name} follows the forget"
+                "{name} follows the delete"
             );
         }
         for name in ["refs/tags/keep", "refs/remotes/origin/keep"] {
@@ -265,10 +262,10 @@ mod tests {
     }
 
     #[test]
-    fn forgetting_the_checked_out_root_leaves_an_unborn_branch() -> gix_testtools::Result {
+    fn deleting_the_checked_out_root_leaves_an_unborn_branch() -> gix_testtools::Result {
         let fixture = gix_testtools::tempfile::tempdir()?;
         let git = |args: &[&str]| -> std::io::Result<std::process::ExitStatus> {
-            Command::new("git").arg("-C").arg(fixture.path()).args(args).status()
+            gix_testtools::git_command(fixture.path()).args(args).status()
         };
         assert!(git(&["init", "-q", "-b", "main"])?.success());
         assert!(git(&["config", "user.name", "author"])?.success());
@@ -298,11 +295,11 @@ mod tests {
     }
 
     #[test]
-    fn forgetting_without_a_worktree_only_retargets_references() -> gix_testtools::Result {
-        let source = gix_testtools::scripted_fixture_read_only("forget_commit.sh")?;
+    fn deleting_without_a_worktree_only_retargets_references() -> gix_testtools::Result {
+        let source = gix::path::realpath(gix_testtools::scripted_fixture_read_only("forget_commit.sh")?)?;
         let fixture = gix_testtools::tempfile::tempdir()?;
         assert!(
-            Command::new("git")
+            gix_testtools::git_command(fixture.path())
                 .args(["clone", "-q", "--bare"])
                 .arg(source)
                 .arg(fixture.path())
@@ -325,10 +322,10 @@ mod tests {
     }
 
     #[test]
-    fn refuses_to_forget_a_checked_out_detached_root() -> gix_testtools::Result {
+    fn refuses_to_delete_a_checked_out_detached_root() -> gix_testtools::Result {
         let fixture = gix_testtools::tempfile::tempdir()?;
         let git = |args: &[&str]| -> std::io::Result<std::process::ExitStatus> {
-            Command::new("git").arg("-C").arg(fixture.path()).args(args).status()
+            gix_testtools::git_command(fixture.path()).args(args).status()
         };
         assert!(git(&["init", "-q", "-b", "main"])?.success());
         assert!(git(&["config", "user.name", "author"])?.success());

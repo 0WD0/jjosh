@@ -2594,6 +2594,8 @@ dependencies = [
  "directories",
  "gix",
  "gix-testtools",
+ "gix-trace",
+ "gix-worktree",
  "insta",
  "notify",
  "ratatui",
