@@ -553,6 +553,8 @@ mod tests {
             });
             let output = lock(&output.0);
             let output = String::from_utf8_lossy(&output);
+            // With `forest-ansi`, a reset separates each field name from its value.
+            let output = output.replace("\u{1b}[0m", "");
             assert!(
                 output.contains("operation [") && output.contains("completed: true"),
                 "fields recorded after the root starts are retained: {output}"
