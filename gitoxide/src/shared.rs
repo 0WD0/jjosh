@@ -160,7 +160,7 @@ pub mod pretty {
         use std::io::Write;
 
         use anstream::{AutoStream, ColorChoice};
-        use gix::error::TestResult;
+        use gix::{bstr::ByteSlice, error::TestResult};
 
         use super::TraceOutput;
 
@@ -171,7 +171,7 @@ pub mod pretty {
             tracing::dispatcher::with_default(&dispatch, || tracing::info!("visible event"));
             let output = output.lock().expect("trace output lock is not poisoned");
             assert!(
-                output.windows(2).any(|bytes| bytes == b"\x1b["),
+                output.contains_str(b"\x1b["),
                 "forest terminal traces contain ANSI styling"
             );
 
@@ -179,7 +179,7 @@ pub mod pretty {
                 let mut stream = AutoStream::new(Vec::new(), choice);
                 stream.write_all(&output)?;
                 assert_eq!(
-                    stream.into_inner().windows(2).any(|bytes| bytes == b"\x1b["),
+                    stream.into_inner().contains_str(b"\x1b["),
                     colored,
                     "terminal adaptation follows its color choice"
                 );

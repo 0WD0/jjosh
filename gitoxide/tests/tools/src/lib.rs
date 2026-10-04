@@ -51,6 +51,7 @@ pub mod signature;
 pub mod repository;
 
 const ARCHIVE_DIR_NAME: &str = "generated-archives";
+const BASH_FIXTURE_PRELUDE: &str = include_str!("scripted_fixture_prelude.sh");
 
 /// A result type to allow using the try operator `?` in unit tests.
 ///
@@ -750,8 +751,62 @@ pub fn fixture_bytes(path: impl AsRef<Path>) -> Vec<u8> {
 /// or more specific `.gitignore` configurations in lower levels of the work tree.
 ///
 /// The latter is useful if the script's output is platform specific.
+///
+/// ### Bash Symlink Preflight
+///
+/// Scripts with the `.sh` extension run in Bash with an injected `gix_testtools_require_symlinks`
+/// function. Call it before creating fixture contents: it probes a link to an existing file in the
+/// fixture filesystem, records the result, and exits the script successfully if symlink creation is
+/// unavailable. Other setup errors still fail the script. Tests must call [`fixture_has_symlinks()`]
+/// before accessing the resulting fixture, which may be incomplete when the preflight fails.
+///
+/// Ignore archives for these fixtures, as the preflight result is host-dependent. Prefer read-only
+/// fixtures when tests only inspect their contents; record Git baselines in the script instead of
+/// invoking Git again in Rust. Use [`Creation::Execute`] when tests must mutate the fixture:
+/// [`Creation::CopyFromReadOnly`] does not preserve links.
+/// The prelude is injected only into the Bash instance running the script, not into child shells
+/// or non-shell fixture programs.
 pub fn scripted_fixture_read_only(script_name: impl AsRef<Path>) -> Result<PathBuf> {
     scripted_fixture_read_only_with_args(script_name, None::<String>)
+}
+
+/// Return whether a Bash fixture's `gix_testtools_require_symlinks` preflight succeeded.
+///
+/// Pass the fixture root, even if the script changed directories before running the preflight.
+/// An unavailable preflight prints its diagnostic and returns `Ok(false)` so the test can return
+/// early. Missing, malformed, or unreadable results are errors, not reasons to skip a test.
+/// A missing result explains that the Bash script must call `gix_testtools_require_symlinks`.
+/// A successful preflight is not a substitute for asserting that the fixture's actual links exist.
+pub fn fixture_has_symlinks(fixture_root: impl AsRef<Path>) -> std::io::Result<bool> {
+    let marker = fixture_root.as_ref().join("__gix_testtools_symlinks__");
+    let result = std::fs::read_to_string(&marker).map_err(|err| {
+        if err.kind() == std::io::ErrorKind::NotFound {
+            std::io::Error::new(
+                err.kind(),
+                format!(
+                    "Missing symlink preflight result at \"{}\": fixture_has_symlinks() requires the Bash fixture script to call gix_testtools_require_symlinks before creating fixture contents. Pass the fixture root, not a repository subdirectory.",
+                    marker.display()
+                ),
+            )
+        } else {
+            err
+        }
+    })?;
+    if result == "supported\n" {
+        return Ok(true);
+    }
+    if let Some(diagnostic) = result.strip_prefix("unsupported\n") {
+        eprintln!(
+            "Skipping fixture at \"{}\": symlink creation is unavailable: {}",
+            fixture_root.as_ref().display(),
+            diagnostic.trim()
+        );
+        return Ok(false);
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::InvalidData,
+        format!("Invalid symlink preflight result at \"{}\"", marker.display()),
+    ))
 }
 
 /// Like [`scripted_fixture_read_only()`], but uses a matching existing archive even if
@@ -1641,6 +1696,7 @@ where
     let script_location = script_name.as_ref();
     let fixture_base = fixture_base();
     let script_path = fixture_path(script_location);
+    let is_bash_fixture = script_location.extension().is_some_and(|ext| ext == "sh");
 
     // keep this lock to assure we don't return unfinished directories for threaded callers
     let args: Vec<String> = args.into_iter().map(Into::into).collect();
@@ -1663,13 +1719,18 @@ where
             .or_insert_with(|| {
                 let crc_value = crc::Crc::<u32>::new(&crc::CRC_32_CKSUM);
                 let mut crc_digest = crc_value.digest();
-                crc_digest.update(&std::fs::read(&script_path).unwrap_or_else(|err| {
+                let script = std::fs::read(&script_path).unwrap_or_else(|err| {
                     panic!(
                         "file \"{}\" in CWD \"{}\" could not be read: {err}",
                         script_path.display(),
                         env::current_dir().expect("valid cwd").display(),
                     )
-                }));
+                });
+                crc_digest.update(&script);
+                // Only fixtures using the preflight need regeneration when its implementation changes.
+                if is_bash_fixture && script.contains_str("gix_testtools_require_symlinks") {
+                    crc_digest.update(BASH_FIXTURE_PRELUDE.as_bytes());
+                }
                 for arg in &args {
                     crc_digest.update(arg.as_bytes());
                 }
@@ -1732,12 +1793,34 @@ where
         &format!("using script \"{}\"", script_location.display()),
         |fixture_state| {
             if let FixtureState::Uninitialized(dir) = fixture_state {
-                let mut cmd = command_with_environment_snapshot(&script_absolute_path);
+                // Bash 3.2 loses BASH_SOURCE after calling functions defined by `-c`. Sourcing a
+                // temporary prelude file preserves script context without exporting functions.
+                let prelude_file = if is_bash_fixture {
+                    let mut file = tempfile::NamedTempFile::new()?;
+                    std::io::Write::write_all(file.as_file_mut(), BASH_FIXTURE_PRELUDE.as_bytes())?;
+                    Some(file)
+                } else {
+                    None
+                };
+                let mut cmd = if let Some(file) = prelude_file.as_ref() {
+                    let mut cmd = command_with_environment_snapshot(bash_program());
+                    let prelude_path = gix_path::from_bstring(
+                        gix_path::to_unix_separators_on_windows(gix_path::into_bstr(file.path())).into_owned(),
+                    );
+                    cmd.arg("-c")
+                        .arg("source \"$1\" || exit; shift; source \"$0\" \"$@\"")
+                        .arg(&script_absolute_path)
+                        .arg(prelude_path);
+                    cmd
+                } else {
+                    command_with_environment_snapshot(&script_absolute_path)
+                };
                 let output = match configure_command(&mut cmd, object_hash, &args, dir).output() {
                     Ok(out) => out,
                     Err(err)
-                        if err.kind() == std::io::ErrorKind::PermissionDenied
-                            || err.raw_os_error() == Some(193) /* windows */ =>
+                        if !is_bash_fixture
+                            && (err.kind() == std::io::ErrorKind::PermissionDenied
+                                || err.raw_os_error() == Some(193)) /* windows */ =>
                     {
                         cmd = command_with_environment_snapshot(bash_program());
                         configure_command(cmd.arg(&script_absolute_path), object_hash, &args, dir).output()?
