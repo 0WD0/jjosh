@@ -82,7 +82,7 @@ mod reference {
 }
 
 mod record_at_offset {
-    use crate::store_impl::packed::decode;
+    use crate::{bstr::ByteSlice, store_impl::packed::decode};
 
     const INPUT: &[u8] = b"1111111111111111111111111111111111111111 refs/heads/main
 2222222222222222222222222222222222222222 refs/tags/v1
@@ -90,10 +90,7 @@ mod record_at_offset {
 4444444444444444444444444444444444444444 refs/tags/v2\n";
 
     fn offset_of(needle: &[u8]) -> usize {
-        INPUT
-            .windows(needle.len())
-            .position(|window| window == needle)
-            .expect("needle is present in input")
+        INPUT.find(needle).expect("needle is present in input")
     }
 
     #[test]

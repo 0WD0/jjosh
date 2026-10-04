@@ -2040,7 +2040,7 @@ fn decode_metadata<'a>(
 pub(crate) fn contains_agent_marker(message: &[u8]) -> bool {
     [b"--- agent".as_slice(), b"<!-- agent -->".as_slice()]
         .iter()
-        .any(|marker| message.windows(marker.len()).any(|window| window == *marker))
+        .any(|marker| message.contains_str(*marker))
 }
 
 fn resolve_tips(repo: &gix::Repository, revisions: &[OsString]) -> Result<Option<Vec<ObjectId>>> {

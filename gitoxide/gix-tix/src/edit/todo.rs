@@ -2856,10 +2856,7 @@ mod tests {
             "the first line identifies an unchanged todo as a no-op"
         );
         assert!(
-            prepared
-                .document
-                .windows("↻".len())
-                .any(|window| window == "↻".as_bytes()),
+            prepared.document.contains_str("↻"),
             "the pending sibling remains visible in the todo"
         );
         Ok(())

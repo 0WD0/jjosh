@@ -94,6 +94,8 @@ pub(super) fn run(repository: gix::Repository, args: Args) -> Result<()> {
 mod tests {
     use std::path::Path;
 
+    use gix::bstr::ByteSlice;
+
     use super::*;
 
     fn args() -> Args {
@@ -327,10 +329,7 @@ mod tests {
             true,
         )?;
         assert!(
-            prepared
-                .document
-                .windows(b"\nTodo\n".len())
-                .any(|window| window == b"\nTodo\n"),
+            prepared.document.contains_str(b"\nTodo\n"),
             "--todo activates the existing editable header"
         );
         Ok(())

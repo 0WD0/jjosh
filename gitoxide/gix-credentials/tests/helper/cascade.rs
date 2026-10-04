@@ -156,11 +156,7 @@ mod invoke {
             .store()
             .send(&mut serialized)
             .expect("in-memory write succeeds");
-        assert!(
-            serialized
-                .windows(b"username=user\rname".len())
-                .any(|value| value == b"username=user\rname")
-        );
+        assert!(serialized.contains_str("username=user\rname"));
     }
 
     #[test]

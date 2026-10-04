@@ -1196,7 +1196,7 @@ fn contains(tree: &Tree, needle: &[u8], objects: &gix_odb::memory::Proxy<gix_odb
     let mut buf = Vec::new();
     for (_, id) in tree.values() {
         let blob = objects.find_blob(id, &mut buf)?;
-        if blob.data.find(needle).is_some() {
+        if blob.data.contains_str(needle) {
             return Ok(true);
         }
     }

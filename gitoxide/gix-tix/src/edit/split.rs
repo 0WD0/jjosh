@@ -163,17 +163,11 @@ mod tests {
             "split editors contain only the configured author"
         );
         assert!(
-            prepared
-                .document
-                .windows(b"staged".len())
-                .any(|window| window == b"staged"),
+            prepared.document.contains_str(b"staged"),
             "the upper commit editor describes staged paths"
         );
         assert!(
-            !prepared
-                .document
-                .windows(b"unstaged |".len())
-                .any(|window| window == b"unstaged |"),
+            !prepared.document.contains_str(b"unstaged |"),
             "the upper commit editor excludes worktree-only paths"
         );
         assert_eq!(

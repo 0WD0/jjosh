@@ -742,10 +742,7 @@ mod tests {
             "new-commit editors contain only the configured author"
         );
         assert!(
-            prepared
-                .document
-                .windows(b"tracked | 2 +- 0".len())
-                .any(|window| window == b"tracked | 2 +- 0"),
+            prepared.document.contains_str(b"tracked | 2 +- 0"),
             "the editor buffer includes a commented per-file diffstat with net lines: {}",
             prepared.document.as_bstr()
         );

@@ -119,10 +119,7 @@ fn replaces_the_active_signature_and_tampering_is_invalid() -> Result {
     );
     assert!(verify_ssh(&signed)?.is_valid(), "the replacement signature is valid");
 
-    let message_start = data
-        .windows(b"signed tag".len())
-        .position(|window| window == b"signed tag")
-        .expect("the signed message is present");
+    let message_start = data.find("signed tag").expect("the signed message is present");
     data[message_start] = b'S';
     let (signature, signed_data) = TagRefIter::signature(&data).expect("the signature remains discoverable");
     let outcome = signed_data.verify(

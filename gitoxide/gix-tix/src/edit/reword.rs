@@ -814,18 +814,11 @@ mod tests {
             "the configured committer date is shown"
         );
         assert!(
-            document
-                .windows(b"CommentChar: ;\n;Todo\n;Message:\n\n".len())
-                .any(|line| line == b"CommentChar: ;\n;Todo\n;Message:\n\n"),
+            document.contains_str(b"CommentChar: ;\n;Todo\n;Message:\n\n"),
             "the template declares its comment prefix and inactive enrichments"
         );
         assert!(
-            !document
-                .windows(b";Assisted-by:".len())
-                .any(|line| line == b";Assisted-by:")
-                && !document
-                    .windows(b";Co-authored-by:".len())
-                    .any(|line| line == b";Co-authored-by:"),
+            !document.contains_str(b";Assisted-by:") && !document.contains_str(b";Co-authored-by:"),
             "existing trailer keys suppress model-specific suggestions regardless of their values"
         );
         Ok(())
@@ -969,9 +962,7 @@ mod tests {
         crate::enrich::set_note(&repository, id, Some(b"Existing title\n\nexisting body\n"))?;
         let (_, document) = document(&repository, id)?;
         assert!(
-            document
-                .windows(b"Todo\nMessage: Existing title\n\n".len())
-                .any(|window| { window == b"Todo\nMessage: Existing title\n\n" }),
+            document.contains_str(b"Todo\nMessage: Existing title\n\n"),
             "active enrichments are shown before the commit message"
         );
 

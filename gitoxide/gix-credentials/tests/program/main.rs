@@ -1,3 +1,4 @@
+use bstr::ByteSlice;
 use gix_credentials::program::main;
 use gix_error::Result;
 use std::{ffi::OsString, io::Cursor};
@@ -58,7 +59,7 @@ fn context_options_apply_to_input_and_output() {
     )
     .expect("carriage returns are allowed");
 
-    assert!(output.windows(9).any(|window| window == b"user\rname"));
+    assert!(output.contains_str("user\rname"));
 }
 
 #[test]

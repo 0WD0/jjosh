@@ -1,9 +1,10 @@
 use std::{io::BufRead, time::Duration};
 
+use bstr::ByteSlice;
+
 pub(crate) fn response_with_connection_close(response: &[u8]) -> Vec<u8> {
     let split = response
-        .windows(2)
-        .position(|window| window == b"\n\n")
+        .find(b"\n\n")
         .expect("response fixture with header/body separator");
     let (headers, body) = response.split_at(split);
     let body = &body[2..];

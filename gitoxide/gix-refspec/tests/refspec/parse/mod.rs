@@ -75,6 +75,7 @@ mod invalid;
 mod push;
 
 mod util {
+    use bstr::ByteSlice;
     use gix_error::{Error, Result};
     use gix_refspec::{Instruction, RefSpecRef, parse::Operation};
 
@@ -120,11 +121,7 @@ mod util {
         else {
             panic!("the unsupported pattern is retained as bytes");
         };
-        assert!(
-            spec.as_bytes()
-                .windows(input.len())
-                .any(|candidate| candidate == input.as_slice())
-        );
+        assert!(spec.as_bytes().contains_str(input.as_slice()));
         err
     }
 
