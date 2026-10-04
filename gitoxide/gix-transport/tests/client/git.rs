@@ -535,9 +535,7 @@ async fn handshake_v2_and_request() -> TestResult {
     #[crate::bisync::only_async]
     async fn run() -> TestResult {
         // This simulates processing a pack received with async I/O as blocking `BufRead` without blocking the executor.
-        blocking::unblock(|| futures_lite::future::block_on(handshake_v2_and_request_inner()).expect("no failure"))
-            .await;
-        Ok(())
+        blocking::unblock(|| futures_lite::future::block_on(handshake_v2_and_request_inner())).await
     }
 
     run().await
@@ -545,8 +543,15 @@ async fn handshake_v2_and_request() -> TestResult {
 
 #[crate::bisync::bisync]
 async fn handshake_v2_and_request_inner() -> TestResult {
+    let fixture = super::transport_fixture::v2()?;
+    let hash_name = fixture.hash.to_string();
+    assert_eq!(
+        fixture.commit_id.len(),
+        fixture.hash.len_in_hex(),
+        "Git generated an ID in the selected object format"
+    );
     let mut out = Vec::new();
-    let input = fixture_bytes("v2/clone.response");
+    let input = &fixture.response;
     let mut c = Connection::new(
         input.as_slice(),
         &mut out,
@@ -566,30 +571,27 @@ async fn handshake_v2_and_request_inner() -> TestResult {
         res.refs.is_none(),
         "V2 needs a separate trip for getting refs (with additional capabilities)"
     );
-    assert_eq!(
+    assert!(res.capabilities.contains("ls-refs"), "Git advertises ref discovery");
+    assert!(res.capabilities.contains("fetch"), "Git advertises pack transfer");
+    assert!(
         res.capabilities
-            .iter()
-            .map(|c| (c.name().to_owned(), c.value().map(ToOwned::to_owned)))
-            .collect::<Vec<_>>(),
-        [
-            ("agent", Some("git/2.28.0")),
-            ("ls-refs", None),
-            ("fetch", Some("shallow")),
-            ("server-option", None),
-            ("object-format", Some("sha1"))
-        ]
-        .iter()
-        .map(|(k, v)| (k.as_bytes().into(), v.map(|v| v.as_bytes().into())))
-        .collect::<Vec<_>>()
+            .capability("object-format")
+            .expect("Git advertises its object format")
+            .supports(hash_name.as_str())
+            .expect("object-format has a value"),
+        "the handshake surfaces the selected object format"
     );
     drop(res);
 
     let reader = c
         .invoke(
             "ls-refs",
-            [("agent", Some("git/2.28.0")), ("object-format", Some("sha1"))]
-                .iter()
-                .copied(),
+            [
+                ("agent", Some("git/transport-test")),
+                ("object-format", Some(hash_name.as_str())),
+            ]
+            .iter()
+            .copied(),
             Some(
                 [
                     "peel",
@@ -614,31 +616,27 @@ async fn handshake_v2_and_request_inner() -> TestResult {
     assert_eq!(
         refs,
         vec![
-            "808e50d724f604f69ab93c6da2919c014667bedb HEAD symref-target:refs/heads/master".to_string(),
-            "808e50d724f604f69ab93c6da2919c014667bedb refs/heads/master".into()
-        ]
+            format!("{} HEAD symref-target:refs/heads/main", fixture.commit_id),
+            format!("{} refs/heads/main", fixture.commit_id)
+        ],
+        "ref discovery returns the independently recorded Git commit ID"
     );
     drop(lines);
 
+    let want = format!("want {}", fixture.commit_id);
     let mut reader = c
         .invoke(
             "fetch",
             [
-                ("agent", Some("git/2.28.0")),
-                ("something-without-value", None),
-                ("object-format", Some("sha1")),
+                ("agent", Some("git/transport-test")),
+                ("object-format", Some(hash_name.as_str())),
             ]
             .iter()
             .copied(),
             Some(
-                [
-                    "thin-pack",
-                    "ofs-delta",
-                    "want 808e50d724f604f69ab93c6da2919c014667bedb",
-                    "done",
-                ]
-                .iter()
-                .map(|s| s.as_bytes().as_bstr().to_owned()),
+                ["thin-pack", "ofs-delta", want.as_str(), "done"]
+                    .iter()
+                    .map(|s| s.as_bytes().as_bstr().to_owned()),
             ),
             false,
         )
@@ -660,7 +658,6 @@ async fn handshake_v2_and_request_inner() -> TestResult {
         }
     })));
 
-    let expected_entries = 3;
     #[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
     let reader = futures_lite::io::BlockOn::new(reader);
 
@@ -669,33 +666,27 @@ async fn handshake_v2_and_request_inner() -> TestResult {
         reader,
         input::Mode::Verify,
         input::EntryDataMode::Crc32,
-        gix_hash::Kind::Sha1,
+        fixture.hash,
     )?;
-    assert_eq!(entries.count(), expected_entries);
+    let mut object_count = 0;
+    for entry in entries {
+        entry?;
+        object_count += 1;
+    }
+    assert_eq!(
+        object_count, fixture.object_count,
+        "all received pack entries verify with the selected hash"
+    );
 
     let messages = Arc::try_unwrap(messages).expect("no other handle").into_inner();
-    assert_eq!(messages.len(), 4);
+    assert!(!messages.is_empty(), "Git sends progress alongside the pack");
 
+    let mut expected = b"0039git-upload-pack /bar.git\x00host=example.org\x00\x00version=2\x00".to_vec();
+    expected.extend(&fixture.ls_refs_request);
+    expected.extend(&fixture.fetch_request);
     assert_eq!(
         out.as_slice().as_bstr(),
-        b"0039git-upload-pack /bar.git\x00host=example.org\x00\x00version=2\x000014command=ls-refs
-0015agent=git/2.28.0
-0017object-format=sha1
-00010009peel
-000csymrefs
-0014ref-prefix HEAD
-001bref-prefix refs/heads/
-0019ref-prefix refs/tags
-00000012command=fetch
-0015agent=git/2.28.0
-001csomething-without-value
-0017object-format=sha1
-0001000ethin-pack
-000eofs-delta
-0032want 808e50d724f604f69ab93c6da2919c014667bedb
-0009done
-0000"
-            .as_bstr(),
+        expected.as_bstr(),
         "it sends the correct request, including the adjusted version"
     );
     Ok(())

@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+set -eu -o pipefail
+
+# This fixture creates a single commit, so the `fetch` command called below
+# transfers exactly three objects: a commit, a tree, and a blob. We explicitly
+# set `--initial-branch` in order not to depend on Git defaults.
+git init -q --initial-branch=main repo
+cd repo
+printf 'transport fixture\n' >file
+git add file
+git commit -qm 'initial commit'
+
+mkdir .git/transport
+git rev-parse HEAD >.git/transport/commit-id
+git rev-list --objects HEAD | wc -l >.git/transport/object-count
+commit_id=$(git rev-parse HEAD)
+hash=$(git rev-parse --show-object-format)
+
+# Packet payloads are ASCII text with a trailing line feed (LF, \n). The length
+# includes the four-byte hexadecimal header.
+packet() {
+  printf '%04x%s\n' "$((${#1} + 5))" "$1"
+}
+
+request_header() {
+  packet "command=$1"
+  packet 'agent=git/transport-test'
+  packet "object-format=$hash"
+  printf '0001'
+}
+
+{
+  request_header ls-refs
+  packet peel
+  packet symrefs
+  packet 'ref-prefix HEAD'
+  packet 'ref-prefix refs/heads/'
+  packet 'ref-prefix refs/tags'
+  printf '0000'
+} >.git/transport/ls-refs.request
+
+{
+  request_header fetch
+  packet thin-pack
+  packet ofs-delta
+  packet "want $commit_id"
+  packet done
+  printf '0000'
+} >.git/transport/fetch.request
+
+GIT_PROTOCOL=version=2 git upload-pack --stateless-rpc --advertise-refs . >.git/transport/v2.response
+GIT_PROTOCOL=version=2 git upload-pack --stateless-rpc . <.git/transport/ls-refs.request >>.git/transport/v2.response
+GIT_PROTOCOL=version=2 git upload-pack --stateless-rpc . <.git/transport/fetch.request >>.git/transport/v2.response
