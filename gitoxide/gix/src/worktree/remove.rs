@@ -78,6 +78,7 @@ impl Target<'_> {
     /// which accepts an absolute or relative worktree path or a unique suffix of whole path components.
     /// Relative target paths use the process's current directory, while registered paths use the directory
     /// captured when the repository was opened.
+    /// On Windows, existing paths also match their equivalent short-name and verbatim forms.
     /// The returned target can be inspected with [`Target::repository()`] before it is consumed by this method.
     ///
     /// # Examples
@@ -421,7 +422,15 @@ fn validate_backlink(work_dir: &Path, git_dir: &Path, ignore_case: bool) -> Resu
 }
 
 fn path_eq(left: &Path, right: &Path, ignore_case: bool) -> bool {
-    left.components().count() == right.components().count() && path_ends_with(left, right, ignore_case)
+    if left.components().count() == right.components().count() && path_ends_with(left, right, ignore_case) {
+        return true;
+    }
+    #[cfg(windows)]
+    if let (Ok(left), Ok(right)) = (left.canonicalize(), right.canonicalize()) {
+        // Windows short names and verbatim paths can refer to the same existing directory.
+        return left == right;
+    }
+    false
 }
 
 fn path_ends_with(path: &Path, suffix: &Path, ignore_case: bool) -> bool {
