@@ -81,7 +81,7 @@ impl Tree {
             }
             Ok(entries.into())
         }
-        let _span = gix_features::trace::coarse!("gix_index::extension::Tree::verify()");
+        let _span = gix_trace::coarse!("gix_index::extension::Tree::verify()");
 
         if !self.name.is_empty() {
             bail!(corruption(format!(

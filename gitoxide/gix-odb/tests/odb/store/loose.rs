@@ -1,8 +1,8 @@
 use std::{path::PathBuf, sync::atomic::AtomicBool};
 
-use gix_features::progress;
 use gix_odb::loose::{Options, Store};
 use gix_testtools::fixture_path;
+use gix_utils::progress;
 use pretty_assertions::assert_eq;
 
 use crate::hex_to_id;
@@ -228,7 +228,7 @@ mod write {
             }
         }
 
-        gix_features::parallel::threads(|scope| {
+        gix_parallel::threads(|scope| {
             scope.spawn(|| write_empty_trees(dir.path()));
             scope.spawn(|| write_empty_trees(dir.path()));
         });
@@ -370,7 +370,7 @@ mod find {
         assert!(db.try_header(&id).is_err(), "it must not panic");
         let err = db
             .verify_integrity(
-                &mut gix_features::progress::Discard,
+                &mut gix_utils::progress::Discard,
                 &std::sync::atomic::AtomicBool::new(false),
             )
             .expect_err("verification must report the invalid object");
@@ -709,7 +709,7 @@ cjHJZXWmV4CcRfmLsXzU8s2cR9A0DBvOxhPD1TlKC2JhBFXigjuL9U4Rbq9tdegB
                 "conversion diagnostics retain the full requested object size in prose"
             );
             insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[(&path.to_string_lossy(), "<object-path>")]), "unrepresentable sizes retain the failed integer conversion", @r#"
-            Could not read loose object, "path"="<object-path>"
+            Could not read loose object, path="<object-path>"
 
             Caused by:
                 0: Cannot store loose object of 18446744073709551615 bytes in memory: the object size cannot be represented in memory

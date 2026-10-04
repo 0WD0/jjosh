@@ -178,14 +178,14 @@ impl Stream {
 impl Stream {
     pub(crate) fn new() -> (
         Stream,
-        gix_features::io::pipe::Writer,
+        gix_utils::io::pipe::Writer,
         std::sync::mpsc::Receiver<AdditionalEntry>,
     ) {
         // 1 write for entry header and 1 for hash, 1 for entry path, + 1 for a buffer, then 32 of these.
         // Giving some buffer, at the expense of memory, is important to allow consumers to take off bytes more quickly,
         // otherwise, both threads effectively run in lock-step and nullify the benefit.
         let in_flight_writes = (2 + 1) * 32;
-        let (write, read) = gix_features::io::pipe::unidirectional(in_flight_writes);
+        let (write, read) = gix_utils::io::pipe::unidirectional(in_flight_writes);
         let (tx_entries, rx_entries) = std::sync::mpsc::channel();
         (
             Stream {
@@ -205,7 +205,7 @@ impl Stream {
 
 pub(crate) mod utils {
     pub enum Read {
-        Known(gix_features::io::pipe::Reader),
+        Known(gix_utils::io::pipe::Reader),
         Unknown(Box<dyn std::io::Read>),
     }
 

@@ -20,9 +20,9 @@ mod blocking_and_async_io {
         remote::{Direction::Fetch, fetch, fetch::Status},
     };
 
-    use gix_features::progress;
     use gix_protocol::bisync;
     use gix_testtools::tempfile::TempDir;
+    use gix_utils::progress;
 
     use crate::{
         remote,

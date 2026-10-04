@@ -1,7 +1,7 @@
 use gix_config::file::Metadata;
 use gix_error::{ErrorExt, ResultExt, bail, message, not_found, validation};
-use gix_features::threading::OwnShared;
 use gix_object::bstr::ByteSlice;
+use gix_parallel::OwnShared;
 use gix_path::RelativePath;
 use std::path::Path;
 use std::{
@@ -389,7 +389,7 @@ impl ThreadSafeRepository {
                 *git_dir_trust = gix_sec::Trust::Reduced;
             }
 
-            let Ok(mut resolved) = gix_features::threading::OwnShared::try_unwrap(config.resolved) else {
+            let Ok(mut resolved) = gix_parallel::OwnShared::try_unwrap(config.resolved) else {
                 unreachable!("Shared ownership was just established, with one reference")
             };
             let section_ids: Vec<_> = resolved.section_ids().collect();

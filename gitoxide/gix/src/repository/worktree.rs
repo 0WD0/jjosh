@@ -193,11 +193,11 @@ impl crate::Repository {
         &self,
         mut stream: gix_worktree_stream::Stream,
         out: impl std::io::Write + std::io::Seek,
-        blobs: impl gix_features::progress::Count,
+        blobs: impl gix_utils::progress::Count,
         should_interrupt: &std::sync::atomic::AtomicBool,
         options: gix_archive::Options,
     ) -> Result<()> {
-        let mut out = gix_features::interrupt::Write {
+        let mut out = gix_utils::interrupt::Write {
             inner: out,
             should_interrupt,
         };

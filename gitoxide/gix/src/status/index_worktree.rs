@@ -77,7 +77,7 @@ impl Repository {
         >,
         compare: impl CompareBlobs<Output = T> + Send + Clone,
         submodule: impl SubmoduleStatus<Output = U> + Send + Clone,
-        progress: &mut dyn gix_features::progress::Progress,
+        progress: &mut dyn gix_utils::progress::Progress,
         should_interrupt: &AtomicBool,
         options: Options,
     ) -> Result<gix_status::index_as_worktree_with_renames::Outcome>
@@ -539,7 +539,7 @@ pub mod iter {
     /// Lifecycle
     impl<Progress> Platform<'_, Progress>
     where
-        Progress: gix_features::progress::Progress,
+        Progress: gix_utils::progress::Progress,
     {
         /// Turn the platform into an iterator for changes between the index and the working tree.
         ///

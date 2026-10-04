@@ -1,8 +1,8 @@
 #[cfg(feature = "parallel")]
 mod stepped {
-    use crate::parallel::num_threads;
+    use crate::num_threads;
 
-    /// An iterator adaptor to allow running computations using [`in_parallel()`][crate::parallel::in_parallel()] in a step-wise manner, see the [module docs][crate::parallel]
+    /// An iterator adaptor to allow running computations using [`in_parallel()`][crate::in_parallel()] in a step-wise manner, see the [module docs][crate]
     /// for details.
     pub struct Stepwise<Reduce: super::Reduce> {
         /// This field is first to assure it's dropped first and cause threads that are dropped next to stop their loops
@@ -34,7 +34,7 @@ mod stepped {
 
     impl<Reduce: super::Reduce> Stepwise<Reduce> {
         /// Instantiate a new iterator and start working in threads.
-        /// For a description of parameters, see [`in_parallel()`][crate::parallel::in_parallel()].
+        /// For a description of parameters, see [`in_parallel()`][crate::in_parallel()].
         pub fn new<InputIter, ThreadStateFn, ConsumeFn, I, O, S>(
             input: InputIter,
             thread_limit: Option<usize>,
@@ -56,7 +56,7 @@ mod stepped {
                 let (send_input, receive_input) = crossbeam_channel::bounded::<I>(num_threads);
                 let (send_result, receive_result) = std::sync::mpsc::sync_channel::<O>(num_threads);
                 for thread_id in 0..num_threads {
-                    let handle = std::thread::spawn(crate::trace::in_thread({
+                    let handle = std::thread::spawn(gix_trace::in_thread({
                         let send_result = send_result.clone();
                         let receive_input = receive_input.clone();
                         let new_thread_state = new_thread_state.clone();
@@ -72,7 +72,7 @@ mod stepped {
                     }));
                     threads.push(handle);
                 }
-                threads.push(std::thread::spawn(crate::trace::in_thread(move || {
+                threads.push(std::thread::spawn(gix_trace::in_thread(move || {
                     for item in input {
                         if send_input.send(item).is_err() {
                             break;
@@ -88,7 +88,7 @@ mod stepped {
             }
         }
 
-        /// Consume the iterator by finishing its iteration and calling [`Reduce::finalize()`][crate::parallel::Reduce::finalize()].
+        /// Consume the iterator by finishing its iteration and calling [`Reduce::finalize()`][crate::Reduce::finalize()].
         pub fn finalize(mut self) -> Result<Reduce::Output, Reduce::Error> {
             for value in self.by_ref() {
                 drop(value?);
@@ -127,7 +127,7 @@ mod stepped {
 
 #[cfg(not(feature = "parallel"))]
 mod stepped {
-    /// An iterator adaptor to allow running computations using [`in_parallel()`][crate::parallel::in_parallel()] in a step-wise manner, see the [module docs][crate::parallel]
+    /// An iterator adaptor to allow running computations using [`in_parallel()`][crate::in_parallel()] in a step-wise manner, see the [module docs][crate]
     /// for details.
     pub struct Stepwise<InputIter, ConsumeFn, ThreadState, Reduce> {
         input: InputIter,
@@ -143,7 +143,7 @@ mod stepped {
         Reduce: super::Reduce<Input = O>,
     {
         /// Instantiate a new iterator.
-        /// For a description of parameters, see [`in_parallel()`][crate::parallel::in_parallel()].
+        /// For a description of parameters, see [`in_parallel()`][crate::in_parallel()].
         pub fn new<ThreadStateFn>(
             input: InputIter,
             _thread_limit: Option<usize>,
@@ -162,7 +162,7 @@ mod stepped {
             }
         }
 
-        /// Consume the iterator by finishing its iteration and calling [`Reduce::finalize()`][crate::parallel::Reduce::finalize()].
+        /// Consume the iterator by finishing its iteration and calling [`Reduce::finalize()`][crate::Reduce::finalize()].
         pub fn finalize(mut self) -> Result<Reduce::Output, Reduce::Error> {
             for value in self.by_ref() {
                 drop(value?);
@@ -236,7 +236,7 @@ pub trait Reduce {
     fn finalize(self) -> Result<Self::Output, Self::Error>;
 }
 
-/// An identity reducer for those who want to use [`Stepwise`] or [`in_parallel()`][crate::parallel::in_parallel()]
+/// An identity reducer for those who want to use [`Stepwise`] or [`in_parallel()`][crate::in_parallel()]
 /// without the use of non-threaded reduction of products created in threads.
 pub struct IdentityWithResult<Input, Error> {
     _input: PhantomData<Input>,

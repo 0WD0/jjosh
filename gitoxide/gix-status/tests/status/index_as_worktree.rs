@@ -205,7 +205,7 @@ fn fixture_filtered_detailed(
             FastEq,
             SubmoduleStatusMock { dirty: submodule_dirty },
             odb,
-            &mut gix_features::progress::Discard,
+            &mut gix_utils::progress::Discard,
             ctx,
             options,
         )
@@ -218,7 +218,7 @@ fn fixture_filtered_detailed(
             FastEq,
             SubmoduleStatusMock { dirty: submodule_dirty },
             &odb,
-            &mut gix_features::progress::Discard,
+            &mut gix_utils::progress::Discard,
             ctx,
             options,
         )
@@ -299,7 +299,7 @@ fn hash_errors_preserve_io_kinds() {
             gix_object::Kind::Blob,
             &mut &b"x"[..],
             stream_len,
-            &mut gix_features::progress::Discard,
+            &mut gix_utils::progress::Discard,
             &AtomicBool::new(interrupted),
         )
         .expect_err("a short stream or requested interruption prevents hashing");
@@ -1279,7 +1279,7 @@ fn racy_git() -> gix_testtools::TestResult {
         counter.clone(),
         SubmoduleStatusMock { dirty: false },
         gix_object::find::Never,
-        &mut gix_features::progress::Discard,
+        &mut gix_utils::progress::Discard,
         ctx.clone(),
         Options {
             fs,
@@ -1315,7 +1315,7 @@ fn racy_git() -> gix_testtools::TestResult {
         counter,
         SubmoduleStatusMock { dirty: false },
         gix_object::find::Never,
-        &mut gix_features::progress::Discard,
+        &mut gix_utils::progress::Discard,
         ctx,
         Options {
             fs,

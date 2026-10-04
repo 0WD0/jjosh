@@ -15,7 +15,7 @@ use crate::{
     worktree::IndexPersistedOrInMemory,
 };
 
-pub(crate) type ModulesFileStorage = gix_features::threading::OwnShared<gix_fs::SharedFileSnapshotMut<File>>;
+pub(crate) type ModulesFileStorage = gix_parallel::OwnShared<gix_fs::SharedFileSnapshotMut<File>>;
 /// A lazily loaded and auto-updated worktree index.
 pub type ModulesSnapshot = gix_fs::SharedFileSnapshot<File>;
 
@@ -428,9 +428,9 @@ pub mod status {
             ignore: config::Ignore,
             check_dirty: bool,
             adjust_options: &mut dyn for<'a> FnMut(
-                crate::status::Platform<'a, gix_features::progress::Discard>,
+                crate::status::Platform<'a, gix_utils::progress::Discard>,
             )
-                -> crate::status::Platform<'a, gix_features::progress::Discard>,
+                -> crate::status::Platform<'a, gix_utils::progress::Discard>,
         ) -> Result<Status> {
             let mut state = self.state_inner(ignore != config::Ignore::All)?;
             if ignore == config::Ignore::All {
@@ -474,7 +474,7 @@ pub mod status {
             if !state.worktree_checkout {
                 return Ok(status);
             }
-            let statuses = adjust_options(sm_repo.status(gix_features::progress::Discard)?)
+            let statuses = adjust_options(sm_repo.status(gix_utils::progress::Discard)?)
                 .index_worktree_options_mut(|opts| {
                     if ignore == config::Ignore::Untracked {
                         opts.dirwalk_options = None;

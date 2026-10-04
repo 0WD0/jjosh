@@ -2,7 +2,8 @@ use gix_error::{Result, corruption};
 use std::sync::atomic::AtomicBool;
 
 use gix_error::{ErrorExt, ResultExt, bail, message};
-use gix_features::{parallel, progress::Progress};
+use gix_parallel as parallel;
+use gix_utils::progress::Progress;
 
 use crate::index;
 
@@ -13,7 +14,7 @@ pub mod with_index;
 pub mod with_lookup;
 use reduce::Reducer;
 
-use gix_features::progress::DynNestedProgress;
+use gix_utils::progress::DynNestedProgress;
 
 mod types;
 pub use types::{Algorithm, ProgressId, SafetyCheck, Statistics};
@@ -63,7 +64,7 @@ where
     /// Iterate through all _decoded objects_ in the given `pack` and handle them with a `Processor`.
     /// The return value is (pack-checksum, [`Outcome`], `progress`), thus the pack traversal will always verify
     /// the whole packs checksum to assure it was correct. In case of bit-rod, the operation will abort early without
-    /// verifying all objects using the [interrupt mechanism][gix_features::interrupt] mechanism.
+    /// verifying all objects using the [interrupt mechanism][gix_utils::interrupt] mechanism.
     ///
     /// # Algorithms
     ///

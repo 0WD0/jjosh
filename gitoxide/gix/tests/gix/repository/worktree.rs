@@ -1696,7 +1696,7 @@ fn archive() -> TestResult {
     repo.worktree_archive(
         stream,
         std::io::Cursor::new(&mut buf),
-        gix_features::progress::Discard,
+        gix_utils::progress::Discard,
         &std::sync::atomic::AtomicBool::default(),
         Default::default(),
     )?;

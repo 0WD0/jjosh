@@ -10,12 +10,13 @@
 use std::{io, sync::atomic::AtomicBool};
 
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group};
-use gix_features::{parallel::InOrderIter, progress};
 use gix_object::Write as _;
 use gix_pack::{
     data::output::{self, bytes::FromEntriesIter, count, entry},
     testing::Memory,
 };
+use gix_parallel::InOrderIter;
+use gix_utils::progress;
 
 /// Object counts to exercise. Kept modest so the benchmark stays runnable while still showing how
 /// the phases scale; raise locally to probe larger, more degenerate repositories.

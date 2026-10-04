@@ -181,14 +181,14 @@ where
             obj.data.len()
         }
         gix_index::entry::Mode::DIR => {
-            gix_features::trace::warn!(
+            gix_trace::warn!(
                 "Skipped sparse directory at \"{entry_path}\" ({id}) as it cannot yet be handled",
                 id = entry.id
             );
             0
         }
         gix_index::entry::Mode::COMMIT => {
-            gix_features::trace::warn!(
+            gix_trace::warn!(
                 "Skipped submodule at \"{entry_path}\" ({id}) as it cannot yet be handled",
                 id = entry.id
             );

@@ -16,7 +16,7 @@ mod reduce {
         pub aggregate: super::Outcome<'entry>,
     }
 
-    impl<'entry> gix_features::parallel::Reduce for Reduce<'entry> {
+    impl<'entry> gix_parallel::Reduce for Reduce<'entry> {
         type Input = Result<super::Outcome<'entry>>;
         type FeedProduce = ();
         type Output = super::Outcome<'entry>;
@@ -283,7 +283,7 @@ where
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         let written = self.inner.write(buf)?;
         self.progress
-            .fetch_add(written as gix_features::progress::Step, Ordering::SeqCst);
+            .fetch_add(written as gix_utils::progress::Step, Ordering::SeqCst);
         Ok(written)
     }
 
@@ -372,7 +372,7 @@ fn is_collision(
     }
     // We are here because a file existed or was blocked by a directory which shouldn't be possible unless
     // we are on a file insensitive file system.
-    gix_features::trace::error!("{entry_path}: collided ({:?})", err.kind());
+    gix_trace::error!("{entry_path}: collided ({:?})", err.kind());
     collisions.push(checkout::Collision {
         path: entry_path.into(),
         error_kind: err.kind(),

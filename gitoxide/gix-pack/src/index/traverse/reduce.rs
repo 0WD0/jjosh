@@ -4,11 +4,9 @@ use std::{
 };
 
 use gix_error::{Result, bail, cancelled};
-use gix_features::{
-    parallel,
-    progress::Progress,
-    threading::{Mutable, OwnShared, lock},
-};
+use gix_parallel as parallel;
+use gix_parallel::{Mutable, OwnShared, lock};
+use gix_utils::progress::Progress;
 
 use crate::{data, index::traverse};
 
@@ -111,7 +109,7 @@ where
             self.entries_seen,
             elapsed_s,
             objects_per_second,
-            gix_features::progress::bytesize::ByteSize(self.stats.average.object_size * u64::from(objects_per_second))
+            gix_utils::progress::bytesize::ByteSize(self.stats.average.object_size * u64::from(objects_per_second))
         ));
         Ok(self.stats)
     }

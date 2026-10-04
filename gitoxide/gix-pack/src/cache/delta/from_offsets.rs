@@ -7,7 +7,7 @@ use std::{
 };
 
 use gix_error::{ErrorExt, OptionExt, ResultExt, bail, cancelled, message};
-use gix_features::progress::{self, Progress};
+use gix_utils::progress::{self, Progress};
 
 use crate::{cache::delta::Tree, data};
 

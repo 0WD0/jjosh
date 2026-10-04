@@ -34,7 +34,7 @@ fn compute_stream_hash() -> gix_testtools::TestResult {
                 gix_object::Kind::Blob,
                 &mut &[][..],
                 0,
-                &mut gix_features::progress::Discard,
+                &mut gix_utils::progress::Discard,
                 &AtomicBool::default()
             )?,
             gix_hash::ObjectId::empty_blob(*hk)
@@ -45,7 +45,7 @@ fn compute_stream_hash() -> gix_testtools::TestResult {
                 gix_object::Kind::Tree,
                 &mut &[][..],
                 0,
-                &mut gix_features::progress::Discard,
+                &mut gix_utils::progress::Discard,
                 &AtomicBool::default()
             )?,
             gix_hash::ObjectId::empty_tree(*hk)

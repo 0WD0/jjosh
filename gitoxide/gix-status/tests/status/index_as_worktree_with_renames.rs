@@ -362,7 +362,7 @@ fn fixture_filtered_detailed(
         FastEq,
         crate::index_as_worktree::SubmoduleStatusMock { dirty: false },
         objects,
-        &mut gix_features::progress::Discard,
+        &mut gix_utils::progress::Discard,
         context,
         options,
     )

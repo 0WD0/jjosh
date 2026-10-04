@@ -569,12 +569,8 @@ fn multi_index_pack_generation_is_fallible(large_offset: bool) -> gix_error::Tes
         id: delta_id,
         entry_pack_location: output::count::PackLocation::NotLookedUp,
     };
-    let mut valid_entries = output::entry::iter_from_counts(
-        vec![count.clone()],
-        db,
-        Box::new(gix_features::progress::Discard),
-        options,
-    )?;
+    let mut valid_entries =
+        output::entry::iter_from_counts(vec![count.clone()], db, Box::new(gix_utils::progress::Discard), options)?;
     let (_, generated) = valid_entries.next().expect("one input object produces one chunk")?;
     assert_eq!(
         generated.len(),
@@ -614,7 +610,7 @@ fn multi_index_pack_generation_is_fallible(large_offset: bool) -> gix_error::Tes
             entry_pack_location: output::count::PackLocation::NotLookedUp,
         }],
         db.clone(),
-        Box::new(gix_features::progress::Discard),
+        Box::new(gix_utils::progress::Discard),
         options,
     )
     .err()
@@ -625,7 +621,7 @@ fn multi_index_pack_generation_is_fallible(large_offset: bool) -> gix_error::Tes
     let mut entries = output::entry::iter_from_counts(
         vec![count.clone()],
         db.clone(),
-        Box::new(gix_features::progress::Discard),
+        Box::new(gix_utils::progress::Discard),
         options,
     )?;
     let err = entries
@@ -636,7 +632,7 @@ fn multi_index_pack_generation_is_fallible(large_offset: bool) -> gix_error::Tes
     assert!(!err.is_not_found(), "iteration corruption is not a missing delta base");
     drop(entries);
 
-    let entries = output::entry::iter_from_counts(vec![count], db, Box::new(gix_features::progress::Discard), options)?;
+    let entries = output::entry::iter_from_counts(vec![count], db, Box::new(gix_utils::progress::Discard), options)?;
     let mut writer = output::bytes::FromEntriesIter::new(
         entries.map(|chunk| chunk.map(|(_, entries)| entries)),
         Vec::new(),
@@ -932,7 +928,7 @@ fn multi_index_ref_delta_preserves_corrupt_base_lookup() -> gix_testtools::TestR
     gix_pack::multi_index::write_from_index_paths(
         vec![index_path],
         &mut multi_index,
-        &mut gix_features::progress::Discard,
+        &mut gix_utils::progress::Discard,
         &std::sync::atomic::AtomicBool::default(),
         gix_pack::multi_index::write::Options { object_hash },
     )?;
@@ -996,7 +992,7 @@ fn disappearing_loose_objects_keep_retryable_diagnostics() -> gix_testtools::Tes
     for (err, num_nodes) in [
         (
             loose
-                .verify_integrity(&mut gix_features::progress::Discard, &AtomicBool::new(false))
+                .verify_integrity(&mut gix_utils::progress::Discard, &AtomicBool::new(false))
                 .expect_err("the enumerated object is missing"),
             1,
         ),
@@ -1004,7 +1000,7 @@ fn disappearing_loose_objects_keep_retryable_diagnostics() -> gix_testtools::Tes
             dynamic
                 .store_ref()
                 .verify_integrity(
-                    &mut gix_features::progress::Discard,
+                    &mut gix_utils::progress::Discard,
                     &AtomicBool::new(false),
                     Default::default(),
                 )

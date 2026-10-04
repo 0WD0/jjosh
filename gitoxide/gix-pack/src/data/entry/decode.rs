@@ -1,7 +1,7 @@
 use gix_error::{OptionExt, Result, ResultExt, bail, corruption};
 use std::io;
 
-use gix_features::decode::leb64_from_read;
+use gix_utils::decode::leb64_from_read;
 
 use super::{BLOB, COMMIT, OFS_DELTA, REF_DELTA, TAG, TREE};
 use crate::data;

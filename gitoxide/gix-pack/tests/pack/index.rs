@@ -134,9 +134,9 @@ mod version {
         use crate::Result;
         use std::{fs, io, sync::atomic::AtomicBool};
 
-        use gix_features::progress;
         use gix_odb::pack;
         use gix_pack::{data::input, index};
+        use gix_utils::progress;
 
         use crate::{INDEX_V2, SMALL_PACK, V2_PACKS_AND_INDICES, fixture_path};
 
@@ -342,7 +342,7 @@ fn traverse_with_index_respects_alloc_limit_bytes() -> gix_testtools::TestResult
 
 #[test]
 fn from_memory_backing_supports_verification_and_traversal() {
-    use gix_features::progress;
+    use gix_utils::progress;
 
     let index = memory_backed_index(SMALL_PACK_INDEX);
     let data = pack_from_memory_at(SMALL_PACK);
@@ -374,8 +374,8 @@ fn from_memory_backing_supports_verification_and_traversal() {
     assert_eq!(count.load(Ordering::SeqCst), index.num_objects() as usize);
 }
 
-use gix_features::progress;
 use gix_pack::{cache, data::decode::entry::Outcome, index};
+use gix_utils::progress;
 use maplit::btreemap;
 
 use crate::{INDEX_V2, PACK_FOR_INDEX_V2};

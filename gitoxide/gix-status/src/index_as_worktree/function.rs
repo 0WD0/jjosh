@@ -8,9 +8,9 @@ use std::{
 use bstr::BStr;
 use filetime::FileTime;
 use gix_error::{ErrorExt, ResultExt, message};
-use gix_features::parallel::{Reduce, in_parallel_if};
 use gix_filter::pipeline::convert::ToGitOutcome;
 use gix_object::FindExt;
+use gix_parallel::{Reduce, in_parallel_if};
 
 #[cfg(windows)]
 use crate::fscache::{FsCache, Metadata as FsCacheMetadata};
@@ -60,7 +60,7 @@ pub fn index_as_worktree<'index, T, U, Find>(
     compare: impl CompareBlobs<Output = T> + Send + Clone,
     submodule: impl SubmoduleStatus<Output = U> + Send + Clone,
     objects: Find,
-    progress: &mut dyn gix_features::progress::Progress,
+    progress: &mut dyn gix_utils::progress::Progress,
     Context {
         pathspec,
         stack,
@@ -78,7 +78,7 @@ where
     // (modified at or after the last index update) during the index update we then set those
     // entries size to 0 (see below) to ensure they keep showing up as racy and reset the timestamp.
     let timestamp = index.timestamp();
-    let (chunk_size, thread_limit, _) = gix_features::parallel::optimize_chunk_size_and_thread_limit(
+    let (chunk_size, thread_limit, _) = gix_parallel::optimize_chunk_size_and_thread_limit(
         500, // just like git
         index.entries().len().into(),
         options.thread_limit,
@@ -94,7 +94,7 @@ where
     let entry_index_offset = range.start;
     let entries = &entries[range];
 
-    let _span = gix_features::trace::detail!("gix_status::index_as_worktree",
+    let _span = gix_trace::detail!("gix_status::index_as_worktree",
                                              num_entries = entries.len(),
                                              chunk_size = chunk_size,
                                              thread_limit = ?thread_limit);
@@ -104,7 +104,7 @@ where
     let (worktree_bytes, worktree_reads, odb_bytes, odb_reads, racy_clean) = Default::default();
 
     num_entries = entries.len();
-    progress.init(entries.len().into(), gix_features::progress::count("files"));
+    progress.init(entries.len().into(), gix_utils::progress::count("files"));
     let count = progress.counter();
 
     let new_state = {
@@ -146,7 +146,7 @@ where
     };
     in_parallel_if(
         || true, // TODO: heuristic: when is parallelization not worth it? Git says 500 items per thread, but to 20 threads, we can be more fine-grained though.
-        gix_features::interrupt::Iter::new(
+        gix_utils::interrupt::Iter::new(
             OffsetIter {
                 inner: entries.chunks(chunk_size),
                 offset: entry_index_offset,

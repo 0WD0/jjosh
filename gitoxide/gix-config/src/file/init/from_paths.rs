@@ -82,7 +82,7 @@ impl File {
                             path.display()
                         ));
                         if options.ignore_io_errors {
-                            gix_features::trace::warn!("ignoring: {err:#?}");
+                            gix_trace::warn!("ignoring: {err:#?}");
                             continue;
                         } else {
                             return Err(err);
@@ -98,7 +98,7 @@ impl File {
                         path.display()
                     ));
                     if options.ignore_io_errors {
-                        gix_features::trace::warn!("ignoring: {err:#?}");
+                        gix_trace::warn!("ignoring: {err:#?}");
                         buf.clear();
                     } else {
                         return Err(err);

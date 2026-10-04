@@ -158,7 +158,7 @@ pub use init::{Deregister, init_handler};
 /// A wrapper for an inner iterator which will check for interruptions on each iteration.
 pub struct Iter<I, EFN> {
     /// The actual iterator to yield elements from.
-    inner: gix_features::interrupt::IterWithErr<'static, I, EFN>,
+    inner: gix_utils::interrupt::IterWithErr<'static, I, EFN>,
 }
 
 impl<I, EFN, E> Iter<I, EFN>
@@ -174,7 +174,7 @@ where
     /// [`crate::Error::from_error()`].
     pub fn new(inner: I, make_err: EFN) -> Self {
         Iter {
-            inner: gix_features::interrupt::IterWithErr::new(inner, make_err, &IS_INTERRUPTED),
+            inner: gix_utils::interrupt::IterWithErr::new(inner, make_err, &IS_INTERRUPTED),
         }
     }
 
@@ -207,7 +207,7 @@ where
 /// It fails a [read][`std::io::Read::read`] while an interrupt was requested.
 pub struct Read<R> {
     /// The actual implementor of [`std::io::Read`] to which interrupt support will be added.
-    inner: gix_features::interrupt::Read<'static, R>,
+    inner: gix_utils::interrupt::Read<'static, R>,
 }
 
 impl<R> Read<R>
@@ -217,7 +217,7 @@ where
     /// Create a new interruptible reader from `read`.
     pub fn new(read: R) -> Self {
         Read {
-            inner: gix_features::interrupt::Read {
+            inner: gix_utils::interrupt::Read {
                 inner: read,
                 should_interrupt: &IS_INTERRUPTED,
             },

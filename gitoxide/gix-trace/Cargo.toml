@@ -13,7 +13,7 @@ include = ["/src/**/*", "/LICENSE-*"]
 
 [features]
 
-## Note that there is no default feature, as the application is supposed to opt-in via `gix-features` or using this crate directly.
+## There is no default feature: applications opt in through `gix` or this crate directly.
 default = []
 
 ## Implement `tracing` with the `tracing` crate, which provides applications with valuable performance details if they opt-in to it.

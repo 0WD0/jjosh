@@ -2,7 +2,7 @@ use gix_error::{Result, corruption, message};
 use std::{cmp::Ordering, sync::atomic::AtomicBool, time::Instant};
 
 use gix_error::{OptionExt, bail, cancelled};
-use gix_features::progress::{Count, DynNestedProgress, Progress};
+use gix_utils::progress::{Count, DynNestedProgress, Progress};
 
 use crate::{exact_vec, index, multi_index::File};
 
@@ -28,7 +28,7 @@ pub mod integrity {
         ObjectOffsets,
     }
 
-    impl From<ProgressId> for gix_features::progress::Id {
+    impl From<ProgressId> for gix_utils::progress::Id {
         fn from(v: ProgressId) -> Self {
             match v {
                 ProgressId::ChecksumBytes => *b"MVCK",
@@ -135,11 +135,8 @@ where
         let mut pack_ids_and_offsets = exact_vec(self.num_objects as usize);
         {
             let order_start = Instant::now();
-            let mut progress = progress.add_child_with_id("checking oid order".into(), gix_features::progress::UNKNOWN);
-            progress.init(
-                Some(self.num_objects as usize),
-                gix_features::progress::count("objects"),
-            );
+            let mut progress = progress.add_child_with_id("checking oid order".into(), gix_utils::progress::UNKNOWN);
+            progress.init(Some(self.num_objects as usize), gix_utils::progress::count("objects"));
 
             for entry_index in 0..(self.num_objects - 1) {
                 let lhs = self.oid_at_index(entry_index);
@@ -164,10 +161,7 @@ where
             progress.show_throughput(order_start);
         };
 
-        progress.init(
-            Some(self.num_indices as usize),
-            gix_features::progress::count("indices"),
-        );
+        progress.init(Some(self.num_indices as usize), gix_utils::progress::count("indices"));
 
         let mut pack_ids_slice = pack_ids_and_offsets.as_slice();
 
@@ -196,10 +190,7 @@ where
                     "verify object offsets".into(),
                     integrity::ProgressId::ObjectOffsets.into(),
                 );
-                offsets_progress.init(
-                    Some(pack_ids_and_offsets.len()),
-                    gix_features::progress::count("objects"),
-                );
+                offsets_progress.init(Some(pack_ids_and_offsets.len()), gix_utils::progress::count("objects"));
                 pack_ids_slice = &pack_ids_slice[slice_end..];
 
                 for entry_id in multi_index_entries_to_check.iter().map(|e| e.1) {

@@ -14,7 +14,7 @@ use gix::{
 
 use crate::app::{Attribution, AttributionKind, Author, Commit, LoadedCommits, Metadata, SignatureState};
 
-pub(crate) type SharedAuthors = gix::features::threading::OwnShared<gix::features::threading::Mutable<Authors>>;
+pub(crate) type SharedAuthors = gix::parallel::OwnShared<gix::parallel::Mutable<Authors>>;
 static EMPTY_AUTHOR: std::sync::LazyLock<Author> = std::sync::LazyLock::new(|| Author {
     name: BStr::new(b""),
     email: BStr::new(b""),
@@ -910,7 +910,7 @@ impl HistoryGraph {
                         None
                     } else {
                         let object = repo.find_commit(id)?;
-                        let mut authors = gix::features::threading::lock(authors);
+                        let mut authors = gix::parallel::lock(authors);
                         Some(decode_metadata(object.iter(), &mut authors, &mut attributions)?)
                     };
                     let metadata_loaded = metadata.is_some();
@@ -1245,7 +1245,7 @@ pub(crate) fn load(
     if tips.is_empty() {
         let mut rows = Vec::with_capacity(hidden_tips.len());
         let mut attributions = Vec::new();
-        let mut authors = gix::features::threading::lock(authors);
+        let mut authors = gix::parallel::lock(authors);
         let mut buf = Vec::new();
         for &id in &hidden_tips {
             if cancelled.load(Ordering::Relaxed) {
@@ -1365,7 +1365,7 @@ pub(crate) fn load(
             None
         } else {
             let object = repo.find_commit(id)?;
-            let mut authors = gix::features::threading::lock(authors);
+            let mut authors = gix::parallel::lock(authors);
             Some(decode_metadata(object.iter(), &mut authors, &mut attributions)?)
         };
         if should_emit {
@@ -1466,7 +1466,7 @@ pub(crate) fn load(
         connected.retain(|id| graph.index(*id).is_none_or(|index| !states[index.as_usize()].emitted));
         let mut rows = Vec::with_capacity(connected.len());
         let mut attributions = Vec::new();
-        let mut authors = gix::features::threading::lock(authors);
+        let mut authors = gix::parallel::lock(authors);
         for id in connected {
             if cancelled.load(Ordering::Relaxed) {
                 emit(Event::Cancelled);
@@ -1917,7 +1917,7 @@ pub(crate) fn load_metadata(
 ) -> Result<(Metadata<BString>, Vec<Attribution>)> {
     let object = repo.find_commit(id)?;
     let mut attributions = Vec::new();
-    let mut authors = gix::features::threading::lock(authors);
+    let mut authors = gix::parallel::lock(authors);
     let metadata = decode_metadata(object.iter(), &mut authors, &mut attributions)?;
     Ok((metadata, attributions))
 }
@@ -2448,8 +2448,7 @@ mod tests {
 
     fn loaded(path: &std::path::Path, revisions: &[&str], hidden_revisions: &[&str]) -> TestResult<Vec<Event>> {
         let mut events = Vec::new();
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
         let repo = crate::test_repository::open(path)?;
         load(
             &repo,
@@ -3067,8 +3066,7 @@ mod tests {
             .expect("older graph commits defer metadata");
 
         let repo = crate::test_repository::open(fixture_path)?;
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
         let (metadata, _) = load_metadata(&repo, deferred.id, &authors)?;
         assert!(
             !metadata.title.is_empty(),
@@ -3237,8 +3235,7 @@ mod tests {
             "hidden-only descendants are excluded"
         );
 
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
         graph.refresh(
             &repo,
             &[OsString::from("main")],
@@ -3322,8 +3319,7 @@ mod tests {
             })
             .expect("history loading returns the persistent graph");
 
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
         graph.refresh(&repo, &["topic".into()], &[], false, &HashSet::new(), &authors)?;
 
         assert_eq!(
@@ -3369,8 +3365,7 @@ mod tests {
         }
         let repo = crate::test_repository::open(path)?;
         let new_tip = repo.rev_parse_single("main")?.detach();
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
         let refresh = graph.refresh(&repo, &[], &["main".into()], false, &HashSet::new(), &authors)?;
 
         assert_eq!(
@@ -3407,8 +3402,7 @@ mod tests {
             "graph-only traversal does not claim rows were sent to the UI"
         );
 
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
         let refresh = graph.refresh(&repo, &revisions, &[], false, &HashSet::new(), &authors)?;
         assert!(
             refresh.commits.rows.iter().any(|row| row.id == tip),
@@ -3445,8 +3439,7 @@ mod tests {
         std::fs::write(&broken_tag, format!("{}\n", "f".repeat(40)))?;
         let repo = crate::test_repository::open(fixture.path())?;
         let new_tip = repo.rev_parse_single("main")?.detach();
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
 
         graph
             .refresh(&repo, &["main".into()], &[], false, &HashSet::new(), &authors)
@@ -3503,8 +3496,7 @@ mod tests {
             assert!(status.success(), "git prepares one new commit");
         }
         let repo = crate::test_repository::open(fixture.path())?;
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
         let first = graph.refresh(&repo, &["main".into()], &[], false, &HashSet::new(), &authors)?;
         assert_eq!(first.commits.rows.len(), 1, "only the new descendant is loaded");
         let second = graph.refresh(&repo, &["main".into()], &[], false, &HashSet::new(), &authors)?;
@@ -3597,8 +3589,7 @@ mod tests {
 
         let repo = crate::test_repository::open(fixture.path())?;
         let replacement = repo.rev_parse_single("main")?.detach();
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
         graph.refresh(&repo, &["main".into()], &[], false, &HashSet::new(), &authors)?;
         let descendants = graph
             .descendants_in_parent_order(parent)
@@ -3647,8 +3638,7 @@ mod tests {
         assert!(cached.state & NODE_COMPLETE != 0 && cached.state & NODE_STORED == 0);
         cached.parents = start..end;
 
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
         let refresh = graph.refresh(&repo, &["topic".into()], &[], false, &HashSet::new(), &authors)?;
         assert!(
             refresh.commits.rows.is_empty(),
@@ -3705,8 +3695,7 @@ mod tests {
             main,
             "test symbolic ref-tree pin",
         )?;
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
         let refresh = graph.refresh(&repo, &["topic".into()], &[], false, &HashSet::new(), &authors)?;
         let refreshed: HashSet<_> = refresh.commits.rows.iter().map(|row| row.id).collect();
         assert!(
@@ -3807,8 +3796,7 @@ mod tests {
         );
 
         let repo = crate::test_repository::open(path)?;
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
         let refresh = graph.refresh(&repo, &["local".into()], &[], false, &boundary, &authors)?;
         visible.extend(refresh.commits.rows.into_iter().map(|row| row.id));
         let expected: HashSet<_> = repo
@@ -3891,8 +3879,7 @@ mod tests {
         );
 
         let mut cancelled = Vec::new();
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
         let repo = crate::test_repository::open(&fixture)?;
         load(&repo, &[], &[], false, &authors, &AtomicBool::new(true), |event| {
             cancelled.push(event);

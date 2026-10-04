@@ -73,7 +73,7 @@ impl State {
             skip_hash: _,
         }: Options,
     ) -> Result<Version> {
-        let _span = gix_features::trace::detail!("gix_index::State::write()");
+        let _span = gix_trace::detail!("gix_index::State::write()");
         let version = self.detect_required_version();
 
         let mut write = CountBytes::new(out);

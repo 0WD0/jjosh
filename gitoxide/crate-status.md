@@ -240,10 +240,9 @@ The top-level crate that acts as hub to all functionality provided by the `gix-*
 * [x] hashset
 
 ### gix-utils
-* **filesystem**
-   * [x] probe capabilities
-   * [x] symlink creation and removal
-   * [x] file snapshots
+* Shared progress, interruption, decoding, iterator, and cache diagnostic utilities.
+* Optional **progress**, **interrupt**, and **io-pipe** features enable their dependencies.
+* Optional progress unit features select human-readable number and byte formatting.
 * [ ] **BString Interner with Arena-Backing and arbitrary value association**
     - probably based on [`internment`](https://docs.rs/internment/latest/internment/struct.Arena.html#),
       but needs `bumpalo` support to avoid item allocations/boxing, and avoid internal `Mutex`. (key type is pointer based).
@@ -1059,9 +1058,8 @@ Provide a reftable backend for refs and reflogs as part of Git 3.0 compatibility
 [quarantine]: https://github.com/git/git/blob/master/Documentation/git-receive-pack.txt#L223:L223
 
 
-### gix-features
-* **io-pipe** feature toggle
-    * a unix like pipeline for bytes
+### gix-parallel
+* Shared ownership and mutation primitives switch between `Rc`/`RefCell` and `Arc`/locks.
 * **parallel** feature toggle
     * _When on…_
         * `in_parallel`

@@ -1,4 +1,4 @@
-use crate::parallel::Reduce;
+use crate::Reduce;
 
 #[cfg(not(feature = "parallel"))]
 mod not_parallel {

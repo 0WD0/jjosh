@@ -44,8 +44,8 @@ fn progress_tree() -> LogCreator {
 pub mod pretty {
     use std::io::{self, stderr, stdout};
 
+    use gix::progress;
     use gix::{Result, error::ResultExt};
-    use gix_features::progress;
 
     use crate::shared::ProgressRange;
 

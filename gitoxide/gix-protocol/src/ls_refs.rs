@@ -7,8 +7,8 @@ pub(crate) mod function {
 
     use bstr::{BString, ByteVec};
     use gix_error::{ResultExt, message};
-    use gix_features::progress::Progress;
     use gix_transport::client::Capabilities;
+    use gix_utils::progress::Progress;
 
     #[cfg(feature = "async-client")]
     use crate::transport::client::async_io::TransportV2Ext as _;
@@ -111,7 +111,7 @@ pub(crate) mod function {
                 progress: &mut impl Progress,
                 trace: bool,
             ) -> gix_error::Result<Vec<Ref>> {
-                let _span = gix_features::trace::detail!("gix_protocol::LsRefsCommand::invoke()", mode = $mode);
+                let _span = gix_trace::detail!("gix_protocol::LsRefsCommand::invoke()", mode = $mode);
                 Command::LsRefs
                     .validate_argument_prefixes(
                         gix_transport::Protocol::V2,
@@ -232,7 +232,7 @@ pub(crate) mod function {
                     false,
                 );
                 let err = super::LsRefsCommand::new(None, &capabilities, ("agent", Some("test".into())))
-                    .invoke_blocking(transport, &mut gix_features::progress::Discard, false)
+                    .invoke_blocking(transport, &mut gix_utils::progress::Discard, false)
                     .expect_err("the transport write fails");
                 error_snapshots.push(gix_testtools::redact_debug_snapshot(&(err), &[]));
                 assert_eq!(err.can_retry_lenient(), retryable, "preserve retry policy for {kind:?}");

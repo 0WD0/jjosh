@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use gix_features::progress::{self, Progress};
+use gix_utils::progress::{self, Progress};
 
 use crate::exact_vec;
 

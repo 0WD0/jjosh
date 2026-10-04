@@ -1,8 +1,12 @@
-//! Run computations in parallel, or not based the `parallel` feature toggle.
+//! Computation helpers and shared ownership primitives for serial and threaded execution.
+//!
+//! Enable `parallel` to use threaded computation helpers and synchronized shared ownership.
+//! Without it, these helpers run serially and shared ownership uses `Rc` and `RefCell`.
+//! Applications using `gix` should select its `parallel` feature to enable all parallel code paths.
 //!
 //! Worker threads started by the functions and iterators here inherit the current tracing
 //! span and subscriber. When spawning threads directly with [`threads()`] or [`build_thread()`],
-//! wrap their closures with [`crate::trace::in_thread()`] to propagate that context.
+//! wrap their closures with [`gix_trace::in_thread()`] to propagate that context.
 //!
 //! ### `in_parallel`(…)
 //!
@@ -19,13 +23,13 @@
 //! operation which runs as fast as possible, which is cancellable only by merit of stopping the input or stopping the output
 //! aggregation.
 //!
-//! ### `reduce::Stepwise`
+//! ### `Stepwise`
 //!
-//! The [`Stepwise`][reduce::Stepwise] iterator works exactly as [`in_parallel()`] except that the processing of the output produced by
+//! The [`Stepwise`] iterator works exactly as [`in_parallel()`] except that the processing of the output produced by
 //! `consume(I, &mut State) -> O` is made accessible by the `Iterator` trait's `next()` method. As produced work is not
 //! buffered, the owner of the iterator controls the progress made.
 //!
-//! Getting the final output of the [`Reduce`] is achieved through the consuming [`Stepwise::finalize()`][reduce::Stepwise::finalize()] method, which
+//! Getting the final output of the [`Reduce`] is achieved through the consuming [`Stepwise::finalize()`] method, which
 //! is functionally equivalent to calling [`in_parallel()`].
 //!
 //! In an `async` context this means that progress is only made each time `next()` is called on the iterator, while merely dropping
@@ -36,6 +40,14 @@
 //! In order to assure that threads don't outlive the data they borrow because their handles are leaked, we enforce
 //! the `'static` lifetime for its inputs, making it less intuitive to use. It is, however, possible to produce
 //! suitable input iterators as long as they can hold something on the heap.
+//! ## Feature Flags
+#![cfg_attr(all(doc, feature = "document-features"), doc = ::document_features::document_features!())]
+#![cfg_attr(all(doc, feature = "document-features"), feature(doc_cfg))]
+#![deny(missing_docs)]
+
+mod threading;
+pub use threading::*;
+
 #[cfg(feature = "parallel")]
 mod in_parallel;
 #[cfg(feature = "parallel")]
@@ -178,5 +190,5 @@ where
 }
 
 ///
-pub mod reduce;
-pub use reduce::Reduce;
+mod reduce;
+pub use reduce::{Finalize, IdentityWithResult, Reduce, Stepwise};

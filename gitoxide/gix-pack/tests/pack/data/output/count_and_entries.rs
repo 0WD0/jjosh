@@ -1,12 +1,10 @@
 use crate::Result;
 use std::sync::atomic::AtomicBool;
 
-use gix_features::{
-    parallel::{InOrderIter, reduce::Finalize},
-    progress,
-};
 use gix_odb::{pack, pack::FindExt};
 use gix_pack::data::{output, output::count};
+use gix_parallel::{Finalize, InOrderIter};
+use gix_utils::progress;
 
 use crate::{
     data::output::{DbKind, db},

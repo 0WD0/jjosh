@@ -4,8 +4,8 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
-use gix_features::progress;
 use gix_testtools::fixture_path;
+use gix_utils::progress;
 
 /// Writes a multi-index from the static SHA-1 pack indices, with pinned SHA-1 expectations.
 /// The SHA-256 counterpart lives in [`from_a_hash_parameterized_pack`] below.

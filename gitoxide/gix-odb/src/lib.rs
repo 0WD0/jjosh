@@ -68,8 +68,8 @@ use std::{
 };
 
 use arc_swap::ArcSwap;
-use gix_features::threading::OwnShared;
 pub use gix_pack as pack;
+use gix_parallel::OwnShared;
 use gix_zlib::stream::deflate;
 
 mod store_impls;
@@ -128,7 +128,7 @@ pub use traits::{Header, HeaderExt};
 
 /// A thread-local handle to access any object.
 pub type Handle = Cache<store::Handle<OwnShared<Store>>>;
-/// A thread-local handle to access any object, but thread-safe and independent of the actual type of `OwnShared` or feature toggles in `gix-features`.
+/// A thread-local handle to access any object, but thread-safe and independent of the actual type of `OwnShared` or feature toggles in `gix-parallel`.
 pub type HandleArc = Cache<store::Handle<Arc<Store>>>;
 
 use store::types;

@@ -90,7 +90,7 @@ impl Store {
             loose_compression,
         }: Options,
     ) -> std::io::Result<Self> {
-        let _span = gix_features::trace::detail!("gix_odb::Store::at()");
+        let _span = gix_trace::detail!("gix_odb::Store::at()");
         let current_dir = current_dir.map_or_else(
             || {
                 // It's only used for real-pathing alternate paths and there it just needs to be consistent (enough).

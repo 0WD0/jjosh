@@ -1,6 +1,6 @@
-//! Type definitions for putting shared ownership and synchronized mutation behind the `threading` feature toggle.
+//! Type definitions for putting shared ownership and synchronized mutation behind the `parallel` feature toggle.
 //!
-//! That way, single-threaded applications will not have to use thread-safe primitives, and simply do not specify the 'threading' feature.
+//! That way, single-threaded applications will not have to use thread-safe primitives, and simply do not specify the `parallel` feature.
 
 #[cfg(feature = "parallel")]
 mod _impl {
@@ -101,7 +101,7 @@ mod _impl {
         v.borrow()
     }
 
-    /// Downgrade a handle previously obtained with [`upgrade_ref_to_mut()`] to drop mutation support.
+    /// Downgrade a handle previously obtained with [`get_mut()`] to drop mutation support.
     pub fn downgrade_mut_to_ref<'a, T>(v: RefMut<'a, T>, orig: &'a RefCell<T>) -> RefGuard<'a, T> {
         drop(v);
         orig.borrow()

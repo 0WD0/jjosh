@@ -1,6 +1,6 @@
 use bstr::{BStr, BString, ByteSlice};
 use gix_error::Result;
-use gix_features::threading::OwnShared;
+use gix_parallel::OwnShared;
 use smallvec::SmallVec;
 
 use crate::{

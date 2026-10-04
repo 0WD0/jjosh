@@ -1,4 +1,5 @@
-use gix_features::{parallel, trace};
+use gix_parallel as parallel;
+use gix_trace as trace;
 
 fn assert_parent() {
     assert_eq!(
@@ -23,7 +24,7 @@ fn workers_inherit_the_current_span_and_subscriber() {
                 assert_parent();
                 Ok(item)
             },
-            parallel::reduce::IdentityWithResult::<_, ()>::default(),
+            parallel::IdentityWithResult::<_, ()>::default(),
         )
         .expect("workers complete successfully");
         parallel::in_parallel_with_finalize(
@@ -38,7 +39,7 @@ fn workers_inherit_the_current_span_and_subscriber() {
                 assert_parent();
                 Ok(0)
             },
-            parallel::reduce::IdentityWithResult::<_, ()>::default(),
+            parallel::IdentityWithResult::<_, ()>::default(),
         )
         .expect("workers complete successfully");
         let periodic_ran = std::sync::atomic::AtomicBool::new(false);
@@ -67,7 +68,7 @@ fn workers_inherit_the_current_span_and_subscriber() {
             2,
             "the eager worker visits every input"
         );
-        parallel::reduce::Stepwise::new(
+        parallel::Stepwise::new(
             (0..2).inspect(|_| assert_parent()),
             Some(2),
             |_| assert_parent(),
@@ -75,7 +76,7 @@ fn workers_inherit_the_current_span_and_subscriber() {
                 assert_parent();
                 Ok(item)
             },
-            parallel::reduce::IdentityWithResult::<_, ()>::default(),
+            parallel::IdentityWithResult::<_, ()>::default(),
         )
         .finalize()
         .expect("workers complete successfully");

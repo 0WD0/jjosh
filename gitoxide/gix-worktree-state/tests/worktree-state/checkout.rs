@@ -9,9 +9,9 @@ use std::{
     sync::atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
-use gix_features::progress;
 use gix_object::{Data, bstr::ByteSlice};
 use gix_testtools::tempfile::TempDir;
+use gix_utils::progress;
 use gix_worktree_state::checkout::Collision;
 use std::sync::LazyLock;
 
@@ -987,7 +987,7 @@ fn collisions_are_detected_on_a_case_insensitive_filesystem_even_with_delayed_fi
 }
 
 fn multi_threaded() -> bool {
-    gix_features::parallel::num_threads(None) > 1
+    gix_parallel::num_threads(None) > 1
 }
 
 fn assert_equality(source_tree: &Path, destination: &TempDir, allow_symlinks: bool) -> Result<usize> {
@@ -1117,7 +1117,7 @@ fn opts_from_probe() -> gix_worktree_state::checkout::Options {
     gix_worktree_state::checkout::Options {
         fs: *CAPABILITIES,
         destination_is_initially_empty: true,
-        thread_limit: gix_features::parallel::num_threads(None).into(),
+        thread_limit: gix_parallel::num_threads(None).into(),
         ..gix_worktree_state::checkout::Options::new(gix_filter::Pipeline::new(
             Default::default(),
             gix_testtools::object_hash(),

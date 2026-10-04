@@ -6,7 +6,7 @@ use std::{
 };
 
 use gix_error::{Class, Error, ErrorExt, Result, ResultExt, message};
-use gix_features::io::pipe;
+use gix_utils::io::pipe;
 use parking_lot::Mutex;
 
 use crate::client::blocking_io::http::{
@@ -45,7 +45,7 @@ impl Default for Remote {
         let (res_send, res_recv) = std::sync::mpsc::sync_channel(0);
         let redirected_base_url_shared = Arc::new(Mutex::new(None));
         let redirected_base_url_shared_for_field = redirected_base_url_shared.clone();
-        let handle = std::thread::spawn(gix_features::trace::in_thread(move || -> Result {
+        let handle = std::thread::spawn(gix_trace::in_thread(move || -> Result {
             let mut follow = None;
             let redirect_action = Arc::new(Mutex::new(RedirectAction::Stop));
             let redirect_tail = Arc::new(Mutex::new(String::new()));

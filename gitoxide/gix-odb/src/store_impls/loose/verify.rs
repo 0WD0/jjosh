@@ -6,7 +6,7 @@ use std::{
 
 use gix_error::{Class, ClassificationMarker, Message, OptionExt, ResultExt, bail, message, retryable};
 
-use gix_features::progress::{Count, DynNestedProgress, Progress};
+use gix_utils::progress::{Count, DynNestedProgress, Progress};
 
 use crate::loose::Store;
 
@@ -29,7 +29,7 @@ pub mod integrity {
         LooseObjects,
     }
 
-    impl From<ProgressId> for gix_features::progress::Id {
+    impl From<ProgressId> for gix_utils::progress::Id {
         fn from(v: ProgressId) -> Self {
             match v {
                 ProgressId::LooseObjects => *b"VILO",
@@ -52,7 +52,7 @@ impl Store {
         let mut num_objects = 0;
         let start = Instant::now();
         let mut progress = progress.add_child_with_id("Validating".into(), integrity::ProgressId::LooseObjects.into());
-        progress.init(None, gix_features::progress::count("loose objects"));
+        progress.init(None, gix_utils::progress::count("loose objects"));
         for id in self.iter() {
             let id = id.or_raise(|| message("Could not enumerate loose objects"))?;
             let object = self

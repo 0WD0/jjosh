@@ -2,11 +2,9 @@ use gix_error::Result;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use gix_error::bail;
-use gix_features::{
-    progress::{self, DynNestedProgress, Progress},
-    threading,
-    threading::{Mutable, OwnShared},
-};
+use gix_parallel as threading;
+use gix_parallel::{Mutable, OwnShared};
+use gix_utils::progress::{self, DynNestedProgress, Progress};
 
 use crate::{
     cache::delta::{Tree, traverse::util::ItemSliceSync, tree::Item},

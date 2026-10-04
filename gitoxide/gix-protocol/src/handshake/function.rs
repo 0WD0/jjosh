@@ -1,8 +1,9 @@
 use crate::bisync::bisync;
 use gix_error::Result;
 use gix_error::{ErrorExt, OptionExt, ResultExt, bail, message};
-use gix_features::{progress, progress::Progress};
 use gix_transport::{Service, client};
+use gix_utils::progress;
+use gix_utils::progress::Progress;
 
 use crate::Handshake;
 #[crate::bisync::only_async]
@@ -39,7 +40,8 @@ where
     AuthFn: FnMut(credentials::helper::Action) -> Result<Option<credentials::protocol::Outcome>>,
     T: Transport,
 {
-    let _span = gix_features::trace::detail!("gix_protocol::handshake()", service = ?service, extra_parameters = ?extra_parameters);
+    let _span =
+        gix_trace::detail!("gix_protocol::handshake()", service = ?service, extra_parameters = ?extra_parameters);
     let (server_protocol_version, refs, capabilities) = {
         progress.init(None, progress::steps());
         progress.set_name("handshake".into());

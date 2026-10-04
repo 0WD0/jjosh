@@ -62,7 +62,7 @@ fn db_with_all_object_sources() -> Result<(gix_odb::Handle, gix_testtools::tempf
             fixture_path("objects/pack/pack-c0438c19fb16422b6bbcce24387b3264416d485b.idx"),
         ],
         &mut multi_pack_index,
-        &mut gix_features::progress::Discard,
+        &mut gix_utils::progress::Discard,
         &std::sync::atomic::AtomicBool::default(),
         gix_odb::pack::multi_index::write::Options {
             object_hash: gix_hash::Kind::Sha1,
@@ -1100,8 +1100,8 @@ fn auto_refresh_with_and_without_id_stability() -> gix_testtools::TestResult {
 mod verify {
     use std::sync::atomic::AtomicBool;
 
-    use gix_features::progress;
     use gix_testtools::fixture_path;
+    use gix_utils::progress;
 
     use crate::store::dynamic::db;
 

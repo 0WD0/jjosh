@@ -41,7 +41,7 @@ pub enum ProgressId {
     IndexBytesWritten,
 }
 
-impl From<ProgressId> for gix_features::progress::Id {
+impl From<ProgressId> for gix_utils::progress::Id {
     fn from(v: ProgressId) -> Self {
         match v {
             ProgressId::IndexObjects => *b"IWIO",
@@ -58,7 +58,7 @@ pub(super) mod function {
     use std::{io, sync::atomic::AtomicBool};
 
     use gix_error::{OptionExt, ResultExt, bail};
-    use gix_features::progress::{self, Count, Progress, prodash::DynNestedProgress};
+    use gix_utils::progress::{self, Count, Progress, prodash::DynNestedProgress};
 
     use crate::cache::delta::{Tree, traverse};
 
@@ -237,8 +237,7 @@ pub(super) mod function {
             let mut items = roots;
             items.extend(children);
             {
-                let _progress =
-                    root_progress.add_child_with_id("sorting by id".into(), gix_features::progress::UNKNOWN);
+                let _progress = root_progress.add_child_with_id("sorting by id".into(), gix_utils::progress::UNKNOWN);
                 items.sort_by_key(|e| e.data.id);
             }
 

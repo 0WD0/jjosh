@@ -38,14 +38,17 @@ object-cache-dynamic = ["dep:clru", "dep:gix-hashtable"]
 ## Data structures implement `serde::Serialize` and `serde::Deserialize`.
 serde = ["dep:serde", "gix-object/serde", "gix-zlib/serde"]
 ## Enable parallel algorithms.
-parallel = ["gix-features/parallel", "dep:crossbeam-deque"]
+parallel = ["gix-parallel/parallel", "dep:crossbeam-deque"]
 ## Make it possible to compile to the `wasm32-unknown-unknown` target.
 wasm = ["gix-diff?/wasm"]
 ## Add test-utilities for tests and benchmarks.
 testing = []
 
 [dependencies]
-gix-features = { version = "^0.50.0", path = "../gix-features", features = ["crc32", "progress"] }
+crc32fast = "1.5.0"
+gix-trace = { version = "^0.2.0", path = "../gix-trace" }
+gix-utils = { version = "^0.4.0", path = "../gix-utils", features = ["interrupt", "progress"] }
+gix-parallel = { version = "^0.50.0", path = "../gix-parallel" }
 gix-zlib = { version = "^0.2.0", path = "../gix-zlib" }
 gix-path = { version = "^0.13.0", path = "../gix-path" }
 gix-hash = { version = "^0.27.0", path = "../gix-hash" }

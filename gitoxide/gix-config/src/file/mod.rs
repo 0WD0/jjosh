@@ -6,7 +6,7 @@ use std::{
 };
 
 use bstr::BString;
-use gix_features::threading::OwnShared;
+use gix_parallel::OwnShared;
 
 mod mutable;
 pub use mutable::{multi_value::MultiValueMut, section::SectionMut, value::ValueMut};

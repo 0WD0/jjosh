@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use bstr::{BStr, BString, ByteSlice, ByteVec};
 use gix_error::{OptionExt, Result, ResultExt, message, not_found};
-use gix_features::threading::OwnShared;
+use gix_parallel::OwnShared;
 use gix_ref::Category;
 
 use crate::{

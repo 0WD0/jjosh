@@ -122,7 +122,7 @@ where
     let commit_id = repo.rev_parse_single(rev_spec)?.detach();
     let mut string_heap = BTreeSet::<&'static [u8]>::new();
     let needs_stats = file_stats || line_stats;
-    let threads = gix::features::parallel::num_threads(threads);
+    let threads = gix::parallel::num_threads(threads);
 
     let (commit_authors, stats, is_shallow, skipped_merge_commits, num_commits) = {
         std::thread::scope(|scope| -> Result<_> {

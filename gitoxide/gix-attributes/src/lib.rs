@@ -98,7 +98,7 @@ pub enum State {
 /// Enable the `parallel` feature to make this type thread-safe. Without it, the name is backed by an `Rc<str>` and is
 /// neither `Send` nor `Sync`; with `parallel`, it is backed by an `Arc<str>` instead.
 #[derive(PartialEq, Eq, Debug, Hash, Ord, PartialOrd, Clone)]
-pub struct Name(pub(crate) gix_features::threading::OwnShared<str>);
+pub struct Name(pub(crate) gix_parallel::OwnShared<str>);
 
 /// Holds a validated attribute name as a reference
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash, Ord, PartialOrd)]

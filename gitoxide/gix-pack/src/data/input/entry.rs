@@ -43,8 +43,10 @@ impl input::Entry {
             .header
             .write_to(self.decompressed_size, &mut header_buf.as_mut())
             .expect("write to memory will not fail");
-        let state = gix_features::hash::crc32_update(0, &header_buf[..header_len]);
-        gix_features::hash::crc32_update(state, self.compressed.as_ref().expect("we always set it"))
+        let mut crc32 = crc32fast::Hasher::new();
+        crc32.update(&header_buf[..header_len]);
+        crc32.update(self.compressed.as_ref().expect("we always set it"));
+        crc32.finalize()
     }
 }
 

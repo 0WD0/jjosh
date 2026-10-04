@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicUsize, Ordering};
 
-use crate::parallel::{Reduce, num_threads};
+use crate::{Reduce, num_threads};
 
 /// A scope to start threads within.
 pub type Scope<'scope, 'env> = std::thread::Scope<'scope, 'env>;
@@ -10,11 +10,11 @@ pub fn join<O1: Send, O2: Send>(left: impl FnOnce() -> O1 + Send, right: impl Fn
     std::thread::scope(|s| {
         let left = std::thread::Builder::new()
             .name("gitoxide.join.left".into())
-            .spawn_scoped(s, crate::trace::in_thread(left))
+            .spawn_scoped(s, gix_trace::in_thread(left))
             .expect("valid name");
         let right = std::thread::Builder::new()
             .name("gitoxide.join.right".into())
-            .spawn_scoped(s, crate::trace::in_thread(right))
+            .spawn_scoped(s, gix_trace::in_thread(right))
             .expect("valid name");
         (left.join().unwrap(), right.join().unwrap())
     })
@@ -71,7 +71,7 @@ where
                         let receive_input = receive_input.clone();
                         let new_thread_state = new_thread_state.clone();
                         let mut consume = consume.clone();
-                        crate::trace::in_thread(move || {
+                        gix_trace::in_thread(move || {
                             let mut state = new_thread_state(thread_id);
                             for item in receive_input {
                                 if send_result.send(consume(item, &mut state)).is_err() {
@@ -86,7 +86,7 @@ where
                 .name("gitoxide.in_parallel.feed".into())
                 .spawn_scoped(
                     s,
-                    crate::trace::in_thread(move || {
+                    gix_trace::in_thread(move || {
                         for item in input {
                             if send_input.send(item).is_err() {
                                 break;
@@ -143,7 +143,7 @@ where
                         let new_thread_state = new_thread_state.clone();
                         let mut consume = consume.clone();
                         let finalize = finalize.clone();
-                        crate::trace::in_thread(move || {
+                        gix_trace::in_thread(move || {
                             let mut state = new_thread_state(thread_id);
                             let mut can_send = true;
                             for item in receive_input {
@@ -163,7 +163,7 @@ where
                 .name("gitoxide.in_parallel.feed".into())
                 .spawn_scoped(
                     s,
-                    crate::trace::in_thread(move || {
+                    gix_trace::in_thread(move || {
                         for item in input {
                             if send_input.send(item).is_err() {
                                 break;
@@ -224,7 +224,7 @@ where
             let watcher = std::thread::Builder::new()
                 .name("gitoxide.in_parallel_with_slice.watch-interrupts".into())
                 .spawn_scoped(s, {
-                    crate::trace::in_thread(move || {
+                    gix_trace::in_thread(move || {
                         loop {
                             if stop_everything.load(Ordering::Relaxed) {
                                 break;
@@ -283,7 +283,7 @@ where
                             let state_to_rval = state_to_rval.clone();
                             let mut consume = consume.clone();
                             let input = Input(input.as_mut_ptr());
-                            crate::trace::in_thread(move || {
+                            gix_trace::in_thread(move || {
                                 let _ = &input;
                                 threads_left.fetch_sub(1, Ordering::SeqCst);
                                 let mut state = new_thread_state(thread_id);

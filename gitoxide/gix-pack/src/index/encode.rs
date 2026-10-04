@@ -38,7 +38,7 @@ mod function {
 
     use gix_error::Result;
 
-    use gix_features::progress::{self, DynNestedProgress};
+    use gix_utils::progress::{self, DynNestedProgress};
 
     use super::{HIGH_BIT, LARGE_OFFSET_THRESHOLD, fanout};
     use crate::index::V2_SIGNATURE;
@@ -95,7 +95,7 @@ mod function {
 
         progress.init(Some(4), progress::steps());
         let start = std::time::Instant::now();
-        let _info = progress.add_child_with_id("writing fan-out table".into(), gix_features::progress::UNKNOWN);
+        let _info = progress.add_child_with_id("writing fan-out table".into(), gix_utils::progress::UNKNOWN);
         let fan_out = fanout(&mut entries_sorted_by_oid.iter().map(|e| e.data.id.first_byte()));
 
         for value in fan_out.iter() {
@@ -103,21 +103,21 @@ mod function {
         }
 
         progress.inc();
-        let _info = progress.add_child_with_id("writing ids".into(), gix_features::progress::UNKNOWN);
+        let _info = progress.add_child_with_id("writing ids".into(), gix_utils::progress::UNKNOWN);
         for entry in &entries_sorted_by_oid {
             out.write_all(entry.data.id.as_slice())
                 .map_err(gix_hash::io::from_std_io)?;
         }
 
         progress.inc();
-        let _info = progress.add_child_with_id("writing crc32".into(), gix_features::progress::UNKNOWN);
+        let _info = progress.add_child_with_id("writing crc32".into(), gix_utils::progress::UNKNOWN);
         for entry in &entries_sorted_by_oid {
             out.write_all(&entry.data.crc32.to_be_bytes())
                 .map_err(gix_hash::io::from_std_io)?;
         }
 
         progress.inc();
-        let _info = progress.add_child_with_id("writing offsets".into(), gix_features::progress::UNKNOWN);
+        let _info = progress.add_child_with_id("writing offsets".into(), gix_utils::progress::UNKNOWN);
         {
             let mut offsets64 = Vec::<u64>::new();
             for entry in &entries_sorted_by_oid {

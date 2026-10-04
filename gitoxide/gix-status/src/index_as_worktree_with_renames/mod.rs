@@ -53,7 +53,7 @@ pub(super) mod function {
         compare: impl CompareBlobs<Output = T> + Send + Clone,
         submodule: impl SubmoduleStatus<Output = U> + Send + Clone,
         objects: Find,
-        progress: &mut dyn gix_features::progress::Progress,
+        progress: &mut dyn gix_utils::progress::Progress,
         mut ctx: Context<'_>,
         options: Options<'_>,
     ) -> Result<Outcome>
@@ -64,16 +64,16 @@ pub(super) mod function {
     {
         let mut tracked_file_modifications = options.tracked_file_modifications;
         tracked_file_modifications.fscache = options.fscache;
-        gix_features::parallel::threads(|scope| -> Result<Outcome> {
+        gix_parallel::threads(|scope| -> Result<Outcome> {
             let (tx, rx) = std::sync::mpsc::channel();
             let walk_outcome = options
                 .dirwalk
                 .map(|options| {
-                    gix_features::parallel::build_thread()
+                    gix_parallel::build_thread()
                         .name("gix_status::dirwalk".into())
                         .spawn_scoped(
                             scope,
-                            gix_features::trace::in_thread({
+                            gix_trace::in_thread({
                                 let tx = tx.clone();
                                 let mut collect = dirwalk::Delegate {
                                     tx,
@@ -136,11 +136,11 @@ pub(super) mod function {
                     ctx.resource_cache.attr_stack.clone(),
                 )
             });
-            let tracked_modifications_outcome = gix_features::parallel::build_thread()
+            let tracked_modifications_outcome = gix_parallel::build_thread()
                 .name("gix_status::index_as_worktree".into())
                 .spawn_scoped(
                     scope,
-                    gix_features::trace::in_thread({
+                    gix_trace::in_thread({
                         let mut collect = tracked_modifications::Delegate { tx };
                         let objects = objects.clone();
                         let stack = ctx.resource_cache.attr_stack.clone();
@@ -289,7 +289,7 @@ pub(super) mod function {
                                 // NOTE: to make this work, we'd want to wait the index modification check to complete.
                                 //       Then it's possible to efficiently emit the tracked files along with what we already sent,
                                 //       i.e. untracked and ignored files.
-                                gix_features::trace::debug!("full-tree copy tracking isn't currently supported");
+                                gix_trace::debug!("full-tree copy tracking isn't currently supported");
                                 Ok::<_, std::io::Error>(())
                             },
                         )
@@ -546,7 +546,7 @@ pub(super) mod function {
                                 ErrorKind::NotFound | ErrorKind::PermissionDenied | ErrorKind::Interrupted
                             ) =>
                         {
-                            gix_features::trace::debug!(
+                            gix_trace::debug!(
                                 ?file_path,
                                 ?err,
                                 "ignoring worktree file as it can't be read for hashing"
@@ -581,7 +581,7 @@ pub(super) mod function {
                                     message!("Could not read metadata for worktree file \"{}\"", file_path.display())
                                 })?
                                 .len(),
-                            &mut gix_features::progress::Discard,
+                            &mut gix_utils::progress::Discard,
                             should_interrupt,
                         )
                         .or_raise(|| message!("Could not hash worktree file \"{}\"", file_path.display()))?,

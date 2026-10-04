@@ -4,7 +4,7 @@ use std::{
 };
 
 use gix_error::{ClassificationMarker, ErrorExt, ResultExt, bail, ensure, message};
-use gix_features::progress::{NestedProgress, Progress};
+use gix_utils::progress::{NestedProgress, Progress};
 
 use crate::{Result, repository::FormatVersion};
 use gix_ref::transaction::{LogChange, PreviousValue, RefEdit, RefLog};

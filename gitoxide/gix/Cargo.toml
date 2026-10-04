@@ -78,10 +78,11 @@ extras = [
 ]
 
 ## Various progress-related features that improve the look of progress message units.
-comfort = [
-    "gix-features/progress-unit-bytes",
-    "gix-features/progress-unit-human-numbers",
-]
+comfort = ["progress-unit-bytes", "progress-unit-human-numbers"]
+## Display progress counts with human-readable number units.
+progress-unit-human-numbers = ["gix-utils/progress-unit-human-numbers"]
+## Display byte sizes and progress with human-readable byte units.
+progress-unit-bytes = ["gix-utils/progress-unit-bytes"]
 
 #! #### Hashes
 #!
@@ -271,7 +272,7 @@ hp-tempfile-registry = ["gix-tempfile/hp-hashmap"]
 ##
 ## If unset, most of `gix` can only be used in a single thread as data structures won't be `Send` anymore.
 parallel = [
-    "gix-features/parallel",
+    "gix-parallel/parallel",
     "gix-pack/parallel",
     "gix-attributes?/parallel",
     "gix-filter?/parallel",
@@ -307,10 +308,10 @@ anyhow = ["gix-error/anyhow"]
 tree-error = ["gix-error/tree-error"]
 
 ## Enable tracing using the `tracing` crate for coarse tracing.
-tracing = ["gix-features/tracing"]
+tracing = ["gix-trace/tracing"]
 
 ## Enable tracing using the `tracing` crate for detailed tracing. Also enables coarse tracing.
-tracing-detail = ["gix-features/tracing-detail", "tracing"]
+tracing-detail = ["gix-trace/tracing-detail", "tracing"]
 
 ## Data structures implement `serde::Serialize` and `serde::Deserialize`.
 serde = [
@@ -337,11 +338,12 @@ serde = [
 progress-tree = ["prodash/progress-tree"]
 
 ## Print debugging information about usage of object database caches, useful for tuning cache sizes.
-cache-efficiency-debug = ["gix-features/cache-efficiency-debug"]
+cache-efficiency-debug = ["gix-utils/cache-efficiency-debug"]
 
 [dependencies]
+gix-parallel = { version = "^0.50.0", path = "../gix-parallel", features = ["once_cell"] }
 gix-error = { version = "^0.4.0", path = "../gix-error", features = ["bstr"] }
-gix-utils = { version = "^0.4.0", path = "../gix-utils", features = ["bstr"] }
+gix-utils = { version = "^0.4.0", path = "../gix-utils", features = ["bstr", "interrupt", "progress"] }
 gix-fs = { version = "^0.23.0", path = "../gix-fs" }
 gix-ref = { version = "^0.68.0", path = "../gix-ref" }
 gix-discover = { version = "^0.56.0", path = "../gix-discover" }
@@ -376,10 +378,6 @@ gix-diff = { version = "^0.68.0", path = "../gix-diff", default-features = false
 gix-merge = { version = "^0.21.0", path = "../gix-merge", default-features = false, optional = true }
 gix-mailmap = { version = "^0.35.0", path = "../gix-mailmap", optional = true }
 gix-note = { version = "^0.2.0", path = "../gix-note", optional = true }
-gix-features = { version = "^0.50.0", path = "../gix-features", features = [
-    "progress",
-    "once_cell",
-] }
 gix-trace = { version = "^0.2.0", path = "../gix-trace" }
 
 gix-glob = { version = "^0.28.0", path = "../gix-glob" }

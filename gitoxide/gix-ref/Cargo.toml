@@ -23,11 +23,11 @@ sha256 = ["gix-hash/sha256"]
 ## Data structures implement `serde::Serialize` and `serde::Deserialize`.
 serde = ["dep:serde", "gix-hash/serde", "gix-actor/serde", "gix-object/serde"]
 ## Enable support for thread-safety.
-parallel = ["gix-features/parallel"]
+parallel = ["gix-parallel/parallel"]
 
 [dependencies]
+gix-parallel = { version = "^0.50.0", path = "../gix-parallel" }
 gix-error = { version = "^0.4.0", path = "../gix-error", features = ["bstr"] }
-gix-features = { version = "^0.50.0", path = "../gix-features" }
 gix-fs = { version = "^0.23.0", path = "../gix-fs", features = ["walkdir"] }
 gix-path = { version = "^0.13.0", path = "../gix-path" }
 gix-hash = { version = "^0.27.0", path = "../gix-hash" }

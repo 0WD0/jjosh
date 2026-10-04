@@ -95,9 +95,9 @@ mod write_to_directory {
         sync::atomic::AtomicBool,
     };
 
-    use gix_features::progress;
     use gix_odb::pack;
     use gix_testtools::tempfile::TempDir;
+    use gix_utils::progress;
 
     use crate::{SMALL_PACK, SMALL_PACK_INDEX, fixture_path};
 

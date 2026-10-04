@@ -37,7 +37,7 @@ where
     pub fn from_data(data: T, path: PathBuf, object_hash: gix_hash::Kind) -> Result<Self> {
         let hash_len = object_hash.len_in_bytes();
         let pack_len = data.len();
-        let id = gix_features::hash::crc32(path.as_os_str().to_string_lossy().as_bytes());
+        let id = crc32fast::hash(path.as_os_str().to_string_lossy().as_bytes());
         if pack_len < data::header::SIZE + hash_len {
             bail!(gix_error::corruption(format!(
                 "Pack data of size {pack_len} is too small for even an empty pack with shortest hash"

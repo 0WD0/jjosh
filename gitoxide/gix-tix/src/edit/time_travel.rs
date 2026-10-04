@@ -1630,9 +1630,7 @@ mod tests {
     }
 
     fn loaded_graph(repository: &gix::Repository, revisions: &[OsString]) -> TestResult<history::HistoryGraph> {
-        let authors = gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(
-            history::Authors::default(),
-        ));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(history::Authors::default()));
         let mut graph = None;
         history::load(
             repository,

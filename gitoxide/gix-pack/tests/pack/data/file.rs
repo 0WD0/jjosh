@@ -35,7 +35,7 @@ fn unresolved_delta_base_is_not_found() {
 mod method {
     use std::sync::atomic::AtomicBool;
 
-    use gix_features::progress;
+    use gix_utils::progress;
 
     use crate::{SMALL_PACK, data::file::pack_at, pack_from_memory_at};
 

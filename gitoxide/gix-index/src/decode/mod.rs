@@ -9,7 +9,7 @@ mod entries;
 pub mod header;
 
 use gix_error::{ResourceExhaustionKind, ResultExt, bail, corruption, message};
-use gix_features::parallel::InOrderIter;
+use gix_parallel::InOrderIter;
 
 use crate::util::read_u32;
 
@@ -49,7 +49,7 @@ impl State {
             alloc_limit_bytes,
         }: Options,
     ) -> Result<(Self, Option<gix_hash::ObjectId>)> {
-        let _span = gix_features::trace::detail!("gix_index::State::from_bytes()", options = ?_options);
+        let _span = gix_trace::detail!("gix_index::State::from_bytes()", options = ?_options);
         let (version, num_entries, post_header_data) = header::decode(data, object_hash)?;
         let start_of_extensions = extension::end_of_index_entry::decode(data, object_hash)?;
         if num_entries as usize > entries::max_entries_possible(data.len(), start_of_extensions, object_hash, version) {
@@ -58,7 +58,7 @@ impl State {
             ));
         }
 
-        let mut num_threads = gix_features::parallel::num_threads(thread_limit);
+        let mut num_threads = gix_parallel::num_threads(thread_limit);
         let path_backing_buffer_size = entries::estimate_path_storage_requirements_in_bytes(
             num_entries,
             data.len(),
@@ -78,16 +78,16 @@ impl State {
             Some(offset) if num_threads > 1 => {
                 let extensions_data = &data[offset..];
                 let index_offsets_table = extension::index_entry_offset_table::find(extensions_data, object_hash);
-                let (entries_res, ext_res) = gix_features::parallel::threads(|scope| {
+                let (entries_res, ext_res) = gix_parallel::threads(|scope| {
                     let extension_loading =
                         (extensions_data.len() > min_extension_block_in_bytes_for_threading).then({
                             num_threads -= 1;
                             || {
-                                gix_features::parallel::build_thread()
+                                gix_parallel::build_thread()
                                     .name("gix-index.from_bytes.load-extensions".into())
                                     .spawn_scoped(
                                         scope,
-                                        gix_features::trace::in_thread(|| {
+                                        gix_trace::in_thread(|| {
                                             extension::decode::all(extensions_data, object_hash, alloc_limit_bytes)
                                         }),
                                     )
@@ -103,11 +103,11 @@ impl State {
                             for (id, chunks) in entry_offsets_chunked.enumerate() {
                                 let chunks = chunks.to_vec();
                                 threads.push(
-                                    gix_features::parallel::build_thread()
+                                    gix_parallel::build_thread()
                                         .name(format!("gix-index.from_bytes.read-entries.{id}"))
                                         .spawn_scoped(
                                             scope,
-                                            gix_features::trace::in_thread(move || {
+                                            gix_trace::in_thread(move || {
                                                 let num_entries_for_chunks =
                                                     chunks.iter().map(|c| c.num_entries).sum::<u32>() as usize;
                                                 let mut entries = vec_with_capacity(num_entries_for_chunks)?;

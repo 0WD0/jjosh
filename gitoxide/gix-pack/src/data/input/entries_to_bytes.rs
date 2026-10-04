@@ -98,7 +98,7 @@ where
             &mut self.output,
             num_bytes_written,
             self.object_hash,
-            &mut gix_features::progress::Discard,
+            &mut gix_utils::progress::Discard,
             &interrupt_never,
         )?;
         self.output

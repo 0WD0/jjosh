@@ -4,7 +4,7 @@ use std::{
 };
 
 use gix_error::{Result, ResultExt, bail, message, validation};
-use gix_features::progress::DynNestedProgress;
+use gix_utils::progress::DynNestedProgress;
 
 use crate::fetch::{
     Arguments, Context, Negotiate, NegotiateOutcome, Options, Outcome, ProgressId, Shallow, Tags, negotiate,
@@ -56,7 +56,7 @@ pub async fn fetch<P, T>(
     }: Options<'_>,
 ) -> Result<Option<Outcome>>
 where
-    P: gix_features::progress::NestedProgress,
+    P: gix_utils::progress::NestedProgress,
     P::SubProgress: 'static,
     T: Transport,
 {
@@ -279,7 +279,7 @@ fn add_shallow_args(
 }
 
 fn setup_remote_progress<'a>(
-    progress: &mut dyn gix_features::progress::DynNestedProgress,
+    progress: &mut dyn gix_utils::progress::DynNestedProgress,
     reader: &mut Box<dyn ExtendedBufRead<'a> + Unpin + 'a>,
     should_interrupt: &'a AtomicBool,
 ) {

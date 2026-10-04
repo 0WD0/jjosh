@@ -1426,7 +1426,7 @@ fn event_loop(
     } else {
         drop(view_repository);
     }
-    let authors = gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+    let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
     let mut watcher_retry_deadline = None;
     let mut ref_watcher = if preview_mode {
         None
@@ -1448,7 +1448,7 @@ fn event_loop(
         &revisions,
         if show_hidden { &[] } else { &hide },
         false,
-        gix::features::threading::OwnShared::clone(&authors),
+        gix::parallel::OwnShared::clone(&authors),
     );
 
     let mut app = App::new(1);
@@ -2518,7 +2518,7 @@ fn event_loop(
                     hide.clone(),
                     false,
                     Default::default(),
-                    gix::features::threading::OwnShared::clone(&authors),
+                    gix::parallel::OwnShared::clone(&authors),
                     history_graph
                         .take()
                         .expect("worktree preview starts only with a cached history graph"),
@@ -2544,7 +2544,7 @@ fn event_loop(
                 if app.show_hidden { Vec::new() } else { hide.clone() },
                 true,
                 Default::default(),
-                gix::features::threading::OwnShared::clone(&authors),
+                gix::parallel::OwnShared::clone(&authors),
                 history_graph
                     .take()
                     .expect("ref-tree refresh starts only with a cached history graph"),
@@ -2620,7 +2620,7 @@ fn event_loop(
                 hidden,
                 ref_tree.is_active(),
                 expand,
-                gix::features::threading::OwnShared::clone(&authors),
+                gix::parallel::OwnShared::clone(&authors),
                 history_graph
                     .take()
                     .expect("refresh starts only with a cached history graph"),
@@ -11733,8 +11733,7 @@ mod tests {
         let repository = test_repository::open(&fixture)?;
         let topic = repository.rev_parse_single("topic")?.detach();
         let main = repository.rev_parse_single("main")?.detach();
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
         let mut graph = None;
         history::load(
             &repository,
@@ -11807,8 +11806,7 @@ mod tests {
             .status()?;
         assert!(status.success(), "the configured tracking ref exists");
         let repository = test_repository::open(path)?;
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
         let mut graph = None;
         history::load(
             &repository,
@@ -12380,8 +12378,7 @@ mod tests {
             gix::refs::transaction::PreviousValue::MustNotExist,
             "test optional non-commit remote reference",
         )?;
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
         let hidden = vec![OsString::from("merged")];
         let mut graph = HistoryGraph::default();
         let history = graph.refresh(&repository, &[], &hidden, false, &HashSet::new(), &authors)?;
@@ -12574,8 +12571,7 @@ mod tests {
         let repository = test_repository::open(&worktree)?;
         let mut repository_path = repository.git_dir().to_owned();
         std::env::set_current_dir(&worktree)?;
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
         let mut graph = HistoryGraph::default();
         let expected = graph
             .refresh(&repository, &[], &[], false, &Default::default(), &authors)?
@@ -13757,8 +13753,7 @@ mod tests {
     fn tree_selection_keys_require_deliberate_confirmations_and_restore_normal_navigation() -> gix_testtools::Result {
         let fixture = gix_testtools::scripted_fixture_read_only("rebase_edit.sh")?;
         let repository = test_repository::open(&fixture)?;
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
         let mut graph = HistoryGraph::default();
         let history = graph.refresh(&repository, &[], &[], false, &HashSet::new(), &authors)?;
         let mut app = App::new(10);
@@ -15087,8 +15082,7 @@ mod tests {
             .collect::<gix_testtools::Result<Vec<_>>>()?;
         let mut app = App::new(1);
         app.extend_commits(rows);
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
 
         let commits = load_rebase_todo_commits(&repository, &mut app, &authors, &scope)?;
 
@@ -15117,8 +15111,7 @@ mod tests {
             ["user.name=preview author", "user.email=preview@example.com"],
         )?;
         let before = gix_testtools::repository::snapshot(fixture.path())?;
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
         let mut graph = HistoryGraph::default();
         let history = graph.refresh(&repo, &[], &["HEAD~2".into()], false, &HashSet::new(), &authors)?;
         let mut app = App::new(usize::MAX);

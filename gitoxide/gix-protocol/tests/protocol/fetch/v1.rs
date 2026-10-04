@@ -1,8 +1,8 @@
 use crate::TestResult;
 use bstr::ByteSlice;
-use gix_features::progress;
 use gix_protocol::handshake;
 use gix_transport::Protocol;
+use gix_utils::progress;
 
 use crate::fetch::{_impl::FetchConnection, CloneDelegate, LsRemoteDelegate, helper_unused, oid, transport};
 

@@ -19,7 +19,7 @@ pub struct Delegate<'a, AttributesFn, Find>
 where
     Find: gix_object::Find,
 {
-    pub(crate) out: &'a mut gix_features::io::pipe::Writer,
+    pub(crate) out: &'a mut gix_utils::io::pipe::Writer,
     pub(crate) err: SharedErrorSlot,
     pub(crate) path_deque: VecDeque<BString>,
     pub(crate) path: BString,

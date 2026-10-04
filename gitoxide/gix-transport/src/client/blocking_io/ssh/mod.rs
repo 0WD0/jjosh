@@ -192,7 +192,7 @@ fn determine_client_kind(
     let mut kind = known_kind.unwrap_or_else(|| ProgramKind::from(ssh_cmd));
     if known_kind.is_none() && kind == ProgramKind::Simple {
         let mut cmd = build_client_feature_check_command(ssh_cmd, url, disallow_shell)?;
-        gix_features::trace::debug!(cmd = ?cmd, "invoking `ssh` for feature check");
+        gix_trace::debug!(cmd = ?cmd, "invoking `ssh` for feature check");
         kind = if cmd.status().ok().is_some_and(|status| status.success()) {
             ProgramKind::Ssh
         } else {

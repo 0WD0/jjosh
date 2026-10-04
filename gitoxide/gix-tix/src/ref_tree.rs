@@ -1560,9 +1560,7 @@ pub(crate) fn render_full(
         }
     }
     let mut refs = crate::history::snapshot(repository, &visible_revisions, hidden, true)?;
-    let authors = gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(
-        crate::history::Authors::default(),
-    ));
+    let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(crate::history::Authors::default()));
     let mut graph = None;
     crate::history::load(
         repository,

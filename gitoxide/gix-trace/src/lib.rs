@@ -1,8 +1,8 @@
 //! A crate providing macros for creating spans in various detail levels. `coarse!` should be used for top-level operations, whereas
 //! `detail!` should be used in plumbing crates unless their operations are likely to cost a lot of time.
 //!
-//! The application is supposed to explicitly turn on tracing via `gix-features`.
-//! Crates that use `gix-features` should use `gix_features::trace`, and those who don't can use `gix_trace` directly.
+//! Applications opt in through this crate's `tracing` feature or the corresponding feature on `gix`.
+//! Plumbing crates use `gix_trace` directly, and applications using `gix` can use its `trace` reexport.
 //! Enable `forest` to collect and print trace trees; its module documentation explains connecting worker spans to their parent.
 //! ## Feature Flags
 #![cfg_attr(

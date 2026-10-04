@@ -22,7 +22,7 @@ use crate::{
 };
 
 #[cfg(feature = "index")]
-pub(crate) type IndexStorage = gix_features::threading::OwnShared<gix_fs::SharedFileSnapshotMut<gix_index::File>>;
+pub(crate) type IndexStorage = gix_parallel::OwnShared<gix_fs::SharedFileSnapshotMut<gix_index::File>>;
 /// A lazily loaded and auto-updated worktree index.
 #[cfg(feature = "index")]
 pub type Index = gix_fs::SharedFileSnapshot<gix_index::File>;

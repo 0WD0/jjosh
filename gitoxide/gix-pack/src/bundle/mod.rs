@@ -11,7 +11,7 @@ pub mod verify {
     use gix_error::Result;
     use std::sync::atomic::AtomicBool;
 
-    use gix_features::progress::DynNestedProgress;
+    use gix_utils::progress::DynNestedProgress;
 
     ///
     pub mod integrity {

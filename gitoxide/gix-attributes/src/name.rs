@@ -2,7 +2,7 @@ use std::borrow::Borrow;
 
 use bstr::{BStr, ByteSlice};
 use gix_error::{OptionExt, Result, validation};
-use gix_features::threading::OwnShared;
+use gix_parallel::OwnShared;
 
 use crate::{Name, NameRef};
 

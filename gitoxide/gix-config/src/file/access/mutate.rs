@@ -1,6 +1,6 @@
 use bstr::BStr;
 use gix_error::{Result, ResultExt};
-use gix_features::threading::OwnShared;
+use gix_parallel::OwnShared;
 
 use crate::{
     AsBStrOpt, File,

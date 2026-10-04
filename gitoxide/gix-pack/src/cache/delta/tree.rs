@@ -331,7 +331,7 @@ mod tests {
                 std::iter::once(()),
                 &|_| first_entry_offset,
                 &|_| Ok(None),
-                &mut gix_features::progress::Discard,
+                &mut gix_utils::progress::Discard,
                 &AtomicBool::new(false),
                 gix_hash::Kind::Sha1,
             );
@@ -354,7 +354,7 @@ mod tests {
                     [first, second].into_iter(),
                     &|offset| *offset,
                     &|_| Ok(None),
-                    &mut gix_features::progress::Discard,
+                    &mut gix_utils::progress::Discard,
                     &AtomicBool::new(false),
                     gix_hash::Kind::Sha1,
                 )
@@ -400,7 +400,7 @@ mod tests {
                         .take()
                         .expect("the failing resolver is called only once"))
                 },
-                &mut gix_features::progress::Discard,
+                &mut gix_utils::progress::Discard,
                 &AtomicBool::new(false),
                 gix_hash::Kind::Sha1,
             )
@@ -444,7 +444,7 @@ mod tests {
                     resolutions.set(resolutions.get() + 1);
                     Ok(None)
                 },
-                &mut gix_features::progress::Discard,
+                &mut gix_utils::progress::Discard,
                 &AtomicBool::new(false),
                 gix_hash::Kind::Sha1,
             )
@@ -484,7 +484,7 @@ mod tests {
                     );
                     Ok(Some(offsets[0]))
                 },
-                &mut gix_features::progress::Discard,
+                &mut gix_utils::progress::Discard,
                 &AtomicBool::new(false),
                 gix_hash::Kind::Sha1,
             )?;
@@ -527,7 +527,7 @@ mod tests {
                 idx.sorted_offsets().into_iter(),
                 &|ofs| *ofs,
                 &|id| Ok(idx.lookup(id).map(|index| idx.pack_offset_at_index(index))),
-                &mut gix_features::progress::Discard,
+                &mut gix_utils::progress::Discard,
                 &AtomicBool::new(false),
                 gix_hash::Kind::Sha1,
             )?;

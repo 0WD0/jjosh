@@ -6,7 +6,7 @@ use std::{
     sync::atomic::Ordering,
 };
 
-use gix_features::progress::Progress;
+use gix_utils::progress::Progress;
 
 /// Options for removing a linked worktree and its administrative directory.
 #[derive(Debug, Clone, Copy)]
@@ -114,7 +114,7 @@ pub(super) mod _impl {
 
     use std::{fs, path::Path};
 
-    use gix_features::progress::NestedProgress;
+    use gix_utils::progress::NestedProgress;
 
     /// Recursively remove `work_dir` and its private `git_dir` without following symbolic links.
     ///
@@ -196,7 +196,7 @@ fn remove_root_with_after_scan(
 ) -> Result<(), DirectoryError> {
     let root = normalize_root(root)?;
     let root = root.as_path();
-    scan.init(None, gix_features::progress::count("entries"));
+    scan.init(None, gix_utils::progress::count("entries"));
     #[cfg(unix)]
     let may_descend = {
         let containing_device = root
@@ -263,7 +263,7 @@ fn remove_root_with_after_scan(
 
         remove.init(
             Some(leaves.len() + directories.len()),
-            gix_features::progress::count("entries"),
+            gix_utils::progress::count("entries"),
         );
         let counter = remove.counter();
         let mut first_error = remove_leaves(&leaves, num_threads, |path, is_symlink| {
@@ -398,7 +398,7 @@ fn remove_leaves(
         let remove_chunk = &remove_chunk;
         let handles: Vec<_> = leaves
             .chunks(leaves.len().div_ceil(num_threads))
-            .map(|chunk| scope.spawn(gix_features::trace::in_thread(move || remove_chunk(chunk))))
+            .map(|chunk| scope.spawn(gix_trace::in_thread(move || remove_chunk(chunk))))
             .collect();
         handles.into_iter().fold(None, |first_error, handle| {
             let error = handle.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic));
@@ -591,8 +591,8 @@ mod tests {
 
             super::remove_root_with_after_scan(
                 &root,
-                gix_features::progress::Discard,
-                gix_features::progress::Discard,
+                gix_utils::progress::Discard,
+                gix_utils::progress::Discard,
                 options,
                 || {
                     scans += 1;
@@ -624,8 +624,8 @@ mod tests {
 
             let err = super::remove_root_with_after_scan(
                 &root,
-                gix_features::progress::Discard,
-                gix_features::progress::Discard,
+                gix_utils::progress::Discard,
+                gix_utils::progress::Discard,
                 Options {
                     max_retries: 5,
                     ..Options::default()
@@ -661,8 +661,8 @@ mod tests {
 
             let err = super::remove_root_with_after_scan(
                 &root,
-                gix_features::progress::Discard,
-                gix_features::progress::Discard,
+                gix_utils::progress::Discard,
+                gix_utils::progress::Discard,
                 Options {
                     max_retries,
                     ..Options::default()

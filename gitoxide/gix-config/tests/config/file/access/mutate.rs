@@ -26,7 +26,7 @@ mod new_section {
 
 mod new_section_with_meta {
     use gix_config::{File, Source, file::Metadata};
-    use gix_features::threading::OwnShared;
+    use gix_parallel::OwnShared;
     use gix_testtools::TestResult;
 
     #[test]

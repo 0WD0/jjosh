@@ -1,11 +1,11 @@
 mod io {
     use std::io::{BufRead, ErrorKind, Read, Write};
 
-    use gix_features::io;
+    use gix_utils::io;
 
     #[test]
     fn threaded_read_to_end() -> gix_testtools::TestResult {
-        let (mut writer, mut reader) = gix_features::io::pipe::unidirectional(0);
+        let (mut writer, mut reader) = gix_utils::io::pipe::unidirectional(0);
 
         let message = "Hello, world!";
         std::thread::spawn(move || {
@@ -100,7 +100,7 @@ mod io {
         std::thread::spawn(move || {
             for _ in 0..block_count {
                 let data = &[0; BLOCK_SIZE];
-                writer.write_all(data).unwrap();
+                writer.write_all(data).expect("reader remains connected");
             }
         });
 

@@ -12,7 +12,7 @@ use crate::{
 pub(crate) mod body;
 pub(crate) use body::BodyData;
 pub use body::{BodyRef, BodyRefIter};
-use gix_features::threading::OwnShared;
+use gix_parallel::OwnShared;
 
 use crate::file::{SectionId, write::platform_newline};
 

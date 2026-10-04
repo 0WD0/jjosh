@@ -74,7 +74,7 @@ impl Repository {
                         None => return Ok(None),
                     },
                 };
-                Ok(Some(gix_features::threading::OwnShared::new(
+                Ok(Some(gix_parallel::OwnShared::new(
                     self.modules_from_bytes(&self.find_object(id)?.data, None)?.into(),
                 )))
             }

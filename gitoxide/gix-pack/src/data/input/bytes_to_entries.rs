@@ -142,8 +142,10 @@ where
                 .header
                 .write_to(bytes_copied, &mut header_buf.as_mut())
                 .map_err(io_error)?;
-            let state = gix_features::hash::crc32_update(0, &header_buf[..header_len]);
-            Some(gix_features::hash::crc32_update(state, &compressed))
+            let mut crc32 = crc32fast::Hasher::new();
+            crc32.update(&header_buf[..header_len]);
+            crc32.update(&compressed);
+            Some(crc32.finalize())
         } else {
             None
         };

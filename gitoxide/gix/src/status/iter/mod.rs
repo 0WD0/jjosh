@@ -17,7 +17,7 @@ use types::{ApplyChange, Item, Iter, Outcome};
 /// Lifecycle
 impl<Progress> Platform<'_, Progress>
 where
-    Progress: gix_features::progress::Progress,
+    Progress: gix_utils::progress::Progress,
 {
     /// Turn the platform into an iterator for changes between the head-tree and the index, and the index and the working tree,
     /// while optionally listing untracked and/or ignored files.

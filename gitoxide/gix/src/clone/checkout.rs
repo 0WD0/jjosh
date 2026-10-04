@@ -19,7 +19,7 @@ pub mod main_worktree {
         BytesWritten,
     }
 
-    impl From<ProgressId> for gix_features::progress::Id {
+    impl From<ProgressId> for gix_utils::progress::Id {
         fn from(v: ProgressId) -> Self {
             match v {
                 ProgressId::CheckoutFiles => *b"CLCF",
@@ -47,15 +47,15 @@ pub mod main_worktree {
             should_interrupt: &AtomicBool,
         ) -> Result<(Repository, gix_worktree_state::checkout::Outcome)>
         where
-            P: gix_features::progress::NestedProgress,
-            P::SubProgress: gix_features::progress::NestedProgress + 'static,
+            P: gix_utils::progress::NestedProgress,
+            P::SubProgress: gix_utils::progress::NestedProgress + 'static,
         {
             self.main_worktree_inner(&mut progress, should_interrupt)
         }
 
         fn main_worktree_inner(
             &mut self,
-            progress: &mut dyn gix_features::progress::DynNestedProgress,
+            progress: &mut dyn gix_utils::progress::DynNestedProgress,
             should_interrupt: &AtomicBool,
         ) -> Result<(Repository, gix_worktree_state::checkout::Outcome)> {
             let _span = gix_trace::coarse!("gix::clone::PrepareCheckout::main_worktree()");

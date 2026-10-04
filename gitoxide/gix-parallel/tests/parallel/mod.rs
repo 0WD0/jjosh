@@ -1,5 +1,5 @@
 //! Tests that are working similarly in parallel and serial mode
-use gix_features::parallel;
+use gix_parallel as parallel;
 
 mod in_order_iter;
 mod in_parallel_with_slice;
@@ -40,7 +40,7 @@ fn in_parallel() {
 
 #[test]
 fn stepped_reduce_next() {
-    let mut iter = parallel::reduce::Stepwise::new(
+    let mut iter = parallel::Stepwise::new(
         std::iter::from_fn(|| Some(1)).take(100),
         None,
         |_n| (),
@@ -69,7 +69,7 @@ fn stepped_reduce_ref_input_and_consume() {
         }
     }
 
-    let mut iter = parallel::reduce::Stepwise::new(
+    let mut iter = parallel::Stepwise::new(
         ArcIter(seq.clone(), 0).enumerate(),
         None,
         {
@@ -92,7 +92,7 @@ fn stepped_reduce_ref_input_and_consume() {
 
 #[test]
 fn stepped_reduce_finalize() {
-    let iter = parallel::reduce::Stepwise::new(
+    let iter = parallel::Stepwise::new(
         std::iter::from_fn(|| Some(1)).take(100),
         None,
         |_n| (),

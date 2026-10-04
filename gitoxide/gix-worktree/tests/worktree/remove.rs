@@ -30,7 +30,7 @@ fn relative_roots_are_rejected_before_either_root_is_removed() -> gix_testtools:
         let err = gix_worktree::remove(
             work_dir_input,
             git_dir_input,
-            gix_features::progress::Discard,
+            gix_utils::progress::Discard,
             Options::default(),
         )
         .expect_err("both roots must be absolute before deletion can begin");
@@ -74,7 +74,7 @@ fn removes_both_roots_with_configured_thread_limits_without_retries() -> gix_tes
         gix_worktree::remove(
             &work_dir,
             &git_dir,
-            gix_features::progress::Discard,
+            gix_utils::progress::Discard,
             Options {
                 thread_limit,
                 max_retries: 0,
@@ -111,7 +111,7 @@ fn removes_both_roots_and_does_not_follow_symlinks() -> gix_testtools::TestResul
         return Err(err.into());
     }
 
-    gix_worktree::remove(&work_dir, &git_dir, gix_features::progress::Discard, Options::default())?;
+    gix_worktree::remove(&work_dir, &git_dir, gix_utils::progress::Discard, Options::default())?;
 
     assert!(!work_dir.exists(), "the checkout was removed");
     assert!(!git_dir.exists(), "the private Git directory was removed");
@@ -142,7 +142,7 @@ fn symlink_roots_with_or_without_a_trailing_separator_are_unlinked() -> gix_test
             work_dir.clone()
         };
 
-        gix_worktree::remove(&root, &git_dir, gix_features::progress::Discard, Options::default())?;
+        gix_worktree::remove(&root, &git_dir, gix_utils::progress::Discard, Options::default())?;
 
         assert!(!work_dir.exists(), "the symlink itself was removed");
         assert!(!git_dir.exists(), "the private Git directory was removed");
@@ -161,7 +161,7 @@ fn missing_roots_are_already_removed() -> gix_testtools::TestResult {
     gix_worktree::remove(
         tmp.path().join("missing-worktree"),
         tmp.path().join("repo.git/worktrees/missing"),
-        gix_features::progress::Discard,
+        gix_utils::progress::Discard,
         Options::default(),
     )?;
     let non_directory = tmp.path().join("file");
@@ -169,7 +169,7 @@ fn missing_roots_are_already_removed() -> gix_testtools::TestResult {
     gix_worktree::remove(
         non_directory.join("missing-worktree"),
         tmp.path().join("repo.git/worktrees/missing"),
-        gix_features::progress::Discard,
+        gix_utils::progress::Discard,
         Options::default(),
     )?;
     Ok(())
@@ -185,7 +185,7 @@ fn only_the_conventional_empty_worktrees_parent_is_removed() -> gix_testtools::T
     gix_worktree::remove(
         tmp.path().join("missing-worktree"),
         &git_dir,
-        gix_features::progress::Discard,
+        gix_utils::progress::Discard,
         Options::default(),
     )?;
 
@@ -223,7 +223,7 @@ fn unreadable_directories_match_git() -> gix_testtools::TestResult {
                 gix_worktree::remove(
                     &work_dir,
                     &git_dir,
-                    gix_features::progress::Discard,
+                    gix_utils::progress::Discard,
                     Options {
                         max_retries: 0,
                         ..Options::default()
@@ -291,7 +291,7 @@ fn administrative_data_is_removed_after_checkout_removal_fails() -> gix_testtool
     fs::create_dir_all(&git_dir)?;
     fs::write(git_dir.join("HEAD"), b"ref: refs/heads/topic\n")?;
 
-    let result = gix_worktree::remove(&work_dir, &git_dir, gix_features::progress::Discard, Options::default());
+    let result = gix_worktree::remove(&work_dir, &git_dir, gix_utils::progress::Discard, Options::default());
     if work_dir.exists() {
         fs::set_permissions(&work_dir, fs::Permissions::from_mode(0o700))?;
     }
@@ -322,7 +322,7 @@ fn readonly_files_do_not_prevent_removal() -> gix_testtools::TestResult {
     permissions.set_readonly(true);
     fs::set_permissions(&readonly, permissions)?;
 
-    gix_worktree::remove(&work_dir, &git_dir, gix_features::progress::Discard, Options::default())?;
+    gix_worktree::remove(&work_dir, &git_dir, gix_utils::progress::Discard, Options::default())?;
 
     assert!(!work_dir.exists(), "the checkout was removed");
     assert!(!git_dir.exists(), "the private Git directory was removed");

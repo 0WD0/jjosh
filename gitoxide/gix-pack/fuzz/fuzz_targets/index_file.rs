@@ -1,7 +1,7 @@
 #![no_main]
 
 use gix_error::Result;
-use gix_features::progress;
+use gix_utils::progress;
 use gix_hash::Prefix;
 use gix_pack::index;
 use gix_pack_fuzz::{empty_candidates, interrupt_flag, virtual_path};

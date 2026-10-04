@@ -1,6 +1,6 @@
 use std::sync::atomic::AtomicBool;
 
-use gix_features::progress;
+use gix_utils::progress;
 use maplit::btreemap;
 
 use crate::{multi_index::multi_index, object_hash};

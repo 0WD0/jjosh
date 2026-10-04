@@ -367,7 +367,7 @@ pub fn compute_stream_hash(
     object_kind: Kind,
     stream: &mut dyn std::io::Read,
     stream_len: u64,
-    progress: &mut dyn gix_features::progress::Progress,
+    progress: &mut dyn gix_utils::progress::Progress,
     should_interrupt: &std::sync::atomic::AtomicBool,
 ) -> Result<gix_hash::ObjectId> {
     let hasher = object_hasher(hash_kind, object_kind, stream_len);

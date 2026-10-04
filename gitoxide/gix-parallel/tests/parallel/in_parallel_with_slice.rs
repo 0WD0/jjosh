@@ -1,4 +1,4 @@
-use gix_features::parallel;
+use gix_parallel as parallel;
 
 #[test]
 fn in_parallel_with_mut_slice_in_chunks() {

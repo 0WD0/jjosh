@@ -23,11 +23,14 @@ sha256 = ["gix-hash/sha256", "gix-pack/sha256"]
 ## Data structures implement `serde::Serialize` and `serde::Deserialize`.
 serde = ["dep:serde", "gix-hash/serde", "gix-object/serde", "gix-pack/serde"]
 ## Enable support for multi-threaded usage of the object database.
-parallel = ["gix-features/parallel"]
+parallel = ["gix-parallel/parallel"]
 
 [dependencies]
+crc32fast = "1.5.0"
+gix-trace = { version = "^0.2.0", path = "../gix-trace" }
+gix-utils = { version = "^0.4.0", path = "../gix-utils", features = ["progress"] }
+gix-parallel = { version = "^0.50.0", path = "../gix-parallel" }
 gix-error = { version = "^0.4.0", path = "../gix-error" }
-gix-features = { version = "^0.50.0", path = "../gix-features", features = ["crc32"] }
 gix-zlib = { version = "^0.2.0", path = "../gix-zlib" }
 gix-hashtable = { version = "^0.17.0", path = "../gix-hashtable" }
 gix-hash = { version = "^0.27.0", path = "../gix-hash" }

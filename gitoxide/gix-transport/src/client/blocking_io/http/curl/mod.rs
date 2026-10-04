@@ -7,7 +7,7 @@ use std::{
 };
 
 use gix_error::{ClassificationMarker, Error, Result, ResultExt, message};
-use gix_features::io;
+use gix_utils::io;
 use parking_lot::Mutex;
 
 use crate::client::blocking_io::http::{self, traits::PostBodyDataKind};

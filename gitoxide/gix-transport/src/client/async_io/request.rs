@@ -69,26 +69,26 @@ impl<'a> RequestWriter<'a> {
         match message {
             MessageKind::Flush => {
                 if self.trace {
-                    gix_features::trace::trace!(">> FLUSH");
+                    gix_trace::trace!(">> FLUSH");
                 }
                 encode::write_packet_line(&gix_packetline::PacketLineRef::Flush, self.writer.inner_mut()).await
             }
             MessageKind::Delimiter => {
                 if self.trace {
-                    gix_features::trace::trace!(">> DELIM");
+                    gix_trace::trace!(">> DELIM");
                 }
                 encode::write_packet_line(&gix_packetline::PacketLineRef::Delimiter, self.writer.inner_mut()).await
             }
             MessageKind::ResponseEnd => {
                 if self.trace {
-                    gix_features::trace::trace!(">> RESPONSE_END");
+                    gix_trace::trace!(">> RESPONSE_END");
                 }
                 encode::write_packet_line(&gix_packetline::PacketLineRef::ResponseEnd, self.writer.inner_mut()).await
             }
             MessageKind::Text(t) => {
                 if self.trace {
                     use bstr::ByteSlice;
-                    gix_features::trace::trace!(">> {}", t.as_bstr());
+                    gix_trace::trace!(">> {}", t.as_bstr());
                 }
                 encode::write_text(&gix_packetline::TextRef::from(t), self.writer.inner_mut()).await
             }

@@ -74,7 +74,7 @@ pub mod object;
 ///     offsets.into_iter(),
 ///     &|offset| *offset,
 ///     &|_id| Ok(None),                 // self-contained pack: no ref-delta lookups
-///     &mut gix_features::progress::Discard,
+///     &mut gix_utils::progress::Discard,
 ///     &AtomicBool::default(),
 ///     gix_hash::Kind::default(),
 /// )?;

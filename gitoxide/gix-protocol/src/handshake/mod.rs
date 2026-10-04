@@ -75,7 +75,7 @@ pub(crate) mod hero {
 
         use gix_error::Result;
         use gix_error::{ResultExt, message};
-        use gix_features::progress::Progress;
+        use gix_utils::progress::Progress;
 
         /// Intermediate state while potentially fetching a refmap after the handshake.
         pub enum ObtainRefMap<'a> {

@@ -113,7 +113,7 @@ Follow "purposeful conventional commits" style:
 - Prefer references in plumbing crates to avoid expensive clones
 - Avoid calling `.detach()` unless an owned value is explicitly required. Many `gix` APIs accept attached ids and references directly, so prefer keeping repository-backed handles like `gix::Id` when possible.
 - Name variables holding untyped Git object IDs `<type>_id` or `*_<type>_id` (for example, `commit_id`, `root_tree_id`, or `note_blob_id`) so the object kind is always explicit.
-- Use `gix_features::threading::*` for interior mutability primitives
+- Use `gix_parallel::*` for interior mutability primitives
 
 ### Path Handling
 

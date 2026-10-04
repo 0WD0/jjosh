@@ -67,7 +67,7 @@ impl File {
         skip_hash: bool,
         options: decode::Options,
     ) -> Result<Self> {
-        let _span = gix_features::trace::detail!("gix_index::File::at()");
+        let _span = gix_trace::detail!("gix_index::File::at()");
         let path = path.into();
         let (data, mtime) = {
             let mut file = std::fs::File::open(&path)
@@ -90,7 +90,7 @@ impl File {
                 let expected =
                     gix_hash::ObjectId::from_bytes_or_panic(&data[data.len() - object_hash.len_in_bytes()..]);
                 if !expected.is_null() {
-                    let _span = gix_features::trace::detail!("gix::open_index::hash_index", path = ?path);
+                    let _span = gix_trace::detail!("gix::open_index::hash_index", path = ?path);
                     let meta = file
                         .metadata()
                         .or_raise(|| message("An IO error occurred while opening the index"))?;
@@ -99,7 +99,7 @@ impl File {
                         &mut file,
                         num_bytes_to_hash,
                         object_hash,
-                        &mut gix_features::progress::Discard,
+                        &mut gix_utils::progress::Discard,
                         &Default::default(),
                     )?
                     .verify(&expected)

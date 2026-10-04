@@ -1,5 +1,5 @@
 use gix_error::Result;
-use gix_features::threading::OwnShared;
+use gix_parallel::OwnShared;
 
 use crate::{
     File,

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use gix_features::threading::OwnShared;
+use gix_parallel::OwnShared;
 
 use crate::{
     file,

@@ -432,7 +432,7 @@ mod v2 {
             assert!(r.has_pack());
             let mut buf = Vec::new();
             reader.set_progress_handler(Some(Box::new(|a: bool, b: &[u8]| {
-                gix_protocol::RemoteProgress::translate_to_progress(a, b, &mut gix_features::progress::Discard);
+                gix_protocol::RemoteProgress::translate_to_progress(a, b, &mut gix_utils::progress::Discard);
                 std::ops::ControlFlow::Continue(())
             }) as HandleProgress));
             let bytes_read = reader.read_to_end(&mut buf).await?;

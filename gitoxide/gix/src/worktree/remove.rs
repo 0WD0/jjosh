@@ -3,8 +3,8 @@ use std::path::Path;
 use gix_error::{ClassificationMarker, ErrorExt, ResultExt, bail, message};
 
 use crate::{Result, bstr::BString};
-use gix_features::progress::{Count, NestedProgress, Progress};
 use gix_path::realpath::MAX_SYMLINKS;
+use gix_utils::progress::{Count, NestedProgress, Progress};
 
 pub use gix_worktree::remove::Options;
 
@@ -114,7 +114,7 @@ impl Target<'_> {
         } = self;
         let work_dir = proxy.parent.current_dir().join(work_dir);
         let mut validation = progress.add_child("validate");
-        validation.init(Some(1), gix_features::progress::count("worktree"));
+        validation.init(Some(1), gix_utils::progress::count("worktree"));
         let git_dir = proxy.parent.current_dir().join(proxy.git_dir());
         let ignore_case = proxy.parent.config.ignore_case;
 

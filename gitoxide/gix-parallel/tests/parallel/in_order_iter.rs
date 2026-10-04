@@ -1,6 +1,6 @@
 use std::convert::Infallible;
 
-use gix_features::parallel::InOrderIter;
+use gix_parallel::InOrderIter;
 
 #[test]
 fn in_order_stays_in_order() -> gix_testtools::TestResult {

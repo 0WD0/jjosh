@@ -1,7 +1,7 @@
 #![no_main]
 
 use gix_error::Result;
-use gix_features::progress;
+use gix_utils::progress;
 use gix_pack::{cache, data};
 use gix_pack_fuzz::{interrupt_flag, virtual_path};
 use libfuzzer_sys::fuzz_target;

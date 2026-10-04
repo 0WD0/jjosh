@@ -2,9 +2,9 @@ use gix_error::{Result, corruption, message};
 use std::sync::atomic::AtomicBool;
 
 use gix_error::{ResultExt, bail};
-use gix_features::progress::{DynNestedProgress, Progress};
 use gix_object::WriteTo;
 use gix_object::bstr::ByteSlice;
+use gix_utils::progress::{DynNestedProgress, Progress};
 
 use crate::index;
 
@@ -55,11 +55,11 @@ pub mod integrity {
         Traverse(PhantomData<crate::index::verify::index::traverse::ProgressId>),
     }
 
-    impl From<ProgressId> for gix_features::progress::Id {
+    impl From<ProgressId> for gix_utils::progress::Id {
         fn from(v: ProgressId) -> Self {
             match v {
                 ProgressId::ChecksumBytes => *b"PTHI",
-                ProgressId::Traverse(_) => gix_features::progress::UNKNOWN,
+                ProgressId::Traverse(_) => gix_utils::progress::UNKNOWN,
             }
         }
     }
@@ -211,7 +211,7 @@ where
         object_kind: gix_object::Kind,
         buf: &[u8],
         index_entry: &index::Entry,
-        _progress: &dyn gix_features::progress::Progress,
+        _progress: &dyn gix_utils::progress::Progress,
     ) -> Result {
         if let Mode::HashCrc32Decode | Mode::HashCrc32DecodeEncode = verify_mode {
             use gix_object::Kind::*;

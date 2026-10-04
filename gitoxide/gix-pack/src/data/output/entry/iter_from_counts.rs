@@ -3,13 +3,11 @@ pub(crate) mod function {
     use std::{cmp::Ordering, sync::Arc};
 
     use gix_error::{OptionExt, ResultExt, message, not_found};
-    use gix_features::{
-        parallel,
-        parallel::SequenceId,
-        progress::{
-            Progress,
-            prodash::{Count, DynNestedProgress},
-        },
+    use gix_parallel as parallel;
+    use gix_parallel::SequenceId;
+    use gix_utils::progress::{
+        Progress,
+        prodash::{Count, DynNestedProgress},
     };
 
     use super::{Mode, Options, Outcome, ProgressId, reduce, util};
@@ -58,7 +56,7 @@ pub(crate) mod function {
         }: Options,
     ) -> Result<
         impl Iterator<Item = Result<(SequenceId, Vec<output::Entry>)>>
-        + parallel::reduce::Finalize<Reduce = reduce::Statistics<gix_error::Error>>,
+        + parallel::Finalize<Reduce = reduce::Statistics<gix_error::Error>>,
     >
     where
         Find: crate::Find + Send + Clone + 'static,
@@ -69,7 +67,7 @@ pub(crate) mod function {
             let progress = Arc::new(parking_lot::Mutex::new(
                 progress.add_child_with_id("resolving".into(), ProgressId::ResolveCounts.into()),
             ));
-            progress.lock().init(None, gix_features::progress::count("counts"));
+            progress.lock().init(None, gix_utils::progress::count("counts"));
             let enough_counts_present = counts.len() > 4_000;
             let start = std::time::Instant::now();
             parallel::in_parallel_if(
@@ -95,14 +93,14 @@ pub(crate) mod function {
                         Ok::<_, gix_error::Error>(())
                     }
                 },
-                parallel::reduce::IdentityWithResult::<(), gix_error::Error>::default(),
+                parallel::IdentityWithResult::<(), gix_error::Error>::default(),
             )?;
             progress.lock().show_throughput(start);
         }
         let counts_range_by_pack_id = match mode {
             Mode::PackCopyAndBaseObjects => {
                 let mut progress = progress.add_child_with_id("sorting".into(), ProgressId::SortEntries.into());
-                progress.init(Some(counts.len()), gix_features::progress::count("counts"));
+                progress.init(Some(counts.len()), gix_utils::progress::count("counts"));
                 let start = std::time::Instant::now();
 
                 use crate::data::output::count::PackLocation::*;
@@ -141,7 +139,7 @@ pub(crate) mod function {
         let progress = Arc::new(parking_lot::Mutex::new(progress));
         let chunks = util::ChunkRanges::new(chunk_size, counts.len());
 
-        Ok(parallel::reduce::Stepwise::new(
+        Ok(parallel::Stepwise::new(
             chunks.enumerate(),
             thread_limit,
             {
@@ -151,7 +149,7 @@ pub(crate) mod function {
                         Vec::new(), // object data buffer
                         progress
                             .lock()
-                            .add_child_with_id(format!("thread {n}"), gix_features::progress::UNKNOWN),
+                            .add_child_with_id(format!("thread {n}"), gix_utils::progress::UNKNOWN),
                     )
                 }
             },
@@ -162,7 +160,7 @@ pub(crate) mod function {
                     let chunk = &counts[chunk_range];
                     let mut stats = Outcome::default();
                     let mut pack_offsets_to_id = None;
-                    progress.init(Some(chunk.len()), gix_features::progress::count("objects"));
+                    progress.init(Some(chunk.len()), gix_utils::progress::count("objects"));
 
                     for count in chunk.iter() {
                         out.push(match count
@@ -293,7 +291,8 @@ mod util {
 mod reduce {
     use std::marker::PhantomData;
 
-    use gix_features::{parallel, parallel::SequenceId};
+    use gix_parallel as parallel;
+    use gix_parallel::SequenceId;
 
     use super::Outcome;
     use crate::data::output;
@@ -428,7 +427,7 @@ mod types {
         SortEntries,
     }
 
-    impl From<ProgressId> for gix_features::progress::Id {
+    impl From<ProgressId> for gix_utils::progress::Id {
         fn from(v: ProgressId) -> Self {
             match v {
                 ProgressId::ResolveCounts => *b"ECRC",

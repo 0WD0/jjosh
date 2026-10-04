@@ -51,7 +51,7 @@ where
     E: std::error::Error + Send + Sync + 'static,
 {
     let (stream, mut write, additional_entries) = Stream::new();
-    std::thread::spawn(gix_features::trace::in_thread({
+    std::thread::spawn(gix_trace::in_thread({
         let slot = stream.err.clone();
         move || {
             if let Err(err) = run(
@@ -89,7 +89,7 @@ fn run<Find, E>(
     ) -> std::result::Result<(), E>
     + Send
     + 'static,
-    out: &mut gix_features::io::pipe::Writer,
+    out: &mut gix_utils::io::pipe::Writer,
     err: SharedErrorSlot,
     additional_entries: std::sync::mpsc::Receiver<AdditionalEntry>,
 ) -> Result

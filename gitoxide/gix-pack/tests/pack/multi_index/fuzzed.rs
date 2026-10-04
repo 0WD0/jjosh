@@ -199,7 +199,7 @@ fn integrity_verification_rejects_corrupt_offset_references() -> gix_testtools::
         let index = gix_pack::multi_index::File::from_data(data, "invalid-reference.midx".into(), None)?;
         let err = index
             .verify_integrity_fast(
-                &mut gix_features::progress::Discard,
+                &mut gix_utils::progress::Discard,
                 &std::sync::atomic::AtomicBool::new(false),
             )
             .expect_err("verification must inspect references even though loading does not");

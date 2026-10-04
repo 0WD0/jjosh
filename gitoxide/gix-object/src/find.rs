@@ -109,7 +109,7 @@ impl super::Write for Never {
             kind,
             from,
             size,
-            &mut gix_features::progress::Discard,
+            &mut gix_utils::progress::Discard,
             &std::sync::atomic::AtomicBool::new(false),
         )
     }

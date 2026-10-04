@@ -2,10 +2,8 @@ use gix_error::Result;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use gix_error::{OptionExt, ResourceExhaustionKind, ResultExt, bail, message};
-use gix_features::{
-    progress::Progress,
-    threading::{self, OwnShared},
-};
+use gix_parallel::{self as threading, OwnShared};
+use gix_utils::progress::Progress;
 
 use crate::{
     cache::delta::{
@@ -136,8 +134,8 @@ pub(super) unsafe fn all<T, F, MBFN, R>(
     child_items: &ItemSliceSync<'_, Item<T>>,
     thread_limit: Option<usize>,
     num_objects: usize,
-    objects: gix_features::progress::StepShared,
-    size: gix_features::progress::StepShared,
+    objects: gix_utils::progress::StepShared,
+    size: gix_utils::progress::StepShared,
     progress: &dyn Progress,
     resolve: F,
     resolve_data: &R,
@@ -170,7 +168,7 @@ where
     #[cfg(feature = "parallel")]
     {
         resolve_parallel(
-            gix_features::parallel::num_threads(thread_limit).min(num_objects),
+            gix_parallel::num_threads(thread_limit).min(num_objects),
             work,
             objects,
             size,
@@ -214,8 +212,8 @@ where
 #[expect(clippy::too_many_arguments)]
 fn resolve_serial<T, F, MBFN, R>(
     mut work: Vec<WorkItem<'_, T>>,
-    objects: gix_features::progress::StepShared,
-    size: gix_features::progress::StepShared,
+    objects: gix_utils::progress::StepShared,
+    size: gix_utils::progress::StepShared,
     progress: &dyn Progress,
     resolve: F,
     resolve_data: &R,
@@ -271,8 +269,8 @@ where
 fn resolve_parallel<T, F, MBFN, R>(
     num_threads: usize,
     work: Vec<WorkItem<'_, T>>,
-    objects: gix_features::progress::StepShared,
-    size: gix_features::progress::StepShared,
+    objects: gix_utils::progress::StepShared,
+    size: gix_utils::progress::StepShared,
     progress: &dyn Progress,
     resolve: F,
     resolve_data: &R,
@@ -303,14 +301,14 @@ where
     let stealers: Vec<_> = workers.iter().map(crossbeam_deque::Worker::stealer).collect();
     let abort = AtomicBool::new(false);
 
-    gix_features::parallel::threads(|scope| {
+    gix_parallel::threads(|scope| {
         let mut handles = Vec::with_capacity(num_threads);
         for (tid, worker) in workers.into_iter().enumerate() {
-            let result = gix_features::parallel::build_thread()
+            let result = gix_parallel::build_thread()
                 .name(format!("gix-pack.traverse_deltas.{tid}"))
                 .spawn_scoped(
                     scope,
-                    gix_features::trace::in_thread({
+                    gix_trace::in_thread({
                         let stealers = &stealers;
                         let roots = &roots;
                         let remaining = &remaining;
@@ -463,8 +461,8 @@ fn resolve_task<'a, T, F, MBFN, R>(
     ref_delta_children: Option<&super::SharedRefDeltaChildren>,
     object_hash: gix_hash::Kind,
     alloc_limit_bytes: Option<usize>,
-    objects: &gix_features::progress::StepShared,
-    size: &gix_features::progress::StepShared,
+    objects: &gix_utils::progress::StepShared,
+    size: &gix_utils::progress::StepShared,
     mut push: impl FnMut(WorkItem<'a, T>),
 ) -> Result
 where
@@ -578,8 +576,8 @@ fn inspect<T, MBFN>(
     resolved: &ResolvedBase,
     progress: &dyn Progress,
     modify_base: &mut MBFN,
-    objects: &gix_features::progress::StepShared,
-    size: &gix_features::progress::StepShared,
+    objects: &gix_utils::progress::StepShared,
+    size: &gix_utils::progress::StepShared,
 ) -> Result
 where
     T: Send,
@@ -663,7 +661,7 @@ mod tests {
 
     use gix_error::Result;
 
-    use gix_features::progress;
+    use gix_utils::progress;
 
     use crate::{
         cache::delta::{Tree, traverse},

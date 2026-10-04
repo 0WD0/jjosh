@@ -1854,9 +1854,7 @@ mod tests {
         );
         assert_eq!(head.commit_id, Some(topic_id));
         let hidden = crate::history::available_hidden_revisions(&worktree, &[], true)?.0;
-        let authors = gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(
-            crate::history::Authors::default(),
-        ));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(crate::history::Authors::default()));
         let mut graph = crate::history::HistoryGraph::default();
         let refresh = graph.refresh(&worktree, &[], &hidden, false, &Default::default(), &authors)?;
         let loaded = graph_metadata(&worktree, &graph, &refresh.refs)?;

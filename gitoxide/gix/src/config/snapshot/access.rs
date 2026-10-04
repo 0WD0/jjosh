@@ -1,7 +1,7 @@
 use std::ffi::OsString;
 
 use crate::error::{bail, validation};
-use gix_features::threading::OwnShared;
+use gix_parallel::OwnShared;
 
 use crate::{
     Result,

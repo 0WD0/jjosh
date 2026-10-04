@@ -1,5 +1,5 @@
 pub use gix_config::*;
-use gix_features::threading::OnceCell;
+use gix_parallel::OnceCell;
 
 use crate::{Repository, repository::identity};
 

@@ -124,7 +124,7 @@ impl super::Store {
                                     // TODO(odb-parallelism): consider to search fresh indices,
                                     // then retry all changed failed slots
                                     // before returning the first error. Persistent failures must not advance state_id.
-                                    gix_features::trace::error!(err=?_err, "Failed to load index file - some objects may seem to not exist");
+                                    gix_trace::error!(err=?_err, "Failed to load index file - some objects may seem to not exist");
                                     continue 'retry_with_next_slot_index;
                                 }
                             }
