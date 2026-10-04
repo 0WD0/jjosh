@@ -4055,7 +4055,7 @@ mod tests {
         let metadata = err.metadata_merged();
         assert_eq!(
             metadata["program"],
-            Path::new("git").into(),
+            Path::new(crate::git_command(fixture.path()).get_program()).into(),
             "the program remains in metadata"
         );
         assert!(
