@@ -5,7 +5,7 @@ set -eu -o pipefail
 # File content is from stdin. Args are repo name, path, -x or +x, and tr sets.
 function make_repo() (
   local repo="$1" path="$2" xbit="$3" set1="$4" set2="$5"
-  local dir dir_standin path_standin path_standin_pattern path_replacement
+  local dir dir_standin path_standin
 
   git init -- "$repo"
   cd -- "$repo" # Temporary, as the function body is a ( ) subshell.
@@ -15,11 +15,16 @@ function make_repo() (
   path_standin="$(tr "$set1" "$set2" <<<"$path")"
   mkdir -p -- "$dir_standin"
   cat >"$path_standin"
+  # The index stores this mtime as 0x3a000d0a, including CRLF bytes. Text-mode sed
+  # on Windows would drop the CR and corrupt the index when rewriting it below.
+  TZ=UTC touch -t 200011011231.06 -- "$path_standin"
   git add --chmod="$xbit" -- "$path_standin"
-  path_standin_pattern="$(sed 's/[|.*^$\]/\\&/g' <<<"$path_standin")"
-  path_replacement="$(sed 's/[|&\]/\\&/g' <<<"$path")"
   cp .git/index old_index
-  LC_ALL=C sed "s|$path_standin_pattern|$path_replacement|g" old_index >.git/index
+  # Perl supports binary I/O on all platforms, including those without sed -b.
+  perl -0777 -pe '
+    BEGIN { binmode STDIN; binmode STDOUT; ($from, $to) = splice @ARGV, 0, 2 }
+    s/\Q$from\E/$to/g
+  ' "$path_standin" "$path" <old_index >.git/index
   git commit -m 'Initial commit'
 )
 

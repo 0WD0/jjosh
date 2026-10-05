@@ -216,20 +216,35 @@ fn a_path_resolved_selected_git_does_not_override_path() {
 }
 
 #[test]
-fn configure_command_overrides_xdg_config_home() {
-    let temp = tempfile::TempDir::new().expect("can create temp dir");
-    let mut cmd = std::process::Command::new(gix_path::env::exe_invocation());
-    cmd.env("XDG_CONFIG_HOME", temp.path().join("external-config"));
-    configure_command(&mut cmd, gix_hash::Kind::default(), ["--version"], temp.path());
+fn configure_command_overrides_xdg_config_home() -> gix_error::TestResult {
+    let current_dir = env::current_dir()?;
+    let temp = tempfile::tempdir_in(&current_dir)?;
+    let config_dir = temp.path().join(".gix-testtools-xdg-config/git");
+    std::fs::create_dir_all(&config_dir)?;
+    std::fs::write(config_dir.join("attributes"), "*.txt fixture-isolated\n")?;
 
-    let xdg_config_home = cmd
-        .get_envs()
-        .find_map(|(key, value)| (key == "XDG_CONFIG_HOME").then_some(value))
-        .flatten();
-    assert_eq!(
-        xdg_config_home,
-        Some(temp.path().join(".gix-testtools-xdg-config").as_os_str())
-    );
+    for fixture_dir in [temp.path(), temp.path().strip_prefix(&current_dir)?] {
+        let mut cmd = std::process::Command::new(bash_program());
+        cmd.env("XDG_CONFIG_HOME", temp.path().join("external-config"));
+        let output = configure_command(
+            &mut cmd,
+            gix_hash::Kind::default(),
+            [
+                "-c",
+                "git init -q repo && cd repo && git check-attr fixture-isolated -- file.txt",
+            ],
+            fixture_dir,
+        )
+        .output()?;
+        assert!(output.status.success(), "the fixture command succeeds: {output:?}");
+        assert_eq!(
+            output.stdout.as_bstr(),
+            "file.txt: fixture-isolated: set\n",
+            "the isolated XDG directory stays anchored after changing directories, even with a relative fixture path"
+        );
+        assert!(output.stderr.is_empty(), "XDG paths produce no warnings: {output:?}");
+    }
+    Ok(())
 }
 
 #[test]
