@@ -24,7 +24,7 @@ serde = ["dep:serde", "bstr/serde", "gix-sec/serde", "gix-ref/serde", "gix-glob/
 [dependencies]
 gix-features = { version = "^0.50.0", path = "../gix-features" }
 gix-config-value = { version = "^0.20.0", path = "../gix-config-value" }
-gix-error = { version = "^0.4.0", path = "../gix-error" }
+gix-error = { version = "^0.4.0", path = "../gix-error", features = ["bstr"] }
 gix-path = { version = "^0.13.0", path = "../gix-path" }
 gix-sec = { version = "^0.15.0", path = "../gix-sec" }
 gix-ref = { version = "^0.68.0", path = "../gix-ref" }

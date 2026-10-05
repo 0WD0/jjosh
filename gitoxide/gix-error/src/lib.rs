@@ -439,7 +439,7 @@
 //!
 //! let err = gix_error::validation("invalid input").with_input(b"bad".as_slice()).raise();
 //! let values = err.metadata().find(|values| values.contains_key("input")).expect("input context");
-//! assert_eq!(values["input"], MetadataValue::Bytes("bad".into()));
+//! assert_eq!(values["input"], MetadataValue::Bytes(b"bad".as_slice().into()));
 //! ```
 //!
 //! ## Matching a specific failure
@@ -570,6 +570,7 @@
 pub mod exn;
 pub mod types;
 
+#[cfg(feature = "bstr")]
 pub use bstr;
 pub use exn::{
     ext::{BoxedResultExt, ErrorExt, OptionExt, ResultExt},

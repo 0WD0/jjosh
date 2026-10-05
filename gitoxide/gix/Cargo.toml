@@ -336,7 +336,7 @@ progress-tree = ["prodash/progress-tree"]
 cache-efficiency-debug = ["gix-features/cache-efficiency-debug"]
 
 [dependencies]
-gix-error = { version = "^0.4.0", path = "../gix-error" }
+gix-error = { version = "^0.4.0", path = "../gix-error", features = ["bstr"] }
 gix-utils = { version = "^0.4.0", path = "../gix-utils", features = ["bstr"] }
 gix-fs = { version = "^0.23.0", path = "../gix-fs" }
 gix-ref = { version = "^0.68.0", path = "../gix-ref" }

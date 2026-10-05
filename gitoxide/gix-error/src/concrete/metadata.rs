@@ -1,7 +1,5 @@
 use std::{borrow::Cow, collections::BTreeMap, fmt, path::PathBuf};
 
-use bstr::BString;
-
 use crate::{Class, Error, ErrorExt, ResourceExhaustionKind};
 
 /// An ordered dictionary of named diagnostic values belonging to a single error context.
@@ -450,6 +448,7 @@ pub fn allocation_failure(message: impl Into<Cow<'static, str>>) -> Message {
 /// An owned scalar value in a [`Metadata`] dictionary. Bytes and native paths retain their original representation.
 ///
 /// Debug formatting keeps the variant and its value on a single line, even in pretty output.
+/// Byte values always use `Vec<u8>`; the optional `bstr` feature adds conversions from `BString` and `&BStr`.
 #[derive(Clone, PartialEq)]
 #[non_exhaustive]
 pub enum MetadataValue {
@@ -463,8 +462,8 @@ pub enum MetadataValue {
     F64(f64),
     /// UTF-8 text.
     String(String),
-    /// An arbitrary byte string.
-    Bytes(BString),
+    /// An arbitrary byte string, pretty-printed on debug or display.
+    Bytes(Vec<u8>),
     /// A native filesystem path.
     Path(PathBuf),
 }
@@ -477,7 +476,11 @@ impl fmt::Debug for MetadataValue {
             MetadataValue::U64(value) => write!(f, "U64({value:?})"),
             MetadataValue::F64(value) => write!(f, "F64({value:?})"),
             MetadataValue::String(value) => write!(f, "String({value:?})"),
-            MetadataValue::Bytes(value) => write!(f, "Bytes({value:?})"),
+            MetadataValue::Bytes(value) => {
+                f.write_str("Bytes(")?;
+                fmt::Debug::fmt(&DebugBytes(value), f)?;
+                f.write_str(")")
+            }
             MetadataValue::Path(value) => write!(f, "Path({value:?})"),
         }
     }
@@ -491,7 +494,7 @@ impl fmt::Display for MetadataValue {
             MetadataValue::U64(value) => fmt::Display::fmt(value, f),
             MetadataValue::F64(value) => fmt::Display::fmt(value, f),
             MetadataValue::String(value) => fmt::Debug::fmt(value, f),
-            MetadataValue::Bytes(value) => fmt::Debug::fmt(value, f),
+            MetadataValue::Bytes(value) => fmt::Debug::fmt(&DebugBytes(value), f),
             MetadataValue::Path(value) => fmt::Debug::fmt(value, f),
         }
     }
@@ -512,8 +515,17 @@ from!(I64: i8, i16, i32, i64);
 from!(U64: u8, u16, u32, u64);
 from!(F64: f32, f64);
 from!(String: String, &str);
-from!(Bytes: BString, &bstr::BStr, Vec<u8>, &[u8]);
+from!(Bytes: Vec<u8>, &[u8]);
+#[cfg(feature = "bstr")]
+from!(Bytes: bstr::BString);
 from!(Path: PathBuf, &std::path::Path);
+
+#[cfg(feature = "bstr")]
+impl From<&bstr::BStr> for MetadataValue {
+    fn from(value: &bstr::BStr) -> Self {
+        Self::Bytes(value.to_vec())
+    }
+}
 
 impl From<usize> for MetadataValue {
     fn from(value: usize) -> Self {
@@ -524,5 +536,95 @@ impl From<usize> for MetadataValue {
 impl From<isize> for MetadataValue {
     fn from(value: isize) -> Self {
         Self::I64(value as i64)
+    }
+}
+
+struct DebugBytes<'a>(&'a [u8]);
+
+impl fmt::Debug for DebugBytes<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("\"")?;
+        let mut bytes = self.0;
+        while !bytes.is_empty() {
+            let (text, invalid) = match std::str::from_utf8(bytes) {
+                Ok(text) => (text, &[][..]),
+                Err(err) => {
+                    let (valid, rest) = bytes.split_at(err.valid_up_to());
+                    let text = std::str::from_utf8(valid).map_err(|_| fmt::Error)?;
+                    (text, &rest[..err.error_len().unwrap_or(rest.len())])
+                }
+            };
+            for ch in text.chars() {
+                match ch {
+                    '\0' => f.write_str("\\0")?,
+                    '\x01'..='\x7f' => write!(f, "{}", (ch as u8).escape_ascii())?,
+                    _ => write!(f, "{}", ch.escape_debug())?,
+                }
+            }
+            for byte in invalid {
+                write!(f, "\\x{byte:02x}")?;
+            }
+            bytes = &bytes[text.len() + invalid.len()..];
+        }
+        f.write_str("\"")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[cfg(feature = "bstr")]
+    #[test]
+    fn bstr_inputs_convert_to_byte_metadata() {
+        let input = b"ref\xff";
+        let owned = bstr::BString::from(input.as_slice());
+        let allocation = owned.as_ptr();
+        let value = super::Message::new("invalid input")
+            .with_input(owned)
+            .values
+            .remove("input");
+        let Some(super::MetadataValue::Bytes(bytes)) = value else {
+            panic!("owned byte strings must become byte metadata");
+        };
+        assert_eq!(bytes, input, "owned input retains every byte");
+        assert_eq!(bytes.as_ptr(), allocation, "owned conversion reuses the allocation");
+        assert_eq!(
+            super::Message::new("invalid input")
+                .with_input(bstr::BStr::new(input))
+                .values["input"],
+            super::MetadataValue::Bytes(bytes),
+            "borrowed byte strings convert directly without losing invalid UTF-8"
+        );
+    }
+
+    #[test]
+    fn byte_metadata_preserves_and_formats_input() {
+        let input = b"hello\0\n\"'\\\xff\xf0\x9f";
+        let value = super::MetadataValue::from(input.as_slice());
+        let super::MetadataValue::Bytes(bytes) = &value else {
+            panic!("byte input must remain byte metadata");
+        };
+        assert_eq!(bytes.as_slice(), input, "metadata retains the exact input bytes");
+        assert_eq!(
+            format!("{value}"),
+            r#""hello\0\n\"\'\\\xff\xf0\x9f""#,
+            "display escapes control characters and truncated UTF-8 without data loss"
+        );
+    }
+
+    #[cfg(feature = "bstr")]
+    #[test]
+    fn dependency_free_byte_formatting_matches_bstr() {
+        for bytes in [
+            Vec::new(),
+            (0..=u8::MAX).collect(),
+            "你好\u{fffd}\u{200d}\n\0\"'\\".as_bytes().to_vec(),
+            b"valid\xf0\x9f\x92\xa9\xff\xe2\x82text\xc0\xaf\xed\xa0\x80\xf0\x9f".to_vec(),
+        ] {
+            assert_eq!(
+                format!("{:?}", super::DebugBytes(&bytes)),
+                format!("{:?}", bstr::BStr::new(&bytes)),
+                "dependency-free formatting preserves UTF-8 and escapes invalid bytes like bstr"
+            );
+        }
     }
 }
