@@ -103,7 +103,7 @@ impl delegate::Revision for Delegate<'_> {
 
     fn reflog(&mut self, query: ReflogLookup) -> Result<()> {
         self.unset_disambiguate_call();
-        let r = match &mut self.refs[self.idx] {
+        let mut r = match &mut self.refs[self.idx] {
             Some(r) => r.clone().attach(self.repo),
             val @ None => match self.repo.head().map(crate::Head::try_into_referent) {
                 Ok(Some(r)) => {
@@ -115,6 +115,10 @@ impl delegate::Revision for Delegate<'_> {
             },
         };
 
+        if !r.log_exists() {
+            r.follow_to_object()
+                .map_err(|err| error::with_missing_reference(err.into_exn()))?;
+        }
         let mut platform = r.log_iter();
         match platform.rev().ok().flatten() {
             Some(mut it) => match query {
