@@ -2208,8 +2208,13 @@ fn configure_command<'a, I: IntoIterator<Item = S>, S: AsRef<OsStr>>(
 ///
 /// Removes inherited and previously configured `GIT_*` variables, disables external configuration,
 /// and sets deterministic fixture defaults. `current_dir` scopes the replacement XDG configuration
-/// directory. This does not change the command's arguments, working directory, or standard I/O.
+/// directory, which is made absolute so scripts can change directories without relocating it.
+/// This does not change the command's arguments, working directory, or standard I/O.
 /// Add deliberate test-specific environment overrides after calling this function.
+///
+/// # Panics
+///
+/// If `current_dir` cannot be made absolute.
 pub fn configure_git_environment(
     cmd: &mut std::process::Command,
     current_dir: impl AsRef<Path>,
@@ -2235,7 +2240,9 @@ pub fn configure_git_environment(
         .env("MSYS", msys_for_git_bash_on_windows)
         .env(
             "XDG_CONFIG_HOME",
-            current_dir.as_ref().join(".gix-testtools-xdg-config"),
+            std::path::absolute(current_dir)
+                .expect("the test working directory can be made absolute")
+                .join(".gix-testtools-xdg-config"),
         )
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .env("GIT_CONFIG_GLOBAL", NULL_DEVICE)
