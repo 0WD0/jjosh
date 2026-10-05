@@ -7,6 +7,35 @@ use crate::{
 };
 
 #[test]
+fn symbolic_references_use_their_own_log_or_the_final_targets() -> gix_error::TestResult {
+    let fixture = gix_testtools::scripted_fixture_read_only("make_symbolic_ref_reflogs.sh")?;
+    let repo = gix::open_opts(fixture, crate::restricted())?;
+    for name in ["refs/symref", "refs/symref-chain"] {
+        assert!(
+            !repo.find_reference(name)?.log_exists(),
+            "{name} must exercise fallback to the final target's reflog"
+        );
+        for query in ["0", "1", "2", "1979-02-26 00:00:00 +0000"] {
+            let revspec = format!("{name}@{{{query}}}");
+            assert_eq!(
+                parse_spec(&revspec, &repo)?.single(),
+                parse_spec(format!("main@{{{query}}}"), &repo)?.single(),
+                "{revspec} uses the final target's reflog"
+            );
+        }
+    }
+    assert!(
+        repo.find_reference("refs/heads/symref")?.log_exists(),
+        "a symbolic branch has its own reflog"
+    );
+    assert!(
+        parse_spec("refs/heads/symref@{1}", &repo).is_err(),
+        "an existing reflog takes precedence over the target's longer log"
+    );
+    Ok(())
+}
+
+#[test]
 fn nth_prior_checkout() {
     let repo = repo("complex_graph").unwrap();
 

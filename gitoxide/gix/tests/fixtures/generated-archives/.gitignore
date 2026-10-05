@@ -51,6 +51,12 @@
 # Both files are 3.2 MB in size for some reason, let's not increase the repo size on each change.
 /make_submodules.tar
 /make_submodules_sha256.tar
+# Generate this small symbolic-reference reflog fixture, including its Git baseline.
+/make_symbolic_ref_reflogs.tar
+/make_symbolic_ref_reflogs_sha256.tar
+# Generate this small tracking-selector fixture, including its Git baseline.
+/make_tracking_branch_revspecs.tar
+/make_tracking_branch_revspecs_sha256.tar
 # Generate this small uninitialized-submodule fixture instead of storing its archives.
 /make_uninitialized_submodule.tar
 /make_uninitialized_submodule_sha256.tar

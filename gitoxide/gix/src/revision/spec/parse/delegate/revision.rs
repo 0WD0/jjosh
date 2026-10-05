@@ -103,7 +103,7 @@ impl delegate::Revision for Delegate<'_> {
 
     fn reflog(&mut self, query: ReflogLookup) -> Result<()> {
         self.unset_disambiguate_call();
-        let r = match &mut self.refs[self.idx] {
+        let mut r = match &mut self.refs[self.idx] {
             Some(r) => r.clone().attach(self.repo),
             val @ None => match self.repo.head().map(crate::Head::try_into_referent) {
                 Ok(Some(r)) => {
@@ -115,6 +115,10 @@ impl delegate::Revision for Delegate<'_> {
             },
         };
 
+        if !r.log_exists() {
+            r.follow_to_object()
+                .map_err(|err| error::with_missing_reference(err.into_exn()))?;
+        }
         let mut platform = r.log_iter();
         match platform.rev().ok().flatten() {
             Some(mut it) => match query {
@@ -230,7 +234,7 @@ impl delegate::Revision for Delegate<'_> {
 
     fn sibling_branch(&mut self, kind: SiblingBranch) -> Result<()> {
         self.unset_disambiguate_call();
-        let reference = match &mut self.refs[self.idx] {
+        let mut reference = match &mut self.refs[self.idx] {
             val @ None => match self.repo.head().map(crate::Head::try_into_referent) {
                 Ok(Some(r)) => {
                     *val = Some(r.clone().detach());
@@ -245,6 +249,11 @@ impl delegate::Revision for Delegate<'_> {
             },
             Some(r) => r.clone().attach(self.repo),
         };
+        if reference.name() == "HEAD" {
+            reference
+                .follow_to_object()
+                .map_err(|err| error::with_missing_reference(err.into_exn()))?;
+        }
         let direction = match kind {
             SiblingBranch::Upstream => remote::Direction::Fetch,
             SiblingBranch::Push => remote::Direction::Push,

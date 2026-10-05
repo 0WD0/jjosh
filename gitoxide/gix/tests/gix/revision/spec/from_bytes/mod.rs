@@ -39,6 +39,26 @@ mod sibling_branch {
     };
 
     #[test]
+    fn explicit_head_uses_the_current_branch() -> gix_error::TestResult {
+        let fixture = gix_testtools::scripted_fixture_read_only("make_tracking_branch_revspecs.sh")?;
+        let repo = gix::open_opts(fixture, crate::restricted())?;
+        for op in ["upstream", "u", "push"] {
+            let expected_commit_id = parse_spec(format!("@{{{op}}}"), &repo)?
+                .single()
+                .expect("a tracking selector resolves to a single commit");
+            for branch in ["HEAD", "main"] {
+                let revspec = format!("{branch}@{{{op}}}");
+                assert_eq!(
+                    parse_spec(&revspec, &repo)?.single(),
+                    Some(expected_commit_id),
+                    "{revspec} uses the current branch's tracking configuration"
+                );
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
     fn push_and_upstream() -> Result {
         let repo = repo("complex_graph").unwrap();
         for op in ["upstream", "push"] {
