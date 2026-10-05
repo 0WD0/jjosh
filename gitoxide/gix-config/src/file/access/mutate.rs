@@ -124,7 +124,11 @@ impl File {
                     .section_mut_from_id(id, nl)
                     .expect("BUG: Section did not have id from lookup"))
             }
-            None => self.new_section_inner(name, subsection_name.map(bstr::BString::from)),
+            None => self.new_section_inner(
+                name,
+                subsection_name.map(bstr::BString::from),
+                OwnShared::clone(&self.meta),
+            ),
         }
     }
 
@@ -173,6 +177,9 @@ impl File {
     /// the generated header will use the modern subsection syntax.
     /// Returns a reference to the new section for immediate editing.
     ///
+    /// The section inherits this file's [metadata][Self::meta()]. Use
+    /// [`Self::new_section_with_meta()`] to provide a different origin for just this section.
+    ///
     /// # Examples
     ///
     /// Creating a new empty section:
@@ -204,11 +211,30 @@ impl File {
     /// # Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
     /// ```
     pub fn new_section(&mut self, name: impl AsRef<str>, subsection: impl IntoBStringOpt) -> Result<SectionMut<'_>> {
-        self.new_section_inner(name.as_ref(), subsection.into_bstring_opt())
+        self.new_section_with_meta(name, subsection, OwnShared::clone(&self.meta))
     }
 
-    fn new_section_inner(&mut self, name: &str, subsection: Option<bstr::BString>) -> Result<SectionMut<'_>> {
-        let section = file::SectionData::new(name, subsection, OwnShared::clone(&self.meta), &mut self.backing)?;
+    /// Like [`Self::new_section()`], but attaches the given `meta`data to the new section instead of
+    /// inheriting this file's metadata.
+    ///
+    /// This leaves the file's metadata and that of existing sections unchanged. Subsequent sections
+    /// created with [`Self::new_section()`] still inherit the file's metadata.
+    pub fn new_section_with_meta(
+        &mut self,
+        name: impl AsRef<str>,
+        subsection: impl IntoBStringOpt,
+        meta: impl Into<OwnShared<Metadata>>,
+    ) -> Result<SectionMut<'_>> {
+        self.new_section_inner(name.as_ref(), subsection.into_bstring_opt(), meta.into())
+    }
+
+    fn new_section_inner(
+        &mut self,
+        name: &str,
+        subsection: Option<bstr::BString>,
+        meta: OwnShared<Metadata>,
+    ) -> Result<SectionMut<'_>> {
+        let section = file::SectionData::new(name, subsection, meta, &mut self.backing)?;
         let id = self.push_section_internal(section);
         let nl = self.detect_newline_style_smallvec();
         let mut section = self.section_mut_from_id(id, nl).expect("each id yields a section");

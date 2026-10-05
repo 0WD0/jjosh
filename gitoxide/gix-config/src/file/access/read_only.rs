@@ -426,7 +426,7 @@ impl File {
 
     /// Return this file's metadata, typically set when it was first created to indicate its origins.
     ///
-    /// It will be used in all newly created sections to identify them.
+    /// Newly created sections inherit it unless created with [`File::new_section_with_meta()`].
     /// Change it with [`File::set_meta()`].
     pub fn meta(&self) -> &Metadata {
         &self.meta
@@ -434,7 +434,8 @@ impl File {
 
     /// Change the origin of this instance to be the given `meta`data.
     ///
-    /// This is useful to control what origin about-to-be-added sections receive.
+    /// This is useful to control what origin about-to-be-added sections receive by default.
+    /// Use [`File::new_section_with_meta()`] to set the origin of a single new section instead.
     pub fn set_meta(&mut self, meta: impl Into<OwnShared<Metadata>>) -> &mut Self {
         self.meta = meta.into();
         self

@@ -24,6 +24,80 @@ mod new_section {
     }
 }
 
+mod new_section_with_meta {
+    use gix_config::{File, Source, file::Metadata};
+    use gix_error::TestResult;
+    use gix_features::threading::OwnShared;
+
+    #[test]
+    fn metadata_is_specific_to_the_new_section() -> TestResult {
+        let default_meta = Metadata::from(Source::Local).at("repository.config");
+        let mut file = File::new(default_meta.clone());
+        file.new_section("core", None)?;
+        let meta = Metadata {
+            level: 2,
+            ..Metadata::from(Source::User)
+                .at("user.config")
+                .with(gix_sec::Trust::Reduced)
+        };
+        {
+            let mut section = file.new_section_with_meta("remote", "origin", meta.clone())?;
+            assert_eq!(section.meta(), &meta, "the editable section receives explicit metadata");
+            section.push("url", Some("example".into()))?;
+        }
+        file.new_section_with_meta("user", None, OwnShared::new(meta.clone()))?;
+        file.new_section("core", None)?;
+
+        assert_eq!(
+            file.meta(),
+            &default_meta,
+            "explicit metadata does not change the file's origin"
+        );
+        assert_eq!(
+            file.sections().map(|section| section.meta()).collect::<Vec<_>>(),
+            [&default_meta, &meta, &meta, &default_meta],
+            "owned and shared metadata persist without affecting existing or subsequent sections"
+        );
+        assert_eq!(
+            file.section("remote", "origin")?.meta(),
+            &meta,
+            "lookup retains the section's explicit origin"
+        );
+        let nl = if cfg!(windows) { "\r\n" } else { "\n" };
+        assert_eq!(
+            file.to_string(),
+            format!("[core]{nl}[remote \"origin\"]{nl}\turl = example{nl}[user]{nl}[core]{nl}"),
+            "explicit metadata preserves normal section formatting and value insertion"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn invalid_names_leave_the_file_unchanged() -> TestResult {
+        let mut file = File::default();
+        file.new_section("core", None)?;
+        let before = file.to_string();
+        for (name, subsection) in [("invalid.name", None), ("remote", Some("invalid\nsubsection"))] {
+            assert!(
+                file.new_section_with_meta(name, subsection.map(bstr::BString::from), Metadata::from(Source::Local))
+                    .is_err(),
+                "explicit metadata does not bypass section-header validation"
+            );
+            assert_eq!(
+                file.to_string(),
+                before,
+                "invalid headers do not change the file's contents"
+            );
+            assert_eq!(
+                file.meta(),
+                &Metadata::api(),
+                "errors do not change the file's metadata"
+            );
+        }
+        Ok(())
+    }
+}
+
 mod remove_section {
     use crate::Result;
 
