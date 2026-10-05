@@ -76,7 +76,8 @@ mod mmap {
             {
                 memmap2::MmapOptions::new().map(&file)
             }
-            // Everywhere else, `MAP_PRIVATE` is free and works under more circumstances.
+            // Everywhere else, `MAP_PRIVATE` is free and works under more circumstances. And in fact, it's
+            // needed for best compatibilty and won't cause troble on *nix systems.
             #[cfg(not(windows))]
             {
                 memmap2::MmapOptions::new().map_copy_read_only(&file)
