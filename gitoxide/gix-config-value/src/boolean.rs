@@ -43,7 +43,7 @@ impl TryFrom<&BStr> for Boolean {
         } else {
             Err(
                 validation("Booleans need to be 'no', 'off', 'false', '' or 'yes', 'on', 'true' or any number")
-                    .with_input(gix_error::MetadataValue::Bytes(value.into()))
+                    .with_input(value)
                     .raise(),
             )
         }

@@ -34,7 +34,7 @@ impl Display for Color {
 
 fn color_err(input: impl Into<BString>) -> Message {
     validation("Colors are specific color values and their attributes, like 'brightred', or 'blue'")
-        .with_input(gix_error::MetadataValue::Bytes(input.into()))
+        .with_input(gix_error::MetadataValue::Bytes(input.into().into()))
 }
 
 impl TryFrom<&BStr> for Color {

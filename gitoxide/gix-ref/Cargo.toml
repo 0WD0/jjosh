@@ -26,7 +26,7 @@ serde = ["dep:serde", "gix-hash/serde", "gix-actor/serde", "gix-object/serde"]
 parallel = ["gix-features/parallel"]
 
 [dependencies]
-gix-error = { version = "^0.4.0", path = "../gix-error" }
+gix-error = { version = "^0.4.0", path = "../gix-error", features = ["bstr"] }
 gix-features = { version = "^0.50.0", path = "../gix-features", features = ["walkdir"] }
 gix-fs = { version = "^0.23.0", path = "../gix-fs" }
 gix-path = { version = "^0.13.0", path = "../gix-path" }

@@ -89,7 +89,7 @@ impl serde::Serialize for Integer {
 
 fn int_err(input: impl Into<BString>) -> Message {
     validation("Integers needs to be positive or negative numbers which may have a suffix like 1k, 42, or 50G")
-        .with_input(gix_error::MetadataValue::Bytes(input.into()))
+        .with_input(gix_error::MetadataValue::Bytes(input.into().into()))
 }
 
 /// Parse `input` the way `git_parse_signed()` does, which hands the value to
