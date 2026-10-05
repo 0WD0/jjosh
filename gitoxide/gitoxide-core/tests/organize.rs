@@ -35,7 +35,7 @@ fn url_components_cannot_move_repositories_outside_the_destination() -> TestResu
                     Failed to handle 1 repository
 
                     Caused by:
-                        0: the origin URL resolves outside the repository destination, "destination"="<fixture>/escaped", "destination_root"="<fixture>/destination"
+                        0: the origin URL resolves outside the repository destination, destination="<fixture>/escaped", destination_root="<fixture>/destination"
                     "#
                 );
             }
@@ -107,7 +107,7 @@ fn an_existing_symlink_cannot_redirect_the_destination() -> TestResult {
                 Failed to handle 1 repository
 
                 Caused by:
-                    0: the origin URL resolves outside the repository destination, "destination"="<fixture>/outside/repository", "destination_root"="<fixture>/destination"
+                    0: the origin URL resolves outside the repository destination, destination="<fixture>/outside/repository", destination_root="<fixture>/destination"
                 "#
             );
         }

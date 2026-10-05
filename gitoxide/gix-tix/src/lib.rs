@@ -14931,7 +14931,7 @@ mod tests {
         );
         let rendered = diagnostic.to_string();
         assert_eq!(
-            rendered.matches("\"exit_status\"=").count(),
+            rendered.matches("exit_status=").count(),
             1,
             "status appears only in metadata"
         );

@@ -196,7 +196,7 @@ mod peel {
         assert_eq!(r, "refs/loop-a");
 
         let err = r.peel_to_id(&store, &gix_object::find::Never).expect_err("cyclic refs");
-        insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&(err), &[(&(store.git_dir()).to_string_lossy(), "<git-dir>")]), "a symbolic cycle is corruption", @r#"Aborting symbolic reference cycle, "path"="<git-dir>/refs/loop-a""#);
+        insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&(err), &[(&(store.git_dir()).to_string_lossy(), "<git-dir>")]), "a symbolic cycle is corruption", @r#"Aborting symbolic reference cycle, path="<git-dir>/refs/loop-a""#);
         assert!(err.is_corrupted(), "a symbolic cycle is corruption");
         assert_eq!(err.iter_errors().count(), 1, "a cycle does not need a synthetic cause");
         let details = err.metadata().next().expect("cycle details");
@@ -220,7 +220,7 @@ mod peel {
         let err = r
             .follow_to_object_packed(&store, store.cached_packed_buffer()?.as_ref().map(|p| &***p))
             .expect_err("the symbolic references form a cycle");
-        insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&(err), &[(&(store.git_dir()).to_string_lossy(), "<git-dir>")]), "following also reports the cycle", @r#"Aborting symbolic reference cycle, "path"="<git-dir>/refs/loop-a""#);
+        insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&(err), &[(&(store.git_dir()).to_string_lossy(), "<git-dir>")]), "following also reports the cycle", @r#"Aborting symbolic reference cycle, path="<git-dir>/refs/loop-a""#);
         assert!(err.is_corrupted(), "following also reports the cycle");
         Ok(())
     }

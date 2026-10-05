@@ -52,9 +52,9 @@ fn invalid_header_has_one_classified_diagnostic() {
     }
     insta::assert_debug_snapshot!(error_snapshots, "invalid header has one classified diagnostic", @r##"
     [
-        Invalid packed reference header, "input"="# invalid",
-        Invalid packed reference header, "input"="# invalid",
-        Invalid packed reference header, "input"="# pack-refs with: sorted",
+        Invalid packed reference header, input="# invalid",
+        Invalid packed reference header, input="# invalid",
+        Invalid packed reference header, input="# pack-refs with: sorted",
     ]
     "##);
 }
@@ -168,11 +168,11 @@ buggy-hash refs/wrong
     assert!(iter.next().is_none(), "exhausted");
     insta::assert_debug_snapshot!(error_snapshots, "broken ref doesnt end the iteration", @r#"
     [
-        Invalid packed reference, "input"="buggy-hash refs/wrong", "line"=2
+        Invalid packed reference, input="buggy-hash refs/wrong", line=2
         
         Caused by:
             0: Malformed packed reference,
-        Invalid packed reference, "input"="^buggy-hash-too", "line"=3
+        Invalid packed reference, input="^buggy-hash-too", line=3
         
         Caused by:
             0: Malformed packed reference,

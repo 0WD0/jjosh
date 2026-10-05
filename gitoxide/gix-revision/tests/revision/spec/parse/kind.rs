@@ -79,7 +79,7 @@ mod include_parents {
         Message {
             message: "unconsumed input",
             class: Validation,
-            values: {"input": Bytes("~1")},
+            values: {input: Bytes("~1")},
         }
         "#);
     }
@@ -133,7 +133,7 @@ mod exclude_parents {
         Message {
             message: "unconsumed input",
             class: Validation,
-            values: {"input": Bytes("~1")},
+            values: {input: Bytes("~1")},
         }
         "#);
     }
@@ -271,7 +271,7 @@ mod range {
         Message {
             message: "unconsumed input",
             class: Validation,
-            values: {"input": Bytes("^")},
+            values: {input: Bytes("^")},
         }
         "#);
     }
@@ -286,7 +286,7 @@ mod range {
         Message {
             message: "unconsumed input",
             class: Validation,
-            values: {"input": Bytes("^")},
+            values: {input: Bytes("^")},
         }
         "#);
     }
@@ -301,7 +301,7 @@ mod range {
         Message {
             message: "unconsumed input",
             class: Validation,
-            values: {"input": Bytes("..")},
+            values: {input: Bytes("..")},
         }
         "#);
     }
@@ -316,7 +316,7 @@ mod range {
         Message {
             message: "unconsumed input",
             class: Validation,
-            values: {"input": Bytes("..")},
+            values: {input: Bytes("..")},
         }
         "#);
     }

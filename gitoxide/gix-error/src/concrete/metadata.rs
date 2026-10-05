@@ -6,7 +6,9 @@ use crate::{Class, Error, ErrorExt, ResourceExhaustionKind};
 ///
 /// Functions returning metadata document the keys and their meaning. [`crate::Exn::metadata()`] and
 /// [`crate::Error::metadata()`] yield non-empty dictionaries separately; dictionaries from independent causes
-/// are never merged.
+/// are never merged. Keys are iterated and formatted in lexicographic order.
+/// Debug formatting and [`Message`]'s display omit key quotes for non-empty names containing only ASCII
+/// letters, digits, `_`, `-`, or `.`. Other keys use quoted, escaped string formatting.
 ///
 /// # Common schemas
 ///
@@ -41,7 +43,126 @@ use crate::{Class, Error, ErrorExt, ResourceExhaustionKind};
 ///
 /// A failed exit status does not by itself establish a recovery class. Preserve native errors from spawning or
 /// communicating with a program as causes; their contexts can also use `program`, without an exit status or output.
-pub type Metadata = BTreeMap<Cow<'static, str>, MetadataValue>;
+#[derive(Clone, Default, PartialEq)]
+pub struct Metadata(BTreeMap<Cow<'static, str>, MetadataValue>);
+
+impl Metadata {
+    /// Create an empty dictionary.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Return the number of values in this dictionary.
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Return whether this dictionary has no values.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Return whether a value is recorded under `key`.
+    pub fn contains_key(&self, key: &str) -> bool {
+        self.0.contains_key(key)
+    }
+
+    /// Return the value recorded under `key`, if present.
+    pub fn get(&self, key: &str) -> Option<&MetadataValue> {
+        self.0.get(key)
+    }
+
+    /// Return a mutable reference to the value recorded under `key`, if present.
+    pub fn get_mut(&mut self, key: &str) -> Option<&mut MetadataValue> {
+        self.0.get_mut(key)
+    }
+
+    /// Record `value` under `key`, returning any previous value.
+    pub fn insert(
+        &mut self,
+        key: impl Into<Cow<'static, str>>,
+        value: impl Into<MetadataValue>,
+    ) -> Option<MetadataValue> {
+        self.0.insert(key.into(), value.into())
+    }
+
+    /// Remove and return the value recorded under `key`, if present.
+    pub fn remove(&mut self, key: &str) -> Option<MetadataValue> {
+        self.0.remove(key)
+    }
+
+    /// Remove all recorded values.
+    pub fn clear(&mut self) {
+        self.0.clear();
+    }
+
+    /// Iterate over keys and values in lexicographic key order.
+    pub fn iter(
+        &self,
+    ) -> impl DoubleEndedIterator<Item = (&Cow<'static, str>, &MetadataValue)> + ExactSizeIterator + '_ {
+        self.0.iter()
+    }
+
+    /// Iterate over keys and mutable values in lexicographic key order.
+    pub fn iter_mut(
+        &mut self,
+    ) -> impl DoubleEndedIterator<Item = (&Cow<'static, str>, &mut MetadataValue)> + ExactSizeIterator + '_ {
+        self.0.iter_mut()
+    }
+}
+
+impl std::ops::Index<&str> for Metadata {
+    type Output = MetadataValue;
+
+    fn index(&self, key: &str) -> &Self::Output {
+        &self.0[key]
+    }
+}
+
+impl FromIterator<(Cow<'static, str>, MetadataValue)> for Metadata {
+    fn from_iter<T: IntoIterator<Item = (Cow<'static, str>, MetadataValue)>>(iter: T) -> Self {
+        Self(iter.into_iter().collect())
+    }
+}
+
+impl<const N: usize> From<[(Cow<'static, str>, MetadataValue); N]> for Metadata {
+    fn from(values: [(Cow<'static, str>, MetadataValue); N]) -> Self {
+        values.into_iter().collect()
+    }
+}
+
+impl Extend<(Cow<'static, str>, MetadataValue)> for Metadata {
+    fn extend<T: IntoIterator<Item = (Cow<'static, str>, MetadataValue)>>(&mut self, iter: T) {
+        self.0.extend(iter);
+    }
+}
+
+impl fmt::Debug for Metadata {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut debug = f.debug_map();
+        for (key, value) in self.iter() {
+            debug.entry(&DebugKey(key), value);
+        }
+        debug.finish()
+    }
+}
+
+struct DebugKey<'a>(&'a str);
+
+impl fmt::Debug for DebugKey<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if !self.0.is_empty()
+            && self
+                .0
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
+        {
+            f.write_str(self.0)
+        } else {
+            fmt::Debug::fmt(self.0, f)
+        }
+    }
+}
 
 /// A diagnostic message with an optional semantic class and named diagnostic values.
 ///
@@ -334,7 +455,7 @@ impl Message {
     /// Add `value` under `key`, replacing any previous value in this context.
     /// Inspect values through [`crate::Error::metadata()`], or [`crate::Exn::metadata()`] on typed exceptions.
     pub fn with(mut self, key: impl Into<Cow<'static, str>>, value: impl Into<MetadataValue>) -> Self {
-        self.values.insert(key.into(), value.into());
+        self.values.insert(key, value);
         self
     }
 }
@@ -356,8 +477,8 @@ impl fmt::Debug for Message {
 impl fmt::Display for Message {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.message)?;
-        for (key, value) in &self.values {
-            write!(f, ", {key:?}={value}")?;
+        for (key, value) in self.values.iter() {
+            write!(f, ", {:?}={value}", DebugKey(key))?;
         }
         Ok(())
     }

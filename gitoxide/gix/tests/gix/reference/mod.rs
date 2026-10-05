@@ -303,7 +303,7 @@ fn set_target_id() {
         .set_target_id(prev_id, "fails")
         .expect_err("the reference was deleted");
     insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[]), "updating a deleted reference requires reconciling its absence", @r#"
-    Could not prepare reference edit, "reference"="refs/heads/main", "referent"="refs/heads/main"
+    Could not prepare reference edit, reference="refs/heads/main"
 
     Caused by:
         0: The reference must exist with content Oid(1)

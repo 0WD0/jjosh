@@ -117,7 +117,7 @@ fn regex_with_empty_exclamation_mark_prefix_is_invalid() {
             .get("input"),
         Some(&gix_error::MetadataValue::from(b"!hello".as_ref()))
     );
-    insta::assert_snapshot!(err, @r#"need one character after /!, typically -, "input"="!hello""#);
+    insta::assert_snapshot!(err, @r#"need one character after /!, typically -, input="!hello""#);
 }
 
 #[test]

@@ -49,25 +49,25 @@ fn dots_in_paths_return_err() {
     let path_bstring: BString = "./heads".into();
 
     insta::assert_debug_snapshot!(assert_validation(TryInto::<&RelativePath>::try_into(path_str), true), "dots in paths return err", @r#"
-    Relative path contains an invalid component, "input"="."
+    Relative path contains an invalid component, input="."
 
     Caused by:
         0: Relative components '.' and '..' are disallowed
     "#);
     insta::assert_debug_snapshot!(assert_validation(TryInto::<&RelativePath>::try_into(path_bstr), true), "dots in paths return err", @r#"
-    Relative path contains an invalid component, "input"="."
+    Relative path contains an invalid component, input="."
 
     Caused by:
         0: Relative components '.' and '..' are disallowed
     "#);
     insta::assert_debug_snapshot!(assert_validation(TryInto::<&RelativePath>::try_into(path_u8), true), "dots in paths return err", @r#"
-    Relative path contains an invalid component, "input"="."
+    Relative path contains an invalid component, input="."
 
     Caused by:
         0: Relative components '.' and '..' are disallowed
     "#);
     insta::assert_debug_snapshot!(assert_validation(TryInto::<&RelativePath>::try_into(&path_bstring), true), "dots in paths return err", @r#"
-    Relative path contains an invalid component, "input"="."
+    Relative path contains an invalid component, input="."
 
     Caused by:
         0: Relative components '.' and '..' are disallowed
@@ -90,14 +90,14 @@ fn dots_in_paths_with_backslashes_return_err() {
         ] {
             #[cfg(windows)]
             insta::assert_debug_snapshot!(err, "Windows treats backslashes as separators", @r#"
-            Relative path contains an invalid component, "input"="."
+            Relative path contains an invalid component, input="."
 
             Caused by:
                 0: Relative components '.' and '..' are disallowed
             "#);
             #[cfg(not(windows))]
             insta::assert_debug_snapshot!(err, "backslashes are rejected inside Unix path components", @r#"
-            Relative path contains an invalid component, "input"=".\\heads"
+            Relative path contains an invalid component, input=".\\heads"
 
             Caused by:
                 0: Path separators like / or \ are not allowed
@@ -114,25 +114,25 @@ fn double_dots_in_paths_return_err() {
     let path_bstring: BString = "../heads".into();
 
     insta::assert_debug_snapshot!(assert_validation(TryInto::<&RelativePath>::try_into(path_str), true), "double dots in paths return err", @r#"
-    Relative path contains an invalid component, "input"=".."
+    Relative path contains an invalid component, input=".."
 
     Caused by:
         0: Relative components '.' and '..' are disallowed
     "#);
     insta::assert_debug_snapshot!(assert_validation(TryInto::<&RelativePath>::try_into(path_bstr), true), "double dots in paths return err", @r#"
-    Relative path contains an invalid component, "input"=".."
+    Relative path contains an invalid component, input=".."
 
     Caused by:
         0: Relative components '.' and '..' are disallowed
     "#);
     insta::assert_debug_snapshot!(assert_validation(TryInto::<&RelativePath>::try_into(path_u8), true), "double dots in paths return err", @r#"
-    Relative path contains an invalid component, "input"=".."
+    Relative path contains an invalid component, input=".."
 
     Caused by:
         0: Relative components '.' and '..' are disallowed
     "#);
     insta::assert_debug_snapshot!(assert_validation(TryInto::<&RelativePath>::try_into(&path_bstring), true), "double dots in paths return err", @r#"
-    Relative path contains an invalid component, "input"=".."
+    Relative path contains an invalid component, input=".."
 
     Caused by:
         0: Relative components '.' and '..' are disallowed
@@ -155,14 +155,14 @@ fn double_dots_in_paths_with_backslashes_return_err() {
         ] {
             #[cfg(windows)]
             insta::assert_debug_snapshot!(err, "Windows treats backslashes as separators", @r#"
-            Relative path contains an invalid component, "input"=".."
+            Relative path contains an invalid component, input=".."
 
             Caused by:
                 0: Relative components '.' and '..' are disallowed
             "#);
             #[cfg(not(windows))]
             insta::assert_debug_snapshot!(err, "backslashes are rejected inside Unix path components", @r#"
-            Relative path contains an invalid component, "input"="..\\heads"
+            Relative path contains an invalid component, input="..\\heads"
 
             Caused by:
                 0: Path separators like / or \ are not allowed

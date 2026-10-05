@@ -49,7 +49,7 @@ mod bare {
         std::fs::write(tmp.path().join("existing.txt"), b"I was here before you")?;
 
         insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&(gix::init_bare(tmp.path())
-                .expect_err("init into non empty directory is not allowed")), &[(&(tmp.path()).to_string_lossy(), "<destination>")]), "init into non empty directory is not allowed", @r#"Refusing to initialize the non-empty directory as, "input"="<destination>""#);
+                .expect_err("init into non empty directory is not allowed")), &[(&(tmp.path()).to_string_lossy(), "<destination>")]), "init into non empty directory is not allowed", @r#"Refusing to initialize the non-empty directory as, input="<destination>""#);
         Ok(())
     }
 }
@@ -110,7 +110,7 @@ mod non_bare {
         )
         .unwrap_err();
         insta::assert_debug_snapshot!(err, "init bare rejects reserved branch name", @r#"
-        Invalid default branch name, "input"="HEAD"
+        Invalid default branch name, input="HEAD"
 
         Caused by:
             0: Reference name is reserved and cannot be used: "refs/heads/HEAD"
@@ -142,7 +142,7 @@ mod non_bare {
         )
         .unwrap_err();
         insta::assert_debug_snapshot!(err, "init bare rejects reserved fully qualified branch name", @r#"
-        Invalid default branch name, "input"="refs/heads/HEAD"
+        Invalid default branch name, input="refs/heads/HEAD"
 
         Caused by:
             0: Reference name is reserved and cannot be used: "refs/heads/HEAD"
@@ -220,7 +220,7 @@ mod non_bare {
             gix::open::Options::isolated(),
         )
         .unwrap_err();
-        insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&(err), &[(&(tmp.path()).to_string_lossy(), "<destination>")]), "init into non empty directory is not allowed if option is true", @r#"Refusing to initialize the non-empty directory as, "input"="<destination>""#);
+        insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&(err), &[(&(tmp.path()).to_string_lossy(), "<destination>")]), "init into non empty directory is not allowed if option is true", @r#"Refusing to initialize the non-empty directory as, input="<destination>""#);
         Ok(())
     }
 }

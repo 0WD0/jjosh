@@ -39,7 +39,7 @@ fn freestanding_negation_yields_descriptive_error() -> Result {
     "#);
     let err = parse_spec("^!", &repo).unwrap_err();
     insta::assert_debug_snapshot!(err, @r#"
-    couldn't parse revision, "input"="!"
+    couldn't parse revision, input="!"
 
     Caused by:
         0: Reference ! could not be found

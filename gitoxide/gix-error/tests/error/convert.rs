@@ -81,7 +81,7 @@ fn bail_with_public_context_preserves_diagnostics() {
         assert!(
             error
                 .to_string()
-                .starts_with(r#"could not read configuration, "path"="config""#),
+                .starts_with(r#"could not read configuration, path="config""#),
             "the new context remains the top-level diagnostic in either reporting mode"
         );
         assert!(error.is_not_found(), "the I/O classification is retained");

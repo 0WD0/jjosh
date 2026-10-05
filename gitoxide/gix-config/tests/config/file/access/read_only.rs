@@ -44,12 +44,12 @@ fn typed_lookup_errors_can_be_erased() -> Result {
     assert!(err.is_not_found(), "erasure retains missing-value classification");
     insta::assert_debug_snapshot!(error_snapshots, "typed lookup errors can be erased", @r#"
     [
-        Booleans need to be 'no', 'off', 'false', '' or 'yes', 'on', 'true' or any number, "input"="invalid",
-        Integers needs to be positive or negative numbers which may have a suffix like 1k, 42, or 50G, "input"="invalid",
-        Colors are specific color values and their attributes, like 'brightred', or 'blue', "input"="invalid",
-        Booleans need to be 'no', 'off', 'false', '' or 'yes', 'on', 'true' or any number, "input"="invalid",
-        Integers needs to be positive or negative numbers which may have a suffix like 1k, 42, or 50G, "input"="invalid",
-        Colors are specific color values and their attributes, like 'brightred', or 'blue', "input"="invalid",
+        Booleans need to be 'no', 'off', 'false', '' or 'yes', 'on', 'true' or any number, input="invalid",
+        Integers needs to be positive or negative numbers which may have a suffix like 1k, 42, or 50G, input="invalid",
+        Colors are specific color values and their attributes, like 'brightred', or 'blue', input="invalid",
+        Booleans need to be 'no', 'off', 'false', '' or 'yes', 'on', 'true' or any number, input="invalid",
+        Integers needs to be positive or negative numbers which may have a suffix like 1k, 42, or 50G, input="invalid",
+        Colors are specific color values and their attributes, like 'brightred', or 'blue', input="invalid",
     ]
     "#);
     Ok(())

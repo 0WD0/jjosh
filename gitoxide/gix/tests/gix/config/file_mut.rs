@@ -301,7 +301,7 @@ fn semantic_validation_happens_on_reload() -> Result {
     Message {
         message: "Unsupported repository format version; only versions 0 and 1 are supported",
         class: Unsupported,
-        values: {"input": I64(2), "key": String("core.repositoryFormatVersion")},
+        values: {input: I64(2), key: String("core.repositoryFormatVersion")},
     }
     "#);
     assert_eq!(

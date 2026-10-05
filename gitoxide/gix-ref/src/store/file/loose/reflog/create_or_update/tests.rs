@@ -202,7 +202,7 @@ fn non_empty_reflog_directory_preserves_open_error_context() -> Result {
         )
         .expect_err("a non-empty directory cannot be replaced with a reflog");
     insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&(err), &[(&(store.git_dir()).to_string_lossy(), "<git-dir>")]), "the conflicting directory exists", @r#"
-    Could not open reflog for appending, "path"="<git-dir>/logs/refs/heads/main"
+    Could not open reflog for appending, path="<git-dir>/logs/refs/heads/main"
 
     Caused by:
         0: I/O error (Other)

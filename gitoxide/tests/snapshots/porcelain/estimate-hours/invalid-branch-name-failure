@@ -1,4 +1,4 @@
-Error: couldn't parse revision, "input"="foobar"
+Error: couldn't parse revision, input="foobar"
 
 Caused by:
     0: Reference foobar could not be found

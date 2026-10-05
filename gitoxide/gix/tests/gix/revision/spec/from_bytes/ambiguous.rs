@@ -64,12 +64,12 @@ fn prefix() -> Result {
             assert!(
                 source.downcast_any_ref::<gix_error::Message>().is_some(),
                 "the owned lookup error retains concrete causes"
-            );
+           );
         }
         insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&format_args!("{}", normalize_repo_path(&format!("{err:#?}"), &repo)), &[]), "ambiguous prefixes retain the lookup failure for each malformed candidate", @"
         Short id bad0 is ambiguous. Candidates are:
-        \tbad0853 lookup error: Could not read loose object, \"path\"=\"$GIT_DIR/objects/ba/d0853730d9d114ac789f0ce89039d224bf66c9\"
-        \tbad0bd4 lookup error: Could not read loose object, \"path\"=\"$GIT_DIR/objects/ba/d0bd4672dee1b4d3b8088534ed5a0362bc8d59\"
+        \tbad0853 lookup error: Could not read loose object, path=\"$GIT_DIR/objects/ba/d0853730d9d114ac789f0ce89039d224bf66c9\"
+        \tbad0bd4 lookup error: Could not read loose object, path=\"$GIT_DIR/objects/ba/d0bd4672dee1b4d3b8088534ed5a0362bc8d59\"
         ");
     };
     insta::assert_debug_snapshot!(error_snapshots, "ambiguous object prefixes list the matching candidates", @r#"
@@ -87,7 +87,7 @@ fn fully_failed_disambiguation_still_yields_an_ambiguity_error() -> Result {
     let err = parse_spec("0000000000^{tag}", &repo).expect_err("none of the candidates can peel to a tag");
 
     insta::assert_debug_snapshot!(err, "candidate origins distinguish failures that reach the same object", @r#"
-    delegate.peel_until(ObjectKind(Tag)) failed, "input"="{tag}"
+    delegate.peel_until(ObjectKind(Tag)) failed, input="{tag}"
 
     Caused by:
         0: Short id 0000000000 is ambiguous. Candidates are:

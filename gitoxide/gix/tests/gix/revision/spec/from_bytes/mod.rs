@@ -189,7 +189,7 @@ fn missing_revision_keeps_reference_lookup_error_available_for_path_fallback() -
         .rev_parse("README.md")
         .expect_err("missing revspec must fail before callers can inspect the error chain");
     insta::assert_debug_snapshot!(err, "rev-parse preserves the reference lookup classification", @r#"
-    couldn't parse revision, "input"="README.md"
+    couldn't parse revision, input="README.md"
 
     Caused by:
         0: Reference README.md could not be found
@@ -400,7 +400,7 @@ fn missing_objects_are_classified_without_a_missing_reference() -> Result {
     }
     insta::assert_debug_snapshot!(error_snapshots, "missing objects are classified without a missing reference", @r#"
     [
-        delegate.peel_until(ValidObject) failed, "input"="{object}"
+        delegate.peel_until(ValidObject) failed, input="{object}"
         
         Caused by:
             0: An object with id Oid(1) could not be found,
@@ -412,7 +412,7 @@ fn missing_objects_are_classified_without_a_missing_reference() -> Result {
         
         Caused by:
             0: Could not peel 'refs/heads/alias' to obtain its target
-            1: Could not peel reference to an object: object could not be found, "object_id"="Oid(1)", "reference"="refs/heads/missing-object",
+            1: Could not peel reference to an object: object could not be found, object_id="Oid(1)", reference="refs/heads/missing-object",
     ]
     "#);
     Ok(())
@@ -463,12 +463,12 @@ fn bad_objects_are_valid_until_they_are_actually_read_from_the_odb() {
             "Now we enforce the object to exist and be valid, as ultimately it wants to match with a certain type"
         );
         insta::assert_snapshot!(normalize_repo_path(&format!("{err:#?}"), &repo), @r#"
-        delegate.peel_until(ValidObject) failed, "input"="{object}"
+        delegate.peel_until(ValidObject) failed, input="{object}"
 
         Caused by:
-            0: Could not read loose object, "path"="$GIT_DIR/objects/e3/2851d29feb48953c6f40b2e06d630a3c49608a"
+            0: Could not read loose object, path="$GIT_DIR/objects/e3/2851d29feb48953c6f40b2e06d630a3c49608a"
             1: The object header contained an unknown object kind.
-            2: Unknown object kind, "input"="bad"
+            2: Unknown object kind, input="bad"
         "#);
     }
 
@@ -480,10 +480,10 @@ fn bad_objects_are_valid_until_they_are_actually_read_from_the_odb() {
         );
         let err = parse_spec("cafea^{object}", &repo).unwrap_err();
         insta::assert_snapshot!(normalize_repo_path(&format!("{err:#?}"), &repo), @r#"
-        delegate.peel_until(ValidObject) failed, "input"="{object}"
+        delegate.peel_until(ValidObject) failed, input="{object}"
 
         Caused by:
-            0: Could not read loose object, "path"="$GIT_DIR/objects/ca/fea31147e840161a1860c50af999917ae1536b"
+            0: Could not read loose object, path="$GIT_DIR/objects/ca/fea31147e840161a1860c50af999917ae1536b"
             1: Could not decode zip stream
             2: Invalid input data
         "#);

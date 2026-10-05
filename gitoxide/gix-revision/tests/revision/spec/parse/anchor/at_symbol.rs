@@ -79,7 +79,7 @@ fn reflog_by_unix_timestamp_for_current_branch() {
 #[test]
 fn reflog_by_date_with_date_parse_failure() {
     let err = try_parse("@{foo}").unwrap_err();
-    insta::assert_snapshot!(err, @r#"could not parse time for reflog lookup, "input"="foo""#);
+    insta::assert_snapshot!(err, @r#"could not parse time for reflog lookup, input="foo""#);
 }
 
 #[test]
@@ -102,9 +102,9 @@ fn reflog_by_date_for_hash_is_invalid() {
     }
     insta::assert_debug_snapshot!(message_diagnostics, "reflog by date for hash is invalid", @r#"
     [
-        reflog entries require a ref name, "input"="1234",
-        reflog entries require a ref name, "input"="abcd-dirty",
-        reflog entries require a ref name, "input"="v1.2.3-0-g1234",
+        reflog entries require a ref name, input="1234",
+        reflog entries require a ref name, input="abcd-dirty",
+        reflog entries require a ref name, input="v1.2.3-0-g1234",
     ]
     "#);
 }
@@ -163,9 +163,9 @@ fn reflog_by_entry_for_hash_is_invalid() {
     }
     insta::assert_debug_snapshot!(message_diagnostics, "reflog by entry for hash is invalid", @r#"
     [
-        reflog entries require a ref name, "input"="1234",
-        reflog entries require a ref name, "input"="abcd-dirty",
-        reflog entries require a ref name, "input"="v1.2.3-0-g1234",
+        reflog entries require a ref name, input="1234",
+        reflog entries require a ref name, input="abcd-dirty",
+        reflog entries require a ref name, input="v1.2.3-0-g1234",
     ]
     "#);
 }
@@ -224,9 +224,9 @@ fn sibling_branch_for_hash_is_invalid() {
     }
     insta::assert_debug_snapshot!(message_diagnostics, "sibling branch for hash is invalid", @r#"
     [
-        sibling branches like 'upstream' or 'push' require a branch name with remote configuration, "input"="1234",
-        sibling branches like 'upstream' or 'push' require a branch name with remote configuration, "input"="abcd-dirty",
-        sibling branches like 'upstream' or 'push' require a branch name with remote configuration, "input"="v1.2.3-0-g1234",
+        sibling branches like 'upstream' or 'push' require a branch name with remote configuration, input="1234",
+        sibling branches like 'upstream' or 'push' require a branch name with remote configuration, input="abcd-dirty",
+        sibling branches like 'upstream' or 'push' require a branch name with remote configuration, input="v1.2.3-0-g1234",
     ]
     "#);
 }
@@ -235,7 +235,7 @@ fn sibling_branch_for_hash_is_invalid() {
 fn nth_checked_out_branch_for_refname_is_invalid() {
     let err = try_parse("r1@{-1}").unwrap_err();
     // its undefined how to handle negative numbers and specified ref names
-    insta::assert_snapshot!(err, @r#"reference name must be followed by positive numbers in @{n}, "input"="-1""#);
+    insta::assert_snapshot!(err, @r#"reference name must be followed by positive numbers in @{n}, input="-1""#);
 }
 
 #[test]
@@ -258,7 +258,7 @@ fn nth_checked_out_branch() {
 fn numbers_within_braces_cannot_be_negative_zero() {
     let err = try_parse("@{-0}").unwrap_err();
     // negative zero is not accepted, even though it could easily be defaulted to 0 which is a valid value
-    insta::assert_snapshot!(err, @r#"negative zero is invalid - remove the minus sign, "input"="-0""#);
+    insta::assert_snapshot!(err, @r#"negative zero is invalid - remove the minus sign, input="-0""#);
 }
 
 #[test]

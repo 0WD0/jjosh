@@ -376,10 +376,10 @@ mod find {
             )
             .expect_err("verification must report the invalid object");
         insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&(err), &[(&db.object_path(&id).to_string_lossy(), "<object-path>")]), "corrupt objects do not become valid when retried", @r#"
-        Could not read loose object during verification, "object_id"="Oid(1)"
+        Could not read loose object during verification, object_id="Oid(1)"
 
         Caused by:
-            0: Could not read loose object, "path"="<object-path>"
+            0: Could not read loose object, path="<object-path>"
             1: Empty loose object file
         "#);
         assert!(!err.can_retry(), "corrupt objects do not become valid when retried");
@@ -470,14 +470,14 @@ mod find {
         }
         insta::assert_debug_snapshot!(error_snapshots, "completed object size is validated before allocation", @r#"
         [
-            Could not read loose object, "path"="<object-path>"
+            Could not read loose object, path="<object-path>"
             
             Caused by:
-                0: Loose object size mismatch: invalid size of inflated loose object, "actual"=0, "expected"=1048576,
-            Could not read loose object, "path"="<object-path>"
+                0: Loose object size mismatch: invalid size of inflated loose object, actual=0, expected=1048576,
+            Could not read loose object, path="<object-path>"
             
             Caused by:
-                0: Loose object size mismatch: invalid size of inflated loose object, "actual"=0, "expected"=<usize::MAX>,
+                0: Loose object size mismatch: invalid size of inflated loose object, actual=0, expected=<usize::MAX>,
         ]
         "#);
         Ok(())
@@ -622,7 +622,7 @@ cjHJZXWmV4CcRfmLsXzU8s2cR9A0DBvOxhPD1TlKC2JhBFXigjuL9U4Rbq9tdegB
             "the allocation diagnostic and lookup context are the only nodes"
         );
         insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[(&db.object_path(&id).to_string_lossy(), "<object-path>")]), "the allocation limit retains the lookup context and requested byte count", @r#"
-        Could not read loose object, "path"="<object-path>"
+        Could not read loose object, path="<object-path>"
 
         Caused by:
             0: Cannot store loose object of 56915 bytes in memory: the object exceeds the configured allocation limit of 1 bytes
@@ -732,7 +732,7 @@ cjHJZXWmV4CcRfmLsXzU8s2cR9A0DBvOxhPD1TlKC2JhBFXigjuL9U4Rbq9tdegB
                 "reservation diagnostics retain the full requested object size in prose"
             );
             insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[(&path.to_string_lossy(), "<object-path>")]), "impossible allocations retain the failed capacity reservation", @r#"
-            Could not read loose object, "path"="<object-path>"
+            Could not read loose object, path="<object-path>"
 
             Caused by:
                 0: Cannot store loose object of 18446744073709551615 bytes in memory

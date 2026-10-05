@@ -90,7 +90,7 @@ mod program {
 
         Caused by:
             0: I/O error (Other)
-            1: Credentials helper program failed, "exit_code"=128, "exit_status"="exit status: 128"
+            1: Credentials helper program failed, exit_code=128, exit_status="exit status: 128"
         "#);
         assert!(
             err.classify().next().is_none(),

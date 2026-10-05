@@ -35,9 +35,9 @@ fn invalid() {
     }
     insta::assert_debug_snapshot!(error_snapshots, "invalid", @r#"
     [
-        Format should be 'gitdir: <path>', but got, "input"="gitdir:",
-        Format should be 'gitdir: <path>', but got, "input"="bogus: foo",
-        Format should be 'gitdir: <path>', but got, "input"="gitdir: ",
+        Format should be 'gitdir: <path>', but got, input="gitdir:",
+        Format should be 'gitdir: <path>', but got, input="bogus: foo",
+        Format should be 'gitdir: <path>', but got, input="gitdir: ",
     ]
     "#);
 }

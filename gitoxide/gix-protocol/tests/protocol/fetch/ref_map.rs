@@ -30,7 +30,7 @@ mod from_refs {
     fn unknown_object_format_errors() {
         let caps = caps_with(b"symref=HEAD:refs/heads/main object-format=sha999 agent=git/2.54.0");
         let err = RefMap::from_refs(Vec::new(), &caps, ctx()).expect_err("unknown format must error");
-        insta::assert_debug_snapshot!(err, "unknown formats are unsupported", @r#"The object format used by the remote is unsupported: sha999, "input"="sha999""#);
+        insta::assert_debug_snapshot!(err, "unknown formats are unsupported", @r#"The object format used by the remote is unsupported: sha999, input="sha999""#);
         assert!(err.is_unsupported(), "unknown formats require another implementation");
         let metadata = err.metadata().next().expect("the unsupported format is retained");
         assert_eq!(

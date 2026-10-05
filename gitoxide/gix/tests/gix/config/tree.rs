@@ -236,35 +236,35 @@ mod keys {
         Message {
             message: "Integers needs to be positive or negative numbers which may have a suffix like 1k, 42, or 50G",
             class: Validation,
-            values: {"input": Bytes("9223372036854775808")},
+            values: {input: Bytes("9223372036854775808")},
         }
         "#);
         assert!(err.is_validation());
         insta::assert_debug_snapshot!(error_snapshots, "unsigned integer", @r#"
         [
-            Invalid configuration value, "environment_override"="GIX_PACK_CACHE_MEMORY", "key"="core.deltaBaseCacheLimit"
+            Invalid configuration value, environment_override="GIX_PACK_CACHE_MEMORY", key="core.deltaBaseCacheLimit"
             
             Caused by:
-                0: integer is out of range for `usize`, "input"="-1"
+                0: integer is out of range for `usize`, input="-1"
                 1: out of range integral type conversion attempted,
-            Invalid configuration value, "environment_override"="GIX_PACK_CACHE_MEMORY", "key"="core.deltaBaseCacheLimit"
+            Invalid configuration value, environment_override="GIX_PACK_CACHE_MEMORY", key="core.deltaBaseCacheLimit"
             
             Caused by:
-                0: integer is out of range for `usize`, "input"="-100"
+                0: integer is out of range for `usize`, input="-100"
                 1: out of range integral type conversion attempted,
         ]
         "#);
         insta::assert_debug_snapshot!(diagnostics, "unsigned integer", @r#"
         [
-            Invalid configuration value, "environment_override"="GIX_PACK_CACHE_MEMORY", "key"="core.deltaBaseCacheLimit"
+            Invalid configuration value, environment_override="GIX_PACK_CACHE_MEMORY", key="core.deltaBaseCacheLimit"
             
             Caused by:
-                0: integer is out of range for `usize`, "input"="-1"
+                0: integer is out of range for `usize`, input="-1"
                 1: out of range integral type conversion attempted,
-            Invalid configuration value, "environment_override"="GIX_PACK_CACHE_MEMORY", "key"="core.deltaBaseCacheLimit"
+            Invalid configuration value, environment_override="GIX_PACK_CACHE_MEMORY", key="core.deltaBaseCacheLimit"
             
             Caused by:
-                0: integer is out of range for `usize`, "input"="-100"
+                0: integer is out of range for `usize`, input="-100"
                 1: out of range integral type conversion attempted,
         ]
         "#);
@@ -890,11 +890,11 @@ mod core {
             .validate("invalid".into())
             .expect_err("the value is neither a boolean nor 'always'");
         insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[]), "log all ref updates", @r#"
-        Invalid configuration value, "key"="core.logAllRefUpdates"
+        Invalid configuration value, key="core.logAllRefUpdates"
 
         Caused by:
-            0: Invalid configuration value, "key"="core.logAllRefUpdates"
-            1: Booleans need to be 'no', 'off', 'false', '' or 'yes', 'on', 'true' or any number, "input"="invalid"
+            0: Invalid configuration value, key="core.logAllRefUpdates"
+            1: Booleans need to be 'no', 'off', 'false', '' or 'yes', 'on', 'true' or any number, input="invalid"
         "#);
         assert!(err.is_validation());
         Ok(())
@@ -1272,7 +1272,7 @@ mod protocol {
                 .expect_err("protocol permissions are case-sensitive");
             assert_eq!(
                 err.probable_cause().to_string(),
-                r#"Unknown protocol permission "User", "input"="User""#,
+                r#"Unknown protocol permission "User", input="User""#,
                 "the configuration context preserves the parser's error"
             );
             assert_eq!(

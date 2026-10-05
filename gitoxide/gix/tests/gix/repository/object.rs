@@ -318,7 +318,7 @@ mod write_object {
         I/O error (Other)
 
         Caused by:
-            0: Signature name or email must not contain '<', '>' or \n, "input"="1 < 0"
+            0: Signature name or email must not contain '<', '>' or \n, input="1 < 0"
         "#);
         Ok(())
     }
@@ -745,7 +745,7 @@ mod commit {
             .commit("HEAD", "initial", empty_tree_id, [empty_tree_id])
             .expect_err("an initial commit cannot have a parent");
         insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&(err), &[]), "the expected previous reference value is absent", @r#"
-        Could not prepare reference edit, "reference"="HEAD", "referent"="refs/heads/main"
+        Could not prepare reference edit, reference="HEAD", referent="refs/heads/main"
 
         Caused by:
             0: The reference must exist with content Oid(1)

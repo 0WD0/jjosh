@@ -36,7 +36,7 @@ fn conflicting_creation_without_packed_refs() -> Result {
         Err(err) if case_sensitive => panic!("should work as case sensitivity allows 'a' and 'A' to coexist: {err:?}"),
         Err(err) if !case_sensitive => {
             insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[(&store.git_dir().to_string_lossy(), "<git-dir>")]), "case-insensitive filesystems reject simultaneous locks for refs/a and refs/A", @r#"
-            Could not prepare reference edit, "reference"="refs/A", "referent"="refs/A"
+            Could not prepare reference edit, reference="refs/A"
 
             Caused by:
                 0: The lock for resource "<git-dir>/refs/A" could not be obtained immediately after 1 attempt(s). The lockfile at "<git-dir>/refs/A.lock" might need manual deletion.
@@ -130,7 +130,7 @@ fn conflicting_creation_into_packed_refs() -> Result {
     if !case_sensitive(dir.path()) {
         let err = transaction.expect_err("case-insensitive collision");
         insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[(&store.git_dir().to_string_lossy(), "<git-dir>")]), "packed ref updates still acquire loose locks before their CAS read", @r#"
-        Could not prepare reference edit, "reference"="refs/A", "referent"="refs/A"
+        Could not prepare reference edit, reference="refs/A"
 
         Caused by:
             0: The lock for resource "<git-dir>/refs/A" could not be obtained immediately after 1 attempt(s). The lockfile at "<git-dir>/refs/A.lock" might need manual deletion.

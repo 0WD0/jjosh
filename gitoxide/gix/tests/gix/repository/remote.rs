@@ -464,7 +464,7 @@ mod find_remote {
         The rewritten fetch url ":://gitoxide" failed to parse
 
         Caused by:
-            0: URL can not be parsed as valid URL, "input"=":://gitoxide"
+            0: URL can not be parsed as valid URL, input=":://gitoxide"
             1: relative URL without a base
         "#);
         assert_eq!(
@@ -537,7 +537,7 @@ mod find_remote {
         The rewritten push url ":://repo" failed to parse
 
         Caused by:
-            0: URL can not be parsed as valid URL, "input"=":://repo"
+            0: URL can not be parsed as valid URL, input=":://repo"
             1: relative URL without a base
         "#);
         assert_eq!(
@@ -558,7 +558,7 @@ mod find_remote {
         The rewritten push url ":://repo" failed to parse
 
         Caused by:
-            0: URL can not be parsed as valid URL, "input"=":://repo"
+            0: URL can not be parsed as valid URL, input=":://repo"
             1: relative URL without a base
         "#);
 
@@ -567,7 +567,7 @@ mod find_remote {
         The rewritten push url ":://repo" failed to parse
 
         Caused by:
-            0: URL can not be parsed as valid URL, "input"=":://repo"
+            0: URL can not be parsed as valid URL, input=":://repo"
             1: relative URL without a base
         "#);
 

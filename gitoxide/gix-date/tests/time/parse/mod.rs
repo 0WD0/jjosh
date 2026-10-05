@@ -199,7 +199,7 @@ fn git_default() {
 
 #[test]
 fn invalid_dates_can_be_produced_without_current_time() {
-    insta::assert_debug_snapshot!(gix_date::parse("foobar", None).expect_err("invalid dates can be produced without current time"), "invalid dates can be produced without current time", @r#"Unknown date format, "input"="foobar""#);
+    insta::assert_debug_snapshot!(gix_date::parse("foobar", None).expect_err("invalid dates can be produced without current time"), "invalid dates can be produced without current time", @r#"Unknown date format, input="foobar""#);
 }
 
 /// Tests for compact ISO8601 formats (YYYYMMDDTHHMMSS variants)

@@ -141,10 +141,10 @@ fn invalid_value_names_are_reported_by_mutable_lookups() -> Result {
     let mut config = File::try_from("[core]\na=b")?;
     let err = config.raw_value_mut_by("core", None, "1invalid").unwrap_err();
     assert!(err.is_validation());
-    insta::assert_debug_snapshot!(err, "invalid value names are reported by mutable lookups", @r#"Valid value names consist of alphanumeric characters or dashes, starting with an alphabetic character., "input"="1invalid""#);
+    insta::assert_debug_snapshot!(err, "invalid value names are reported by mutable lookups", @r#"Valid value names consist of alphanumeric characters or dashes, starting with an alphabetic character., input="1invalid""#);
     let err = config.raw_values_mut_by("core", None, "contains.dot").unwrap_err();
     assert!(err.is_validation());
-    insta::assert_debug_snapshot!(err, "invalid value names are reported by mutable lookups", @r#"Valid value names consist of alphanumeric characters or dashes, starting with an alphabetic character., "input"="contains.dot""#);
+    insta::assert_debug_snapshot!(err, "invalid value names are reported by mutable lookups", @r#"Valid value names consist of alphanumeric characters or dashes, starting with an alphabetic character., input="contains.dot""#);
     Ok(())
 }
 

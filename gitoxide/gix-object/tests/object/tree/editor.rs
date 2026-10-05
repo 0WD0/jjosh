@@ -524,7 +524,7 @@ fn from_empty_invalid_write() -> Result {
         error: Message {
             message: "Nullbytes are invalid in file paths as they are separators",
             class: Validation,
-            values: {"input": Bytes("with\0null")},
+            values: {input: Bytes("with\0null")},
         },
     }
     "#);

@@ -245,10 +245,10 @@ mod iter {
             let mut iter = gix_ref::file::log::iter::forward(log_first_broken.as_bytes());
             let err = iter.next().expect("error is not none").expect_err("the line is broken");
             insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&(err), &[]), "a single failure does not abort iteration", @r#"
-            Invalid reflog entry, "from_end"=false, "line"=1
+            Invalid reflog entry, from_end=false, line=1
 
             Caused by:
-                0: Could not decode reflog line, "input"="Oid(1) 134385fbroken7062102c6a483440bfda2a03 committer <committer@example.com> 946771200 +0000\tcommit"
+                0: Could not decode reflog line, input="Oid(1) 134385fbroken7062102c6a483440bfda2a03 committer <committer@example.com> 946771200 +0000\tcommit"
                 1: Malformed reflog line
             "#);
             assert!(err.is_corrupted());

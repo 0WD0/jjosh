@@ -61,7 +61,7 @@ fn patterns_may_contain_only_one_asterisk() {
         }
     }
 
-    insta::assert_debug_snapshot!(assert_unsupported_pattern("^*/*", Operation::Fetch), "patterns may contain only one asterisk", @r#"refspec patterns may only contain a single '*' character, "input"="*/*""#);
+    insta::assert_debug_snapshot!(assert_unsupported_pattern("^*/*", Operation::Fetch), "patterns may contain only one asterisk", @r#"refspec patterns may only contain a single '*' character, input="*/*""#);
     // Negative refspec patterns follow Git's single-asterisk refspec-pattern rule.
     for op in [Operation::Fetch, Operation::Push] {
         diagnostics.push(gix_testtools::redact_debug_snapshot(
@@ -82,20 +82,20 @@ fn patterns_may_contain_only_one_asterisk() {
     }
     insta::assert_debug_snapshot!(diagnostics, "patterns may contain only one asterisk", @r#"
     [
-        refspec patterns may only contain a single '*' character, "input"="a/*/c/*",
-        refspec patterns may only contain a single '*' character, "input"="a/*/c/*",
-        refspec patterns may only contain a single '*' character, "input"="a**",
-        refspec patterns may only contain a single '*' character, "input"="**/",
-        refspec patterns may only contain a single '*' character, "input"="a/*/c/*",
-        refspec patterns may only contain a single '*' character, "input"="a/*/c/*",
-        refspec patterns may only contain a single '*' character, "input"="a**",
-        refspec patterns may only contain a single '*' character, "input"="**/",
-        refspec patterns may only contain a single '*' character, "input"="refs/heads/qa/*/*",
+        refspec patterns may only contain a single '*' character, input="a/*/c/*",
+        refspec patterns may only contain a single '*' character, input="a/*/c/*",
+        refspec patterns may only contain a single '*' character, input="a**",
+        refspec patterns may only contain a single '*' character, input="**/",
+        refspec patterns may only contain a single '*' character, input="a/*/c/*",
+        refspec patterns may only contain a single '*' character, input="a/*/c/*",
+        refspec patterns may only contain a single '*' character, input="a**",
+        refspec patterns may only contain a single '*' character, input="**/",
+        refspec patterns may only contain a single '*' character, input="refs/heads/qa/*/*",
         Reference name contains invalid byte: "?",
         Reference name contains invalid byte: "[",
         Reference name cannot contain repeated dots,
         Reference name cannot end with a slash,
-        refspec patterns may only contain a single '*' character, "input"="refs/heads/qa/*/*",
+        refspec patterns may only contain a single '*' character, input="refs/heads/qa/*/*",
         Reference name contains invalid byte: "?",
         Reference name contains invalid byte: "[",
         Reference name cannot contain repeated dots,

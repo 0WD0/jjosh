@@ -239,7 +239,7 @@ mod signature {
         Could not verify the commit signature
 
         Caused by:
-            0: Could not execute signature verifier, "program"="<home>/bin/missing-gpg"
+            0: Could not execute signature verifier, program="<home>/bin/missing-gpg"
             1: NotFound
         "#);
         Ok(())

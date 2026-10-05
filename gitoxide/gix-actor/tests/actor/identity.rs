@@ -48,11 +48,11 @@ fn lenient_parsing() -> gix_testtools::Result {
     [
         Custom {
             kind: Other,
-            error: Signature name or email must not contain '<', '>' or \n, "input"="fl <First Last<fl@openoffice.org >> ",
+            error: Signature name or email must not contain '<', '>' or \n, input="fl <First Last<fl@openoffice.org >> ",
         },
         Custom {
             kind: Other,
-            error: Signature name or email must not contain '<', '>' or \n, "input"="fl <First Last<fl@openoffice.org",
+            error: Signature name or email must not contain '<', '>' or \n, input="fl <First Last<fl@openoffice.org",
         },
     ]
     "#);

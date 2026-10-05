@@ -128,8 +128,8 @@ mod blocking_io {
             }
             insta::assert_debug_snapshot!(error_snapshots, "deny", @r#"
             [
-                Protocol File is denied per configuration, "input"="<fixture>/base",
-                Protocol File is denied per configuration, "input"="<fixture>/base",
+                Protocol File is denied per configuration, input="<fixture>/base",
+                Protocol File is denied per configuration, input="<fixture>/base",
             ]
             "#);
         }

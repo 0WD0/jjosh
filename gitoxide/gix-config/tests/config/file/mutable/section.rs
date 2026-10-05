@@ -210,7 +210,7 @@ mod value_name_validation {
         Message {
             message: "Valid value names consist of alphanumeric characters or dashes, starting with an alphabetic character.",
             class: Validation,
-            values: {"input": Bytes("not.valid")},
+            values: {input: Bytes("not.valid")},
         }
         "#);
         let err = section
@@ -223,7 +223,7 @@ mod value_name_validation {
         Message {
             message: "Valid value names consist of alphanumeric characters or dashes, starting with an alphabetic character.",
             class: Validation,
-            values: {"input": Bytes("1invalid")},
+            values: {input: Bytes("1invalid")},
         }
         "#);
         let err = section.set("also invalid", "value").unwrap_err();
@@ -234,7 +234,7 @@ mod value_name_validation {
         Message {
             message: "Valid value names consist of alphanumeric characters or dashes, starting with an alphabetic character.",
             class: Validation,
-            values: {"input": Bytes("also invalid")},
+            values: {input: Bytes("also invalid")},
         }
         "#);
         assert_eq!(section.num_values(), 0, "validation happens before mutation");

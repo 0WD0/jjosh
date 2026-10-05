@@ -39,7 +39,7 @@ fn delete_a_ref_which_is_gone_but_must_exist_fails() -> Result {
     );
     let err = res.expect_err("the reference must exist");
     insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[(&store.git_dir().to_string_lossy(), "<git-dir>")]), "delete a ref which is gone but must exist fails", @r#"
-    Could not prepare reference edit, "reference"="DOES_NOT_EXIST", "referent"="DOES_NOT_EXIST"
+    Could not prepare reference edit, reference="DOES_NOT_EXIST"
 
     Caused by:
         0: The reference to delete must exist
@@ -102,7 +102,7 @@ fn delete_ref_with_incorrect_previous_value_fails() -> Result {
 
     let err = res.expect_err("the expected target differs");
     insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[]), "reference deletion retains the expected and actual target when they differ", @r#"
-    Could not prepare reference edit, "reference"="HEAD", "referent"="refs/heads/main"
+    Could not prepare reference edit, reference="HEAD", referent="refs/heads/main"
 
     Caused by:
         0: Expected reference content ref: refs/heads/main
@@ -207,7 +207,7 @@ fn rename_a_to_a_slash_b_in_one_transaction() -> Result {
         )
         .unwrap_err();
     insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&(err), &[]), "path-prefix collisions are reported early, without losing the I/O kind", @r#"
-    Could not prepare reference edit, "reference"="refs/heads/old/new", "referent"="refs/heads/old/new"
+    Could not prepare reference edit, reference="refs/heads/old/new"
 
     Caused by:
         0: Another IO error occurred while obtaining the lock
@@ -263,7 +263,7 @@ fn delete_broken_ref_that_must_exist_fails_as_it_is_no_valid_ref() -> Result {
     );
     let err = res.expect_err("a valid existing reference is required");
     insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[(&store.git_dir().to_string_lossy(), "<git-dir>")]), "delete broken ref that must exist fails as it is no valid ref", @r#"
-    Could not prepare reference edit, "reference"="HEAD", "referent"="HEAD"
+    Could not prepare reference edit, reference="HEAD"
 
     Caused by:
         0: The reference to delete must exist

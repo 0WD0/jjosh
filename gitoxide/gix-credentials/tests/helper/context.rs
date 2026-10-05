@@ -102,15 +102,15 @@ mod write_to {
         [
             Custom {
                 kind: Other,
-                error: "url"="foo\0" must not contain null bytes or newlines neither in key nor in value., "input"="foo\0",
+                error: "url"="foo\0" must not contain null bytes or newlines neither in key nor in value., input="foo\0",
             },
             Custom {
                 kind: Other,
-                error: "url"="foo\n" must not contain null bytes or newlines neither in key nor in value., "input"="foo\n",
+                error: "url"="foo\n" must not contain null bytes or newlines neither in key nor in value., input="foo\n",
             },
             Custom {
                 kind: Other,
-                error: "url"="foo\r" must not contain null bytes or newlines neither in key nor in value., "input"="foo\r",
+                error: "url"="foo\r" must not contain null bytes or newlines neither in key nor in value., input="foo\r",
             },
         ]
         "#);
@@ -192,7 +192,7 @@ username=bob";
     #[test]
     fn null_bytes_when_decoding() {
         let err = Context::from_bytes(b"url=https://foo\0", ContextOptions::default()).unwrap_err();
-        insta::assert_debug_snapshot!(err, "null bytes when decoding", @r#""url"="https://foo\0" must not contain null bytes or newlines neither in key nor in value., "input"="https://foo\0""#);
+        insta::assert_debug_snapshot!(err, "null bytes when decoding", @r#""url"="https://foo\0" must not contain null bytes or newlines neither in key nor in value., input="https://foo\0""#);
     }
 
     #[test]

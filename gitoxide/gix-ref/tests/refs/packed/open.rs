@@ -48,7 +48,7 @@ fn bogus_content_triggers_an_error() -> Result {
 
     let err = gix_ref::packed::Buffer::open(path, 32, HASH_KIND).expect_err("malformed packed refs");
     insta::assert_debug_snapshot!(err, "bogus content triggers an error", @r#"
-    Invalid packed reference, "input"="starts with a bogus record, not a header anyway", "line"=1
+    Invalid packed reference, input="starts with a bogus record, not a header anyway", line=1
 
     Caused by:
         0: Malformed packed reference

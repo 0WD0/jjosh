@@ -139,7 +139,7 @@ mod tree {
             error: Message {
                 message: "Nullbytes are invalid in file paths as they are separators",
                 class: Validation,
-                values: {"input": Bytes("hi\0ho")},
+                values: {input: Bytes("hi\0ho")},
             },
         }
         "#);

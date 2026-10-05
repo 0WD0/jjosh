@@ -1135,11 +1135,11 @@ fn io_payload_direct_validation_retains_metadata_and_types() {
     let human = r#"I/O error (InvalidData)
 
 Caused by:
-    0: invalid input, "input"="ref\xff""#;
+    0: invalid input, input="ref\xff""#;
     let typed = r#"I/O error (InvalidData)
 
 Caused by:
-    0: Message { message: "invalid input", class: Validation, values: {"input": Bytes("ref\xff")} }"#;
+    0: Message { message: "invalid input", class: Validation, values: {input: Bytes("ref\xff")} }"#;
     let compact = format!("{err:?}");
     let location = err.frame().location();
     let at = format!(", at {}:{}", location.file(), location.line());
@@ -1149,7 +1149,7 @@ Caused by:
             r#"I/O error (InvalidData){at}
 
 Caused by:
-    0: invalid input, "input"="ref\xff"{at}"#
+    0: invalid input, input="ref\xff"{at}"#
         ),
         "a native payload inherits its owning frame's rendering location"
     );

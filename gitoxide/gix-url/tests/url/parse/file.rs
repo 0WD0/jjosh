@@ -114,7 +114,7 @@ fn no_relative_paths_if_protocol() -> gix_error::TestResult {
         );
     } else {
         let err = gix_url::parse(r"file://.\").expect_err("the input must be rejected");
-        insta::assert_debug_snapshot!(err, "Unix requires a forward slash after the host", @r#"URL does not specify a path to a repository, "input"="file://.\\""#);
+        insta::assert_debug_snapshot!(err, "Unix requires a forward slash after the host", @r#"URL does not specify a path to a repository, input="file://.\\""#);
     }
     Ok(())
 }

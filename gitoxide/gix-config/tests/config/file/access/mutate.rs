@@ -225,11 +225,11 @@ mod rename_section {
         let mut file = gix_config::File::try_from("[core] a = b").unwrap();
         let err = file.rename_section("core", None, "new_core", None).unwrap_err();
         assert!(err.is_validation());
-        insta::assert_debug_snapshot!(err, "section renaming validates new name", @r#"section names can only be ascii, '-', "input"="new_core""#);
+        insta::assert_debug_snapshot!(err, "section renaming validates new name", @r#"section names can only be ascii, '-', input="new_core""#);
 
         let err = file.rename_section("core", None, "new-core", "a\nb").unwrap_err();
         assert!(err.is_validation());
-        insta::assert_debug_snapshot!(err, "section renaming validates new name", @r#"sub-section names must not contain newlines or null bytes, "input"="a\nb""#);
+        insta::assert_debug_snapshot!(err, "section renaming validates new name", @r#"sub-section names must not contain newlines or null bytes, input="a\nb""#);
     }
 
     #[test]

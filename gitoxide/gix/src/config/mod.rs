@@ -183,7 +183,7 @@ pub(crate) mod key {
             }
             assert_eq!(
                 error_with_value(&Core::BARE, "Invalid boolean", b"bad".as_bstr()).to_string(),
-                "Invalid boolean, \"input\"=\"bad\", \"key\"=\"core.bare\"",
+                "Invalid boolean, input=\"bad\", key=\"core.bare\"",
                 "the standard message display includes its diagnostic metadata"
             );
         }

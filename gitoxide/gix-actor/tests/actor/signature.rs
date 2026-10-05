@@ -13,7 +13,7 @@ mod write_to {
             insta::assert_debug_snapshot!(signature.write_to(&mut Vec::new()).expect_err("the signature is invalid"), "signature names reject angle brackets", @r#"
             Custom {
                 kind: Other,
-                error: Signature name or email must not contain '<', '>' or \n, "input"="invalid < middlename",
+                error: Signature name or email must not contain '<', '>' or \n, input="invalid < middlename",
             }
             "#);
         }
@@ -28,7 +28,7 @@ mod write_to {
             insta::assert_debug_snapshot!(signature.write_to(&mut Vec::new()).expect_err("the signature is invalid"), "signature email addresses reject angle brackets", @r#"
             Custom {
                 kind: Other,
-                error: Signature name or email must not contain '<', '>' or \n, "input"="server>.example.com",
+                error: Signature name or email must not contain '<', '>' or \n, input="server>.example.com",
             }
             "#);
         }
@@ -43,7 +43,7 @@ mod write_to {
             insta::assert_debug_snapshot!(signature.write_to(&mut Vec::new()).expect_err("the signature is invalid"), "signature names reject newlines", @r#"
             Custom {
                 kind: Other,
-                error: Signature name or email must not contain '<', '>' or \n, "input"="hello\nnewline",
+                error: Signature name or email must not contain '<', '>' or \n, input="hello\nnewline",
             }
             "#);
         }

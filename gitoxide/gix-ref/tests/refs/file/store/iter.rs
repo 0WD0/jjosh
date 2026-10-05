@@ -313,7 +313,7 @@ fn loose_iter_with_broken_refs() -> Result {
     The reference at "refs/broken" could not be decoded
 
     Caused by:
-        0: Reference content could not be parsed, "input"="notahexsha\n"
+        0: Reference content could not be parsed, input="notahexsha\n"
     "#);
     let ref_paths: Vec<_> = actual
         .drain(..first_error)

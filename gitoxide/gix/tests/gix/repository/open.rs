@@ -263,7 +263,7 @@ fn git_index_file_empty_is_invalid_even_with_lenient_config() -> Result {
     .expect_err("an empty index path must be rejected");
 
     insta::assert_debug_snapshot!(err, "an empty index path is never ignored, even though configuration is lenient by default", @r#"
-    Invalid configuration value, "environment_override"="GIT_INDEX_FILE", "input"="", "key"="gitoxide.core.indexFile"
+    Invalid configuration value, environment_override="GIT_INDEX_FILE", input="", key="gitoxide.core.indexFile"
 
     Caused by:
         0: index file path must not be empty
@@ -510,7 +510,7 @@ fn non_bare_split_worktree_invalid_worktree_path_boolean() -> Result {
     )
     .expect_err("a bare worktree-path key is invalid in strict mode");
     assert!(err.is_validation(), "in strict mode, we fail just like git does");
-    insta::assert_debug_snapshot!(err, "non bare split worktree invalid worktree path boolean", @r#"Invalid configuration value, "environment_override"="GIT_WORK_TREE", "key"="core.worktree""#);
+    insta::assert_debug_snapshot!(err, "non bare split worktree invalid worktree path boolean", @r#"Invalid configuration value, environment_override="GIT_WORK_TREE", key="core.worktree""#);
     Ok(())
 }
 
@@ -524,7 +524,7 @@ fn non_bare_split_worktree_invalid_worktree_path_empty() -> Result {
     )
     .unwrap_err();
     insta::assert_debug_snapshot!(err, "DEVIATION: could not read path at core.worktree as empty is always invalid, git tries to use an empty path, even though it's better to reject it", @r#"
-    The path at the 'core.worktree' configuration could not be interpolated, "input"=""
+    The path at the 'core.worktree' configuration could not be interpolated, input=""
 
     Caused by:
         0: path is missing
@@ -542,7 +542,7 @@ fn non_bare_split_worktree_invalid_worktree_path_empty() -> Result {
     Message {
         message: "The path at the 'core.worktree' configuration could not be interpolated",
         class: Validation,
-        values: {"input": Bytes("")},
+        values: {input: Bytes("")},
     }
     "#);
     Ok(())
@@ -712,7 +712,7 @@ mod object_format_extension {
         Message {
             message: "Unsupported repository format version; only versions 0 and 1 are supported",
             class: Unsupported,
-            values: {"input": I64(2), "key": String("core.repositoryFormatVersion")},
+            values: {input: I64(2), key: String("core.repositoryFormatVersion")},
         }
         "#);
         Ok(())

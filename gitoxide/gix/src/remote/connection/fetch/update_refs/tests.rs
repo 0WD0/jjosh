@@ -553,12 +553,12 @@ mod update {
             
             Caused by:
                 0: The reference at "refs/tags/malformed" could not be decoded
-                1: Reference content could not be parsed, "input"="invalid",
+                1: Reference content could not be parsed, input="invalid",
             Could not peel symbolic local reference to its ID
             
             Caused by:
                 0: The reference at "refs/tags/malformed" could not be decoded
-                1: Reference content could not be parsed, "input"="invalid",
+                1: Reference content could not be parsed, input="invalid",
         ]
         "#);
         Ok(())
@@ -616,11 +616,11 @@ mod update {
             Could not peel symbolic local reference to its ID
             
             Caused by:
-                0: Could not peel reference to an object: object could not be found, "object_id"="Oid(1)", "reference"="refs/tags/missing",
+                0: Could not peel reference to an object: object could not be found, object_id="Oid(1)", reference="refs/tags/missing",
             Could not peel symbolic local reference to its ID
             
             Caused by:
-                0: Could not peel reference to an object: object could not be found, "object_id"="Oid(1)", "reference"="refs/tags/missing",
+                0: Could not peel reference to an object: object could not be found, object_id="Oid(1)", reference="refs/tags/missing",
         ]
         "#);
         Ok(())

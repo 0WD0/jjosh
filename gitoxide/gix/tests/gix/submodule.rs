@@ -45,7 +45,7 @@ mod open {
             .open()
             .expect_err("invalid core.worktree configuration must propagate");
         insta::assert_debug_snapshot!(err, "the nested missing-path error must not hide the configuration failure", @r#"
-        The path at the 'core.worktree' configuration could not be interpolated, "input"=""
+        The path at the 'core.worktree' configuration could not be interpolated, input=""
 
         Caused by:
             0: path is missing
@@ -429,7 +429,7 @@ mod open {
         The gitdir file at "<repository>/m1/.git" contains an invalid gitdir target
 
         Caused by:
-            0: Format should be 'gitdir: <path>', but got, "input"="bogus\n"
+            0: Format should be 'gitdir: <path>', but got, input="bogus\n"
         "#);
         assert!(err.is_validation());
 
@@ -442,7 +442,7 @@ mod open {
             The gitdir file at "<repository>/m1/.git" contains an invalid gitdir target
 
             Caused by:
-                0: Format should be 'gitdir: <path>', but got, "input"="bogus\n"
+                0: Format should be 'gitdir: <path>', but got, input="bogus\n"
             "#);
             assert!(err.is_validation());
 
@@ -873,7 +873,7 @@ mod advisory {
             .next()
             .expect("one submodule");
         let err = sm.update().expect_err("commands from `.gitmodules` are forbidden");
-        insta::assert_debug_snapshot!(err, "update commands from gitmodules are rejected after init", @r#"The 'update' field of submodule 'sub' tried to set a command to be shared, "input"="touch pwned""#);
+        insta::assert_debug_snapshot!(err, "update commands from gitmodules are rejected after init", @r#"The 'update' field of submodule 'sub' tried to set a command to be shared, input="touch pwned""#);
         assert_eq!(
             err.metadata().find_map(|metadata| metadata.get("input")),
             Some(&gix_error::MetadataValue::Bytes("touch pwned".into()))

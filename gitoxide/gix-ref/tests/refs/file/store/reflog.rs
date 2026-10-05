@@ -55,11 +55,11 @@ mod iter_and_iter_rev {
         }
         insta::assert_debug_snapshot!(error_snapshots, "read failures preserve context", @r#"
         [
-            Could not read reflog, "path"="<git-dir>/logs/refs/heads/main/child"
+            Could not read reflog, path="<git-dir>/logs/refs/heads/main/child"
             
             Caused by:
                 0: NotADirectory,
-            Could not read reflog, "path"="<git-dir>/logs/refs/heads/main/child"
+            Could not read reflog, path="<git-dir>/logs/refs/heads/main/child"
             
             Caused by:
                 0: NotADirectory,

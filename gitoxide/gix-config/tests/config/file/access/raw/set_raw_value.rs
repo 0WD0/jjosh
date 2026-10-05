@@ -81,6 +81,6 @@ fn invalid_value_names_fail_without_creating_a_section() {
     let mut file = gix_config::File::default();
     let err = file.set_raw_value_by("new", None, "not.valid", "value").unwrap_err();
     assert!(err.is_validation());
-    insta::assert_debug_snapshot!(err, "invalid value names fail without creating a section", @r#"Valid value names consist of alphanumeric characters or dashes, starting with an alphabetic character., "input"="not.valid""#);
+    insta::assert_debug_snapshot!(err, "invalid value names fail without creating a section", @r#"Valid value names consist of alphanumeric characters or dashes, starting with an alphabetic character., input="not.valid""#);
     assert_eq!(file.sections().count(), 0, "validation precedes section creation");
 }

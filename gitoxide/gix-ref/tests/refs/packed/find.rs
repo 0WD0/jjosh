@@ -188,11 +188,11 @@ bogus refs/tags/gix-actor-v0.1.0
     }
     insta::assert_debug_snapshot!(error_snapshots, "invalid refs within a file do not lead to incorrect results", @r#"
     [
-        Could not decode packed reference, "name"="refs/tags/TEST-0.0.1"
+        Could not decode packed reference, name="refs/tags/TEST-0.0.1"
         
         Caused by:
             0: Malformed packed reference record,
-        Could not decode packed reference, "name"="refs/tags/gix-actor-v0.1.0"
+        Could not decode packed reference, name="refs/tags/gix-actor-v0.1.0"
         
         Caused by:
             0: Malformed packed reference record,

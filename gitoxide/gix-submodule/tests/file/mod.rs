@@ -193,7 +193,7 @@ mod path {
         Message {
             message: "The path of submodule 'a' needs to be relative",
             class: Validation,
-            values: {"input": Bytes("<absolute-path>")},
+            values: {input: Bytes("<absolute-path>")},
         }
         "#);
         insta::assert_debug_snapshot!(submodule_path("").error(), "validate upon retrieval", @r#"
@@ -206,7 +206,7 @@ mod path {
         Message {
             message: "The path would lead outside of the repository worktree",
             class: Validation,
-            values: {"input": Bytes("../attack")},
+            values: {input: Bytes("../attack")},
         }
         "#);
 
@@ -271,10 +271,10 @@ mod url {
         }
 
         insta::assert_debug_snapshot!(submodule_url("file://"), "validate upon retrieval", @r#"
-        The url of submodule 'a' could not be parsed, "input"="file://"
+        The url of submodule 'a' could not be parsed, input="file://"
 
         Caused by:
-            0: URL does not specify a path to a repository, "input"="file://"
+            0: URL does not specify a path to a repository, input="file://"
         "#);
         insta::assert_debug_snapshot!(message_diagnostics, "validate upon retrieval", @r#"
         [
@@ -350,21 +350,21 @@ mod update {
         Message {
             message: "The 'update' field of submodule 'a' was invalid",
             class: Validation,
-            values: {"input": Bytes("")},
+            values: {input: Bytes("")},
         }
         "#);
         insta::assert_debug_snapshot!(submodule_update("bogus").error(), "validate upon retrieval", @r#"
         Message {
             message: "The 'update' field of submodule 'a' was invalid",
             class: Validation,
-            values: {"input": Bytes("bogus")},
+            values: {input: Bytes("bogus")},
         }
         "#);
         insta::assert_debug_snapshot!(submodule_update("!dangerous").error(), "forbidden unless it's an override", @r#"
         Message {
             message: "The 'update' field of submodule 'a' tried to set a command to be shared",
             class: Validation,
-            values: {"input": Bytes("dangerous")},
+            values: {input: Bytes("dangerous")},
         }
         "#);
     }
@@ -393,7 +393,7 @@ mod update {
         Message {
             message: "The 'update' field of submodule 'a' tried to set a command to be shared",
             class: Validation,
-            values: {"input": Bytes("dangerous")},
+            values: {input: Bytes("dangerous")},
         }
         "#);
         Ok(())

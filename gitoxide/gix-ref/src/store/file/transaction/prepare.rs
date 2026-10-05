@@ -195,8 +195,8 @@ impl Transaction<'_, '_> {
     /// Rollbacks happen automatically on failure and they tend to be perfect.
     /// This method is idempotent.
     ///
-    /// Failed edits identify the requested and resolved names in [metadata](gix_error::Error::metadata()) `reference` and
-    /// `referent` (bytes).
+    /// Failed edits identify the requested name in [metadata](gix_error::Error::metadata()) `reference` (bytes).
+    /// `referent` records the resolved name only when it differs from the requested name.
     /// [`ReferenceOutOfDate`] and [`MustNotExist`] retain the actual target observed while holding the lock.
     pub fn prepare(
         self,
@@ -358,11 +358,12 @@ impl Transaction<'_, '_> {
                     ref_name = parent.name();
                     cursor = parent.parent_index;
                 }
-                return Err(err.and_raise(
-                    Message::new("Could not prepare reference edit")
-                        .with("reference", ref_name)
-                        .with("referent", referent),
-                ));
+                let differs = ref_name != referent;
+                let mut context = Message::new("Could not prepare reference edit").with("reference", ref_name);
+                if differs {
+                    context = context.with("referent", referent);
+                }
+                return Err(err.and_raise(context));
             }
 
             // traverse parent chain from leaf/peeled ref and set the leaf previous oid accordingly

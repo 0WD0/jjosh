@@ -102,7 +102,7 @@ fn reference_with_equally_named_empty_or_non_empty_directory_already_in_place_ca
     #[cfg(not(windows))]
     insta::assert_debug_snapshot!(error_snapshots, "reference with equally named empty or non empty directory already in place can potentially recover", @r#"
     [
-        Could not commit reference, "reference"="HEAD"
+        Could not commit reference, reference="HEAD"
         
         Caused by:
             0: I/O error (Other)
@@ -131,7 +131,7 @@ fn reference_with_old_value_must_exist_when_creating_it() -> Result {
 
     let err = res.expect_err("the previous reference must exist");
     insta::assert_debug_snapshot!(err, "reference with old value must exist when creating it", @r#"
-    Could not prepare reference edit, "reference"="HEAD", "referent"="HEAD"
+    Could not prepare reference edit, reference="HEAD"
 
     Caused by:
         0: The reference to update must exist
@@ -141,6 +141,79 @@ fn reference_with_old_value_must_exist_when_creating_it() -> Result {
         err.metadata().next().expect("failed edit")["reference"],
         gix_error::MetadataValue::from(b"HEAD".as_slice())
     );
+    Ok(())
+}
+
+#[test]
+fn target_mismatch_sources_retain_expected_and_actual_content_and_resolved_name() -> gix_error::TestResult {
+    for deref in [false, true] {
+        for delete in [false, true] {
+            for must_exist in [false, true] {
+                let (_keep, store) = empty_store()?;
+                let actual = Target::Object(crate::fixture_hash_kind().null());
+                let referent = if deref { "refs/heads/main" } else { "HEAD" };
+                // Deletion checks the symbolic parent as well as the referent, so let the parent check succeed.
+                let expected = if deref && delete {
+                    Target::Symbolic(referent.try_into()?)
+                } else {
+                    Target::Object(ObjectId::empty_blob(crate::fixture_hash_kind()))
+                };
+                if deref {
+                    std::fs::write(store.git_dir().join("HEAD"), b"ref: refs/heads/main\n")?;
+                    std::fs::create_dir_all(store.git_dir().join("refs/heads"))?;
+                }
+                std::fs::write(store.git_dir().join(referent), format!("{actual}\n"))?;
+                let previous = if must_exist {
+                    PreviousValue::MustExistAndMatch(expected.clone())
+                } else {
+                    PreviousValue::ExistingMustMatch(expected.clone())
+                };
+                let edit = if delete {
+                    RefEdit::delete("HEAD".try_into()?, previous)
+                } else {
+                    RefEdit::update("HEAD".try_into()?, expected.clone(), previous, "")
+                }
+                .with_deref(deref);
+                let err = store
+                    .transaction()
+                    .prepare([edit], Fail::Immediately, Fail::Immediately)
+                    .expect_err("the locked reference has a different target");
+
+                let sources = std::iter::successors(Some(&err as &dyn std::error::Error), |error| error.source())
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>();
+                assert!(
+                    sources
+                        .iter()
+                        .any(|cause| cause.contains(&format!("Expected reference content {expected}"))),
+                    "standard cause traversal retains the expected target: {sources:?}"
+                );
+                assert!(
+                    sources
+                        .iter()
+                        .any(|cause| cause.contains(&format!("The reference {referent:?} changed to {actual}"))),
+                    "standard cause traversal reaches the actual target: {sources:?}"
+                );
+                let details = err.metadata().next().expect("failed edit identifies its reference");
+                assert_eq!(details["reference"], gix_error::MetadataValue::from(b"HEAD".as_slice()));
+                assert_eq!(
+                    details.get("referent"),
+                    deref
+                        .then(|| gix_error::MetadataValue::from(referent.as_bytes()))
+                        .as_ref(),
+                    "the resolved name is recorded only when it differs from the requested name"
+                );
+                let stale = err
+                    .downcast_any_ref::<transaction::prepare::ReferenceOutOfDate>()
+                    .expect("the actual target remains available for typed recovery");
+                assert_eq!(stale.actual, actual, "typed recovery retains the locked target");
+                assert!(
+                    err.is_conflict() && !err.can_retry(),
+                    "stale targets require reconciliation"
+                );
+            }
+        }
+    }
     Ok(())
 }
 
@@ -162,7 +235,7 @@ fn reference_with_explicit_value_must_match_the_value_on_update() -> Result {
     );
     let err = res.expect_err("the transaction constraint is violated");
     insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&(err), &[]), "retrying requires reconciling the current value", @r#"
-    Could not prepare reference edit, "reference"="HEAD", "referent"="HEAD"
+    Could not prepare reference edit, reference="HEAD"
 
     Caused by:
         0: Expected reference content Oid(1)
@@ -233,7 +306,7 @@ fn the_existing_must_match_constraint_requires_existing_references_to_have_the_g
     );
     let err = res.expect_err("the transaction constraint is violated");
     insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&(err), &[]), "retrying requires reconciling the current value", @r#"
-    Could not prepare reference edit, "reference"="HEAD", "referent"="HEAD"
+    Could not prepare reference edit, reference="HEAD"
 
     Caused by:
         0: Expected reference content Oid(1)
@@ -263,7 +336,7 @@ fn reference_with_must_not_exist_constraint_cannot_be_created_if_it_exists_alrea
         .prepare(Some(create_at("HEAD")), Fail::Immediately, Fail::Immediately);
     let err = res.expect_err("the transaction constraint is violated");
     insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&(err), &[]), "retrying requires reconciling the current value", @r#"
-    Could not prepare reference edit, "reference"="HEAD", "referent"="HEAD"
+    Could not prepare reference edit, reference="HEAD"
 
     Caused by:
         0: Expected the reference not to exist when writing Oid(1)
@@ -498,13 +571,13 @@ fn windows_device_name_is_illegal_with_enabled_windows_protections() -> Result {
 
     insta::assert_debug_snapshot!(error_snapshots, "windows device name is illegal with enabled windows protections", @r#"
     [
-        Could not prepare reference edit, "reference"="refs/heads/CON", "referent"="refs/heads/CON"
+        Could not prepare reference edit, reference="refs/heads/CON"
         
         Caused by:
             0: Invalid reference filename
             1: I/O error (Other)
             2: Illegal use of reserved Windows device name in "refs/heads/CON",
-        Could not prepare reference edit, "reference"="refs/CON/still-invalid", "referent"="refs/CON/still-invalid"
+        Could not prepare reference edit, reference="refs/CON/still-invalid"
         
         Caused by:
             0: Invalid reference filename
@@ -583,7 +656,7 @@ fn lock_failure_on_symbolic_referent_is_reported_for_the_symbolic_ref() -> Resul
         )
         .unwrap_err();
     insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&(err), &[(&(store.git_dir()).to_string_lossy(), "<git-dir>")]), "the original lock failure is classifiable", @r#"
-    Could not prepare reference edit, "reference"="HEAD", "referent"="refs/heads/main"
+    Could not prepare reference edit, reference="HEAD", referent="refs/heads/main"
 
     Caused by:
         0: The lock for resource "<git-dir>/refs/heads/main" could not be obtained immediately after 1 attempt(s). The lockfile at "<git-dir>/refs/heads/main.lock" might need manual deletion.

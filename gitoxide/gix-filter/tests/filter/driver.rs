@@ -257,7 +257,7 @@ mod shutdown {
             err.classify().next().is_none(),
             "a subprocess exit status does not identify corruption or invalid input"
         );
-        insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&(err), &[(env!("CARGO_BIN_EXE_gix-filter-test-arrow"), "<filter-driver>"), ("exit code:", "exit status:")]), "the failed command and status are retained", @r#"Filter process "\'<filter-driver>\' process fail-on-shutdown" failed, "exit_code"=1, "exit_status"="exit status: 1""#);
+        insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&(err), &[(env!("CARGO_BIN_EXE_gix-filter-test-arrow"), "<filter-driver>"), ("exit code:", "exit status:")]), "the failed command and status are retained", @r#"Filter process "\'<filter-driver>\' process fail-on-shutdown" failed, exit_code=1, exit_status="exit status: 1""#);
         Ok(())
     }
 
@@ -482,7 +482,7 @@ pub(crate) mod apply {
             kind: Other,
             error: Message {
                 message: "Driver process \"/bin/sh\" \"-c\" \"'<filter-driver>' smudge 'do/fail'\" \"sh\" failed",
-                values: {"exit_code": I64(101), "exit_status": String("exit status: 101"), "program": Path("/bin/sh")},
+                values: {exit_code: I64(101), exit_status: String("exit status: 101"), program: Path("/bin/sh")},
             },
         }
         "#);
@@ -492,7 +492,7 @@ pub(crate) mod apply {
             kind: Other,
             error: Message {
                 message: "Driver process \"<filter-driver>\" \"smudge\" \"do/fail\" failed",
-                values: {"exit_code": I64(101), "exit_status": String("exit code: 101"), "program": Path("<filter-driver>")},
+                values: {exit_code: I64(101), exit_status: String("exit code: 101"), program: Path("<filter-driver>")},
             },
         }
         "#);

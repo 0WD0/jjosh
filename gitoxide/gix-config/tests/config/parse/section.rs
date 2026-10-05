@@ -49,10 +49,10 @@ mod header {
             }
             insta::assert_debug_snapshot!(message_diagnostics, "names must be mostly ascii", @r#"
             [
-                section names can only be ascii, '-', "input"="🤗",
-                section names can only be ascii, '-', "input"="x.y",
-                section names can only be ascii, '-', "input"="x y",
-                section names can only be ascii, '-', "input"="x\ny",
+                section names can only be ascii, '-', input="🤗",
+                section names can only be ascii, '-', input="x.y",
+                section names can only be ascii, '-', input="x y",
+                section names can only be ascii, '-', input="x\ny",
             ]
             "#);
         }
@@ -68,8 +68,8 @@ mod header {
             }
             insta::assert_debug_snapshot!(message_diagnostics, "subsections with newlines and null bytes are rejected", @r#"
             [
-                sub-section names must not contain newlines or null bytes, "input"="a\nb",
-                sub-section names must not contain newlines or null bytes, "input"="a\0b",
+                sub-section names must not contain newlines or null bytes, input="a\nb",
+                sub-section names must not contain newlines or null bytes, input="a\0b",
             ]
             "#);
         }

@@ -571,10 +571,10 @@ mod config_mut {
             .err()
             .expect("section filtering exposes the invalid CLI timeout in strict mode");
         insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&(err), &[(&(temp.path()).to_string_lossy(), "<tmp>")]), "section filtering exposes the invalid CLI timeout in strict mode", @r#"
-        Invalid lock timeout, "key"="core.configLockTimeout"
+        Invalid lock timeout, key="core.configLockTimeout"
 
         Caused by:
-            0: Integers needs to be positive or negative numbers which may have a suffix like 1k, 42, or 50G, "input"="invalid"
+            0: Integers needs to be positive or negative numbers which may have a suffix like 1k, 42, or 50G, input="invalid"
         "#);
         let options = options.strict_config(false);
         let err = gix::config_mut(Source::System, &options)
@@ -627,10 +627,10 @@ mod config_mut {
             .err()
             .expect("disabling includes exposes the invalid physical timeout");
         insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&(err), &[(&(temp.path()).to_string_lossy(), "<tmp>")]), "disabling includes exposes the invalid physical timeout", @r#"
-        Invalid lock timeout, "key"="core.configLockTimeout"
+        Invalid lock timeout, key="core.configLockTimeout"
 
         Caused by:
-            0: Integers needs to be positive or negative numbers which may have a suffix like 1k, 42, or 50G, "input"="invalid"
+            0: Integers needs to be positive or negative numbers which may have a suffix like 1k, 42, or 50G, input="invalid"
         "#);
         Ok(())
     }
@@ -702,10 +702,10 @@ mod config_mut {
             .err()
             .expect("invalid sharing policies in overrides are rejected even for existing files");
         insta::assert_debug_snapshot!(err, "invalid sharing policies in overrides are rejected even for existing files", @r#"
-        Invalid configuration value, "key"="core.sharedRepository"
+        Invalid configuration value, key="core.sharedRepository"
 
         Caused by:
-            0: Booleans need to be 'no', 'off', 'false', '' or 'yes', 'on', 'true' or any number, "input"="invalid"
+            0: Booleans need to be 'no', 'off', 'false', '' or 'yes', 'on', 'true' or any number, input="invalid"
         "#);
         Ok(())
     }
