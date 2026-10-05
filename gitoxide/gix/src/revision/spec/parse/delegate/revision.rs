@@ -230,7 +230,7 @@ impl delegate::Revision for Delegate<'_> {
 
     fn sibling_branch(&mut self, kind: SiblingBranch) -> Result<()> {
         self.unset_disambiguate_call();
-        let reference = match &mut self.refs[self.idx] {
+        let mut reference = match &mut self.refs[self.idx] {
             val @ None => match self.repo.head().map(crate::Head::try_into_referent) {
                 Ok(Some(r)) => {
                     *val = Some(r.clone().detach());
@@ -245,6 +245,11 @@ impl delegate::Revision for Delegate<'_> {
             },
             Some(r) => r.clone().attach(self.repo),
         };
+        if reference.name() == "HEAD" {
+            reference
+                .follow_to_object()
+                .map_err(|err| error::with_missing_reference(err.into_exn()))?;
+        }
         let direction = match kind {
             SiblingBranch::Upstream => remote::Direction::Fetch,
             SiblingBranch::Push => remote::Direction::Push,
