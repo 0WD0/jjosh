@@ -35,9 +35,10 @@ enum Command {
     Remove(NameArgs),
     /// Explicitly choose or delete unresolved metadata, or retire a disconnected binding.
     Resolve(ResolveArgs),
-    /// Import recorded local JJ repositories in one operation.
-    /// Choose --nested or --preserve for each source; both may be combined.
-    /// Preserved project connections retain their settings. No remote is contacted.
+    /// Import Git sources or recorded local JJ repositories in one operation.
+    /// Combine --git NAME=URL, --nested NAME=PATH and --preserve NAME=PATH.
+    /// Git sources fetch complete branch and tag history and retain a scoped origin;
+    /// local sources stay offline. The working copy is unchanged.
     Import(crate::project_import::ImportArgs),
 }
 

@@ -1014,7 +1014,9 @@ pub async fn import_remote_observations(
     observations: impl IntoIterator<Item = GitRemoteObservation>,
     selected: impl Fn(GitRefKind, RemoteRefSymbol<'_>) -> bool,
 ) -> Result<GitImportStats, GitImportError> {
-    let git_repo = get_git_repo(mut_repo.store())?;
+    let mut git_repo = get_git_repo(mut_repo.store())?;
+    // A project import may install its connection config in this operation.
+    git_repo.reload().map_err(GitImportError::from_git)?;
     let observations: Vec<_> = observations.into_iter().collect();
     for (key, values) in &mut_repo.view().store_view().project_observations {
         let kind = match key.kind {
@@ -3459,10 +3461,10 @@ pub struct ImportedRemoteMapping {
     pub tag_destination: String,
 }
 
-/// A remote-only snapshot prepared for a preserved project import.
+/// Remote-only configuration prepared for a project import.
 ///
-/// Source sections retain their order, repeated values, implicit booleans, and
-/// custom keys. Identity and local fetch destinations follow the semantic plan.
+/// Preserved source sections retain their order, repeated values, implicit
+/// booleans, and custom keys. Identity and ref destinations follow the import plan.
 #[derive(Debug)]
 pub struct ImportedRemoteConfig {
     name: RemoteNameBuf,
@@ -3647,6 +3649,49 @@ pub fn capture_import_remote_configs(
 }
 
 impl ImportedRemoteConfig {
+    /// Prepares a new connection for the same checked batch installation used by
+    /// preserved remotes. No configuration or references are written here.
+    pub fn for_new_connection(
+        git_repo: &gix::Repository,
+        name: &RemoteName,
+        url: &str,
+        connection: &ConnectionId,
+        required_capability: bool,
+    ) -> Result<Self, GitRemoteManagementError> {
+        validate_remote_name(name)?;
+        let mut remote = git_repo
+            .remote_at(url)
+            .map_err(GitRemoteManagementError::from_git)?
+            .with_refspecs(
+                [default_fetch_refspec(name).as_bytes()],
+                gix::remote::Direction::Fetch,
+            )
+            .expect("default refspec to be valid");
+        let mut config = gix::config::File::default();
+        save_remote(&mut config, name, &mut remote)?;
+        {
+            let mut section = config
+                .section_mut("remote", name.as_str())
+                .map_err(GitRemoteManagementError::from_git)?;
+            section
+                .push("jjosh-connectionId", connection.hex().as_str())
+                .map_err(GitRemoteManagementError::from_git)?;
+            if required_capability {
+                section
+                    .push("jjosh-requiredCapability", "jjosh-v1")
+                    .map_err(GitRemoteManagementError::from_git)?;
+            }
+        }
+        let mut import = Self {
+            name: name.to_owned(),
+            connection: Some(connection.clone()),
+            config,
+            urls: Vec::new(),
+        };
+        import.capture_urls(git_repo)?;
+        Ok(import)
+    }
+
     fn rewrite_fetch_destinations(
         &mut self,
         prefixes: &[(Vec<u8>, Vec<u8>)],

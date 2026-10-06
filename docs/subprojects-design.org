@@ -263,9 +263,22 @@ JJ CLI 只消费 remote 扩展提供的校验流，不实现项目剪枝。普�
 
 已有目标的逆转换保留 filter 外内容和正确 raw 父图；新目标的来源基线须能由所选历史确定，歧义时要求明确选择。项目内没有变化不能成为把目标退回旧等价投影的理由。只有独立确认成功的更新才推进相应发布记录；多个 remote 不具备原子发布保证。
 
-* 原生导入的两种状态合同
+* 项目导入
 
-=project import= 读取本地 jj 仓库已记录的开发图，不导入未记录工作文件。=--nested NAME=PATH= 与 =--preserve NAME=PATH= 均可重复、混用，来源名跨模式唯一；=--mount NAME=DEST= 覆盖默认挂载。所有来源共同规划并发布一个目标 operation。
+=project import= 的 =--git NAME=URL=、=--nested NAME=PATH= 与 =--preserve NAME=PATH= 均可重复、混用，来源名跨模式唯一；=--mount NAME=DEST= 覆盖默认挂载。所有来源共同规划并发布一个目标 operation，目标工作副本不快照、不切换。
+
+** Git 远端
+
+=--git= 创建新外层项目及项目内 =origin= Whole 连接，使用普通 project fetch 的传输、历史转换、观察与 provenance 路径获取全部分支和标签的完整历史。
+URL 和本地 Git 路径按普通 remote add 的规则解析；不要求预先 clone，不提供浅获取选项。
+来源引用按项目 label 限定，例如 =main#parser@origin=，跟踪策略沿用普通 fetch；后续直接使用该连接 fetch/push，不重复 import。
+所有来源准备成功并通过资源复核后，才安装连接配置和 canonical mirrors、导入远端观察并提交共同 operation；获取失败不会发布部分来源。
+空 Git 仓库仍登记项目和连接，可在上游出现提交后继续 fetch。
+网络获取和转换不持有共享 Git import/export 锁；公开 mirrors 在该锁内发布。安装开始后的跨资源失败仍遵守下文恢复边界。
+
+** 本地 JJ 的两种状态合同
+
+本地两种模式读取来源已记录的开发图，不导入未记录工作文件，也不会联系来源配置的远端。
 
 | 内容 | nested | preserve |
 |------+--------+----------|

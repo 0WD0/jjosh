@@ -29,6 +29,7 @@
 - project remote 支持项目内独立的 `origin`/`upstream` 等别名；Git 物理 handle 与逻辑别名分离，rename 保留 connection/binding 身份，remove 后重新 add 是新实例。
 - fetch/push 在网络操作前解析 project 范围、binding、endpoint 和目标 ref。转换观察与 publication lease 分离；canonical 版本相同也不会丢掉新的 raw/source 证据。
 - `project import --nested` 可把本地 JJ 仓库作为新的外层项目导入；`--preserve` 保留可支持的项目、binding、connection、来源 provenance 和 publication ledger。
+- `project import --git NAME=URL` 可直接从 Git 远端或本地 Git 仓库导入，登记项目及其 `origin` Whole 连接，保留全部分支、标签的完整历史和后续 fetch/push 所需的转换依据；支持 `--mount`，可与本地两种模式混用，在同一 operation 中发布且不快照或切换工作副本。
 - filtered/view 来源支持 shallow fetch、deepen/unshallow、按 raw OID 获取以及临时 fetch mirror；来源 raw 历史和 normalization generation 作为历史逆转换材料独立保留。
 - project metadata 冲突仍可被 list/show/template 等诊断路径读取；精确 selector、transport、tracking 修改和其他 mutation 继续要求身份验证成功。
 - remote 管理使用 Git 原生 config/ref 锁、ConnectionId ownership 和 expected-value/CAS，避免覆盖未知并发修改；跨资源操作不声称全局原子性。

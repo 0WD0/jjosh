@@ -67,6 +67,8 @@ pub(crate) struct Session {
     pub state: ProjectState,
     view: jj_lib::view::View,
     filter: Option<Filter>,
+    /// Initial import fetches use an endpoint before its remote config is installed.
+    endpoint: Option<String>,
 }
 
 pub(crate) fn config_string(repo: &gix::Repository, key: &str) -> Result<Option<String>> {
@@ -217,6 +219,46 @@ impl Session {
                  repository with a historical jjosh version before upgrading",
             ));
         }
+        Self::with_binding(git, git_path, view, name, connection, binding, None)
+    }
+
+    pub(crate) fn for_import(
+        git: &gix::Repository,
+        git_path: PathBuf,
+        view: &jj_lib::view::View,
+        name: &RemoteName,
+        connection: ConnectionId,
+        endpoint: String,
+    ) -> Result<Self, CommandError> {
+        view.remote_identity(name).map_err(user_error)?;
+        let (id, record) = view
+            .project_state()
+            .binding_for_connection(&connection)
+            .map_err(user_error)?
+            .ok_or_else(|| user_error("Imported connection has no active binding"))?;
+        // Parse and apply the destination's URL rules without saving any config.
+        git.remote_at(endpoint.as_str()).map_err(user_error)?;
+        Self::with_binding(
+            git,
+            git_path,
+            view,
+            name,
+            Some(connection),
+            Some((id, record.clone())),
+            Some(endpoint),
+        )
+    }
+
+    fn with_binding(
+        git: &gix::Repository,
+        git_path: PathBuf,
+        view: &jj_lib::view::View,
+        name: &RemoteName,
+        connection: Option<ConnectionId>,
+        binding: Option<(BindingId, BindingRecord)>,
+        endpoint: Option<String>,
+    ) -> Result<Self, CommandError> {
+        let state = view.project_state();
         let mut project = None;
         let mut filter = None;
         if let Some((_, record)) = &binding {
@@ -268,6 +310,7 @@ impl Session {
             state: state.clone(),
             view: view.clone(),
             filter,
+            endpoint,
         })
     }
 
@@ -409,7 +452,10 @@ impl Session {
         repo: &'repo gix::Repository,
         direction: Direction,
     ) -> Result<gix::Remote<'repo>> {
-        let remote = repo.find_remote(self.name.as_str())?;
+        let remote = match &self.endpoint {
+            Some(endpoint) => repo.remote_at(endpoint.as_str())?,
+            None => repo.find_remote(self.name.as_str())?,
+        };
         ensure!(
             remote.urls(direction).count() == 1,
             "Remote {} must have exactly one selected endpoint",

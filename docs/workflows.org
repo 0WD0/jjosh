@@ -74,22 +74,29 @@ jjosh project add parser --path libs/parser
 对于尚未登记的 parser：
 
 #+begin_src sh
-jjosh project add parser --path libs/parser
-jjosh git remote add origin /path/to/parser.git --project parser --whole
-jjosh git fetch --project parser --branch main
+jjosh project import --git parser=https://example.org/parser.git --mount parser=libs/parser
 jjosh new @ main#parser@origin
 #+end_src
 
+=--git= 接受 Git URL（HTTPS、SSH、scp 风格、=file://=）或本地 Git 仓库路径；不需要先 clone 成本地 JJ workspace。
+它登记新项目和项目内的 =origin= Whole 连接，一次获取全部分支、标签及完整祖先历史，不做浅获取或压缩快照。
+导入本身不切换、不快照目标工作副本；上面的 =new= 才把选定分支与本地开发图整合。来源根目录成为 =libs/parser/=。
+来源引用使用 =main#parser@origin= 等项目限定名字；tracking 策略沿用普通 fetch。
+后续更新使用 =jjosh git fetch --remote origin#parser=，不要再次 import 同一项目。
+
 fetch 的协商起点只取当前 endpoint 已保留的原始提交，不遍历 monorepo 的其他项目历史或内部保留引用。首次获取不发送无关的 have，后续获取继续复用原始提交做增量协商；这不改变默认获取完整历史的行为。
 
-外部仓库根目录成为 =libs/parser/=。若只要大仓库里的 =src/parser/=，把 remote add 换成：
+如果只需要大仓库里的 =src/parser/=，用显式注册和过滤连接代替上述 whole 导入：
 
 #+begin_src sh
+jjosh project add parser --path libs/parser
 jjosh git remote add origin /path/to/components.git \
   --project parser --filter ':/src/parser' --base main
+jjosh git fetch --remote origin#parser --branch main
+jjosh new @ main#parser@origin
 #+end_src
 
-仍按前面的 fetch、new 整合。filter 和 base 的选择见后面的“连接不同的外部布局”。
+filter 和 base 的选择见后面的“连接不同的外部布局”。
 
 ** 从本地 jj workspace 带入原生开发状态
 
@@ -158,21 +165,23 @@ preserve 在提交目标操作前拒绝项目身份重复、布局不一致、�
 
 ** 一次导入多个来源
 
-两种模式可重复、可混用；至少一个来源，来源名字跨模式也必须唯一。
+三种模式可重复、可混用；至少一个来源，来源名字跨模式也必须唯一。
 默认挂载在 =NAME/=，用 =--mount NAME=DEST= 覆盖：
 
 #+begin_src sh
 jjosh project import \
   --preserve team=/path/to/team-work --mount team=vendor/team \
-  --nested parser=/path/to/parser-work --mount parser=libs/parser
+  --nested parser=/path/to/parser-work --mount parser=libs/parser \
+  --git codec=https://example.org/codec.git --mount codec=libs/codec
 #+end_src
 
-这个例子要求 team 的已有项目不与新 parser 冲突。
+这个例子要求 team 的已有项目不与新 parser、codec 冲突；只有 codec 的 Git 来源会在这次导入中被 fetch。
 所有来源一起规划、检查并在同一目标操作中发布，不会只发布部分来源。
-两种模式都排除来源内置 =@git=：它是来源自己的 Git 同步记录，不是远端。
+=--nested= 和 =--preserve= 都排除来源内置 =@git=：它是来源自己的 Git 同步记录，不是远端。
 真实书签、tag 和开发图仍保留，目标的 =@git= 由目标自己的 Git 同步建立。
 
-导入在安装前复核来源 operation 和 Git 配置；配置、私有 refs 和 mirrors 使用各自资源的锁、原生事务与 expected-value 校验安装。
+本地来源在安装前复核 operation 和 Git 配置；Git 来源完成获取和转换后才安装连接配置及公开 mirrors。
+配置、私有 refs 和 mirrors 使用各自资源的锁、原生事务与 expected-value 校验安装。
 普通输入错误不会改目标配置和用户 refs，但已复制的不可变对象或完整来源对象库可能保留。
 来源对象库在对象、浅边界和 refs 准备完成后才整体安装。
 安装中断按本文“中断与重试”处理；不要手工删除来源对象库来重试。
