@@ -587,6 +587,13 @@ pub use exn::{
 /// Use [`Error::downcast_any_ref()`] or [`Error::iter_errors()`] to inspect the original types, including sources
 /// within nested [`Error`] values. This also applies when the `auto-chain-error` feature is enabled.
 ///
+/// In tree mode, standard `source()` traversal prefers the stored error's native source; otherwise it follows the
+/// first explicitly raised child. Nonleaf explicit children are exposed through owning source boundaries so traversal
+/// retains their descendants. These boundaries display only their current diagnostic, including with alternate Display,
+/// while explicit leaves and native sources retain their raw concrete payloads. Raw standard-source downcasts can thus
+/// encounter wrappers; use [`Error::downcast_any_ref()`] or [`Error::iter_errors()`] for typed inspection of the complete
+/// tree. Standard traversal follows one path, not every branch; use [`Exn::into_chain()`] for a flattened source chain.
+///
 /// # The `auto-chain-error` feature
 ///
 /// If it's enabled, this type is merely a wrapper around [`ChainedError`](types::ChainedError). This happens automatically

@@ -503,3 +503,192 @@ fn exception_conversions_preserve_original_caller_locations() {
     check(make_exception);
     check(|| make_exception().erased());
 }
+
+#[test]
+fn standard_sources_retain_explicit_contexts_and_the_typed_actual_diagnostic() {
+    use gix_error::{Class, ClassificationMarker};
+
+    type Actual = crate::ErrorWithSource<ClassificationMarker>;
+    let make_exception = || {
+        crate::ErrorWithSource("actual content", ClassificationMarker::CONFLICT)
+            .raise_typed()
+            .raise(message("expected content"))
+            .raise(message("edit failed"))
+            .raise(message("operation failed").with("operation", "compare"))
+    };
+    let expected = [
+        "operation failed, operation=\"compare\"",
+        "edit failed",
+        "expected content",
+        "actual content",
+        "Conflict",
+    ];
+    for error in [
+        make_exception().into_error(),
+        make_exception().erased().into_error(),
+        Error::from_boxed(Box::new(make_exception().into_error())),
+        make_exception().into_error().into_exn().into_error(),
+    ] {
+        let root: &dyn std::error::Error = &error;
+        let sources = std::iter::successors(Some(root), |error| error.source()).collect::<Vec<_>>();
+        assert_eq!(
+            sources
+                .iter()
+                .map(|error| without_source_location(error.to_string()))
+                .collect::<Vec<_>>(),
+            expected,
+            "standard traversal retains every explicit context, the actual diagnostic, and its native marker"
+        );
+        for (source, expected) in sources[1..].iter().zip(&expected[1..]) {
+            assert_eq!(
+                format!("{source:#}"),
+                *expected,
+                "alternate source Display formats only the current diagnostic, not its descendants"
+            );
+        }
+        let actual = error
+            .downcast_any_ref::<Actual>()
+            .expect("the typed actual diagnostic survives");
+        let classification = error.classify().next().expect("the conflict remains classified");
+        assert_eq!(
+            classification.class(),
+            Class::Conflict,
+            "the intrinsic recovery class is unchanged"
+        );
+        assert!(
+            std::ptr::eq(
+                classification
+                    .error()
+                    .downcast_ref::<Actual>()
+                    .expect("the typed classification subject"),
+                actual
+            ),
+            "classification identifies the original actual diagnostic, not a source wrapper"
+        );
+        assert!(
+            std::ptr::eq(
+                error
+                    .probable_cause()
+                    .downcast_ref::<Actual>()
+                    .expect("the typed probable cause"),
+                actual
+            ),
+            "source interoperability does not change probable-cause identity"
+        );
+        assert_eq!(error.metadata().count(), 1, "context metadata is retained exactly once");
+        #[cfg(any(feature = "tree-error", not(feature = "auto-chain-error")))]
+        {
+            assert!(sources[3].is::<Actual>(), "explicit leaves remain raw concrete sources");
+            let borrowed = gix_error::classify(sources[1])
+                .next()
+                .expect("a borrowed source boundary remains classified");
+            assert!(
+                std::ptr::eq(
+                    borrowed
+                        .error()
+                        .downcast_ref::<Actual>()
+                        .expect("the borrowed typed subject"),
+                    actual
+                ),
+                "classifying a standard source boundary preserves the original subject"
+            );
+        }
+    }
+}
+
+#[cfg(feature = "anyhow")]
+#[test]
+fn anyhow_wrapping_public_errors_retains_the_deepest_actual_diagnostic() {
+    let make_public = || {
+        message("actual content")
+            .and_raise(message("expected content"))
+            .and_raise(message("edit failed"))
+            .and_raise(message("operation failed"))
+    };
+    for public in [make_public(), Error::from_error(make_public())] {
+        let error = anyhow::Error::new(public);
+        assert!(
+            error.downcast_ref::<Error>().is_some(),
+            "anyhow retains the public error boundary"
+        );
+        assert_eq!(
+            error
+                .chain()
+                .map(|error| without_source_location(error.to_string()))
+                .collect::<Vec<_>>(),
+            ["operation failed", "edit failed", "expected content", "actual content"],
+            "anyhow traverses the public error through every explicit context to the deepest diagnostic"
+        );
+        for report in [format!("{error:?}"), format!("{error:#}")] {
+            for diagnostic in ["operation failed", "edit failed", "expected content", "actual content"] {
+                assert_eq!(
+                    report.matches(diagnostic).count(),
+                    1,
+                    "standard reports emit each diagnostic once: {report}"
+                );
+            }
+        }
+    }
+}
+
+#[cfg(any(feature = "tree-error", not(feature = "auto-chain-error")))]
+#[test]
+fn tree_sources_preserve_native_precedence_and_raw_native_leaf_access() {
+    let error = crate::ErrorWithSource("native root", not_found("native leaf"))
+        .raise_typed()
+        .chain(validation("explicit sibling"))
+        .raise(message("outer context"))
+        .into_error();
+    insta::assert_debug_snapshot!(error, "fairly straightforward when visualised like this", @"
+    outer context
+
+    Caused by:
+        0: native root
+        ├─0: native leaf
+        └─1: explicit sibling
+    ");
+    let boundary = std::error::Error::source(&error).expect("the explicit nonleaf source is retained");
+    assert_eq!(
+        boundary.to_string(),
+        "native root",
+        "a source boundary displays only its diagnostic"
+    );
+    assert_eq!(
+        format!("{boundary:#}"),
+        "native root",
+        "alternate Display does not expand the subtree"
+    );
+    let leaf = boundary
+        .source()
+        .expect("native sources take precedence over explicit children");
+    assert_eq!(
+        leaf.downcast_ref::<gix_error::Message>()
+            .expect("the native leaf retains its concrete type")
+            .message,
+        "native leaf",
+        "standard traversal still chooses the native source"
+    );
+    assert!(
+        leaf.source().is_none(),
+        "standard traversal does not append explicit siblings to the native chain"
+    );
+    assert!(
+        error.is_not_found() && error.is_validation(),
+        "typed inspection still visits both branches"
+    );
+    assert_eq!(
+        gix_error::classify(boundary)
+            .map(|item| item.error().to_string())
+            .collect::<Vec<_>>(),
+        ["native leaf", "explicit sibling"],
+        "classification expands the complete source boundary without losing concrete subjects"
+    );
+}
+
+fn without_source_location(diagnostic: String) -> String {
+    diagnostic
+        .split(", at ")
+        .next()
+        .expect("every source has a diagnostic")
+        .to_owned()
+}

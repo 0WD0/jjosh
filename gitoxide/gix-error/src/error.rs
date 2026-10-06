@@ -242,7 +242,7 @@ impl<E: std::error::Error + Send + Sync + 'static> crate::Exn<E> {
     /// As with [`crate::Error::classify()`], unknown errors are omitted, classifications aren't deduplicated, and each
     /// item retains the classified error for downcasting and origin inspection.
     pub fn classify(&self) -> Classifications<'_> {
-        Classifications(Errors::new(Node::Frame(self.frame())))
+        Classifications(Errors::new(Node::Frame(self.frame().source_frame())))
     }
 
     classification_predicates!();
@@ -314,14 +314,11 @@ pub struct Classification<'a> {
 /// assert!(gix_error::classify(&error).is_not_found());
 /// ```
 pub fn classify<'a>(err: &'a (dyn std::error::Error + 'static)) -> Classifications<'a> {
-    Classifications(Errors::new(err.downcast_ref::<crate::Error>().map_or(
-        Node::Source {
-            error: err,
-            location: None,
-            source_owner: None,
-        },
-        crate::Error::iter_root,
-    )))
+    Classifications(Errors::new(Node::boundary(err).unwrap_or(Node::Source {
+        error: err,
+        location: None,
+        source_owner: None,
+    })))
 }
 
 /// A lazy iterator over classified causes. Its predicates consume the remaining iterator.
@@ -555,7 +552,7 @@ fn node_can_retry_lenient(node: Node<'_>) -> bool {
 
 #[derive(Clone, Copy)]
 enum Node<'a> {
-    Frame(&'a crate::exn::Frame),
+    Frame(&'a crate::exn::impls::FrameSource),
     Source {
         error: &'a (dyn std::error::Error + 'static),
         location: Option<&'static std::panic::Location<'static>>,
@@ -571,6 +568,14 @@ enum Node<'a> {
 }
 
 impl<'a> Node<'a> {
+    fn boundary(error: &'a (dyn std::error::Error + 'static)) -> Option<Self> {
+        if let Some(error) = error.downcast_ref::<crate::Error>() {
+            Some(error.iter_root())
+        } else {
+            error.downcast_ref::<crate::exn::impls::FrameSource>().map(Node::Frame)
+        }
+    }
+
     fn display(self) -> DisplaySource<'a> {
         let (error, location) = match self {
             Node::Frame(frame) => (
@@ -656,14 +661,18 @@ impl<'a> Errors<'a> {
         error: &'a (dyn std::error::Error + 'static),
         location: Option<&'static std::panic::Location<'static>>,
     ) {
-        if let Some(error) = error.downcast_ref::<crate::Error>() {
-            self.pending.push_back(error.iter_root());
+        if let Some(node) = Node::boundary(error) {
+            self.pending.push_back(node);
         } else if let Some(source) = native_source(error) {
-            self.pending.push_back(Node::Source {
-                error: source,
-                location: location.filter(|_| is_transparent_marker(error)),
-                source_owner: Some(error),
-            });
+            self.pending
+                .push_back(source.downcast_ref::<crate::exn::impls::FrameSource>().map_or(
+                    Node::Source {
+                        error: source,
+                        location: location.filter(|_| is_transparent_marker(error)),
+                        source_owner: Some(error),
+                    },
+                    Node::Frame,
+                ));
         }
     }
 
@@ -671,7 +680,8 @@ impl<'a> Errors<'a> {
         match node {
             Node::Frame(frame) => {
                 self.source(frame.error(), Some(frame.location()));
-                self.pending.extend(frame.children().iter().map(Node::Frame));
+                self.pending
+                    .extend(frame.children().iter().map(|frame| Node::Frame(frame.source_frame())));
             }
             Node::Source { error, location, .. } => self.source(error, location),
             #[cfg(all(feature = "auto-chain-error", not(feature = "tree-error")))]
@@ -728,11 +738,11 @@ impl<'a> Iterator for Errors<'a> {
 
 impl crate::exn::Frame {
     pub(crate) fn probable_cause_inner(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        Node::Frame(self).probable_cause()
+        Node::Frame(self.source_frame()).probable_cause()
     }
 
     pub(crate) fn iter_errors_with_locations(&self) -> impl Iterator<Item = DisplaySource<'_>> + '_ {
-        Errors::new(Node::Frame(self))
+        Errors::new(Node::Frame(self.source_frame()))
             .map(Node::display)
             .filter(|source| !is_transparent_marker(source.error))
     }
@@ -763,7 +773,7 @@ mod _impl {
         }
 
         pub(super) fn iter_root(&self) -> super::Node<'_> {
-            super::Node::Frame(self.inner.frame())
+            super::Node::Frame(self.inner.frame().source_frame())
         }
     }
 
@@ -817,10 +827,7 @@ mod _impl {
     impl std::error::Error for Error {
         /// Return the first source of an [Exn] error, or the source of a boxed error.
         fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-            match &self.inner {
-                Inner::ExnAsError(frame) | Inner::Exn(frame) => super::native_source(frame.error())
-                    .or_else(|| frame.children().first().map(|frame| frame.error() as _)),
-            }
+            std::error::Error::source(self.inner.frame().source_frame())
         }
     }
 
