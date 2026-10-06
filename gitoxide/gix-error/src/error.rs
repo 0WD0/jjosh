@@ -107,8 +107,9 @@ macro_rules! classification_predicates {
 /// [`crate::Error::iter_errors_with_locations()`] provide the same lightweight view for the tree-backed and flattened-chain
 /// representations.
 ///
-/// Its normal [`Display`](std::fmt::Display) output appends the location when one is available. Alternate formatting
-/// (`{source:#}`) forwards alternate formatting to the underlying error and always omits the location.
+/// Its normal [`Display`](std::fmt::Display) output appends the location when one is available and the
+/// `error-print-location` feature is enabled. Alternate formatting (`{source:#}`) forwards alternate formatting to
+/// the underlying error and always omits the location.
 #[derive(Clone, Copy, Debug)]
 pub struct DisplaySource<'a> {
     error: &'a (dyn std::error::Error + 'static),

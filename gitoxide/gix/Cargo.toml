@@ -293,7 +293,11 @@ max-performance = ["max-performance-safe"]
 #!
 #! The catch-all of feature toggles.
 
-## All [`gix::Error`](crate::Error) values produce error chains with source locations.
+## Print captured caller locations in error diagnostics, including errors returned from `main()`.
+## Alternate formatting continues to omit locations. Locations are always available for inspection.
+error-print-location = ["gix-error/error-print-location"]
+
+## All [`gix::Error`](crate::Error) trees are flattened into chains for simple error-source chaining.
 auto-chain-error = ["gix-error/auto-chain-error"]
 
 ## Allow [`gix::Exn`](crate::Exn) to convert directly into `anyhow::Error`.

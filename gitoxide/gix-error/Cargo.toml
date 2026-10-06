@@ -12,6 +12,9 @@ include = ["/src/**/*", "/LICENSE-*"]
 rust-version = "1.88"
 
 [features]
+## Print captured caller locations in diagnostics. Alternate formatting continues to omit locations.
+## Locations are always captured and available for inspection, even without this feature.
+error-print-location = []
 ## Accept [`bstr::BString`] and [`bstr::BStr`] as byte metadata.
 ## Byte metadata always uses `Vec<u8>` with the same diagnostic formatting.
 bstr = ["dep:bstr"]
@@ -39,7 +42,7 @@ document-features = { version = "0.2.0", optional = true }
 
 [dev-dependencies]
 gix-testtools = { path = "../tests/tools", default-features = false, features = ["sha1"] }
-gix-error = { path = ".", features = ["anyhow"] }
+gix-error = { path = ".", features = ["anyhow", "error-print-location"] }
 insta = "1.46.3"
 
 [package.metadata.docs.rs]

@@ -210,7 +210,8 @@
 //! Accepted errors must convert into `Box<dyn std::error::Error + Send + Sync + 'static>`.
 //!
 //! When a test returns an error, Rust's test harness prints [`TestError`]'s [`Debug`](std::fmt::Debug) output,
-//! including the complete diagnostic tree or chain and captured caller locations.
+//! including the complete diagnostic tree or chain. Captured caller locations are printed when the
+//! `error-print-location` feature is enabled; alternate formatting omits them.
 //!
 //! ```rust,test_harness
 //! use gix_error::{message, ResultExt, TestResult};
@@ -602,8 +603,9 @@ pub use exn::{
 /// When both the `tree-error` and `auto-chain-error` features are enabled, the `tree-error`
 /// behavior takes precedence and this type uses the tree-based representation.
 ///
-/// With `auto-chain-error`, [`Debug`](std::fmt::Debug) reports the complete diagnostic chain and caller locations,
-/// so returning [`Result`] from `main()` retains the underlying causes. Alternate Debug (`{error:#?}`) omits locations.
+/// With `auto-chain-error`, [`Debug`](std::fmt::Debug) reports the complete diagnostic chain,
+/// so returning [`Result`] from `main()` retains the underlying causes. Caller locations are printed only with the
+/// `error-print-location` feature, including for errors returned from `main()`. Alternate Debug (`{error:#?}`) omits them.
 /// Normal [`Display`](std::fmt::Display) shows the root diagnostic; alternate Display (`{error:#}`) joins the
 /// complete chain with `: ` and omits locations, suitable for single-line error messages.
 pub struct Error {
@@ -709,5 +711,8 @@ pub use concrete::metadata::{
 };
 
 pub(crate) fn write_location(f: &mut std::fmt::Formatter<'_>, location: &std::panic::Location) -> std::fmt::Result {
-    write!(f, ", at {}:{}", location.file(), location.line())
+    if cfg!(feature = "error-print-location") {
+        write!(f, ", at {}:{}", location.file(), location.line())?;
+    }
+    Ok(())
 }
