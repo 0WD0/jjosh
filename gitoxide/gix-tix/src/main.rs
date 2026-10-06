@@ -5,3 +5,18 @@ use gix::Result;
 fn main() -> Result<()> {
     gix_tix::command::parse().run()
 }
+
+#[test]
+fn main_errors_include_caller_locations() {
+    use gix::error::{ErrorExt, message};
+
+    let error = message("command failed").raise();
+    assert!(
+        format!("{error:?}").contains(file!()),
+        "standalone binary diagnostics include captured caller locations"
+    );
+    assert!(
+        !format!("{error:#?}").contains(file!()),
+        "alternate formatting still omits caller locations"
+    );
+}

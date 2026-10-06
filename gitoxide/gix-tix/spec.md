@@ -13,6 +13,8 @@ without trading responsiveness for metadata that is not visible.
 
 - `tix [REVISION]...` shows commits reachable from the supplied revisions, or
   from `HEAD` when none are supplied.
+- Standalone `tix` opts into `gix/error-print-location`, so errors returned from
+  `main()` include captured caller locations. Alternate formatting omits them.
 - Standalone `tix` accepts `-t|--trace` up to four times. One occurrence emits
   forest-formatted info events, two emit forest-formatted debug events, three
   emit flat debug events, and four emit flat trace events. `gix tix` inherits
