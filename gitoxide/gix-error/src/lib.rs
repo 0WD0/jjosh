@@ -60,6 +60,20 @@
 //! metadata, and caller locations; `?`, `.into()`, and [`Exn::into_error()`] also convert exceptions to [`Error`].
 //! Use [`Error::into_exn()`] to recover an exception tree for internal processing, including rearranging child frames.
 //!
+//! # Caller locations
+//!
+//! The `error-print-location` feature enables caller locations in diagnostics. Paths with conventional
+//! `src`, `tests`, `examples`, or `benches` directories are shortened to the containing package directory
+//! and source path; Cargo registry package versions are omitted. For example,
+//! `/home/user/.cargo/registry/src/index.crates.io-hash/gix-url-0.39.0/src/parse.rs:349`
+//! is displayed as `gix-url/src/parse.rs:349`. Package-relative source paths are retained;
+//! paths whose package root cannot be inferred from these directory conventions fall back to the filename.
+//!
+//! This only changes formatting: inspected locations retain the compiler-provided file, line, and column.
+//! A location contains no Cargo package metadata, so a directory that differs from the package name cannot
+//! be renamed automatically. Build owners can use rustc's `--remap-path-prefix` to control captured paths
+//! for arbitrary source layouts. Alternate formatting continues to omit locations.
+//!
 //! # Standard Error Types
 //!
 //! Use these types for diagnostic context when recovery does not depend on a specific condition or structured payload.
@@ -710,9 +724,5 @@ pub use concrete::metadata::{
     permission_denied, resource_exhaustion, retryable, unauthenticated, unsupported, validation,
 };
 
-pub(crate) fn write_location(f: &mut std::fmt::Formatter<'_>, location: &std::panic::Location) -> std::fmt::Result {
-    if cfg!(feature = "error-print-location") {
-        write!(f, ", at {}:{}", location.file(), location.line())?;
-    }
-    Ok(())
-}
+mod location;
+pub(crate) use location::write as write_location;

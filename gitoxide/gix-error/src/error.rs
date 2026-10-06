@@ -123,6 +123,8 @@ impl<'a> DisplaySource<'a> {
     }
 
     /// Return the captured or inherited caller location, or `None` for an ordinary native error source.
+    ///
+    /// The file path is the compiler-provided path, before diagnostic formatting shortens it.
     pub fn location(&self) -> Option<&'static std::panic::Location<'static>> {
         self.location
     }

@@ -548,6 +548,8 @@ impl Frame {
     }
 
     /// Return the source code location where this exception frame was created.
+    ///
+    /// The file path is the compiler-provided path, before diagnostic formatting shortens it.
     pub fn location(&self) -> &'static Location<'static> {
         self.source.location()
     }

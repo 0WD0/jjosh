@@ -105,6 +105,7 @@ Follow "purposeful conventional commits" style:
 
 ### Code Style
 
+- Do not create persistent Python scripts in this repository. Use Bash for repository automation and script-based tests unless the user explicitly requests otherwise.
 - Follow existing patterns in the codebase
 - Skip stylistic rewrites that increase SLOC after formatting; keep simpler existing forms instead of applying style rules unconditionally.
 - Start new Rust modules as `foo.rs`. Create a module directory only when it contains multiple module files; then use `foo/mod.rs` rather than a sibling `foo.rs` file.

@@ -10,6 +10,24 @@ Run `just` to browse commands grouped by purpose, with everyday development task
 first. Use `just --groups` to list the groups, or filter the overview with, for
 example, `just --list --group 'Dependencies and SBOMs'`.
 
+## Release source paths
+
+The GitHub release workflow builds `gix` and `ein` through
+`etc/scripts/remap-release-paths.sh`. It appends rustc's `--remap-path-prefix`
+flags for all target crates, including dependencies, using stable virtual roots:
+`/gitoxide` for the checkout, `/cargo` for Cargo sources, `/rust` for the selected
+Rust toolchain, and `/generated` for build output. Home, Rustup, and temporary
+paths are also remapped. Native host paths, canonical aliases, Windows separator
+variants, and `cross` container mounts are covered. Normal
+local development builds are unchanged.
+
+To opt into the same policy locally, run these commands from the workspace root:
+
+```sh
+bash etc/scripts/remap-release-paths.sh build cargo build --release --locked -p gitoxide --bins
+bash etc/scripts/remap-release-paths.sh check target/release/gix target/release/ein
+```
+
 ## Practices
 
  * **test-first development**
