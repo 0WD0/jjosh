@@ -19,8 +19,6 @@ doctest = false
 sha1 = ["gix-index/sha1"]
 ## Enable support for the SHA-256 hash by forwarding the feature to dependencies.
 sha256 = ["gix-index/sha256"]
-## Enable support for thread-safety.
-parallel = ["gix-parallel/parallel"]
 
 [dependencies]
 gix-trace = { version = "^0.2.0", path = "../gix-trace" }

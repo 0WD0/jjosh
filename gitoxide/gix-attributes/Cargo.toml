@@ -22,8 +22,7 @@ path = "./benches/lookup.rs"
 [features]
 ## Data structures implement `serde::Serialize` and `serde::Deserialize`.
 serde = ["dep:serde", "bstr/serde", "gix-glob/serde"]
-## Enable thread-safety, otherwise the Search cannot be passed between threads.
-parallel = ["gix-parallel/parallel"]
+
 
 [dependencies]
 gix-parallel = { version = "^0.50.0", path = "../gix-parallel" }

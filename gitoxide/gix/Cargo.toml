@@ -174,7 +174,10 @@ merge = ["blob-diff", "dep:gix-merge", "attributes"]
 blame = ["dep:gix-blame", "blob-diff"]
 
 ## Make it possible to turn a tree into a stream of bytes, which can be decoded to entries and turned into various other formats.
-worktree-stream = ["gix-worktree-stream", "attributes"]
+##
+## Tree streaming always uses a background producer thread. This feature therefore enables `parallel`, also when
+## activated through `worktree-archive`, keeping thread-safe shared types and locally gated parallel code paths consistent.
+worktree-stream = ["gix-worktree-stream", "attributes", "parallel"]
 
 ## Create archives from a tree in the repository, similar to what `git archive` does.
 ##
@@ -271,14 +274,7 @@ hp-tempfile-registry = ["gix-tempfile/hp-hashmap"]
 ## Make certain data structure threadsafe (or `Sync`) to facilitate multithreading. Further, many algorithms will now use multiple threads by default.
 ##
 ## If unset, most of `gix` can only be used in a single thread as data structures won't be `Send` anymore.
-parallel = [
-    "gix-parallel/parallel",
-    "gix-pack/parallel",
-    "gix-attributes?/parallel",
-    "gix-filter?/parallel",
-    "gix-pathspec?/parallel",
-    "gix-worktree?/parallel",
-]
+parallel = ["gix-parallel/parallel", "gix-pack/parallel"]
 
 ## Provide a fixed-size allocation-free LRU cache for packs. It's useful if caching is desired while keeping the memory footprint
 ## for the LRU-cache itself low.

@@ -813,11 +813,13 @@ mod object_caches {
         let repo = named_subrepo_opts("make_config_repos.sh", "object-caches", opts)?;
         assert_eq!(
             repo.objects.has_object_cache(),
-            cfg!(all(feature = "parallel", feature = "comfort"))
+            cfg!(feature = "max-performance-safe"),
+            "configured object caching requires the performance feature"
         );
         assert_eq!(
             repo.objects.has_pack_cache(),
-            cfg!(all(feature = "parallel", feature = "comfort"))
+            cfg!(feature = "max-performance-safe"),
+            "configured pack caching requires the performance feature"
         );
         Ok(())
     }

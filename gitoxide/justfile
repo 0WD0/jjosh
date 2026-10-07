@@ -50,6 +50,8 @@ doc $RUSTDOCFLAGS='-D warnings':
 unit-tests:
     cargo nextest run --no-fail-fast
     cargo nextest run -p gix-attributes --features serde --no-fail-fast
+    # Keep serial plumbing coverage independent of workspace feature unification.
+    cargo nextest run -p gix-pathspec -p gix-ref -p gix-index -p gix-worktree -p gix-worktree-state --no-fail-fast
     # Test repository snapshots with the default pure-gix backend and the Git CLI backend.
     cargo nextest run -p gix-testtools --features sbom --no-fail-fast
     cargo nextest run -p gix-testtools --no-default-features --features worktree-exclusions,sha1,sha256 --no-fail-fast
@@ -69,14 +71,15 @@ unit-tests:
     env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-status --no-fail-fast
     env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-dir --no-fail-fast
     env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-dir --features sha256 --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-worktree-state --features parallel --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-worktree-state --features sha256,parallel --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-worktree --features parallel --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-worktree --features sha256,parallel --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-worktree-state --features gix-parallel/parallel --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-worktree-state --features sha256,gix-parallel/parallel --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-worktree -p gix-parallel --features gix-parallel/parallel --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-worktree -p gix-parallel --features gix-worktree/sha256,gix-parallel/parallel --no-fail-fast
     cargo nextest run -p gix-error --no-fail-fast --test auto-chain-error --features auto-chain-error
     cargo nextest run -p gix-error --no-fail-fast
     env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-filter --no-fail-fast
     env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-filter --no-fail-fast
+    cargo nextest run -p gix-filter -p gix-pathspec --features gix-parallel/parallel --test threaded --no-fail-fast
     env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-fsck --no-fail-fast
     env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-fsck --features sha256 --no-fail-fast
     cargo nextest run -p gix-hash --features sha1 --no-fail-fast
@@ -91,19 +94,19 @@ unit-tests:
     cargo nextest run -p gix-parallel --all-features --no-fail-fast
     cargo nextest run -p gix-utils --all-features --no-fail-fast
     cargo nextest run -p gix-fs --all-features --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-ref --all-features --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-ref --all-features --no-fail-fast
-    cargo nextest run -p gix-odb --all-features --no-fail-fast
-    cargo nextest run -p gix-odb --features parallel --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-ref --all-features --features gix-parallel/parallel --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-ref --all-features --features gix-parallel/parallel --no-fail-fast
+    cargo nextest run -p gix-odb --all-features --features gix-parallel/parallel --no-fail-fast
+    cargo nextest run -p gix-odb --features gix-parallel/parallel --no-fail-fast
     env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-odb --no-fail-fast
     env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-odb --no-fail-fast
-    # cover the parallel regression test under SHA-256, SHA-1 is covered by --features parallel above
-    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-odb --features parallel --no-fail-fast
+    # Cover the threaded regression under SHA-256; SHA-1 is covered above.
+    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-odb --features gix-parallel/parallel --no-fail-fast
     env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-pack --no-fail-fast
     env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-pack --no-fail-fast
     cargo nextest run -p gix-pack --features parallel --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-index --features parallel --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-index --features parallel --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-index --features gix-parallel/parallel --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-index --features gix-parallel/parallel --no-fail-fast
     cargo nextest run -p gix-packetline --features blocking-io --test blocking-packetline --no-fail-fast
     cargo nextest run -p gix-packetline --features async-io --test async-packetline --no-fail-fast
     # Cover tracing modes and both forest renderers independently of workspace feature unification.

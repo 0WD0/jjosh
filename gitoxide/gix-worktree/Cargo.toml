@@ -22,8 +22,6 @@ sha1 = ["gix-hash/sha1"]
 sha256 = ["gix-hash/sha256"]
 ## Data structures implement `serde::Serialize` and `serde::Deserialize`.
 serde = ["dep:serde", "bstr/serde", "gix-index/serde", "gix-hash/serde", "gix-object/serde", "gix-attributes?/serde", "gix-ignore/serde"]
-## Enable thread-safety.
-parallel = ["gix-parallel/parallel", "gix-attributes?/parallel"]
 ## Instantiate stacks that can access `.gitattributes` information.
 attributes = ["dep:gix-attributes", "dep:gix-validate"]
 ## Add linked worktrees by preparing their administrative files.
@@ -34,7 +32,6 @@ remove = ["dep:dua-core", "dep:gix-trace", "gix-utils/progress"]
 [dependencies]
 gix-trace = { version = "^0.2.0", path = "../gix-trace", optional = true }
 gix-utils = { version = "^0.4.0", path = "../gix-utils", optional = true }
-gix-parallel = { version = "^0.50.0", path = "../gix-parallel", optional = true }
 gix-error = { version = "^0.4.0", path = "../gix-error" }
 gix-index = { version = "^0.56.0", path = "../gix-index" }
 gix-fs = { version = "^0.23.0", path = "../gix-fs" }
@@ -63,9 +60,3 @@ gix-discover = { path = "../gix-discover" }
 
 [package.metadata.docs.rs]
 features = ["sha1", "document-features", "serde"]
-
-[package.metadata.cargo-machete]
-ignored = [
-    # Forwarding-only dependency for test feature parity after dissolving gix-worktree-tests.
-    "gix-parallel",
-]

@@ -4,13 +4,6 @@ use std::path::Path;
 use bstr::BStr;
 use gix_pathspec::search::MatchKind::*;
 
-#[cfg(feature = "parallel")]
-#[test]
-fn is_send_with_parallel_enabled() {
-    fn assert_send<T: Send>() {}
-    assert_send::<gix_pathspec::Search>();
-}
-
 #[test]
 fn directories() -> TestResult {
     baseline::run("directory", true, baseline::directories).map_err(Into::into)

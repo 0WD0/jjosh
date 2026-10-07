@@ -1,6 +1,13 @@
 //! The implementation of creating an archive from a git tree, similar to `git archive`, but using an internal format.
 //!
 //! This crate can effectively be used to manipulate worktrees as streams of bytes, which can be decoded using the [`Stream`] type.
+//!
+//! # Threading and feature unification
+//!
+//! [`from_tree()`] always spawns a background producer thread. This crate therefore unconditionally enables
+//! `gix-parallel/parallel` so that the attribute and filter types passed to that thread are thread-safe.
+//! Cargo feature unification also enables thread-safe shared ownership and threaded computation helpers in other
+//! crates using the same `gix-parallel` dependency.
 #![deny(missing_docs, unsafe_code)]
 
 use std::{path::Path, sync::Arc};

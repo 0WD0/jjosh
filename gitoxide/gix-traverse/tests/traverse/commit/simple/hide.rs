@@ -31,15 +31,6 @@ fn assert_simple_repo_graph(repo_dir: &std::path::Path) -> Result {
 fn disjoint_hidden_and_interesting() -> gix_testtools::TestResult {
     let (repo_dir, odb) = named_fixture("make_repos.sh", "disjoint_branches")?;
 
-    insta::assert_snapshot!(git_graph(&repo_dir)?, @r"
-        * Oid(1)  (HEAD -> disjoint) b3
-        * Oid(2)  b2
-        * Oid(3)  b1
-        * Oid(4)  (main) a3
-        * Oid(5)  a2
-        * Oid(6)  a1
-        ");
-
     let tip = hex_to_id("e07cf1277ff7c43090f1acfc85a46039e7de1272"); // b3
     let hidden = [hex_to_id("b5665181bf4c338ab16b10da0524d81b96aff209")]; // a3
     let expected = [
@@ -47,6 +38,11 @@ fn disjoint_hidden_and_interesting() -> gix_testtools::TestResult {
         hex_to_id("94cf3f3a4c782b672173423e7a4157a02957dd48"), // b2
         hex_to_id("34e5ff5ce3d3ba9f0a00d11a7fad72551fff0861"), // b1
     ];
+    assert_eq!(
+        git_rev_list(&repo_dir, &["disjoint", "--not", "main"])?,
+        expected,
+        "Git confirms that hiding main preserves every commit on the disjoint branch"
+    );
 
     for sorting in all_sortings() {
         let result = traverse_both([tip], &odb, sorting, Parents::All, hidden)?;

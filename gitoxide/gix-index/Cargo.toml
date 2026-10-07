@@ -28,9 +28,6 @@ sha1 = ["gix-hash/sha1"]
 sha256 = ["gix-hash/sha256"]
 ## Data structures implement `serde::Serialize` and `serde::Deserialize`.
 serde = ["dep:serde", "smallvec/serde", "gix-hash/serde"]
-## Enable parallel implementations of common algorithms.
-## If not set, there can be no parallelism.
-parallel = ["gix-parallel/parallel"]
 
 [dependencies]
 gix-trace = { version = "^0.2.0", path = "../gix-trace" }

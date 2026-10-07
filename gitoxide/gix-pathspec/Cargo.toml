@@ -14,9 +14,10 @@ include = ["/src/**/*", "/LICENSE-*", "/README.md"]
 [lib]
 doctest = true
 
-[features]
-## Enable thread-safety.
-parallel = ["gix-attributes/parallel"]
+[[test]]
+name = "threaded"
+path = "tests/threaded.rs"
+required-features = ["gix-parallel/parallel"]
 
 [dependencies]
 gix-glob = { version = "^0.28.0", path = "../gix-glob" }
@@ -30,5 +31,6 @@ bitflags = "2"
 
 [dev-dependencies]
 insta = "1.46.3"
-gix-testtools = { path = "../tests/tools", features = ["sha1"] }
+gix-parallel = { path = "../gix-parallel" }
+gix-testtools = { path = "../tests/tools", default-features = false, features = ["repo-snapshot", "sha1"] }
 serial_test = "3.4.0"

@@ -15,6 +15,11 @@ rust-version = "1.88"
 doctest = false
 test = true
 
+[[test]]
+name = "threaded"
+path = "tests/threaded.rs"
+required-features = ["gix-parallel/parallel"]
+
 [features]
 ## Enable support for the SHA-1 hash by enabling the respective feature in the `gix-hash` crate.
 sha1 = ["gix-hash/sha1"]
@@ -22,8 +27,6 @@ sha1 = ["gix-hash/sha1"]
 sha256 = ["gix-hash/sha256"]
 ## Data structures implement `serde::Serialize` and `serde::Deserialize`.
 serde = ["dep:serde", "gix-hash/serde", "gix-actor/serde", "gix-object/serde"]
-## Enable support for thread-safety.
-parallel = ["gix-parallel/parallel"]
 
 [dependencies]
 gix-parallel = { version = "^0.50.0", path = "../gix-parallel" }

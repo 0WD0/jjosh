@@ -12,7 +12,7 @@ use gix_utils::progress::Progress;
 #[derive(Debug, Clone, Copy)]
 pub struct Options {
     /// The maximum number of worker threads used in each traversal or leaf-deletion phase,
-    /// independently of the `parallel` feature.
+    /// independently of `gix-parallel/parallel`.
     ///
     /// `None` (the default) and `Some(0)` use the available logical cores, falling back to one.
     /// `Some(1)` uses one traversal worker and deletes leaves on the calling thread.
