@@ -42,13 +42,15 @@ mod specials {
     fn search_case(pattern: &str, path: &str, rela_containing_dir: Option<&str>, case: Case) -> bool {
         let mut search = Search::default();
         let mut collection = MetadataCollection::default();
-        search.add_patterns_buffer(
-            format!("{pattern} test").as_bytes(),
-            rela_containing_dir.map_or_else(|| Path::new("<memory>").into(), |d| Path::new(d).join("filename")),
-            rela_containing_dir.map(|_| Path::new("")),
-            &mut collection,
-            true,
-        );
+        search
+            .add_patterns_buffer(
+                format!("{pattern} test").as_bytes(),
+                rela_containing_dir.map_or_else(|| Path::new("<memory>").into(), |d| Path::new(d).join("filename")),
+                rela_containing_dir.map(|_| Path::new("")),
+                &mut collection,
+                true,
+            )
+            .expect("UTF-8 pattern source has a valid base");
         let mut out = Outcome::default();
         out.initialize(&collection);
         search.pattern_matching_relative_path(path.into(), case, None, &mut out)
@@ -63,7 +65,7 @@ mod specials {
 }
 
 #[test]
-fn baseline() -> gix_error::TestResult {
+fn baseline() -> gix_testtools::TestResult {
     let mut buf = Vec::new();
     // Due to the way our setup differs from gits dynamic stack (which involves trying to read files from disk
     // by path) we can only test one case baseline, so we require multiple platforms (or filesystems) to run this.
@@ -131,7 +133,7 @@ fn assert_references(out: &Outcome) {
 }
 
 #[test]
-fn all_attributes_are_listed_in_declaration_order() -> gix_error::TestResult {
+fn all_attributes_are_listed_in_declaration_order() -> gix_testtools::TestResult {
     let (mut group, mut collection, base, input) = baseline::user_attributes("lookup-order")?;
 
     let mut buf = Vec::new();
@@ -228,7 +230,7 @@ fn all_attributes_are_listed_in_declaration_order() -> gix_error::TestResult {
 }
 
 #[test]
-fn given_attributes_are_made_available_in_given_order() -> gix_error::TestResult {
+fn given_attributes_are_made_available_in_given_order() -> gix_testtools::TestResult {
     let (mut group, mut collection, base, input) =
         baseline::user_attributes_named_baseline("lookup-order", "baseline.selected")?;
 
@@ -270,13 +272,13 @@ fn given_attributes_are_made_available_in_given_order() -> gix_error::TestResult
 }
 
 #[test]
-fn macro_attributes_expand_only_when_macro_is_set() -> gix_error::TestResult {
+fn macro_attributes_expand_only_when_macro_is_set() -> gix_testtools::TestResult {
     assert_baseline("macro-expansion")?;
     Ok(())
 }
 
 #[test]
-fn attribute_tokenisation_matches_git() -> gix_error::TestResult {
+fn attribute_tokenisation_matches_git() -> gix_testtools::TestResult {
     assert_baseline("tokenisation")?;
     Ok(())
 }

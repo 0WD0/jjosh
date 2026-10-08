@@ -37,7 +37,7 @@ where
     pub fn from_data(data: T, path: PathBuf, object_hash: gix_hash::Kind) -> Result<Self> {
         let hash_len = object_hash.len_in_bytes();
         let pack_len = data.len();
-        let id = gix_features::hash::crc32(path.as_os_str().to_string_lossy().as_bytes());
+        let id = crc32fast::hash(path.as_os_str().to_string_lossy().as_bytes());
         if pack_len < data::header::SIZE + hash_len {
             bail!(gix_error::corruption(format!(
                 "Pack data of size {pack_len} is too small for even an empty pack with shortest hash"
@@ -64,6 +64,8 @@ where
     /// Use `None` to disable the limit, which is also the default.
     ///
     /// This is currently enforced when decoding pack entries and resolving delta chains.
+    /// The limit applies to the combined size of buffers that hold both work data and delta instructions.
+    /// Buffer growth uses exact reservations when a limit is set, and retains existing capacity.
     /// Callers that allocate from pack metadata directly should consult [`File::alloc_limit_bytes()`][crate::data::File::alloc_limit_bytes]
     /// and apply the same limit themselves.
     pub fn with_alloc_limit_bytes(mut self, alloc_limit_bytes: Option<usize>) -> Self {

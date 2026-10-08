@@ -1,23 +1,23 @@
 use gix_attributes::Source;
 
 #[test]
-fn system_attributes_with_mingw64() -> gix_testtools::Result {
-    system_attributes("mingw64", false)
+fn system_attributes_with_mingw64() -> gix_testtools::TestResult {
+    system_attributes("mingw64", false).map_err(Into::into)
 }
 
 #[test]
-fn system_attributes_with_ucrt64() -> gix_testtools::Result {
-    system_attributes("ucrt64", false)
+fn system_attributes_with_ucrt64() -> gix_testtools::TestResult {
+    system_attributes("ucrt64", false).map_err(Into::into)
 }
 
 #[test]
-fn system_attributes_with_mixed_prefixes_and_mingw64_active() -> gix_testtools::Result {
-    system_attributes("mingw64", true)
+fn system_attributes_with_mixed_prefixes_and_mingw64_active() -> gix_testtools::TestResult {
+    system_attributes("mingw64", true).map_err(Into::into)
 }
 
 #[test]
-fn system_attributes_with_mixed_prefixes_and_ucrt64_active() -> gix_testtools::Result {
-    system_attributes("ucrt64", true)
+fn system_attributes_with_mixed_prefixes_and_ucrt64_active() -> gix_testtools::TestResult {
+    system_attributes("ucrt64", true).map_err(Into::into)
 }
 
 fn system_attributes(runtime: &str, mixed: bool) -> gix_testtools::Result {

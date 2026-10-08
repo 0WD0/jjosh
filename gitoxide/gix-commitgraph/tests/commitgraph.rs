@@ -12,7 +12,7 @@ use gix_testtools::scripted_fixture_read_only;
 mod access;
 
 #[test]
-fn missing_path_is_not_found() -> gix_testtools::Result {
+fn missing_path_is_not_found() -> gix_testtools::TestResult {
     let dir = gix_testtools::tempfile::tempdir()?;
     let err = gix_commitgraph::at(dir.path().join("missing"))
         .err()
@@ -31,7 +31,7 @@ fn missing_path_is_not_found() -> gix_testtools::Result {
 }
 
 #[test]
-fn checksum_mismatches_retain_their_classification() -> gix_testtools::Result {
+fn checksum_mismatches_retain_their_classification() -> gix_testtools::TestResult {
     let repo = gix_testtools::scripted_fixture_writable("single_commit.sh")?;
     let mut data = std::fs::read(repo.path().join(".git/objects/info/commit-graph"))?;
     *data.last_mut().expect("the graph has a checksum trailer") ^= 1;

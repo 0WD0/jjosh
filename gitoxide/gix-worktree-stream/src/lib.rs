@@ -1,6 +1,13 @@
 //! The implementation of creating an archive from a git tree, similar to `git archive`, but using an internal format.
 //!
 //! This crate can effectively be used to manipulate worktrees as streams of bytes, which can be decoded using the [`Stream`] type.
+//!
+//! # Threading and feature unification
+//!
+//! [`from_tree()`] always spawns a background producer thread. This crate therefore unconditionally enables
+//! `gix-parallel/parallel` so that the attribute and filter types passed to that thread are thread-safe.
+//! Cargo feature unification also enables thread-safe shared ownership and threaded computation helpers in other
+//! crates using the same `gix-parallel` dependency.
 #![deny(missing_docs, unsafe_code)]
 
 use std::{path::Path, sync::Arc};
@@ -133,12 +140,17 @@ impl Stream {
     ) -> std::io::Result<&mut Self> {
         let rela_path = path.strip_prefix(root).map_err(std::io::Error::other)?;
         let meta = path.symlink_metadata()?;
-        let relative_path = gix_path::to_unix_separators_on_windows(gix_path::into_bstr(rela_path)).into_owned();
+        let relative_path = gix_path::to_unix_separators_on_windows(
+            gix_path::into_bstr(rela_path).map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidInput, err))?,
+        )
+        .into_owned();
         let id = object_hash.null();
 
         let entry = if meta.is_symlink() {
             let content = std::fs::read_link(path)?;
-            let content = gix_path::into_bstr(content).into_owned();
+            let content = gix_path::into_bstr(content)
+                .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))?
+                .into_owned();
             AdditionalEntry {
                 id,
                 mode: gix_object::tree::EntryKind::Link.into(),
@@ -173,14 +185,14 @@ impl Stream {
 impl Stream {
     pub(crate) fn new() -> (
         Stream,
-        gix_features::io::pipe::Writer,
+        gix_utils::io::pipe::Writer,
         std::sync::mpsc::Receiver<AdditionalEntry>,
     ) {
         // 1 write for entry header and 1 for hash, 1 for entry path, + 1 for a buffer, then 32 of these.
         // Giving some buffer, at the expense of memory, is important to allow consumers to take off bytes more quickly,
         // otherwise, both threads effectively run in lock-step and nullify the benefit.
         let in_flight_writes = (2 + 1) * 32;
-        let (write, read) = gix_features::io::pipe::unidirectional(in_flight_writes);
+        let (write, read) = gix_utils::io::pipe::unidirectional(in_flight_writes);
         let (tx_entries, rx_entries) = std::sync::mpsc::channel();
         (
             Stream {
@@ -200,7 +212,7 @@ impl Stream {
 
 pub(crate) mod utils {
     pub enum Read {
-        Known(gix_features::io::pipe::Reader),
+        Known(gix_utils::io::pipe::Reader),
         Unknown(Box<dyn std::io::Read>),
     }
 

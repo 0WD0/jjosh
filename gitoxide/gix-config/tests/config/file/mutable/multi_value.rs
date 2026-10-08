@@ -1,9 +1,9 @@
 mod get {
-    use crate::Result;
+    use crate::TestResult;
     use crate::file::{bstring, mutable::multi_value::init_config};
 
     #[test]
-    fn single_lines() -> Result {
+    fn single_lines() -> TestResult {
         let mut config = init_config();
 
         let value = config.raw_values_mut_by("core", None, "a")?;
@@ -12,7 +12,7 @@ mod get {
     }
 
     #[test]
-    fn multi_line() -> Result {
+    fn multi_line() -> TestResult {
         let mut config: gix_config::File = r#"[core]
             a=b\
 "100"
@@ -37,7 +37,7 @@ c
     }
 
     #[test]
-    fn value_names_are_case_insensitive() -> Result {
+    fn value_names_are_case_insensitive() -> TestResult {
         let mut config: gix_config::File = "[core]\nMixedCase = one\nMIXEDCASE = two".parse()?;
         assert_eq!(
             config.raw_values_mut_by("core", None, "mixedcase")?.get()?,
@@ -48,11 +48,11 @@ c
 }
 
 mod access {
-    use crate::Result;
+    use crate::TestResult;
     use crate::file::mutable::multi_value::init_config;
 
     #[test]
-    fn non_empty_sizes() -> Result {
+    fn non_empty_sizes() -> TestResult {
         let mut config = init_config();
         assert_eq!(config.raw_values_mut_by("core", None, "a")?.len(), 3);
         assert!(!config.raw_values_mut_by("core", None, "a")?.is_empty());
@@ -61,11 +61,11 @@ mod access {
 }
 
 mod set {
-    use crate::Result;
+    use crate::TestResult;
     use crate::file::{bstring, mutable::multi_value::init_config};
 
     #[test]
-    fn values_are_escaped() -> Result {
+    fn values_are_escaped() -> TestResult {
         for value in ["a b", " a b", "a b\t", ";c", "#c", "a\nb\n\tc"] {
             let mut config = init_config();
             let mut values = config.raw_values_mut_by("core", None, "a")?;
@@ -83,7 +83,7 @@ mod set {
     }
 
     #[test]
-    fn single_at_start() -> Result {
+    fn single_at_start() -> TestResult {
         let mut config = init_config();
         let mut values = config.raw_values_mut_by("core", None, "a")?;
         values.set_string_at(0, "Hello")?;
@@ -95,7 +95,7 @@ mod set {
     }
 
     #[test]
-    fn single_at_end() -> Result {
+    fn single_at_end() -> TestResult {
         let mut config = init_config();
         let mut values = config.raw_values_mut_by("core", None, "a")?;
         values.set_string_at(2, "Hello")?;
@@ -107,7 +107,7 @@ mod set {
     }
 
     #[test]
-    fn all() -> Result {
+    fn all() -> TestResult {
         let mut config = init_config();
         let mut values = config.raw_values_mut_by("core", None, "a")?;
         values.set_all("Hello")?;
@@ -119,7 +119,7 @@ mod set {
     }
 
     #[test]
-    fn all_empty() -> Result {
+    fn all_empty() -> TestResult {
         let mut config = init_config();
         let mut values = config.raw_values_mut_by("core", None, "a")?;
         values.set_all("")?;
@@ -132,11 +132,11 @@ mod set {
 }
 
 mod delete {
-    use crate::Result;
+    use crate::TestResult;
     use crate::file::mutable::multi_value::init_config;
 
     #[test]
-    fn single_at_start_and_end() -> Result {
+    fn single_at_start_and_end() -> TestResult {
         let mut config = init_config();
         {
             let mut values = config.raw_values_mut_by("core", None, "a")?;
@@ -154,7 +154,7 @@ mod delete {
     }
 
     #[test]
-    fn all() -> Result {
+    fn all() -> TestResult {
         let mut config = init_config();
         let mut values = config.raw_values_mut_by("core", None, "a")?;
         values.delete_all();

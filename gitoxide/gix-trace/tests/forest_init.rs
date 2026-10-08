@@ -2,7 +2,7 @@
 
 // Keep global initialization in its own test executable: the subscriber cannot be reset.
 #[test]
-fn repeated_initialization_returns_errors() -> Result<(), Box<dyn std::error::Error>> {
+fn repeated_initialization_returns_errors() -> gix_error::TestResult {
     gix_trace::forest::init()?;
     assert!(
         gix_trace::forest::init().is_err(),

@@ -11,7 +11,7 @@ fn adjusted_dates_repo() -> Result<(std::path::PathBuf, gix_odb::Handle)> {
 }
 
 #[test]
-fn head_breadth_first() -> Result {
+fn head_breadth_first() -> gix_testtools::TestResult {
     let (repo_dir, odb) = adjusted_dates_repo()?;
 
     // Timestamps show b1c1 (978393600) is a year newer than c2 (946771200),
@@ -42,7 +42,7 @@ fn head_breadth_first() -> Result {
 }
 
 #[test]
-fn head_date_order() -> Result {
+fn head_date_order() -> gix_testtools::TestResult {
     let (_repo_dir, odb) = adjusted_dates_repo()?;
     // Graph with timestamps shown in `head_breadth_first`
     let tip = hex_to_id("288e509293165cb5630d08f4185bdf2445bf6170"); // m1b1
@@ -83,7 +83,7 @@ fn head_date_order() -> Result {
 }
 
 #[test]
-fn head_date_order_with_cutoff() -> Result {
+fn head_date_order_with_cutoff() -> gix_testtools::TestResult {
     let (_repo_dir, odb) = adjusted_dates_repo()?;
     // Graph shown in `head_breadth_first`
     let tip = hex_to_id("288e509293165cb5630d08f4185bdf2445bf6170"); // m1b1
@@ -110,7 +110,7 @@ fn head_date_order_with_cutoff() -> Result {
 }
 
 #[test]
-fn head_date_order_with_cutoff_disabled() -> Result {
+fn head_date_order_with_cutoff_disabled() -> gix_testtools::TestResult {
     let (_repo_dir, odb) = adjusted_dates_repo()?;
     // Graph shown in `head_breadth_first`
     let tip = hex_to_id("288e509293165cb5630d08f4185bdf2445bf6170"); // m1b1
@@ -158,7 +158,7 @@ fn head_date_order_with_cutoff_disabled() -> Result {
 }
 
 #[test]
-fn date_order_with_cutoff_is_applied_to_starting_position() -> Result {
+fn date_order_with_cutoff_is_applied_to_starting_position() -> gix_testtools::TestResult {
     let (_repo_dir, odb) = adjusted_dates_repo()?;
     // Graph shown in `head_breadth_first`
     let tip = hex_to_id("9902e3c3e8f0c569b4ab295ddf473e6de763e1e7"); // c2
@@ -181,7 +181,7 @@ fn date_order_with_cutoff_is_applied_to_starting_position() -> Result {
 }
 
 #[test]
-fn head_date_order_first_parent_only() -> Result {
+fn head_date_order_first_parent_only() -> gix_testtools::TestResult {
     let (_repo_dir, odb) = adjusted_dates_repo()?;
     // Graph shown in `head_breadth_first`
     let tip = hex_to_id("288e509293165cb5630d08f4185bdf2445bf6170"); // m1b1

@@ -130,9 +130,7 @@ fn resolve_revspec(
             let not_found = err.downcast_any_ref::<gix::refs::file::find::NotFound>();
             if let Some(gix::refs::file::find::NotFound { name }) = not_found {
                 let root = repo.workdir().map(ToOwned::to_owned);
-                let name = gix::path::os_string_into_bstring(name.into())?;
-
-                Ok((ObjectId::null(gix::hash::Kind::Sha1), root, name))
+                Ok((ObjectId::null(gix::hash::Kind::Sha1), root, name.clone()))
             } else {
                 Err(err)
             }

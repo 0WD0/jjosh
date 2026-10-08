@@ -1,5 +1,5 @@
-use crate::Result;
 use gix::config::tree::{Branch, Core, Key, Pack, gitoxide};
+use gix_testtools::TestResult;
 
 use crate::{named_repo, repo_rw, repo_rw_opts};
 
@@ -7,7 +7,7 @@ use crate::{named_repo, repo_rw, repo_rw_opts};
 mod credential_helpers;
 
 #[test]
-fn commit_auto_rollback() -> Result {
+fn commit_auto_rollback() -> TestResult {
     let mut repo = named_repo("make_basic_repo.sh")?;
     let default_abbrev = repo.head_id()?.to_string()[..7].to_owned();
     let short_abbrev = repo.head_id()?.to_string()[..4].to_owned();
@@ -37,11 +37,11 @@ fn commit_auto_rollback() -> Result {
 }
 
 mod trusted_path {
-    use crate::Result;
     use crate::util::named_repo;
+    use gix_testtools::TestResult;
 
     #[test]
-    fn optional_is_respected() -> Result {
+    fn optional_is_respected() -> TestResult {
         let mut repo = named_repo("make_basic_repo.sh")?;
         repo.config_snapshot_mut().set_raw_value("my.path", "does-not-exist")?;
 
@@ -61,7 +61,7 @@ mod trusted_path {
 }
 
 #[test]
-fn snapshot_mut_commit_and_forget() -> Result {
+fn snapshot_mut_commit_and_forget() -> TestResult {
     let mut repo = named_repo("make_basic_repo.sh")?;
     let repo = {
         let mut repo = repo.config_snapshot_mut();
@@ -79,7 +79,7 @@ fn snapshot_mut_commit_and_forget() -> Result {
 }
 
 #[test]
-fn committing_loose_compression_requires_reopening_the_object_store() -> Result {
+fn committing_loose_compression_requires_reopening_the_object_store() -> TestResult {
     use gix::objs::Write;
 
     fn loose_object_size(repo: &gix::Repository, id: gix::ObjectId) -> std::io::Result<u64> {
@@ -118,7 +118,7 @@ fn committing_loose_compression_requires_reopening_the_object_store() -> Result 
 }
 
 #[test]
-fn compression_levels() -> Result {
+fn compression_levels() -> TestResult {
     use gix::zlib::Compression;
 
     let mut repo = named_repo("make_basic_repo.sh")?;
@@ -196,7 +196,7 @@ fn set_value_in_subsection() {
 }
 
 #[test]
-fn apply_cli_overrides() -> Result {
+fn apply_cli_overrides() -> TestResult {
     let mut repo = named_repo("make_config_repo.sh").unwrap();
     repo.config_snapshot_mut().append_config(
         [
@@ -236,7 +236,7 @@ fn apply_cli_overrides() -> Result {
 }
 
 #[test]
-fn reload_reloads_on_disk_changes() -> Result {
+fn reload_reloads_on_disk_changes() -> TestResult {
     let (mut repo, _tmp) = repo_rw("make_config_repo.sh")?;
     assert_eq!(repo.config_snapshot().integer("core.abbrev"), None);
     let original_index = repo.index_path();
@@ -245,7 +245,7 @@ fn reload_reloads_on_disk_changes() -> Result {
     let config_path = repo.git_dir().join("config");
     let mut config = gix_config::File::from_path_no_includes(config_path.clone(), gix_config::Source::Local)?;
     config.set_raw_value("core.abbrev", "4")?;
-    config.set_raw_value("gitoxide.core.indexFile", gix_path::into_bstr(&changed_index).as_ref())?;
+    config.set_raw_value("gitoxide.core.indexFile", gix_path::into_bstr(&changed_index)?.as_ref())?;
     std::fs::write(config_path, config.to_bstring())?;
 
     assert_eq!(repo.config_snapshot().integer("core.abbrev"), None);
@@ -263,7 +263,7 @@ fn reload_reloads_on_disk_changes() -> Result {
 }
 
 #[test]
-fn reload_discards_in_memory_only_changes() -> Result {
+fn reload_discards_in_memory_only_changes() -> TestResult {
     let mut repo = named_repo("make_config_repo.sh")?;
 
     repo.config_snapshot_mut().set_raw_value(Core::ABBREV, "4")?;
@@ -275,7 +275,7 @@ fn reload_discards_in_memory_only_changes() -> Result {
 }
 
 #[test]
-fn reload_rebuilds_includes_even_when_the_file_was_empty_or_missing() -> Result {
+fn reload_rebuilds_includes_even_when_the_file_was_empty_or_missing() -> TestResult {
     let (mut repo, _tmp) = repo_rw_opts("make_config_repo.sh", options_with_includes())?;
     let included_path = repo.workdir().expect("worktree repository").join("a.config");
 
@@ -306,7 +306,7 @@ fn reload_rebuilds_includes_even_when_the_file_was_empty_or_missing() -> Result 
 
 #[test]
 #[cfg(feature = "index")]
-fn reload_preserves_the_reduced_trust_allocation_limit() -> Result {
+fn reload_preserves_the_reduced_trust_allocation_limit() -> TestResult {
     let fixture = gix_testtools::scripted_fixture_writable("make_config_repo.sh")?;
     let mut repo = gix::open_opts(
         fixture.path(),
@@ -326,7 +326,7 @@ fn reload_preserves_the_reduced_trust_allocation_limit() -> Result {
 
 #[test]
 #[serial_test::serial]
-fn reload_reapplies_per_file_safe_directory_trust() -> Result {
+fn reload_reapplies_per_file_safe_directory_trust() -> TestResult {
     let _environment = gix_testtools::isolate_git_environment()?;
     let fixture = gix_testtools::scripted_fixture_writable("make_config_repo.sh")?;
     let included_path = fixture.path().join("a.config");
@@ -338,7 +338,7 @@ fn reload_reapplies_per_file_safe_directory_trust() -> Result {
     let mut global = gix_config::File::new(gix_config::file::Metadata::from(gix_config::Source::User));
     global.set_raw_value(
         "safe.directory",
-        gix_path::into_bstr(&std::fs::canonicalize(&included_path)?).as_ref(),
+        gix_path::into_bstr(&std::fs::canonicalize(&included_path)?)?.as_ref(),
     )?;
     std::fs::write(&global_path, global.to_bstring())?;
     let _environment = _environment.set("GIT_CONFIG_GLOBAL", global_path.display().to_string());
@@ -353,13 +353,13 @@ fn reload_reapplies_per_file_safe_directory_trust() -> Result {
             .with(gix_sec::Trust::Reduced),
     )?;
     assert_eq!(
-        repo.config_snapshot().trusted_program(Core::SSH_COMMAND),
+        repo.config_snapshot().trusted_program(Core::SSH_COMMAND)?,
         Some("trusted-ssh".into())
     );
 
     repo.reload()?;
     assert_eq!(
-        repo.config_snapshot().trusted_program(Core::SSH_COMMAND),
+        repo.config_snapshot().trusted_program(Core::SSH_COMMAND)?,
         Some("trusted-ssh".into()),
         "reopening repeats per-file trust promotion"
     );
@@ -367,7 +367,7 @@ fn reload_reapplies_per_file_safe_directory_trust() -> Result {
 }
 
 #[test]
-fn reload_resolves_onbranch_includes_from_unnamespaced_head() -> Result {
+fn reload_resolves_onbranch_includes_from_unnamespaced_head() -> TestResult {
     use std::io::Write;
 
     let (mut repo, _tmp) = repo_rw_opts("make_config_repo.sh", options_with_includes())?;
@@ -412,7 +412,7 @@ fn reload_resolves_onbranch_includes_from_unnamespaced_head() -> Result {
 
 #[test]
 #[cfg(all(feature = "sha1", feature = "sha256"))]
-fn reload_rebuilds_object_stores_for_a_new_object_format() -> Result {
+fn reload_rebuilds_object_stores_for_a_new_object_format() -> TestResult {
     let (mut repo, _tmp) = repo_rw("make_config_repo.sh")?;
     let new_object_hash = match repo.object_hash() {
         gix::hash::Kind::Sha1 => gix::hash::Kind::Sha256,
@@ -432,7 +432,7 @@ fn reload_rebuilds_object_stores_for_a_new_object_format() -> Result {
 }
 
 #[test]
-fn reload_keeps_opening_overrides_and_discards_runtime_edits() -> Result {
+fn reload_keeps_opening_overrides_and_discards_runtime_edits() -> TestResult {
     let options = options_with_includes().config_overrides(["refresh.open=from-options"]);
     let (mut repo, _tmp) = repo_rw_opts("make_config_repo.sh", options)?;
     repo.config_snapshot_mut()

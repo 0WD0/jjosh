@@ -96,9 +96,9 @@ fn exclamation_marks_must_be_escaped_or_error_unlike_gitignore() {
         line(r"\!hello"),
         (pattern(r"!hello", Mode::NO_SUB_DIR, None), vec![], 1)
     );
-    insta::assert_debug_snapshot!(assert_validation(try_line(r"!hello")), "exclamation marks must be escaped or error unlike gitignore", @r#"Line 1 has a negative pattern, for literal characters use \!, "input"="!hello""#);
+    insta::assert_debug_snapshot!(assert_validation(try_line(r"!hello")), "exclamation marks must be escaped or error unlike gitignore", @r#"Line 1 has a negative pattern, for literal characters use \!, input="!hello""#);
     assert!(lenient_lines(r#"!hello"#).is_empty());
-    insta::assert_debug_snapshot!(assert_validation(try_line(r#""!hello""#)), "even in quotes they trigger…", @r#"Line 1 has a negative pattern, for literal characters use \!, "input"="!hello""#);
+    insta::assert_debug_snapshot!(assert_validation(try_line(r#""!hello""#)), "even in quotes they trigger…", @r#"Line 1 has a negative pattern, for literal characters use \!, input="!hello""#);
     assert!(lenient_lines(r#""!hello""#).is_empty());
     assert_eq!(
         line(r#""\\!hello""#),
@@ -192,26 +192,26 @@ fn custom_macros_must_be_valid_attribute_names() {
     Macro in line 1 has an invalid name
 
     Caused by:
-        0: Attribute has non-ascii characters or starts with '-', "input"="-prefixdash"
+        0: Attribute has non-ascii characters or starts with '-', input="-prefixdash"
     "#);
     assert!(lenient_lines(r"[attr]-prefixdash").is_empty());
     insta::assert_debug_snapshot!(assert_validation(try_line(r"[attr]!exclamation")), "custom macros must be valid attribute names", @r#"
     Macro in line 1 has an invalid name
 
     Caused by:
-        0: Attribute has non-ascii characters or starts with '-', "input"="!exclamation"
+        0: Attribute has non-ascii characters or starts with '-', input="!exclamation"
     "#);
     insta::assert_debug_snapshot!(assert_validation(try_line(r"[attr]assignment=value")), "custom macros must be valid attribute names", @r#"
     Macro in line 1 has an invalid name
 
     Caused by:
-        0: Attribute has non-ascii characters or starts with '-', "input"="assignment=value"
+        0: Attribute has non-ascii characters or starts with '-', input="assignment=value"
     "#);
     insta::assert_debug_snapshot!(assert_validation(try_line(r"[attr]你好")), "custom macros must be valid attribute names", @r#"
     Macro in line 1 has an invalid name
 
     Caused by:
-        0: Attribute has non-ascii characters or starts with '-', "input"="你好"
+        0: Attribute has non-ascii characters or starts with '-', input="你好"
     "#);
     assert!(lenient_lines(r"[attr]你好").is_empty());
 }
@@ -235,11 +235,11 @@ fn invalid_names_retain_line_context_and_the_validation_cause() {
         Attribute in line 1 has an invalid name
         
         Caused by:
-            0: Attribute has non-ascii characters or starts with '-', "input"="你好",
+            0: Attribute has non-ascii characters or starts with '-', input="你好",
         Macro in line 1 has an invalid name
         
         Caused by:
-            0: Attribute has non-ascii characters or starts with '-', "input"="你好",
+            0: Attribute has non-ascii characters or starts with '-', input="你好",
     ]
     "#);
 }
@@ -250,21 +250,21 @@ fn attribute_names_must_not_begin_with_dash_and_must_be_ascii_only() {
     Attribute in line 1 has an invalid name
 
     Caused by:
-        0: Attribute has non-ascii characters or starts with '-', "input"="-a"
+        0: Attribute has non-ascii characters or starts with '-', input="-a"
     "#);
     assert!(lenient_lines(r"p !-a").is_empty());
     insta::assert_debug_snapshot!(assert_validation(try_line(r#"p !!a"#)), "exclamation marks aren't allowed either", @r#"
     Attribute in line 1 has an invalid name
 
     Caused by:
-        0: Attribute has non-ascii characters or starts with '-', "input"="!a"
+        0: Attribute has non-ascii characters or starts with '-', input="!a"
     "#);
     assert!(lenient_lines(r#"p !!a"#).is_empty());
     insta::assert_debug_snapshot!(assert_validation(try_line(r#"p 你好"#)), "nor is utf-8 encoded characters - gitoxide could consider to relax this when established", @r#"
     Attribute in line 1 has an invalid name
 
     Caused by:
-        0: Attribute has non-ascii characters or starts with '-', "input"="你好"
+        0: Attribute has non-ascii characters or starts with '-', input="你好"
     "#);
     assert!(lenient_lines(r#"p 你好"#).is_empty());
 }
@@ -275,25 +275,25 @@ fn attribute_names_must_not_be_empty() {
     Attribute in line 1 has an invalid name
 
     Caused by:
-        0: Attribute has non-ascii characters or starts with '-', "input"=""
+        0: Attribute has non-ascii characters or starts with '-', input=""
     "#);
     insta::assert_debug_snapshot!(assert_validation(try_line(r"p =")), "an assignment that is nothing but an equals sign has no name either", @r#"
     Attribute in line 1 has an invalid name
 
     Caused by:
-        0: Attribute has non-ascii characters or starts with '-', "input"=""
+        0: Attribute has non-ascii characters or starts with '-', input=""
     "#);
     insta::assert_debug_snapshot!(assert_validation(try_line(r"p -")), "prefixes need a name to apply to", @r#"
     Attribute in line 1 has an invalid name
 
     Caused by:
-        0: Attribute has non-ascii characters or starts with '-', "input"=""
+        0: Attribute has non-ascii characters or starts with '-', input=""
     "#);
     insta::assert_debug_snapshot!(assert_validation(try_line(r"p !")), "the unspecified prefix needs one as well", @r#"
     Attribute in line 1 has an invalid name
 
     Caused by:
-        0: Attribute has non-ascii characters or starts with '-', "input"=""
+        0: Attribute has non-ascii characters or starts with '-', input=""
     "#);
     assert!(
         gix_attributes::NameRef::try_from(bstr::BStr::new(b"")).is_err(),
@@ -307,20 +307,20 @@ fn attribute_names_must_not_use_the_reserved_builtin_prefix() {
     Attribute in line 1 has an invalid name
 
     Caused by:
-        0: Attribute name uses the reserved 'builtin_' prefix, "input"="builtin_objectmode"
+        0: Attribute name uses the reserved 'builtin_' prefix, input="builtin_objectmode"
     "#);
     assert!(lenient_lines(r"p builtin_objectmode").is_empty());
     insta::assert_debug_snapshot!(assert_validation(try_line(r"p -builtin_objectmode")), "the prefix is checked after '-' and '!' are stripped, just like in `parse_attr()`", @r#"
     Attribute in line 1 has an invalid name
 
     Caused by:
-        0: Attribute name uses the reserved 'builtin_' prefix, "input"="builtin_objectmode"
+        0: Attribute name uses the reserved 'builtin_' prefix, input="builtin_objectmode"
     "#);
     insta::assert_debug_snapshot!(assert_validation(try_line(r"[attr]builtin_macro -text")), "macro names are checked against the reserved namespace as well", @r#"
     Macro in line 1 has an invalid name
 
     Caused by:
-        0: Attribute name uses the reserved 'builtin_' prefix, "input"="builtin_macro"
+        0: Attribute name uses the reserved 'builtin_' prefix, input="builtin_macro"
     "#);
     assert_eq!(
         line(r"p builtin"),
@@ -383,25 +383,25 @@ fn only_ascii_blanks_separate_attributes() {
     Attribute in line 1 has an invalid name
 
     Caused by:
-        0: Attribute has non-ascii characters or starts with '-', "input"="text\u{a0}eol"
+        0: Attribute has non-ascii characters or starts with '-', input="text\u{a0}eol"
     "#);
     insta::assert_debug_snapshot!(assert_validation(try_line("p a\u{b}b")), "a vertical tab is part of the name, not a separator", @r#"
     Attribute in line 1 has an invalid name
 
     Caused by:
-        0: Attribute has non-ascii characters or starts with '-', "input"="a\x0bb"
+        0: Attribute has non-ascii characters or starts with '-', input="a\x0bb"
     "#);
     insta::assert_debug_snapshot!(assert_validation(try_line("p a\u{c}b")), "a form feed is part of the name, not a separator", @r#"
     Attribute in line 1 has an invalid name
 
     Caused by:
-        0: Attribute has non-ascii characters or starts with '-', "input"="a\x0cb"
+        0: Attribute has non-ascii characters or starts with '-', input="a\x0cb"
     "#);
     insta::assert_debug_snapshot!(assert_validation(try_line("p a\u{2028}b")), "vertical tabs, form feeds and unicode line separators aren't blanks either", @r#"
     Attribute in line 1 has an invalid name
 
     Caused by:
-        0: Attribute has non-ascii characters or starts with '-', "input"="a\u{2028}b"
+        0: Attribute has non-ascii characters or starts with '-', input="a\u{2028}b"
     "#);
 }
 

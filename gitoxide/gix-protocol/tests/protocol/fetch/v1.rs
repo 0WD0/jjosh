@@ -1,15 +1,15 @@
-use crate::Result;
+use crate::TestResult;
 use bstr::ByteSlice;
-use gix_features::progress;
 use gix_protocol::handshake;
 use gix_transport::Protocol;
+use gix_utils::progress;
 
 use crate::fetch::{_impl::FetchConnection, CloneDelegate, LsRemoteDelegate, helper_unused, oid, transport};
 
 #[crate::bisync::bisync]
 #[cfg_attr(feature = "blocking-client", test)]
 #[cfg_attr(all(feature = "async-client", not(feature = "blocking-client")), async_std::test)]
-async fn clone() -> Result {
+async fn clone() -> TestResult {
     for with_keepalive in [false, true] {
         let out = Vec::new();
         let mut dlg = CloneDelegate::default();
@@ -44,7 +44,7 @@ async fn clone() -> Result {
 #[crate::bisync::bisync]
 #[cfg_attr(feature = "blocking-client", test)]
 #[cfg_attr(all(feature = "async-client", not(feature = "blocking-client")), async_std::test)]
-async fn clone_empty_with_capabilities() -> Result {
+async fn clone_empty_with_capabilities() -> TestResult {
     let out = Vec::new();
     let mut dlg = CloneDelegate::default();
     crate::fetch(
@@ -69,7 +69,7 @@ async fn clone_empty_with_capabilities() -> Result {
 #[crate::bisync::bisync]
 #[cfg_attr(feature = "blocking-client", test)]
 #[cfg_attr(all(feature = "async-client", not(feature = "blocking-client")), async_std::test)]
-async fn ls_remote() -> Result {
+async fn ls_remote() -> TestResult {
     let out = Vec::new();
     let mut delegate = LsRemoteDelegate::default();
     let mut transport = transport(
@@ -115,7 +115,7 @@ async fn ls_remote() -> Result {
 #[crate::bisync::bisync]
 #[cfg_attr(feature = "blocking-client", test)]
 #[cfg_attr(all(feature = "async-client", not(feature = "blocking-client")), async_std::test)]
-async fn ls_remote_handshake_failure_due_to_downgrade() -> Result {
+async fn ls_remote_handshake_failure_due_to_downgrade() -> TestResult {
     let out = Vec::new();
     let delegate = LsRemoteDelegate::default();
 
@@ -133,7 +133,6 @@ async fn ls_remote_handshake_failure_due_to_downgrade() -> Result {
         "agent",
         false,
     )
-    .await
-    .expect("V1 is OK for this transport");
+    .await?;
     Ok(())
 }

@@ -1,10 +1,10 @@
-use crate::Result;
+use gix_testtools::{Result, TestResult};
 use std::path::Path;
 
 #[test]
-fn pipeline_in_nonbare_repo_without_index() -> Result {
+fn pipeline_in_nonbare_repo_without_index() -> TestResult {
     let repo = named_subrepo_opts("make_basic_repo.sh", "all-untracked", Default::default())?;
-    let _ = repo.filter_pipeline(None).expect("does not fail due to missing index");
+    let _ = repo.filter_pipeline(None)?;
     Ok(())
 }
 
@@ -15,7 +15,7 @@ use super::blob_id;
 use crate::util::{named_repo, named_subrepo_opts};
 
 #[test]
-fn pipeline_in_repo_without_special_options() -> Result {
+fn pipeline_in_repo_without_special_options() -> TestResult {
     let repo = named_repo("make_basic_repo.sh")?;
     let (mut pipe, index) = repo.filter_pipeline(None)?;
 
@@ -34,7 +34,7 @@ fn pipeline_in_repo_without_special_options() -> Result {
 }
 
 #[test]
-fn repo_local_filter_driver_configuration_overrides_global_configuration() -> Result {
+fn repo_local_filter_driver_configuration_overrides_global_configuration() -> TestResult {
     let mut repo = named_repo("make_basic_repo.sh")?;
     repo.config_snapshot_mut()
         .append_config(
@@ -60,7 +60,7 @@ fn repo_local_filter_driver_configuration_overrides_global_configuration() -> Re
 
 #[test]
 #[cfg(unix)]
-fn pipeline_worktree_file_to_object() -> Result {
+fn pipeline_worktree_file_to_object() -> TestResult {
     let repo = named_repo("repo_with_untracked_files.sh")?;
     let work_dir = repo.workdir().expect("non-bare");
     let (mut pipe, index) = repo.filter_pipeline(None)?;
@@ -121,7 +121,7 @@ fn pipeline_worktree_file_to_object() -> Result {
 
 #[test]
 #[cfg(unix)]
-fn worktree_file_to_object_opens_submodules_after_path_options_were_consumed() -> Result {
+fn worktree_file_to_object_opens_submodules_after_path_options_were_consumed() -> TestResult {
     let repo = named_repo("repo_with_untracked_files.sh")?;
     let submodule = gix::open_opts(
         repo.workdir().expect("non-bare").join("submodule"),
@@ -163,7 +163,7 @@ fn worktree_file_to_object_opens_submodules_after_path_options_were_consumed() -
 }
 
 #[test]
-fn pipeline_with_autocrlf() -> Result {
+fn pipeline_with_autocrlf() -> TestResult {
     let repo = named_repo("make_config_repo.sh")?;
     let (mut pipe, index) = repo.filter_pipeline(None)?;
 

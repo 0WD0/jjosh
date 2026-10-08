@@ -1,7 +1,6 @@
 mod refedit {
-    use crate::Result;
     #[test]
-    fn constructors_apply_common_defaults() -> Result {
+    fn constructors_apply_common_defaults() -> gix_testtools::TestResult {
         use gix_ref::{
             FullName, Target,
             transaction::{Change, LogChange, PreviousValue, RefEdit, RefLog},
@@ -64,7 +63,6 @@ mod refedit {
 }
 
 mod refedit_ext {
-    use crate::Result;
     use std::{cell::RefCell, collections::BTreeMap};
 
     use gix_object::bstr::{BString, ByteSlice};
@@ -101,7 +99,7 @@ mod refedit_ext {
     }
 
     #[test]
-    fn preprocessing_checks_duplicates_after_splits() -> Result {
+    fn preprocessing_checks_duplicates_after_splits() -> gix_testtools::TestResult {
         let store = MockStore::with(Some(("HEAD", Target::Symbolic("refs/heads/main".try_into()?))));
 
         let mut edits = vec![
@@ -139,7 +137,6 @@ mod refedit_ext {
     }
 
     mod splitting {
-        use crate::Result;
         use std::cell::Cell;
 
         use gix_ref::{
@@ -154,7 +151,7 @@ mod refedit_ext {
         }
 
         #[test]
-        fn non_symbolic_refs_are_ignored_or_if_the_deref_flag_is_not_set() -> Result {
+        fn non_symbolic_refs_are_ignored_or_if_the_deref_flag_is_not_set() -> gix_testtools::TestResult {
             let store = MockStore::with(Some((
                 "refs/heads/anything-but-not-symbolic",
                 Target::Object(gix_hash::Kind::Sha1.null()),
@@ -189,7 +186,7 @@ mod refedit_ext {
             Ok(())
         }
         #[test]
-        fn empty_inputs_are_ok() -> Result {
+        fn empty_inputs_are_ok() -> gix_testtools::TestResult {
             let store = MockStore::default();
             Vec::<RefEdit>::new()
                 .extend_with_splits_of_symbolic_refs(&mut |n| store.find_existing(n), &mut |_, e| e)
@@ -197,7 +194,7 @@ mod refedit_ext {
         }
 
         #[test]
-        fn symbolic_refs_cycles_are_handled_gracefully() -> Result {
+        fn symbolic_refs_cycles_are_handled_gracefully() -> gix_testtools::TestResult {
             #[derive(Default)]
             struct Cycler {
                 next_item: Cell<bool>,
@@ -243,7 +240,8 @@ mod refedit_ext {
         }
 
         #[test]
-        fn symbolic_refs_are_split_into_referents_handling_the_reflog_and_previous_values_recursively() -> Result {
+        fn symbolic_refs_are_split_into_referents_handling_the_reflog_and_previous_values_recursively()
+        -> gix_testtools::TestResult {
             let store = MockStore::with(vec![
                 (
                     "refs/heads/delete-symbolic-1",

@@ -12,7 +12,7 @@ fn test_password(with_dot: bool) -> String {
 }
 
 #[test]
-fn username_expansion_is_unsupported() -> gix_error::TestResult {
+fn username_expansion_is_unsupported() -> gix_testtools::TestResult {
     Ok(assert_url_roundtrip(
         "http://example.com/~byron/hello",
         url(Scheme::Http, None, "example.com", None, b"/~byron/hello"),
@@ -20,7 +20,7 @@ fn username_expansion_is_unsupported() -> gix_error::TestResult {
 }
 
 #[test]
-fn empty_user_cannot_roundtrip() -> gix_error::TestResult {
+fn empty_user_cannot_roundtrip() -> gix_testtools::TestResult {
     let actual = gix_url::parse("http://@example.com/~byron/hello")?;
     let expected = url(Scheme::Http, None, "example.com", None, b"/~byron/hello");
     assert_eq!(actual, expected);
@@ -33,7 +33,7 @@ fn empty_user_cannot_roundtrip() -> gix_error::TestResult {
 }
 
 #[test]
-fn username_and_password() -> gix_error::TestResult {
+fn username_and_password() -> gix_testtools::TestResult {
     let password = test_password(false);
     Ok(assert_url_roundtrip(
         &format!("http://user:{password}@example.com/~byron/hello"),
@@ -42,7 +42,7 @@ fn username_and_password() -> gix_error::TestResult {
 }
 
 #[test]
-fn colon_in_username_roundtrips() -> gix_error::TestResult {
+fn colon_in_username_roundtrips() -> gix_testtools::TestResult {
     Ok(assert_url_roundtrip(
         "http://a%3Ab@example.com/",
         url(Scheme::Http, "a:b", "example.com", None, b"/"),
@@ -50,7 +50,7 @@ fn colon_in_username_roundtrips() -> gix_error::TestResult {
 }
 
 #[test]
-fn colon_in_password_roundtrips() -> gix_error::TestResult {
+fn colon_in_password_roundtrips() -> gix_testtools::TestResult {
     let password = format!("a:{}", std::process::id());
     Ok(assert_url_roundtrip(
         &format!("http://user:{password}@example.com/"),
@@ -59,7 +59,7 @@ fn colon_in_password_roundtrips() -> gix_error::TestResult {
 }
 
 #[test]
-fn username_and_password_and_port() -> gix_error::TestResult {
+fn username_and_password_and_port() -> gix_testtools::TestResult {
     let password = test_password(false);
     Ok(assert_url_roundtrip(
         &format!("http://user:{password}@example.com:8080/~byron/hello"),
@@ -68,7 +68,7 @@ fn username_and_password_and_port() -> gix_error::TestResult {
 }
 
 #[test]
-fn username_and_password_with_spaces_and_port() -> gix_error::TestResult {
+fn username_and_password_with_spaces_and_port() -> gix_testtools::TestResult {
     let expected = gix_url::Url::from_parts(
         Scheme::Http,
         Some("user name".into()),
@@ -88,7 +88,7 @@ fn username_and_password_with_spaces_and_port() -> gix_error::TestResult {
 }
 
 #[test]
-fn only_password() -> gix_error::TestResult {
+fn only_password() -> gix_testtools::TestResult {
     let password = test_password(false);
     Ok(assert_url_roundtrip(
         &format!("http://:{password}@example.com/~byron/hello"),
@@ -97,7 +97,7 @@ fn only_password() -> gix_error::TestResult {
 }
 
 #[test]
-fn username_and_empty_password() -> gix_error::TestResult {
+fn username_and_empty_password() -> gix_testtools::TestResult {
     let actual = gix_url::parse("http://user:@example.com/~byron/hello")?;
     let expected = url(Scheme::Http, "user", "example.com", None, b"/~byron/hello");
     assert_eq!(actual, expected);
@@ -110,7 +110,7 @@ fn username_and_empty_password() -> gix_error::TestResult {
 }
 
 #[test]
-fn secure() -> gix_error::TestResult {
+fn secure() -> gix_testtools::TestResult {
     Ok(assert_url_roundtrip(
         "https://github.com/byron/gitoxide",
         url(Scheme::Https, None, "github.com", None, b"/byron/gitoxide"),
@@ -118,14 +118,14 @@ fn secure() -> gix_error::TestResult {
 }
 
 #[test]
-fn http_missing_path() -> gix_error::TestResult {
+fn http_missing_path() -> gix_testtools::TestResult {
     assert_url_roundtrip("http://host.xz/", url(Scheme::Http, None, "host.xz", None, b"/"))?;
     assert_url("http://host.xz", url(Scheme::Http, None, "host.xz", None, b"/"))?;
     Ok(())
 }
 
 #[test]
-fn username_with_dot_is_not_percent_encoded() -> gix_error::TestResult {
+fn username_with_dot_is_not_percent_encoded() -> gix_testtools::TestResult {
     Ok(assert_url_roundtrip(
         "http://user.name@example.com/repo",
         url(Scheme::Http, "user.name", "example.com", None, b"/repo"),
@@ -133,7 +133,7 @@ fn username_with_dot_is_not_percent_encoded() -> gix_error::TestResult {
 }
 
 #[test]
-fn password_with_dot_is_not_percent_encoded() -> gix_error::TestResult {
+fn password_with_dot_is_not_percent_encoded() -> gix_testtools::TestResult {
     let password = test_password(true);
     Ok(assert_url_roundtrip(
         &format!("http://user:{password}@example.com/repo"),
@@ -142,7 +142,7 @@ fn password_with_dot_is_not_percent_encoded() -> gix_error::TestResult {
 }
 
 #[test]
-fn username_and_password_with_dots_are_not_percent_encoded() -> gix_error::TestResult {
+fn username_and_password_with_dots_are_not_percent_encoded() -> gix_testtools::TestResult {
     let password = test_password(true);
     Ok(assert_url_roundtrip(
         &format!("http://user.name:{password}@example.com/repo"),
@@ -151,7 +151,7 @@ fn username_and_password_with_dots_are_not_percent_encoded() -> gix_error::TestR
 }
 
 #[test]
-fn http_with_ipv6() -> gix_error::TestResult {
+fn http_with_ipv6() -> gix_testtools::TestResult {
     Ok(assert_url_roundtrip(
         "http://[::1]/repo",
         url(Scheme::Http, None, "[::1]", None, b"/repo"),
@@ -159,7 +159,7 @@ fn http_with_ipv6() -> gix_error::TestResult {
 }
 
 #[test]
-fn http_with_ipv6_and_port() -> gix_error::TestResult {
+fn http_with_ipv6_and_port() -> gix_testtools::TestResult {
     Ok(assert_url_roundtrip(
         "http://[::1]:8080/repo",
         url(Scheme::Http, None, "[::1]", 8080, b"/repo"),
@@ -167,7 +167,7 @@ fn http_with_ipv6_and_port() -> gix_error::TestResult {
 }
 
 #[test]
-fn https_with_ipv6_user_and_port() -> gix_error::TestResult {
+fn https_with_ipv6_user_and_port() -> gix_testtools::TestResult {
     Ok(assert_url_roundtrip(
         "https://user@[2001:db8::1]:8443/repo",
         url(Scheme::Https, "user", "[2001:db8::1]", 8443, b"/repo"),
@@ -175,7 +175,7 @@ fn https_with_ipv6_user_and_port() -> gix_error::TestResult {
 }
 
 #[test]
-fn percent_encoded_path() -> gix_error::TestResult {
+fn percent_encoded_path() -> gix_testtools::TestResult {
     let url = gix_url::parse("https://example.com/path/with%20spaces/file")?;
     assert_eq!(url.path, "/path/with spaces/file", "paths are now decoded");
     assert_eq!(
@@ -187,14 +187,14 @@ fn percent_encoded_path() -> gix_error::TestResult {
 }
 
 #[test]
-fn percent_encoded_international_path() -> gix_error::TestResult {
+fn percent_encoded_international_path() -> gix_testtools::TestResult {
     let url = gix_url::parse("https://example.com/caf%C3%A9")?;
     assert_eq!(url.path, "/café", "international characters are decoded in path");
     Ok(())
 }
 
 #[test]
-fn original_path_preserves_exact_spelling() -> gix_error::TestResult {
+fn original_path_preserves_exact_spelling() -> gix_testtools::TestResult {
     for (input, decoded_path, original_path, message) in [
         (
             "https://example.com/plain",
@@ -230,7 +230,7 @@ fn original_path_preserves_exact_spelling() -> gix_error::TestResult {
 }
 
 #[test]
-fn reserved_percent_encoded_path_octets_remain_lossless() -> gix_error::TestResult {
+fn reserved_percent_encoded_path_octets_remain_lossless() -> gix_testtools::TestResult {
     for (input, expected_path, message) in [
         (
             "https://example.com/a%2Fb",
@@ -261,7 +261,7 @@ fn reserved_percent_encoded_path_octets_remain_lossless() -> gix_error::TestResu
 }
 
 #[test]
-fn literal_percent_escape_text_from_parts_is_encoded() -> gix_error::TestResult {
+fn literal_percent_escape_text_from_parts_is_encoded() -> gix_testtools::TestResult {
     let url = gix_url::Url::from_parts(
         Scheme::Https,
         None,
@@ -305,7 +305,7 @@ fn literal_percent_escape_text_from_parts_is_encoded() -> gix_error::TestResult 
 }
 
 #[test]
-fn percent_encoded_path_roundtrips_in_lossless_serialization() -> gix_error::TestResult {
+fn percent_encoded_path_roundtrips_in_lossless_serialization() -> gix_testtools::TestResult {
     for (input, message, expected_host, expected_path) in [
         (
             "https://%20@%40.example.org/%20%25",
@@ -331,7 +331,7 @@ fn percent_encoded_path_roundtrips_in_lossless_serialization() -> gix_error::Tes
 }
 
 #[test]
-fn query_and_fragment_delimiters_in_path_roundtrip() -> gix_error::TestResult {
+fn query_and_fragment_delimiters_in_path_roundtrip() -> gix_testtools::TestResult {
     assert_url_roundtrip(
         "https://host/repo.git?token=abc",
         url(Scheme::Https, None, "host", None, b"/repo.git?token=abc"),
@@ -344,7 +344,7 @@ fn query_and_fragment_delimiters_in_path_roundtrip() -> gix_error::TestResult {
 }
 
 #[test]
-fn query_and_fragment_delimiters_end_the_authority() -> gix_error::TestResult {
+fn query_and_fragment_delimiters_end_the_authority() -> gix_testtools::TestResult {
     for input in ["https://host?@redirected/repo", "https://host#@redirected/repo"] {
         let url = gix_url::parse(input)?;
         assert_eq!(url.host(), Some("host"), "the authority ends at the delimiter");
@@ -366,7 +366,7 @@ fn query_and_fragment_delimiters_end_the_authority() -> gix_error::TestResult {
 }
 
 #[test]
-fn authority_length_limit_excludes_the_scheme_separator() -> gix_error::TestResult {
+fn authority_length_limit_excludes_the_scheme_separator() -> gix_testtools::TestResult {
     let at_limit = format!("https://{}", "a".repeat(1024));
     assert_eq!(
         gix_url::parse(&at_limit)?.host().map(str::len),
@@ -376,6 +376,6 @@ fn authority_length_limit_excludes_the_scheme_separator() -> gix_error::TestResu
     let over_limit = format!("https://{}", "a".repeat(1025));
     insta::assert_debug_snapshot!(gix_url::parse(over_limit)
             .expect_err("the input must be rejected")
-            , "one byte beyond the authority limit is rejected", @r#"The host portion of the URL is too long (1032 bytes shown, 1033 bytes total), "input"="https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa""#);
+            , "one byte beyond the authority limit is rejected", @r#"The host portion of the URL is too long (1032 bytes shown, 1033 bytes total), input="https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa""#);
     Ok(())
 }

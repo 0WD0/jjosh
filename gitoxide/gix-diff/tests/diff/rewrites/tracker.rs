@@ -1,4 +1,3 @@
-use crate::Result;
 use gix_diff::{
     Rewrites,
     blob::DiffLineStats,
@@ -13,6 +12,7 @@ use gix_diff::{
     tree::visit::Relation,
 };
 use gix_object::tree::EntryKind;
+use gix_testtools::TestResult;
 use pretty_assertions::assert_eq;
 
 use crate::{
@@ -21,7 +21,7 @@ use crate::{
 };
 
 #[test]
-fn rename_by_id() -> Result {
+fn rename_by_id() -> TestResult {
     // Limits are only applied when doing rewrite-checks
     for limit in [0, 1] {
         let rewrites = Rewrites {
@@ -131,7 +131,7 @@ fn gitlinks_are_renamed_only_by_id() {
 }
 
 #[test]
-fn copy_by_similarity_reports_limit_if_encountered() -> Result {
+fn copy_by_similarity_reports_limit_if_encountered() -> TestResult {
     let rewrites = Rewrites {
         copies: Some(Copies {
             source: CopySource::FromSetOfModifiedFiles,
@@ -182,7 +182,7 @@ fn copy_by_similarity_reports_limit_if_encountered() -> Result {
 }
 
 #[test]
-fn copy_by_id() -> Result {
+fn copy_by_id() -> TestResult {
     // Limits are only applied when doing rewrite-checks
     for limit in [0, 1] {
         let rewrites = Rewrites {
@@ -260,7 +260,7 @@ fn copy_by_id() -> Result {
 }
 
 #[test]
-fn copy_by_id_search_in_all_sources() -> Result {
+fn copy_by_id_search_in_all_sources() -> TestResult {
     // Limits are only applied when doing rewrite-checks
     for limit in [0, 1] {
         let rewrites = Rewrites {
@@ -345,7 +345,7 @@ fn copy_by_id_search_in_all_sources() -> Result {
 }
 
 #[test]
-fn copy_by_50_percent_similarity() -> Result {
+fn copy_by_50_percent_similarity() -> TestResult {
     let rewrites = Rewrites {
         copies: Some(Copies {
             source: CopySource::FromSetOfModifiedFiles,
@@ -428,7 +428,7 @@ fn copy_by_50_percent_similarity() -> Result {
 }
 
 #[test]
-fn copy_by_id_in_additions_only() -> Result {
+fn copy_by_id_in_additions_only() -> TestResult {
     let rewrites = Rewrites {
         copies: Some(Copies {
             source: CopySource::FromSetOfModifiedFiles,
@@ -482,7 +482,7 @@ fn copy_by_id_in_additions_only() -> Result {
 }
 
 #[test]
-fn rename_by_similarity_reports_limit_if_encountered() -> Result {
+fn rename_by_similarity_reports_limit_if_encountered() -> TestResult {
     let rewrites = Rewrites {
         copies: None,
         percentage: Some(0.5),
@@ -528,7 +528,7 @@ fn rename_by_similarity_reports_limit_if_encountered() -> Result {
 }
 
 #[test]
-fn rename_by_50_percent_similarity() -> Result {
+fn rename_by_50_percent_similarity() -> TestResult {
     let rewrites = Rewrites {
         copies: None,
         percentage: Some(0.5),
@@ -613,7 +613,7 @@ fn rename_by_50_percent_similarity() -> Result {
 }
 
 #[test]
-fn rename_by_similarity_prefers_stronger_match_over_same_filename_match() -> Result {
+fn rename_by_similarity_prefers_stronger_match_over_same_filename_match() -> TestResult {
     let rewrites = Rewrites {
         copies: None,
         percentage: Some(0.5),
@@ -672,7 +672,7 @@ fn rename_by_similarity_prefers_stronger_match_over_same_filename_match() -> Res
 }
 
 #[test]
-fn directories_without_relation_are_ignored() -> Result {
+fn directories_without_relation_are_ignored() -> TestResult {
     let mut track = util::new_tracker(Default::default());
     let tree_without_relation = Change {
         id: *NULL_ID,
@@ -689,7 +689,7 @@ fn directories_without_relation_are_ignored() -> Result {
 }
 
 #[test]
-fn directory_renames_by_id_can_fail_gracefully() -> Result {
+fn directory_renames_by_id_can_fail_gracefully() -> TestResult {
     let rename_by_similarity = Rewrites {
         copies: None,
         percentage: Some(0.5),
@@ -838,7 +838,7 @@ fn directory_renames_by_id_can_fail_gracefully() -> Result {
 }
 
 #[test]
-fn simple_directory_rename_by_id() -> Result {
+fn simple_directory_rename_by_id() -> TestResult {
     let renames_by_identity = Rewrites {
         copies: None,
         percentage: None,
@@ -1005,7 +1005,7 @@ fn simple_directory_rename_by_id() -> Result {
 }
 
 #[test]
-fn remove_only() -> Result {
+fn remove_only() -> TestResult {
     let mut track = util::new_tracker(Default::default());
     assert!(
         track.try_push_change(Change::deletion(), "a".into()).is_none(),
@@ -1026,7 +1026,7 @@ fn remove_only() -> Result {
 }
 
 #[test]
-fn add_only() -> Result {
+fn add_only() -> TestResult {
     let mut track = util::new_tracker(Default::default());
     assert!(
         track.try_push_change(Change::addition(), "a".into()).is_none(),
@@ -1046,7 +1046,7 @@ fn add_only() -> Result {
 }
 
 #[test]
-fn rename_tracking_is_order_independent() -> Result {
+fn rename_tracking_is_order_independent() -> TestResult {
     // #1832: exactly one of several identical-content additions can be matched as the rename of a
     // deletion. Which one is chosen must not depend on the order in which items are pushed - but
     // the parallel dirwalk and index-traversal threads deliver them in a nondeterministic order,
@@ -1084,7 +1084,7 @@ fn rename_tracking_is_order_independent() -> Result {
 }
 
 #[test]
-fn copy_source_selection_is_order_independent() -> Result {
+fn copy_source_selection_is_order_independent() -> TestResult {
     // #1832, exhaustive-copy variant: with copies searched against all sources - including the whole
     // source tree that is pushed in during `emit` - the source chosen for an identical-content
     // destination must not depend on the order items were pushed. This also exercises the second

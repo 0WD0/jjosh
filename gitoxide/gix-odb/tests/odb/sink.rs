@@ -1,10 +1,9 @@
-use crate::Result;
 use gix_object::Write;
 
 use crate::store::loose::{locate_oid, object_ids};
 
 #[test]
-fn write() -> Result {
+fn write() -> gix_testtools::TestResult {
     let mut buf = Vec::new();
     for oid in object_ids() {
         let obj = locate_oid(oid, &mut buf);

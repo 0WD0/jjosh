@@ -153,7 +153,7 @@ impl CompareBlobs for HashEq {
                         gix_object::Kind::Blob,
                         &mut stream,
                         len,
-                        &mut gix_features::progress::Discard,
+                        &mut gix_utils::progress::Discard,
                         &AtomicBool::default(),
                     )?,
                 };

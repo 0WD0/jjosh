@@ -57,7 +57,7 @@ pub mod from_tree {
         where
             Find: gix_object::Find,
         {
-            let _span = gix_features::trace::coarse!("gix_index::State::from_tree()");
+            let _span = gix_trace::coarse!("gix_index::State::from_tree()");
             let mut delegate = CollectEntries::new(validate);
             let traversal = depthfirst(tree.to_owned(), depthfirst::State::default(), &objects, &mut delegate);
 

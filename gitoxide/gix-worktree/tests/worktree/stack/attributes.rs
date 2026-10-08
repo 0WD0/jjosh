@@ -1,12 +1,12 @@
-use crate::Result;
 use bstr::ByteSlice;
 use gix_attributes::search::Outcome;
+use gix_testtools::TestResult;
 use gix_worktree::stack::state;
 
 use crate::stack::probe_case;
 
 #[test]
-fn baseline() -> Result {
+fn baseline() -> TestResult {
     // Due to the way our setup differs from gits dynamic stack (which involves trying to read files from disk
     // by path) we can only test one case baseline, so we require multiple platforms (or filesystems) to run this.
     let case = probe_case()?;

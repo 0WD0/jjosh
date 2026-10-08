@@ -116,7 +116,7 @@ fn write_to_local_config(config: &gix_config::File, mode: WriteMode) -> std::io:
 /// as the `repo` handle was opened before that write and won't observe it until
 /// it is either updated in memory or reopened.
 pub fn append_config_to_repo_config(repo: &mut Repository, config: gix_config::File) -> Result {
-    let repo_config = gix_features::threading::OwnShared::make_mut(&mut repo.config.resolved);
+    let repo_config = gix_parallel::OwnShared::make_mut(&mut repo.config.resolved);
     repo_config
         .append(config)
         .or_raise(|| message("Failed to append repository configuration"))

@@ -29,15 +29,18 @@ test = false
 bench = false
 doc = false
 
+[[test]]
+name = "threaded"
+path = "tests/threaded.rs"
+required-features = ["gix-parallel/parallel"]
+
 [features]
 ## Enable support for the SHA-1 hash by forwarding the feature to dependencies.
 sha1 = ["gix-hash/sha1"]
 ## Enable support for the SHA-256 hash by forwarding the feature to dependencies.
 sha256 = ["gix-hash/sha256"]
-## Enable thread-safety, make data structures `Send`.
-parallel = ["gix-attributes/parallel"]
 ## Internal feature for building binaries referenced by integration tests through CARGO_BIN_EXE_*.
-test-helper = []
+test-helper = ["gix-error/error-print-location"]
 
 [dependencies]
 gix-hash = { version = "^0.27.0", path = "../gix-hash" }
@@ -61,7 +64,8 @@ insta = "1.46.3"
 gix-filter = { path = ".", features = ["test-helper"] }
 gix-hash = { path = "../gix-hash", features = ["sha1", "sha256"] }
 gix-quote = { path = "../gix-quote" }
-gix-testtools = { path = "../tests/tools" }
+gix-parallel = { path = "../gix-parallel" }
+gix-testtools = { path = "../tests/tools", default-features = false, features = ["repo-snapshot", "sha1", "sha256"] }
 gix-worktree = { path = "../gix-worktree", default-features = false, features = ["attributes"] }
 
 [package.metadata.docs.rs]

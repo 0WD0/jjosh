@@ -209,7 +209,7 @@ fn prepare_inner(
         document.push(b'\n');
     }
     reword::write_missing_agent_trailers(&mut document, &repo, &initial_message)?;
-    reword::write_config_source(&mut document, MESSAGE_KEY, source);
+    reword::write_config_source(&mut document, MESSAGE_KEY, source)?;
     document.extend_from_slice(b"\n; Changes to be committed:\n");
     reword::write_diff_summary(&mut document, &repo, changes)?;
     drop(new_tree);
@@ -630,7 +630,7 @@ mod tests {
     fn configured_messages_prefill_normal_and_empty_commits() -> gix_testtools::Result {
         let fixture = gix_testtools::scripted_fixture_writable("create_commit.sh")?;
         let mut source = b"; tix.new.message is configured in ".to_vec();
-        source.extend_from_slice(gix::path::into_bstr(fixture.path().join(".git").join("config")).as_ref());
+        source.extend_from_slice(gix::path::into_bstr(fixture.path().join(".git").join("config"))?.as_ref());
         source.extend_from_slice(b".\n");
         for (message, expected) in [
             ("Résumé\n\nExplain why.\n", "Résumé\n\nExplain why.\n"),
@@ -742,10 +742,7 @@ mod tests {
             "new-commit editors contain only the configured author"
         );
         assert!(
-            prepared
-                .document
-                .windows(b"tracked | 2 +- 0".len())
-                .any(|window| window == b"tracked | 2 +- 0"),
+            prepared.document.contains_str(b"tracked | 2 +- 0"),
             "the editor buffer includes a commented per-file diffstat with net lines: {}",
             prepared.document.as_bstr()
         );

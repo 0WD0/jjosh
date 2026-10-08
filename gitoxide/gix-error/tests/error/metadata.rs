@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::BTreeMap, path::Path};
+use std::{borrow::Cow, path::Path};
 
 use gix_error::{
     Class, Error, ErrorExt, Message, MetadataValue, ResourceExhaustionKind, ResultExt, classify, corruption, not_found,
@@ -142,7 +142,7 @@ fn message_debug_keeps_class_and_values_compact() {
         assert_eq!(
             format!("{message:?}"),
             format!(
-                r#"Message {{ message: "details", class: {expected_class}, values: {{"input": Bytes("bad\xff"), "offset": U64(42)}} }}"#
+                r#"Message {{ message: "details", class: {expected_class}, values: {{input: Bytes("bad\xff"), offset: U64(42)}} }}"#
             ),
             "compact debug omits Some and preserves ordered, typed values"
         );
@@ -152,7 +152,7 @@ fn message_debug_keeps_class_and_values_compact() {
                 r#"Message {{
     message: "details",
     class: {expected_class},
-    values: {{"input": Bytes("bad\xff"), "offset": U64(42)}},
+    values: {{input: Bytes("bad\xff"), offset: U64(42)}},
 }}"#
             ),
             "pretty debug keeps both the class and the entire values map on single lines"
@@ -180,10 +180,10 @@ fn message_debug_omits_absent_class_and_empty_values() {
         ),
         (
             Message::new("details").with("offset", 42_u64),
-            r#"Message { message: "details", values: {"offset": U64(42)} }"#,
+            r#"Message { message: "details", values: {offset: U64(42)} }"#,
             r#"Message {
     message: "details",
-    values: {"offset": U64(42)},
+    values: {offset: U64(42)},
 }"#,
         ),
     ] {
@@ -257,7 +257,7 @@ fn scalar_values_are_lossless_and_keys_are_local_to_a_context() {
     insta::assert_debug_snapshot!(format_args!("{}", Message::new("details")
             .with("z", "line\nbreak")
             .with("a", 2)
-            ), "keys are ordered and text is escaped", @r#"details, "a"=2, "z"="line\nbreak""#);
+            ), "keys are ordered and text is escaped", @r#"details, a=2, z="line\nbreak""#);
     #[cfg(unix)]
     {
         use std::os::unix::ffi::OsStringExt;
@@ -279,11 +279,11 @@ fn scalar_values_are_lossless_and_keys_are_local_to_a_context() {
         );
     }
 
-    insta::assert_snapshot!(metadata, "validate Display", @r#"details, "bytes"="ref\xff", "flag"=true, "float"=1.5, "path"="objects", "signed"=-9223372036854775808, "text"="line\nbreak", "unsigned"=18446744073709551615"#);
+    insta::assert_snapshot!(metadata, "validate Display", @r#"details, bytes="ref\xff", flag=true, float=1.5, path="objects", signed=-9223372036854775808, text="line\nbreak", unsigned=18446744073709551615"#);
     insta::assert_debug_snapshot!(metadata, "validate Display", @r#"
     Message {
         message: "details",
-        values: {"bytes": Bytes("ref\xff"), "flag": Bool(true), "float": F64(1.5), "path": Path("objects"), "signed": I64(-9223372036854775808), "text": String("line\nbreak"), "unsigned": U64(18446744073709551615)},
+        values: {bytes: Bytes("ref\xff"), flag: Bool(true), float: F64(1.5), path: Path("objects"), signed: I64(-9223372036854775808), text: String("line\nbreak"), unsigned: U64(18446744073709551615)},
     }
     "#);
 }
@@ -373,7 +373,7 @@ fn merged_metadata_visits_native_sources_nested_errors_and_sibling_causes() {
     let error = std::io::Error::other(error)
         .and_raise_typed(Message::new("read").with_input("less specific").with("key", "example"));
     let mut expected = expected;
-    expected.insert("key".into(), MetadataValue::from("example"));
+    expected.insert("key", "example");
     assert_eq!(
         error.metadata_merged(),
         expected,
@@ -416,7 +416,7 @@ fn metadata_contexts_preserve_causes_and_remain_separate_through_conversion() {
     assert!(err.is_not_found() && err.can_retry());
 
     #[cfg(all(feature = "auto-chain-error", not(feature = "tree-error")))]
-    insta::assert_snapshot!(format!("{:#}", err.error()), "the stored error's alternate display omits locations", @r#"custom: lookup, "path"="first": missing"#);
+    insta::assert_snapshot!(format!("{:#}", err.error()), "the stored error's alternate display omits locations", @r#"custom: lookup, path="first": missing"#);
     #[cfg(any(feature = "tree-error", not(feature = "auto-chain-error")))]
     insta::assert_snapshot!(format!("{:#}", err.error()), "the stored error's alternate display omits locations", @r#"
     custom
@@ -425,9 +425,9 @@ fn metadata_contexts_preserve_causes_and_remain_separate_through_conversion() {
     custom
 
     Caused by:
-        0: lookup, "path"="first"
+        0: lookup, path="first"
         1: missing
-        2: read, "path"="second"
+        2: read, path="second"
         └─0: timed out
     "#);
 
@@ -437,9 +437,9 @@ fn metadata_contexts_preserve_causes_and_remain_separate_through_conversion() {
         custom
 
         Caused by:
-            0: read, "path"="second"
+            0: read, path="second"
             1: timed out
-            2: lookup, "path"="first"
+            2: lookup, path="first"
             3: missing
         "#);
     } else {
@@ -447,9 +447,9 @@ fn metadata_contexts_preserve_causes_and_remain_separate_through_conversion() {
         custom
 
         Caused by:
-            0: lookup, "path"="first"
+            0: lookup, path="first"
             1: missing
-            2: read, "path"="second"
+            2: read, path="second"
             └─0: timed out
         "#);
     }
@@ -482,7 +482,7 @@ fn classified_context_preserves_the_real_callee() {
     let error = std::io::Error::from(std::io::ErrorKind::PermissionDenied)
         .and_raise_typed(gix_error::retryable("try reading again").with("path", Path::new("HEAD")));
     insta::assert_debug_snapshot!(error, "the message context supplies explicit retryability", @r#"
-    try reading again, "path"="HEAD"
+    try reading again, path="HEAD"
 
     Caused by:
         0: permission denied
@@ -529,14 +529,14 @@ fn classified_context_preserves_the_real_callee() {
     );
     if cfg!(all(feature = "auto-chain-error", not(feature = "tree-error"))) {
         insta::assert_debug_snapshot!(error, "conversion retains the real cause", @r#"
-        try reading again, "path"="HEAD"
+        try reading again, path="HEAD"
 
         Caused by:
             0: permission denied
         "#);
     } else {
         insta::assert_debug_snapshot!(error, "conversion retains the real cause", @r#"
-        try reading again, "path"="HEAD"
+        try reading again, path="HEAD"
 
         Caused by:
             0: permission denied
@@ -575,8 +575,8 @@ fn message_classifications_survive_markers_native_sources_and_nested_branches() 
         0: native
         1: I/O error (Other)
         2: lookup
-        3: first, "path"="a"
-        4: second, "path"="b"
+        3: first, path="a"
+        4: second, path="b"
     "#);
     assert!(
         error.is_not_found() && error.is_retryable(),
@@ -602,8 +602,8 @@ fn message_classifications_survive_markers_native_sources_and_nested_branches() 
             0: native
             1: I/O error (Other)
             2: lookup
-            3: first, "path"="a"
-            4: second, "path"="b"
+            3: first, path="a"
+            4: second, path="b"
         "#);
     } else {
         insta::assert_debug_snapshot!(error, "classification markers remain transparent", @r#"
@@ -613,8 +613,8 @@ fn message_classifications_survive_markers_native_sources_and_nested_branches() 
             0: native
             1: I/O error (Other)
             2: lookup
-            3: first, "path"="a"
-            4: second, "path"="b"
+            3: first, path="a"
+            4: second, path="b"
         "#);
     }
     assert!(
@@ -651,7 +651,7 @@ fn messages_are_visible_in_reports_unlike_markers() {
     lookup failed
 
     Caused by:
-        0: missing reference, "path"="HEAD"
+        0: missing reference, path="HEAD"
     "#);
     assert!(
         error.probable_cause().is::<Message>(),
@@ -728,7 +728,7 @@ fn message_builders_preserve_messages_and_replace_the_class() {
     Message {
         message: "details",
         class: Corruption,
-        values: {"input": Bytes("bad\xff")},
+        values: {input: Bytes("bad\xff")},
     }
     "#);
     assert_eq!(
@@ -766,7 +766,7 @@ fn message_builders_preserve_messages_and_replace_the_class() {
     Message {
         message: "object 42 is missing",
         class: NotFound,
-        values: {"object": I64(42)},
+        values: {object: I64(42)},
     }
     "#);
     assert_eq!(
@@ -1020,20 +1020,20 @@ fn class_constructors_create_visible_diagnostics_without_synthetic_sources() {
     }
     insta::assert_debug_snapshot!(diagnostics, "class constructors create visible diagnostics without synthetic sources", @r#"
     [
-        details, "path"="HEAD",
-        details, "path"="HEAD",
-        details, "path"="HEAD",
-        details, "path"="HEAD",
-        details, "path"="HEAD",
-        details, "path"="HEAD",
-        details, "path"="HEAD",
-        details, "path"="HEAD",
-        details, "path"="HEAD",
-        details, "path"="HEAD",
-        details, "path"="HEAD",
-        details, "path"="HEAD",
-        details, "path"="HEAD",
-        details, "path"="HEAD",
+        details, path="HEAD",
+        details, path="HEAD",
+        details, path="HEAD",
+        details, path="HEAD",
+        details, path="HEAD",
+        details, path="HEAD",
+        details, path="HEAD",
+        details, path="HEAD",
+        details, path="HEAD",
+        details, path="HEAD",
+        details, path="HEAD",
+        details, path="HEAD",
+        details, path="HEAD",
+        details, path="HEAD",
     ]
     "#);
 }
@@ -1054,7 +1054,7 @@ fn offending_input_does_not_require_a_validation_class_or_an_extra_cause() {
         MetadataValue::Bytes(input.into()),
         "type erasure preserves the original bytes"
     );
-    insta::assert_debug_snapshot!(error, "the diagnostic remains the cause", @r#"Malformed reference, "input"="ref: invalid\xff\n""#);
+    insta::assert_debug_snapshot!(error, "the diagnostic remains the cause", @r#"Malformed reference, input="ref: invalid\xff\n""#);
     assert!(
         error.probable_cause().is::<Message>(),
         "the diagnostic remains the cause"
@@ -1062,25 +1062,23 @@ fn offending_input_does_not_require_a_validation_class_or_an_extra_cause() {
 }
 
 #[test]
-fn metadata_alias_matches_fields_and_borrowed_iterators() {
+fn metadata_wrapper_matches_fields_and_borrowed_iterators() {
     use gix_error::Metadata;
 
-    let values: BTreeMap<Cow<'static, str>, MetadataValue> =
-        BTreeMap::from([(Cow::Borrowed("path"), MetadataValue::from("HEAD"))]);
-    let values: Metadata = values;
+    let values = Metadata::from([(Cow::Borrowed("path"), MetadataValue::from("HEAD"))]);
     let context = Message {
         values,
         ..Message::new("context")
     };
-    let values: &BTreeMap<Cow<'static, str>, MetadataValue> = &context.values;
+    let values: &Metadata = &context.values;
     assert_eq!(
         values["path"],
         MetadataValue::from("HEAD"),
-        "the public alias and values field are compatible with the underlying map"
+        "the public wrapper provides access to the values field"
     );
 
     let exception = context.raise_typed();
-    insta::assert_debug_snapshot!(exception, "metadata inspection borrows the values displayed with the context", @r#"context, "path"="HEAD""#);
+    insta::assert_debug_snapshot!(exception, "metadata inspection borrows the values displayed with the context", @r#"context, path="HEAD""#);
     let dictionary: &Metadata = exception
         .metadata()
         .next()
@@ -1102,4 +1100,123 @@ fn metadata_alias_matches_fields_and_borrowed_iterators() {
         std::ptr::eq(dictionary, &context.values),
         "Error::metadata() borrows the converted context's actual values field"
     );
+}
+
+#[test]
+fn metadata_keys_are_quoted_only_when_needed() {
+    for (key, formatted) in [
+        ("input", "input"),
+        ("exit_status", "exit_status"),
+        ("core.bare", "core.bare"),
+        ("object-id", "object-id"),
+        ("42", "42"),
+        ("", r#""""#),
+        ("two words", r#""two words""#),
+        ("line\nbreak", r#""line\nbreak""#),
+        ("tab\tkey", r#""tab\tkey""#),
+        ("null\0key", r#""null\0key""#),
+        ("key\"", r#""key\"""#),
+        ("key\\", r#""key\\""#),
+        ("key=value", r#""key=value""#),
+        ("key:value", r#""key:value""#),
+        ("key,other", r#""key,other""#),
+        ("{key}", r#""{key}""#),
+        ("[key]", r#""[key]""#),
+        ("clé", r#""clé""#),
+        ("key\u{200d}", r#""key\u{200d}""#),
+    ] {
+        let message = Message::new("details").with(key, "line\nbreak");
+        assert_eq!(
+            message.to_string(),
+            format!(r#"details, {formatted}="line\nbreak""#),
+            "display avoids unnecessary quotes without making unusual keys ambiguous"
+        );
+        assert_eq!(
+            format!("{message:?}"),
+            format!(r#"Message {{ message: "details", values: {{{formatted}: String("line\nbreak")}} }}"#),
+            "message debug uses the same key quoting while retaining value types and escapes"
+        );
+        assert_eq!(
+            format!("{:?}", message.values),
+            format!(r#"{{{formatted}: String("line\nbreak")}}"#),
+            "direct dictionary debug omits the implementation wrapper"
+        );
+        assert_eq!(
+            format!("{:#?}", message.values),
+            format!("{{\n    {formatted}: String(\"line\\nbreak\"),\n}}"),
+            "pretty dictionary debug uses the same quoting and keeps values compact"
+        );
+    }
+}
+
+#[test]
+fn metadata_provides_basic_dictionary_access_without_exposing_storage() {
+    use gix_error::Metadata;
+
+    let mut values = Metadata::new();
+    assert_eq!(
+        values,
+        Metadata::default(),
+        "new and default create equal empty dictionaries"
+    );
+    assert!(values.is_empty(), "new dictionaries have no values");
+    assert_eq!(values.len(), 0, "new dictionaries have zero entries");
+    assert_eq!(format!("{values:?}"), "{}", "empty debug output is an empty dictionary");
+    assert_eq!(values.get("missing"), None, "absent keys have no value");
+    assert_eq!(values.get_mut("missing"), None, "absent keys have no mutable value");
+    assert!(!values.contains_key("missing"), "absent keys are not contained");
+    assert_eq!(values.remove("missing"), None, "removing an absent key has no effect");
+    assert_eq!(
+        values.insert(String::from("z"), 1_u64),
+        None,
+        "insertion accepts owned keys and scalar values without explicit conversion"
+    );
+    assert_eq!(
+        values.insert("z", 2_u64),
+        Some(1_u64.into()),
+        "insertion accepts borrowed static keys and returns the replaced value"
+    );
+    assert!(values.contains_key("z"), "borrowed lookup finds owned keys");
+    *values.get_mut("z").expect("z was inserted") = 3_u64.into();
+    assert_eq!(
+        values.get("z"),
+        Some(&3_u64.into()),
+        "mutable access changes the stored value"
+    );
+    values.extend([("a".into(), false.into()), ("m".into(), "text".into())]);
+    assert_eq!(values.len(), 3, "extension records additional values");
+    assert_eq!(
+        values.iter().map(|(key, _)| key.as_ref()).collect::<Vec<_>>(),
+        ["a", "m", "z"],
+        "iteration follows lexicographic key order"
+    );
+    assert_eq!(
+        values.iter().rev().map(|(key, _)| key.as_ref()).collect::<Vec<_>>(),
+        ["z", "m", "a"],
+        "iteration can traverse keys in reverse order"
+    );
+    assert_eq!(
+        values.iter().len(),
+        values.len(),
+        "iteration exposes its exact remaining length"
+    );
+    for (_, value) in values.iter_mut() {
+        *value = true.into();
+    }
+    assert_eq!(values["a"], true.into(), "mutable iteration updates recorded values");
+    let copied: Metadata = values.iter().map(|(key, value)| (key.clone(), value.clone())).collect();
+    assert_eq!(
+        copied,
+        values.clone(),
+        "collection and cloning preserve keys and values"
+    );
+    assert_eq!(
+        values.remove("m"),
+        Some(true.into()),
+        "removal returns the recorded value"
+    );
+    assert_eq!(values.len(), 2, "removal decreases the dictionary size");
+    assert_eq!(copied.len(), 3, "copied dictionaries own independent storage");
+    values.clear();
+    assert!(values.is_empty(), "clear removes all recorded values");
 }

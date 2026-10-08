@@ -7,7 +7,7 @@ use std::{
 
 use gix_error::{Message, ResultExt};
 
-use gix_features::progress::{DynNestedProgress, MessageLevel, Progress};
+use gix_utils::progress::{DynNestedProgress, MessageLevel, Progress};
 
 use crate::{
     pack,
@@ -74,7 +74,7 @@ pub mod integrity {
         VerifyMultiIndex(PhantomData<gix_pack::multi_index::verify::integrity::ProgressId>),
     }
 
-    impl From<ProgressId> for gix_features::progress::Id {
+    impl From<ProgressId> for gix_utils::progress::Id {
         fn from(v: ProgressId) -> Self {
             match v {
                 ProgressId::VerifyLooseObjectDbPath => *b"VISP",
@@ -103,7 +103,7 @@ impl super::Store {
         F: Fn() -> C + Send + Clone,
     {
         let changed = || gix_error::message("The object database changed during verification").retryable_error();
-        let _span = gix_features::trace::coarse!("gix_odb:Store::verify_integrity()");
+        let _span = gix_trace::coarse!("gix_odb:Store::verify_integrity()");
         let mut index = self.index.load();
         if !index.is_initialized() {
             self.consolidate_with_disk_state(true, false, self.loose_compression)?;
@@ -116,7 +116,7 @@ impl super::Store {
 
         progress.init(
             Some(index.slot_indices.len()),
-            gix_features::progress::count("pack indices"),
+            gix_utils::progress::count("pack indices"),
         );
         let mut statistics = Vec::new();
         let index_check_message = |path: &std::path::Path| {
@@ -126,7 +126,7 @@ impl super::Store {
                     .map_or_else(Default::default, std::ffi::OsStr::to_string_lossy)
             )
         };
-        gix_features::trace::detail!("verify indices").into_scope(|| {
+        gix_trace::detail!("verify indices").into_scope(|| {
             for slot_index in &index.slot_indices {
                 let slot = &self.files[*slot_index];
                 if slot.generation.load(Ordering::SeqCst) != index.generation {
@@ -230,7 +230,7 @@ impl super::Store {
                 child_progress.show_throughput_with(
                     start,
                     num_objects as usize,
-                    gix_features::progress::count("objects").expect("set"),
+                    gix_utils::progress::count("objects").expect("set"),
                     MessageLevel::Success,
                 );
                 progress.inc();
@@ -240,10 +240,10 @@ impl super::Store {
 
         progress.init(
             Some(index.loose_dbs.len()),
-            gix_features::progress::count("loose object stores"),
+            gix_utils::progress::count("loose object stores"),
         );
         let mut loose_object_stores = Vec::new();
-        gix_features::trace::detail!("verify loose ODBs").into_scope(|| -> Result<_> {
+        gix_trace::detail!("verify loose ODBs").into_scope(|| -> Result<_> {
             for loose_db in &*index.loose_dbs {
                 let out = loose_db
                     .verify_integrity(

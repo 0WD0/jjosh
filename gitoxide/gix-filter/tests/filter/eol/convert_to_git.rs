@@ -1,11 +1,11 @@
-use crate::Result;
+use gix_testtools::TestResult;
 use std::path::Path;
 
 use bstr::{ByteSlice, ByteVec};
 use gix_filter::{eol, eol::AttributesDigest};
 
 #[test]
-fn with_binary_attribute_is_never_converted() {
+fn with_binary_attribute_is_never_converted() -> TestResult {
     let mut buf = Vec::new();
     let changed = eol::convert_to_git(
         b"hi\r\nho",
@@ -13,13 +13,13 @@ fn with_binary_attribute_is_never_converted() {
         &mut buf,
         &mut no_call,
         Default::default(),
-    )
-    .expect("no error");
+    )?;
     assert!(!changed, "the user marked it as binary so it's never being touched");
+    Ok(())
 }
 
 #[test]
-fn no_crlf_means_no_work() -> Result {
+fn no_crlf_means_no_work() -> TestResult {
     let mut buf = Vec::new();
     let changed = eol::convert_to_git(
         b"hi",
@@ -27,8 +27,7 @@ fn no_crlf_means_no_work() -> Result {
         &mut buf,
         &mut no_call,
         Default::default(),
-    )
-    .expect("no error");
+    )?;
     assert!(!changed);
 
     let changed = eol::convert_to_git(
@@ -37,14 +36,13 @@ fn no_crlf_means_no_work() -> Result {
         &mut buf,
         &mut no_object_in_index,
         Default::default(),
-    )
-    .expect("no error");
+    )?;
     assert!(!changed, "in auto-mode, the object is queried in the index as well.");
     Ok(())
 }
 
 #[test]
-fn detected_as_binary() -> Result {
+fn detected_as_binary() -> TestResult {
     let mut buf = Vec::new();
     let changed = eol::convert_to_git(
         b"hi\0zero makes it binary",
@@ -52,8 +50,7 @@ fn detected_as_binary() -> Result {
         &mut buf,
         &mut no_call,
         Default::default(),
-    )
-    .expect("no error");
+    )?;
     assert!(
         !changed,
         "in auto-mode, we have a heuristic to see if the buffer is binary"
@@ -62,7 +59,7 @@ fn detected_as_binary() -> Result {
 }
 
 #[test]
-fn trailing_dos_eof_marker_is_not_detected_as_binary() -> Result {
+fn trailing_dos_eof_marker_is_not_detected_as_binary() -> TestResult {
     let mut buf = Vec::new();
     let changed = eol::convert_to_git(
         b"a\r\nb\r\n\x1a",
@@ -70,8 +67,7 @@ fn trailing_dos_eof_marker_is_not_detected_as_binary() -> Result {
         &mut buf,
         &mut no_object_in_index,
         Default::default(),
-    )
-    .expect("no error");
+    )?;
     assert!(changed, "the DOS EOF marker doesn't stand in the way of conversion");
     assert_eq!(buf.as_bstr(), "a\nb\n\x1a");
 
@@ -81,14 +77,13 @@ fn trailing_dos_eof_marker_is_not_detected_as_binary() -> Result {
         &mut buf,
         &mut no_object_in_index,
         Default::default(),
-    )
-    .expect("no error");
+    )?;
     assert!(!changed, "a second marker isn't discounted, so this is binary");
     Ok(())
 }
 
 #[test]
-fn fast_conversion_by_stripping_cr() -> Result {
+fn fast_conversion_by_stripping_cr() -> TestResult {
     let mut buf = Vec::new();
     let changed = eol::convert_to_git(
         b"a\r\nb\r\nc",
@@ -96,15 +91,14 @@ fn fast_conversion_by_stripping_cr() -> Result {
         &mut buf,
         &mut no_call,
         Default::default(),
-    )
-    .expect("no error");
+    )?;
     assert!(changed);
     assert_eq!(buf.as_bstr(), "a\nb\nc", "here carriage returns can just be stripped");
     Ok(())
 }
 
 #[test]
-fn slower_conversion_due_to_lone_cr() -> Result {
+fn slower_conversion_due_to_lone_cr() -> TestResult {
     let mut buf = Vec::new();
     let changed = eol::convert_to_git(
         b"\r\ra\r\nb\r\nc",
@@ -112,8 +106,7 @@ fn slower_conversion_due_to_lone_cr() -> Result {
         &mut buf,
         &mut no_call,
         Default::default(),
-    )
-    .expect("no error");
+    )?;
     assert!(changed);
     assert_eq!(
         buf.as_bstr(),
@@ -124,7 +117,7 @@ fn slower_conversion_due_to_lone_cr() -> Result {
 }
 
 #[test]
-fn crlf_in_index_prevents_conversion_to_lf() -> Result {
+fn crlf_in_index_prevents_conversion_to_lf() -> TestResult {
     let mut buf = Vec::new();
     let mut called = false;
     let changed = eol::convert_to_git(
@@ -138,8 +131,7 @@ fn crlf_in_index_prevents_conversion_to_lf() -> Result {
             Ok(Some(()))
         },
         Default::default(),
-    )
-    .expect("no error");
+    )?;
     assert!(called, "in auto mode, the index is queried as well");
     assert!(
         !changed,
@@ -149,7 +141,7 @@ fn crlf_in_index_prevents_conversion_to_lf() -> Result {
 }
 
 #[test]
-fn round_trip_check() -> Result {
+fn round_trip_check() -> TestResult {
     let mut error_snapshots = Vec::new();
     let mut buf = Vec::new();
     for (input, digest) in [
@@ -205,7 +197,7 @@ fn round_trip_check() -> Result {
 }
 
 #[test]
-fn index_object_errors_keep_their_native_cause() -> gix_error::TestResult {
+fn index_object_errors_keep_their_native_cause() -> TestResult {
     use gix_error::ErrorExt;
 
     let err = eol::convert_to_git(

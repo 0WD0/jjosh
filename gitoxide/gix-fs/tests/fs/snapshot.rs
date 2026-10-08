@@ -3,8 +3,8 @@ use std::path::Path;
 use gix_fs::SharedFileSnapshotMut;
 
 #[test]
-fn journey() -> Result<(), Box<dyn std::error::Error>> {
-    let tmp = tempfile::tempdir().unwrap();
+fn journey() -> gix_testtools::TestResult {
+    let tmp = tempfile::tempdir()?;
     if !has_granular_times(tmp.path())? {
         return Ok(());
     }

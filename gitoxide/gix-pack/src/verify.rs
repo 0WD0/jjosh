@@ -2,7 +2,7 @@ use gix_error::Result;
 use std::{path::Path, sync::atomic::AtomicBool};
 
 use gix_error::{Class, ClassificationMarker, ResultExt, bail};
-use gix_features::progress::Progress;
+use gix_utils::progress::Progress;
 
 /// Returns the `index` at which the following `index + 1` value is not an increment over the value at `index`.
 pub fn fan(data: &[u32]) -> Option<usize> {

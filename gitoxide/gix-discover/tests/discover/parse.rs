@@ -1,10 +1,10 @@
-use crate::Result;
+use gix_testtools::TestResult;
 use std::path::Path;
 
 use gix_discover::parse;
 
 #[test]
-fn valid() -> Result {
+fn valid() -> TestResult {
     assert_eq!(parse::gitdir(b"gitdir: a")?, Path::new("a"));
     assert_eq!(parse::gitdir(b"gitdir: relative/path")?, Path::new("relative/path"));
     assert_eq!(parse::gitdir(b"gitdir: ./relative/path")?, Path::new("./relative/path"));
@@ -35,9 +35,9 @@ fn invalid() {
     }
     insta::assert_debug_snapshot!(error_snapshots, "invalid", @r#"
     [
-        Format should be 'gitdir: <path>', but got, "input"="gitdir:",
-        Format should be 'gitdir: <path>', but got, "input"="bogus: foo",
-        Format should be 'gitdir: <path>', but got, "input"="gitdir: ",
+        Format should be 'gitdir: <path>', but got, input="gitdir:",
+        Format should be 'gitdir: <path>', but got, input="bogus: foo",
+        Format should be 'gitdir: <path>', but got, input="gitdir: ",
     ]
     "#);
 }

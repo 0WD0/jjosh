@@ -143,7 +143,7 @@ impl State {
     /// It's required perform any case-insensitive lookup.
     /// TODO: needs multi-threaded insertion, raw-table to have multiple locks depending on bucket.
     pub fn prepare_icase_backing(&self) -> AccelerateLookup<'_> {
-        let _span = gix_features::trace::detail!("prepare_icase_backing", entries = self.entries.len());
+        let _span = gix_trace::detail!("prepare_icase_backing", entries = self.entries.len());
         let mut out = AccelerateLookup::with_capacity(self.entries.len());
         for entry in &self.entries {
             let entry_path = entry.path(self);
@@ -188,7 +188,7 @@ impl State {
                 }
             }
         }
-        gix_features::trace::debug!(directories = out.icase_dirs.len(), "stored directories");
+        gix_trace::debug!(directories = out.icase_dirs.len(), "stored directories");
         out
     }
 

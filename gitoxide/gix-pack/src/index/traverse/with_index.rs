@@ -1,7 +1,8 @@
 use gix_error::Result;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use gix_features::{parallel, progress::DynNestedProgress};
+use gix_parallel as parallel;
+use gix_utils::progress::DynNestedProgress;
 
 use crate::{
     cache::delta::traverse,
@@ -40,7 +41,7 @@ pub enum ProgressId {
     DecodedBytes,
 }
 
-impl From<ProgressId> for gix_features::progress::Id {
+impl From<ProgressId> for gix_utils::progress::Id {
     fn from(v: ProgressId) -> Self {
         match v {
             ProgressId::HashPackDataBytes => *b"PTHP",
@@ -75,9 +76,8 @@ where
         }: Options,
     ) -> Result<Outcome>
     where
-        Processor: FnMut(gix_object::Kind, &[u8], &index::Entry, &dyn gix_features::progress::Progress) -> Result
-            + Send
-            + Clone,
+        Processor:
+            FnMut(gix_object::Kind, &[u8], &index::Entry, &dyn gix_utils::progress::Progress) -> Result + Send + Clone,
         D: crate::FileData + Send + Sync,
     {
         let (verify_result, traversal_result) = parallel::join(
@@ -111,7 +111,7 @@ where
                     pack.path(),
                     sorted_entries.into_iter().map(Entry::from),
                     &|e| e.index_entry.pack_offset,
-                    &|id| self.lookup(id).map(|idx| self.pack_offset_at_index(idx)),
+                    &|id| Ok(self.lookup(id).map(|idx| self.pack_offset_at_index(idx))),
                     &mut progress.add_child_with_id("indexing".into(), ProgressId::TreeFromOffsetsObjects.into()),
                     should_interrupt,
                     self.object_hash,
@@ -143,7 +143,7 @@ where
                                 // TODO: Fix this - we overwrite the header of 'data' which also changes the computed entry size,
                                 // causing index and pack to seemingly mismatch. This is surprising, and should be done differently.
                                 // debug_assert_eq!(&data.index_entry.pack_offset, &pack_entry.pack_offset());
-                                gix_features::hash::crc32(
+                                crc32fast::hash(
                                     pack.entry_slice(data.index_entry.pack_offset..entry_end)
                                         .expect("slice pointing into the pack (by now data is verified)"),
                                 )

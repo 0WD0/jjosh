@@ -15,7 +15,7 @@ use crate::{
     worktree::IndexPersistedOrInMemory,
 };
 
-pub(crate) type ModulesFileStorage = gix_features::threading::OwnShared<gix_fs::SharedFileSnapshotMut<File>>;
+pub(crate) type ModulesFileStorage = gix_parallel::OwnShared<gix_fs::SharedFileSnapshotMut<File>>;
 /// A lazily loaded and auto-updated worktree index.
 pub type ModulesSnapshot = gix_fs::SharedFileSnapshot<File>;
 
@@ -193,7 +193,7 @@ impl Submodule<'_> {
             .repo
             .head_commit()?
             .tree()?
-            .peel_to_entry_by_path(gix_path::from_bstring(path))?
+            .peel_to_entry_by_path(gix_path::from_bstring(path)?)?
             .and_then(|entry| (entry.mode().is_commit()).then_some(entry.inner.oid)))
     }
 
@@ -201,7 +201,7 @@ impl Submodule<'_> {
     ///
     /// The retunred directory might not exist yet.
     pub fn git_dir(&self) -> Result<PathBuf> {
-        Ok(git_dir_from_name(self.state.repo.common_dir(), self.validated_name()?))
+        git_dir_from_name(self.state.repo.common_dir(), self.validated_name()?)
     }
 
     /// Return the path to the location at which the workdir would be checked out.
@@ -209,7 +209,7 @@ impl Submodule<'_> {
     /// Note that it may be a path relative to the repository if, for some reason, the parent directory
     /// doesn't have a working dir set.
     pub fn work_dir(&self) -> Result<PathBuf> {
-        let worktree_git = gix_path::from_bstr(self.path()?);
+        let worktree_git = gix_path::from_bstr(self.path()?)?;
         Ok(match self.state.repo.workdir() {
             None => worktree_git.into_owned(),
             Some(prefix) => prefix.join(worktree_git),
@@ -347,11 +347,11 @@ impl Submodule<'_> {
 ///
 /// In particular, don't use `Path::join()` for `name`: absolute-looking names are valid in Git,
 /// but joining them as a path would discard the `.git/modules` prefix.
-fn git_dir_from_name(common_dir: &Path, name: &BStr) -> PathBuf {
+fn git_dir_from_name(common_dir: &Path, name: &BStr) -> Result<PathBuf> {
     let mut git_dir = common_dir.join("modules").into_os_string();
     git_dir.push(std::path::MAIN_SEPARATOR_STR);
-    git_dir.push(gix_path::from_bstr(name).as_os_str());
-    git_dir.into()
+    git_dir.push(gix_path::from_bstr(name)?.as_os_str());
+    Ok(git_dir.into())
 }
 
 #[cfg(test)]
@@ -361,7 +361,7 @@ mod tests {
     use crate::bstr::ByteSlice;
 
     #[test]
-    fn git_dir_from_name_keeps_git_compatible_names_below_modules() {
+    fn git_dir_from_name_keeps_git_compatible_names_below_modules() -> gix_testtools::TestResult {
         let common_dir = Path::new("repo").join(".git");
         let modules_dir = common_dir.join("modules");
 
@@ -374,7 +374,7 @@ mod tests {
             b"C:/Windows/Temp/x",
             b"C:x",
         ] {
-            let actual = super::git_dir_from_name(&common_dir, name.as_bstr());
+            let actual = super::git_dir_from_name(&common_dir, name.as_bstr())?;
             assert!(
                 actual.starts_with(&modules_dir),
                 "Git-compatible name {name:?} must remain below {} instead of producing {}",
@@ -382,6 +382,7 @@ mod tests {
                 actual.display()
             );
         }
+        Ok(())
     }
 }
 
@@ -427,9 +428,9 @@ pub mod status {
             ignore: config::Ignore,
             check_dirty: bool,
             adjust_options: &mut dyn for<'a> FnMut(
-                crate::status::Platform<'a, gix_features::progress::Discard>,
+                crate::status::Platform<'a, gix_utils::progress::Discard>,
             )
-                -> crate::status::Platform<'a, gix_features::progress::Discard>,
+                -> crate::status::Platform<'a, gix_utils::progress::Discard>,
         ) -> Result<Status> {
             let mut state = self.state_inner(ignore != config::Ignore::All)?;
             if ignore == config::Ignore::All {
@@ -473,7 +474,7 @@ pub mod status {
             if !state.worktree_checkout {
                 return Ok(status);
             }
-            let statuses = adjust_options(sm_repo.status(gix_features::progress::Discard)?)
+            let statuses = adjust_options(sm_repo.status(gix_utils::progress::Discard)?)
                 .index_worktree_options_mut(|opts| {
                     if ignore == config::Ignore::Untracked {
                         opts.dirwalk_options = None;

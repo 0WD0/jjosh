@@ -1,4 +1,3 @@
-use crate::Result;
 use gix_error::{Message, MetadataValue};
 use gix_ref::packed;
 
@@ -7,7 +6,7 @@ use crate::file::{store_at, store_with_packed_refs};
 const HASH_KIND: gix_hash::Kind = gix_hash::Kind::Sha1;
 
 #[test]
-fn empty() -> Result {
+fn empty() -> gix_testtools::TestResult {
     assert_eq!(
         packed::Iter::new(&[], HASH_KIND)?.count(),
         0,
@@ -52,15 +51,15 @@ fn invalid_header_has_one_classified_diagnostic() {
     }
     insta::assert_debug_snapshot!(error_snapshots, "invalid header has one classified diagnostic", @r##"
     [
-        Invalid packed reference header, "input"="# invalid",
-        Invalid packed reference header, "input"="# invalid",
-        Invalid packed reference header, "input"="# pack-refs with: sorted",
+        Invalid packed reference header, input="# invalid",
+        Invalid packed reference header, input="# invalid",
+        Invalid packed reference header, input="# pack-refs with: sorted",
     ]
     "##);
 }
 
 #[test]
-fn packed_refs_with_header() -> Result {
+fn packed_refs_with_header() -> gix_testtools::TestResult {
     let dir = crate::scripted_fixture_read_only("make_packed_ref_repository.sh")?;
     let buf = std::fs::read(dir.join(".git").join("packed-refs"))?;
     let iter = packed::Iter::new(&buf, crate::fixture_hash_kind())?;
@@ -69,7 +68,7 @@ fn packed_refs_with_header() -> Result {
 }
 
 #[test]
-fn iter_prefix() -> Result {
+fn iter_prefix() -> gix_testtools::TestResult {
     let packed = store_with_packed_refs()?.open_packed_buffer()?.expect("packed-refs");
     assert_eq!(
         packed
@@ -113,7 +112,7 @@ fn iter_prefix() -> Result {
 }
 
 #[test]
-fn packed_refs_without_header() -> Result {
+fn packed_refs_without_header() -> gix_testtools::TestResult {
     let packed_refs = b"916840c0e2f67d370291042cb5274a597f4fa9bc refs/tags/TEST-0.0.1
 c4cebba92af964f2d126be90b8a6298c4cf84d45 refs/tags/gix-actor-v0.1.0
 ^13da90b54699a6b500ec5cd7d175f2cd5a1bed06
@@ -142,7 +141,7 @@ c4cebba92af964f2d126be90b8a6298c4cf84d45 refs/tags/gix-actor-v0.1.0
 }
 
 #[test]
-fn broken_ref_doesnt_end_the_iteration() -> Result {
+fn broken_ref_doesnt_end_the_iteration() -> gix_testtools::TestResult {
     let mut error_snapshots = Vec::new();
     let packed_refs = b"916840c0e2f67d370291042cb5274a597f4fa9bc refs/tags/TEST-0.0.1
 buggy-hash refs/wrong
@@ -168,11 +167,11 @@ buggy-hash refs/wrong
     assert!(iter.next().is_none(), "exhausted");
     insta::assert_debug_snapshot!(error_snapshots, "broken ref doesnt end the iteration", @r#"
     [
-        Invalid packed reference, "input"="buggy-hash refs/wrong", "line"=2
+        Invalid packed reference, input="buggy-hash refs/wrong", line=2
         
         Caused by:
             0: Malformed packed reference,
-        Invalid packed reference, "input"="^buggy-hash-too", "line"=3
+        Invalid packed reference, input="^buggy-hash-too", line=3
         
         Caused by:
             0: Malformed packed reference,
@@ -182,7 +181,7 @@ buggy-hash refs/wrong
 }
 
 #[test]
-fn performance() -> Result {
+fn performance() -> gix_testtools::TestResult {
     let store = store_at("make_repository_with_lots_of_packed_refs.sh")?;
     let start = std::time::Instant::now();
     let actual = store
@@ -202,7 +201,7 @@ fn performance() -> Result {
 }
 
 #[test]
-fn error_metadata_counts_peeled_lines_and_retains_unterminated_input() -> Result {
+fn error_metadata_counts_peeled_lines_and_retains_unterminated_input() -> gix_testtools::TestResult {
     let input = format!("{0} refs/tags/one\n^{0}\nbroken", HASH_KIND.null());
     let mut iter = packed::Iter::new(input.as_bytes(), HASH_KIND)?;
     iter.next().expect("peeled tag")?;

@@ -198,7 +198,7 @@ fn push_unquoted(
 }
 
 fn into_os_string(value: BString) -> ExnResult<OsString, Error> {
-    gix_path::try_from_bstring(value)
+    gix_path::from_bstring(value)
         .map(std::path::PathBuf::into_os_string)
         .or_raise_typed(|| Error::UnrepresentableOsString)
 }

@@ -67,7 +67,7 @@ fn explicitly_positive_numbers_are_invalid() {
     Message {
         message: "explicitly positive numbers are invalid here",
         class: Validation,
-        values: {"input": Bytes("+1")},
+        values: {input: Bytes("+1")},
     }
     "#);
 }
@@ -200,7 +200,7 @@ fn invalid_object_type() {
     Message {
         message: "cannot peel to unknown target",
         class: Validation,
-        values: {"input": Bytes("invalid")},
+        values: {input: Bytes("invalid")},
     }
     "#);
 
@@ -212,7 +212,7 @@ fn invalid_object_type() {
     Message {
         message: "cannot peel to unknown target",
         class: Validation,
-        values: {"input": Bytes("Commit")},
+        values: {input: Bytes("Commit")},
     }
     "#);
     assert!(
@@ -246,12 +246,12 @@ fn invalid_caret_without_previous_refname() {
         Message {
             message: "unconsumed input",
             class: Validation,
-            values: {"input": Bytes("HEAD")},
+            values: {input: Bytes("HEAD")},
         },
         Message {
             message: "unconsumed input",
             class: Validation,
-            values: {"input": Bytes("HEAD")},
+            values: {input: Bytes("HEAD")},
         },
     ]
     "#);
@@ -268,7 +268,7 @@ fn incomplete_escaped_braces_in_regex_are_invalid() {
     Message {
         message: "unconsumed input",
         class: Validation,
-        values: {"input": Bytes("}")},
+        values: {input: Bytes("}")},
     }
     "#);
 
@@ -280,7 +280,7 @@ fn incomplete_escaped_braces_in_regex_are_invalid() {
     Message {
         message: "unclosed brace pair",
         class: Validation,
-        values: {"input": Bytes("{/a{1\\}}")},
+        values: {input: Bytes("{/a{1\\}}")},
     }
     "#);
     assert!(
@@ -300,7 +300,7 @@ fn regex_with_empty_exclamation_mark_prefix_is_invalid() {
     Message {
         message: "need one character after /!, typically -",
         class: Validation,
-        values: {"input": Bytes("!hello")},
+        values: {input: Bytes("!hello")},
     }
     "#);
 }
@@ -315,7 +315,7 @@ fn bad_escapes_can_cause_brace_mismatch() {
     Message {
         message: "unclosed brace pair",
         class: Validation,
-        values: {"input": Bytes("{\\}")},
+        values: {input: Bytes("{\\}")},
     }
     "#);
     assert!(
@@ -332,7 +332,7 @@ fn bad_escapes_can_cause_brace_mismatch() {
     Message {
         message: "unclosed brace pair",
         class: Validation,
-        values: {"input": Bytes("{{\\}}")},
+        values: {input: Bytes("{{\\}}")},
     }
     "#);
     assert!(

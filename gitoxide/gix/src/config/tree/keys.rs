@@ -145,7 +145,7 @@ impl<T: Validate> Key for Any<T> {
             if !err.metadata().any(|metadata| {
                 matches!(metadata.get("input"), Some(gix_error::MetadataValue::Bytes(input)) if input == value)
             }) {
-                context.values.insert("input".into(), value.into());
+                context.values.insert("input", value);
             }
             if let Some(environment) = self.environment_override() {
                 context = context.with("environment_override", environment);

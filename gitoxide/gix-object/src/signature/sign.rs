@@ -138,7 +138,7 @@ fn sign_ssh(payload: &[u8], options: &Options) -> Result<BString> {
         // Unlike literal keys, resolved key paths can be passed directly to `ssh-keygen -f`.
         None => (options.signing_key.clone(), false),
     };
-    let key = super::ssh_path_argument(std::path::Path::new(&key));
+    let key = super::ssh_path_argument(std::path::Path::new(&key))?;
     let mut payload_file = secure_temporary_file()?;
     write_temporary(&mut payload_file, payload)?;
     let payload_path = temporary_path(&mut payload_file)?;
@@ -150,7 +150,7 @@ fn sign_ssh(payload: &[u8], options: &Options) -> Result<BString> {
         command = command.arg("-U");
     }
     let output = command
-        .arg(super::ssh_path_argument(&payload_path))
+        .arg(super::ssh_path_argument(&payload_path)?)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -239,7 +239,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn missing_signing_program_is_reported_only_in_metadata() -> gix_error::TestResult {
+    fn missing_signing_program_is_reported_only_in_metadata() -> gix_testtools::TestResult {
         let directory = gix_testtools::tempfile::TempDir::new()?;
         let program = directory.path().join("missing signer");
         for format in [Format::OpenPgp, Format::X509, Format::Ssh] {
@@ -272,7 +272,7 @@ mod tests {
     }
 
     #[test]
-    fn programs_with_spaces_are_invoked_directly() {
+    fn programs_with_spaces_are_invoked_directly() -> gix_testtools::TestResult {
         let program = OsStr::new("a directory/signer");
         let command: std::process::Command = command(&Options {
             format: Format::OpenPgp,
@@ -281,7 +281,7 @@ mod tests {
             signing_key: "key".into(),
             environment: Vec::new(),
         })
-        .into();
+        .try_into()?;
 
         assert_eq!(
             command.get_program(),
@@ -293,5 +293,6 @@ mod tests {
             [OsStr::new("argument with spaces")],
             "signer arguments remain separate from the program pathname"
         );
+        Ok(())
     }
 }

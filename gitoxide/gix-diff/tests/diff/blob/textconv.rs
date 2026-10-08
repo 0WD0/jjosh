@@ -8,7 +8,7 @@ use imara_diff::{Algorithm::Histogram, Diff};
 use crate::blob::pipeline::convert_to_diffable::default_options;
 
 #[test]
-fn binary_diff_with_textconv() -> gix_testtools::Result {
+fn binary_diff_with_textconv() -> gix_testtools::TestResult {
     let workdir = crate::scripted_fixture_read_only("make_blob_textconv_repo.sh")?;
 
     let new_file_id = read_id(&workdir.join("new-file.id"))?;

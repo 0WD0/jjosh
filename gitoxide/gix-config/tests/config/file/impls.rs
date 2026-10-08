@@ -1,4 +1,4 @@
-use crate::Result;
+use crate::TestResult;
 use gix_config::File;
 
 #[test]
@@ -71,7 +71,7 @@ fn can_reconstruct_configs_without_whitespace_in_middle() {
 }
 
 #[test]
-fn equality_ignores_section_and_value_name_case_but_not_subsection_case() -> Result {
+fn equality_ignores_section_and_value_name_case_but_not_subsection_case() -> TestResult {
     let mixed_case = File::try_from("[Core]\nMixedCase = value\n[Remote \"Origin\"]\nURL = location\n")?;
     let equivalent = File::try_from("[core]\nmixedcase = value\n[remote \"Origin\"]\nurl = location\n")?;
     assert_eq!(mixed_case, equivalent, "section and value names are case-insensitive");

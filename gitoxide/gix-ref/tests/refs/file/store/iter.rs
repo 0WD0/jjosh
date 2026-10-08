@@ -1,4 +1,3 @@
-use crate::Result;
 use crate::{
     file::{store, store_at, store_with_packed_refs},
     hex_to_id,
@@ -7,7 +6,7 @@ use gix_object::bstr::ByteSlice;
 
 #[test]
 #[cfg_attr(not(target_os = "macos"), ignore = "Needs filesystem that folds Unicode composition")]
-fn emoji_parent_does_not_duplicate_precomposed_references() -> Result {
+fn emoji_parent_does_not_duplicate_precomposed_references() -> gix_testtools::TestResult {
     let tmp = gix_testtools::tempfile::tempdir()?;
     let root = tmp.path().join("📹");
     std::fs::create_dir_all(root.join("refs/heads"))?;
@@ -43,13 +42,12 @@ fn emoji_parent_does_not_duplicate_precomposed_references() -> Result {
 }
 
 mod with_namespace {
-    use crate::Result;
     use gix_object::bstr::{BString, ByteSlice};
 
     use crate::file::{store_at, transaction::prepare_and_commit::empty_store};
 
     #[test]
-    fn missing_refs_dir_yields_empty_iteration() -> Result {
+    fn missing_refs_dir_yields_empty_iteration() -> gix_testtools::TestResult {
         let (_dir, store) = empty_store()?;
         assert_eq!(store.iter()?.all()?.count(), 0);
         assert_eq!(store.loose_iter()?.count(), 0);
@@ -57,7 +55,7 @@ mod with_namespace {
     }
 
     #[test]
-    fn iteration_can_trivially_use_namespaces_as_prefixes() -> Result {
+    fn iteration_can_trivially_use_namespaces_as_prefixes() -> gix_testtools::TestResult {
         let store = store_at("make_namespaced_packed_ref_repository.sh")?;
         let packed = store.open_packed_buffer()?;
 
@@ -167,7 +165,7 @@ mod with_namespace {
     }
 
     #[test]
-    fn iteration_on_store_with_namespace_makes_namespace_transparent() -> Result {
+    fn iteration_on_store_with_namespace_makes_namespace_transparent() -> gix_testtools::TestResult {
         let ns_two = gix_ref::namespace::expand("bar")?;
         let mut ns_store = {
             let mut s = store_at("make_namespaced_packed_ref_repository.sh")?;
@@ -266,7 +264,7 @@ mod with_namespace {
 }
 
 #[test]
-fn no_packed_available_thus_no_iteration_possible() -> Result {
+fn no_packed_available_thus_no_iteration_possible() -> gix_testtools::TestResult {
     let store_without_packed = store()?;
     assert!(
         store_without_packed.open_packed_buffer()?.is_none(),
@@ -276,14 +274,14 @@ fn no_packed_available_thus_no_iteration_possible() -> Result {
 }
 
 #[test]
-fn packed_file_iter() -> Result {
+fn packed_file_iter() -> gix_testtools::TestResult {
     let store = store_with_packed_refs()?;
     assert_eq!(store.open_packed_buffer()?.expect("pack available").iter()?.count(), 11);
     Ok(())
 }
 
 #[test]
-fn pseudo_refs_iter() -> Result {
+fn pseudo_refs_iter() -> gix_testtools::TestResult {
     let store = store_at("make_pseudo_ref_repository.sh")?;
 
     let actual = store
@@ -296,7 +294,7 @@ fn pseudo_refs_iter() -> Result {
 }
 
 #[test]
-fn loose_iter_with_broken_refs() -> Result {
+fn loose_iter_with_broken_refs() -> gix_testtools::TestResult {
     let store = store()?;
 
     let mut actual: Vec<_> = store.loose_iter()?.collect();
@@ -313,7 +311,7 @@ fn loose_iter_with_broken_refs() -> Result {
     The reference at "refs/broken" could not be decoded
 
     Caused by:
-        0: Reference content could not be parsed, "input"="notahexsha\n"
+        0: Reference content could not be parsed, input="notahexsha\n"
     "#);
     let ref_paths: Vec<_> = actual
         .drain(..first_error)
@@ -350,12 +348,11 @@ fn loose_iter_with_broken_refs() -> Result {
 }
 
 #[test]
-fn loose_iter_with_prefix() -> Result {
+fn loose_iter_with_prefix() -> gix_testtools::TestResult {
     let prefix_with_slash = b"refs/heads/";
     let actual = store()?
         .loose_iter_prefixed(prefix_with_slash.try_into().unwrap())?
-        .collect::<std::result::Result<Vec<_>, _>>()
-        .expect("no broken ref in this subset");
+        .collect::<std::result::Result<Vec<_>, _>>()?;
 
     assert_eq!(
         actual,
@@ -372,12 +369,11 @@ fn loose_iter_with_prefix() -> Result {
 }
 
 #[test]
-fn loose_iter_with_partial_prefix_dir() -> Result {
+fn loose_iter_with_partial_prefix_dir() -> gix_testtools::TestResult {
     let prefix_without_slash = b"refs/heads";
     let actual = store()?
         .loose_iter_prefixed(prefix_without_slash.try_into().unwrap())?
-        .collect::<std::result::Result<Vec<_>, _>>()
-        .expect("no broken ref in this subset");
+        .collect::<std::result::Result<Vec<_>, _>>()?;
 
     assert_eq!(
         actual,
@@ -394,18 +390,17 @@ fn loose_iter_with_partial_prefix_dir() -> Result {
 }
 
 #[test]
-fn loose_iter_with_partial_prefix() -> Result {
+fn loose_iter_with_partial_prefix() -> gix_testtools::TestResult {
     let actual = store()?
         .loose_iter_prefixed(b"refs/heads/d".as_bstr().try_into().unwrap())?
-        .collect::<std::result::Result<Vec<_>, _>>()
-        .expect("no broken ref in this subset");
+        .collect::<std::result::Result<Vec<_>, _>>()?;
 
     assert_eq!(actual, ["refs/heads/d1", "refs/heads/dt1"], "all paths are as expected");
     Ok(())
 }
 
 #[test]
-fn overlay_iter() -> Result {
+fn overlay_iter() -> gix_testtools::TestResult {
     use gix_ref::Target::*;
 
     let store = store_at("make_packed_ref_repository_for_overlay.sh")?;
@@ -439,7 +434,7 @@ fn overlay_iter() -> Result {
 }
 
 #[test]
-fn overlay_iter_reproduce_1850() -> Result {
+fn overlay_iter_reproduce_1850() -> gix_testtools::TestResult {
     let store = store_at("make_repo_for_1850_repro.sh")?;
     let ref_names = store
         .iter()?
@@ -533,7 +528,7 @@ fn overlay_iter_reproduce_1850() -> Result {
 }
 
 #[test]
-fn overlay_iter_reproduce_1928() -> Result {
+fn overlay_iter_reproduce_1928() -> gix_testtools::TestResult {
     let store = store_at("make_repo_for_1928_repro.sh")?;
     let ref_names = store
         .iter()?
@@ -573,7 +568,7 @@ fn overlay_iter_reproduce_1928() -> Result {
 }
 
 #[test]
-fn overlay_prefixed_iter() -> Result {
+fn overlay_prefixed_iter() -> gix_testtools::TestResult {
     use gix_ref::Target::*;
 
     let store = store_at("make_packed_ref_repository_for_overlay.sh")?;
@@ -596,7 +591,7 @@ fn overlay_prefixed_iter() -> Result {
 }
 
 #[test]
-fn overlay_partial_prefix_iter() -> Result {
+fn overlay_partial_prefix_iter() -> gix_testtools::TestResult {
     use gix_ref::Target::*;
 
     let store = store_at("make_packed_ref_repository_for_overlay.sh")?;
@@ -612,7 +607,7 @@ fn overlay_partial_prefix_iter() -> Result {
 
 #[test]
 /// The prefix `refs/d` should match `refs/d1` but not `refs/heads/d1`.
-fn overlay_partial_prefix_iter_reproduce_1934() -> Result {
+fn overlay_partial_prefix_iter_reproduce_1934() -> gix_testtools::TestResult {
     use gix_ref::Target::*;
 
     let store = store_at("make_ref_repository.sh")?;
@@ -632,7 +627,7 @@ fn overlay_partial_prefix_iter_reproduce_1934() -> Result {
 }
 
 #[test]
-fn overlay_partial_prefix_iter_when_prefix_is_dir() -> Result {
+fn overlay_partial_prefix_iter_when_prefix_is_dir() -> gix_testtools::TestResult {
     // Test 'refs/prefix/' with and without trailing slash.
     use gix_ref::Target::*;
 

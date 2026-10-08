@@ -192,7 +192,7 @@ mod tests {
     }
 
     #[test]
-    fn allow_protocol_overrides_all_other_policy() {
+    fn allow_protocol_overrides_all_other_policy() -> gix_testtools::TestResult {
         let config = gix_config::File::from_bytes_no_includes(
             br#"[gitoxide "allow"]
 protocol = foo
@@ -203,9 +203,8 @@ allow = always
 "#,
             gix_config::file::Metadata::default(),
             Default::default(),
-        )
-        .expect("valid test configuration");
-        let permissions = SchemePermission::from_config(&config, |_| true).expect("valid permissions");
+        )?;
+        let permissions = SchemePermission::from_config(&config, |_| true)?;
 
         assert!(
             permissions.allow(&gix_url::Scheme::Helper("foo".into())),
@@ -223,5 +222,6 @@ allow = always
             !permissions.allow(&gix_url::Scheme::Https),
             "the allowlist overrides known-safe defaults"
         );
+        Ok(())
     }
 }

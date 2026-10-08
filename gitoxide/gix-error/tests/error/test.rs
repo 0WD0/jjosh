@@ -103,21 +103,21 @@ fn io_payload_reports_expand_each_payload_once_in_both_backends() {
                 r#"I/O error (InvalidData)
 
 Caused by:
-    0: invalid input, "input"="ref\xff""#,
+    0: invalid input, input="ref\xff""#,
                 2,
             ),
             (false, true) => (
                 r#"I/O error (InvalidData)
 
 Caused by:
-    0: invalid input, "input"="ref\xff""#,
+    0: invalid input, input="ref\xff""#,
                 1,
             ),
             (true, false) => (
                 r#"I/O error (InvalidData)
 
 Caused by:
-    0: invalid input, "input"="ref\xff"
+    0: invalid input, input="ref\xff"
     └─0: payload child
     1: explicit sibling"#,
                 4,
@@ -127,7 +127,7 @@ Caused by:
 
 Caused by:
     0: explicit sibling
-    1: invalid input, "input"="ref\xff"
+    1: invalid input, input="ref\xff"
     2: payload child"#,
                 4,
             ),

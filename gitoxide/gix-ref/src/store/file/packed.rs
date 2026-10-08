@@ -63,7 +63,7 @@ pub type SharedBufferSnapshot = gix_fs::SharedFileSnapshot<packed::Buffer>;
 
 pub(crate) mod modifiable {
     use gix_error::{Message, Result, ResultExt};
-    use gix_features::threading::OwnShared;
+    use gix_parallel::OwnShared;
 
     use crate::{file, packed};
 

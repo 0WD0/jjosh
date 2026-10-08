@@ -8,7 +8,7 @@ fn hex_to_id(hex: &str) -> gix_hash::ObjectId {
 }
 
 mod update {
-    use gix_testtools::Result;
+    use gix_testtools::TestResult;
 
     use super::hex_to_id;
     use crate as gix;
@@ -218,7 +218,7 @@ mod update {
     }
 
     #[test]
-    fn checked_out_branches_in_worktrees_are_rejected_with_additional_information() -> Result {
+    fn checked_out_branches_in_worktrees_are_rejected_with_additional_information() -> TestResult {
         let root = gix_path::realpath(gix_testtools::scripted_fixture_read_only_with_args_single_archive(
             "make_fetch_repos.sh",
             [base_repo_path()],
@@ -263,7 +263,7 @@ mod update {
     }
 
     #[test]
-    fn incomplete_linked_worktrees_without_a_head_are_ignored() -> Result {
+    fn incomplete_linked_worktrees_without_a_head_are_ignored() -> TestResult {
         let (repo, _tmp) = repo_rw("two-origins");
         let git_dir = repo.common_dir().join("worktrees/incomplete");
         std::fs::create_dir_all(&git_dir)?;
@@ -312,7 +312,7 @@ mod update {
     }
 
     #[test]
-    fn unborn_remote_branches_can_be_created_locally_if_they_are_new() -> Result {
+    fn unborn_remote_branches_can_be_created_locally_if_they_are_new() -> TestResult {
         let repo = named_repo("unborn");
         let (mappings, specs) = mapping_from_spec("HEAD:refs/remotes/origin/HEAD", &repo);
         assert_eq!(mappings.len(), 1);
@@ -339,7 +339,7 @@ mod update {
     }
 
     #[test]
-    fn unborn_remote_branches_can_update_local_unborn_branches() -> Result {
+    fn unborn_remote_branches_can_update_local_unborn_branches() -> TestResult {
         let repo = named_repo("unborn");
         let peel_err = repo
             .find_reference("refs/heads/existing-unborn-symbolic")?
@@ -374,9 +374,9 @@ mod update {
         assert_eq!(
             out.edits[0],
             RefEdit::update(
-                "refs/heads/existing-unborn-symbolic".try_into().expect("valid"),
-                Target::Symbolic("refs/heads/main".try_into().expect("valid")),
-                PreviousValue::MustExistAndMatch(Target::Symbolic("refs/heads/main".try_into().expect("valid"),)),
+                "refs/heads/existing-unborn-symbolic".try_into()?,
+                Target::Symbolic("refs/heads/main".try_into()?),
+                PreviousValue::MustExistAndMatch(Target::Symbolic("refs/heads/main".try_into()?,)),
                 "action: change unborn ref",
             )
         );
@@ -409,9 +409,9 @@ mod update {
         assert_eq!(
             out.edits[0],
             RefEdit::update(
-                "refs/heads/existing-unborn-symbolic-other".try_into().expect("valid"),
-                Target::Symbolic("refs/heads/main".try_into().expect("valid")),
-                PreviousValue::MustExistAndMatch(Target::Symbolic("refs/heads/other".try_into().expect("valid"),)),
+                "refs/heads/existing-unborn-symbolic-other".try_into()?,
+                Target::Symbolic("refs/heads/main".try_into()?),
+                PreviousValue::MustExistAndMatch(Target::Symbolic("refs/heads/other".try_into()?,)),
                 "action: change unborn ref",
             )
         );
@@ -419,7 +419,7 @@ mod update {
     }
 
     #[test]
-    fn remote_symbolic_refs_with_locally_unavailable_target_result_in_valid_peeled_branches() -> Result {
+    fn remote_symbolic_refs_with_locally_unavailable_target_result_in_valid_peeled_branches() -> TestResult {
         let remote_repo = named_repo("one-commit-with-symref");
         let local_repo = named_repo("unborn");
         let (mappings, specs) = mapping_from_spec("refs/heads/symbolic:refs/heads/new", &remote_repo);
@@ -448,7 +448,7 @@ mod update {
         assert_eq!(
             out.edits[0],
             RefEdit::update(
-                "refs/heads/new".try_into().expect("valid"),
+                "refs/heads/new".try_into()?,
                 target.clone(),
                 PreviousValue::ExistingMustMatch(target),
                 "action: storing head",
@@ -460,7 +460,7 @@ mod update {
     }
 
     #[test]
-    fn remote_symbolic_refs_with_locally_unavailable_target_dont_overwrite_valid_local_branches() -> Result {
+    fn remote_symbolic_refs_with_locally_unavailable_target_dont_overwrite_valid_local_branches() -> TestResult {
         let remote_repo = named_repo("one-commit-with-symref");
         let local_repo = named_repo("one-commit-with-symref-missing-branch");
         let (mappings, specs) = mapping_from_spec("refs/heads/unborn:refs/heads/valid-locally", &remote_repo);
@@ -489,7 +489,7 @@ mod update {
     }
 
     #[test]
-    fn unborn_remote_refs_dont_overwrite_valid_local_refs() -> Result {
+    fn unborn_remote_refs_dont_overwrite_valid_local_refs() -> TestResult {
         let remote_repo = named_repo("unborn");
         let local_repo = named_repo("one-commit-with-symref");
         let (mappings, specs) =
@@ -520,7 +520,7 @@ mod update {
     }
 
     #[test]
-    fn symbolic_tags_with_malformed_referents_are_not_unborn() -> Result {
+    fn symbolic_tags_with_malformed_referents_are_not_unborn() -> TestResult {
         let mut diagnostics = Vec::new();
         let (repo, _tmp) = repo_rw("two-origins");
         std::fs::write(repo.git_dir().join("refs/tags/broken"), b"ref: refs/tags/malformed\n")?;
@@ -553,19 +553,19 @@ mod update {
             
             Caused by:
                 0: The reference at "refs/tags/malformed" could not be decoded
-                1: Reference content could not be parsed, "input"="invalid",
+                1: Reference content could not be parsed, input="invalid",
             Could not peel symbolic local reference to its ID
             
             Caused by:
                 0: The reference at "refs/tags/malformed" could not be decoded
-                1: Reference content could not be parsed, "input"="invalid",
+                1: Reference content could not be parsed, input="invalid",
         ]
         "#);
         Ok(())
     }
 
     #[test]
-    fn symbolic_tags_with_missing_objects_are_not_unborn() -> Result {
+    fn symbolic_tags_with_missing_objects_are_not_unborn() -> TestResult {
         let mut diagnostics = Vec::new();
         let (repo, _tmp) = repo_rw("two-origins");
         let worktree = repo.workdir().expect("fixture has a worktree");
@@ -616,11 +616,11 @@ mod update {
             Could not peel symbolic local reference to its ID
             
             Caused by:
-                0: Could not peel reference to an object: object could not be found, "object_id"="Oid(1)", "reference"="refs/tags/missing",
+                0: Could not peel reference to an object: object could not be found, object_id="Oid(1)", reference="refs/tags/missing",
             Could not peel symbolic local reference to its ID
             
             Caused by:
-                0: Could not peel reference to an object: object could not be found, "object_id"="Oid(1)", "reference"="refs/tags/missing",
+                0: Could not peel reference to an object: object could not be found, object_id="Oid(1)", reference="refs/tags/missing",
         ]
         "#);
         Ok(())
@@ -1017,7 +1017,7 @@ mod update {
     }
 
     #[test]
-    fn malformed_commits_cannot_force_reference_updates() -> Result {
+    fn malformed_commits_cannot_force_reference_updates() -> TestResult {
         let mut diagnostics = Vec::new();
         use gix_object::Write;
 
@@ -1063,7 +1063,7 @@ mod update {
     }
 
     #[test]
-    fn non_commit_targets_can_still_be_updated() -> Result {
+    fn non_commit_targets_can_still_be_updated() -> TestResult {
         let (repo, _tmp) = repo_rw("two-origins");
         let blob_id = repo.write_blob(b"valid blob")?;
         let commit_id = repo.head_id()?;

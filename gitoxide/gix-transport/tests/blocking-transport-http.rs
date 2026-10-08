@@ -7,7 +7,7 @@ pub mod bisync {
 use std::path::PathBuf;
 
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
-pub type Result<T = ()> = std::result::Result<T, Error>;
+pub use gix_testtools::TestResult;
 
 pub fn fixture_bytes(path: &str) -> Vec<u8> {
     fn fixture_path(path: &str) -> PathBuf {

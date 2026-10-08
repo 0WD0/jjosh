@@ -25,12 +25,12 @@ pub(super) mod _impl {
     ///
     /// # Note
     ///
-    /// * [Interrupts][gix_features::interrupt] are supported.
+    /// * Interruption is supported through `should_interrupt`.
     pub fn bytes_of_file(
         path: &std::path::Path,
         num_bytes_from_start: u64,
         kind: crate::Kind,
-        progress: &mut dyn gix_features::progress::Progress,
+        progress: &mut dyn gix_utils::progress::Progress,
         should_interrupt: &std::sync::atomic::AtomicBool,
     ) -> Result<crate::ObjectId> {
         bytes(
@@ -47,7 +47,7 @@ pub(super) mod _impl {
         read: &mut dyn std::io::Read,
         num_bytes_from_start: u64,
         kind: crate::Kind,
-        progress: &mut dyn gix_features::progress::Progress,
+        progress: &mut dyn gix_utils::progress::Progress,
         should_interrupt: &std::sync::atomic::AtomicBool,
     ) -> Result<crate::ObjectId> {
         bytes_with_hasher(read, num_bytes_from_start, hasher(kind), progress, should_interrupt)
@@ -58,14 +58,14 @@ pub(super) mod _impl {
         read: &mut dyn std::io::Read,
         num_bytes_from_start: u64,
         mut hasher: Hasher,
-        progress: &mut dyn gix_features::progress::Progress,
+        progress: &mut dyn gix_utils::progress::Progress,
         should_interrupt: &std::sync::atomic::AtomicBool,
     ) -> Result<crate::ObjectId> {
         let start = std::time::Instant::now();
         // init progress before the possibility for failure, as convenience in case people want to recover
         progress.init(
-            Some(num_bytes_from_start as gix_features::progress::prodash::progress::Step),
-            gix_features::progress::bytes(),
+            Some(num_bytes_from_start as gix_utils::progress::prodash::progress::Step),
+            gix_utils::progress::bytes(),
         );
 
         const BUF_SIZE: usize = u16::MAX as usize;

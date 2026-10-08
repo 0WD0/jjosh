@@ -251,14 +251,15 @@ pub(crate) enum IterInfo<'a> {
 }
 
 impl<'a> IterInfo<'a> {
-    fn prefix(&self) -> Option<Cow<'_, BStr>> {
+    fn prefix(&self) -> Result<Option<Cow<'_, BStr>>> {
         match self {
             IterInfo::Base { .. } => None,
             IterInfo::PrefixAndBase { prefix, .. } => Some(gix_path::into_bstr(*prefix)),
             IterInfo::BaseAndIterRoot { prefix, .. } => Some(gix_path::into_bstr(prefix.clone())),
-            IterInfo::ComputedIterationRoot { prefix, .. } => Some(prefix.clone()),
+            IterInfo::ComputedIterationRoot { prefix, .. } => Some(Ok(prefix.clone())),
             IterInfo::Pseudo { .. } => None,
         }
+        .transpose()
     }
 
     fn into_iter(self) -> Peekable<SortedLoosePaths> {
@@ -299,7 +300,8 @@ impl<'a> IterInfo<'a> {
     }
 
     fn from_prefix(base: &'a Path, prefix: &'a RelativePath, precompose_unicode: bool) -> std::io::Result<Self> {
-        let prefix_path = gix_path::from_bstr(prefix.as_ref().as_bstr());
+        let prefix_path = gix_path::from_bstr(prefix.as_ref().as_bstr())
+            .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidInput, err))?;
         let iter_root = base.join(&prefix_path);
         if prefix.as_ref().ends_with(b"/") {
             Ok(IterInfo::BaseAndIterRoot {
@@ -332,19 +334,24 @@ impl file::Store {
         packed: Option<&'p packed::Buffer>,
     ) -> std::io::Result<LooseThenPacked<'p, 's>> {
         match self.namespace.as_ref() {
-            Some(namespace) => self.iter_from_info(
-                IterInfo::PrefixAndBase {
-                    base: self.git_dir(),
-                    prefix: namespace.to_path(),
-                    precompose_unicode: self.precompose_unicode,
-                },
-                self.common_dir().map(|base| IterInfo::PrefixAndBase {
-                    base,
-                    prefix: namespace.to_path(),
-                    precompose_unicode: self.precompose_unicode,
-                }),
-                packed,
-            ),
+            Some(namespace) => {
+                let prefix = namespace
+                    .to_path()
+                    .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidInput, err))?;
+                self.iter_from_info(
+                    IterInfo::PrefixAndBase {
+                        base: self.git_dir(),
+                        prefix,
+                        precompose_unicode: self.precompose_unicode,
+                    },
+                    self.common_dir().map(|base| IterInfo::PrefixAndBase {
+                        base,
+                        prefix,
+                        precompose_unicode: self.precompose_unicode,
+                    }),
+                    packed,
+                )
+            }
             None => self.iter_from_info(
                 IterInfo::Base {
                     base: self.git_dir(),
@@ -420,7 +427,10 @@ impl file::Store {
             object_hash: self.object_hash,
             iter_packed: match packed {
                 Some(packed) => Some(
-                    match git_dir_info.prefix() {
+                    match git_dir_info
+                        .prefix()
+                        .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidInput, err))?
+                    {
                         Some(prefix) => packed.iter_prefixed(prefix.into_owned()),
                         None => packed.iter(),
                     }

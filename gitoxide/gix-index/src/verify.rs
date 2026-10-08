@@ -6,7 +6,7 @@ use crate::State;
 impl State {
     /// Assure our entries are consistent.
     pub fn verify_entries(&self) -> Result {
-        let _span = gix_features::trace::coarse!("gix_index::File::verify_entries()");
+        let _span = gix_trace::coarse!("gix_index::File::verify_entries()");
         let mut previous = None::<&crate::Entry>;
         for (idx, entry) in self.entries.iter().enumerate() {
             if let Some(prev) = previous

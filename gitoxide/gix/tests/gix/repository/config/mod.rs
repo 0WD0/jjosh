@@ -1,4 +1,4 @@
-use crate::Result;
+use gix_testtools::TestResult;
 pub(crate) mod config_snapshot;
 #[cfg(feature = "command")]
 mod editor;
@@ -6,7 +6,7 @@ mod identity;
 mod remote;
 
 #[test]
-fn config_path_for_repository_sources_matches_git() -> Result {
+fn config_path_for_repository_sources_matches_git() -> TestResult {
     use gix::config::Source;
 
     let fixture = gix_testtools::scripted_fixture_read_only("make_worktree_repo.sh")?;
@@ -35,7 +35,7 @@ fn config_path_for_repository_sources_matches_git() -> Result {
 }
 
 #[test]
-fn big_file_threshold() -> Result {
+fn big_file_threshold() -> TestResult {
     let repo = repo("with-hasconfig");
     assert_eq!(
         repo.big_file_threshold()?,
@@ -50,7 +50,7 @@ fn big_file_threshold() -> Result {
 
 #[cfg(feature = "index")]
 #[test]
-fn invalid_stat_boolean_is_validation_error() -> Result {
+fn invalid_stat_boolean_is_validation_error() -> TestResult {
     let mut diagnostics = Vec::new();
     for key in [
         "core.trustCTime",
@@ -68,28 +68,28 @@ fn invalid_stat_boolean_is_validation_error() -> Result {
     [
         (
             "core.trustCTime",
-            Invalid boolean, "key"="core.trustCTime"
+            Invalid boolean, key="core.trustCTime"
             
             Caused by:
-                0: Booleans need to be 'no', 'off', 'false', '' or 'yes', 'on', 'true' or any number, "input"="invalid",
+                0: Booleans need to be 'no', 'off', 'false', '' or 'yes', 'on', 'true' or any number, input="invalid",
         ),
         (
             "gitoxide.core.useNsec",
-            Invalid boolean, "key"="gitoxide.core.useNsec"
+            Invalid boolean, key="gitoxide.core.useNsec"
             
             Caused by:
-                0: Booleans need to be 'no', 'off', 'false', '' or 'yes', 'on', 'true' or any number, "input"="invalid",
+                0: Booleans need to be 'no', 'off', 'false', '' or 'yes', 'on', 'true' or any number, input="invalid",
         ),
         (
             "gitoxide.core.useStdev",
-            Invalid boolean, "key"="gitoxide.core.useStdev"
+            Invalid boolean, key="gitoxide.core.useStdev"
             
             Caused by:
-                0: Booleans need to be 'no', 'off', 'false', '' or 'yes', 'on', 'true' or any number, "input"="invalid",
+                0: Booleans need to be 'no', 'off', 'false', '' or 'yes', 'on', 'true' or any number, input="invalid",
         ),
         (
             "core.checkStat",
-            Invalid configuration value, "input"="invalid", "key"="core.checkStat",
+            Invalid configuration value, input="invalid", key="core.checkStat",
         ),
     ]
     "#);
@@ -98,13 +98,13 @@ fn invalid_stat_boolean_is_validation_error() -> Result {
 
 #[cfg(feature = "blocking-network-client")]
 mod ssh_options {
-    use crate::Result;
+    use gix_testtools::TestResult;
     use std::ffi::OsStr;
 
     use crate::repository::config::repo;
 
     #[test]
-    fn with_command_and_variant() -> Result {
+    fn with_command_and_variant() -> TestResult {
         let repo = repo("ssh-all-options");
         let opts = repo.ssh_connect_options()?;
         assert_eq!(opts.command.as_deref(), Some(OsStr::new("ssh -VVV")));
@@ -117,7 +117,7 @@ mod ssh_options {
     }
 
     #[test]
-    fn with_command_fallback_which_disallows_shell() -> Result {
+    fn with_command_fallback_which_disallows_shell() -> TestResult {
         let repo = repo("ssh-command-fallback");
         let opts = repo.ssh_connect_options()?;
         assert_eq!(opts.command.as_deref(), Some(OsStr::new("ssh --fallback")));

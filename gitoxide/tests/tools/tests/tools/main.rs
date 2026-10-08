@@ -1,8 +1,8 @@
 mod isolation {
-    use gix_testtools::{Creation, Result, redact_debug_snapshot};
+    use gix_testtools::{Creation, TestResult, redact_debug_snapshot};
 
     #[test]
-    fn script_configuration_adds_to_the_isolation() -> Result {
+    fn script_configuration_adds_to_the_isolation() -> TestResult {
         let dir = gix_testtools::scripted_fixture_writable_with_args(
             "make_config_isolation.sh",
             None::<String>,
@@ -136,3 +136,4 @@ mod isolation {
 mod repository;
 mod rust_fixture;
 mod scripted_fixture_with_post;
+mod symlink_preflight;

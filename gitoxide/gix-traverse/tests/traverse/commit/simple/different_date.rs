@@ -7,7 +7,7 @@ fn simple_repo() -> Result<(std::path::PathBuf, gix_odb::Handle)> {
 }
 
 #[test]
-fn head_breadth_first() -> Result {
+fn head_breadth_first() -> gix_testtools::TestResult {
     let (repo_dir, odb) = simple_repo()?;
 
     // Timestamps show branch1 commits are newer than branch2, with c5 being the newest.
@@ -50,7 +50,7 @@ fn head_breadth_first() -> Result {
 }
 
 #[test]
-fn head_date_order() -> Result {
+fn head_date_order() -> gix_testtools::TestResult {
     let (_repo_dir, odb) = simple_repo()?;
     // Graph with timestamps shown in `head_breadth_first`
     let tip = hex_to_id("f49838d84281c3988eeadd988d97dd358c9f9dc4"); // merge

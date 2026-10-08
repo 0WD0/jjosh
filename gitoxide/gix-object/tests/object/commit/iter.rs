@@ -1,4 +1,3 @@
-use crate::Result;
 use gix_object::{CommitRefIter, bstr::ByteSlice, commit::ref_iter::Token};
 
 use crate::{
@@ -7,7 +6,7 @@ use crate::{
 };
 
 #[test]
-fn newline_right_after_signature_multiline_header() -> Result {
+fn newline_right_after_signature_multiline_header() -> gix_testtools::TestResult {
     let data = fixture_name("commit", "signed-whitespace.txt");
     let tokens = CommitRefIter::from_bytes(&data, gix_hash::Kind::Sha1).collect::<std::result::Result<Vec<_>, _>>()?;
     assert_eq!(tokens.len(), 7, "mainly a parsing exercise");
@@ -21,7 +20,7 @@ fn newline_right_after_signature_multiline_header() -> Result {
 }
 
 #[test]
-fn signed_with_encoding() -> Result {
+fn signed_with_encoding() -> gix_testtools::TestResult {
     let input = fixture_name("commit", "signed-with-encoding.txt");
     let iter = CommitRefIter::from_bytes(&input, gix_hash::Kind::Sha1);
     assert_eq!(
@@ -51,7 +50,7 @@ fn signed_with_encoding() -> Result {
 }
 
 #[test]
-fn whitespace() -> Result {
+fn whitespace() -> gix_testtools::TestResult {
     assert_eq!(
         CommitRefIter::from_bytes(&fixture_name("commit", "whitespace.txt"), gix_hash::Kind::Sha1)
             .collect::<std::result::Result<Vec<_>, _>>()?,
@@ -75,7 +74,7 @@ fn whitespace() -> Result {
 }
 
 #[test]
-fn unsigned() -> Result {
+fn unsigned() -> gix_testtools::TestResult {
     assert_eq!(
         CommitRefIter::from_bytes(&fixture_name("commit", "unsigned.txt"), gix_hash::Kind::Sha1)
             .collect::<std::result::Result<Vec<_>, _>>()?,
@@ -96,7 +95,7 @@ fn unsigned() -> Result {
 }
 
 #[test]
-fn signed_singleline() -> Result {
+fn signed_singleline() -> gix_testtools::TestResult {
     assert_eq!(
         CommitRefIter::from_bytes(&fixture_name("commit", "signed-singleline.txt"), gix_hash::Kind::Sha1)
             .collect::<std::result::Result<Vec<_>, _>>()?,
@@ -127,7 +126,7 @@ fn signed_singleline() -> Result {
 }
 
 #[test]
-fn error_handling() -> Result {
+fn error_handling() -> gix_testtools::TestResult {
     let data = fixture_name("commit", "unsigned.txt");
     let iter = CommitRefIter::from_bytes(&data[..data.len() / 2], gix_hash::Kind::Sha1);
     let tokens = iter.collect::<Vec<_>>();
@@ -139,7 +138,7 @@ fn error_handling() -> Result {
 }
 
 #[test]
-fn mergetag() -> Result {
+fn mergetag() -> gix_testtools::TestResult {
     let input = fixture_name("commit", "mergetag.txt");
     let iter = CommitRefIter::from_bytes(&input, gix_hash::Kind::Sha1);
     assert_eq!(
@@ -176,13 +175,12 @@ fn mergetag() -> Result {
 }
 
 mod method {
-    use crate::Result;
     use gix_object::CommitRefIter;
 
     use crate::{fixture_name, hex_to_id, signature};
 
     #[test]
-    fn tree_id() -> Result {
+    fn tree_id() -> gix_testtools::TestResult {
         let input = fixture_name("commit", "unsigned.txt");
         let iter = CommitRefIter::from_bytes(&input, gix_hash::Kind::Sha1);
         assert_eq!(
@@ -198,7 +196,7 @@ mod method {
     }
 
     #[test]
-    fn signatures() -> Result {
+    fn signatures() -> gix_testtools::TestResult {
         let input = fixture_name("commit", "unsigned.txt");
         let iter = CommitRefIter::from_bytes(&input, gix_hash::Kind::Sha1);
         assert_eq!(
@@ -248,28 +246,28 @@ mod method {
         }
 
         #[test]
-        fn single_line() -> Result {
-            validate("signed-singleline.txt", b"magic:signature", 4..=4)
+        fn single_line() -> gix_testtools::TestResult {
+            Ok(validate("signed-singleline.txt", b"magic:signature", 4..=4)?)
         }
 
         #[test]
-        fn signed() -> Result {
-            validate("signed.txt", b"-----BEGIN PGP SIGNATURE-----\n\niQEzBAABCAAdFiEEdjYp/sh4j8NRKLX27gKdHl60AwAFAl7p9tgACgkQ7gKdHl60\nAwBpegf+KQciv9AOIN7+yPmowecGxBnSfpKWTDzFxnyGR8dq63SpWT8WEKG5mf3a\nG6iUqpsDWaMHlzihaMKRvgRpZxFRbjnNPFBj6F4RRqfE+5R7k6DRSLUV5PqnsdSH\nuccfIDWi1imhsm7AaP5trwl1t+83U2JhHqPcPVFLMODYwWeO6NLR/JCzGSTQRa8t\nRgaVMKI19O/fge5OT5Ua8D47VKEhsJX0LfmkP5RfZQ8JJvNd40TupqKRdlv0sAzP\nya7NXkSHXCavHNR6kA+KpWxn900UoGK8/IDlwU6MeOkpPVawb3NFMqnc7KJDaC2p\nSMzpuEG8LTrCx2YSpHNLqHyzvQ1CZA==\n=5ITV\n-----END PGP SIGNATURE-----\n", 4..=14)
+        fn signed() -> gix_testtools::TestResult {
+            Ok(validate("signed.txt", b"-----BEGIN PGP SIGNATURE-----\n\niQEzBAABCAAdFiEEdjYp/sh4j8NRKLX27gKdHl60AwAFAl7p9tgACgkQ7gKdHl60\nAwBpegf+KQciv9AOIN7+yPmowecGxBnSfpKWTDzFxnyGR8dq63SpWT8WEKG5mf3a\nG6iUqpsDWaMHlzihaMKRvgRpZxFRbjnNPFBj6F4RRqfE+5R7k6DRSLUV5PqnsdSH\nuccfIDWi1imhsm7AaP5trwl1t+83U2JhHqPcPVFLMODYwWeO6NLR/JCzGSTQRa8t\nRgaVMKI19O/fge5OT5Ua8D47VKEhsJX0LfmkP5RfZQ8JJvNd40TupqKRdlv0sAzP\nya7NXkSHXCavHNR6kA+KpWxn900UoGK8/IDlwU6MeOkpPVawb3NFMqnc7KJDaC2p\nSMzpuEG8LTrCx2YSpHNLqHyzvQ1CZA==\n=5ITV\n-----END PGP SIGNATURE-----\n", 4..=14)?)
         }
 
         #[test]
-        fn with_encoding() -> Result {
-            validate("signed-with-encoding.txt", SIGNATURE, 5..=15)
+        fn with_encoding() -> gix_testtools::TestResult {
+            Ok(validate("signed-with-encoding.txt", SIGNATURE, 5..=15)?)
         }
 
         #[test]
-        fn msg_footer() -> Result {
-            validate("message-with-footer.txt", b"-----BEGIN PGP SIGNATURE-----\n\niHUEABYIAB0WIQSuZwcGWSQItmusNgR5URpSUCnwXQUCYT7xpAAKCRB5URpSUCnw\nXWB3AP9q323HlxnI8MyqszNOeYDwa7Y3yEZaUM2y/IRjz+z4YQEAq0yr1Syt3mrK\nOSFCqL2vDm3uStP+vF31f6FnzayhNg0=\n=Mhpp\n-----END PGP SIGNATURE-----\n", 4..=10)
+        fn msg_footer() -> gix_testtools::TestResult {
+            Ok(validate("message-with-footer.txt", b"-----BEGIN PGP SIGNATURE-----\n\niHUEABYIAB0WIQSuZwcGWSQItmusNgR5URpSUCnwXQUCYT7xpAAKCRB5URpSUCnw\nXWB3AP9q323HlxnI8MyqszNOeYDwa7Y3yEZaUM2y/IRjz+z4YQEAq0yr1Syt3mrK\nOSFCqL2vDm3uStP+vF31f6FnzayhNg0=\n=Mhpp\n-----END PGP SIGNATURE-----\n", 4..=10)?)
         }
 
         #[test]
-        fn whitespace() -> Result {
-            validate("signed-whitespace.txt", OTHER_SIGNATURE, 5..=15)
+        fn whitespace() -> gix_testtools::TestResult {
+            Ok(validate("signed-whitespace.txt", OTHER_SIGNATURE, 5..=15)?)
         }
     }
 }

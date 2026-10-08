@@ -255,7 +255,8 @@ fn write_raw_refs(refs: &[Ref], directory: PathBuf) -> std::io::Result<()> {
     let assure_dir_exists = |path: &BString| {
         gix::validate::reference::name(path.as_bstr())
             .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?;
-        let path = directory.join(gix::path::from_byte_slice(path));
+        let path = directory
+            .join(gix::path::from_byte_slice(path).map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?);
         std::fs::create_dir_all(path.parent().expect("multi-component path")).map(|_| path)
     };
     for r in refs {

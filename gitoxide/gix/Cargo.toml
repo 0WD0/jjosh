@@ -78,10 +78,11 @@ extras = [
 ]
 
 ## Various progress-related features that improve the look of progress message units.
-comfort = [
-    "gix-features/progress-unit-bytes",
-    "gix-features/progress-unit-human-numbers",
-]
+comfort = ["progress-unit-bytes", "progress-unit-human-numbers"]
+## Display progress counts with human-readable number units.
+progress-unit-human-numbers = ["gix-utils/progress-unit-human-numbers"]
+## Display byte sizes and progress with human-readable byte units.
+progress-unit-bytes = ["gix-utils/progress-unit-bytes"]
 
 #! #### Hashes
 #!
@@ -173,7 +174,10 @@ merge = ["blob-diff", "dep:gix-merge", "attributes"]
 blame = ["dep:gix-blame", "blob-diff"]
 
 ## Make it possible to turn a tree into a stream of bytes, which can be decoded to entries and turned into various other formats.
-worktree-stream = ["gix-worktree-stream", "attributes"]
+##
+## Tree streaming always uses a background producer thread. This feature therefore enables `parallel`, also when
+## activated through `worktree-archive`, keeping thread-safe shared types and locally gated parallel code paths consistent.
+worktree-stream = ["gix-worktree-stream", "attributes", "parallel"]
 
 ## Create archives from a tree in the repository, similar to what `git archive` does.
 ##
@@ -270,14 +274,7 @@ hp-tempfile-registry = ["gix-tempfile/hp-hashmap"]
 ## Make certain data structure threadsafe (or `Sync`) to facilitate multithreading. Further, many algorithms will now use multiple threads by default.
 ##
 ## If unset, most of `gix` can only be used in a single thread as data structures won't be `Send` anymore.
-parallel = [
-    "gix-features/parallel",
-    "gix-pack/parallel",
-    "gix-attributes?/parallel",
-    "gix-filter?/parallel",
-    "gix-pathspec?/parallel",
-    "gix-worktree?/parallel",
-]
+parallel = ["gix-parallel/parallel", "gix-pack/parallel"]
 
 ## Provide a fixed-size allocation-free LRU cache for packs. It's useful if caching is desired while keeping the memory footprint
 ## for the LRU-cache itself low.
@@ -293,7 +290,11 @@ max-performance = ["max-performance-safe"]
 #!
 #! The catch-all of feature toggles.
 
-## All [`gix::Error`](crate::Error) values produce error chains with source locations.
+## Print captured caller locations in error diagnostics, including errors returned from `main()`.
+## Alternate formatting continues to omit locations. Locations are always available for inspection.
+error-print-location = ["gix-error/error-print-location"]
+
+## All [`gix::Error`](crate::Error) trees are flattened into chains for simple error-source chaining.
 auto-chain-error = ["gix-error/auto-chain-error"]
 
 ## Allow [`gix::Exn`](crate::Exn) to convert directly into `anyhow::Error`.
@@ -303,10 +304,10 @@ anyhow = ["gix-error/anyhow"]
 tree-error = ["gix-error/tree-error"]
 
 ## Enable tracing using the `tracing` crate for coarse tracing.
-tracing = ["gix-features/tracing"]
+tracing = ["gix-trace/tracing"]
 
 ## Enable tracing using the `tracing` crate for detailed tracing. Also enables coarse tracing.
-tracing-detail = ["gix-features/tracing-detail", "tracing"]
+tracing-detail = ["gix-trace/tracing-detail", "tracing"]
 
 ## Data structures implement `serde::Serialize` and `serde::Deserialize`.
 serde = [
@@ -333,11 +334,12 @@ serde = [
 progress-tree = ["prodash/progress-tree"]
 
 ## Print debugging information about usage of object database caches, useful for tuning cache sizes.
-cache-efficiency-debug = ["gix-features/cache-efficiency-debug"]
+cache-efficiency-debug = ["gix-utils/cache-efficiency-debug"]
 
 [dependencies]
+gix-parallel = { version = "^0.50.0", path = "../gix-parallel", features = ["once_cell"] }
 gix-error = { version = "^0.4.0", path = "../gix-error", features = ["bstr"] }
-gix-utils = { version = "^0.4.0", path = "../gix-utils", features = ["bstr"] }
+gix-utils = { version = "^0.4.0", path = "../gix-utils", features = ["bstr", "interrupt", "progress"] }
 gix-fs = { version = "^0.23.0", path = "../gix-fs" }
 gix-ref = { version = "^0.68.0", path = "../gix-ref" }
 gix-discover = { version = "^0.56.0", path = "../gix-discover" }
@@ -372,10 +374,6 @@ gix-diff = { version = "^0.68.0", path = "../gix-diff", default-features = false
 gix-merge = { version = "^0.21.0", path = "../gix-merge", default-features = false, optional = true }
 gix-mailmap = { version = "^0.35.0", path = "../gix-mailmap", optional = true }
 gix-note = { version = "^0.2.0", path = "../gix-note", optional = true }
-gix-features = { version = "^0.50.0", path = "../gix-features", features = [
-    "progress",
-    "once_cell",
-] }
 gix-trace = { version = "^0.2.0", path = "../gix-trace" }
 
 gix-glob = { version = "^0.28.0", path = "../gix-glob" }

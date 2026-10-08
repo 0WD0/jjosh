@@ -93,10 +93,9 @@ fn read_baseline(fixture_dir: &std::path::Path, name: &str) -> Result<Vec<String
 
 mod basic {
     use super::*;
-    use crate::Result;
 
     #[test]
-    fn simple() -> Result {
+    fn simple() -> gix_testtools::TestResult {
         let odb = odb()?;
         let tip = hex_to_id("62ed296d9986f50477e9f7b7e81cd0258939a43d");
 
@@ -133,7 +132,7 @@ mod basic {
     }
 
     #[test]
-    fn duplicate_tips_are_ignored() -> Result {
+    fn duplicate_tips_are_ignored() -> gix_testtools::TestResult {
         let odb = odb()?;
         let tip = hex_to_id("62ed296d9986f50477e9f7b7e81cd0258939a43d");
 
@@ -146,7 +145,7 @@ mod basic {
     }
 
     #[test]
-    fn one_end() -> Result {
+    fn one_end() -> gix_testtools::TestResult {
         let odb = odb()?;
         let tip = hex_to_id("62ed296d9986f50477e9f7b7e81cd0258939a43d");
         let end = hex_to_id("f1cce1b5c7efcdfa106e95caa6c45a2cae48a481");
@@ -172,7 +171,7 @@ mod basic {
     }
 
     #[test]
-    fn empty_range() -> Result {
+    fn empty_range() -> gix_testtools::TestResult {
         let odb = odb()?;
         let tip = hex_to_id("f1cce1b5c7efcdfa106e95caa6c45a2cae48a481");
         let end = hex_to_id("eeab3243aad67bc838fc4425f759453bf0b47785");
@@ -183,7 +182,7 @@ mod basic {
     }
 
     #[test]
-    fn two_tips_two_ends() -> Result {
+    fn two_tips_two_ends() -> gix_testtools::TestResult {
         let odb = odb()?;
         let tips = [
             hex_to_id("d09384f312b03e4a1413160739805ff25e8fe99d"),
@@ -211,7 +210,7 @@ mod basic {
     }
 
     #[test]
-    fn with_dummy_predicate() -> Result {
+    fn with_dummy_predicate() -> gix_testtools::TestResult {
         let odb = odb()?;
         let tip = hex_to_id("62ed296d9986f50477e9f7b7e81cd0258939a43d");
         let filter_out = hex_to_id("eeab3243aad67bc838fc4425f759453bf0b47785");
@@ -244,7 +243,7 @@ mod basic {
     }
 
     #[test]
-    fn end_along_first_parent() -> Result {
+    fn end_along_first_parent() -> gix_testtools::TestResult {
         let odb = odb()?;
         let tip = hex_to_id("d09384f312b03e4a1413160739805ff25e8fe99d");
         let end = hex_to_id("33eb18340e4eaae3e3dcf80222b02f161cd3f966");
@@ -265,10 +264,9 @@ mod basic {
 
 mod first_parent {
     use super::*;
-    use crate::Result;
 
     #[test]
-    fn basic() -> Result {
+    fn basic() -> gix_testtools::TestResult {
         let odb = odb()?;
         let tip = hex_to_id("62ed296d9986f50477e9f7b7e81cd0258939a43d");
 
@@ -301,7 +299,7 @@ mod first_parent {
     }
 
     #[test]
-    fn with_end() -> Result {
+    fn with_end() -> gix_testtools::TestResult {
         let odb = odb()?;
         let tip = hex_to_id("62ed296d9986f50477e9f7b7e81cd0258939a43d");
         let end = hex_to_id("f1cce1b5c7efcdfa106e95caa6c45a2cae48a481");
@@ -323,7 +321,7 @@ mod first_parent {
     }
 
     #[test]
-    fn end_is_second_parent() -> Result {
+    fn end_is_second_parent() -> gix_testtools::TestResult {
         let odb = odb()?;
         let tip = hex_to_id("62ed296d9986f50477e9f7b7e81cd0258939a43d");
         let end = hex_to_id("3be0c4c793c634c8fd95054345d4935d10a0879a");
@@ -347,10 +345,9 @@ mod first_parent {
 
 mod date_order {
     use super::*;
-    use crate::Result;
 
     #[test]
-    fn with_ends() -> Result {
+    fn with_ends() -> gix_testtools::TestResult {
         let odb = odb()?;
         // Same tip and end as basic::one_end() but the order should be different.
         let tip = hex_to_id("62ed296d9986f50477e9f7b7e81cd0258939a43d");

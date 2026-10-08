@@ -12,7 +12,7 @@ use std::{
 use bstr::ByteSlice;
 use curl::easy::{Auth, Easy2};
 use gix_error::{ClassificationMarker, Error, ErrorExt, OptionExt, Result, ResultExt, message};
-use gix_features::io::pipe;
+use gix_utils::io::pipe;
 use parking_lot::Mutex;
 
 use crate::client::blocking_io::http::{
@@ -414,7 +414,7 @@ pub fn new() -> Worker {
     let redirected_base_url_shared_out = redirected_base_url_shared.clone();
     let (req_send, req_recv) = sync_channel(0);
     let (res_send, res_recv) = sync_channel(0);
-    let handle = std::thread::spawn(gix_features::trace::in_thread(move || -> Result {
+    let handle = std::thread::spawn(gix_trace::in_thread(move || -> Result {
         let mut handle = Easy2::new(Handler::default());
         // We don't wait for the possibility for pipelining to become clear, and curl tries to reuse connections by default anyway.
         curl!(handle.pipewait(false));
@@ -703,7 +703,7 @@ mod authentication_tests {
 
     #[test]
     fn only_current_challenges_are_collected_and_continuations_are_unfolded() {
-        let (writer, mut reader) = gix_features::io::pipe::unidirectional(16);
+        let (writer, mut reader) = gix_utils::io::pipe::unidirectional(16);
         let mut handler = super::Handler {
             send_header: Some(writer),
             ..Default::default()
@@ -923,15 +923,14 @@ mod tests {
     }
 
     #[test]
-    fn aborted_uploads_preserve_the_callback_error() {
+    fn aborted_uploads_preserve_the_callback_error() -> gix_testtools::TestResult {
         let (writer, reader) = pipe::unidirectional(1);
         writer
             .channel
             .send(Err(io::Error::other(gix_error::ClassificationMarker::with_source(
                 gix_error::Class::Retryable,
                 gix_error::not_found("custom upload source is unavailable"),
-            ))))
-            .expect("the upload reader is alive");
+            ))))?;
         let mut handler = Handler {
             receive_body: Some(StreamOrBuffer::Stream(reader)),
             ..Default::default()
@@ -953,6 +952,7 @@ mod tests {
         assert!(err.is_not_found(), "other callback classifications survive too");
         assert!(err.downcast_any_ref::<curl::Error>().is_some());
         assert!(handler.io_error.is_none(), "a later request cannot reuse this failure");
+        Ok(())
     }
 
     #[test]

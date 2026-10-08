@@ -1,4 +1,4 @@
-use crate::Result;
+use crate::TestResult;
 use bstr::ByteVec;
 use gix_config::file::{Metadata, init};
 
@@ -17,7 +17,7 @@ fn empty_sections_roundtrip() {
 }
 
 #[test]
-fn empty_sections_with_comments_roundtrip() {
+fn empty_sections_with_comments_roundtrip() -> gix_testtools::TestResult {
     let input = r#"; pre-a
         [a] # side a
         ; post a  
@@ -27,14 +27,11 @@ fn empty_sections_with_comments_roundtrip() {
             [d] # side d
 "#;
 
-    let mut config = gix_config::File::try_from(input).unwrap();
+    let mut config = gix_config::File::try_from(input)?;
     let mut single_string = config.to_bstring();
     assert_eq!(single_string, input);
     assert_eq!(
-        config
-            .append(config.clone())
-            .expect("the small fixture fits into the backing buffer")
-            .to_string(),
+        config.append(config.clone())?.to_string(),
         {
             let clone = single_string.clone();
             single_string.push_str(&clone);
@@ -42,16 +39,15 @@ fn empty_sections_with_comments_roundtrip() {
         },
         "string-duplication is the same as data structure duplication"
     );
+    Ok(())
 }
 
 #[test]
-fn decoded_subsection_names_keep_their_raw_spelling() {
+fn decoded_subsection_names_keep_their_raw_spelling() -> gix_testtools::TestResult {
     let input = r#"[remote "single \t \0"]
 "#;
-    let config = gix_config::File::try_from(input).expect("valid config");
-    let section = config
-        .section("remote", Some("single t 0".into()))
-        .expect("the decoded subsection name is used for lookup");
+    let config = gix_config::File::try_from(input)?;
+    let section = config.section("remote", Some("single t 0".into()))?;
 
     assert_eq!(
         section.header().subsection_name(),
@@ -63,6 +59,7 @@ fn decoded_subsection_names_keep_their_raw_spelling() {
         input,
         "serialization uses the original raw subsection spelling"
     );
+    Ok(())
 }
 
 #[test]
@@ -78,7 +75,7 @@ fn inserted_newlines_use_each_sections_newline_style() {
 }
 
 #[test]
-fn crlf_after_a_comment_is_detected_and_used_for_insertions() -> Result {
+fn crlf_after_a_comment_is_detected_and_used_for_insertions() -> TestResult {
     let input = "; root\r\n[core]\nkey=value\n";
     let mut config = gix_config::File::try_from(input)?;
     assert_eq!(
@@ -164,12 +161,12 @@ fn complex_lossless_roundtrip() {
 }
 
 mod to_filter {
-    use crate::Result;
+    use crate::TestResult;
     use bstr::ByteSlice;
     use gix_config::file::Metadata;
 
     #[test]
-    fn allows_only_selected_sections() -> Result {
+    fn allows_only_selected_sections() -> TestResult {
         let mut config = gix_config::File::new(Metadata::api());
         config.set_raw_value_by("a", None, "b", "c")?;
 

@@ -1,10 +1,10 @@
 mod all {
-    use crate::Result;
+    use crate::TestResult;
     use gix_fs::dir::create;
 
     #[test]
     #[cfg(unix)]
-    fn shared_permissions_apply_only_to_new_directories() -> crate::Result {
+    fn shared_permissions_apply_only_to_new_directories() -> TestResult {
         use std::{fs, os::unix::fs::PermissionsExt};
 
         let dir = tempfile::tempdir()?;
@@ -37,7 +37,7 @@ mod all {
     }
 
     #[test]
-    fn a_deeply_nested_directory() -> Result {
+    fn a_deeply_nested_directory() -> TestResult {
         let dir = tempfile::tempdir()?;
         let target = &dir.path().join("1").join("2").join("3").join("4").join("5").join("6");
         let dir = create::all(target, Default::default(), 0)?;
@@ -46,7 +46,7 @@ mod all {
     }
 }
 mod iter {
-    use crate::Result;
+    use crate::TestResult;
     pub use std::io::ErrorKind::*;
 
     use gix_fs::dir::{
@@ -55,35 +55,29 @@ mod iter {
     };
 
     #[test]
-    fn an_existing_directory_causes_immediate_success() -> Result {
+    fn an_existing_directory_causes_immediate_success() -> TestResult {
         let dir = tempfile::tempdir()?;
         let mut it = create::Iter::new(dir.path(), 0);
-        assert_eq!(
-            it.next().expect("item").expect("success"),
-            dir.path(),
-            "first iteration is immediately successful"
-        );
+        let created = it.next().expect("item").expect("success");
+        assert_eq!(created, dir.path(), "first iteration is immediately successful");
         assert!(it.next().is_none(), "iterator exhausted afterwards");
         Ok(())
     }
 
     #[test]
-    fn a_single_directory_can_be_created_too() -> Result {
+    fn a_single_directory_can_be_created_too() -> TestResult {
         let dir = tempfile::tempdir()?;
         let new_dir = dir.path().join("new");
         let mut it = create::Iter::new(&new_dir, 0);
-        assert_eq!(
-            it.next().expect("item").expect("success"),
-            &new_dir,
-            "first iteration is immediately successful"
-        );
+        let created = it.next().expect("item").expect("success");
+        assert_eq!(created, &new_dir, "first iteration is immediately successful");
         assert!(it.next().is_none(), "iterator exhausted afterwards");
         assert!(new_dir.is_dir(), "the directory exists");
         Ok(())
     }
 
     #[test]
-    fn multiple_intermediate_directories_are_created_automatically() -> Result {
+    fn multiple_intermediate_directories_are_created_automatically() -> TestResult {
         let dir = tempfile::tempdir()?;
         let new_dir = dir.path().join("s1").join("s2").join("new");
         let mut it = create::Iter::new(&new_dir, 0);
@@ -125,18 +119,15 @@ mod iter {
             new_dir.parent().unwrap(),
             "second subdir is created"
         );
-        assert_eq!(
-            it.next().expect("item").expect("success"),
-            new_dir,
-            "target directory is created"
-        );
+        let created = it.next().expect("item").expect("success");
+        assert_eq!(created, new_dir, "target directory is created");
         assert!(it.next().is_none(), "iterator depleted");
         assert!(new_dir.is_dir(), "the directory exists");
         Ok(())
     }
 
     #[test]
-    fn multiple_intermediate_directories_are_created_up_to_retries_limit() -> Result {
+    fn multiple_intermediate_directories_are_created_up_to_retries_limit() -> TestResult {
         let dir = tempfile::tempdir()?;
         let new_dir = dir.path().join("s1").join("s2").join("new");
         let limits = Retries {
@@ -179,7 +170,7 @@ mod iter {
     }
 
     #[test]
-    fn an_existing_file_makes_directory_creation_fail_permanently() -> Result {
+    fn an_existing_file_makes_directory_creation_fail_permanently() -> TestResult {
         let dir = tempfile::tempdir()?;
         let new_dir = dir.path().join("also-file");
         std::fs::write(&new_dir, [42])?;
@@ -219,7 +210,7 @@ mod iter {
         Ok(())
     }
     #[test]
-    fn racy_directory_creation_with_new_directory_being_deleted_not_enough_retries() -> Result {
+    fn racy_directory_creation_with_new_directory_being_deleted_not_enough_retries() -> TestResult {
         let dir = tempfile::tempdir()?;
         let new_dir = dir.path().join("a").join("new");
         let parent_dir = new_dir.parent().unwrap();
@@ -276,7 +267,7 @@ mod iter {
     }
 
     #[test]
-    fn racy_directory_creation_with_new_directory_being_deleted() -> Result {
+    fn racy_directory_creation_with_new_directory_being_deleted() -> TestResult {
         let dir = tempfile::tempdir()?;
         let new_dir = dir.path().join("a").join("new");
         let parent_dir = new_dir.parent().unwrap();

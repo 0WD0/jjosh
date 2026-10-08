@@ -1,5 +1,4 @@
 mod locate {
-    use crate::Result;
     use bstr::ByteSlice;
     use gix_object::Kind;
     use gix_odb::pack;
@@ -21,13 +20,12 @@ mod locate {
     }
 
     mod locate_and_verify {
-        use crate::Result;
         use gix_odb::pack;
 
         use crate::{PACKS_AND_INDICES, fixture_path};
 
         #[test]
-        fn all() -> Result {
+        fn all() -> gix_testtools::TestResult {
             for (index_path, data_path) in PACKS_AND_INDICES {
                 // both paths are equivalent
                 pack::Bundle::at(fixture_path(index_path), gix_hash::Kind::Sha1)?;
@@ -51,7 +49,7 @@ mod locate {
     }
 
     #[test]
-    fn blob() -> Result {
+    fn blob() -> gix_testtools::TestResult {
         let mut out = Vec::new();
         let obj = locate("bd46bb3f5bb4ca5431770c4fde0735fb89d382f3", &mut out);
 
@@ -67,7 +65,7 @@ mod locate {
     }
 
     #[test]
-    fn tree() -> Result {
+    fn tree() -> gix_testtools::TestResult {
         let mut out = Vec::new();
         let obj = locate("e90926b07092bccb7bf7da445fae6ffdfacf3eae", &mut out);
 
@@ -77,7 +75,7 @@ mod locate {
     }
 
     #[test]
-    fn commit() -> Result {
+    fn commit() -> gix_testtools::TestResult {
         let mut out = Vec::new();
         let obj = locate("779c5451ba9fe210ffd1f55db202e55f51acecac", &mut out);
 
@@ -97,9 +95,9 @@ mod write_to_directory {
         sync::atomic::AtomicBool,
     };
 
-    use gix_features::progress;
     use gix_odb::pack;
     use gix_testtools::tempfile::TempDir;
+    use gix_utils::progress;
 
     use crate::{SMALL_PACK, SMALL_PACK_INDEX, fixture_path};
 
@@ -120,7 +118,7 @@ mod write_to_directory {
     }
 
     #[test]
-    fn without_providing_one() -> Result {
+    fn without_providing_one() -> gix_testtools::TestResult {
         let res = write_pack(None::<&Path>, SMALL_PACK)?;
         assert_eq!(res, expected_outcome()?);
         assert_eq!(
@@ -132,7 +130,7 @@ mod write_to_directory {
     }
 
     #[test]
-    fn given_a_directory() -> Result {
+    fn given_a_directory() -> gix_testtools::TestResult {
         let dir = TempDir::new()?;
         let mut res = write_pack(Some(&dir), SMALL_PACK)?;
         let (index_path, data_path, keep_path) = (res.index_path.take(), res.data_path.take(), res.keep_path.take());
@@ -167,7 +165,7 @@ mod write_to_directory {
     /// already has. `index-pack --fix-thin` makes such packs self-contained by appending
     /// those bases, leaving the original deltas as forward references.
     #[test]
-    fn in_pack_ref_deltas_with_forward_references() -> Result {
+    fn in_pack_ref_deltas_with_forward_references() -> gix_testtools::TestResult {
         for object_hash in [gix_hash::Kind::Sha1, gix_hash::Kind::Sha256] {
             for objects in [
                 &[b"A".as_slice(), b"B".as_slice()][..],
@@ -224,7 +222,7 @@ mod write_to_directory {
     }
 
     #[test]
-    fn version_3_with_thin_pack_lookup() -> Result {
+    fn version_3_with_thin_pack_lookup() -> gix_testtools::TestResult {
         let object_hash = gix_hash::Kind::Sha1;
         let pack_data = ref_delta_pack(
             object_hash,
@@ -252,7 +250,7 @@ mod write_to_directory {
     }
 
     #[test]
-    fn unresolved_ref_delta_base_is_reported() -> Result {
+    fn unresolved_ref_delta_base_is_reported() -> gix_testtools::TestResult {
         let object_hash = gix_hash::Kind::Sha1;
         let base_id = object_hash.null();
         let delta = [0, 0];
@@ -285,7 +283,7 @@ mod write_to_directory {
     }
 
     #[test]
-    fn respects_alloc_limit_bytes() -> Result {
+    fn respects_alloc_limit_bytes() -> gix_testtools::TestResult {
         let pack_file = fs::File::open(fixture_path(SMALL_PACK))?;
         static SHOULD_INTERRUPT: AtomicBool = AtomicBool::new(false);
 

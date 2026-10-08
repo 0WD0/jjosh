@@ -405,7 +405,7 @@ pub(crate) mod function {
     pub fn wildmatch(pattern: &BStr, value: &BStr, mode: Mode) -> bool {
         let res = match_recursive(pattern, value, mode, 0);
         if res == Result::RecursionLimitReached {
-            gix_features::trace::error!("Recursion limit of {} reached for pattern '{pattern}'", RECURSION_LIMIT);
+            gix_trace::error!("Recursion limit of {} reached for pattern '{pattern}'", RECURSION_LIMIT);
         }
         res == Result::Match
     }

@@ -1,4 +1,4 @@
-use crate::Result;
+use gix_testtools::TestResult;
 
 use gix::object::{blob::diff::lines, tree::diff::Change};
 use gix_object::{bstr::ByteSlice, tree::EntryKind};
@@ -6,7 +6,7 @@ use gix_object::{bstr::ByteSlice, tree::EntryKind};
 use crate::named_repo;
 
 #[test]
-fn changes_against_tree_modified() -> Result {
+fn changes_against_tree_modified() -> TestResult {
     let repo = named_repo("make_diff_repo.sh")?;
     let from = tree_named(&repo, "@^{/c3-modification}~1");
     let to = tree_named(&repo, ":/c3-modification");
@@ -51,8 +51,8 @@ fn changes_against_tree_modified() -> Result {
             }
         }
 
-        let mut diff = change.diff(&mut cache).expect("objects available");
-        let count = diff.line_counts().expect("no diff error").expect("no binary blobs");
+        let mut diff = change.diff(&mut cache)?;
+        let count = diff.line_counts()?.expect("no binary blobs");
         assert_eq!(count.insertions, 1);
         assert_eq!(count.removals, 0);
         diff.lines(|hunk| {
@@ -71,8 +71,7 @@ fn changes_against_tree_modified() -> Result {
                 lines::Change::Modification { .. } => unreachable!("there was no modification"),
             }
             Ok(())
-        })
-        .expect("infallible");
+        })?;
 
         i += 1;
         Ok(std::ops::ControlFlow::Continue(()))
@@ -148,7 +147,7 @@ fn changes_against_tree_modified() -> Result {
 }
 
 mod track_rewrites {
-    use crate::Result;
+    use gix_testtools::TestResult;
     use std::collections::HashMap;
 
     use gix::{
@@ -163,7 +162,7 @@ mod track_rewrites {
     use crate::{object::tree::diff::tree_named, util::named_subrepo_opts};
 
     #[test]
-    fn jj_realistic_needs_to_be_more_clever() -> Result {
+    fn jj_realistic_needs_to_be_more_clever() -> TestResult {
         // The test case only works (and is only needed) for SHA-1.
         // Ideally this can be ported to SHA-256 once rename tracking is par with Git.
         if gix_testtools::object_hash() == gix::hash::Kind::Sha256 {
@@ -443,7 +442,7 @@ mod track_rewrites {
     }
 
     #[test]
-    fn jj_realistic_directory_rename() -> Result {
+    fn jj_realistic_directory_rename() -> TestResult {
         // The test case only works (and is only needed) for SHA-1.
         // Ideally this can be ported to SHA-256 once rename tracking is par with Git.
         if gix_testtools::object_hash() == gix::hash::Kind::Sha256 {

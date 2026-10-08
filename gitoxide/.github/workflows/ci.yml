@@ -578,11 +578,14 @@ jobs:
           for crate in "${crates[@]}"; do
             cargo build -p "$crate" --target "$TARGET"
           done
-      - name: features of gix-features
+      - name: features of gix-parallel and gix-utils
         run: |
           set -x
-          for feature in progress parallel io-pipe crc32 cache-efficiency-debug; do
-            cargo build -p gix-features --features "$feature" --target "$TARGET"
+          for feature in '' parallel once_cell parallel,once_cell; do
+            cargo build -p gix-parallel --no-default-features --features "$feature" --target "$TARGET"
+          done
+          for feature in '' progress progress,progress-unit-bytes progress,progress-unit-human-numbers interrupt io-pipe cache-efficiency-debug; do
+            cargo build -p gix-utils --no-default-features --features "$feature" --target "$TARGET"
           done
       - name: crates with 'sha1' and 'wasm' feature
         run: |

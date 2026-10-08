@@ -205,7 +205,7 @@ fn fixture_filtered_detailed(
             FastEq,
             SubmoduleStatusMock { dirty: submodule_dirty },
             odb,
-            &mut gix_features::progress::Discard,
+            &mut gix_utils::progress::Discard,
             ctx,
             options,
         )
@@ -218,7 +218,7 @@ fn fixture_filtered_detailed(
             FastEq,
             SubmoduleStatusMock { dirty: submodule_dirty },
             &odb,
-            &mut gix_features::progress::Discard,
+            &mut gix_utils::progress::Discard,
             ctx,
             options,
         )
@@ -299,7 +299,7 @@ fn hash_errors_preserve_io_kinds() {
             gix_object::Kind::Blob,
             &mut &b"x"[..],
             stream_len,
-            &mut gix_features::progress::Discard,
+            &mut gix_utils::progress::Discard,
             &AtomicBool::new(interrupted),
         )
         .expect_err("a short stream or requested interruption prevents hashing");
@@ -1215,17 +1215,17 @@ fn modified() {
 }
 
 #[test]
-fn racy_git() {
+fn racy_git() -> gix_testtools::TestResult {
     let timestamp = 940040400;
     // we need a writable fixture because we have to mess with `mtimes` manually, because touch -d
     // respects the locale so the test wouldn't work depending on the timezone you
     // run your test in.
-    let dir = crate::scripted_fixture_writable("racy_git.sh").expect("script works");
+    let dir = crate::scripted_fixture_writable("racy_git.sh")?;
     let worktree = dir.path();
     let git_dir = worktree.join(".git");
     let fs = gix_fs::Capabilities::probe(&git_dir);
     let object_hash = gix_testtools::object_hash();
-    let mut index = gix_index::File::at(git_dir.join("index"), object_hash, false, Default::default()).unwrap();
+    let mut index = gix_index::File::at(git_dir.join("index"), object_hash, false, Default::default())?;
 
     #[derive(Clone)]
     struct CountCalls(Arc<AtomicUsize>, FastEq);
@@ -1254,8 +1254,7 @@ fn racy_git() {
     set_file_mtime(
         worktree.join("content"),
         FileTime::from_unix_time(i64::from(timestamp), 0),
-    )
-    .expect("changing filetime works");
+    )?;
     let mut recorder = Recorder::default();
 
     let count = Arc::new(AtomicUsize::new(0));
@@ -1280,15 +1279,14 @@ fn racy_git() {
         counter.clone(),
         SubmoduleStatusMock { dirty: false },
         gix_object::find::Never,
-        &mut gix_features::progress::Discard,
+        &mut gix_utils::progress::Discard,
         ctx.clone(),
         Options {
             fs,
             stat: TEST_OPTIONS,
             ..Options::default()
         },
-    )
-    .unwrap();
+    )?;
     assert_eq!(
         out,
         Outcome {
@@ -1317,15 +1315,14 @@ fn racy_git() {
         counter,
         SubmoduleStatusMock { dirty: false },
         gix_object::find::Never,
-        &mut gix_features::progress::Discard,
+        &mut gix_utils::progress::Discard,
         ctx,
         Options {
             fs,
             stat: TEST_OPTIONS,
             ..Options::default()
         },
-    )
-    .unwrap();
+    )?;
     assert_eq!(
         out,
         Outcome {
@@ -1357,6 +1354,7 @@ fn racy_git() {
         )],
         "racy change is correctly detected"
     );
+    Ok(())
 }
 
 fn default_pathspec() -> gix_pathspec::Search {

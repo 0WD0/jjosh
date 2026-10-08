@@ -21,17 +21,17 @@ sha1 = ["gix-hash/sha1"]
 sha256 = ["gix-hash/sha256"]
 ## Add support for tracking rewrites along with checking for worktree modifications.
 worktree-rewrites = ["dep:gix-dir", "dep:gix-diff"]
-## Enable parallel algorithms.
-parallel = ["gix-features/parallel"]
 
 [dependencies]
+gix-trace = { version = "^0.2.0", path = "../gix-trace" }
+gix-utils = { version = "^0.4.0", path = "../gix-utils", features = ["interrupt", "progress"] }
+gix-parallel = { version = "^0.50.0", path = "../gix-parallel" }
 gix-index = { version = "^0.56.0", path = "../gix-index" }
 gix-fs = { version = "^0.23.0", path = "../gix-fs" }
 gix-hash = { version = "^0.27.0", path = "../gix-hash" }
 gix-error = { version = "^0.4.0", path = "../gix-error" }
 gix-object = { version = "^0.65.0", path = "../gix-object" }
 gix-path = { version = "^0.13.0", path = "../gix-path" }
-gix-features = { version = "^0.50.0", path = "../gix-features", features = ["progress"] }
 gix-filter = { version = "^0.35.0", path = "../gix-filter" }
 gix-worktree = { version = "^0.57.0", path = "../gix-worktree", default-features = false, features = ["attributes"] }
 gix-pathspec = { version = "^0.21.0", path = "../gix-pathspec" }
@@ -59,7 +59,8 @@ windows-sys = { version = "0.61.1", features = [
 
 [dev-dependencies]
 insta = "1.46.3"
-gix-status = { path = ".", features = ["worktree-rewrites", "parallel", "sha1", "sha256"] }
+gix-status = { path = ".", features = ["worktree-rewrites", "sha1", "sha256"] }
+gix-parallel = { path = "../gix-parallel", features = ["parallel"] }
 gix-testtools = { path = "../tests/tools", default-features = false, features = ["sha1", "sha256"] }
 gix-index = { path = "../gix-index" }
 gix-fs = { path = "../gix-fs" }

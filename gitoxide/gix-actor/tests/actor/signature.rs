@@ -13,7 +13,7 @@ mod write_to {
             insta::assert_debug_snapshot!(signature.write_to(&mut Vec::new()).expect_err("the signature is invalid"), "signature names reject angle brackets", @r#"
             Custom {
                 kind: Other,
-                error: Signature name or email must not contain '<', '>' or \n, "input"="invalid < middlename",
+                error: Signature name or email must not contain '<', '>' or \n, input="invalid < middlename",
             }
             "#);
         }
@@ -28,7 +28,7 @@ mod write_to {
             insta::assert_debug_snapshot!(signature.write_to(&mut Vec::new()).expect_err("the signature is invalid"), "signature email addresses reject angle brackets", @r#"
             Custom {
                 kind: Other,
-                error: Signature name or email must not contain '<', '>' or \n, "input"="server>.example.com",
+                error: Signature name or email must not contain '<', '>' or \n, input="server>.example.com",
             }
             "#);
         }
@@ -43,7 +43,7 @@ mod write_to {
             insta::assert_debug_snapshot!(signature.write_to(&mut Vec::new()).expect_err("the signature is invalid"), "signature names reject newlines", @r#"
             Custom {
                 kind: Other,
-                error: Signature name or email must not contain '<', '>' or \n, "input"="hello\nnewline",
+                error: Signature name or email must not contain '<', '>' or \n, input="hello\nnewline",
             }
             "#);
         }
@@ -62,7 +62,7 @@ fn trim() {
 }
 
 #[test]
-fn round_trip() -> Result<(), Box<dyn std::error::Error>> {
+fn round_trip() -> gix_testtools::TestResult {
     static DEFAULTS: &[&[u8]] =     &[
         b"Sebastian Thiel <byronimo@gmail.com> 1 -0030",
         b"Sebastian Thiel <byronimo@gmail.com> -1500 -0030",
@@ -71,7 +71,7 @@ fn round_trip() -> Result<(), Box<dyn std::error::Error>> {
     ];
 
     for input in DEFAULTS {
-        let signature: Signature = gix_actor::SignatureRef::from_bytes(input).unwrap().into();
+        let signature: Signature = gix_actor::SignatureRef::from_bytes(input)?.into();
         let mut output = Vec::new();
         signature.write_to(&mut output)?;
         assert_eq!(output.as_bstr(), input.as_bstr());
@@ -80,9 +80,9 @@ fn round_trip() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
-fn signature_ref_round_trips_with_seconds_in_offset() -> Result<(), Box<dyn std::error::Error>> {
+fn signature_ref_round_trips_with_seconds_in_offset() -> gix_testtools::TestResult {
     let input = b"Sebastian Thiel <byronimo@gmail.com> 1313584730 +051800"; // Seen in the wild
-    let signature: SignatureRef = gix_actor::SignatureRef::from_bytes(input).unwrap();
+    let signature: SignatureRef = gix_actor::SignatureRef::from_bytes(input)?;
     let mut output = Vec::new();
     signature.write_to(&mut output)?;
     assert_eq!(output.as_bstr(), input.as_bstr());
@@ -90,9 +90,8 @@ fn signature_ref_round_trips_with_seconds_in_offset() -> Result<(), Box<dyn std:
 }
 
 #[test]
-fn parse_timestamp_with_trailing_digits() {
-    let signature = gix_actor::SignatureRef::from_bytes(b"first last <name@example.com> 1312735823 +051800")
-        .expect("deal with trailing zeroes in timestamp by discarding it");
+fn parse_timestamp_with_trailing_digits() -> gix_testtools::TestResult {
+    let signature = gix_actor::SignatureRef::from_bytes(b"first last <name@example.com> 1312735823 +051800")?;
     assert_eq!(
         signature,
         SignatureRef {
@@ -102,8 +101,7 @@ fn parse_timestamp_with_trailing_digits() {
         }
     );
 
-    let signature = gix_actor::SignatureRef::from_bytes(b"first last <name@example.com> 1312735823 +0518")
-        .expect("this naturally works as the timestamp does not have trailing zeroes");
+    let signature = gix_actor::SignatureRef::from_bytes(b"first last <name@example.com> 1312735823 +0518")?;
     assert_eq!(
         signature,
         SignatureRef {
@@ -112,12 +110,12 @@ fn parse_timestamp_with_trailing_digits() {
             time: "1312735823 +0518",
         }
     );
+    Ok(())
 }
 
 #[test]
-fn parse_missing_timestamp() {
-    let signature = gix_actor::SignatureRef::from_bytes(b"first last <name@example.com>")
-        .expect("deal with missing timestamp in signature by zeroing it");
+fn parse_missing_timestamp() -> gix_testtools::TestResult {
+    let signature = gix_actor::SignatureRef::from_bytes(b"first last <name@example.com>")?;
     assert_eq!(
         signature,
         SignatureRef {
@@ -126,4 +124,5 @@ fn parse_missing_timestamp() {
             time: ""
         }
     );
+    Ok(())
 }

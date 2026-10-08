@@ -7,12 +7,11 @@ use gix_credentials::{
 use crate::helper::script_helper;
 
 #[test]
-fn get() {
+fn get() -> gix_testtools::TestResult {
     let mut outcome = gix_credentials::helper::invoke(
         &mut script_helper("last-pass"),
         &helper::Action::get_for_url("https://github.com/byron/gitoxide"),
-    )
-    .unwrap()
+    )?
     .expect("mock provides credentials");
     assert_eq!(
         outcome.consume_identity().expect("complete"),
@@ -23,27 +22,28 @@ fn get() {
         }
     );
     assert_eq!(
-        outcome.next.store().payload().unwrap(),
+        outcome.next.store().payload().expect("store action has a payload"),
         "username=user\npassword=pass\nquit=1\n"
     );
+    Ok(())
 }
 
 #[test]
-fn get_uses_context_options_for_the_entire_exchange() {
+fn get_uses_context_options_for_the_entire_exchange() -> gix_testtools::TestResult {
     let action = helper::Action::Get(Context::from_url(
         "https://github.com/byron/gitoxide",
         ContextOptions {
             protect_protocol: false,
         },
     ));
-    let outcome = gix_credentials::helper::invoke(&mut script_helper("carriage-return"), &action)
-        .expect("CR is allowed")
+    let outcome = gix_credentials::helper::invoke(&mut script_helper("carriage-return"), &action)?
         .expect("mock provides credentials");
 
     assert_eq!(outcome.username.as_deref(), Some("user\rname"));
-    let context: Context = (&outcome.next).try_into().expect("the next action retains its options");
+    let context: Context = (&outcome.next).try_into()?;
     assert_eq!(context.options, action.context().expect("get action").options);
     assert_eq!(context.username.as_deref(), Some("user\rname"));
+    Ok(())
 }
 
 #[test]
@@ -67,13 +67,13 @@ fn store_and_reject() {
 }
 
 mod program {
-    use crate::Result;
+    use crate::TestResult;
     use gix_credentials::{Program, helper, program::Kind};
 
     use crate::helper::script_helper;
 
     #[test]
-    fn builtin() -> Result {
+    fn builtin() -> TestResult {
         // Other tests resolve fixture paths relative to the working directory, so change it only in a child.
         if gix_testtools::run_in_isolated_process()? {
             return Ok(());
@@ -90,7 +90,7 @@ mod program {
 
         Caused by:
             0: I/O error (Other)
-            1: Credentials helper program failed, "exit_code"=128, "exit_status"="exit status: 128"
+            1: Credentials helper program failed, exit_code=128, exit_status="exit status: 128"
         "#);
         assert!(
             err.classify().next().is_none(),
@@ -100,15 +100,14 @@ mod program {
     }
 
     #[test]
-    fn script() {
+    fn script() -> gix_testtools::TestResult {
         assert_eq!(
             gix_credentials::helper::invoke(
                 &mut Program::from_custom_definition(
                     "!f() { test \"$1\" = get && echo \"password=pass\" && echo \"username=user\"; }; f"
-                ),
+                )?,
                 &helper::Action::get_for_url("/does/not/matter"),
-            )
-            .unwrap()
+            )?
             .expect("present")
             .consume_identity()
             .expect("complete"),
@@ -118,6 +117,7 @@ mod program {
                 oauth_refresh_token: None
             }
         );
+        Ok(())
     }
 
     #[cfg(unix)] // needs executable bits to work
@@ -126,9 +126,9 @@ mod program {
         assert_eq!(
             gix_credentials::helper::invoke(
                 &mut Program::from_custom_definition(
-                    gix_path::into_bstr(gix_path::realpath(gix_testtools::fixture_path("custom-helper.sh"))?)
+                    gix_path::into_bstr(gix_path::realpath(gix_testtools::fixture_path("custom-helper.sh"))?)?
                         .into_owned(),
-                ),
+                )?,
                 &helper::Action::get_for_url("/does/not/matter"),
             )?
             .expect("present")
@@ -144,7 +144,7 @@ mod program {
     }
 
     #[test]
-    fn path_to_helper_as_script_to_workaround_executable_bits() -> Result {
+    fn path_to_helper_as_script_to_workaround_executable_bits() -> TestResult {
         assert_eq!(
             gix_credentials::helper::invoke(
                 &mut script_helper("custom-helper"),

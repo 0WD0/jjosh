@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn internal_win_path_lookup() -> gix_testtools::Result {
+fn internal_win_path_lookup() -> gix_testtools::TestResult {
     let root = gix_testtools::scripted_fixture_read_only("win_path_lookup.sh")?;
     let mut paths: Vec<_> = std::fs::read_dir(&root)?
         .filter_map(Result::ok)

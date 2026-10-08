@@ -73,11 +73,11 @@ mod with_known_revision {
 
 mod empty_pattern {
     use super::*;
-    use crate::Result;
     use crate::revision::spec::from_bytes::{parse_spec, repo};
+    use gix_testtools::TestResult;
 
     #[test]
-    fn matches_everything_and_peels_to_a_commit() -> Result {
+    fn matches_everything_and_peels_to_a_commit() -> TestResult {
         let repo = repo("complex_graph")?;
 
         assert_eq!(

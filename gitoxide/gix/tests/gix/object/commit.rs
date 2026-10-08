@@ -1,10 +1,10 @@
-use crate::Result;
+use gix_testtools::TestResult;
 use std::cmp::Ordering;
 
 use crate::{basic_repo, util::hex_to_id};
 
 #[test]
-fn short_id() -> Result {
+fn short_id() -> TestResult {
     let repo = basic_repo()?;
     let commit = repo.head_commit()?;
     assert_eq!(commit.short_id()?.cmp_oid(&commit.id), Ordering::Equal);
@@ -12,7 +12,7 @@ fn short_id() -> Result {
 }
 
 #[test]
-fn tree() -> Result {
+fn tree() -> TestResult {
     let repo = basic_repo()?;
     let tree_id = repo.head_tree_id()?;
     assert_eq!(tree_id, hex_to_id("21d3ba9a26b790a4858d67754ae05d04dfce4d0c"));
@@ -31,7 +31,7 @@ fn tree() -> Result {
 }
 
 #[test]
-fn decode() -> Result {
+fn decode() -> TestResult {
     let repo = basic_repo()?;
     let commit = repo.head_commit()?;
     assert_eq!(commit.decode()?.message, commit.message_raw()?);

@@ -44,8 +44,8 @@ fn progress_tree() -> LogCreator {
 pub mod pretty {
     use std::io::{self, stderr, stdout};
 
+    use gix::progress;
     use gix::{Result, error::ResultExt};
-    use gix_features::progress;
 
     use crate::shared::ProgressRange;
 
@@ -160,7 +160,7 @@ pub mod pretty {
         use std::io::Write;
 
         use anstream::{AutoStream, ColorChoice};
-        use gix::error::TestResult;
+        use gix::{bstr::ByteSlice, error::TestResult};
 
         use super::TraceOutput;
 
@@ -169,9 +169,9 @@ pub mod pretty {
             let output = TraceOutput::default();
             let dispatch = gitoxide_core::trace::subscriber(1, output.clone(), None)?;
             tracing::dispatcher::with_default(&dispatch, || tracing::info!("visible event"));
-            let output = output.lock().expect("trace output lock is not poisoned");
+            let output = output.lock().map_err(|err| err.to_string())?;
             assert!(
-                output.windows(2).any(|bytes| bytes == b"\x1b["),
+                output.contains_str(b"\x1b["),
                 "forest terminal traces contain ANSI styling"
             );
 
@@ -179,7 +179,7 @@ pub mod pretty {
                 let mut stream = AutoStream::new(Vec::new(), choice);
                 stream.write_all(&output)?;
                 assert_eq!(
-                    stream.into_inner().windows(2).any(|bytes| bytes == b"\x1b["),
+                    stream.into_inner().contains_str(b"\x1b["),
                     colored,
                     "terminal adaptation follows its color choice"
                 );
@@ -290,7 +290,7 @@ mod clap {
         fn parse_ref(&self, cmd: &Command, arg: Option<&Arg>, value: &OsStr) -> Result<Self::Value, Error> {
             OsStringValueParser::new()
                 .try_map(|arg| -> gix::Result<_> {
-                    let arg = gix::path::into_bstr(std::path::PathBuf::from(arg));
+                    let arg = gix::path::into_bstr(std::path::PathBuf::from(arg))?;
                     gix::pathspec::parse(arg.as_ref(), *PATHSPEC_DEFAULTS)?;
                     Ok(arg.into_owned())
                 })
@@ -312,7 +312,7 @@ mod clap {
         fn parse_ref(&self, cmd: &Command, arg: Option<&Arg>, value: &OsStr) -> Result<Self::Value, Error> {
             OsStringValueParser::new()
                 .try_map(|arg| -> gix::Result<_> {
-                    let arg = gix::path::into_bstr(std::path::PathBuf::from(arg));
+                    let arg = gix::path::into_bstr(std::path::PathBuf::from(arg))?;
                     gix::pathspec::parse(arg.as_ref(), Default::default())?;
                     Ok(arg.into_owned())
                 })

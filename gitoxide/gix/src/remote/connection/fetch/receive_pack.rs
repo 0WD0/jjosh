@@ -74,7 +74,7 @@ where
     #[gix_protocol::bisync::bisync]
     pub async fn receive<P>(self, progress: P, should_interrupt: &AtomicBool) -> Result<Outcome>
     where
-        P: gix_features::progress::NestedProgress,
+        P: gix_utils::progress::NestedProgress,
         P::SubProgress: 'static,
     {
         let Prepare { inner, repo } = self;
@@ -94,7 +94,7 @@ where
         should_interrupt: &AtomicBool,
     ) -> Result<Outcome>
     where
-        P: gix_features::progress::NestedProgress,
+        P: gix_utils::progress::NestedProgress,
         P::SubProgress: 'static,
     {
         let ref_map = &self.ref_map;
@@ -124,7 +124,7 @@ where
         }
 
         let fetch_options = gix_protocol::fetch::Options {
-            shallow_file: repo.shallow_file(),
+            shallow_file: repo.shallow_file()?,
             shallow: &self.shallow,
             tags: con.remote.fetch_tags,
             reject_shallow_remote: Clone::REJECT_SHALLOW

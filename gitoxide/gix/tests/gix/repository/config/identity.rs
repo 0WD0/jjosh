@@ -1,4 +1,4 @@
-use crate::Result;
+use gix_testtools::TestResult;
 use std::path::Path;
 
 use gix_sec::Permission;
@@ -8,7 +8,7 @@ use serial_test::serial;
 use crate::{named_repo, util::named_subrepo_opts};
 
 #[test]
-fn custom_committer_fallback_is_only_installed_if_needed() -> Result {
+fn custom_committer_fallback_is_only_installed_if_needed() -> TestResult {
     let tmp = tempfile::tempdir()?;
     let repo = crate::init_repo_isolated(tmp.path(), gix::create::Kind::Bare)?;
     let git_dir = repo.git_dir().to_owned();
@@ -46,7 +46,7 @@ fn custom_committer_fallback_is_only_installed_if_needed() -> Result {
 }
 
 #[test]
-fn configured_identity_fallbacks_follow_user_identity() -> Result {
+fn configured_identity_fallbacks_follow_user_identity() -> TestResult {
     let tmp = tempfile::tempdir()?;
     let repo = crate::init_repo_isolated(tmp.path(), gix::create::Kind::Bare)?;
     let repo = gix::open_opts(
@@ -87,7 +87,7 @@ fn configured_identity_fallbacks_follow_user_identity() -> Result {
 
 #[test]
 #[serial]
-fn author_included_by_hasconfig() -> Result {
+fn author_included_by_hasconfig() -> TestResult {
     let _environment = gix_testtools::isolate_git_environment()?;
     let repo = named_subrepo_opts("make_config_repos.sh", "with-hasconfig", gix::open::Options::isolated())?;
     let _environment = _environment
@@ -108,7 +108,7 @@ fn author_included_by_hasconfig() -> Result {
 
 #[test]
 #[serial]
-fn author_and_committer_and_fallback() -> Result {
+fn author_and_committer_and_fallback() -> TestResult {
     let _environment = gix_testtools::isolate_git_environment()?;
     for trust in [gix_sec::Trust::Full, gix_sec::Trust::Reduced] {
         let repo = named_repo("make_config_repo.sh")?;
@@ -177,23 +177,17 @@ fn author_and_committer_and_fallback() -> Result {
         let relative_path_key = "a.relative-path";
         if trust == gix_sec::Trust::Full {
             assert_eq!(
-                config
-                    .trusted_path(relative_path_key)
-                    .expect("no error")
-                    .expect("exists"),
+                config.trusted_path(relative_path_key)?.expect("exists"),
                 Path::new("./something")
             );
             assert_eq!(
-                config
-                    .trusted_path("a.absolute-path")
-                    .expect("no error")
-                    .expect("exists"),
+                config.trusted_path("a.absolute-path")?.expect("exists"),
                 Path::new("/etc/man.conf")
             );
             assert!(config.trusted_path("a.bad-user-path").is_err());
         } else {
             assert!(
-                config.trusted_path(relative_path_key).expect("no error").is_none(),
+                config.trusted_path(relative_path_key)?.is_none(),
                 "trusted path at {relative_path_key} need full trust: {path:?}",
                 path = config.string(relative_path_key)
             );
@@ -204,7 +198,7 @@ fn author_and_committer_and_fallback() -> Result {
 
 #[test]
 #[serial]
-fn author_from_different_config_sections() -> Result {
+fn author_from_different_config_sections() -> TestResult {
     let _environment = gix_testtools::isolate_git_environment()?;
     let repo = named_repo("make_signatures_repo.sh")?;
     let work_dir = repo.workdir().unwrap().canonicalize()?;

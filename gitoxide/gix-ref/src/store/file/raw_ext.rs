@@ -19,7 +19,7 @@ pub trait ReferenceExt: Sealed {
     fn log_iter<'a, 's>(&'a self, store: &'s file::Store) -> log::iter::Platform<'a, 's>;
 
     /// For details, see [`Reference::log_exists()`].
-    fn log_exists(&self, store: &file::Store) -> bool;
+    fn log_exists(&self, store: &file::Store) -> Result<bool>;
 
     /// Follow all symbolic targets this reference might point to and peel the underlying object
     /// to the end of the tag-chain, returning the first non-tag object the annotated tag points to,
@@ -99,10 +99,8 @@ impl ReferenceExt for Reference {
         }
     }
 
-    fn log_exists(&self, store: &file::Store) -> bool {
-        store
-            .reflog_exists(self.name.as_ref())
-            .expect("infallible name conversion")
+    fn log_exists(&self, store: &file::Store) -> Result<bool> {
+        store.reflog_exists(self.name.as_ref())
     }
 
     fn peel_to_id_in_place(&mut self, store: &file::Store, objects: &dyn gix_object::Find) -> Result<ObjectId> {
@@ -196,7 +194,7 @@ impl ReferenceExt for Reference {
                     if seen.contains(&next.name) {
                         bail!(
                             corruption("Aborting symbolic reference cycle")
-                                .with("path", store.reference_path(cursor.name.as_ref()))
+                                .with("path", store.reference_path(cursor.name.as_ref())?)
                         );
                     }
                     *cursor = next;
@@ -226,7 +224,7 @@ impl ReferenceExt for Reference {
             Target::Symbolic(full_name) => match store.try_find_packed(full_name.as_ref(), packed) {
                 Ok(Some(next)) => Some(Ok(next)),
                 Ok(None) => Some(Err(file::find::NotFound {
-                    name: full_name.to_path().to_owned(),
+                    name: full_name.as_bstr().to_owned(),
                 }
                 .raise())),
                 Err(err) => Some(Err(err)),

@@ -8,7 +8,7 @@ use std::{
 
 use gix::{
     NestedProgress, Progress, Result,
-    error::{ResultExt, bail},
+    error::{Exn, ResultExt, bail, message},
     objs::bstr::ByteSlice,
     progress,
 };
@@ -145,6 +145,8 @@ fn find_origin_remote(repo: &Path) -> Result<Option<gix_url::Url>> {
         .transpose()
 }
 
+/// Confinement validation errors record `destination` (the resolved path) and `destination_root`
+/// (the canonicalized allowed root) as path metadata.
 fn handle(
     mode: Mode,
     kind: gix::repository::Kind,
@@ -241,6 +243,18 @@ fn handle(
             }
         }));
 
+    // Unlike canonicalize(), realpath also resolves existing symlinks when the destination leaf
+    // does not exist yet. Check confinement before creating directories or moving the repository.
+    let destination = gix::path::realpath(destination)?;
+    if !destination.starts_with(canonicalized_destination) || destination == canonicalized_destination {
+        bail!(
+            "the origin URL resolves outside the repository destination"
+                .validation()
+                .with("destination", destination.as_path())
+                .with("destination_root", canonicalized_destination)
+        );
+    }
+
     match destination.canonicalize() {
         Ok(destination) if git_workdir.canonicalize().or_error()? == destination => return Ok(()),
         _ => {}
@@ -294,6 +308,10 @@ pub fn discover<P: NestedProgress>(
     Ok(())
 }
 
+/// Relocate repositories under `source_dir` to paths derived from their origin URLs below `destination`.
+///
+/// Errors retain per-repository causes, including validation classifications and the `destination`
+/// and `destination_root` path metadata for origin URLs that resolve outside the allowed root.
 pub fn run<P: NestedProgress>(
     mode: Mode,
     source_dir: impl AsRef<Path>,
@@ -301,7 +319,7 @@ pub fn run<P: NestedProgress>(
     mut progress: P,
     threads: Option<usize>,
 ) -> Result<()> {
-    let mut num_errors = 0usize;
+    let mut errors = Vec::new();
     let destination = destination.as_ref().canonicalize().or_error()?;
     let mut repositories =
         find_git_repository_workdirs(source_dir, progress.add_child("Searching repositories"), false, threads)
@@ -314,12 +332,14 @@ pub fn run<P: NestedProgress>(
                 path_to_move.display(),
                 err
             ));
-            num_errors += 1;
+            errors.push(err);
         }
     }
 
-    if num_errors > 0 {
-        bail!("Failed to handle {num_errors} repositories")
+    if !errors.is_empty() {
+        let num_errors = errors.len();
+        let repositories = if num_errors == 1 { "repository" } else { "repositories" };
+        Err(Exn::raise_all(errors, message!("Failed to handle {num_errors} {repositories}")).into())
     } else {
         Ok(())
     }

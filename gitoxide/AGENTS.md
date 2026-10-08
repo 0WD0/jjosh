@@ -105,6 +105,7 @@ Follow "purposeful conventional commits" style:
 
 ### Code Style
 
+- Do not create persistent Python scripts in this repository. Use Bash for repository automation and script-based tests unless the user explicitly requests otherwise.
 - Follow existing patterns in the codebase
 - Skip stylistic rewrites that increase SLOC after formatting; keep simpler existing forms instead of applying style rules unconditionally.
 - Start new Rust modules as `foo.rs`. Create a module directory only when it contains multiple module files; then use `foo/mod.rs` rather than a sibling `foo.rs` file.
@@ -112,7 +113,7 @@ Follow "purposeful conventional commits" style:
 - Prefer references in plumbing crates to avoid expensive clones
 - Avoid calling `.detach()` unless an owned value is explicitly required. Many `gix` APIs accept attached ids and references directly, so prefer keeping repository-backed handles like `gix::Id` when possible.
 - Name variables holding untyped Git object IDs `<type>_id` or `*_<type>_id` (for example, `commit_id`, `root_tree_id`, or `note_blob_id`) so the object kind is always explicit.
-- Use `gix_features::threading::*` for interior mutability primitives
+- Use `gix_parallel::*` for interior mutability primitives
 
 ### Path Handling
 

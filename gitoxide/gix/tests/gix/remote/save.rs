@@ -1,10 +1,10 @@
 mod save_to {
 
-    use crate::Result;
     use crate::{remote, remote::save::uniformize};
+    use gix_testtools::TestResult;
 
     #[test]
-    fn named_remotes_save_as_is() -> Result {
+    fn named_remotes_save_as_is() -> TestResult {
         let repo = remote::repo("clone");
         let remote = repo.find_remote("origin")?;
 
@@ -43,14 +43,14 @@ mod save_to {
 }
 
 mod save_as_to {
-    use crate::Result;
     use crate::{
         basic_repo, remote,
         remote::save::{remote_config, uniformize},
     };
+    use gix_testtools::TestResult;
 
     #[test]
-    fn anonymous_remotes_cannot_be_saved_lacking_a_name() -> Result {
+    fn anonymous_remotes_cannot_be_saved_lacking_a_name() -> TestResult {
         let repo = basic_repo()?;
         let remote = repo.remote_at("https://example.com/path")?;
         insta::assert_debug_snapshot!(remote
@@ -64,7 +64,7 @@ mod save_as_to {
     }
 
     #[test]
-    fn new_anonymous_remote_with_name() -> Result {
+    fn new_anonymous_remote_with_name() -> TestResult {
         let repo = basic_repo()?;
         let mut remote = repo
             .remote_at("https://example.com/path")?
@@ -103,14 +103,12 @@ mod save_as_to {
         );
 
         {
-            let mut new_section = config.section_mut_or_create_new("unrelated", None).expect("works");
+            let mut new_section = config.section_mut_or_create_new("unrelated", None)?;
             new_section.push("a", "value")?;
 
-            config
-                .section_mut_or_create_new("initially-empty-not-removed", "name")
-                .expect("works");
+            config.section_mut_or_create_new("initially-empty-not-removed", "name")?;
 
-            let mut existing_section = config.section_mut_or_create_new("remote", "origin").expect("works");
+            let mut existing_section = config.section_mut_or_create_new("remote", "origin")?;
             existing_section.push("free", "should not be removed")?;
         }
         remote.save_as_to(remote_name, &mut config)?;
@@ -123,7 +121,7 @@ mod save_as_to {
     }
 
     #[test]
-    fn new_remote_in_presence_of_global_section_writes_to_local_file() -> Result {
+    fn new_remote_in_presence_of_global_section_writes_to_local_file() -> TestResult {
         use gix::bstr::ByteSlice;
         // A repo with no remotes, opened so that `remote.origin` exists only as a non-local (`Api`)
         // override, mirroring global configuration like `remote.origin.prune = true` (issue #1951).
@@ -157,7 +155,7 @@ mod save_as_to {
     /// saving another `origin` must clear those inherited values locally, or reopening would merge them
     /// back into the saved URL lists.
     #[test]
-    fn inherited_urls_are_saved_with_reset_markers() -> Result {
+    fn inherited_urls_are_saved_with_reset_markers() -> TestResult {
         use gix::bstr::{BStr, BString};
 
         let repo = gix::open_opts(
@@ -217,7 +215,7 @@ mod save_as_to {
     /// reset-bearing local section after it so reopening clears the included URL before restoring
     /// the remote's effective URL list.
     #[test]
-    fn reset_markers_follow_later_foreign_url_sections() -> Result {
+    fn reset_markers_follow_later_foreign_url_sections() -> TestResult {
         use gix::bstr::{BStr, BString, ByteSlice};
 
         let inherited_url = "https://included.example/path";

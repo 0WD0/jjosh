@@ -1,7 +1,7 @@
-use crate::{Result, named_repo};
+use crate::named_repo;
 
 #[test]
-fn apply_mailbox() -> Result {
+fn apply_mailbox() -> gix_testtools::TestResult {
     let repo = named_repo("make_am_repo.sh")?;
 
     assert_eq!(repo.head_name()?.unwrap().shorten(), "main");
@@ -10,7 +10,7 @@ fn apply_mailbox() -> Result {
 }
 
 #[test]
-fn bisect() -> Result {
+fn bisect() -> gix_testtools::TestResult {
     let repo = named_repo("make_bisect_repo.sh")?;
 
     assert_eq!(repo.head_name()?.unwrap().shorten(), "main");
@@ -20,7 +20,7 @@ fn bisect() -> Result {
 }
 
 #[test]
-fn cherry_pick() -> Result {
+fn cherry_pick() -> gix_testtools::TestResult {
     let repo = named_repo("make_cherry_pick_repo.sh")?;
 
     assert_eq!(repo.head_name()?.unwrap().shorten(), "main");
@@ -29,7 +29,7 @@ fn cherry_pick() -> Result {
 }
 
 #[test]
-fn cherry_pick_sequence() -> Result {
+fn cherry_pick_sequence() -> gix_testtools::TestResult {
     let repo = named_repo("make_cherry_pick_sequence_repo.sh")?;
 
     assert_eq!(repo.head_name()?.unwrap().shorten(), "main");
@@ -39,7 +39,7 @@ fn cherry_pick_sequence() -> Result {
 }
 
 #[test]
-fn merge() -> Result {
+fn merge() -> gix_testtools::TestResult {
     let repo = named_repo("make_merge_repo.sh")?;
 
     assert_eq!(repo.head_name()?.unwrap().shorten(), "main");
@@ -49,7 +49,7 @@ fn merge() -> Result {
 }
 
 #[test]
-fn rebase_interactive() -> Result {
+fn rebase_interactive() -> gix_testtools::TestResult {
     let repo = named_repo("make_rebase_i_repo.sh")?;
 
     assert!(repo.head()?.is_detached());
@@ -59,7 +59,7 @@ fn rebase_interactive() -> Result {
 }
 
 #[test]
-fn revert() -> Result {
+fn revert() -> gix_testtools::TestResult {
     let repo = named_repo("make_revert_repo.sh")?;
 
     assert_eq!(repo.head_name()?.unwrap().shorten(), "main");
@@ -69,7 +69,7 @@ fn revert() -> Result {
 }
 
 #[test]
-fn revert_sequence() -> Result {
+fn revert_sequence() -> gix_testtools::TestResult {
     let repo = named_repo("make_revert_sequence_repo.sh")?;
 
     assert_eq!(repo.head_name()?.unwrap().shorten(), "main");

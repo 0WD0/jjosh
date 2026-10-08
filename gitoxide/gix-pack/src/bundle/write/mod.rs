@@ -8,12 +8,14 @@ use std::{
 };
 
 use gix_error::{ResultExt, message};
-use gix_features::{interrupt, progress, progress::Progress};
 use gix_tempfile::{AutoRemove, ContainingDirectory};
+use gix_utils::interrupt;
+use gix_utils::progress;
+use gix_utils::progress::Progress;
 
 use crate::data;
 
-use gix_features::progress::prodash::DynNestedProgress;
+use gix_utils::progress::prodash::DynNestedProgress;
 
 mod types;
 use types::{LockWriter, PassThrough};
@@ -34,7 +36,7 @@ pub enum ProgressId {
     IndexingSteps(PhantomData<crate::index::write::ProgressId>),
 }
 
-impl From<ProgressId> for gix_features::progress::Id {
+impl From<ProgressId> for gix_utils::progress::Id {
     fn from(v: ProgressId) -> Self {
         match v {
             ProgressId::ReadPackBytes => *b"BWRB",
@@ -48,10 +50,11 @@ impl crate::Bundle {
     ///
     /// In the latter case, the functionality provided here is more a kind of pack data stream validation.
     ///
-    /// * `progress` provides detailed progress information which can be discarded with [`gix_features::progress::Discard`].
+    /// * `progress` provides detailed progress information which can be discarded with [`gix_utils::progress::Discard`].
     /// * `should_interrupt` is checked regularly and when true, the whole operation will stop.
-    /// * `thin_pack_base_object_lookup` If set, we expect to see a thin-pack with objects that reference their base object by object id which is
-    ///   expected to exist in the object database the bundle is contained within.
+    /// * `thin_pack_base_object_lookup` retrieves external bases to insert into the output pack, completing a thin pack.
+    ///   Ref-deltas whose bases are not found through this lookup are resolved in-pack during indexing, including forward
+    ///   references. A base available neither through the lookup nor in the pack causes the operation to fail.
     /// * `object_hash` specifies the hash to use for writing the bundle.
     /// * `options` further configure how the task is performed.
     ///
@@ -69,7 +72,7 @@ impl crate::Bundle {
         object_hash: gix_hash::Kind,
         options: Options,
     ) -> Result<Outcome> {
-        let _span = gix_features::trace::coarse!("gix_pack::Bundle::write_to_directory()");
+        let _span = gix_trace::coarse!("gix_pack::Bundle::write_to_directory()");
         let mut read_progress = progress.add_child_with_id("read pack".into(), ProgressId::ReadPackBytes.into());
         read_progress.init(None, progress::bytes());
         let pack = progress::Read {
@@ -182,7 +185,7 @@ impl crate::Bundle {
         object_hash: gix_hash::Kind,
         options: Options,
     ) -> Result<Outcome> {
-        let _span = gix_features::trace::coarse!("gix_pack::Bundle::write_to_directory_eagerly()");
+        let _span = gix_trace::coarse!("gix_pack::Bundle::write_to_directory_eagerly()");
         let mut read_progress = progress.add_child_with_id("read pack".into(), ProgressId::ReadPackBytes.into()); /* Bundle Write Read pack Bytes*/
         read_progress.init(pack_size.map(|s| s as usize), progress::bytes());
         let pack = progress::Read {
@@ -241,7 +244,7 @@ impl crate::Bundle {
         };
         let num_objects = pack_entries_iter.size_hint().0;
         let pack_entries_iter =
-            gix_features::parallel::EagerIterIf::new(move || num_objects > 25_000, pack_entries_iter, 5_000, 5);
+            gix_parallel::EagerIterIf::new(move || num_objects > 25_000, pack_entries_iter, 5_000, 5);
 
         let WriteOutcome {
             outcome,
@@ -344,7 +347,7 @@ impl crate::Bundle {
                         index_file
                             .persist(&index_path)
                             .inspect_err(|_err| {
-                                gix_features::trace::warn!("pack file at \"{}\" is retained despite failing to move the index file into place. You can use plumbing to make it usable.",data_path.display());
+                                gix_trace::warn!("pack file at \"{}\" is retained despite failing to move the index file into place. You can use plumbing to make it usable.",data_path.display());
                             })
                             .or_raise(|| message("Could not persist pack index"))?;
                     }

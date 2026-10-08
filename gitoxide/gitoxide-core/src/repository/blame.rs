@@ -65,7 +65,7 @@ fn start_for_blame<'a>(
     let Some(workdir) = repo.workdir() else {
         return Ok(Start::Commit(first_suspect));
     };
-    let path = workdir.join(gix::path::from_bstr(file));
+    let path = workdir.join(gix::path::from_bstr(file)?);
     let metadata = match std::fs::symlink_metadata(&path) {
         Ok(metadata) => metadata,
         Err(err) if gix::fs::io_err::is_not_found(err.kind(), err.raw_os_error()) => {

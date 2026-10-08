@@ -1,4 +1,4 @@
-use crate::Result;
+use crate::{Result, TestResult};
 use std::fs;
 
 use bstr::{BString, ByteSlice};
@@ -13,7 +13,7 @@ use gix_testtools::tempfile::tempdir;
 use crate::file::{bstring, init::from_paths::includes::conditional::git_init};
 
 #[test]
-fn literal_branch_names_match() -> Result {
+fn literal_branch_names_match() -> TestResult {
     assert_section_value(
         Options {
             condition: "literal-match",
@@ -26,7 +26,7 @@ fn literal_branch_names_match() -> Result {
 }
 
 #[test]
-fn full_ref_names_do_not_match() -> Result {
+fn full_ref_names_do_not_match() -> TestResult {
     assert_section_value(
         Options {
             condition: "refs/heads/simple",
@@ -39,7 +39,7 @@ fn full_ref_names_do_not_match() -> Result {
 }
 
 #[test]
-fn non_branches_never_match() -> Result {
+fn non_branches_never_match() -> TestResult {
     assert_section_value(
         Options {
             condition: "good",
@@ -52,7 +52,7 @@ fn non_branches_never_match() -> Result {
 }
 
 #[test]
-fn patterns_ending_with_slash_match_subdirectories_recursively() -> Result {
+fn patterns_ending_with_slash_match_subdirectories_recursively() -> TestResult {
     let mut env = GitEnv::new()?;
     assert_section_value(
         Options {
@@ -83,7 +83,7 @@ fn patterns_ending_with_slash_match_subdirectories_recursively() -> Result {
 }
 
 #[test]
-fn simple_glob_patterns() -> Result {
+fn simple_glob_patterns() -> TestResult {
     let mut env = GitEnv::new()?;
     assert_section_value(
         Options {
@@ -131,7 +131,7 @@ fn simple_glob_patterns() -> Result {
 }
 
 #[test]
-fn simple_globs_do_not_cross_component_boundary() -> Result {
+fn simple_globs_do_not_cross_component_boundary() -> TestResult {
     let mut env = GitEnv::new()?;
     assert_section_value(
         Options {
@@ -154,7 +154,7 @@ fn simple_globs_do_not_cross_component_boundary() -> Result {
 }
 
 #[test]
-fn double_star_globs_cross_component_boundaries() -> Result {
+fn double_star_globs_cross_component_boundaries() -> TestResult {
     assert_section_value(
         Options {
             condition: "feature/**/start",

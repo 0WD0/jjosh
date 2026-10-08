@@ -231,7 +231,7 @@ impl Pipeline {
             Some(root) => {
                 self.path.clear();
                 self.path.push(root);
-                self.path.push(gix_path::from_bstr(rela_path));
+                self.path.push(gix_path::from_bstr(rela_path)?);
                 let data = if is_symlink {
                     if !self.options.fs.symlink {
                         bail!(
@@ -241,10 +241,12 @@ impl Pipeline {
                     }
                     let target = none_if_missing(std::fs::read_link(&self.path))
                         .or_raise(|| message!("Entry at {rela_path:?} could not be read as symbolic link"))?;
-                    target.map(|target| {
-                        out.extend_from_slice(gix_path::into_bstr(target).as_ref());
-                        Data::Buffer { is_derived: false }
-                    })
+                    target
+                        .map(|target| -> Result<_> {
+                            out.extend_from_slice(gix_path::into_bstr(target)?.as_ref());
+                            Ok(Data::Buffer { is_derived: false })
+                        })
+                        .transpose()?
                 } else {
                     let need_size_only = is_binary == Some(true);
                     let size_in_bytes = (need_size_only
@@ -263,7 +265,9 @@ impl Pipeline {
                         _ => {
                             match driver
                                 .filter(|_| convert.to_worktree())
-                                .and_then(|d| d.prepare_binary_to_text_cmd(&self.path))
+                                .map(|d| d.prepare_binary_to_text_cmd(&self.path))
+                                .transpose()?
+                                .flatten()
                             {
                                 Some(cmd) => {
                                     // Avoid letting the driver program fail if it doesn't exist.
@@ -294,7 +298,7 @@ impl Pipeline {
                                                     .worktree_filter
                                                     .convert_to_git(
                                                         file,
-                                                        gix_path::from_bstr(rela_path).as_ref(),
+                                                        gix_path::from_bstr(rela_path)?.as_ref(),
                                                         attributes,
                                                         &mut |buf| {
                                                             if id.is_null() {
@@ -385,21 +389,7 @@ impl Pipeline {
                             || (convert == Mode::ToGitUnlessBinaryToTextIsPresent
                                 && driver.is_some_and(|d| d.binary_to_text_command.is_some()))
                         {
-                            let res = self
-                                .worktree_filter
-                                .convert_to_worktree(
-                                    out,
-                                    rela_path,
-                                    attributes,
-                                    to_worktree::Options {
-                                        can_delay: Delay::Forbid,
-                                        unknown_encoding: to_worktree::UnknownEncoding::Fail,
-                                    },
-                                )
-                                .or_raise(|| {
-                                    message!("Entry at {rela_path:?} could not be converted to worktree form")
-                                })?;
-
+                            // Prepare before starting a streaming filter whose output must be consumed.
                             let cmd_and_file = driver
                                 .and_then(|d| {
                                     d.binary_to_text_command.is_some().then(|| {
@@ -413,20 +403,37 @@ impl Pipeline {
                                             tmp_file.with_mut(|tmp| self.path.push(tmp.path()))?;
                                             Ok(tmp_file)
                                         })
-                                        .map(|tmp_file| {
-                                            (
+                                        .and_then(|tmp_file| {
+                                            Ok((
                                                 d.prepare_binary_to_text_cmd(&self.path)
+                                                    .map_err(|err| {
+                                                        std::io::Error::new(std::io::ErrorKind::InvalidInput, err)
+                                                    })?
                                                     .expect("always get cmd if command is set"),
                                                 tmp_file,
-                                            )
+                                            ))
                                         })
                                     })
                                 })
                                 .transpose()
                                 .or_raise(|| {
                                     message!(
-                                        "Tempfile for binary-to-text conversion for entry at {rela_path:?} could not be created"
+                                        "Binary-to-text conversion for entry at {rela_path:?} could not be prepared"
                                     )
+                                })?;
+                            let res = self
+                                .worktree_filter
+                                .convert_to_worktree(
+                                    out,
+                                    rela_path,
+                                    attributes,
+                                    to_worktree::Options {
+                                        can_delay: Delay::Forbid,
+                                        unknown_encoding: to_worktree::UnknownEncoding::Fail,
+                                    },
+                                )
+                                .or_raise(|| {
+                                    message!("Entry at {rela_path:?} could not be converted to worktree form")
                                 })?;
                             match cmd_and_file {
                                 Some((cmd, mut tmp_file)) => {
@@ -524,9 +531,12 @@ fn run_cmd(rela_path: &BStr, mut cmd: Command, out: &mut Vec<u8>) -> Result {
 
 impl Driver {
     /// Produce an invocable command pre-configured to produce the filtered output on stdout after reading `path`.
-    pub fn prepare_binary_to_text_cmd(&self, path: &Path) -> Option<std::process::Command> {
-        let command: &BStr = self.binary_to_text_command.as_ref()?.as_ref();
-        let cmd = gix_command::prepare(gix_path::from_bstr(command).into_owned())
+    /// Returns an error if the configured command cannot be represented by the platform.
+    pub fn prepare_binary_to_text_cmd(&self, path: &Path) -> Result<Option<std::process::Command>> {
+        let Some(command) = self.binary_to_text_command.as_deref() else {
+            return Ok(None);
+        };
+        let cmd = gix_command::prepare(gix_path::from_bstr(command.as_bstr())?.into_owned())
             // TODO: Add support for an actual Context, validate it *can* match Git
             .with_context(Default::default())
             .with_shell()
@@ -534,7 +544,7 @@ impl Driver {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .arg(path)
-            .into();
-        Some(cmd)
+            .try_into()?;
+        Ok(Some(cmd))
     }
 }

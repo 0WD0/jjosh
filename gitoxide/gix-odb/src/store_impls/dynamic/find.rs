@@ -1,7 +1,8 @@
 use gix_error::Result;
 use std::ops::Deref;
 
-use gix_error::{Message, OptionExt, ResultExt, bail, not_found};
+use gix_error::{Message, OptionExt, ResultExt, bail, message, not_found};
+
 use gix_pack::cache::DecodeEntry;
 
 use crate::store::{handle, load_index};
@@ -82,7 +83,7 @@ where
                         object_index: handle::IndexForObjectInPack { pack_id, pack_offset },
                         index_file,
                         pack: possibly_pack,
-                    }) = index.lookup(id)
+                    }) = index.lookup(id)?
                     {
                         let pack = match possibly_pack {
                             Some(pack) => pack,
@@ -116,13 +117,17 @@ where
                             buffer,
                             inflate,
                             &|id, _out| {
-                                let pack_offset = index_file.pack_offset_by_id(id)?;
-                                pack.entry(pack_offset)
-                                    .ok()
-                                    .map(gix_pack::data::decode::entry::ResolvedBase::InPack)
+                                index_file
+                                    .pack_offset_by_id(id)?
+                                    .map(|pack_offset| {
+                                        pack.entry(pack_offset)
+                                            .map(gix_pack::data::decode::entry::ResolvedBase::InPack)
+                                    })
+                                    .transpose()
                             },
                             pack_cache,
                         );
+
                         let res = match res {
                             Ok(r) => Ok((
                                 gix_object::Data {
@@ -183,12 +188,12 @@ where
                                         },
                                     index_file,
                                     pack: possibly_pack,
-                                } = match snapshot.indices[idx].lookup(id) {
+                                } = match snapshot.indices[idx].lookup(id)? {
                                     Some(res) => res,
                                     None => {
                                         let mut out = None;
                                         for index in &mut snapshot.indices {
-                                            out = index.lookup(id);
+                                            out = index.lookup(id)?;
                                             if out.is_some() {
                                                 break;
                                             }
@@ -208,24 +213,19 @@ where
                                     entry,
                                     buffer,
                                     inflate,
-                                    &|id, out| {
-                                        index_file
-                                            .pack_offset_by_id(id)
-                                            .and_then(|pack_offset| {
-                                                pack.entry(pack_offset)
-                                                    .ok()
-                                                    .map(gix_pack::data::decode::entry::ResolvedBase::InPack)
-                                            })
-                                            .or_else(|| {
-                                                (id == base_id).then(|| {
-                                                    out.resize(buf.len(), 0);
-                                                    out.copy_from_slice(buf.as_slice());
-                                                    gix_pack::data::decode::entry::ResolvedBase::OutOfPack {
-                                                        kind: obj_kind,
-                                                        end: out.len(),
-                                                    }
-                                                })
-                                            })
+                                    &|id, out| match index_file.pack_offset_by_id(id)? {
+                                        Some(pack_offset) => pack
+                                            .entry(pack_offset)
+                                            .map(gix_pack::data::decode::entry::ResolvedBase::InPack)
+                                            .map(Some),
+                                        None => Ok((id == base_id).then(|| {
+                                            out.resize(buf.len(), 0);
+                                            out.copy_from_slice(buf.as_slice());
+                                            gix_pack::data::decode::entry::ResolvedBase::OutOfPack {
+                                                kind: obj_kind,
+                                                end: out.len(),
+                                            }
+                                        })),
                                     },
                                     pack_cache,
                                 )
@@ -321,7 +321,11 @@ where
         self.try_find_cached_inner(id, buffer, &mut inflate, pack_cache, &mut snapshot, None)
     }
 
-    fn location_by_oid(&self, id: &gix_hash::oid, buf: &mut Vec<u8>) -> Option<gix_pack::data::entry::Location> {
+    fn location_by_oid(
+        &self,
+        id: &gix_hash::oid,
+        buf: &mut Vec<u8>,
+    ) -> Result<Option<gix_pack::data::entry::Location>> {
         assert!(
             matches!(self.token.as_ref(), Some(handle::Mode::KeepDeletedPacksAvailable)),
             "BUG: handle must be configured to `prevent_pack_unload()` before using this method"
@@ -342,18 +346,18 @@ where
                         object_index: handle::IndexForObjectInPack { pack_id, pack_offset },
                         index_file: _,
                         pack: possibly_pack,
-                    }) = index.lookup(id)
+                    }) = index.lookup(id)?
                     {
                         let pack = match possibly_pack {
                             Some(pack) => pack,
-                            None => match self.store.load_pack(pack_id, marker).ok()? {
+                            None => match self.store.load_pack(pack_id, marker).or_error()? {
                                 Some(pack) => {
                                     *possibly_pack = Some(pack);
                                     possibly_pack.as_deref().expect("just put it in")
                                 }
                                 None => {
                                     // The pack wasn't available anymore so we are supposed to try another round with a fresh index
-                                    match self.store.load_one_index(self.index_ctx(snapshot.marker)).ok()? {
+                                    match self.store.load_one_index(self.index_ctx(snapshot.marker))? {
                                         Some(new_snapshot) => {
                                             *snapshot = new_snapshot;
                                             self.clear_cache();
@@ -363,48 +367,56 @@ where
                                             // nothing new in the index, kind of unexpected to not have a pack but to also
                                             // to have no new index yet. We set the new index before removing any slots, so
                                             // this should be observable.
-                                            return None;
+                                            return Ok(None);
                                         }
                                     }
                                 }
                             },
                         };
-                        let entry = pack.entry(pack_offset).ok()?;
+                        let entry = pack.entry(pack_offset)?;
                         // This allocation is driven by on-disk pack metadata, so keep it aligned with
                         // `gix_pack::data::File::with_alloc_limit_bytes()`.
-                        let size: usize = entry.decompressed_size.try_into().ok()?;
-                        if pack.alloc_limit_bytes.is_some_and(|limit| size > limit) {
-                            return None;
+                        let size = entry.decompressed_size;
+                        if pack.alloc_limit_bytes.is_some_and(|limit| size > limit as u64) {
+                            bail!("Cannot store pack entry in memory: allocation limit exceeded".allocation_limit());
                         }
-                        buf.resize(size, 0);
+                        let size_usize = usize::try_from(size).or_raise(|| {
+                            message!("Cannot store pack entry of {size} bytes in memory: the entry size cannot be represented in memory")
+                                .allocation_failure()
+                        })?;
+                        buf.clear();
+                        buf.try_reserve(size_usize).or_raise(|| {
+                            message!("Cannot store pack entry of {size} bytes in memory").allocation_failure()
+                        })?;
+                        buf.resize(size_usize, 0);
                         assert_eq!(pack.id, pack_id.to_intrinsic_pack_id(), "both ids must always match");
 
-                        let res = pack
-                            .decompress_entry(&entry, &mut inflate, buf)
-                            .ok()
-                            .map(|entry_size_past_header| gix_pack::data::entry::Location {
-                                pack_id: pack.id,
-                                pack_offset,
-                                entry_size: entry.header_size() + entry_size_past_header,
-                            });
+                        let entry_size_past_header = pack.decompress_entry(&entry, &mut inflate, buf)?;
+                        let location = gix_pack::data::entry::Location {
+                            pack_id: pack.id,
+                            pack_offset,
+                            entry_size: entry.header_size() + entry_size_past_header,
+                        };
 
                         if idx != 0 {
                             snapshot.indices.swap(0, idx);
                         }
-                        return res;
+                        return Ok(Some(location));
                     }
                 }
             }
 
             {
-                let new_snapshot = self.store.load_one_index(self.index_ctx(snapshot.marker)).ok()??;
+                let Some(new_snapshot) = self.store.load_one_index(self.index_ctx(snapshot.marker))? else {
+                    return Ok(None);
+                };
                 *snapshot = new_snapshot;
                 self.clear_cache();
             }
         }
     }
 
-    fn pack_offsets_and_oid(&self, pack_id: u32) -> Option<Vec<(u64, gix_hash::ObjectId)>> {
+    fn pack_offsets_and_oid(&self, pack_id: u32) -> Result<Option<Vec<(gix_pack::data::Offset, gix_hash::ObjectId)>>> {
         assert!(
             matches!(self.token.as_ref(), Some(handle::Mode::KeepDeletedPacksAvailable)),
             "BUG: handle must be configured to `prevent_pack_unload()` before using this method"
@@ -415,13 +427,18 @@ where
             {
                 for index in &snapshot.indices {
                     if let Some(iter) = index.iter(pack_id) {
-                        return Some(iter.map(|e| (e.pack_offset, e.oid)).collect());
+                        return iter
+                            .map(|e| e.map(|e| (e.pack_offset, e.oid)))
+                            .collect::<Result<Vec<_>>>()
+                            .map(Some);
                     }
                 }
             }
 
             {
-                let new_snapshot = self.store.load_one_index(self.index_ctx(snapshot.marker)).ok()??;
+                let Some(new_snapshot) = self.store.load_one_index(self.index_ctx(snapshot.marker))? else {
+                    return Ok(None);
+                };
                 drop(snapshot);
                 *self.snapshot.borrow_mut() = new_snapshot;
             }

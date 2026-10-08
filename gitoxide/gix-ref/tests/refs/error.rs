@@ -3,7 +3,7 @@ use gix_error::{Class, Error, ErrorExt, Message, MetadataValue};
 use gix_ref::{file::ReferenceExt, packed, transaction::PreviousValue};
 
 #[test]
-fn missing_references_retain_their_name_and_classification() -> Result {
+fn missing_references_retain_their_name_and_classification() -> gix_testtools::TestResult {
     let mut error_snapshots = Vec::new();
     let store = crate::file::store_with_packed_refs()?;
     let packed = store.open_packed_buffer()?.expect("the fixture has packed refs");
@@ -28,9 +28,8 @@ fn missing_references_retain_their_name_and_classification() -> Result {
         assert_eq!(
             err.downcast_any_ref::<gix_ref::file::find::NotFound>()
                 .expect("the concrete reference lookup error is retained")
-                .name
-                .as_os_str(),
-            missing,
+                .name,
+            "missing",
             "the lookup failure retains the missing reference name"
         );
     }
@@ -46,7 +45,7 @@ fn missing_references_retain_their_name_and_classification() -> Result {
 }
 
 #[test]
-fn peeling_missing_targets_is_classified() -> Result {
+fn peeling_missing_targets_is_classified() -> gix_testtools::TestResult {
     let mut error_snapshots = Vec::new();
     use gix_lock::acquire::Fail;
     use gix_ref::{file::transaction::PackedRefs, transaction::RefEdit};
@@ -122,15 +121,15 @@ fn peeling_missing_targets_is_classified() -> Result {
     [
         The ref partially named "refs/heads/missing" could not be found,
         The ref partially named "refs/heads/missing" could not be found,
-        Could not peel reference to an object: object could not be found, "object_id"="Oid(1)", "reference"="refs/heads/main",
-        Could not peel packed reference: object could not be found, "object_id"="Oid(1)", "reference"="refs/tags/missing",
+        Could not peel reference to an object: object could not be found, object_id="Oid(1)", reference="refs/heads/main",
+        Could not peel packed reference: object could not be found, object_id="Oid(1)", reference="refs/tags/missing",
     ]
     "#);
     Ok(())
 }
 
 #[test]
-fn peeling_missing_objects_has_one_classified_diagnostic() -> Result {
+fn peeling_missing_objects_has_one_classified_diagnostic() -> gix_testtools::TestResult {
     let mut error_snapshots = Vec::new();
     for err in peeling_errors(gix_object::find::Never)? {
         error_snapshots.push(gix_testtools::redact_debug_snapshot(&(err), &[]));
@@ -160,15 +159,15 @@ fn peeling_missing_objects_has_one_classified_diagnostic() -> Result {
     }
     insta::assert_debug_snapshot!(error_snapshots, "peeling missing objects has one classified diagnostic", @r#"
     [
-        Could not peel reference to an object: object could not be found, "object_id"="Oid(1)", "reference"="refs/tags/tag",
-        Could not peel packed reference: object could not be found, "object_id"="Oid(1)", "reference"="refs/tags/tag",
+        Could not peel reference to an object: object could not be found, object_id="Oid(1)", reference="refs/tags/tag",
+        Could not peel packed reference: object could not be found, object_id="Oid(1)", reference="refs/tags/tag",
     ]
     "#);
     Ok(())
 }
 
 #[test]
-fn object_lookup_failures_retain_their_causes() -> Result {
+fn object_lookup_failures_retain_their_causes() -> gix_testtools::TestResult {
     let mut error_snapshots = Vec::new();
     struct UnavailableObjects(std::io::ErrorKind);
     impl gix_object::Find for UnavailableObjects {
@@ -223,22 +222,22 @@ fn object_lookup_failures_retain_their_causes() -> Result {
     }
     insta::assert_debug_snapshot!(error_snapshots, "object lookup failures retain their causes", @r#"
     [
-        Could not peel reference to an object, "object_id"="Oid(1)", "reference"="refs/tags/tag"
+        Could not peel reference to an object, object_id="Oid(1)", reference="refs/tags/tag"
         
         Caused by:
             0: I/O error (PermissionDenied)
             1: object database unavailable,
-        Could not peel packed reference, "object_id"="Oid(1)", "reference"="refs/tags/tag"
+        Could not peel packed reference, object_id="Oid(1)", reference="refs/tags/tag"
         
         Caused by:
             0: I/O error (PermissionDenied)
             1: object database unavailable,
-        Could not peel reference to an object, "object_id"="Oid(1)", "reference"="refs/tags/tag"
+        Could not peel reference to an object, object_id="Oid(1)", reference="refs/tags/tag"
         
         Caused by:
             0: I/O error (TimedOut)
             1: object database unavailable,
-        Could not peel packed reference, "object_id"="Oid(1)", "reference"="refs/tags/tag"
+        Could not peel packed reference, object_id="Oid(1)", reference="refs/tags/tag"
         
         Caused by:
             0: I/O error (TimedOut)
@@ -279,7 +278,7 @@ fn peeling_errors(objects: impl gix_object::Find) -> Result<[gix_error::Error; 2
 }
 
 #[test]
-fn malformed_tags_are_corruption_instead_of_missing_objects() -> Result {
+fn malformed_tags_are_corruption_instead_of_missing_objects() -> gix_testtools::TestResult {
     struct MalformedTag;
     impl gix_object::Find for MalformedTag {
         fn try_find<'a>(
@@ -316,7 +315,7 @@ fn malformed_tags_are_corruption_instead_of_missing_objects() -> Result {
 }
 
 #[test]
-fn malformed_reference_data_is_classified() -> Result {
+fn malformed_reference_data_is_classified() -> gix_testtools::TestResult {
     let mut error_snapshots = Vec::new();
     let store = crate::file::store_at("make_ref_repository.sh")?;
     let hash = crate::fixture_hash_kind();
@@ -380,29 +379,29 @@ fn malformed_reference_data_is_classified() -> Result {
     }
     insta::assert_debug_snapshot!(error_snapshots, "malformed reference data is classified", @r#"
     [
-        Reference content could not be parsed, "input"="invalid",
+        Reference content could not be parsed, input="invalid",
         The header could not be parsed, even though first line started with '#',
-        Could not decode packed reference, "name"="refs/main"
+        Could not decode packed reference, name="refs/main"
         
         Caused by:
             0: Malformed packed reference record,
-        Invalid packed reference, "input"="bogus refs/heads/main", "line"=1
+        Invalid packed reference, input="bogus refs/heads/main", line=1
         
         Caused by:
             0: Malformed packed reference,
-        Invalid packed reference, "input"="bogus refs/heads/main", "line"=1
+        Invalid packed reference, input="bogus refs/heads/main", line=1
         
         Caused by:
             0: Malformed packed reference,
-        Aborting symbolic reference cycle, "path"="<git-dir>/refs/loop-a",
-        Could not decode reflog line, "input"="invalid"
+        Aborting symbolic reference cycle, path="<git-dir>/refs/loop-a",
+        Could not decode reflog line, input="invalid"
         
         Caused by:
             0: Malformed reflog line,
-        Invalid reflog entry, "from_end"=false, "line"=1
+        Invalid reflog entry, from_end=false, line=1
         
         Caused by:
-            0: Could not decode reflog line, "input"="invalid"
+            0: Could not decode reflog line, input="invalid"
             1: Malformed reflog line,
     ]
     "#);
@@ -410,7 +409,7 @@ fn malformed_reference_data_is_classified() -> Result {
 }
 
 #[test]
-fn missing_transaction_targets_are_classified() -> Result {
+fn missing_transaction_targets_are_classified() -> gix_testtools::TestResult {
     let mut error_snapshots = Vec::new();
     use gix_lock::acquire::Fail;
     use gix_ref::transaction::RefEdit;
@@ -434,11 +433,11 @@ fn missing_transaction_targets_are_classified() -> Result {
     }
     insta::assert_debug_snapshot!(error_snapshots, "missing transaction targets are classified", @r#"
     [
-        Could not prepare reference edit, "reference"="refs/heads/missing", "referent"="refs/heads/missing"
+        Could not prepare reference edit, reference="refs/heads/missing"
         
         Caused by:
             0: The reference to delete must exist,
-        Could not prepare reference edit, "reference"="refs/heads/missing", "referent"="refs/heads/missing"
+        Could not prepare reference edit, reference="refs/heads/missing"
         
         Caused by:
             0: The reference to update must exist,
@@ -448,7 +447,7 @@ fn missing_transaction_targets_are_classified() -> Result {
 }
 
 #[test]
-fn invalid_reflog_input_is_classified() -> Result {
+fn invalid_reflog_input_is_classified() -> gix_testtools::TestResult {
     let mut error_snapshots = Vec::new();
     use crate::file::transaction::prepare_and_commit::{committer, create_at, empty_store};
     use gix_lock::acquire::Fail;
@@ -495,7 +494,7 @@ fn invalid_reflog_input_is_classified() -> Result {
             kind: Other,
             error: Messages must not contain newlines (\n),
         },
-        Could not update reflog, "reference"="refs/heads/new"
+        Could not update reflog, reference="refs/heads/new"
         
         Caused by:
             0: reflog messages need a committer which isn't set,
@@ -505,7 +504,7 @@ fn invalid_reflog_input_is_classified() -> Result {
 }
 
 #[test]
-fn malformed_packed_names_and_reflog_signatures_retain_parser_errors() -> Result {
+fn malformed_packed_names_and_reflog_signatures_retain_parser_errors() -> gix_testtools::TestResult {
     let hash = crate::fixture_hash_kind();
     let packed = packed::Buffer::from_bytes(
         format!("# pack-refs with: sorted\n{} refs/heads/bad..name\n", hash.null()).as_bytes(),
@@ -517,7 +516,7 @@ fn malformed_packed_names_and_reflog_signatures_retain_parser_errors() -> Result
         .expect("one packed ref")
         .expect_err("the name is invalid");
     insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&(err), &[]), "malformed packed names and reflog signatures retain parser errors", @r#"
-    Invalid packed reference, "input"="Oid(1) refs/heads/bad..name", "line"=1
+    Invalid packed reference, input="Oid(1) refs/heads/bad..name", line=1
 
     Caused by:
         0: Malformed packed reference
@@ -532,7 +531,7 @@ fn malformed_packed_names_and_reflog_signatures_retain_parser_errors() -> Result
     let line = format!("{0} {0} invalid signature\tmessage", hash.null());
     let err = gix_ref::file::log::LineRef::from_bytes(line.as_bytes()).expect_err("the signature is invalid");
     insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&(err), &[]), "malformed packed names and reflog signatures retain parser errors", @r#"
-    Could not decode reflog line, "input"="Oid(1) Oid(1) invalid signature\tmessage"
+    Could not decode reflog line, input="Oid(1) Oid(1) invalid signature\tmessage"
 
     Caused by:
         0: Invalid reflog signature
@@ -547,7 +546,7 @@ fn malformed_packed_names_and_reflog_signatures_retain_parser_errors() -> Result
 }
 
 #[test]
-fn custom_name_conversion_errors_keep_their_sources() -> Result {
+fn custom_name_conversion_errors_keep_their_sources() -> gix_testtools::TestResult {
     let mut error_snapshots = Vec::new();
     struct Name<E>(E);
     impl<E> TryInto<&'static gix_ref::PartialNameRef> for Name<E> {
@@ -610,7 +609,7 @@ fn custom_name_conversion_errors_keep_their_sources() -> Result {
 }
 
 #[test]
-fn a_depth_limit_does_not_imply_corruption() -> Result {
+fn a_depth_limit_does_not_imply_corruption() -> gix_testtools::TestResult {
     let (_keep, store) = crate::file::transaction::prepare_and_commit::empty_store()?;
     let refs = store.git_dir().join("refs/heads");
     std::fs::create_dir_all(&refs)?;
@@ -628,7 +627,7 @@ fn a_depth_limit_does_not_imply_corruption() -> Result {
         .find("r0")?
         .follow_to_object_packed(&store, None)
         .expect_err("the valid symbolic chain exceeds the depth limit");
-    insta::assert_debug_snapshot!(err, "a valid symbolic chain need not be corrupted", @r#"Symbolic reference depth limit exceeded, "max_depth"=5"#);
+    insta::assert_debug_snapshot!(err, "a valid symbolic chain need not be corrupted", @r#"Symbolic reference depth limit exceeded, max_depth=5"#);
     assert!(!err.is_corrupted(), "a valid symbolic chain need not be corrupted");
     assert!(!err.is_not_found(), "all symbolic targets exist");
     let details = err.metadata().next().expect("limit details");
@@ -650,12 +649,12 @@ fn a_depth_limit_does_not_imply_corruption() -> Result {
 }
 
 #[test]
-fn loose_reference_diagnostics_keep_input_with_the_failure() -> Result {
+fn loose_reference_diagnostics_keep_input_with_the_failure() -> gix_testtools::TestResult {
     let hash = crate::fixture_hash_kind();
     let contents = b"invalid\xff";
     let err = gix_ref::file::loose::Reference::try_from_path("HEAD".try_into()?, contents, hash)
         .expect_err("a malformed object id is corruption");
-    insta::assert_debug_snapshot!(err, "scalar context does not invent a validation failure", @r#"Reference content could not be parsed, "input"="invalid\xff""#);
+    insta::assert_debug_snapshot!(err, "scalar context does not invent a validation failure", @r#"Reference content could not be parsed, input="invalid\xff""#);
     assert!(err.is_corrupted(), "malformed reference contents are corruption");
     assert_eq!(
         err.iter_errors().count(),
@@ -671,10 +670,10 @@ fn loose_reference_diagnostics_keep_input_with_the_failure() -> Result {
     let err = gix_ref::file::loose::Reference::try_from_path("HEAD".try_into()?, b"ref: refs/heads/.bad\n", hash)
         .expect_err("a symbolic target must be a valid reference name");
     insta::assert_debug_snapshot!(err, "the callee's validation class remains available", @r#"
-    Could not decode reference, "input"="ref: refs/heads/.bad\n"
+    Could not decode reference, input="ref: refs/heads/.bad\n"
 
     Caused by:
-        0: Invalid symbolic reference target, "target"="refs/heads/.bad"
+        0: Invalid symbolic reference target, target="refs/heads/.bad"
         1: Reference name cannot start with a dot
     "#);
     assert!(err.is_validation(), "the callee's validation class remains available");

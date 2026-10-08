@@ -1,9 +1,8 @@
 mod existing {
-    use crate::Result;
     use crate::{file::store_at, hex_to_id};
 
     #[test]
-    fn various_repositories() -> Result {
+    fn various_repositories() -> gix_testtools::TestResult {
         for fixture in [
             "make_ref_repository.sh",
             "make_packed_ref_repository.sh",
@@ -24,12 +23,11 @@ mod existing {
     }
 
     mod convert {
-        use crate::Result;
         use gix_ref::{PartialName, PartialNameRef};
 
         // TODO: figure this out
         #[test]
-        fn possible_inputs() -> Result {
+        fn possible_inputs() -> gix_testtools::TestResult {
             let store = crate::file::store()?;
             store.find_loose("dt1")?;
             store.find_loose(&String::from("dt1"))?; // Owned Strings don't have an impl for PartialName
@@ -104,17 +102,14 @@ mod existing {
 }
 
 mod loose {
-    use crate::Result;
     use crate::{file::store, hex_to_id};
 
     mod existing {
-        use crate::Result;
-        use std::path::Path;
 
         use crate::file::store;
 
         #[test]
-        fn capitalized_branch() -> Result {
+        fn capitalized_branch() -> gix_testtools::TestResult {
             let store = store()?;
             assert_eq!(
                 store.find("A")?,
@@ -125,7 +120,7 @@ mod loose {
         }
 
         #[test]
-        fn success_and_failure() -> Result {
+        fn success_and_failure() -> gix_testtools::TestResult {
             let mut error_snapshots = Vec::new();
             let store = store()?;
             for (partial_name, expected_path) in [("main", Some("refs/heads/main")), ("does-not-exist", None)] {
@@ -140,7 +135,7 @@ mod loose {
                                 err.downcast_any_ref::<gix_ref::file::find::NotFound>()
                                     .expect("absent reference")
                                     .name,
-                                Path::new(partial_name)
+                                partial_name
                             );
                         }
                     },
@@ -156,7 +151,7 @@ mod loose {
     }
 
     #[test]
-    fn fetch_head_can_be_parsed() -> Result {
+    fn fetch_head_can_be_parsed() -> gix_testtools::TestResult {
         let store = store()?;
         assert_eq!(
             store.find_loose("FETCH_HEAD")?.target.id(),
@@ -167,7 +162,7 @@ mod loose {
     }
 
     #[test]
-    fn success() -> Result {
+    fn success() -> gix_testtools::TestResult {
         let store = store()?;
         for (partial_name, expected_path, expected_ref_kind) in &[
             ("dt1", "refs/tags/dt1", gix_ref::Kind::Object),     // tags before heads
@@ -192,7 +187,7 @@ mod loose {
     }
 
     #[test]
-    fn failure() -> Result {
+    fn failure() -> gix_testtools::TestResult {
         let store = store()?;
         for (partial_name, reason, is_err) in &[
             ("foobar", "does not exist", false),
@@ -215,7 +210,7 @@ mod loose {
             .try_find_loose(name)
             .expect_err("reserved device names cannot be read when prohibited");
         insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&(err), &[(&(store.git_dir()).to_string_lossy(), "<git-dir>")]), "rejecting a device name retains the original I/O error kind", @r#"
-        Could not read reference, "path"="<git-dir>/refs/heads/CON"
+        Could not read reference, path="<git-dir>/refs/heads/CON"
 
         Caused by:
             0: I/O error (Other)
@@ -247,7 +242,7 @@ mod loose {
     }
 
     #[test]
-    fn prefix_file_collision_is_not_found() -> Result {
+    fn prefix_file_collision_is_not_found() -> gix_testtools::TestResult {
         let (_tmp, store) = crate::file::store_writable("make_ref_repository.sh")?;
 
         assert!(

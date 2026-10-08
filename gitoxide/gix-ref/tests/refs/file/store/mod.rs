@@ -1,4 +1,3 @@
-use crate::Result;
 use gix_date::parse::TimeBuf;
 use gix_lock::acquire::Fail;
 use gix_ref::{
@@ -20,7 +19,7 @@ mod reflog;
 
 #[test]
 #[cfg_attr(not(target_os = "macos"), ignore = "Needs filesystem that folds Unicode composition")]
-fn packed_reference_precomposition_is_component_local() -> Result {
+fn packed_reference_precomposition_is_component_local() -> gix_testtools::TestResult {
     let tmp = gix_testtools::tempfile::tempdir()?;
     let store = gix_ref::file::Store::at_opts(
         tmp.path().to_owned(),
@@ -95,7 +94,7 @@ fn packed_reference_precomposition_is_component_local() -> Result {
 }
 
 #[test]
-fn precompose_unicode_journey() -> Result {
+fn precompose_unicode_journey() -> gix_testtools::TestResult {
     let tmp = gix_testtools::tempfile::TempDir::new()?;
     let precomposed_a = "ä";
     let decomposed_a = "a\u{308}";

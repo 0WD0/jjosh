@@ -2,10 +2,8 @@ use gix_error::Result;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use gix_error::{OptionExt, ResourceExhaustionKind, ResultExt, bail, message};
-use gix_features::{
-    progress::Progress,
-    threading::{self, OwnShared},
-};
+use gix_parallel::{self as threading, OwnShared};
+use gix_utils::progress::Progress;
 
 use crate::{
     cache::delta::{
@@ -14,6 +12,7 @@ use crate::{
     },
     data,
     data::EntryRange,
+    data::decode::resize_with_limit,
 };
 
 mod node {
@@ -135,8 +134,8 @@ pub(super) unsafe fn all<T, F, MBFN, R>(
     child_items: &ItemSliceSync<'_, Item<T>>,
     thread_limit: Option<usize>,
     num_objects: usize,
-    objects: gix_features::progress::StepShared,
-    size: gix_features::progress::StepShared,
+    objects: gix_utils::progress::StepShared,
+    size: gix_utils::progress::StepShared,
     progress: &dyn Progress,
     resolve: F,
     resolve_data: &R,
@@ -169,7 +168,7 @@ where
     #[cfg(feature = "parallel")]
     {
         resolve_parallel(
-            gix_features::parallel::num_threads(thread_limit).min(num_objects),
+            gix_parallel::num_threads(thread_limit).min(num_objects),
             work,
             objects,
             size,
@@ -213,8 +212,8 @@ where
 #[expect(clippy::too_many_arguments)]
 fn resolve_serial<T, F, MBFN, R>(
     mut work: Vec<WorkItem<'_, T>>,
-    objects: gix_features::progress::StepShared,
-    size: gix_features::progress::StepShared,
+    objects: gix_utils::progress::StepShared,
+    size: gix_utils::progress::StepShared,
     progress: &dyn Progress,
     resolve: F,
     resolve_data: &R,
@@ -270,8 +269,8 @@ where
 fn resolve_parallel<T, F, MBFN, R>(
     num_threads: usize,
     work: Vec<WorkItem<'_, T>>,
-    objects: gix_features::progress::StepShared,
-    size: gix_features::progress::StepShared,
+    objects: gix_utils::progress::StepShared,
+    size: gix_utils::progress::StepShared,
     progress: &dyn Progress,
     resolve: F,
     resolve_data: &R,
@@ -302,14 +301,14 @@ where
     let stealers: Vec<_> = workers.iter().map(crossbeam_deque::Worker::stealer).collect();
     let abort = AtomicBool::new(false);
 
-    gix_features::parallel::threads(|scope| {
+    gix_parallel::threads(|scope| {
         let mut handles = Vec::with_capacity(num_threads);
         for (tid, worker) in workers.into_iter().enumerate() {
-            let result = gix_features::parallel::build_thread()
+            let result = gix_parallel::build_thread()
                 .name(format!("gix-pack.traverse_deltas.{tid}"))
                 .spawn_scoped(
                     scope,
-                    gix_features::trace::in_thread({
+                    gix_trace::in_thread({
                         let stealers = &stealers;
                         let roots = &roots;
                         let remaining = &remaining;
@@ -462,8 +461,8 @@ fn resolve_task<'a, T, F, MBFN, R>(
     ref_delta_children: Option<&super::SharedRefDeltaChildren>,
     object_hash: gix_hash::Kind,
     alloc_limit_bytes: Option<usize>,
-    objects: &gix_features::progress::StepShared,
-    size: &gix_features::progress::StepShared,
+    objects: &gix_utils::progress::StepShared,
+    size: &gix_utils::progress::StepShared,
     mut push: impl FnMut(WorkItem<'a, T>),
 ) -> Result
 where
@@ -577,8 +576,8 @@ fn inspect<T, MBFN>(
     resolved: &ResolvedBase,
     progress: &dyn Progress,
     modify_base: &mut MBFN,
-    objects: &gix_features::progress::StepShared,
-    size: &gix_features::progress::StepShared,
+    objects: &gix_utils::progress::StepShared,
+    size: &gix_utils::progress::StepShared,
 ) -> Result
 where
     T: Send,
@@ -652,16 +651,6 @@ fn decoded_size_limited(size: u64, alloc_limit_bytes: Option<usize>) -> Result<u
     Ok(size)
 }
 
-fn resize_with_limit(out: &mut Vec<u8>, len: usize, alloc_limit_bytes: Option<usize>) -> Result {
-    if alloc_limit_bytes.is_some_and(|limit| len > limit) {
-        bail!(allocation_error(ResourceExhaustionKind::AllocationLimit));
-    }
-    out.try_reserve(len.saturating_sub(out.len()))
-        .or_raise(|| message("Entry too large to fit in memory"))?;
-    out.resize(len, 0);
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use std::{
@@ -672,7 +661,7 @@ mod tests {
 
     use gix_error::Result;
 
-    use gix_features::progress;
+    use gix_utils::progress;
 
     use crate::{
         cache::delta::{Tree, traverse},
@@ -680,7 +669,125 @@ mod tests {
     };
 
     #[test]
-    fn traversal_resolves_children_lazily() {
+    fn traversal_buffer_growth_respects_alloc_limit() -> gix_testtools::TestResult {
+        let mut out = Vec::new();
+        let mut inflate = gix_zlib::Inflate::default();
+        for size in [64, 65] {
+            let payload = vec![b'A'; size];
+            super::decompress_all_at_once_with(&mut inflate, &deflate(&payload), size, &mut out, Some(65))?;
+            assert_eq!(
+                out, payload,
+                "each entry must decompress correctly into the reused buffer"
+            );
+            assert!(
+                out.capacity() <= 65,
+                "traversal buffer growth must not allocate beyond the cap"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn traversal_rejects_unreachable_delta_cycles() -> gix_testtools::TestResult {
+        for has_root in [false, true] {
+            for cycle_len in [1, 2, 3] {
+                let mut pack = Vec::new();
+                let mut tree = Tree::with_capacity(cycle_len + usize::from(has_root), None)?;
+                if has_root {
+                    let root = append_entry(&mut pack, data::entry::Header::Blob, 0, b"");
+                    tree.add_root(root, ())?;
+                }
+                let offsets: Vec<_> = (0..cycle_len)
+                    .map(|_| {
+                        append_entry(
+                            &mut pack,
+                            data::entry::Header::RefDelta {
+                                base_id: gix_hash::Kind::Sha1.null(),
+                            },
+                            2,
+                            &[0, 0],
+                        )
+                    })
+                    .collect();
+                for (index, &offset) in offsets.iter().enumerate() {
+                    tree.add_child(offsets[(index + 1) % cycle_len], offset, ())?;
+                }
+                let err = traverse(
+                    tree,
+                    &pack,
+                    Some(2),
+                    None,
+                    |slice, pack| pack.get(slice.start as usize..slice.end as usize),
+                    |(), _, _| Ok(()),
+                )
+                .expect_err("every delta must be inspected, including components without a root");
+                assert!(err.is_corrupted(), "an unreachable delta cycle is corrupt pack data");
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn traversal_accepts_forward_delta_bases() -> gix_testtools::TestResult {
+        let mut pack = Vec::new();
+        let child = append_entry(
+            &mut pack,
+            data::entry::Header::RefDelta {
+                base_id: gix_hash::Kind::Sha1.null(),
+            },
+            2,
+            &[0, 0],
+        );
+        let root = append_entry(&mut pack, data::entry::Header::Blob, 0, b"");
+        let mut tree = Tree::with_capacity(2, None)?;
+        tree.add_child(root, child, ())?;
+        tree.add_root(root, ())?;
+        traverse(
+            tree,
+            &pack,
+            Some(1),
+            None,
+            |slice, pack| pack.get(slice.start as usize..slice.end as usize),
+            |(), _, _| Ok(()),
+        )?;
+        Ok(())
+    }
+
+    #[test]
+    fn traversal_accepts_reused_progress() -> gix_testtools::TestResult {
+        use progress::Count;
+
+        let mut pack = Vec::new();
+        let root = append_entry(&mut pack, data::entry::Header::Blob, 0, b"");
+        let mut tree = Tree::with_capacity(1, None)?;
+        tree.add_root(root, ())?;
+        let object_progress = prodash::progress::Log::new("reused", Some(0));
+        object_progress.set(3); // A previous indexing or traversal operation already counted objects.
+        let counter = object_progress.counter();
+        tree.traverse(
+            |slice, pack: &Vec<u8>| pack.get(slice.start as usize..slice.end as usize),
+            &pack,
+            pack.len() as u64,
+            |(), _, _| Ok(()),
+            traverse::Options {
+                object_progress: Box::new(object_progress),
+                size_progress: &mut progress::Discard,
+                thread_limit: Some(1),
+                should_interrupt: &AtomicBool::new(false),
+                object_hash: gix_hash::Kind::Sha1,
+                alloc_limit_bytes: None,
+            },
+        )?;
+        assert_eq!(
+            counter.load(Ordering::Relaxed),
+            1,
+            "only this traversal's objects are counted"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn traversal_resolves_children_lazily() -> gix_testtools::TestResult {
         let mut pack = Vec::new();
         let root_offset = append_entry(&mut pack, data::entry::Header::Blob, 1, b"A");
         let first_child = append_delta(&mut pack, root_offset, b'B');
@@ -688,16 +795,12 @@ mod tests {
         let first_leaf = append_delta(&mut pack, first_child, b'D');
         let second_leaf = append_delta(&mut pack, second_child, b'E');
 
-        let mut tree = Tree::with_capacity(5, None).expect("capacity is small");
-        tree.add_root(root_offset, ()).expect("offsets are increasing");
-        tree.add_child(root_offset, first_child, ())
-            .expect("offsets are increasing");
-        tree.add_child(root_offset, second_child, ())
-            .expect("offsets are increasing");
-        tree.add_child(first_child, first_leaf, ())
-            .expect("offsets are increasing");
-        tree.add_child(second_child, second_leaf, ())
-            .expect("offsets are increasing");
+        let mut tree = Tree::with_capacity(5, None)?;
+        tree.add_root(root_offset, ())?;
+        tree.add_child(root_offset, first_child, ())?;
+        tree.add_child(root_offset, second_child, ())?;
+        tree.add_child(first_child, first_leaf, ())?;
+        tree.add_child(second_child, second_leaf, ())?;
 
         let resolve_calls = AtomicUsize::new(0);
         let calls_at_first_child = AtomicUsize::new(usize::MAX);
@@ -716,29 +819,28 @@ mod tests {
                 }
                 Ok(())
             },
-        )
-        .expect("valid delta tree");
+        )?;
 
         assert_eq!(
             calls_at_first_child.load(Ordering::Relaxed),
             2,
             "the first child must be inspected before its siblings are materialized"
         );
+        Ok(())
     }
 
     #[test]
-    fn traversal_parallelizes_children_of_one_root() {
+    fn traversal_parallelizes_children_of_one_root() -> gix_testtools::TestResult {
         let mut pack = Vec::new();
         let root_offset = append_entry(&mut pack, data::entry::Header::Blob, 1, b"A");
         let child_offsets: Vec<_> = (b'B'..=b'I')
             .map(|byte| append_delta(&mut pack, root_offset, byte))
             .collect();
 
-        let mut tree = Tree::with_capacity(1 + child_offsets.len(), None).expect("capacity is small");
-        tree.add_root(root_offset, ()).expect("offsets are increasing");
+        let mut tree = Tree::with_capacity(1 + child_offsets.len(), None)?;
+        tree.add_root(root_offset, ())?;
         for child_offset in child_offsets {
-            tree.add_child(root_offset, child_offset, ())
-                .expect("offsets are increasing");
+            tree.add_child(root_offset, child_offset, ())?;
         }
 
         let active = AtomicUsize::new(0);
@@ -758,30 +860,31 @@ mod tests {
                 }
                 Ok(())
             },
-        )
-        .expect("valid delta tree");
+        )?;
 
         let expected = if cfg!(feature = "parallel") { 1 } else { 0 };
         assert!(
             max_active.load(Ordering::Relaxed) > expected,
             "idle workers must help with children of the last remaining root (if in parallel mode)"
         );
+        Ok(())
     }
 
     #[test]
-    fn traversal_rejects_declared_decompressed_size_over_alloc_limit() {
+    fn traversal_rejects_declared_decompressed_size_over_alloc_limit() -> gix_testtools::TestResult {
         let mut pack = Vec::new();
         let root_offset = append_entry(&mut pack, data::entry::Header::Blob, 1, b"");
-        let mut tree = Tree::with_capacity(1, None).expect("capacity is small");
-        tree.add_root(root_offset, ()).expect("offsets are increasing");
+        let mut tree = Tree::with_capacity(1, None)?;
+        tree.add_root(root_offset, ())?;
 
         let err = traverse_with_limit(tree, &pack).expect_err("entry size exceeds the allocation cap");
 
         insta::assert_debug_snapshot!(err, "declared decompressed sizes above the cap must be rejected before allocation", @"Entry too large to fit in memory");
+        Ok(())
     }
 
     #[test]
-    fn traversal_rejects_delta_base_size_over_alloc_limit() {
+    fn traversal_rejects_delta_base_size_over_alloc_limit() -> gix_testtools::TestResult {
         let mut pack = Vec::new();
         let root_offset = append_entry(&mut pack, data::entry::Header::Blob, 0, b"");
 
@@ -796,18 +899,18 @@ mod tests {
             &delta,
         );
 
-        let mut tree = Tree::with_capacity(2, None).expect("capacity is small");
-        tree.add_root(root_offset, ()).expect("offsets are increasing");
-        tree.add_child(root_offset, child_offset, ())
-            .expect("offsets are increasing");
+        let mut tree = Tree::with_capacity(2, None)?;
+        tree.add_root(root_offset, ())?;
+        tree.add_child(root_offset, child_offset, ())?;
 
         let err = traverse_with_limit(tree, &pack).expect_err("delta base size exceeds the allocation cap");
 
         insta::assert_debug_snapshot!(err, "delta base sizes above the cap must be rejected before comparing them with the decoded base", @"Entry too large to fit in memory");
+        Ok(())
     }
 
     #[test]
-    fn traversal_rejects_delta_result_size_over_alloc_limit() {
+    fn traversal_rejects_delta_result_size_over_alloc_limit() -> gix_testtools::TestResult {
         let mut pack = Vec::new();
         let root_offset = append_entry(&mut pack, data::entry::Header::Blob, 0, b"");
 
@@ -822,14 +925,14 @@ mod tests {
             &delta,
         );
 
-        let mut tree = Tree::with_capacity(2, None).expect("capacity is small");
-        tree.add_root(root_offset, ()).expect("offsets are increasing");
-        tree.add_child(root_offset, child_offset, ())
-            .expect("offsets are increasing");
+        let mut tree = Tree::with_capacity(2, None)?;
+        tree.add_root(root_offset, ())?;
+        tree.add_child(root_offset, child_offset, ())?;
 
         let err = traverse_with_limit(tree, &pack).expect_err("delta result size exceeds the allocation cap");
 
         insta::assert_debug_snapshot!(err, "delta result sizes above the cap must be rejected before resizing the output buffer", @"Entry too large to fit in memory");
+        Ok(())
     }
 
     fn traverse_with_limit(tree: Tree<()>, pack: &Vec<u8>) -> Result {

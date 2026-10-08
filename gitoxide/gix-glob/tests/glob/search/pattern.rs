@@ -21,9 +21,9 @@ mod list {
     }
 
     #[test]
-    fn from_bytes_base() {
+    fn from_bytes_base() -> gix_testtools::TestResult {
         {
-            let list = List::from_bytes(&[], "a/b/source".into(), None, Dummy);
+            let list = List::from_bytes(&[], "a/b/source".into(), None, Dummy)?;
             assert_eq!(list.base, None, "no root always means no-base, i.e. globals lists");
             assert_eq!(
                 list.source.as_deref(),
@@ -33,8 +33,8 @@ mod list {
         }
 
         {
-            let cwd = std::env::current_dir().expect("cwd available");
-            let list = List::from_bytes(&[], cwd.join("a/b/source"), Some(cwd.as_path()), Dummy);
+            let cwd = std::env::current_dir()?;
+            let list = List::from_bytes(&[], cwd.join("a/b/source"), Some(cwd.as_path()), Dummy)?;
             assert_eq!(
                 list.base.as_ref().expect("set"),
                 "a/b/",
@@ -48,7 +48,7 @@ mod list {
         }
 
         {
-            let list = List::from_bytes(&[], "a/b/source".into(), Some(Path::new("c/")), Dummy);
+            let list = List::from_bytes(&[], "a/b/source".into(), Some(Path::new("c/")), Dummy)?;
             assert_eq!(
                 list.base, None,
                 "if root doesn't contain source, it silently skips it as base"
@@ -59,11 +59,19 @@ mod list {
                 "source is always verbatim"
             );
         }
+        Ok(())
     }
 
     #[test]
-    fn strip_base_handle_recompute_basename_pos() {
-        let list = List::from_bytes(&[], "a/b/source".into(), Some(Path::new("")), Dummy);
+    fn a_source_without_a_parent_returns_an_error() {
+        let err = List::from_bytes(&[], "".into(), Some(Path::new("")), Dummy)
+            .expect_err("a source-relative list needs a parent directory");
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn strip_base_handle_recompute_basename_pos() -> gix_testtools::TestResult {
+        let list = List::from_bytes(&[], "a/b/source".into(), Some(Path::new("")), Dummy)?;
         assert_eq!(
             list.base.as_ref().expect("set"),
             "a/b/",
@@ -82,6 +90,7 @@ mod list {
             Some(("c/File".into(), Some(2))),
             "otherwise the basename is recomputed, case folding is effective"
         );
+        Ok(())
     }
 
     #[test]
@@ -97,12 +106,12 @@ mod list {
     }
 
     #[test]
-    fn from_file_that_is_a_directory() -> gix_testtools::Result<()> {
+    fn from_file_that_is_a_directory() -> gix_testtools::TestResult {
         let tmp = gix_testtools::tempfile::TempDir::new()?;
         let dir_path = tmp.path().join(".gitignore");
         std::fs::create_dir(&dir_path)?;
         let mut buf = Vec::new();
-        let list = List::from_file(dir_path, None, false, &mut buf, Dummy).expect("no io error");
+        let list = List::from_file(dir_path, None, false, &mut buf, Dummy)?;
         assert!(list.is_none(), "directories are ignored just like Git does it");
 
         Ok(())

@@ -90,21 +90,22 @@ impl crate::Repository {
     /// `GIT_EDITOR` takes precedence over `core.editor`. If the terminal isn't dumb, `VISUAL` is considered next,
     /// followed by `EDITOR`. If none are set, a bundled `vi` (or its `vim` implementation) is returned when available
     /// unless `TERM` is unset or `dumb`, in which case there is no usable editor.
+    /// Return an error if the selected editor cannot be represented as a native program name.
     ///
     /// Use [`editor_command()`](Self::editor_command) to obtain a command prepared for execution.
-    pub fn editor(&self) -> Option<OsString> {
+    pub fn editor(&self) -> Result<Option<OsString>> {
         use crate::config::tree::{Core, Gitoxide};
 
         let config = self.config_snapshot();
         let terminal_is_dumb = config.string(Gitoxide::TERM).is_none_or(|terminal| terminal == "dumb");
-        config
-            .trusted_program(Core::EDITOR)
-            .or_else(|| {
-                (!terminal_is_dumb)
-                    .then(|| config.trusted_program(Gitoxide::VISUAL))
-                    .flatten()
-            })
-            .or_else(|| config.trusted_program(Gitoxide::EDITOR))
+        let mut editor = config.trusted_program(Core::EDITOR)?;
+        if editor.is_none() && !terminal_is_dumb {
+            editor = config.trusted_program(Gitoxide::VISUAL)?;
+        }
+        if editor.is_none() {
+            editor = config.trusted_program(Gitoxide::EDITOR)?;
+        }
+        Ok(editor
             .or_else(|| {
                 (!terminal_is_dumb).then(|| {
                     gix_path::env::installation_program("vi")
@@ -119,7 +120,7 @@ impl crate::Repository {
                         .into_os_string()
                 })
             })
-            .filter(|editor| !editor.is_empty())
+            .filter(|editor| !editor.is_empty()))
     }
 
     /// Return the prepared [`editor`](Self::editor) command.
@@ -130,7 +131,7 @@ impl crate::Repository {
     pub fn editor_command(&self) -> Result<Option<gix_command::Prepare>> {
         use std::{path::Path, process::Stdio};
 
-        let Some(editor) = self.editor() else {
+        let Some(editor) = self.editor()? else {
             return Ok(None);
         };
 
@@ -237,7 +238,8 @@ impl crate::Repository {
                 fallback_active = true;
                 config.string_filter(gitoxide::Ssh::COMMAND_WITHOUT_SHELL_FALLBACK, &mut trusted)
             })
-            .map(|cmd| gix_path::from_bstr(cmd).into_owned().into());
+            .map(|cmd| gix_path::from_bstr(cmd).map(|cmd| cmd.into_owned().into()))
+            .transpose()?;
         let opts = gix_protocol::transport::client::blocking_io::ssh::connect::Options {
             disallow_shell: fallback_active,
             command: ssh_command,

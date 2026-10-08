@@ -4,13 +4,13 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
-use gix_features::progress;
 use gix_testtools::fixture_path;
+use gix_utils::progress;
 
 /// Writes a multi-index from the static SHA-1 pack indices, with pinned SHA-1 expectations.
 /// The SHA-256 counterpart lives in [`from_a_hash_parameterized_pack`] below.
 #[test]
-fn from_paths() -> Result {
+fn from_paths() -> gix_testtools::TestResult {
     let pack_dir = fixture_path("objects/pack");
     let written = write_multi_index_from_pack_dir(&pack_dir, gix_hash::Kind::Sha1)?;
     assert_eq!(written.input_indices.len(), 3);
@@ -39,7 +39,7 @@ fn from_paths() -> Result {
 /// Like [`from_paths`], but sources its input index from the hash-parameterized fixture so the
 /// writer runs under both SHA-1 and SHA-256. The fixture's gc leaves one pack, hence one index.
 #[test]
-fn from_a_hash_parameterized_pack() -> Result {
+fn from_a_hash_parameterized_pack() -> gix_testtools::TestResult {
     let object_hash = crate::object_hash();
     let pack_dir = crate::scripted_fixture_read_only("make_pack_gen_repo_multi_index.sh")?.join(".git/objects/pack");
     let written = write_multi_index_from_pack_dir(&pack_dir, object_hash)?;

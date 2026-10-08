@@ -455,6 +455,7 @@ impl Cache {
     #[cfg(feature = "attributes")]
     pub(crate) fn pathspec_defaults(&self) -> Result<gix_pathspec::Defaults> {
         use crate::config::tree::gitoxide;
+        let mut conversion_error = None;
         let res = gix_pathspec::Defaults::from_environment(&mut |name| {
             let key = [
                 &gitoxide::Pathspec::ICASE,
@@ -466,9 +467,16 @@ impl Cache {
             .find(|key| key.environment_override().expect("set") == name)
             .expect("we must know all possible input variable names");
 
-            let val = self.resolved.string(key).map(gix_path::from_bstr)?;
-            Some(val.into_owned().into())
+            let value = self.resolved.string(key)?;
+            match gix_path::from_bstr(value) {
+                Ok(value) => Some(value.into_owned().into()),
+                Err(err) => {
+                    conversion_error.get_or_insert(err);
+                    None
+                }
+            }
         });
+        let res = conversion_error.map_or(res, Err);
         if res.is_err() && self.lenient_config {
             Ok(gix_pathspec::Defaults::default())
         } else {

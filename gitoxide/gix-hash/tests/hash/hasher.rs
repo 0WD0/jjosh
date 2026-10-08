@@ -8,7 +8,7 @@ fn interruption_preserves_its_io_error_kind() {
         &mut &b"x"[..],
         1,
         gix_hash::Kind::shortest(),
-        &mut gix_features::progress::Discard,
+        &mut gix_utils::progress::Discard,
         &std::sync::atomic::AtomicBool::new(true),
     )
     .expect_err("the interrupt flag is observed after reading a chunk");

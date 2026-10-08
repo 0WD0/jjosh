@@ -1,7 +1,7 @@
 use std::ffi::OsString;
 
 use crate::error::{bail, validation};
-use gix_features::threading::OwnShared;
+use gix_parallel::OwnShared;
 
 use crate::{
     Result,
@@ -66,14 +66,17 @@ impl Snapshot<'_> {
     }
 
     /// Return the trusted string at `key` for launching using [command::prepare()](gix_command::prepare()),
-    /// or `None` if there is no such value or if no value was found in a trusted file.
-    pub fn trusted_program(&self, key: impl gix_config::AsKey) -> Option<OsString> {
+    /// or `Ok(None)` if there is no such value or if no value was found in a trusted file.
+    /// Return an error if the selected value cannot be represented as a native program name.
+    pub fn trusted_program(&self, key: impl gix_config::AsKey) -> Result<Option<OsString>> {
         let value = self
             .repo
             .config
             .resolved
-            .string_filter(key, &mut self.repo.config.filter_config_section.clone())?;
-        Some(gix_path::from_bstr(value).into_owned().into_os_string())
+            .string_filter(key, &mut self.repo.config.filter_config_section.clone());
+        value
+            .map(|value| Ok(gix_path::from_bstr(value)?.into_owned().into_os_string()))
+            .transpose()
     }
 }
 

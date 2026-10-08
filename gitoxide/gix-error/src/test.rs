@@ -6,7 +6,7 @@ use crate::Error;
 /// errors via [`From`] without conflicting with the standard library's identity conversion.
 /// Its [`Debug`](std::fmt::Debug) output includes the complete diagnostic tree or chain, omitting classification markers
 /// unless only markers are available. Custom I/O wrappers show their kind, with their payloads reported separately.
-/// Captured caller locations are included unless alternate formatting is used.
+/// Captured caller locations are included with the `error-print-location` feature unless alternate formatting is used.
 pub struct TestError(Error);
 
 /// A result type for test functions whose errors are reported through [`TestError`]'s complete diagnostics.

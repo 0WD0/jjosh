@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use gix_features::fs::walkdir::DirEntryIter;
+use gix_fs::walkdir::DirEntryIter;
 use gix_object::bstr::ByteSlice;
 use gix_path::RelativePath;
 
@@ -31,13 +31,7 @@ impl SortedLoosePaths {
             suffix,
             file_walk: path.is_dir().then(|| {
                 // serial iteration as we expect most refs in packed-refs anyway.
-                gix_features::fs::walkdir_sorted_new(
-                    path,
-                    gix_features::fs::walkdir::Parallelism::Serial,
-                    depth,
-                    precompose_unicode,
-                )
-                .into_iter()
+                gix_fs::walkdir_sorted_new(path, depth, precompose_unicode).into_iter()
             }),
         }
     }
@@ -57,7 +51,7 @@ impl Iterator for SortedLoosePaths {
                     let full_name = full_path
                         .strip_prefix(&self.base)
                         .expect("prefix-stripping cannot fail as base is within our root");
-                    let Ok(full_name) = gix_path::try_into_bstr(full_name)
+                    let Ok(full_name) = gix_path::into_bstr(full_name)
                         .map(|name| gix_path::to_unix_separators_on_windows(name).into_owned())
                     else {
                         continue;

@@ -6,13 +6,13 @@ use std::{
     sync::atomic::Ordering,
 };
 
-use gix_features::progress::Progress;
+use gix_utils::progress::Progress;
 
 /// Options for removing a linked worktree and its administrative directory.
 #[derive(Debug, Clone, Copy)]
 pub struct Options {
     /// The maximum number of worker threads used in each traversal or leaf-deletion phase,
-    /// independently of the `parallel` feature.
+    /// independently of `gix-parallel/parallel`.
     ///
     /// `None` (the default) and `Some(0)` use the available logical cores, falling back to one.
     /// `Some(1)` uses one traversal worker and deletes leaves on the calling thread.
@@ -114,7 +114,7 @@ pub(super) mod _impl {
 
     use std::{fs, path::Path};
 
-    use gix_features::progress::NestedProgress;
+    use gix_utils::progress::NestedProgress;
 
     /// Recursively remove `work_dir` and its private `git_dir` without following symbolic links.
     ///
@@ -196,7 +196,7 @@ fn remove_root_with_after_scan(
 ) -> Result<(), DirectoryError> {
     let root = normalize_root(root)?;
     let root = root.as_path();
-    scan.init(None, gix_features::progress::count("entries"));
+    scan.init(None, gix_utils::progress::count("entries"));
     #[cfg(unix)]
     let may_descend = {
         let containing_device = root
@@ -263,7 +263,7 @@ fn remove_root_with_after_scan(
 
         remove.init(
             Some(leaves.len() + directories.len()),
-            gix_features::progress::count("entries"),
+            gix_utils::progress::count("entries"),
         );
         let counter = remove.counter();
         let mut first_error = remove_leaves(&leaves, num_threads, |path, is_symlink| {
@@ -398,7 +398,7 @@ fn remove_leaves(
         let remove_chunk = &remove_chunk;
         let handles: Vec<_> = leaves
             .chunks(leaves.len().div_ceil(num_threads))
-            .map(|chunk| scope.spawn(gix_features::trace::in_thread(move || remove_chunk(chunk))))
+            .map(|chunk| scope.spawn(gix_trace::in_thread(move || remove_chunk(chunk))))
             .collect();
         handles.into_iter().fold(None, |first_error, handle| {
             let error = handle.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic));
@@ -500,7 +500,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn normalized_roots_keep_their_containing_device() -> gix_testtools::Result {
+    fn normalized_roots_keep_their_containing_device() -> gix_testtools::TestResult {
         let tmp = gix_testtools::tempfile::tempdir()?;
         let root = super::normalize_root(&tmp.path().join("one-component"))?;
         assert!(root.is_absolute(), "root normalization preserves absolute paths");
@@ -552,7 +552,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn filesystem_root_aliases_are_not_traversed() -> gix_testtools::Result {
+    fn filesystem_root_aliases_are_not_traversed() -> gix_testtools::TestResult {
         let tmp = gix_testtools::tempfile::tempdir()?;
         let root_link = tmp.path().join("root-link");
         gix_fs::symlink::create(std::path::Path::new("/"), &root_link)?;
@@ -576,7 +576,7 @@ mod tests {
     }
 
     #[test]
-    fn retries_when_an_entry_appears_after_scanning() -> gix_testtools::Result {
+    fn retries_when_an_entry_appears_after_scanning() -> gix_testtools::TestResult {
         for options in [
             Options::default(),
             Options {
@@ -591,8 +591,8 @@ mod tests {
 
             super::remove_root_with_after_scan(
                 &root,
-                gix_features::progress::Discard,
-                gix_features::progress::Discard,
+                gix_utils::progress::Discard,
+                gix_utils::progress::Discard,
                 options,
                 || {
                     scans += 1;
@@ -624,8 +624,8 @@ mod tests {
 
             let err = super::remove_root_with_after_scan(
                 &root,
-                gix_features::progress::Discard,
-                gix_features::progress::Discard,
+                gix_utils::progress::Discard,
+                gix_utils::progress::Discard,
                 Options {
                     max_retries: 5,
                     ..Options::default()
@@ -649,7 +649,7 @@ mod tests {
     }
 
     #[test]
-    fn stops_after_the_configured_number_of_improving_deletion_passes() -> gix_testtools::Result {
+    fn stops_after_the_configured_number_of_improving_deletion_passes() -> gix_testtools::TestResult {
         for max_retries in [0, 1, 2, 4] {
             let tmp = gix_testtools::tempfile::tempdir()?;
             let root = tmp.path().join("worktree");
@@ -661,8 +661,8 @@ mod tests {
 
             let err = super::remove_root_with_after_scan(
                 &root,
-                gix_features::progress::Discard,
-                gix_features::progress::Discard,
+                gix_utils::progress::Discard,
+                gix_utils::progress::Discard,
                 Options {
                     max_retries,
                     ..Options::default()

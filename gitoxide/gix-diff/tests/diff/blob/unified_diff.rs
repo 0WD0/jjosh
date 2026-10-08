@@ -1,4 +1,3 @@
-use crate::Result;
 use gix_diff::blob::UnifiedDiff;
 use gix_diff::blob::unified_diff::ConsumeBinaryHunk;
 use gix_diff::blob::{
@@ -6,9 +5,10 @@ use gix_diff::blob::{
     unified_diff::{ConsumeHunk, ContextSize, DiffLineKind, HunkHeader},
 };
 use gix_object::bstr::BString;
+use gix_testtools::TestResult;
 
 #[test]
-fn removed_modified_added() -> Result {
+fn removed_modified_added() -> TestResult {
     let a = "1\n2\n3\n4\n5\n6\n7\n8\n9\n10";
     let b = "2\n3\n4\n5\nsix\n7\n8\n9\n10\neleven\ntwelve";
 
@@ -100,7 +100,7 @@ fn removed_modified_added() -> Result {
 }
 
 #[test]
-fn context_overlap_by_one_line_move_up() -> Result {
+fn context_overlap_by_one_line_move_up() -> TestResult {
     let a = "2\n3\n4\n5\n6\n7\n";
     let b = "7\n2\n3\n4\n5\n6\n";
 
@@ -127,7 +127,7 @@ fn context_overlap_by_one_line_move_up() -> Result {
 }
 
 #[test]
-fn non_utf8() -> Result {
+fn non_utf8() -> TestResult {
     let a = &b"\xC0\x80"[..];
     let b = b"ascii";
 
@@ -166,7 +166,7 @@ fn non_utf8() -> Result {
 }
 
 #[test]
-fn context_overlap_by_one_line_move_down() -> Result {
+fn context_overlap_by_one_line_move_down() -> TestResult {
     let a = "2\n3\n4\n5\n6\n7\n";
     let b = "7\n2\n3\n4\n5\n6\n";
 
@@ -193,7 +193,7 @@ fn context_overlap_by_one_line_move_down() -> Result {
 }
 
 #[test]
-fn added_on_top_keeps_context_correctly_sized() -> Result {
+fn added_on_top_keeps_context_correctly_sized() -> TestResult {
     let a = "1\n2\n3\n4\n5\n6\n7\n8\n9\n10";
     let b = "1\n2\n3\n4\n4.5\n5\n6\n7\n8\n9\n10";
 
@@ -296,7 +296,7 @@ fn added_on_top_keeps_context_correctly_sized() -> Result {
 }
 
 #[test]
-fn removed_modified_added_with_newlines_in_tokens() -> Result {
+fn removed_modified_added_with_newlines_in_tokens() -> TestResult {
     let a = "1\n2\n3\n4\n5\n6\n7\n8\n9\n10";
     let b = "2\n3\n4\n5\nsix\n7\n8\n9\n10\neleven\ntwelve";
 
@@ -420,7 +420,7 @@ fn removed_modified_added_with_newlines_in_tokens() -> Result {
 }
 
 #[test]
-fn all_added_or_removed() -> Result {
+fn all_added_or_removed() -> TestResult {
     let content = "1\n2\n3\n4\n5";
 
     let samples = [0, 1, 3, 100];
@@ -469,7 +469,7 @@ fn all_added_or_removed() -> Result {
 }
 
 #[test]
-fn empty() -> Result {
+fn empty() -> TestResult {
     let interner = gix_diff::blob::InternedInput::new(&b""[..], &b""[..]);
     let actual = render(
         Algorithm::Myers,

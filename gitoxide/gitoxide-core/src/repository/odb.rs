@@ -174,7 +174,7 @@ pub fn statistics(
     let mut stats = if gix::parallel::num_threads(thread_limit) > 1 {
         gix::parallel::in_parallel(
             gix::interrupt::Iter::new(
-                gix::features::iter::Chunks {
+                gix::utils::iter::Chunks {
                     inner: object_ids,
                     size: chunk_size,
                 },

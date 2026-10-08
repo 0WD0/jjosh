@@ -196,18 +196,22 @@ pub(super) fn write_missing_agent_trailers(out: &mut Vec<u8>, repo: &gix::Reposi
         out.push(b'\n');
     }
     for trailer in &trailers {
-        write_config_source(out, trailer.key, trailer.source.as_ref());
+        write_config_source(out, trailer.key, trailer.source.as_ref())?;
     }
     Ok(())
 }
 
-pub(super) fn write_config_source(out: &mut Vec<u8>, key: &str, source: Option<&gix::config::file::Metadata>) {
+pub(super) fn write_config_source(
+    out: &mut Vec<u8>,
+    key: &str,
+    source: Option<&gix::config::file::Metadata>,
+) -> Result<()> {
     out.extend_from_slice(b"; ");
     out.extend_from_slice(key.as_bytes());
     if let Some(source) = source {
         if let Some(path) = &source.path {
             out.extend_from_slice(b" is configured in ");
-            out.extend_from_slice(gix::path::into_bstr(path).as_ref());
+            out.extend_from_slice(gix::path::into_bstr(path)?.as_ref());
         } else {
             out.extend_from_slice(b" is configured via ");
             out.extend_from_slice(config_source_name(source.source));
@@ -216,6 +220,7 @@ pub(super) fn write_config_source(out: &mut Vec<u8>, key: &str, source: Option<&
         out.extend_from_slice(b" is unset; using the built-in default");
     }
     out.extend_from_slice(b".\n");
+    Ok(())
 }
 
 fn agent_trailer(
@@ -814,18 +819,11 @@ mod tests {
             "the configured committer date is shown"
         );
         assert!(
-            document
-                .windows(b"CommentChar: ;\n;Todo\n;Message:\n\n".len())
-                .any(|line| line == b"CommentChar: ;\n;Todo\n;Message:\n\n"),
+            document.contains_str(b"CommentChar: ;\n;Todo\n;Message:\n\n"),
             "the template declares its comment prefix and inactive enrichments"
         );
         assert!(
-            !document
-                .windows(b";Assisted-by:".len())
-                .any(|line| line == b";Assisted-by:")
-                && !document
-                    .windows(b";Co-authored-by:".len())
-                    .any(|line| line == b";Co-authored-by:"),
+            !document.contains_str(b";Assisted-by:") && !document.contains_str(b";Co-authored-by:"),
             "existing trailer keys suppress model-specific suggestions regardless of their values"
         );
         Ok(())
@@ -853,7 +851,7 @@ mod tests {
             document.as_bstr()
         );
         let mut configured = b"; tix.trailer.assistedBy is configured in ".to_vec();
-        configured.extend_from_slice(gix::path::into_bstr(fixture.path().join(".git").join("config")).as_ref());
+        configured.extend_from_slice(gix::path::into_bstr(fixture.path().join(".git").join("config"))?.as_ref());
         configured.extend_from_slice(b".\n");
         assert!(
             document.windows(configured.len()).any(|window| window == configured),
@@ -969,9 +967,7 @@ mod tests {
         crate::enrich::set_note(&repository, id, Some(b"Existing title\n\nexisting body\n"))?;
         let (_, document) = document(&repository, id)?;
         assert!(
-            document
-                .windows(b"Todo\nMessage: Existing title\n\n".len())
-                .any(|window| { window == b"Todo\nMessage: Existing title\n\n" }),
+            document.contains_str(b"Todo\nMessage: Existing title\n\n"),
             "active enrichments are shown before the commit message"
         );
 

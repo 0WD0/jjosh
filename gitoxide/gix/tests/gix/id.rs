@@ -1,4 +1,4 @@
-use crate::Result;
+use gix_testtools::TestResult;
 use std::cmp::Ordering;
 
 use crate::util::hex_to_id;
@@ -9,7 +9,7 @@ use gix::{
 use gix_object::bstr::BString;
 
 #[test]
-fn prefix() -> Result {
+fn prefix() -> TestResult {
     let repo = crate::repo("make_repo_with_fork_and_dates.sh")?.to_thread_local();
     let work_dir = repo.workdir().expect("non-bare");
     let id = hex_to_id("288e509293165cb5630d08f4185bdf2445bf6170").attach(&repo);
@@ -71,7 +71,7 @@ fn prefix() -> Result {
 }
 
 #[test]
-fn shortening_missing_object_is_not_found() -> Result {
+fn shortening_missing_object_is_not_found() -> TestResult {
     let directory = gix_testtools::tempfile::TempDir::new()?;
     let repo = crate::init_repo_isolated(directory.path(), gix::create::Kind::Bare)?.to_thread_local();
     let missing_blob_id = gix_hash::ObjectId::null(repo.object_hash()).attach(&repo);
@@ -86,7 +86,7 @@ fn shortening_missing_object_is_not_found() -> Result {
 }
 
 #[test]
-fn display_and_debug() -> Result {
+fn display_and_debug() -> TestResult {
     let expected = match gix_testtools::object_hash() {
         gix_hash::Kind::Sha1 => {
             "3189cd3cb0af8586c39a838aa3e54fd72a872a41 Sha1(3189cd3cb0af8586c39a838aa3e54fd72a872a41)"
@@ -104,7 +104,7 @@ fn display_and_debug() -> Result {
 }
 
 #[test]
-fn compares_with_text() -> Result {
+fn compares_with_text() -> TestResult {
     let repo = crate::basic_repo()?;
     let id = repo.head_id()?;
     let text = id.to_string();
@@ -119,11 +119,11 @@ fn compares_with_text() -> Result {
 }
 
 mod ancestors {
-    use crate::Result;
     use crate::util::hex_to_id;
+    use gix_testtools::TestResult;
 
     #[test]
-    fn all() -> Result {
+    fn all() -> TestResult {
         let repo = crate::repo("make_repo_with_fork_and_dates.sh")?.to_thread_local();
         let has_commit_graph = repo.commit_graph_if_enabled()?.is_some();
         for use_commit_graph in [false, true] {
@@ -189,7 +189,7 @@ mod ancestors {
     }
 
     #[test]
-    fn pre_epoch() -> Result {
+    fn pre_epoch() -> TestResult {
         let repo = crate::repo("make_pre_epoch_repo.sh")?.to_thread_local();
         for use_commit_graph in [false, true] {
             let head = repo.head()?.into_peeled_id()?;
@@ -209,7 +209,7 @@ mod ancestors {
     }
 
     #[test]
-    fn prune_with_auto_cutoff() -> Result {
+    fn prune_with_auto_cutoff() -> TestResult {
         let repo = crate::repo("make_repo_with_fork_and_dates.sh")?.to_thread_local();
         let head = repo.head()?.into_peeled_id()?;
 
@@ -231,7 +231,7 @@ mod ancestors {
     }
 
     #[test]
-    fn filtered() -> Result {
+    fn filtered() -> TestResult {
         let repo = crate::repo("make_repo_with_fork_and_dates.sh")?.to_thread_local();
         let head = repo.head()?.into_peeled_id()?;
 

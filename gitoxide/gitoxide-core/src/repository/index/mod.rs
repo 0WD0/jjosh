@@ -61,7 +61,7 @@ pub fn from_list(
             .validation();
             bail!(err)
         }
-        let path = gix::path::into_bstr(path);
+        let path = gix::path::into_bstr(path)?;
         index.dangerously_push_entry(
             gix::index::entry::Stat::default(),
             gix::hash::ObjectId::empty_blob(object_hash),

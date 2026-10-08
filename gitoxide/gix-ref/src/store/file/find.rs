@@ -91,15 +91,20 @@ impl file::Store {
         packed: Option<&packed::Buffer>,
     ) -> Result<Option<Reference>> {
         let mut buf = BString::default();
-        let mut precomposed_partial_name_storage = packed.filter(|_| self.precompose_unicode).and_then(|_| {
-            use gix_object::bstr::ByteSlice;
-            let precomposed = partial_name.0.to_str().ok()?;
-            let precomposed = gix_utils::str::precompose_path(Path::new(precomposed).into());
-            match precomposed {
-                Cow::Owned(precomposed) => Some(PartialName(gix_path::into_bstr(precomposed).into_owned())),
-                Cow::Borrowed(_) => None,
-            }
-        });
+        let mut precomposed_partial_name_storage = packed
+            .filter(|_| self.precompose_unicode)
+            .and_then(|_| {
+                use gix_object::bstr::ByteSlice;
+                let precomposed = partial_name.0.to_str().ok()?;
+                let precomposed = gix_utils::str::precompose_path(Path::new(precomposed).into());
+                match precomposed {
+                    Cow::Owned(precomposed) => {
+                        Some(gix_path::into_bstr(precomposed).map(|name| PartialName(name.into_owned())))
+                    }
+                    Cow::Borrowed(_) => None,
+                }
+            })
+            .transpose()?;
         let precomposed_partial_name = precomposed_partial_name_storage
             .as_ref()
             .map(std::convert::AsRef::as_ref);
@@ -179,7 +184,7 @@ impl file::Store {
             Ok(content_buf) => content_buf,
             Err(err) if err.kind() == io::ErrorKind::NotADirectory => return Ok(None),
             Err(err) => {
-                return Err(err.and_raise(read_reference_error(self.reference_path(full_name))));
+                return Err(err.and_raise(read_reference_error(self.reference_path(full_name)?)));
             }
         };
 
@@ -219,6 +224,7 @@ impl file::Store {
                 } else {
                     full_name
                 };
+                let relative_path = full_name.to_path()?;
                 Ok(Some(
                     loose::Reference::try_from_path(full_name.to_owned(), &content, self.object_hash)
                         .map(Into::into)
@@ -229,7 +235,7 @@ impl file::Store {
                             r
                         })
                         .or_raise(|| ReferenceDecode {
-                            relative_path: full_name.to_path().to_owned(),
+                            relative_path: relative_path.to_owned(),
                         })?,
                 ))
             }
@@ -242,18 +248,20 @@ impl file::Store {
         &self,
         name: &'a FullNameRef,
         is_reflog: bool,
-    ) -> (Cow<'_, Path>, &'a FullNameRef) {
+    ) -> Result<(Cow<'_, Path>, &'a FullNameRef)> {
         let commondir = self.common_dir_resolved();
-        let linked_git_dir =
-            |worktree_name: &BStr| commondir.join("worktrees").join(gix_path::from_bstr(worktree_name));
-        name.category_and_short_name()
-            .map(|(c, sn)| {
+        let linked_git_dir = |worktree_name: &BStr| -> Result<PathBuf> {
+            Ok(commondir.join("worktrees").join(gix_path::from_bstr(worktree_name)?))
+        };
+        name.category_and_short_name().map_or_else(
+            || Ok((commondir.into(), name)),
+            |(c, sn)| {
                 use crate::Category::*;
                 let sn = FullNameRef::new_unchecked(sn);
-                match c {
+                Ok(match c {
                     LinkedPseudoRef { name: worktree_name } => {
                         if is_reflog {
-                            (linked_git_dir(worktree_name).into(), sn)
+                            (linked_git_dir(worktree_name)?.into(), sn)
                         } else {
                             (commondir.into(), name)
                         }
@@ -263,7 +271,7 @@ impl file::Store {
                     LinkedRef { name: worktree_name } => {
                         if sn.category().is_some_and(|cat| cat.is_worktree_private()) {
                             if is_reflog {
-                                (linked_git_dir(worktree_name).into(), sn)
+                                (linked_git_dir(worktree_name)?.into(), sn)
                             } else {
                                 (commondir.into(), name)
                             }
@@ -272,29 +280,29 @@ impl file::Store {
                         }
                     }
                     PseudoRef | Bisect | Rewritten | WorktreePrivate => (self.git_dir.as_path().into(), name),
-                }
-            })
-            .unwrap_or((commondir.into(), name))
+                })
+            },
+        )
     }
 
     /// Implements the logic required to transform a fully qualified refname into a filesystem path
-    pub(crate) fn reference_path_with_base<'b>(&self, name: &'b FullNameRef) -> (Cow<'_, Path>, Cow<'b, Path>) {
-        let (base, name) = self.to_base_dir_and_relative_name(name, false);
-        (
+    pub(crate) fn reference_path_with_base<'b>(&self, name: &'b FullNameRef) -> Result<(Cow<'_, Path>, Cow<'b, Path>)> {
+        let (base, name) = self.to_base_dir_and_relative_name(name, false)?;
+        Ok((
             base,
             match &self.namespace {
                 None => gix_path::to_native_path_on_windows(name.as_bstr()),
                 Some(namespace) => {
                     gix_path::to_native_path_on_windows(namespace.to_owned().into_namespaced_name(name).into_inner())
                 }
-            },
-        )
+            }?,
+        ))
     }
 
     /// Implements the logic required to transform a fully qualified refname into a filesystem path
-    pub(crate) fn reference_path(&self, name: &FullNameRef) -> PathBuf {
-        let (base, relative_path) = self.reference_path_with_base(name);
-        base.join(relative_path)
+    pub(crate) fn reference_path(&self, name: &FullNameRef) -> Result<PathBuf> {
+        let (base, relative_path) = self.reference_path_with_base(name)?;
+        Ok(base.join(relative_path))
     }
 
     /// If `prohibit_windows_device_names` is set, check that `name` does not
@@ -303,7 +311,9 @@ impl file::Store {
         if !self.prohibit_windows_device_names {
             return Ok(());
         }
-        let (_, relative_path) = self.reference_path_with_base(name);
+        let (_, relative_path) = self
+            .reference_path_with_base(name)
+            .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?;
         if relative_path
             .components()
             .filter_map(|c| gix_path::try_os_str_into_bstr(c.as_os_str().into()).ok())
@@ -321,7 +331,9 @@ impl file::Store {
     /// Read the file contents with a verified full reference path and return it in the given vector if possible.
     pub(crate) fn ref_contents(&self, name: &FullNameRef) -> io::Result<Option<Vec<u8>>> {
         self.check_windows_device_name(name)?;
-        let (base, relative_path) = self.reference_path_with_base(name);
+        let (base, relative_path) = self
+            .reference_path_with_base(name)
+            .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?;
         let ref_path = base.join(&relative_path);
         match std::fs::File::open(&ref_path) {
             Ok(mut file) => {
@@ -415,7 +427,7 @@ impl file::Store {
         match self.find_one_with_verified_input(path, packed) {
             Ok(Some(r)) => Ok(r),
             Ok(None) => Err(NotFound {
-                name: path.to_partial_path().to_owned(),
+                name: path.as_bstr().to_owned(),
             }
             .raise()),
             Err(err) => Err(err),
@@ -433,7 +445,7 @@ pub(super) fn read_reference_error(path: impl Into<PathBuf>) -> Message {
 #[derive(Debug)]
 pub struct NotFound {
     /// The name whose lookup failed. It may have been discovered while following symbolic references.
-    pub name: PathBuf,
+    pub name: BString,
 }
 
 impl std::fmt::Display for NotFound {

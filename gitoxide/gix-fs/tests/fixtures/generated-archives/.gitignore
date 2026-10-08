@@ -1,0 +1,4 @@
+# These small filesystem fixtures should be generated on the test host.
+# In particular, symlinks.sh records a host-dependent symlink preflight result.
+*.tar
+*.tar.xz

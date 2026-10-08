@@ -1,8 +1,8 @@
-use crate::Result;
+use gix_testtools::TestResult;
 use std::path::Path;
 
 #[test]
-fn consuming_the_entire_prefix_does_not_lead_to_a_single_dot() -> Result {
+fn consuming_the_entire_prefix_does_not_lead_to_a_single_dot() -> TestResult {
     let spec = normalized_spec("..", "a", "")?;
     assert_eq!(
         spec.path(),
@@ -18,7 +18,7 @@ fn consuming_the_entire_prefix_does_not_lead_to_a_single_dot() -> Result {
 }
 
 #[test]
-fn removes_relative_path_components() -> Result {
+fn removes_relative_path_components() -> TestResult {
     for (input_path, expected_path, expected_prefix) in [
         ("..", "a", ""),
         ("c", "a/b/c", "a/b"),
@@ -47,7 +47,7 @@ fn removes_relative_path_components() -> Result {
 }
 
 #[test]
-fn single_dot_is_special_and_directory_is_implied_without_trailing_slash() -> Result {
+fn single_dot_is_special_and_directory_is_implied_without_trailing_slash() -> TestResult {
     for (input_path, expected) in [(".", "."), ("./", ".")] {
         let spec = normalized_spec(input_path, "", "/repo")?;
         assert_eq!(spec.path(), expected);
@@ -58,7 +58,7 @@ fn single_dot_is_special_and_directory_is_implied_without_trailing_slash() -> Re
 }
 
 #[test]
-fn absolute_path_made_relative() -> Result {
+fn absolute_path_made_relative() -> TestResult {
     for (input_path, expected, prefix_dir) in [
         ("/repo/a", "a", ""),
         ("/repo/a/..//.///b", "b", ""),
@@ -79,7 +79,7 @@ fn absolute_path_made_relative() -> Result {
 }
 
 #[test]
-fn relative_top_patterns_ignore_the_prefix() -> Result {
+fn relative_top_patterns_ignore_the_prefix() -> TestResult {
     let spec = normalized_spec(":(top)c", "a/b", "")?;
     assert_eq!(spec.path(), "c");
     assert_eq!(spec.prefix_directory(), "");
@@ -87,7 +87,7 @@ fn relative_top_patterns_ignore_the_prefix() -> Result {
 }
 
 #[test]
-fn absolute_top_patterns_ignore_the_prefix_but_are_made_relative() -> Result {
+fn absolute_top_patterns_ignore_the_prefix_but_are_made_relative() -> TestResult {
     let spec = normalized_spec(":(top)/a/b", "prefix-ignored", "/a")?;
     assert_eq!(spec.path(), "b");
     assert_eq!(spec.prefix_directory(), "");
@@ -97,13 +97,13 @@ fn absolute_top_patterns_ignore_the_prefix_but_are_made_relative() -> Result {
 #[test]
 fn relative_path_breaks_out_of_working_tree() {
     let err = normalized_spec("../a", "", "").unwrap_err();
-    insta::assert_debug_snapshot!(err, "relative path breaks out of working tree", @r#"The path leaves the repository, "input"="../a""#);
+    insta::assert_debug_snapshot!(err, "relative path breaks out of working tree", @r#"The path leaves the repository, input="../a""#);
     assert_eq!(
         err.metadata().next().expect("diagnostic metadata is retained")["input"],
         gix_error::MetadataValue::from(b"../a".as_slice())
     );
     let err = normalized_spec("../../b", "a", "").unwrap_err();
-    insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[(r"a\../../b", "a/../../b")]), "relative path breaks out of working tree", @r#"The path leaves the repository, "input"="a/../../b""#);
+    insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[(r"a\../../b", "a/../../b")]), "relative path breaks out of working tree", @r#"The path leaves the repository, input="a/../../b""#);
     assert_eq!(
         err.metadata().next().expect("diagnostic metadata is retained")["input"],
         gix_error::MetadataValue::from((if cfg!(windows) { r"a\../../b" } else { "a/../../b" }).as_bytes())
@@ -113,13 +113,13 @@ fn relative_path_breaks_out_of_working_tree() {
 #[test]
 fn absolute_path_breaks_out_of_working_tree() {
     let err = normalized_spec("/path/to/repo/..///./a", "", "/path/to/repo").unwrap_err();
-    insta::assert_debug_snapshot!(err, "absolute path breaks out of working tree", @r#"The path leaves the repository, "input"="..///./a""#);
+    insta::assert_debug_snapshot!(err, "absolute path breaks out of working tree", @r#"The path leaves the repository, input="..///./a""#);
     assert_eq!(
         err.metadata().next().expect("diagnostic metadata is retained")["input"],
         gix_error::MetadataValue::from(b"..///./a".as_slice())
     );
     let err = normalized_spec("/path/to/repo/../../../dev", "", "/path/to/repo").unwrap_err();
-    insta::assert_debug_snapshot!(err, "absolute path breaks out of working tree", @r#"The path leaves the repository, "input"="../../../dev""#);
+    insta::assert_debug_snapshot!(err, "absolute path breaks out of working tree", @r#"The path leaves the repository, input="../../../dev""#);
     assert_eq!(
         err.metadata().next().expect("diagnostic metadata is retained")["input"],
         gix_error::MetadataValue::from(b"../../../dev".as_slice())
@@ -129,7 +129,7 @@ fn absolute_path_breaks_out_of_working_tree() {
 #[test]
 fn absolute_path_escapes_worktree() {
     let err = normalized_spec("/dev", "", "/path/to/repo").expect_err("the path is outside of the worktree");
-    insta::assert_debug_snapshot!(err, "absolute path escapes worktree", @r#"The path is not inside of the worktree "/path/to/repo", "input"="/dev""#);
+    insta::assert_debug_snapshot!(err, "absolute path escapes worktree", @r#"The path is not inside of the worktree "/path/to/repo", input="/dev""#);
     assert_eq!(
         err.metadata().next().expect("diagnostic metadata is retained")["input"],
         gix_error::MetadataValue::from(b"/dev".as_slice())

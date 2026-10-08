@@ -1,5 +1,5 @@
 #![expect(clippy::join_absolute_paths)]
-use crate::Result;
+use crate::TestResult;
 use gix_error::classify;
 use std::path::{Path, PathBuf};
 
@@ -226,7 +226,7 @@ fn empty_paths_are_noop_if_no_path_was_pushed_before() {
 }
 
 #[test]
-fn relative_components_are_invalid() {
+fn relative_components_are_invalid() -> TestResult {
     let root = PathBuf::from(".");
     let mut s = Stack::new(root.clone());
 
@@ -242,8 +242,7 @@ fn relative_components_are_invalid() {
     }
     "#);
 
-    s.make_relative_path_current(p("a/./b"), &mut r)
-        .expect("dot is ignored");
+    s.make_relative_path_current(p("a/./b"), &mut r)?;
     assert_eq!(
         r,
         Record {
@@ -258,8 +257,7 @@ fn relative_components_are_invalid() {
         if cfg!(windows) { r".\a\b" } else { "./a/b" },
         "dot is silently ignored"
     );
-    s.make_relative_path_current(p("a//b/"), &mut r)
-        .expect("multiple-slashes are ignored");
+    s.make_relative_path_current(p("a//b/"), &mut r)?;
     assert_eq!(
         r,
         Record {
@@ -279,10 +277,11 @@ fn relative_components_are_invalid() {
     }
     "#);
     assert!(classify(&err).is_validation(), "peeked errors retain their cause too");
+    Ok(())
 }
 
 #[test]
-fn absolute_paths_are_invalid() -> Result {
+fn absolute_paths_are_invalid() -> TestResult {
     let root = PathBuf::from(".");
     let mut s = Stack::new(root.clone());
 
@@ -377,7 +376,7 @@ fn absolute_paths_are_invalid() -> Result {
 }
 
 #[test]
-fn delegate_calls_are_consistent() -> Result {
+fn delegate_calls_are_consistent() -> TestResult {
     let root = PathBuf::from(".");
     let mut s = Stack::new(root.clone());
 
@@ -604,7 +603,7 @@ fn delegate_calls_are_consistent() -> Result {
 }
 
 #[test]
-fn failed_directory_to_leaf_transition_does_not_keep_directory_state() -> crate::Result {
+fn failed_directory_to_leaf_transition_does_not_keep_directory_state() -> TestResult {
     let mut s = Stack::new(PathBuf::from("."));
     let mut r = FailOnce::default();
     s.make_relative_path_current("x/z/a", &mut r)?;
@@ -635,7 +634,7 @@ fn failed_directory_to_leaf_transition_does_not_keep_directory_state() -> crate:
 }
 
 #[test]
-fn failed_leaf_to_directory_transition_restores_leaf_state() -> crate::Result {
+fn failed_leaf_to_directory_transition_restores_leaf_state() -> TestResult {
     let mut s = Stack::new(PathBuf::from("."));
     let mut r = FailOnce {
         directory_to_fail_on: Some(PathBuf::from("x/z")),
@@ -668,7 +667,7 @@ fn failed_leaf_to_directory_transition_restores_leaf_state() -> crate::Result {
 }
 
 #[test]
-fn failed_child_push_after_leaf_to_directory_transition_restores_directory_state() -> crate::Result {
+fn failed_child_push_after_leaf_to_directory_transition_restores_directory_state() -> TestResult {
     let mut error_snapshots = Vec::new();
     for (path_to_fail_on, directory_to_fail_on) in [(Some("x/z/a"), None), (None, Some("x/z/a"))] {
         let mut s = Stack::new(PathBuf::from("."));

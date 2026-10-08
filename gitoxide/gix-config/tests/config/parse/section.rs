@@ -19,18 +19,18 @@ mod header {
     }
 
     mod write_to {
-        use crate::Result;
+        use crate::TestResult;
         use crate::parse::section::header::serialized;
 
         #[test]
-        fn subsection_backslashes_and_quotes_are_escaped() -> Result {
+        fn subsection_backslashes_and_quotes_are_escaped() -> TestResult {
             assert_eq!(serialized("core", r"a\b")?, r#"[core "a\\b"]"#);
             assert_eq!(serialized("core", r#"a:"b""#)?, r#"[core "a:\"b\""]"#);
             Ok(())
         }
 
         #[test]
-        fn everything_is_allowed() -> Result {
+        fn everything_is_allowed() -> TestResult {
             assert_eq!(serialized("core", "a/b \t\t a\\b")?, "[core \"a/b \t\t a\\\\b\"]");
             Ok(())
         }
@@ -49,10 +49,10 @@ mod header {
             }
             insta::assert_debug_snapshot!(message_diagnostics, "names must be mostly ascii", @r#"
             [
-                section names can only be ascii, '-', "input"="🤗",
-                section names can only be ascii, '-', "input"="x.y",
-                section names can only be ascii, '-', "input"="x y",
-                section names can only be ascii, '-', "input"="x\ny",
+                section names can only be ascii, '-', input="🤗",
+                section names can only be ascii, '-', input="x.y",
+                section names can only be ascii, '-', input="x y",
+                section names can only be ascii, '-', input="x\ny",
             ]
             "#);
         }
@@ -68,8 +68,8 @@ mod header {
             }
             insta::assert_debug_snapshot!(message_diagnostics, "subsections with newlines and null bytes are rejected", @r#"
             [
-                sub-section names must not contain newlines or null bytes, "input"="a\nb",
-                sub-section names must not contain newlines or null bytes, "input"="a\0b",
+                sub-section names must not contain newlines or null bytes, input="a\nb",
+                sub-section names must not contain newlines or null bytes, input="a\0b",
             ]
             "#);
         }

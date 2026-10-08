@@ -27,7 +27,7 @@ pub enum Error {
     MissingReference {
         /// The missing reference name, which may have been discovered while following symbolic references.
         /// It is not necessarily the original revision specification.
-        name: std::path::PathBuf,
+        name: BString,
     },
     /// More than one object matches the prefix and the specification did not disambiguate them.
     /// Intrinsically classified as [`gix_error::Class::Validation`].
@@ -52,9 +52,7 @@ pub enum Error {
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let candidates = match self {
-            Self::MissingReference { name } => {
-                return write!(f, "Reference {name} could not be found", name = name.display());
-            }
+            Self::MissingReference { name } => return write!(f, "Reference {name:?} could not be found"),
             Self::AmbiguousPrefix { prefix, candidates } => {
                 write!(f, "Short id {prefix} is ambiguous. Candidates are:")?;
                 candidates

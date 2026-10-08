@@ -86,7 +86,7 @@ impl Outcome {
     /// Write the changes if there are any back to the index file.
     /// This can only be done once as the changes are consumed in the process, if there were any.
     pub fn write_changes(&mut self) -> Option<Result> {
-        let _span = gix_features::trace::coarse!("gix::status::index_worktree::Outcome::write_changes()");
+        let _span = gix_trace::coarse!("gix::status::index_worktree::Outcome::write_changes()");
         let changes = self.changes.take()?;
         let mut index = match &self.worktree_index {
             IndexPersistedOrInMemory::Persisted(persisted) => (***persisted).clone(),

@@ -8,7 +8,7 @@ use crate::{
     cache, data,
     data::{
         File, delta,
-        file::decode::{DeltaBaseUnresolved, allocation_error},
+        file::decode::{DeltaBaseUnresolved, allocation_error, resize_with_limit},
     },
 };
 
@@ -188,27 +188,25 @@ where
     /// `inflate` will be used for decompressing entries, and will not be reset after usage, but before first using it.
     ///
     /// `resolve` is a function to lookup objects with the given [`ObjectId`][gix_hash::ObjectId], in case the full object id is used to refer to
-    /// a base object, instead of an in-pack offset.
+    /// a base object, instead of an in-pack offset. Return `Ok(None)` if the base could not be found;
+    /// lookup errors are propagated unchanged instead of being treated as missing bases.
     ///
     /// `delta_cache` is a mechanism to avoid looking up base objects multiple times when decompressing multiple objects in a row.
     /// Use a [Noop-Cache][cache::Never] to disable caching all together at the cost of repeating work.
+    #[expect(clippy::type_complexity)] // Keep the fallible resolver's arguments and result explicit.
     pub fn decode_entry(
         &self,
         entry: data::Entry,
         out: &mut Vec<u8>,
         inflate: &mut gix_zlib::Inflate,
-        resolve: &dyn Fn(&gix_hash::oid, &mut Vec<u8>) -> Option<ResolvedBase>,
+        resolve: &dyn Fn(&gix_hash::oid, &mut Vec<u8>) -> Result<Option<ResolvedBase>>,
         delta_cache: &mut dyn cache::DecodeEntry,
     ) -> Result<Outcome> {
         use crate::data::entry::Header::*;
         match entry.header {
             Tree | Blob | Commit | Tag => {
                 let size = self.decoded_object_size(entry.decompressed_size)?;
-                if let Some(additional) = size.checked_sub(out.len()) {
-                    out.try_reserve(additional)
-                        .or_raise(|| message("Entry too large to fit in memory"))?;
-                }
-                out.resize(size, 0);
+                resize_with_limit(out, size, self.alloc_limit_bytes)?;
                 self.decompress_entry(&entry, inflate, out.as_mut_slice())
                     .map(|consumed_input| {
                         Outcome::from_object_entry(
@@ -225,10 +223,11 @@ where
     /// resolve: technically, this shouldn't ever be required as stored local packs don't refer to objects by id
     /// that are outside of the pack. Unless, of course, the ref refers to an object within this pack, which means
     /// it's very, very large as 20bytes are smaller than the corresponding MSB encoded number
+    #[expect(clippy::type_complexity)] // Match the public decoder's resolver signature.
     fn resolve_deltas(
         &self,
         last: data::Entry,
-        resolve: &dyn Fn(&gix_hash::oid, &mut Vec<u8>) -> Option<ResolvedBase>,
+        resolve: &dyn Fn(&gix_hash::oid, &mut Vec<u8>) -> Result<Option<ResolvedBase>>,
         inflate: &mut gix_zlib::Inflate,
         out: &mut Vec<u8>,
         cache: &mut dyn cache::DecodeEntry,
@@ -237,6 +236,7 @@ where
         let mut chain = SmallVec::<[Delta; 10]>::default();
         let first_entry = last.clone();
         let mut cursor = last;
+        let mut cycle = super::DeltaCycle::new(cursor.data_offset);
         let mut base_buffer_size: Option<usize> = None;
         let mut object_kind: Option<gix_object::Kind> = None;
         let mut consumed_input: Option<usize> = None;
@@ -259,13 +259,34 @@ where
             total_delta_data_size = total_delta_data_size
                 .checked_add(cursor.decompressed_size)
                 .ok_or_raise(|| allocation_error(ResourceExhaustionKind::AllocationFailure))?;
+            let chain_capacity = if chain.len() == chain.capacity() {
+                chain
+                    .len()
+                    .checked_add(1)
+                    .and_then(usize::checked_next_power_of_two)
+                    .ok_or_raise(|| allocation_error(ResourceExhaustionKind::AllocationFailure))?
+            } else if chain.spilled() {
+                chain.capacity()
+            } else {
+                0
+            };
+            let chain_bytes = chain_capacity
+                .checked_mul(std::mem::size_of::<Delta>())
+                .ok_or_raise(|| allocation_error(ResourceExhaustionKind::AllocationFailure))?;
+            let allocation_size = total_delta_data_size.max(chain_bytes as u64);
             if self
                 .alloc_limit_bytes
-                .is_some_and(|limit| total_delta_data_size > limit as u64)
+                .is_some_and(|limit| allocation_size > limit as u64)
             {
                 bail!(allocation_error(ResourceExhaustionKind::AllocationLimit));
             }
             let decompressed_size = self.decoded_object_size(cursor.decompressed_size)?;
+            if chain_capacity > chain.capacity() {
+                chain
+                    .try_reserve_exact(chain_capacity - chain.len())
+                    .map_err(|_| allocation_error(ResourceExhaustionKind::AllocationFailure))
+                    .or_error()?;
+            }
             chain.push(Delta {
                 data: Range {
                     start: 0,
@@ -287,7 +308,7 @@ where
                         .or_error()?;
                     self.entry(offset)?
                 }
-                Header::RefDelta { base_id } => match resolve(base_id.as_ref(), out) {
+                Header::RefDelta { base_id } => match resolve(base_id.as_ref(), out)? {
                     Some(ResolvedBase::InPack(entry)) => entry,
                     Some(ResolvedBase::OutOfPack { end, kind }) => {
                         base_buffer_size = Some(end);
@@ -298,6 +319,7 @@ where
                 },
                 _ => unreachable!("cursor.is_delta() only allows deltas here"),
             };
+            cycle.check(cursor.data_offset)?;
         }
 
         // This can happen if the cache held the first entry itself
@@ -330,9 +352,7 @@ where
                     .checked_add(total_delta_data_size)
                     .ok_or_raise(|| allocation_error(ResourceExhaustionKind::AllocationFailure))?,
             };
-            out.try_reserve(delta_range.end.saturating_sub(out.len()))
-                .or_raise(|| message("Entry too large to fit in memory"))?;
-            out.resize(delta_range.end, 0);
+            resize_with_limit(out, delta_range.end, self.alloc_limit_bytes)?;
 
             let mut instructions = &mut out[delta_range.clone()];
             let mut relative_delta_start = 0;
@@ -387,9 +407,7 @@ where
                 .checked_add(second_buffer_size)
                 .and_then(|size| size.checked_add(total_delta_data_size))
                 .ok_or_raise(|| allocation_error(ResourceExhaustionKind::AllocationFailure))?;
-            out.try_reserve(out_size.saturating_sub(out.len()))
-                .or_raise(|| message("Entry too large to fit in memory"))?;
-            out.resize(out_size, 0);
+            resize_with_limit(out, out_size, self.alloc_limit_bytes)?;
 
             // Now 'rescue' the deltas, because in the next step we possibly overwrite that portion
             // of memory with the base object (in the majority of cases)

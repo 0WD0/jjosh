@@ -1,11 +1,11 @@
-use crate::Result;
+use crate::TestResult;
 use gix_config::source;
 
 use serial_test::serial;
 
 #[test]
 #[serial]
-fn from_globals() -> Result {
+fn from_globals() -> TestResult {
     let _environment = gix_testtools::isolate_git_environment()?;
     let worktree_dir = crate::scripted_fixture_read_only("make_config_repo.sh")?.canonicalize()?;
     let _environment = _environment.set(
@@ -23,7 +23,7 @@ fn from_globals() -> Result {
 
 #[test]
 #[serial]
-fn from_environment_overrides() -> Result {
+fn from_environment_overrides() -> TestResult {
     let _environment = gix_testtools::isolate_git_environment()?.set("GIT_CONFIG_COUNT", "0");
     let config = gix_config::File::from_environment_overrides()?;
     assert!(config.is_void());
@@ -32,7 +32,7 @@ fn from_environment_overrides() -> Result {
 
 #[test]
 #[serial]
-fn from_git_dir() -> Result {
+fn from_git_dir() -> TestResult {
     let _environment = gix_testtools::isolate_git_environment()?;
     let worktree_dir = crate::scripted_fixture_read_only("make_config_repo.sh")?;
     let git_dir = worktree_dir.join(".git");
@@ -97,7 +97,7 @@ fn from_git_dir() -> Result {
 
 #[test]
 #[serial]
-fn from_git_dir_with_worktree_extension() -> Result {
+fn from_git_dir_with_worktree_extension() -> TestResult {
     let _environment = gix_testtools::isolate_git_environment()?;
     let git_dir = crate::scripted_fixture_read_only("config_with_worktree_extension.sh")?
         .join("main-worktree")

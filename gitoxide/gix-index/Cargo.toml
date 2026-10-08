@@ -28,14 +28,10 @@ sha1 = ["gix-hash/sha1"]
 sha256 = ["gix-hash/sha256"]
 ## Data structures implement `serde::Serialize` and `serde::Deserialize`.
 serde = ["dep:serde", "smallvec/serde", "gix-hash/serde"]
-## Enable parallel implementations of common algorithms.
-## If not set, there can be no parallelism.
-parallel = ["gix-features/parallel"]
 
 [dependencies]
-gix-features = { version = "^0.50.0", path = "../gix-features", features = [
-    "progress",
-] }
+gix-trace = { version = "^0.2.0", path = "../gix-trace" }
+gix-parallel = { version = "^0.50.0", path = "../gix-parallel" }
 gix-hash = { version = "^0.27.0", path = "../gix-hash" }
 gix-error = { version = "^0.4.0", path = "../gix-error" }
 gix-bitmap = { version = "^0.5.0", path = "../gix-bitmap" }
@@ -44,7 +40,7 @@ gix-validate = { version = "^0.12.0", path = "../gix-validate" }
 gix-traverse = { version = "^0.62.0", path = "../gix-traverse" }
 gix-lock = { version = "^25.0.0", path = "../gix-lock" }
 gix-fs = { version = "^0.23.0", path = "../gix-fs" }
-gix-utils = { version = "^0.4.0", path = "../gix-utils" }
+gix-utils = { version = "^0.4.0", path = "../gix-utils", features = ["progress"] }
 
 hashbrown = "0.17.1"
 fnv = "1.0.7"

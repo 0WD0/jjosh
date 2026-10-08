@@ -33,7 +33,7 @@ pub enum Error {
         candidate: PathBuf,
         /// The required trust level.
         required: gix_sec::Trust,
-        /// The candidate's actual trust level.
+        /// The minimum ownership-derived trust of the paths checked by [`TrustPolicy::Required`].
         trust: gix_sec::Trust,
     },
 }
@@ -78,12 +78,25 @@ impl std::error::Error for Error {
     }
 }
 
-/// How to obtain the trust level for a discovered repository.
+/// How to obtain the trust level returned alongside a discovered [`repository::Path`][crate::repository::Path].
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum TrustPolicy {
-    /// Determine trust from repository ownership and require it to be at least the given level.
+    /// Derive trust from ownership via [`gix_sec::Trust::from_path_ownership()`] and require it to be at least
+    /// the given level.
+    ///
+    /// The returned trust is the minimum across the repository candidate itself (a gitfile or git directory),
+    /// its target git directory (if gitfile), the common directory referenced by `commondir` if present, and the worktree
+    /// known from repository detection if it exists. A missing worktree is skipped, but missing git or common
+    /// directories are errors. A trusted target cannot upgrade an untrusted gitfile.
+    ///
+    /// This trust describes all checked paths, not just the returned [`repository::Path`][crate::repository::Path],
+    /// which does not retain the original gitfile. The given level is only an acceptance threshold, not the
+    /// returned value: `Required(Reduced)` can return `Full` when all checked paths are owned by the current user.
+    /// If the minimum falls below the threshold, discovery fails with [`Error::NoTrustedGitRepository`].
     Required(gix_sec::Trust),
-    /// Trust computation is skipped and the given trust level is assumed.
+    /// Return the given trust level unchanged, without computing trust from ownership.
+    ///
+    /// This is a caller-supplied assertion of trust, not an ownership-derived result.
     Assume(gix_sec::Trust),
 }
 
@@ -96,7 +109,8 @@ impl Default for TrustPolicy {
 /// Options to help guide the [discovery][crate::upwards()] of repositories, along with their options
 /// when instantiated.
 pub struct Options<'a> {
-    /// When discovering a repository, determine how trust should be obtained.
+    /// Determine how discovery obtains its returned trust level; see [`TrustPolicy`] for the checked paths
+    /// and the distinction between an acceptance threshold and assumed trust.
     ///
     /// This defaults to [`Required(Reduced)`][TrustPolicy::Required] as our default settings are geared towards avoiding abuse.
     /// Set it to `Required(Full)` to only see repositories that [are owned by the current user][gix_sec::Trust::from_path_ownership()],
@@ -198,13 +212,13 @@ mod tests {
 
     #[test]
     #[cfg(unix)]
-    fn parse_ceiling_dirs_from_environment_format() -> std::io::Result<()> {
+    fn parse_ceiling_dirs_from_environment_format() -> gix_testtools::TestResult {
         use std::{fs, os::unix::fs::symlink};
 
         use super::*;
 
         // Setup filesystem
-        let dir = tempfile::tempdir().expect("success creating temp dir");
+        let dir = tempfile::tempdir()?;
         let direct_path = dir.path().join("direct");
         let symlink_path = dir.path().join("symlink");
         fs::create_dir(&direct_path)?;
@@ -216,28 +230,25 @@ mod tests {
         let ceiling_dirs = parse_ceiling_dirs(OsStr::new(ceiling_dir_string.as_str()));
 
         assert_eq!(ceiling_dirs.len(), 2, "Relative path is discarded");
-        assert_eq!(
-            ceiling_dirs[0],
-            symlink_path.canonicalize().expect("symlink path exists"),
-            "Symlinks are resolved"
-        );
+        assert_eq!(ceiling_dirs[0], symlink_path.canonicalize()?, "Symlinks are resolved");
         assert_eq!(
             ceiling_dirs[1], symlink_path,
             "Symlink are not resolved after empty item"
         );
 
-        dir.close()
+        dir.close()?;
+        Ok(())
     }
 
     #[test]
     #[cfg(windows)]
-    fn parse_ceiling_dirs_from_environment_format() -> std::io::Result<()> {
+    fn parse_ceiling_dirs_from_environment_format() -> gix_testtools::TestResult {
         use std::{fs, os::windows::fs::symlink_dir};
 
         use super::*;
 
         // Setup filesystem
-        let dir = tempfile::tempdir().expect("success creating temp dir");
+        let dir = tempfile::tempdir()?;
         let direct_path = dir.path().join("direct");
         let symlink_path = dir.path().join("symlink");
         fs::create_dir(&direct_path)?;
@@ -255,6 +266,7 @@ mod tests {
             "Symlink are not resolved after empty item"
         );
 
-        dir.close()
+        dir.close()?;
+        Ok(())
     }
 }

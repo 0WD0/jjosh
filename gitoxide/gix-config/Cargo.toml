@@ -22,7 +22,8 @@ sha256 = ["gix-ref/sha256"]
 serde = ["dep:serde", "bstr/serde", "gix-sec/serde", "gix-ref/serde", "gix-glob/serde", "gix-config-value/serde"]
 
 [dependencies]
-gix-features = { version = "^0.50.0", path = "../gix-features" }
+gix-trace = { version = "^0.2.0", path = "../gix-trace" }
+gix-parallel = { version = "^0.50.0", path = "../gix-parallel" }
 gix-config-value = { version = "^0.20.0", path = "../gix-config-value" }
 gix-error = { version = "^0.4.0", path = "../gix-error", features = ["bstr"] }
 gix-path = { version = "^0.13.0", path = "../gix-path" }

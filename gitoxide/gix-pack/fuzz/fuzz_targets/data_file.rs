@@ -1,7 +1,7 @@
 #![no_main]
 
 use gix_error::Result;
-use gix_features::progress;
+use gix_utils::progress;
 use gix_pack::{cache, data};
 use gix_pack_fuzz::{interrupt_flag, virtual_path};
 use libfuzzer_sys::fuzz_target;
@@ -38,7 +38,7 @@ fn fuzz(input: &[u8]) -> Result<()> {
         let mut out = Vec::new();
         let mut inflate = gix_zlib::Inflate::default();
         let mut cache = cache::Never;
-        _ = black_box(pack.decode_entry(entry, &mut out, &mut inflate, &|_, _| None, &mut cache));
+        _ = black_box(pack.decode_entry(entry, &mut out, &mut inflate, &|_, _| Ok(None), &mut cache));
     }
 
     Ok(())

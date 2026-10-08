@@ -1,4 +1,4 @@
-use crate::Result;
+use gix_testtools::TestResult;
 use std::path::Path;
 
 use gix_diff::Rewrites;
@@ -40,7 +40,7 @@ fn assert_no_unknown_conflicts(outcome: &gix_merge::tree::Outcome<'_>, context: 
 /// 5. Validate that all tests are still working, and adjust the expected number of cases
 ///    in the assertion that would then fail.
 #[test]
-fn run_baseline() -> Result {
+fn run_baseline() -> TestResult {
     let root = gix_testtools::scripted_fixture_read_only("tree-baseline.sh")?;
     let cases = std::fs::read_to_string(root.join("baseline.cases"))?;
     let mut actual_cases = 0;
@@ -237,7 +237,7 @@ fn run_baseline() -> Result {
 }
 
 #[test]
-fn unrelated_commits_require_explicit_permission() -> gix_error::TestResult {
+fn unrelated_commits_require_explicit_permission() -> TestResult {
     let root = gix_testtools::tempfile::TempDir::new()?;
     let objects = gix_odb::memory::Proxy::new(gix_object::find::Never, gix_testtools::object_hash());
     let tree_id = objects.write_buf(gix_object::Kind::Tree, b"")?;

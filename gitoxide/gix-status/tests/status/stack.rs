@@ -1,4 +1,4 @@
-use crate::Result;
+use gix_testtools::TestResult;
 
 fn stack() -> gix_status::SymlinkCheck {
     stack_in("base")
@@ -13,7 +13,7 @@ fn stack_in(dir: &str) -> gix_status::SymlinkCheck {
 }
 
 #[test]
-fn paths_not_going_through_symlink_directories_are_ok_and_point_to_correct_item() -> Result {
+fn paths_not_going_through_symlink_directories_are_ok_and_point_to_correct_item() -> TestResult {
     for root in ["base", "symlink-base"] {
         let mut stack = stack_in(root);
         for (rela_path, expectation) in [
@@ -36,14 +36,14 @@ fn paths_not_going_through_symlink_directories_are_ok_and_point_to_correct_item(
 }
 
 #[test]
-fn leaf_file_does_not_have_to_exist() -> Result {
+fn leaf_file_does_not_have_to_exist() -> TestResult {
     assert!(!stack().verified_path("dir/does-not-exist")?.exists());
     Ok(())
 }
 
 #[test]
 #[cfg(not(windows))]
-fn intermediate_directories_have_to_exist_or_not_found_error() -> Result {
+fn intermediate_directories_have_to_exist_or_not_found_error() -> TestResult {
     let err = stack()
         .verified_path("nonexisting-dir/file")
         .expect_err("the operation must fail");
@@ -54,7 +54,7 @@ fn intermediate_directories_have_to_exist_or_not_found_error() -> Result {
 
 #[test]
 #[cfg(windows)]
-fn intermediate_directories_do_not_have_exist_for_success() -> Result {
+fn intermediate_directories_do_not_have_exist_for_success() -> TestResult {
     assert!(stack().verified_path("nonexisting-dir/file").is_ok());
     Ok(())
 }

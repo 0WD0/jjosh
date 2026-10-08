@@ -107,14 +107,15 @@ impl Attributes {
                     let blob = objects
                         .find_blob(&id_mappings[idx].1, buf)
                         .map_err(std::io::Error::other)?;
-                    let attr_path = gix_path::from_bstring(attr_path_relative.into_owned());
+                    let attr_path =
+                        gix_path::from_bstring(attr_path_relative.into_owned()).map_err(std::io::Error::other)?;
                     self.stack.add_patterns_buffer(
                         blob.data,
                         attr_path,
                         Some(Path::new("")),
                         &mut self.collection,
                         read_macros_as_dir_is_root,
-                    );
+                    )?;
                     added = true;
                     stats.patterns_buffers += 1;
                 }
@@ -146,14 +147,15 @@ impl Attributes {
                     let blob = objects
                         .find_blob(&id_mappings[idx].1, buf)
                         .map_err(std::io::Error::other)?;
-                    let attr_path = gix_path::from_bstring(attr_path_relative.into_owned());
+                    let attr_path =
+                        gix_path::from_bstring(attr_path_relative.into_owned()).map_err(std::io::Error::other)?;
                     self.stack.add_patterns_buffer(
                         blob.data,
                         attr_path,
                         Some(Path::new("")),
                         &mut self.collection,
                         read_macros_as_dir_is_root,
-                    );
+                    )?;
                     added = true;
                     stats.patterns_buffers += 1;
                 }
@@ -163,7 +165,7 @@ impl Attributes {
         // Need one stack level per component so push and pop matches, but only if this isn't the root level which is never popped.
         if !added && self.info_attributes.is_none() {
             self.stack
-                .add_patterns_buffer(&[], "<empty dummy>".into(), None, &mut self.collection, true);
+                .add_patterns_buffer(&[], "<empty dummy>".into(), None, &mut self.collection, true)?;
         }
 
         // When reading the root, always the first call, we can try to also read the `.git/info/attributes` file which is

@@ -175,7 +175,7 @@ impl crate::Repository {
                     deleted: deleted.clone(),
                 })?;
             remove_branch_config(
-                gix_features::threading::OwnShared::make_mut(&mut self.config.resolved),
+                gix_parallel::OwnShared::make_mut(&mut self.config.resolved),
                 &names,
                 |meta| {
                     meta.source == gix_config::Source::Local

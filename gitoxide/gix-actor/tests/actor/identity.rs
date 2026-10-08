@@ -2,7 +2,7 @@ use bstr::ByteSlice;
 use gix_actor::Identity;
 
 #[test]
-fn round_trip() -> gix_testtools::Result {
+fn round_trip() -> gix_testtools::TestResult {
     static DEFAULTS: &[&[u8]] =     &[
         b"Sebastian Thiel <byronimo@gmail.com>",
         b"Sebastian Thiel < byronimo@gmail.com>",
@@ -12,7 +12,7 @@ fn round_trip() -> gix_testtools::Result {
         b".. whitespace  \t  is explicitly allowed    - unicode aware trimming must be done elsewhere  <byronimo@gmail.com>"
     ];
     for input in DEFAULTS {
-        let signature: Identity = gix_actor::IdentityRef::from_bytes(input).unwrap().into();
+        let signature: Identity = gix_actor::IdentityRef::from_bytes(input)?.into();
         let mut output = Vec::new();
         signature.write_to(&mut output)?;
         assert_eq!(output.as_bstr(), input.as_bstr());
@@ -21,7 +21,7 @@ fn round_trip() -> gix_testtools::Result {
 }
 
 #[test]
-fn lenient_parsing() -> gix_testtools::Result {
+fn lenient_parsing() -> gix_testtools::TestResult {
     let mut error_snapshots = Vec::new();
     for (input, expected_email) in [
         (
@@ -48,11 +48,11 @@ fn lenient_parsing() -> gix_testtools::Result {
     [
         Custom {
             kind: Other,
-            error: Signature name or email must not contain '<', '>' or \n, "input"="fl <First Last<fl@openoffice.org >> ",
+            error: Signature name or email must not contain '<', '>' or \n, input="fl <First Last<fl@openoffice.org >> ",
         },
         Custom {
             kind: Other,
-            error: Signature name or email must not contain '<', '>' or \n, "input"="fl <First Last<fl@openoffice.org",
+            error: Signature name or email must not contain '<', '>' or \n, input="fl <First Last<fl@openoffice.org",
         },
     ]
     "#);

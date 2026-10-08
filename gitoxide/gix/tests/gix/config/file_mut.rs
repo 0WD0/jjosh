@@ -1,10 +1,10 @@
-use crate::Result;
 use crate::repository::config::config_snapshot::options_with_includes;
 use crate::{named_repo, repo_rw_opts};
+use gix_testtools::TestResult;
 use std::io::Write;
 
 #[test]
-fn locks_and_edits_one_physical_file_until_explicit_reload() -> Result {
+fn locks_and_edits_one_physical_file_until_explicit_reload() -> TestResult {
     let (mut repo, _tmp) = repo_rw_opts("make_config_repo.sh", options_with_includes())?;
     let git_config_path = repo.git_dir().join("config");
     let target_path = repo.workdir().expect("worktree repository").join("a.config");
@@ -102,7 +102,7 @@ leading = value
 }
 
 #[test]
-fn honors_core_config_lock_timeout() -> Result {
+fn honors_core_config_lock_timeout() -> TestResult {
     let (mut repo, _tmp) = repo_rw_opts("make_config_repo.sh", gix::open::Options::isolated())?;
     let config_path = repo.git_dir().join("config");
     let mut lock_path = config_path.as_os_str().to_owned();
@@ -143,7 +143,7 @@ fn honors_core_config_lock_timeout() -> Result {
 }
 
 #[test]
-fn preserves_permissions() -> Result {
+fn preserves_permissions() -> TestResult {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -184,7 +184,7 @@ fn preserves_permissions() -> Result {
 
 #[test]
 #[cfg(unix)]
-fn follows_symlinked_configuration_files() -> Result {
+fn follows_symlinked_configuration_files() -> TestResult {
     use std::os::unix::fs::symlink;
 
     let repo = named_repo("make_basic_repo.sh")?;
@@ -232,7 +232,7 @@ fn follows_symlinked_configuration_files() -> Result {
 }
 
 #[test]
-fn supports_empty_and_missing_files() -> Result {
+fn supports_empty_and_missing_files() -> TestResult {
     let repo = named_repo("make_basic_repo.sh")?;
     let dir = gix_testtools::tempfile::tempdir()?;
     let empty = dir.path().join("empty.config");
@@ -258,7 +258,7 @@ fn supports_empty_and_missing_files() -> Result {
 
 #[test]
 #[cfg(unix)]
-fn applies_shared_repository_permissions_to_new_files() -> Result {
+fn applies_shared_repository_permissions_to_new_files() -> TestResult {
     use std::os::unix::fs::PermissionsExt;
 
     let mut repo = named_repo("make_basic_repo.sh")?;
@@ -279,7 +279,7 @@ fn applies_shared_repository_permissions_to_new_files() -> Result {
 }
 
 #[test]
-fn semantic_validation_happens_on_reload() -> Result {
+fn semantic_validation_happens_on_reload() -> TestResult {
     let (mut repo, _tmp) = repo_rw_opts("make_config_repo.sh", options_with_includes().strict_config(true))?;
     let original_format_version = repo.config_snapshot().integer("core.repositoryFormatVersion");
     let config_path = repo.git_dir().join("config");
@@ -301,7 +301,7 @@ fn semantic_validation_happens_on_reload() -> Result {
     Message {
         message: "Unsupported repository format version; only versions 0 and 1 are supported",
         class: Unsupported,
-        values: {"input": I64(2), "key": String("core.repositoryFormatVersion")},
+        values: {input: I64(2), key: String("core.repositoryFormatVersion")},
     }
     "#);
     assert_eq!(
@@ -313,7 +313,7 @@ fn semantic_validation_happens_on_reload() -> Result {
 }
 
 #[test]
-fn include_changes_take_effect_only_after_reload() -> Result {
+fn include_changes_take_effect_only_after_reload() -> TestResult {
     let (mut repo, _tmp) = repo_rw_opts("make_config_repo.sh", options_with_includes())?;
     let replacement_path = repo.workdir().expect("worktree repository").join("replacement.config");
     std::fs::write(
@@ -343,7 +343,7 @@ value = visible
 
 #[test]
 #[cfg(unix)]
-fn paths_with_parent_components_retain_symlink_semantics() -> Result {
+fn paths_with_parent_components_retain_symlink_semantics() -> TestResult {
     use std::os::unix::fs::symlink;
 
     let repo = named_repo("make_basic_repo.sh")?;

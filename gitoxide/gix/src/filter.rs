@@ -104,7 +104,7 @@ impl Pipeline<'_> {
             },
             &mut |buf| -> Result<_> {
                 let entry = match index
-                    .entry_by_path(gix_path::to_unix_separators_on_windows(gix_path::into_bstr(rela_path)).as_ref())
+                    .entry_by_path(gix_path::to_unix_separators_on_windows(gix_path::into_bstr(rela_path)?).as_ref())
                 {
                     None => return Ok(None),
                     Some(entry) => entry,
@@ -154,7 +154,7 @@ impl Pipeline<'_> {
         rela_path: &BStr,
         index: &gix_index::State,
     ) -> Result<Option<(gix_hash::ObjectId, gix_object::tree::EntryKind, std::fs::Metadata)>> {
-        let rela_path_as_path = gix_path::from_bstr(rela_path);
+        let rela_path_as_path = gix_path::from_bstr(rela_path)?;
         let repo = self.repo;
         let worktree_dir = repo
             .workdir()
@@ -176,7 +176,7 @@ impl Pipeline<'_> {
         let (id, kind) = if md.is_symlink() {
             let target = std::fs::read_link(&path)
                 .or_raise(|| message!("Failed to perform IO for object creation for \"{}\"", path.display()))?;
-            let id = repo.write_blob(gix_path::into_bstr(target).as_ref())?;
+            let id = repo.write_blob(gix_path::into_bstr(target)?.as_ref())?;
             (id, gix_object::tree::EntryKind::Link)
         } else if md.is_file() {
             use gix_filter::pipeline::convert::ToGitOutcome;

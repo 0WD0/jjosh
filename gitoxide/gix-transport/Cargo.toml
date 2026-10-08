@@ -23,7 +23,7 @@ blocking-client = ["gix-packetline/blocking-io"]
 http-client = [
     "base64",
     "parking_lot",
-    "gix-features/io-pipe",
+    "gix-utils/io-pipe",
     "blocking-client",
     "gix-credentials",
 ]
@@ -91,10 +91,11 @@ path = "tests/async-transport.rs"
 required-features = ["async-client"]
 
 [dependencies]
+gix-trace = { version = "^0.2.0", path = "../gix-trace" }
+gix-utils = { version = "^0.4.0", path = "../gix-utils", optional = true }
 gix-command = { version = "^0.11.0", path = "../gix-command" }
 gix-error = { version = "^0.4.0", path = "../gix-error" }
 gix-path = { version = "^0.13.0", path = "../gix-path" }
-gix-features = { version = "^0.50.0", path = "../gix-features" }
 gix-url = { version = "^0.39.0", path = "../gix-url" }
 gix-sec = { version = "^0.15.0", path = "../gix-sec" }
 gix-packetline = { version = "^0.23.0", path = "../gix-packetline" }

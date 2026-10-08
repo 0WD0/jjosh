@@ -398,9 +398,9 @@ impl Url {
     /// Other schemes are unchanged.
     pub fn canonicalize(&mut self, current_dir: &std::path::Path) -> Result {
         if self.scheme == Scheme::File {
-            let path = gix_path::from_bstr(Cow::Borrowed(self.path.as_ref()));
+            let path = gix_path::from_bstr(Cow::Borrowed(self.path.as_ref()))?;
             let abs_path = gix_path::realpath_opts(path.as_ref(), current_dir, gix_path::realpath::MAX_SYMLINKS)?;
-            self.path = gix_path::into_bstr(abs_path).into_owned();
+            self.path = gix_path::into_bstr(abs_path)?.into_owned();
         }
         Ok(())
     }
@@ -912,7 +912,7 @@ impl Url {
 #[cfg(all(test, feature = "serde"))]
 mod serde_tests {
     #[test]
-    fn legacy_encoded_public_path_is_migrated() -> gix_error::TestResult {
+    fn legacy_encoded_public_path_is_migrated() -> gix_testtools::TestResult {
         for (input, legacy_path, decoded_path) in [
             ("https://example.com/a%2Fb", "/a%2Fb", "/a/b"),
             ("https://example.com/%20%25", "/ %25", "/ %"),

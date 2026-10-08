@@ -1,4 +1,4 @@
-pub use gix_testtools::{Result, scripted_fixture_read_only};
+pub use gix_testtools::{Result, TestResult, scripted_fixture_read_only};
 
 mod file;
 mod format;

@@ -115,9 +115,11 @@ impl<E: Error + Send + Sync + 'static> Exn<E> {
     #[track_caller]
     pub fn new(error: E) -> Self {
         let frame = Frame {
-            error: Box::new(error),
-            location: Location::caller(),
-            children: Vec::new(),
+            source: FrameSource {
+                error: Box::new(error),
+                location: Location::caller(),
+                children: Vec::new(),
+            },
         };
 
         Self {
@@ -130,7 +132,7 @@ impl<E: Error + Send + Sync + 'static> Exn<E> {
     pub(super) fn with_cause(cause: impl Error + Send + Sync + 'static, error: E) -> Self {
         let cause = into_frame(cause);
         let mut exn = Exn::new(error);
-        exn.frame.children.push(*cause);
+        exn.frame.source.children.push(*cause);
         exn
     }
 
@@ -145,7 +147,7 @@ impl<E: Error + Send + Sync + 'static> Exn<E> {
         let mut new_exn = Exn::new(err);
         for exn in children {
             let exn = exn.into();
-            new_exn.frame.children.push(*exn.frame);
+            new_exn.frame.source.children.push(*exn.frame);
         }
         new_exn
     }
@@ -154,7 +156,7 @@ impl<E: Error + Send + Sync + 'static> Exn<E> {
     #[track_caller]
     pub fn raise<T: Error + Send + Sync + 'static>(self, err: T) -> Exn<T> {
         let mut new_exn = Exn::new(err);
-        new_exn.frame.children.push(*self.frame);
+        new_exn.frame.source.children.push(*self.frame);
         new_exn
     }
 
@@ -162,7 +164,7 @@ impl<E: Error + Send + Sync + 'static> Exn<E> {
     #[track_caller]
     pub fn chain<T: Error + Send + Sync + 'static>(mut self, err: impl Into<Exn<T>>) -> Exn<E> {
         let err = err.into();
-        self.frame.children.push(*err.frame);
+        self.frame.source.children.push(*err.frame);
         self
     }
 
@@ -176,7 +178,7 @@ impl<E: Error + Send + Sync + 'static> Exn<E> {
     {
         for err in errors {
             let err = err.into();
-            self.frame.children.push(*err.frame);
+            self.frame.source.children.push(*err.frame);
         }
         self
     }
@@ -186,7 +188,7 @@ impl<E: Error + Send + Sync + 'static> Exn<E> {
     /// Native [`Error::source()`] values remain owned by their error and aren't drainable frames. This is useful if one
     /// wants to re-organise explicitly raised errors and the error layout is well known.
     pub fn drain_children(&mut self) -> impl Iterator<Item = Exn> + '_ {
-        self.frame.children.drain(..).map(Exn::from)
+        self.frame.source.children.drain(..).map(Exn::from)
     }
 
     /// Erase the type of this instance and turn it into a bare `Exn`.
@@ -198,6 +200,7 @@ impl<E: Error + Send + Sync + 'static> Exn<E> {
     /// Return the current exception.
     pub fn error(&self) -> &E {
         self.frame
+            .source
             .error
             .downcast_ref()
             .expect("the owned frame always matches the compile-time error type")
@@ -208,7 +211,7 @@ impl<E: Error + Send + Sync + 'static> Exn<E> {
     /// This is useful to retain the allocation, as internally it's also stored in a box,
     /// when comparing it to [`Self::into_inner()`].
     pub fn into_box(self) -> Box<E> {
-        match self.frame.error.downcast() {
+        match self.frame.source.error.downcast() {
             Ok(err) => err,
             Err(_) => unreachable!("The type in the frame is always the type of this instance"),
         }
@@ -474,20 +477,46 @@ impl fmt::Display for Frame {
 
 /// A frame in the exception tree.
 pub struct Frame {
-    /// The error that occurred at this frame.
+    source: FrameSource,
+}
+
+/// The owning frame contents, with single-diagnostic formatting for standard source-chain consumers.
+/// Keeping this separate from `Frame` preserves its existing full-tree formatting without another allocation.
+pub(crate) struct FrameSource {
     error: Box<dyn Error + Send + Sync + 'static>,
-    /// The source code location where this exception frame was created.
     location: &'static Location<'static>,
-    /// Explicitly raised child exception frames.
     children: Vec<Frame>,
 }
 
-impl Frame {
-    /// Return the error as a reference to [`Error`].
-    ///
-    /// If the error was [erased](crate::Exn::erased), this is the original error,
-    /// so it can still be downcast to its actual type.
-    pub fn error(&self) -> &(dyn Error + Send + Sync + 'static) {
+impl fmt::Display for FrameSource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Do not forward alternate formatting: a nested public Error could otherwise print its entire subtree.
+        write!(f, "{}", self.error())
+    }
+}
+
+impl fmt::Debug for FrameSource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(self.error(), f)
+    }
+}
+
+impl Error for FrameSource {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        crate::error::native_source(self.error()).or_else(|| {
+            self.children.first().map(|frame| {
+                if frame.children().is_empty() {
+                    frame.error() as &(dyn Error + 'static)
+                } else {
+                    &frame.source as &(dyn Error + 'static)
+                }
+            })
+        })
+    }
+}
+
+impl FrameSource {
+    pub(crate) fn error(&self) -> &(dyn Error + Send + Sync + 'static) {
         let mut error = &*self.error;
         loop {
             if let Some(erased) = error.downcast_ref::<Untyped>() {
@@ -500,9 +529,29 @@ impl Frame {
         }
     }
 
-    /// Return the source code location where this exception frame was created.
-    pub fn location(&self) -> &'static Location<'static> {
+    pub(crate) fn location(&self) -> &'static Location<'static> {
         self.location
+    }
+
+    pub(crate) fn children(&self) -> &[Frame] {
+        &self.children
+    }
+}
+
+impl Frame {
+    /// Return the error as a reference to [`Error`].
+    ///
+    /// If the error was [erased](crate::Exn::erased), this is the original error,
+    /// so it can still be downcast to its actual type.
+    pub fn error(&self) -> &(dyn Error + Send + Sync + 'static) {
+        self.source.error()
+    }
+
+    /// Return the source code location where this exception frame was created.
+    ///
+    /// The file path is the compiler-provided path, before diagnostic formatting shortens it.
+    pub fn location(&self) -> &'static Location<'static> {
+        self.source.location()
     }
 
     /// Return explicitly raised child frames.
@@ -510,7 +559,11 @@ impl Frame {
     /// Native [`Error::source()`] values are borrowed from [`Self::error()`] and traversed lazily, so they aren't owned
     /// `Frame` children.
     pub fn children(&self) -> &[Frame] {
-        &self.children
+        self.source.children()
+    }
+
+    pub(crate) fn source_frame(&self) -> &FrameSource {
+        &self.source
     }
 }
 
@@ -555,7 +608,7 @@ impl<'a> ErrorNode<'a> {
     /// source chain, providing formatting context even though no location was captured for the source itself.
     pub(crate) fn location(self) -> &'static Location<'static> {
         match self {
-            ErrorNode::Frame(frame) => frame.location,
+            ErrorNode::Frame(frame) => frame.location(),
             ErrorNode::Source { location, .. } | ErrorNode::FlatSource { location, .. } => location,
         }
     }
@@ -594,7 +647,7 @@ impl<'a> ErrorNode<'a> {
             children.push(ErrorNode::Source { error, location });
         }
         if let ErrorNode::Frame(frame) = self {
-            children.extend(frame.children.iter().map(ErrorNode::Frame));
+            children.extend(frame.children().iter().map(ErrorNode::Frame));
         }
         let mut diagnostics = Vec::new();
         for child in children {
@@ -706,8 +759,8 @@ impl From<Frame> for Exn {
 
 impl Exn {
     pub(crate) fn from_boxed_frame(mut frame: Box<Frame>) -> Self {
-        if !frame.error.is::<Untyped>() {
-            frame.error = Box::new(Untyped(frame.error));
+        if !frame.source.error.is::<Untyped>() {
+            frame.source.error = Box::new(Untyped(frame.source.error));
         }
         Exn {
             frame,
@@ -724,21 +777,24 @@ impl Exn {
         while let Some(node) = next {
             next = node.source.map(|source| *source);
             let frame = (!node.err.is_native_source()).then(|| Frame {
-                error: node.err.into_owned_error(),
-                location: node.location,
-                children: Vec::new(),
+                source: FrameSource {
+                    error: node.err.into_owned_error(),
+                    location: node.location,
+                    children: Vec::new(),
+                },
             });
             frames.push((frame, node.logical_parent));
         }
         // Native sources remain owned by their explicit frame; only those frames are rebuilt.
         while let Some((frame, parent)) = frames.pop() {
             let Some(mut frame) = frame else { continue };
-            frame.children.reverse();
+            frame.source.children.reverse();
             match parent {
                 Some(parent) => frames[parent]
                     .0
                     .as_mut()
                     .expect("an explicit frame has an explicit parent")
+                    .source
                     .children
                     .push(frame),
                 None => return frame.into(),
@@ -835,9 +891,12 @@ fn flatten_error_nodes(root: Frame) -> Vec<OwnedErrorNode> {
             Pending::Frame {
                 frame:
                     Frame {
-                        error,
-                        location,
-                        children,
+                        source:
+                            FrameSource {
+                                error,
+                                location,
+                                children,
+                            },
                     },
                 logical_parent,
             } => {

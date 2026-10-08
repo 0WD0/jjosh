@@ -46,7 +46,8 @@ pub enum Ordering {
     ///
     /// This mode allocates and as to pre-sort objects by their offsets, delaying the start of the iteration once per pack while keeping
     /// memory allocated once per pack. This price is usually worth paying once querying object information is planned as pack caches
-    /// are more efficiently used that way.
+    /// are more efficiently used that way. If a multi-pack index contains corrupt pack references, its objects
+    /// fall back to lexicographical ordering, which does not require valid offsets.
     PackAscendingOffsetThenLooseLexicographical,
 }
 
@@ -131,18 +132,24 @@ fn maybe_sort_entries(index: &handle::IndexLookup, order: Ordering) -> Option<Ve
             SingleOrMultiIndex::Multi { index, .. } => index
                 .iter()
                 .enumerate()
-                .map(|(idx, e)| EntryForOrdering {
-                    pack_offset: e.pack_offset,
-                    entry_index: idx as u32,
-                    pack_index: {
-                        debug_assert!(
-                            e.pack_index < PackId::max_packs_in_multi_index(),
-                            "this shows the relation between u16 and pack_index (u32) and why this is OK"
-                        );
-                        e.pack_index as u16
-                    },
+                .map(|(idx, e)| {
+                    let e = e?;
+                    Ok(EntryForOrdering {
+                        pack_offset: e.pack_offset,
+                        entry_index: idx as u32,
+                        pack_index: {
+                            debug_assert!(
+                                e.pack_index < PackId::max_packs_in_multi_index(),
+                                "this shows the relation between u16 and pack_index (u32) and why this is OK"
+                            );
+                            e.pack_index as u16
+                        },
+                    })
                 })
-                .collect(),
+                // Object IDs remain iterable even if their pack references are corrupt. Keep the
+                // public iterator's filesystem-only error type and fall back to lexical ordering.
+                .collect::<Result<Vec<_>>>()
+                .ok()?,
         },
     };
     order.sort_by(|a, b| {

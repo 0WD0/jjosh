@@ -394,16 +394,16 @@ fn raising_a_converted_error_preserves_stored_types() {
 #[test]
 fn validation_error_displays_input_with_debug_formatting() {
     let err = validation("invalid input").with_input(b"hello\n ".as_slice());
-    insta::assert_debug_snapshot!(format_args!("{}", err), "it won't hide whitespace and other special characters", @r#"invalid input, "input"="hello\n ""#);
+    insta::assert_debug_snapshot!(format_args!("{}", err), "it won't hide whitespace and other special characters", @r#"invalid input, input="hello\n ""#);
     let err = Error::from_error(err);
     #[cfg(all(feature = "auto-chain-error", not(feature = "tree-error")))]
-    insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[]), "validation error displays input with debug formatting", @r#"invalid input, "input"="hello\n ""#);
+    insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[]), "validation error displays input with debug formatting", @r#"invalid input, input="hello\n ""#);
     #[cfg(any(feature = "tree-error", not(feature = "auto-chain-error")))]
     insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[]), "validation error displays input with debug formatting", @r#"
     Message {
         message: "invalid input",
         class: Validation,
-        values: {"input": Bytes("hello\n ")},
+        values: {input: Bytes("hello\n ")},
     }
     "#);
     assert!(err.is_validation());

@@ -1,8 +1,8 @@
 use gix_config_value::Color;
-use gix_error::Result;
+use gix_testtools::TestResult;
 
 #[test]
-fn from_utf8_str() -> Result {
+fn from_utf8_str() -> TestResult {
     assert_eq!(
         Color::try_from("red bold")?.to_string(),
         "red bold",

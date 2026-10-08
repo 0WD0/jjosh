@@ -14,7 +14,7 @@ use gix::{
 
 use crate::app::{Attribution, AttributionKind, Author, Commit, LoadedCommits, Metadata, SignatureState};
 
-pub(crate) type SharedAuthors = gix::features::threading::OwnShared<gix::features::threading::Mutable<Authors>>;
+pub(crate) type SharedAuthors = gix::parallel::OwnShared<gix::parallel::Mutable<Authors>>;
 static EMPTY_AUTHOR: std::sync::LazyLock<Author> = std::sync::LazyLock::new(|| Author {
     name: BStr::new(b""),
     email: BStr::new(b""),
@@ -910,7 +910,7 @@ impl HistoryGraph {
                         None
                     } else {
                         let object = repo.find_commit(id)?;
-                        let mut authors = gix::features::threading::lock(authors);
+                        let mut authors = gix::parallel::lock(authors);
                         Some(decode_metadata(object.iter(), &mut authors, &mut attributions)?)
                     };
                     let metadata_loaded = metadata.is_some();
@@ -1245,7 +1245,7 @@ pub(crate) fn load(
     if tips.is_empty() {
         let mut rows = Vec::with_capacity(hidden_tips.len());
         let mut attributions = Vec::new();
-        let mut authors = gix::features::threading::lock(authors);
+        let mut authors = gix::parallel::lock(authors);
         let mut buf = Vec::new();
         for &id in &hidden_tips {
             if cancelled.load(Ordering::Relaxed) {
@@ -1365,7 +1365,7 @@ pub(crate) fn load(
             None
         } else {
             let object = repo.find_commit(id)?;
-            let mut authors = gix::features::threading::lock(authors);
+            let mut authors = gix::parallel::lock(authors);
             Some(decode_metadata(object.iter(), &mut authors, &mut attributions)?)
         };
         if should_emit {
@@ -1466,7 +1466,7 @@ pub(crate) fn load(
         connected.retain(|id| graph.index(*id).is_none_or(|index| !states[index.as_usize()].emitted));
         let mut rows = Vec::with_capacity(connected.len());
         let mut attributions = Vec::new();
-        let mut authors = gix::features::threading::lock(authors);
+        let mut authors = gix::parallel::lock(authors);
         for id in connected {
             if cancelled.load(Ordering::Relaxed) {
                 emit(Event::Cancelled);
@@ -1522,7 +1522,7 @@ pub(crate) fn ref_tree_revisions(repo: &gix::Repository, include_tags: bool) -> 
         if repo.find_header(id)?.kind() != gix::object::Kind::Commit {
             continue;
         }
-        out.push(gix::path::from_bstr(&name).into_owned().into_os_string());
+        out.push(gix::path::from_bstr(&name)?.into_owned().into_os_string());
     }
     if repo.head().is_ok_and(|head| head.referent_name().is_none()) {
         out.push("HEAD".into());
@@ -1560,7 +1560,7 @@ fn snapshot_inner(
         .filter(|pin| ignored_pin != Some(pin.name.as_bstr()))
         .collect::<Vec<_>>();
     let worktrees = if collect_worktrees {
-        worktree_checkouts(repo)
+        worktree_checkouts(repo)?
     } else {
         Vec::new()
     };
@@ -1593,9 +1593,12 @@ fn snapshot_inner(
     })
 }
 
-pub(crate) fn worktree_checkouts(repo: &gix::Repository) -> Vec<WorktreeCheckout> {
+pub(crate) fn worktree_checkouts(repo: &gix::Repository) -> Result<Vec<WorktreeCheckout>> {
     let mut out = Vec::new();
-    let current_worktree = repo.worktree().map(|worktree| worktree.id().map(ToOwned::to_owned));
+    let current_worktree = repo
+        .worktree()
+        .map(|worktree| worktree.id().map(|id| id.map(ToOwned::to_owned)))
+        .transpose()?;
     match repo.main_repo() {
         Ok(main) if !main.is_bare() => {
             let name = main.workdir().and_then(worktree_basename);
@@ -1607,7 +1610,7 @@ pub(crate) fn worktree_checkouts(repo: &gix::Repository) -> Vec<WorktreeCheckout
     match repo.worktrees() {
         Ok(worktrees) => {
             for proxy in worktrees {
-                let worktree = proxy.id().to_owned();
+                let worktree = proxy.id()?.to_owned();
                 let name = proxy.base().ok().as_deref().and_then(worktree_basename);
                 let is_current = current_worktree
                     .as_ref()
@@ -1632,7 +1635,7 @@ pub(crate) fn worktree_checkouts(repo: &gix::Repository) -> Vec<WorktreeCheckout
             .then_with(|| a.reference.cmp(&b.reference))
     });
     out.dedup();
-    out
+    Ok(out)
 }
 
 fn add_worktree_checkout(
@@ -1914,7 +1917,7 @@ pub(crate) fn load_metadata(
 ) -> Result<(Metadata<BString>, Vec<Attribution>)> {
     let object = repo.find_commit(id)?;
     let mut attributions = Vec::new();
-    let mut authors = gix::features::threading::lock(authors);
+    let mut authors = gix::parallel::lock(authors);
     let metadata = decode_metadata(object.iter(), &mut authors, &mut attributions)?;
     Ok((metadata, attributions))
 }
@@ -2040,7 +2043,7 @@ fn decode_metadata<'a>(
 pub(crate) fn contains_agent_marker(message: &[u8]) -> bool {
     [b"--- agent".as_slice(), b"<!-- agent -->".as_slice()]
         .iter()
-        .any(|marker| message.windows(marker.len()).any(|window| window == *marker))
+        .any(|marker| message.contains_str(*marker))
 }
 
 fn resolve_tips(repo: &gix::Repository, revisions: &[OsString]) -> Result<Option<Vec<ObjectId>>> {
@@ -2112,10 +2115,10 @@ fn auto_hidden_revisions(repo: &gix::Repository) -> Result<Vec<OsString>> {
             branches.insert(upstream);
         }
     }
-    Ok(branches
+    branches
         .into_iter()
-        .map(|name| gix::path::from_bstr(name.as_bstr()).into_owned().into_os_string())
-        .collect())
+        .map(|name| Ok(gix::path::from_bstr(name.as_bstr())?.into_owned().into_os_string()))
+        .collect()
 }
 
 fn attribution_kind(trailer: &gix::objs::commit::message::body::TrailerRef<'_>) -> Option<AttributionKind> {
@@ -2445,8 +2448,7 @@ mod tests {
 
     fn loaded(path: &std::path::Path, revisions: &[&str], hidden_revisions: &[&str]) -> TestResult<Vec<Event>> {
         let mut events = Vec::new();
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
         let repo = crate::test_repository::open(path)?;
         load(
             &repo,
@@ -2846,7 +2848,7 @@ mod tests {
         let topic = repo.rev_parse_single("topic")?.detach();
         let root = repo.rev_parse_single("main~2")?.detach();
         let remembered = repo.rev_parse_single("remembered")?.detach();
-        let worktrees = worktree_checkouts(&repo);
+        let worktrees = worktree_checkouts(&repo)?;
         assert!(worktrees.iter().any(|worktree| {
             worktree.id == main
                 && worktree.label_id == main
@@ -2935,7 +2937,7 @@ mod tests {
 
         let linked_path = fixture.path().join("topic-wt");
         let linked_repo = crate::test_repository::open(&linked_path)?;
-        let linked_worktrees = worktree_checkouts(&linked_repo);
+        let linked_worktrees = worktree_checkouts(&linked_repo)?;
         assert!(linked_worktrees.iter().any(|worktree| worktree.id == topic
             && worktree.is_current
             && worktree.head_reference == "worktrees/topic-wt/HEAD"));
@@ -2964,7 +2966,7 @@ mod tests {
             .status()?;
         assert!(status.success(), "git detaches the current linked worktree");
         let detached_repo = crate::test_repository::open(&linked_path)?;
-        let detached_worktrees = worktree_checkouts(&detached_repo);
+        let detached_worktrees = worktree_checkouts(&detached_repo)?;
         let current = detached_worktrees
             .iter()
             .find(|worktree| worktree.is_current)
@@ -2988,7 +2990,7 @@ mod tests {
             .status()?;
         assert!(symbolic.success(), "git remembers the detached worktree's branch");
         let remembered_repo = crate::test_repository::open(&linked_path)?;
-        let remembered_worktrees = worktree_checkouts(&remembered_repo);
+        let remembered_worktrees = worktree_checkouts(&remembered_repo)?;
         let current = remembered_worktrees
             .iter()
             .find(|worktree| worktree.is_current)
@@ -3064,8 +3066,7 @@ mod tests {
             .expect("older graph commits defer metadata");
 
         let repo = crate::test_repository::open(fixture_path)?;
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
         let (metadata, _) = load_metadata(&repo, deferred.id, &authors)?;
         assert!(
             !metadata.title.is_empty(),
@@ -3234,8 +3235,7 @@ mod tests {
             "hidden-only descendants are excluded"
         );
 
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
         graph.refresh(
             &repo,
             &[OsString::from("main")],
@@ -3319,8 +3319,7 @@ mod tests {
             })
             .expect("history loading returns the persistent graph");
 
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
         graph.refresh(&repo, &["topic".into()], &[], false, &HashSet::new(), &authors)?;
 
         assert_eq!(
@@ -3366,8 +3365,7 @@ mod tests {
         }
         let repo = crate::test_repository::open(path)?;
         let new_tip = repo.rev_parse_single("main")?.detach();
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
         let refresh = graph.refresh(&repo, &[], &["main".into()], false, &HashSet::new(), &authors)?;
 
         assert_eq!(
@@ -3404,8 +3402,7 @@ mod tests {
             "graph-only traversal does not claim rows were sent to the UI"
         );
 
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
         let refresh = graph.refresh(&repo, &revisions, &[], false, &HashSet::new(), &authors)?;
         assert!(
             refresh.commits.rows.iter().any(|row| row.id == tip),
@@ -3442,8 +3439,7 @@ mod tests {
         std::fs::write(&broken_tag, format!("{}\n", "f".repeat(40)))?;
         let repo = crate::test_repository::open(fixture.path())?;
         let new_tip = repo.rev_parse_single("main")?.detach();
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
 
         graph
             .refresh(&repo, &["main".into()], &[], false, &HashSet::new(), &authors)
@@ -3500,8 +3496,7 @@ mod tests {
             assert!(status.success(), "git prepares one new commit");
         }
         let repo = crate::test_repository::open(fixture.path())?;
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
         let first = graph.refresh(&repo, &["main".into()], &[], false, &HashSet::new(), &authors)?;
         assert_eq!(first.commits.rows.len(), 1, "only the new descendant is loaded");
         let second = graph.refresh(&repo, &["main".into()], &[], false, &HashSet::new(), &authors)?;
@@ -3594,8 +3589,7 @@ mod tests {
 
         let repo = crate::test_repository::open(fixture.path())?;
         let replacement = repo.rev_parse_single("main")?.detach();
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
         graph.refresh(&repo, &["main".into()], &[], false, &HashSet::new(), &authors)?;
         let descendants = graph
             .descendants_in_parent_order(parent)
@@ -3644,8 +3638,7 @@ mod tests {
         assert!(cached.state & NODE_COMPLETE != 0 && cached.state & NODE_STORED == 0);
         cached.parents = start..end;
 
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
         let refresh = graph.refresh(&repo, &["topic".into()], &[], false, &HashSet::new(), &authors)?;
         assert!(
             refresh.commits.rows.is_empty(),
@@ -3702,8 +3695,7 @@ mod tests {
             main,
             "test symbolic ref-tree pin",
         )?;
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
         let refresh = graph.refresh(&repo, &["topic".into()], &[], false, &HashSet::new(), &authors)?;
         let refreshed: HashSet<_> = refresh.commits.rows.iter().map(|row| row.id).collect();
         assert!(
@@ -3804,8 +3796,7 @@ mod tests {
         );
 
         let repo = crate::test_repository::open(path)?;
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
         let refresh = graph.refresh(&repo, &["local".into()], &[], false, &boundary, &authors)?;
         visible.extend(refresh.commits.rows.into_iter().map(|row| row.id));
         let expected: HashSet<_> = repo
@@ -3888,8 +3879,7 @@ mod tests {
         );
 
         let mut cancelled = Vec::new();
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
         let repo = crate::test_repository::open(&fixture)?;
         load(&repo, &[], &[], false, &authors, &AtomicBool::new(true), |event| {
             cancelled.push(event);
@@ -4124,7 +4114,7 @@ mod tests {
             !snapshot(&repo, &[], &[], false)?.view_tips.contains(&review),
             "review resources do not retain history"
         );
-        let decorations = decorations(&repo, &[], &worktree_checkouts(&repo))?;
+        let decorations = decorations(&repo, &[], &worktree_checkouts(&repo)?)?;
         assert!(
             decorations.get(&review).is_some_and(|decorations| decorations
                 .iter()
@@ -4155,7 +4145,7 @@ mod tests {
         )?;
 
         assert!(!snapshot(&repo, &[], &[], false)?.view_tips.contains(&stash));
-        let decorations = decorations(&repo, &[], &worktree_checkouts(&repo))?;
+        let decorations = decorations(&repo, &[], &worktree_checkouts(&repo)?)?;
         assert!(
             decorations.get(&head).is_some_and(|decorations| decorations
                 .iter()

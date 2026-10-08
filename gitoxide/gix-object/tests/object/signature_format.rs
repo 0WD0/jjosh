@@ -1,7 +1,7 @@
 use gix_object::{bstr::BStr, signature::Format};
 
 #[test]
-fn parse() -> gix_error::TestResult {
+fn parse() -> gix_testtools::TestResult {
     for (value, expected) in [
         ("openpgp", Format::OpenPgp),
         ("OpenPGP", Format::OpenPgp),

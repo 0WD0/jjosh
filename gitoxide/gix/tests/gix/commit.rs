@@ -1,19 +1,19 @@
 #[cfg(feature = "revision")]
 mod describe {
-    use crate::Result;
     use gix::commit::describe::SelectRef::{AllRefs, AllTags, AnnotatedTags};
+    use gix_testtools::TestResult;
 
     use crate::named_repo;
 
     #[cfg(feature = "status")]
     mod with_dirty_suffix {
-        use crate::Result;
         use gix::commit::describe::SelectRef;
+        use gix_testtools::TestResult;
 
         use crate::util::named_subrepo_opts;
 
         #[test]
-        fn dirty_suffix_applies_automatically_if_dirty() -> Result {
+        fn dirty_suffix_applies_automatically_if_dirty() -> TestResult {
             let repo = named_subrepo_opts(
                 "make_submodules.sh",
                 "submodule-head-changed",
@@ -33,7 +33,7 @@ mod describe {
         }
 
         #[test]
-        fn dirty_suffix_does_not_apply_if_not_dirty() -> Result {
+        fn dirty_suffix_does_not_apply_if_not_dirty() -> TestResult {
             let repo = named_subrepo_opts("make_submodules.sh", "module1", gix::open::Options::isolated())?;
 
             let actual = repo
@@ -50,7 +50,7 @@ mod describe {
     }
 
     #[test]
-    fn tags_are_sorted_by_date_and_lexicographically() -> Result {
+    fn tags_are_sorted_by_date_and_lexicographically() -> TestResult {
         let repo = named_repo("make_commit_describe_multiple_tags.sh")?;
         let mut describe = repo.head_commit()?.describe();
         for filter in &[AnnotatedTags, AllTags, AllRefs] {
@@ -61,7 +61,7 @@ mod describe {
     }
 
     #[test]
-    fn tags_are_sorted_by_priority() -> Result {
+    fn tags_are_sorted_by_priority() -> TestResult {
         let repo = named_repo("make_commit_describe_multiple_tags.sh")?;
         let commit = repo.find_reference("refs/tags/v0")?.id().object()?.into_commit();
         let mut describe = commit.describe();
@@ -73,7 +73,7 @@ mod describe {
     }
 
     #[test]
-    fn lightweight_tags_are_sorted_lexicographically() -> Result {
+    fn lightweight_tags_are_sorted_lexicographically() -> TestResult {
         let repo = named_repo("make_commit_describe_multiple_tags.sh")?;
         let commit = repo.find_reference("refs/tags/l0")?.id().object()?.into_commit();
         let mut describe = commit.describe();
@@ -92,8 +92,8 @@ mod describe {
 
 #[cfg(feature = "command")]
 mod signature {
-    use crate::Result;
     use gix::config::tree::{Gpg, Key, User, gpg};
+    use gix_testtools::TestResult;
     use gix_testtools::signature;
     use serial_test::serial;
 
@@ -102,7 +102,7 @@ mod signature {
     // `fatal: invalid date format: 42 +0030` while creating the reference signature.
     #[serial]
     #[cfg_attr(windows, ignore = "TODO: requires direct investigation on Windows")]
-    fn verifies_a_commit_signed_by_git_with_ssh() -> Result {
+    fn verifies_a_commit_signed_by_git_with_ssh() -> TestResult {
         if !signature::program_available("ssh-keygen") {
             return Ok(());
         }
@@ -112,13 +112,13 @@ mod signature {
         let email = User::EMAIL.validated_assignment_fmt(&signature::IDENTITY)?;
         // Git for Windows passes this native path to `ssh-keygen`, where forward slashes avoid backslash
         // interpretation while retaining the drive prefix. An MSYS path like `/c/...` isn't accepted here.
-        let key_for_git = gix_path::to_unix_separators_on_windows(gix_path::into_bstr(&key));
+        let key_for_git = gix_path::to_unix_separators_on_windows(gix_path::into_bstr(&key)?);
         let signing_key = User::SIGNING_KEY.validated_assignment(key_for_git.as_ref())?;
         let output = gix_testtools::git_command(fixture.path())
             .args(["-c", "user.name=Gitoxide Signing Fixture", "-c"])
-            .arg(gix_path::from_bstring(email).into_os_string())
+            .arg(gix_path::from_bstring(email)?.into_os_string())
             .args(["-c", "gpg.format=ssh", "-c"])
-            .arg(gix_path::from_bstring(signing_key).into_os_string())
+            .arg(gix_path::from_bstring(signing_key)?.into_os_string())
             .args(["commit", "--allow-empty", "-S", "-m", "signed by Git"])
             .output()?;
         assert!(
@@ -147,7 +147,7 @@ mod signature {
     }
 
     #[test]
-    fn sign_write_and_verify_an_ssh_commit() -> Result {
+    fn sign_write_and_verify_an_ssh_commit() -> TestResult {
         let (_key_home, key) = signature::ssh_private_key()?;
         let options = gix::open::Options::isolated().config_overrides([
             User::NAME.validated_assignment_fmt(&"Gitoxide Signing Fixture")?,
@@ -192,7 +192,7 @@ mod signature {
     }
 
     #[test]
-    fn resolves_format_defaults_and_program_paths() -> Result {
+    fn resolves_format_defaults_and_program_paths() -> TestResult {
         let home = gix::path::env::home_dir().expect("the test environment has a home directory");
         let mut permissions = gix::open::Permissions::isolated();
         permissions.env.home = gix::sec::Permission::Allow;
@@ -215,7 +215,7 @@ mod signature {
     }
 
     #[test]
-    fn expands_verification_program_paths() -> Result {
+    fn expands_verification_program_paths() -> TestResult {
         let home = gix::path::env::home_dir().expect("the test environment has a home directory");
         let mut permissions = gix::open::Permissions::isolated();
         permissions.env.home = gix::sec::Permission::Allow;
@@ -239,14 +239,14 @@ mod signature {
         Could not verify the commit signature
 
         Caused by:
-            0: Could not execute signature verifier, "program"="<home>/bin/missing-gpg"
+            0: Could not execute signature verifier, program="<home>/bin/missing-gpg"
             1: NotFound
         "#);
         Ok(())
     }
 
     #[test]
-    fn resolves_signing_options_only_when_enabled() -> Result {
+    fn resolves_signing_options_only_when_enabled() -> TestResult {
         let disabled = gix::open_opts(
             gix_testtools::scripted_fixture_read_only("make_basic_repo.sh")?,
             gix::open::Options::isolated().config_overrides(["gpg.format=invalid"]),
@@ -273,7 +273,7 @@ mod signature {
 
     #[cfg(unix)]
     #[test]
-    fn resolves_the_default_ssh_key_command() -> Result {
+    fn resolves_the_default_ssh_key_command() -> TestResult {
         let options = gix::open::Options::isolated().config_overrides([
             "user.name=Gitoxide Signing Fixture",
             "user.email=signing@example.com",

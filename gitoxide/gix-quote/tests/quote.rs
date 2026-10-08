@@ -34,6 +34,42 @@ mod single {
     }
 }
 
+mod for_display {
+    use bstr::ByteSlice;
+    use gix_quote::for_display;
+
+    fn render(input: &[u8], scratch: &mut Vec<u8>) -> Vec<u8> {
+        for_display(input.as_bstr(), scratch).to_vec()
+    }
+
+    #[test]
+    fn safe_ascii_and_unicode_remain_unchanged() {
+        let mut scratch = Vec::new();
+        for input in [b"hello world".as_slice(), "hello 💡".as_bytes()] {
+            assert_eq!(
+                render(input, &mut scratch),
+                input,
+                "safe text should remain easy to read"
+            );
+        }
+    }
+
+    #[test]
+    fn terminal_controls_and_ambiguous_bytes_are_quoted_losslessly() {
+        let mut scratch = Vec::new();
+        assert_eq!(
+            render(b"control-\0\x08\t\n\r\x1b\x7f\"\\end", &mut scratch),
+            br#""control-\0\x08\t\n\r\x1b\x7f\"\\end""#,
+            "terminal-active and syntax bytes must be escaped"
+        );
+        assert_eq!(
+            render(b"invalid-\xff", &mut scratch),
+            br#""invalid-\xff""#,
+            "invalid UTF-8 must remain recoverable"
+        );
+    }
+}
+
 mod ansi_c {
     mod quote {
         use bstr::ByteSlice;
@@ -68,20 +104,20 @@ mod ansi_c {
     }
 
     mod undo {
+        use std::borrow::Cow;
+
         use bstr::ByteSlice;
         use gix_quote::ansi_c;
 
         macro_rules! test {
             ($name:ident, $input:literal, $expected:literal, $consumed:literal) => {
                 #[test]
-                fn $name() {
+                fn $name() -> gix_error::TestResult {
                     assert_eq!(
-                        ansi_c::undo($input.as_bytes().as_bstr()).expect("valid input"),
-                        (
-                            std::borrow::Cow::Borrowed($expected.as_bytes().as_bstr()),
-                            $consumed
-                        )
+                        ansi_c::undo($input.as_bytes().as_bstr())?,
+                        (Cow::Borrowed($expected.as_bytes().as_bstr()), $consumed)
                     );
+                    Ok(())
                 }
             };
         }
@@ -109,7 +145,7 @@ mod ansi_c {
         fn out_of_quote_characters_can_be_passed_and_will_not_be_consumed() {
             let input = br#""hello there" out of quote"#.as_bstr();
             let (unquoted, consumed) = ansi_c::undo(input).expect("valid input");
-            assert_eq!(unquoted, std::borrow::Cow::Borrowed(b"hello there".as_bstr()));
+            assert_eq!(unquoted, Cow::Borrowed(b"hello there".as_bstr()));
             assert_eq!(&input[consumed..], " out of quote");
         }
 

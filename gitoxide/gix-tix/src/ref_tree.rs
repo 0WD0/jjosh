@@ -914,7 +914,7 @@ pub(crate) fn pin_references_reporting(
     }
     if kinds.contains(&DecorationKind::WorktreeDetached) {
         names.extend(
-            crate::history::worktree_checkouts(repository)
+            crate::history::worktree_checkouts(repository)?
                 .into_iter()
                 .filter(|worktree| !worktree.is_current && worktree.is_detached && worktree.id == id)
                 .map(|worktree| worktree.head_reference),
@@ -1560,9 +1560,7 @@ pub(crate) fn render_full(
         }
     }
     let mut refs = crate::history::snapshot(repository, &visible_revisions, hidden, true)?;
-    let authors = gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(
-        crate::history::Authors::default(),
-    ));
+    let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(crate::history::Authors::default()));
     let mut graph = None;
     crate::history::load(
         repository,

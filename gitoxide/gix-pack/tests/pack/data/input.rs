@@ -1,5 +1,5 @@
 mod lookup_ref_delta_objects {
-    use crate::Result;
+
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use gix_hash::{ObjectId, oid};
@@ -95,7 +95,7 @@ mod lookup_ref_delta_objects {
     }
 
     #[test]
-    fn only_ref_deltas_are_handled() -> Result {
+    fn only_ref_deltas_are_handled() -> gix_testtools::TestResult {
         let input = compute_offsets(vec![entry(base(), D_A), entry(delta_ofs(100), D_B)]);
         let expected = input.clone();
         let actual = LookupRefDeltaObjectsIter::new(

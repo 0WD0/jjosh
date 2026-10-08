@@ -1,4 +1,4 @@
-use crate::Result;
+use crate::TestResult;
 use std::fs;
 
 use bstr::{BString, ByteSlice};
@@ -15,7 +15,7 @@ fn lookup_error(err: gix_config::lookup::Error<gix_error::Error>) -> gix_error::
 }
 
 #[test]
-fn typed_lookup_errors_can_be_erased() -> Result {
+fn typed_lookup_errors_can_be_erased() -> TestResult {
     let mut error_snapshots = Vec::new();
     use gix_error::ResultExt;
 
@@ -44,19 +44,19 @@ fn typed_lookup_errors_can_be_erased() -> Result {
     assert!(err.is_not_found(), "erasure retains missing-value classification");
     insta::assert_debug_snapshot!(error_snapshots, "typed lookup errors can be erased", @r#"
     [
-        Booleans need to be 'no', 'off', 'false', '' or 'yes', 'on', 'true' or any number, "input"="invalid",
-        Integers needs to be positive or negative numbers which may have a suffix like 1k, 42, or 50G, "input"="invalid",
-        Colors are specific color values and their attributes, like 'brightred', or 'blue', "input"="invalid",
-        Booleans need to be 'no', 'off', 'false', '' or 'yes', 'on', 'true' or any number, "input"="invalid",
-        Integers needs to be positive or negative numbers which may have a suffix like 1k, 42, or 50G, "input"="invalid",
-        Colors are specific color values and their attributes, like 'brightred', or 'blue', "input"="invalid",
+        Booleans need to be 'no', 'off', 'false', '' or 'yes', 'on', 'true' or any number, input="invalid",
+        Integers needs to be positive or negative numbers which may have a suffix like 1k, 42, or 50G, input="invalid",
+        Colors are specific color values and their attributes, like 'brightred', or 'blue', input="invalid",
+        Booleans need to be 'no', 'off', 'false', '' or 'yes', 'on', 'true' or any number, input="invalid",
+        Integers needs to be positive or negative numbers which may have a suffix like 1k, 42, or 50G, input="invalid",
+        Colors are specific color values and their attributes, like 'brightred', or 'blue', input="invalid",
     ]
     "#);
     Ok(())
 }
 
 #[test]
-fn integer_accessors_apply_suffixes() -> Result {
+fn integer_accessors_apply_suffixes() -> TestResult {
     let config = File::try_from("[core]\nvalue = -2k\nvalue = 0x10m\n")?;
     assert_eq!(
         config.integer("core.value")?,
@@ -84,7 +84,7 @@ fn integer_accessors_apply_suffixes() -> Result {
 }
 
 #[test]
-fn integer_accessors_retain_classification_and_input() -> Result {
+fn integer_accessors_retain_classification_and_input() -> TestResult {
     for input in [
         b"invalid".as_slice(),
         b"9223372036854775808",
@@ -113,7 +113,7 @@ fn integer_accessors_retain_classification_and_input() -> Result {
 }
 
 #[test]
-fn parsed_section_header_legacy_check_uses_backing_buffer() -> Result {
+fn parsed_section_header_legacy_check_uses_backing_buffer() -> TestResult {
     let config = File::try_from(
         "[remote.origin]\n\turl = https://example.com\n[remote \"upstream\"]\n\turl = https://example.com\n",
     )?;
@@ -127,7 +127,7 @@ fn parsed_section_header_legacy_check_uses_backing_buffer() -> Result {
 
 /// Asserts we can cast into all variants of our type
 #[test]
-fn get_value_for_all_provided_values() -> Result {
+fn get_value_for_all_provided_values() -> TestResult {
     let config = r#"
         [core]
             other-quoted = "hello"
@@ -295,7 +295,7 @@ fn get_value_for_all_provided_values() -> Result {
 }
 
 #[test]
-fn get_value_looks_up_all_sections_before_failing() -> Result {
+fn get_value_looks_up_all_sections_before_failing() -> TestResult {
     let config = r#"
         [core]
             bool-explicit = false
@@ -325,7 +325,7 @@ fn get_value_looks_up_all_sections_before_failing() -> Result {
 }
 
 #[test]
-fn interpreted_values_can_be_returned_with_their_sections() -> Result {
+fn interpreted_values_can_be_returned_with_their_sections() -> TestResult {
     let file = File::try_from(
         "[core]\n\
          a=1\n\
@@ -360,7 +360,7 @@ fn interpreted_values_can_be_returned_with_their_sections() -> Result {
 }
 
 #[test]
-fn section_names_are_case_insensitive() -> Result {
+fn section_names_are_case_insensitive() -> TestResult {
     let config = "[core] a=true";
     let file = File::try_from(config)?;
     assert_eq!(
@@ -372,7 +372,7 @@ fn section_names_are_case_insensitive() -> Result {
 }
 
 #[test]
-fn value_names_are_case_insensitive() -> Result {
+fn value_names_are_case_insensitive() -> TestResult {
     let config = "[core]
         a = true
         A = false";
@@ -387,7 +387,7 @@ fn value_names_are_case_insensitive() -> Result {
 }
 
 #[test]
-fn section_value_access_is_case_insensitive() -> Result {
+fn section_value_access_is_case_insensitive() -> TestResult {
     let file = File::try_from("[core]\nMixedCase = one\nMIXEDCASE = two")?;
     let section = file.section("core", None)?;
 
@@ -415,7 +415,7 @@ fn single_section() {
 }
 
 #[test]
-fn sections_by_name() -> Result {
+fn sections_by_name() -> TestResult {
     let config = r#"
     [core]
         repositoryformatversion = 0
@@ -434,7 +434,7 @@ fn sections_by_name() -> Result {
 }
 
 #[test]
-fn sections_by_name_ignores_subsections_and_preserves_file_order() -> Result {
+fn sections_by_name_ignores_subsections_and_preserves_file_order() -> TestResult {
     let config = File::try_from(
         "[remote] marker=plain\n\
          [other] marker=unrelated\n\
@@ -462,7 +462,7 @@ fn sections_by_name_ignores_subsections_and_preserves_file_order() -> Result {
 }
 
 #[test]
-fn unknown_section() -> Result {
+fn unknown_section() -> TestResult {
     let config = File::default();
     let err = config.section("missing", None).unwrap_err();
     assert!(err.is_not_found());
@@ -598,7 +598,7 @@ fn multi_line_value_with_empty_continuation_line() {
 }
 
 #[test]
-fn multi_line_value_starting_on_a_continuation_line_is_not_indented() -> Result {
+fn multi_line_value_starting_on_a_continuation_line_is_not_indented() -> gix_testtools::TestResult {
     let baseline = crate::scripted_fixture_read_only("make_value_whitespace_baseline.sh")?;
     let baseline = fs::read(baseline.join("baseline.git"))?;
     let baseline = baseline
@@ -607,7 +607,7 @@ fn multi_line_value_starting_on_a_continuation_line_is_not_indented() -> Result 
 
     let mut records = baseline.split(|byte| *byte == 0);
     while let Some(description) = records.next() {
-        let description = std::str::from_utf8(description).expect("fixture descriptions must be valid UTF-8");
+        let description = std::str::from_utf8(description)?;
         let config = records.next().expect("each description must be followed by a config");
         let expected = records.next().expect("each config must be followed by Git's value");
         let expected = BString::from(expected);
@@ -627,22 +627,19 @@ fn multi_line_value_starting_on_a_continuation_line_is_not_indented() -> Result 
 }
 
 #[test]
-fn overrides_with_implicit_booleans_work_in_single_section() {
+fn overrides_with_implicit_booleans_work_in_single_section() -> gix_testtools::TestResult {
     let config = r#"
         [a]
             b = false
             b
         "#;
-    let config = File::try_from(config).expect("valid config");
-    assert_eq!(
-        config.boolean("a.b").expect("valid boolean"),
-        Some(true),
-        "empty implicit booleans "
-    );
+    let config = File::try_from(config)?;
+    assert_eq!(config.boolean("a.b")?, Some(true), "empty implicit booleans ");
+    Ok(())
 }
 
 #[test]
-fn implicit_booleans_may_be_followed_by_whitespace() -> Result {
+fn implicit_booleans_may_be_followed_by_whitespace() -> TestResult {
     for config in [
         "[a]\n\tb \n",
         "[a]\n\tb\t\n",
@@ -683,17 +680,14 @@ fn implicit_booleans_may_be_followed_by_whitespace() -> Result {
 }
 
 #[test]
-fn overrides_with_implicit_booleans_work_across_sections() {
+fn overrides_with_implicit_booleans_work_across_sections() -> gix_testtools::TestResult {
     let config = r#"
         [a]
             b = false
         [a]
             b
         "#;
-    let config = File::try_from(config).expect("valid config");
-    assert_eq!(
-        config.boolean("a.b").expect("valid boolean"),
-        Some(true),
-        "empty implicit booleans "
-    );
+    let config = File::try_from(config)?;
+    assert_eq!(config.boolean("a.b")?, Some(true), "empty implicit booleans ");
+    Ok(())
 }

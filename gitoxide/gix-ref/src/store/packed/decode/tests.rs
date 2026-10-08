@@ -1,7 +1,4 @@
-type Result = std::result::Result<(), Box<dyn std::error::Error>>;
-
 mod reference {
-    use super::Result;
     use crate::{
         FullNameRef,
         store_impl::{packed, packed::decode},
@@ -29,7 +26,7 @@ mod reference {
     }
 
     #[test]
-    fn uppercase_hex() -> Result {
+    fn uppercase_hex() -> gix_testtools::TestResult {
         let mut input: &[u8] = b"D53C4B0F91F1B29769C9430F2D1C0BCAB1170C75 refs/heads/uppercase
 ^E9CDC958E7CE2290E2D7958CDB5AA9323EF35D37\n";
         let parsed = decode::reference(&mut input, HASH_KIND).unwrap();
@@ -42,7 +39,7 @@ mod reference {
     }
 
     #[test]
-    fn sha256_hex() -> Result {
+    fn sha256_hex() -> gix_testtools::TestResult {
         let mut input: &[u8] = b"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa refs/heads/main\n";
         let parsed = decode::reference(&mut input, gix_hash::Kind::Sha256).unwrap();
 
@@ -53,7 +50,7 @@ mod reference {
     }
 
     #[test]
-    fn two_refs_in_a_row() -> Result {
+    fn two_refs_in_a_row() -> gix_testtools::TestResult {
         let mut input: &[u8] = b"d53c4b0f91f1b29769c9430f2d1c0bcab1170c75 refs/heads/alternates-after-packs-and-loose
 ^e9cdc958e7ce2290e2d7958cdb5aa9323ef35d37\neaae9c1bc723209d793eb93f5587fa2604d5cd92 refs/heads/avoid-double-lookup\n";
         let parsed = decode::reference(&mut input, HASH_KIND).unwrap();
@@ -82,7 +79,7 @@ mod reference {
 }
 
 mod record_at_offset {
-    use crate::store_impl::packed::decode;
+    use crate::{bstr::ByteSlice, store_impl::packed::decode};
 
     const INPUT: &[u8] = b"1111111111111111111111111111111111111111 refs/heads/main
 2222222222222222222222222222222222222222 refs/tags/v1
@@ -90,10 +87,7 @@ mod record_at_offset {
 4444444444444444444444444444444444444444 refs/tags/v2\n";
 
     fn offset_of(needle: &[u8]) -> usize {
-        INPUT
-            .windows(needle.len())
-            .position(|window| window == needle)
-            .expect("needle is present in input")
+        INPUT.find(needle).expect("needle is present in input")
     }
 
     #[test]
@@ -259,7 +253,6 @@ mod name_at_record_start {
 mod header {
     use gix_object::bstr::ByteSlice;
 
-    use super::Result;
     use crate::store_impl::packed::{
         decode,
         decode::{Header, Peeled},
@@ -277,7 +270,7 @@ mod header {
     }
 
     #[test]
-    fn valid_fully_peeled_stored() -> Result {
+    fn valid_fully_peeled_stored() -> gix_testtools::TestResult {
         let mut input: &[u8] = b"# pack-refs with: peeled fully-peeled sorted  \nsomething else";
         let header = decode::header(&mut input).expect("valid input");
 
@@ -293,7 +286,7 @@ mod header {
     }
 
     #[test]
-    fn valid_peeled_unsorted() -> Result {
+    fn valid_peeled_unsorted() -> gix_testtools::TestResult {
         let mut input: &[u8] = b"# pack-refs with: peeled\n";
         let header = decode::header(&mut input).unwrap();
 
@@ -309,7 +302,7 @@ mod header {
     }
 
     #[test]
-    fn valid_empty() -> Result {
+    fn valid_empty() -> gix_testtools::TestResult {
         let mut input: &[u8] = b"# pack-refs with: \n";
         let header = decode::header(&mut input).unwrap();
 

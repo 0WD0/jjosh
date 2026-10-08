@@ -33,13 +33,15 @@ fn single_file(c: &mut Criterion) {
     for num_entries in [1, 10, 100, 1_000] {
         let mut search = Search::default();
         let mut collection = MetadataCollection::default();
-        search.add_patterns_buffer(
-            &attributes(num_entries, 0),
-            ".gitattributes".into(),
-            None,
-            &mut collection,
-            true,
-        );
+        search
+            .add_patterns_buffer(
+                &attributes(num_entries, 0),
+                ".gitattributes".into(),
+                None,
+                &mut collection,
+                true,
+            )
+            .expect("benchmark pattern sources are valid UTF-8 paths");
 
         assert_eq!(lookup(&search, &collection, "file.rs"), num_entries);
         group.throughput(Throughput::Elements(num_entries as u64));
@@ -73,13 +75,15 @@ fn five_file_hierarchy(c: &mut Criterion) {
         } else {
             Path::new(directory).join(".gitattributes")
         };
-        search.add_patterns_buffer(
-            &attributes(num_entries, file_index),
-            source,
-            Some(Path::new("")),
-            &mut collection,
-            true,
-        );
+        search
+            .add_patterns_buffer(
+                &attributes(num_entries, file_index),
+                source,
+                Some(Path::new("")),
+                &mut collection,
+                true,
+            )
+            .expect("benchmark pattern sources are valid UTF-8 paths");
     }
 
     let num_entries = ENTRIES.into_iter().sum::<usize>();

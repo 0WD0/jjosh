@@ -100,7 +100,7 @@ fn worktree_from_config(
     else {
         return Ok(discovered);
     };
-    let path = gix_path::from_bstr(path.trim().as_bstr()).into_owned();
+    let path = gix_path::from_bstr(path.trim().as_bstr())?.into_owned();
     if path.as_os_str().is_empty() {
         return Err("core.worktree cannot be empty".into());
     }

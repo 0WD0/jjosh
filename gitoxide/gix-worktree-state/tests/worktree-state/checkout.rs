@@ -1,4 +1,5 @@
 use crate::Result;
+use gix_testtools::TestResult;
 #[cfg(unix)]
 use std::os::unix::prelude::{MetadataExt, PermissionsExt};
 use std::{
@@ -8,9 +9,9 @@ use std::{
     sync::atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
-use gix_features::progress;
 use gix_object::{Data, bstr::ByteSlice};
 use gix_testtools::tempfile::TempDir;
+use gix_utils::progress;
 use gix_worktree_state::checkout::Collision;
 use std::sync::LazyLock;
 
@@ -33,7 +34,7 @@ fn assure_is_empty(dir: impl AsRef<Path>) -> std::io::Result<()> {
 }
 
 #[test]
-fn submodules_are_instantiated_as_directories() -> Result {
+fn submodules_are_instantiated_as_directories() -> TestResult {
     let mut opts = opts_from_probe();
     opts.overwrite_existing = false;
     let (_source_tree, destination, _index, _outcome) = checkout_index_in_tmp_dir(opts.clone(), "make_mixed", None)?;
@@ -123,77 +124,132 @@ fn writes_through_symlinks_are_prevented_even_if_overwriting_is_allowed() {
 }
 
 #[test]
-fn nonexclusive_checkout_does_not_follow_terminal_symlinks() -> Result {
-    let mut opts = opts_from_probe();
-    // the test needs filesystem symlink support;
-    if !opts.fs.symlink {
+fn checkout_does_not_follow_terminal_symlinks() -> TestResult {
+    use gix_index::entry::Mode;
+    use gix_object::Write;
+
+    let temp = gix_testtools::tempfile::tempdir()?;
+    let capabilities = gix_fs::Capabilities::probe_dir(temp.path());
+    if !capabilities.symlink {
         return Ok(());
     }
-    opts.destination_is_initially_empty = false;
+    for mode in [Mode::FILE, Mode::SYMLINK] {
+        for (destination_is_initially_empty, overwrite_existing) in
+            [(false, false), (false, true), (true, false), (true, true)]
+        {
+            for target_kind in ["file", "directory", "missing"] {
+                let destination = gix_testtools::tempfile::tempdir_in(temp.path())?;
+                let outside = gix_testtools::tempfile::tempdir_in(temp.path())?;
+                let target = outside.path().join("target");
+                let canary = if target_kind == "directory" {
+                    std::fs::create_dir(&target)?;
+                    target.join("canary")
+                } else {
+                    target.clone()
+                };
+                if target_kind != "missing" {
+                    std::fs::write(&canary, b"untouched")?;
+                }
+                let checked_out = destination.path().join("entry");
+                gix_fs::symlink::create(&target, &checked_out)?;
 
-    for overwrite_existing in [false, true] {
-        opts.overwrite_existing = overwrite_existing;
-        let outside = gix_testtools::tempfile::tempdir_in(std::env::current_dir()?)?;
-        let canary = outside.path().join("canary");
-        std::fs::write(&canary, b"untouched")?;
-        let (_source, destination, _index, outcome) = checkout_index_in_tmp_dir_opts(
-            opts.clone(),
-            "make_mixed_without_submodules_and_symlinks",
-            None,
-            |_| true,
-            |destination| gix_fs::symlink::create(&canary, &destination.join("executable")),
-        )?;
+                let object_hash = gix_testtools::object_hash();
+                let objects = gix_odb::memory::Proxy::new(gix_object::find::Never, object_hash);
+                let content_blob_id = objects.write_buf(gix_object::Kind::Blob, b"content")?;
+                let mut index = gix_index::State::new(object_hash);
+                index.dangerously_push_entry(
+                    Default::default(),
+                    content_blob_id,
+                    gix_index::entry::Flags::empty(),
+                    mode,
+                    "entry".into(),
+                );
+                index.sort_entries();
+                let outcome = gix_worktree_state::checkout(
+                    &mut index,
+                    destination.path(),
+                    objects,
+                    &progress::Discard,
+                    &progress::Discard,
+                    &AtomicBool::default(),
+                    gix_worktree_state::checkout::Options {
+                        // Exercise regular files and the symlink-as-file fallback with the same collisions.
+                        fs: gix_fs::Capabilities {
+                            symlink: false,
+                            ..capabilities
+                        },
+                        destination_is_initially_empty,
+                        overwrite_existing,
+                        thread_limit: Some(1),
+                        ..gix_worktree_state::checkout::Options::new(gix_filter::Pipeline::new(
+                            Default::default(),
+                            object_hash,
+                            Default::default(),
+                        ))
+                    },
+                )?;
 
-        assert!(
-            outcome.errors.is_empty(),
-            "checkout should not encounter non-collision errors"
-        );
-        let checked_out = destination.path().join("executable");
-        if overwrite_existing {
-            assert!(
-                outcome.collisions.is_empty(),
-                "forced checkout should replace the symlink"
-            );
-            assert!(
-                checked_out.symlink_metadata()?.is_file(),
-                "the symlink must become a regular file"
-            );
-            assert_eq!(
-                std::fs::read(&checked_out)?,
-                b"content",
-                "the regular file must be checked out"
-            );
-        } else {
-            assert_eq!(
-                outcome.collisions.len(),
-                1,
-                "non-forced checkout should report the terminal symlink as a collision"
-            );
-            assert_eq!(
-                outcome.collisions[0].path, "executable",
-                "the collision should identify the terminal symlink"
-            );
-            #[cfg(windows)]
-            assert_eq!(
-                outcome.collisions[0].error_kind, AlreadyExists,
-                "the collision error kind differs by platform and is only stable on Windows"
-            );
-            assert!(
-                checked_out.symlink_metadata()?.file_type().is_symlink(),
-                "non-forced checkout must leave the symlink in place"
-            );
+                assert!(
+                    outcome.errors.is_empty(),
+                    "checkout should only encounter collisions (mode={mode:?}, empty={destination_is_initially_empty}, force={overwrite_existing}, target={target_kind})"
+                );
+                if overwrite_existing {
+                    assert!(
+                        outcome.collisions.is_empty(),
+                        "forced checkout should replace the symlink"
+                    );
+                    assert!(
+                        checked_out.symlink_metadata()?.is_file(),
+                        "the symlink must become a regular file"
+                    );
+                    assert_eq!(
+                        std::fs::read(&checked_out)?,
+                        b"content",
+                        "the regular file must be checked out"
+                    );
+                } else {
+                    assert_eq!(
+                        outcome.collisions.len(),
+                        1,
+                        "non-forced checkout should report the terminal symlink as a collision"
+                    );
+                    assert_eq!(
+                        outcome.collisions[0].path, "entry",
+                        "the collision should identify the terminal symlink"
+                    );
+                    #[cfg(windows)]
+                    if !destination_is_initially_empty {
+                        assert_eq!(
+                            outcome.collisions[0].error_kind, AlreadyExists,
+                            "the stack rejects terminal links before a nonexclusive open"
+                        );
+                    }
+                    assert_eq!(
+                        std::fs::read_link(&checked_out)?,
+                        target,
+                        "non-forced checkout must leave the symlink unchanged"
+                    );
+                }
+                if target_kind == "missing" {
+                    assert!(
+                        !target.try_exists()?,
+                        "checkout must not create a dangling link's target"
+                    );
+                } else {
+                    assert_eq!(
+                        std::fs::read(&canary)?,
+                        b"untouched",
+                        "the symlink target must stay unchanged"
+                    );
+                }
+            }
         }
-        assert_eq!(
-            std::fs::read(&canary)?,
-            b"untouched",
-            "the symlink target must stay unchanged"
-        );
     }
     Ok(())
 }
 
 #[test]
-fn delayed_symlinks_do_not_reuse_replaced_directory_prefixes() -> gix_testtools::Result {
+fn delayed_symlinks_do_not_reuse_replaced_directory_prefixes() -> gix_testtools::TestResult {
     use gix_index::entry::Mode;
     use gix_object::Write;
 
@@ -217,8 +273,12 @@ fn delayed_symlinks_do_not_reuse_replaced_directory_prefixes() -> gix_testtools:
 
             let object_hash = gix_testtools::object_hash();
             let objects = gix_odb::memory::Proxy::new(gix_object::find::Never, object_hash);
-            let directory_blob_id =
-                objects.write_buf(gix_object::Kind::Blob, gix_path::into_bstr(outside.path()).as_ref())?;
+            let directory_blob_id = objects.write_buf(
+                gix_object::Kind::Blob,
+                gix_path::into_bstr(outside.path())
+                    .expect("fixture path is representable")
+                    .as_ref(),
+            )?;
             let link_blob_id = objects.write_buf(gix_object::Kind::Blob, b"target")?;
             let seed_blob_id = objects.write_buf(gix_object::Kind::Blob, b"seed")?;
             let child_path = format!("{prefix}/canary");
@@ -298,7 +358,7 @@ fn delayed_symlinks_do_not_reuse_replaced_directory_prefixes() -> gix_testtools:
 }
 
 #[test]
-fn filter_spawn_errors_are_not_collisions() -> Result {
+fn filter_spawn_errors_are_not_collisions() -> TestResult {
     let mut error_snapshots = Vec::new();
     // A relative path with forward slashes makes spawning fail directly, without a shell.
     let dir = gix_testtools::tempfile::tempdir_in(".")?;
@@ -315,7 +375,12 @@ fn filter_spawn_errors_are_not_collisions() -> Result {
         opts.filters.options_mut().drivers = vec![gix_filter::Driver {
             name: "arrow".into(),
             clean: None,
-            smudge: Some(gix_path::to_unix_separators_on_windows(gix_path::into_bstr(&program)).into_owned()),
+            smudge: Some(
+                gix_path::to_unix_separators_on_windows(
+                    gix_path::into_bstr(&program).expect("fixture path is representable"),
+                )
+                .into_owned(),
+            ),
             process: None,
             required: true,
         }];
@@ -348,11 +413,11 @@ fn filter_spawn_errors_are_not_collisions() -> Result {
     #[cfg(not(windows))]
     insta::assert_debug_snapshot!(error_snapshots, "filter spawn errors are not collisions", @r#"
     [
-        Failed to spawn driver: "<filter-program>", "program"="<filter-program>"
+        Failed to spawn driver: "<filter-program>", program="<filter-program>"
         
         Caused by:
             0: FilesystemLoop,
-        Failed to spawn driver: "<filter-program>", "program"="<filter-program>"
+        Failed to spawn driver: "<filter-program>", program="<filter-program>"
         
         Caused by:
             0: FilesystemLoop,
@@ -361,11 +426,11 @@ fn filter_spawn_errors_are_not_collisions() -> Result {
     #[cfg(windows)]
     insta::assert_debug_snapshot!(error_snapshots, "filter spawn errors are not collisions", @r#"
     [
-        Failed to spawn driver: "<filter-program>", "program"="<filter-program>"
+        Failed to spawn driver: "<filter-program>", program="<filter-program>"
         
         Caused by:
             0: PermissionDenied,
-        Failed to spawn driver: "<filter-program>", "program"="<filter-program>"
+        Failed to spawn driver: "<filter-program>", program="<filter-program>"
         
         Caused by:
             0: PermissionDenied,
@@ -375,7 +440,7 @@ fn filter_spawn_errors_are_not_collisions() -> Result {
 }
 
 #[test]
-fn delayed_driver_process() -> Result {
+fn delayed_driver_process() -> TestResult {
     let mut opts = opts_from_probe();
     opts.filter_process_delay = gix_filter::driver::apply::Delay::Allow;
     setup_filter_pipeline(opts.filters.options_mut());
@@ -422,7 +487,7 @@ fn delayed_driver_process() -> Result {
 }
 
 #[test]
-fn filter_process_failure_during_shutdown_is_ignored() -> Result {
+fn filter_process_failure_during_shutdown_is_ignored() -> TestResult {
     let mut opts = opts_from_probe();
     setup_filter_pipeline(opts.filters.options_mut());
     opts.filters
@@ -462,7 +527,7 @@ fn forgotten_delayed_path_is_a_corruption_error() {
 
 #[cfg(unix)]
 #[test]
-fn delayed_driver_process_removes_obsolete_executable_bits() -> Result {
+fn delayed_driver_process_removes_obsolete_executable_bits() -> TestResult {
     let mut opts = opts_from_probe();
     opts.destination_is_initially_empty = false;
     opts.filter_process_delay = gix_filter::driver::apply::Delay::Allow;
@@ -492,7 +557,7 @@ fn delayed_driver_process_removes_obsolete_executable_bits() -> Result {
 
 #[cfg(unix)]
 #[test]
-fn nonexclusive_checkout_adjusts_executable_bits_in_both_directions() -> Result {
+fn nonexclusive_checkout_adjusts_executable_bits_in_both_directions() -> TestResult {
     for overwrite_existing in [false, true] {
         let mut opts = opts_from_probe();
         opts.destination_is_initially_empty = false;
@@ -535,7 +600,7 @@ fn nonexclusive_checkout_adjusts_executable_bits_in_both_directions() -> Result 
 }
 
 #[test]
-fn overwriting_files_and_lone_directories_works() -> Result {
+fn overwriting_files_and_lone_directories_works() -> TestResult {
     for delay in [
         gix_filter::driver::apply::Delay::Allow,
         gix_filter::driver::apply::Delay::Forbid,
@@ -633,7 +698,7 @@ fn overwriting_files_and_lone_directories_works() -> Result {
 }
 
 #[test]
-fn symlinks_become_files_if_disabled() -> Result {
+fn symlinks_become_files_if_disabled() -> TestResult {
     let mut opts = opts_from_probe();
     opts.fs.symlink = false;
     let (source_tree, destination, _index, outcome) =
@@ -645,7 +710,7 @@ fn symlinks_become_files_if_disabled() -> Result {
 }
 
 #[test]
-fn symlinks_to_directories_are_usable() -> Result {
+fn symlinks_to_directories_are_usable() -> TestResult {
     let opts = opts_from_probe();
     assert!(opts.fs.symlink, "The probe must detect to be able to generate symlinks");
 
@@ -656,25 +721,15 @@ fn symlinks_to_directories_are_usable() -> Result {
 
     assert_eq!(worktree_files_stripped, paths(["symlink"]));
     let symlink_path = &worktree_files[0];
-    assert!(
-        symlink_path
-            .symlink_metadata()
-            .expect("symlink is on disk")
-            .is_symlink()
-    );
-    assert!(
-        symlink_path
-            .metadata()
-            .expect("metadata accessible through symlink")
-            .is_dir()
-    );
+    assert!(symlink_path.symlink_metadata()?.is_symlink());
+    assert!(symlink_path.metadata()?.is_dir());
     assert_eq!(std::fs::read_link(symlink_path)?, Path::new("."));
     assert!(outcome.collisions.is_empty());
     Ok(())
 }
 
 #[test]
-fn dangling_symlinks_can_be_created() -> Result {
+fn dangling_symlinks_can_be_created() -> TestResult {
     let opts = opts_from_probe();
     assert!(opts.fs.symlink, "The probe must detect to be able to generate symlinks");
 
@@ -697,12 +752,7 @@ fn dangling_symlinks_can_be_created() -> Result {
 
         assert_eq!(worktree_files_stripped, paths([symlink_name]));
         let symlink_path = &worktree_files[0];
-        assert!(
-            symlink_path
-                .symlink_metadata()
-                .expect("dangling symlink is on disk")
-                .is_symlink()
-        );
+        assert!(symlink_path.symlink_metadata()?.is_symlink());
         assert_eq!(std::fs::read_link(symlink_path)?, Path::new(target_name));
         assert!(outcome.collisions.is_empty());
     }
@@ -711,7 +761,7 @@ fn dangling_symlinks_can_be_created() -> Result {
 }
 
 #[test]
-fn allow_or_disallow_symlinks() -> Result {
+fn allow_or_disallow_symlinks() -> TestResult {
     let mut opts = opts_from_probe();
     for allowed in &[false, true] {
         opts.fs.symlink = *allowed;
@@ -812,7 +862,7 @@ fn no_case_related_collisions_on_case_sensitive_filesystem() {
 }
 
 #[test]
-fn safety_checks_dotdot_trees() {
+fn safety_checks_dotdot_trees() -> TestResult {
     let mut opts = opts_from_probe();
     let err =
         checkout_index_in_tmp_dir(opts.clone(), "make_traverse_trees", Some("traverse_dotdot_trees")).unwrap_err();
@@ -825,8 +875,7 @@ fn safety_checks_dotdot_trees() {
 
     opts.keep_going = true;
     let (_source_tree, _destination, _index, outcome) =
-        checkout_index_in_tmp_dir(opts, "make_traverse_trees", Some("traverse_dotdot_trees"))
-            .expect("keep-going checks out as much as possible");
+        checkout_index_in_tmp_dir(opts, "make_traverse_trees", Some("traverse_dotdot_trees"))?;
     assert_eq!(outcome.errors.len(), 1, "one path could not be checked out");
     insta::assert_debug_snapshot!(outcome.errors[0].error, "safety checks dotdot trees", @r#"
     I/O error (Other)
@@ -834,6 +883,7 @@ fn safety_checks_dotdot_trees() {
     Caused by:
         0: Input path "../outside" contains relative or absolute components
     "#);
+    Ok(())
 }
 
 #[test]
@@ -937,7 +987,7 @@ fn collisions_are_detected_on_a_case_insensitive_filesystem_even_with_delayed_fi
 }
 
 fn multi_threaded() -> bool {
-    gix_features::parallel::num_threads(None) > 1
+    gix_parallel::num_threads(None) > 1
 }
 
 fn assert_equality(source_tree: &Path, destination: &TempDir, allow_symlinks: bool) -> Result<usize> {
@@ -1067,7 +1117,7 @@ fn opts_from_probe() -> gix_worktree_state::checkout::Options {
     gix_worktree_state::checkout::Options {
         fs: *CAPABILITIES,
         destination_is_initially_empty: true,
-        thread_limit: gix_features::parallel::num_threads(None).into(),
+        thread_limit: gix_parallel::num_threads(None).into(),
         ..gix_worktree_state::checkout::Options::new(gix_filter::Pipeline::new(
             Default::default(),
             gix_testtools::object_hash(),
@@ -1092,7 +1142,7 @@ fn setup_filter_pipeline(opts: &mut gix_filter::pipeline::Options) {
 }
 
 #[test]
-fn checkout_truncates_existing_longer_files() -> Result {
+fn checkout_truncates_existing_longer_files() -> TestResult {
     let mut opts = opts_from_probe();
     opts.overwrite_existing = false;
     opts.destination_is_initially_empty = false;

@@ -1,7 +1,7 @@
 #![no_main]
 
 use gix_error::Result;
-use gix_features::progress;
+use gix_utils::progress;
 use gix_hash::Prefix;
 use gix_pack::multi_index;
 use gix_pack_fuzz::{empty_candidates, interrupt_flag, virtual_path};
@@ -27,7 +27,9 @@ fn fuzz(input: &[u8]) -> Result<()> {
     _ = black_box(index.index_names());
     _ = black_box(index.checksum());
     _ = black_box(index.verify_checksum(&mut progress::Discard, &interrupt_flag()));
-    _ = black_box(index.iter().take(8).count());
+    index.iter().take(8).for_each(|entry| {
+        _ = black_box(entry);
+    });
 
     if index.num_objects() > 0 {
         let first = index.oid_at_index(0).to_owned();

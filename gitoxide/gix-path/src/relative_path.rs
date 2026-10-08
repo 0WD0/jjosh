@@ -5,7 +5,7 @@ use bstr::{BStr, BString, ByteSlice};
 use gix_error::{ResultExt, bail};
 use gix_validate::path::component::Options;
 
-use crate::{os_str_into_bstr, try_from_bstr, try_from_byte_slice};
+use crate::{from_byte_slice, os_str_into_bstr};
 
 pub(super) mod types {
     use bstr::{BStr, ByteSlice};
@@ -32,11 +32,11 @@ pub(super) mod types {
 use types::RelativePath;
 
 impl RelativePath {
-    fn new_unchecked(value: &BStr) -> Result<&RelativePath> {
+    fn new_unchecked(value: &BStr) -> &RelativePath {
         // SAFETY: `RelativePath` is transparent and equivalent to a `&BStr` if provided as reference.
         #[expect(unsafe_code)]
         unsafe {
-            Ok(std::mem::transmute::<&BStr, &RelativePath>(value))
+            std::mem::transmute::<&BStr, &RelativePath>(value)
         }
     }
 }
@@ -55,7 +55,7 @@ fn relative_path_from_value_and_path<'a>(path_bstr: &'a BStr, path: &Path) -> Re
             .or_raise(|| validation("Relative path contains an invalid component").with_input(component))?;
     }
 
-    RelativePath::new_unchecked(BStr::new(path_bstr.as_bytes()))
+    Ok(RelativePath::new_unchecked(path_bstr))
 }
 
 impl<'a> TryFrom<&'a str> for &'a RelativePath {
@@ -70,8 +70,8 @@ impl<'a> TryFrom<&'a BStr> for &'a RelativePath {
     type Error = gix_error::Error;
 
     fn try_from(value: &'a BStr) -> Result<Self> {
-        let path = try_from_bstr(value)?;
-        relative_path_from_value_and_path(value, &path)
+        let path = from_byte_slice(value)?;
+        relative_path_from_value_and_path(value, path)
     }
 }
 
@@ -80,7 +80,7 @@ impl<'a> TryFrom<&'a [u8]> for &'a RelativePath {
 
     #[inline]
     fn try_from(value: &'a [u8]) -> Result<Self> {
-        let path = try_from_byte_slice(value)?;
+        let path = from_byte_slice(value)?;
         relative_path_from_value_and_path(value.as_bstr(), path)
     }
 }
@@ -90,7 +90,7 @@ impl<'a, const N: usize> TryFrom<&'a [u8; N]> for &'a RelativePath {
 
     #[inline]
     fn try_from(value: &'a [u8; N]) -> Result<Self> {
-        let path = try_from_byte_slice(value.as_bstr())?;
+        let path = from_byte_slice(value.as_bstr())?;
         relative_path_from_value_and_path(value.as_bstr(), path)
     }
 }
@@ -99,7 +99,7 @@ impl<'a> TryFrom<&'a BString> for &'a RelativePath {
     type Error = gix_error::Error;
 
     fn try_from(value: &'a BString) -> Result<Self> {
-        let path = try_from_bstr(value.as_bstr())?;
-        relative_path_from_value_and_path(value.as_bstr(), &path)
+        let path = from_byte_slice(value.as_bstr())?;
+        relative_path_from_value_and_path(value.as_bstr(), path)
     }
 }

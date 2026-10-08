@@ -25,7 +25,7 @@ fn user_home(name: &str) -> std::path::PathBuf {
 }
 
 #[test]
-fn without_username() -> gix_error::TestResult {
+fn without_username() -> gix_testtools::TestResult {
     let (user, resolved_path) = expand_path::parse(b"/~/hello/git".as_bstr())?;
     let resolved_path = expand_path::with(user.as_ref(), resolved_path.as_ref(), |user: &ForUser| match user {
         ForUser::Current => Some(user_home("byron")),
@@ -36,7 +36,7 @@ fn without_username() -> gix_error::TestResult {
 }
 
 #[test]
-fn with_username() -> gix_error::TestResult {
+fn with_username() -> gix_testtools::TestResult {
     let (user, resolved_path) = expand_path::parse(b"/~byron/hello/git".as_bstr())?;
     let resolved_path = expand_path::with(user.as_ref(), resolved_path.as_ref(), |user: &ForUser| match user {
         ForUser::Current => unreachable!("we have a name"),

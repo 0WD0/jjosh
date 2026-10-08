@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{ffi::OsStr, path::PathBuf};
 
 #[cfg(feature = "worktree-archive")]
 pub use gix_archive as archive;
@@ -17,12 +17,12 @@ pub mod add;
 pub mod remove;
 
 use crate::{
-    Repository,
+    Repository, Result,
     bstr::{BStr, BString},
 };
 
 #[cfg(feature = "index")]
-pub(crate) type IndexStorage = gix_features::threading::OwnShared<gix_fs::SharedFileSnapshotMut<gix_index::File>>;
+pub(crate) type IndexStorage = gix_parallel::OwnShared<gix_fs::SharedFileSnapshotMut<gix_index::File>>;
 /// A lazily loaded and auto-updated worktree index.
 #[cfg(feature = "index")]
 pub type Index = gix_fs::SharedFileSnapshot<gix_index::File>;
@@ -78,7 +78,7 @@ impl<'repo> crate::Worktree<'repo> {
     ///
     /// It cannot be removed.
     pub fn is_main(&self) -> bool {
-        self.id().is_none()
+        id(self.parent.git_dir(), self.parent.common_dir.is_some()).is_none()
     }
 
     /// Return true if this worktree cannot be pruned, moved or deleted, which is useful if it is located on an external storage device.
@@ -96,9 +96,12 @@ impl<'repo> crate::Worktree<'repo> {
         Proxy::new(self.parent, self.parent.git_dir()).lock_reason()
     }
 
-    /// Return the ID of the repository worktree, if it is a linked worktree, or `None` if it's a linked worktree.
-    pub fn id(&self) -> Option<&BStr> {
+    /// Return the ID of the repository worktree, if it is a linked worktree, or `Ok(None)` if it's the main worktree.
+    /// Return an error if its directory name cannot be represented as Git bytes.
+    pub fn id(&self) -> Result<Option<&BStr>> {
         id(self.parent.git_dir(), self.parent.common_dir.is_some())
+            .map(gix_path::os_str_into_bstr)
+            .transpose()
     }
 
     /// Returns true if the `.git` file or directory exists within the worktree.
@@ -109,14 +112,12 @@ impl<'repo> crate::Worktree<'repo> {
     }
 }
 
-pub(crate) fn id(git_dir: &std::path::Path, has_common_dir: bool) -> Option<&BStr> {
+fn id(git_dir: &std::path::Path, has_common_dir: bool) -> Option<&OsStr> {
     if !has_common_dir {
         return None;
     }
-    let candidate = gix_path::os_str_into_bstr(git_dir.file_name().expect("at least one directory level"))
-        .expect("no illformed UTF-8");
-    let maybe_worktrees = git_dir.parent()?;
-    (maybe_worktrees.file_name()?.to_str()? == "worktrees").then_some(candidate)
+    let candidate = git_dir.file_name().expect("at least one directory level");
+    (git_dir.parent()?.file_name()? == "worktrees").then_some(candidate)
 }
 
 ///

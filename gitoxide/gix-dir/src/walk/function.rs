@@ -30,11 +30,8 @@ use crate::{
 ///
 /// ### Performance Notes
 ///
-/// In theory, parallel directory traversal can be significantly faster, and what's possible for our current
-/// `gix_features::fs::WalkDir` implementation is to abstract a `filter_entry()` method so it works both for
-/// the iterator from the `walkdir` crate as well as from `jwalk`. However, doing so as initial version
-/// has the risk of not being significantly harder if not impossible to implement as flow-control is very
-/// limited.
+/// Parallel traversal is abandoned as it's not worth managing a thread-pool over this, also given that
+/// traversal is rare in typical Git usage.
 ///
 /// Thus the decision was made to start out with something akin to the Git implementation, get all tests and
 /// baseline comparison to pass, and see if an iterator with just `filter_entry` would be capable of dealing with
@@ -53,14 +50,13 @@ pub fn walk(
 ) -> Result<(Outcome, PathBuf)> {
     let root = match ctx.explicit_traversal_root {
         Some(root) => root.to_owned(),
-        None => ctx
-            .pathspec
-            .longest_common_directory()
-            .and_then(|candidate| {
-                let candidate = worktree_root.join(candidate);
-                candidate.is_dir().then_some(candidate)
-            })
-            .unwrap_or_else(|| worktree_root.join(ctx.pathspec.prefix_directory())),
+        None => match ctx.pathspec.longest_common_directory()?.and_then(|candidate| {
+            let candidate = worktree_root.join(candidate);
+            candidate.is_dir().then_some(candidate)
+        }) {
+            Some(root) => root,
+            None => worktree_root.join(ctx.pathspec.prefix_directory()?),
+        },
     };
     let _span = gix_trace::coarse!("walk", root = ?root, worktree_root = ?worktree_root, options = ?options);
     let (mut current, worktree_root_relative) = assure_no_symlink_in_root(worktree_root, &root)?;
@@ -96,7 +92,7 @@ pub fn walk(
             );
         }
         if options.precompose_unicode {
-            buf = gix_path::into_bstr(gix_utils::str::precompose_path(gix_path::from_bstr(buf))).into_owned();
+            buf = gix_path::into_bstr(gix_utils::str::precompose_path(gix_path::from_bstr(buf)?))?.into_owned();
         }
         let _ = emit_entry(
             Cow::Borrowed(buf.as_bstr()),

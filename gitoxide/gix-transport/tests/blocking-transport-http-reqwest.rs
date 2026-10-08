@@ -25,17 +25,16 @@ use http_helpers::{observe_connection_within_deadline, read_request_lines, respo
 /// without an HTTP status (for example a connection or TLS failure), the underlying error must be
 /// kept as `source()` instead of being stringified, so callers can see the real cause.
 #[test]
-fn request_failure_without_status_preserves_error_source() {
+fn request_failure_without_status_preserves_error_source() -> gix_testtools::TestResult {
     // Bind then immediately drop a listener so the port reliably refuses connections: a failure
     // with no HTTP status, exercising the path that previously stringified the error.
     let addr = {
-        let server = std::net::TcpListener::bind("127.0.0.1:0").expect("can bind an ephemeral port");
-        server.local_addr().expect("listener has a local address")
+        let server = std::net::TcpListener::bind("127.0.0.1:0")?;
+        server.local_addr()?
     };
 
     let url = format!("http://{addr}/repo");
-    let mut client =
-        http::connect::<http::reqwest::Remote>(url.as_str().try_into().expect("the url is valid"), Protocol::V1, false);
+    let mut client = http::connect::<http::reqwest::Remote>(url.as_str().try_into()?, Protocol::V1, false);
 
     let error = client
         .handshake(Service::UploadPack, &[])
@@ -49,10 +48,11 @@ fn request_failure_without_status_preserves_error_source() {
         io_error.source().is_some(),
         "the underlying error must be preserved as source(), not stringified: {io_error:?}"
     );
+    Ok(())
 }
 
 #[test]
-fn redirects_are_not_followed_with_configure_request_hook() -> Result<(), Box<dyn Error + Send + Sync>> {
+fn redirects_are_not_followed_with_configure_request_hook() -> gix_testtools::TestResult {
     let redirected_listener = std::net::TcpListener::bind("127.0.0.1:0")?;
     let redirected_addr = redirected_listener.local_addr()?;
     let redirect_listener = std::net::TcpListener::bind("127.0.0.1:0")?;
@@ -131,7 +131,7 @@ fn redirects_are_not_followed_with_configure_request_hook() -> Result<(), Box<dy
 }
 
 #[test]
-fn relative_redirects_normalize_the_updated_base_url() -> Result<(), Box<dyn Error + Send + Sync>> {
+fn relative_redirects_normalize_the_updated_base_url() -> gix_testtools::TestResult {
     let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
     let addr = listener.local_addr()?;
     let port = addr.port();
@@ -192,7 +192,7 @@ fn relative_redirects_normalize_the_updated_base_url() -> Result<(), Box<dyn Err
 }
 
 #[test]
-fn cross_authority_redirects_are_not_followed_without_matching_tail() -> Result<(), Box<dyn Error + Send + Sync>> {
+fn cross_authority_redirects_are_not_followed_without_matching_tail() -> gix_testtools::TestResult {
     let redirected_listener = std::net::TcpListener::bind("127.0.0.1:0")?;
     let redirected_addr = redirected_listener.local_addr()?;
     let redirect_listener = std::net::TcpListener::bind("127.0.0.1:0")?;

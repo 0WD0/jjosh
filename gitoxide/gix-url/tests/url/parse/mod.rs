@@ -90,7 +90,7 @@ mod radicle {
     use crate::parse::{assert_url_roundtrip, url};
 
     #[test]
-    fn basic() -> gix_error::TestResult {
+    fn basic() -> gix_testtools::TestResult {
         Ok(assert_url_roundtrip(
             "rad://hynkuwzskprmswzeo4qdtku7grdrs4ffj3g9tjdxomgmjzhtzpqf81@hwd1yregyf1dudqwkx85x5ps3qsrqw3ihxpx3ieopq6ukuuq597p6m8161c.git",
             url(
@@ -111,7 +111,7 @@ mod ports {
     use gix_url::Scheme;
 
     #[test]
-    fn max_valid_port() -> gix_error::TestResult {
+    fn max_valid_port() -> gix_testtools::TestResult {
         Ok(assert_url_roundtrip(
             "ssh://host.xz:65535/repo",
             url(Scheme::Ssh, None, "host.xz", 65535, b"/repo"),
@@ -119,7 +119,7 @@ mod ports {
     }
 
     #[test]
-    fn port_one() -> gix_error::TestResult {
+    fn port_one() -> gix_testtools::TestResult {
         Ok(assert_url_roundtrip(
             "ssh://host.xz:1/repo",
             url(Scheme::Ssh, None, "host.xz", 1, b"/repo"),
@@ -133,7 +133,7 @@ mod git {
     use crate::parse::{assert_url_roundtrip, url};
 
     #[test]
-    fn username_expansion_with_username() -> gix_error::TestResult {
+    fn username_expansion_with_username() -> gix_testtools::TestResult {
         Ok(assert_url_roundtrip(
             "git://example.com/~byron/hello",
             url(Scheme::Git, None, "example.com", None, b"~byron/hello"),
@@ -141,14 +141,14 @@ mod git {
     }
 
     #[test]
-    fn default_port_is_9418() -> gix_error::TestResult {
+    fn default_port_is_9418() -> gix_testtools::TestResult {
         let url = url(Scheme::Git, None, "example.com", None, b"/repo");
         assert_eq!(url.port_or_default(), Some(9418));
         Ok(())
     }
 
     #[test]
-    fn git_with_explicit_port() -> gix_error::TestResult {
+    fn git_with_explicit_port() -> gix_testtools::TestResult {
         Ok(assert_url_roundtrip(
             "git://example.com:1234/repo",
             url(Scheme::Git, None, "example.com", 1234, b"/repo"),
@@ -162,7 +162,7 @@ mod unknown {
     use crate::parse::{assert_url_roundtrip, url};
 
     #[test]
-    fn any_protocol_is_supported_via_a_remote_helper_url() -> gix_error::TestResult {
+    fn any_protocol_is_supported_via_a_remote_helper_url() -> gix_testtools::TestResult {
         Ok(assert_url_roundtrip(
             "abc://example.com/~byron/hello",
             url(

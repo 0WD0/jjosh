@@ -1,4 +1,4 @@
-pub type Result = std::result::Result<(), Box<dyn std::error::Error + Send + Sync>>;
+pub use gix_testtools::TestResult;
 
 pub fn fixture_bytes(path: &str) -> Vec<u8> {
     std::fs::read(std::path::PathBuf::from("tests").join("fixtures").join(path))

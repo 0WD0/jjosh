@@ -38,12 +38,12 @@ impl crate::Find for Memory {
         }))
     }
 
-    fn location_by_oid(&self, _id: &gix_hash::oid, _buf: &mut Vec<u8>) -> Option<crate::data::entry::Location> {
-        None
+    fn location_by_oid(&self, _id: &gix_hash::oid, _buf: &mut Vec<u8>) -> Result<Option<crate::data::entry::Location>> {
+        Ok(None)
     }
 
-    fn pack_offsets_and_oid(&self, _pack_id: u32) -> Option<Vec<(crate::data::Offset, gix_hash::ObjectId)>> {
-        None
+    fn pack_offsets_and_oid(&self, _pack_id: u32) -> Result<Option<Vec<(crate::data::Offset, gix_hash::ObjectId)>>> {
+        Ok(None)
     }
 
     fn entry_by_location(&self, _location: &crate::data::entry::Location) -> Option<Entry> {

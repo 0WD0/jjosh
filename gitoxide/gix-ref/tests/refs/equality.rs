@@ -82,7 +82,7 @@ macro_rules! assert_reference_name_equality {
 }
 
 #[test]
-fn name_types_compare_with_text_and_byte_strings() -> gix_testtools::Result {
+fn name_types_compare_with_text_and_byte_strings() -> gix_testtools::TestResult {
     let full = FullName::try_from("refs/heads/main")?;
     let full_ref: &FullNameRef = full.as_ref();
     assert_eq!(full, full_ref, "owned and borrowed full names match");
@@ -103,7 +103,7 @@ fn name_types_compare_with_text_and_byte_strings() -> gix_testtools::Result {
 }
 
 #[test]
-fn names_compare_as_exact_bytes() -> gix_testtools::Result {
+fn names_compare_as_exact_bytes() -> gix_testtools::TestResult {
     let full_bytes = b"refs/heads/\xff".as_bstr();
     let full = FullName::try_from(full_bytes)?;
     let full_ref: &FullNameRef = full.as_ref();
@@ -126,7 +126,7 @@ fn names_compare_as_exact_bytes() -> gix_testtools::Result {
 }
 
 #[test]
-fn references_compare_by_name_without_changing_structural_equality() -> gix_testtools::Result {
+fn references_compare_by_name_without_changing_structural_equality() -> gix_testtools::TestResult {
     let name = FullName::try_from("refs/heads/main")?;
     let raw = gix_ref::Reference {
         name: name.clone(),

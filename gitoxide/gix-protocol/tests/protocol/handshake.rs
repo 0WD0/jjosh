@@ -11,7 +11,7 @@ use gix_protocol::handshake::{Ref, refs};
 #[crate::bisync::bisync]
 #[cfg_attr(feature = "blocking-client", test)]
 #[cfg_attr(all(feature = "async-client", not(feature = "blocking-client")), async_std::test)]
-async fn extract_references_from_v2_refs() {
+async fn extract_references_from_v2_refs() -> gix_testtools::TestResult {
     let input = &mut Fixture(
         "808e50d724f604f69ab93c6da2919c014667bedb HEAD symref-target:refs/heads/main
 808e50d724f604f69ab93c6da2919c014667bedb MISSING_NAMESPACE_TARGET symref-target:(null)
@@ -25,7 +25,7 @@ unborn refs/heads/symbolic symref-target:refs/heads/target
             .as_bytes(),
     );
 
-    let out = refs::from_v2_refs(input).await.expect("no failure on valid input");
+    let out = refs::from_v2_refs(input).await?;
 
     assert_eq!(
         out,
@@ -69,12 +69,13 @@ unborn refs/heads/symbolic symref-target:refs/heads/target
             },
         ]
     );
+    Ok(())
 }
 
 #[crate::bisync::bisync]
 #[cfg_attr(feature = "blocking-client", test)]
 #[cfg_attr(all(feature = "async-client", not(feature = "blocking-client")), async_std::test)]
-async fn extract_references_from_v1_refs() {
+async fn extract_references_from_v1_refs() -> gix_testtools::TestResult {
     let input = &mut Fixture(
         "73a6868963993a3328e7d8fe94e5a6ac5078a944 HEAD
 21c9b7500cb144b3169a6537961ec2b9e865be81 MISSING_NAMESPACE_TARGET
@@ -86,13 +87,11 @@ dce0ea858eef7ff61ad345cc5cdac62203fb3c10 refs/tags/gix-commitgraph-v0.0.0
     );
     let (out, shallow) = refs::from_v1_refs_received_as_part_of_handshake_and_capabilities(
         input,
-        Capabilities::from_bytes(b"\0symref=HEAD:refs/heads/main symref=MISSING_NAMESPACE_TARGET:(null)")
-            .expect("valid capabilities")
+        Capabilities::from_bytes(b"\0symref=HEAD:refs/heads/main symref=MISSING_NAMESPACE_TARGET:(null)")?
             .0
             .iter(),
     )
-    .await
-    .expect("no failure from valid input");
+    .await?;
     assert!(shallow.is_empty());
     assert_eq!(
         out,
@@ -122,12 +121,13 @@ dce0ea858eef7ff61ad345cc5cdac62203fb3c10 refs/tags/gix-commitgraph-v0.0.0
             },
         ]
     );
+    Ok(())
 }
 
 #[crate::bisync::bisync]
 #[cfg_attr(feature = "blocking-client", test)]
 #[cfg_attr(all(feature = "async-client", not(feature = "blocking-client")), async_std::test)]
-async fn extract_references_from_v1_refs_with_shallow() {
+async fn extract_references_from_v1_refs_with_shallow() -> gix_testtools::TestResult {
     use gix_protocol::fetch::response::ShallowUpdate;
     let input = &mut Fixture(
         "73a6868963993a3328e7d8fe94e5a6ac5078a944 HEAD
@@ -142,13 +142,11 @@ shallow dce0ea858eef7ff61ad345cc5cdac62203fb3c10"
     );
     let (out, shallow) = refs::from_v1_refs_received_as_part_of_handshake_and_capabilities(
         input,
-        Capabilities::from_bytes(b"\0symref=HEAD:refs/heads/main symref=MISSING_NAMESPACE_TARGET:(null)")
-            .expect("valid capabilities")
+        Capabilities::from_bytes(b"\0symref=HEAD:refs/heads/main symref=MISSING_NAMESPACE_TARGET:(null)")?
             .0
             .iter(),
     )
-    .await
-    .expect("no failure from valid input");
+    .await?;
 
     assert_eq!(
         shallow,
@@ -185,6 +183,7 @@ shallow dce0ea858eef7ff61ad345cc5cdac62203fb3c10"
             },
         ]
     );
+    Ok(())
 }
 
 #[cfg(any(feature = "async-client", feature = "blocking-client"))]

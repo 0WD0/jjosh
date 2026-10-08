@@ -150,8 +150,8 @@ impl DelegateBlocking for LsRemoteDelegate {
 mod blocking_io {
     use std::io;
 
-    use gix_features::progress::NestedProgress;
     use gix_protocol::{fetch::Response, handshake, handshake::Ref};
+    use gix_utils::progress::NestedProgress;
 
     use super::_impl::Delegate;
     use crate::fetch::{CloneDelegate, CloneRefInWantDelegate, LsRemoteDelegate};
@@ -207,8 +207,8 @@ mod async_io {
 
     use async_trait::async_trait;
     use futures_io::AsyncBufRead;
-    use gix_features::progress::NestedProgress;
     use gix_protocol::{fetch::Response, handshake, handshake::Ref};
+    use gix_utils::progress::NestedProgress;
 
     use super::_impl::Delegate;
     use crate::fetch::{CloneDelegate, CloneRefInWantDelegate, LsRemoteDelegate};

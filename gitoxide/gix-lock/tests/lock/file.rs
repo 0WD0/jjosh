@@ -5,7 +5,7 @@ mod close {
     use gix_lock::acquire::Fail;
 
     #[test]
-    fn acquire_close_commit_to_existing_file() -> gix_error::TestResult {
+    fn acquire_close_commit_to_existing_file() -> gix_testtools::TestResult {
         let dir = tempfile::tempdir()?;
         let resource = dir.path().join("resource-existing.ext");
         std::fs::write(&resource, b"old state")?;
@@ -31,7 +31,7 @@ mod commit {
     use gix_lock::acquire::Fail;
 
     #[test]
-    fn failure_to_commit_does_return_a_registered_marker() -> gix_error::TestResult {
+    fn failure_to_commit_does_return_a_registered_marker() -> gix_testtools::TestResult {
         let dir = tempfile::tempdir()?;
         let resource = dir.path().join("resource-existing.ext");
         std::fs::create_dir(&resource)?;
@@ -53,7 +53,7 @@ mod commit {
     }
 
     #[test]
-    fn failure_to_commit_does_return_a_registered_file() -> gix_error::TestResult {
+    fn failure_to_commit_does_return_a_registered_file() -> gix_testtools::TestResult {
         let dir = tempfile::tempdir()?;
         let resource = dir.path().join("resource-existing.ext");
         std::fs::create_dir(&resource)?;
@@ -96,7 +96,7 @@ mod acquire {
     }
 
     #[test]
-    fn lock_create_dir_write_commit() -> gix_error::TestResult {
+    fn lock_create_dir_write_commit() -> gix_testtools::TestResult {
         let dir = tempfile::tempdir()?;
         let resource = dir.path().join("a").join("resource-nonexisting");
         let resource_lock = resource.with_extension("lock");
@@ -128,7 +128,7 @@ mod acquire {
 
     #[test]
     #[cfg(unix)]
-    fn shared_permissions_reach_directories_created_by_files_and_markers() -> gix_error::TestResult {
+    fn shared_permissions_reach_directories_created_by_files_and_markers() -> gix_testtools::TestResult {
         use std::{fs, os::unix::fs::PermissionsExt};
 
         let dir = tempfile::tempdir()?;
@@ -172,7 +172,7 @@ mod acquire {
     }
 
     #[test]
-    fn lock_write_drop() -> gix_error::TestResult {
+    fn lock_write_drop() -> gix_testtools::TestResult {
         let dir = tempfile::tempdir()?;
         let resource = dir.path().join("resource-nonexisting.ext");
         {
@@ -185,7 +185,7 @@ mod acquire {
 
     #[test]
     #[cfg(unix)]
-    fn lock_following_symlinks_writes_their_target() -> gix_error::TestResult {
+    fn lock_following_symlinks_writes_their_target() -> gix_testtools::TestResult {
         use std::os::unix::fs::symlink;
 
         let dir = tempfile::tempdir()?;
@@ -209,7 +209,7 @@ mod acquire {
 
     #[test]
     #[cfg(unix)]
-    fn lock_permissions_can_be_adjusted_after_applying_the_umask() -> gix_error::TestResult {
+    fn lock_permissions_can_be_adjusted_after_applying_the_umask() -> gix_testtools::TestResult {
         use std::os::unix::fs::PermissionsExt;
 
         let dir = tempfile::tempdir()?;
@@ -230,7 +230,7 @@ mod acquire {
     }
 
     #[test]
-    fn resource_path_does_not_parse_the_lock_file_name() -> gix_error::TestResult {
+    fn resource_path_does_not_parse_the_lock_file_name() -> gix_testtools::TestResult {
         let dir = tempfile::tempdir()?;
         let resource_dir = dir.path().join("resource");
         std::fs::create_dir(&resource_dir)?;
@@ -246,7 +246,7 @@ mod acquire {
     }
 
     #[test]
-    fn lock_non_existing_dir_fails() -> gix_error::TestResult {
+    fn lock_non_existing_dir_fails() -> gix_testtools::TestResult {
         let dir = tempfile::tempdir()?;
         let resource = dir.path().join("a").join("resource.ext");
         let err = gix_lock::File::acquire_to_update_resource(&resource, fail_immediately(), None, 0)

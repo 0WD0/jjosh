@@ -1,8 +1,8 @@
 use std::{path::PathBuf, sync::atomic::AtomicBool};
 
-use gix_features::progress;
 use gix_odb::loose::{Options, Store};
 use gix_testtools::fixture_path;
+use gix_utils::progress;
 use pretty_assertions::assert_eq;
 
 use crate::hex_to_id;
@@ -53,11 +53,9 @@ pub fn locate_oid(id: gix_hash::ObjectId, buf: &mut Vec<u8>) -> gix_object::Data
 }
 
 #[test]
-fn verify_integrity() {
+fn verify_integrity() -> gix_testtools::TestResult {
     let db = ldb();
-    let outcome = db
-        .verify_integrity(&mut progress::Discard, &AtomicBool::new(false))
-        .expect("fixture objects pass integrity checks");
+    let outcome = db.verify_integrity(&mut progress::Discard, &AtomicBool::new(false))?;
     assert_eq!(outcome.num_objects, 7, "all loose fixture objects were verified");
     let err = db
         .verify_integrity(&mut progress::Discard, &AtomicBool::new(true))
@@ -105,17 +103,18 @@ fn verify_integrity() {
         }),
         "cancellation identifies the original I/O interruption"
     );
+    Ok(())
 }
 
 mod write {
-    use crate::Result;
+
     use gix_object::Write;
     use gix_odb::loose;
 
     use crate::store::loose::{ldb_at, ldb_at_opts, locate_oid, object_ids};
 
     #[test]
-    fn compression_level_is_respected() -> Result {
+    fn compression_level_is_respected() -> gix_testtools::TestResult {
         use gix_zlib::Compression;
         let data: Vec<u8> = (0..64 * 1024).map(|i| (i % 100) as u8).collect();
         let mut sizes = Vec::new();
@@ -147,7 +146,7 @@ mod write {
     }
 
     #[test]
-    fn read_and_write() -> Result {
+    fn read_and_write() -> gix_testtools::TestResult {
         let dir = gix_testtools::tempfile::tempdir()?;
         let db = ldb_at(dir.path());
         let mut buf = Vec::new();
@@ -186,7 +185,7 @@ mod write {
 
     #[test]
     #[cfg(unix)]
-    fn it_writes_objects_with_similar_permissions() -> Result {
+    fn it_writes_objects_with_similar_permissions() -> gix_testtools::TestResult {
         let object_hash = gix_testtools::object_hash();
         let git_store = loose::Store::at(
             crate::scripted_fixture_read_only("repo_with_loose_objects.sh")?.join(".git/objects"),
@@ -209,7 +208,7 @@ mod write {
     }
 
     #[test]
-    fn collisions_do_not_cause_failure() -> Result {
+    fn collisions_do_not_cause_failure() -> gix_testtools::TestResult {
         let dir = gix_testtools::tempfile::tempdir()?;
 
         fn write_empty_trees(dir: &std::path::Path) {
@@ -229,7 +228,7 @@ mod write {
             }
         }
 
-        gix_features::parallel::threads(|scope| {
+        gix_parallel::threads(|scope| {
             scope.spawn(|| write_empty_trees(dir.path()));
             scope.spawn(|| write_empty_trees(dir.path()));
         });
@@ -334,7 +333,7 @@ mod lookup_prefix {
 }
 
 mod find {
-    use crate::Result;
+
     use gix_error::{Class, Message, MetadataValue, ResourceExhaustionKind};
     use gix_object::{BlobRef, CommitRef, Kind, TagRef, TreeRef, bstr::ByteSlice, tree::EntryKind};
 
@@ -348,7 +347,7 @@ mod find {
     }
 
     #[test]
-    fn invalid_object_does_not_trigger_panics() -> Result {
+    fn invalid_object_does_not_trigger_panics() -> gix_testtools::TestResult {
         let tmp = gix_testtools::tempfile::tempdir()?;
         let base = tmp.path().join("aa");
         std::fs::create_dir(&base)?;
@@ -371,15 +370,15 @@ mod find {
         assert!(db.try_header(&id).is_err(), "it must not panic");
         let err = db
             .verify_integrity(
-                &mut gix_features::progress::Discard,
+                &mut gix_utils::progress::Discard,
                 &std::sync::atomic::AtomicBool::new(false),
             )
             .expect_err("verification must report the invalid object");
         insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&(err), &[(&db.object_path(&id).to_string_lossy(), "<object-path>")]), "corrupt objects do not become valid when retried", @r#"
-        Could not read loose object during verification, "object_id"="Oid(1)"
+        Could not read loose object during verification, object_id="Oid(1)"
 
         Caused by:
-            0: Could not read loose object, "path"="<object-path>"
+            0: Could not read loose object, path="<object-path>"
             1: Empty loose object file
         "#);
         assert!(!err.can_retry(), "corrupt objects do not become valid when retried");
@@ -389,7 +388,7 @@ mod find {
     }
 
     #[test]
-    fn completed_object_size_is_validated_before_allocation() -> Result {
+    fn completed_object_size_is_validated_before_allocation() -> gix_testtools::TestResult {
         let mut error_snapshots = Vec::new();
         use std::io::Write;
 
@@ -470,21 +469,21 @@ mod find {
         }
         insta::assert_debug_snapshot!(error_snapshots, "completed object size is validated before allocation", @r#"
         [
-            Could not read loose object, "path"="<object-path>"
+            Could not read loose object, path="<object-path>"
             
             Caused by:
-                0: Loose object size mismatch: invalid size of inflated loose object, "actual"=0, "expected"=1048576,
-            Could not read loose object, "path"="<object-path>"
+                0: Loose object size mismatch: invalid size of inflated loose object, actual=0, expected=1048576,
+            Could not read loose object, path="<object-path>"
             
             Caused by:
-                0: Loose object size mismatch: invalid size of inflated loose object, "actual"=0, "expected"=<usize::MAX>,
+                0: Loose object size mismatch: invalid size of inflated loose object, actual=0, expected=<usize::MAX>,
         ]
         "#);
         Ok(())
     }
 
     #[test]
-    fn tag() -> Result {
+    fn tag() -> gix_testtools::TestResult {
         let mut buf = Vec::new();
         let o = find("722fe60ad4f0276d5a8121970b5bb9dccdad4ef9", &mut buf);
         assert_eq!(o.kind, Kind::Tag);
@@ -522,7 +521,7 @@ cjHJZXWmV4CcRfmLsXzU8s2cR9A0DBvOxhPD1TlKC2JhBFXigjuL9U4Rbq9tdegB
     }
 
     #[test]
-    fn commit() -> Result {
+    fn commit() -> gix_testtools::TestResult {
         let mut buf = Vec::new();
         let o = find("ffa700b4aca13b80cb6b98a078e7c96804f8e0ec", &mut buf);
         assert_eq!(o.kind, Kind::Commit);
@@ -542,7 +541,7 @@ cjHJZXWmV4CcRfmLsXzU8s2cR9A0DBvOxhPD1TlKC2JhBFXigjuL9U4Rbq9tdegB
     }
 
     #[test]
-    fn blob_data() -> Result {
+    fn blob_data() -> gix_testtools::TestResult {
         let mut buf = Vec::new();
         let o = find("37d4e6c5c48ba0d245164c4e10d5f41140cab980", &mut buf);
         assert_eq!(o.data.as_bstr(), b"hi there\n".as_bstr());
@@ -550,7 +549,7 @@ cjHJZXWmV4CcRfmLsXzU8s2cR9A0DBvOxhPD1TlKC2JhBFXigjuL9U4Rbq9tdegB
     }
 
     #[test]
-    fn blob() -> Result {
+    fn blob() -> gix_testtools::TestResult {
         let mut buf = Vec::new();
         let o = find("37d4e6c5c48ba0d245164c4e10d5f41140cab980", &mut buf);
         assert_eq!(
@@ -570,7 +569,7 @@ cjHJZXWmV4CcRfmLsXzU8s2cR9A0DBvOxhPD1TlKC2JhBFXigjuL9U4Rbq9tdegB
     }
 
     #[test]
-    fn blob_big() -> Result {
+    fn blob_big() -> gix_testtools::TestResult {
         let mut buf = Vec::new();
         let o = find("a706d7cd20fc8ce71489f34b50cf01011c104193", &mut buf);
         assert_eq!(
@@ -582,7 +581,7 @@ cjHJZXWmV4CcRfmLsXzU8s2cR9A0DBvOxhPD1TlKC2JhBFXigjuL9U4Rbq9tdegB
     }
 
     #[test]
-    fn blob_big_respects_alloc_limit_bytes() -> Result {
+    fn blob_big_respects_alloc_limit_bytes() -> gix_testtools::TestResult {
         let id = hex_to_id("a706d7cd20fc8ce71489f34b50cf01011c104193");
         let db = limited_ldb(1);
         let mut buf = Vec::new();
@@ -595,22 +594,21 @@ cjHJZXWmV4CcRfmLsXzU8s2cR9A0DBvOxhPD1TlKC2JhBFXigjuL9U4Rbq9tdegB
         let err = db
             .try_find(&id, &mut buf)
             .expect_err("the object exceeds the configured allocation limit");
-        let allocation = err
-            .metadata()
-            .find(|context| context.contains_key("size"))
-            .expect("the allocation limit retains its byte counts");
         let diagnostic = err
             .iter_errors()
             .filter_map(|error| error.downcast_ref::<Message>())
-            .find(|diagnostic| diagnostic.values.contains_key("size"))
+            .find(|diagnostic| {
+                diagnostic.class == Some(Class::ResourceExhaustion(ResourceExhaustionKind::AllocationLimit))
+            })
             .expect("the allocation limit has a diagnostic");
+        assert!(
+            diagnostic.values.is_empty(),
+            "allocation-limit diagnostics do not add size or limit metadata"
+        );
         assert_eq!(
-            *allocation,
-            maplit::btreemap! {
-                "limit".into() => MetadataValue::U64(1),
-                "size".into() => MetadataValue::U64(56915),
-            },
-            "allocation limits add the unsigned byte limit to the requested size"
+            diagnostic.message,
+            "Cannot store loose object of 56915 bytes in memory: the object exceeds the configured allocation limit of 1 bytes",
+            "allocation limits retain the requested size and configured limit in prose"
         );
         assert_eq!(
             diagnostic.class,
@@ -623,20 +621,23 @@ cjHJZXWmV4CcRfmLsXzU8s2cR9A0DBvOxhPD1TlKC2JhBFXigjuL9U4Rbq9tdegB
             "the allocation diagnostic and lookup context are the only nodes"
         );
         insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[(&db.object_path(&id).to_string_lossy(), "<object-path>")]), "the allocation limit retains the lookup context and requested byte count", @r#"
-        Could not read loose object, "path"="<object-path>"
+        Could not read loose object, path="<object-path>"
 
         Caused by:
-            0: Cannot store loose object in memory: the object exceeds the configured allocation limit, "limit"=1, "size"=56915
+            0: Cannot store loose object of 56915 bytes in memory: the object exceeds the configured allocation limit of 1 bytes
         "#);
         assert!(
             err.probable_cause().is::<Message>(),
             "no synthetic resource-exhaustion cause remains"
         );
         assert_eq!(
-            err.metadata().next().expect("the lookup records its path")["path"],
-            MetadataValue::from(db.object_path(&id)),
-            "the native object path remains separate from allocation details"
+            *err.metadata().next().expect("the lookup records its path"),
+            [("path".into(), MetadataValue::from(db.object_path(&id)))]
+                .into_iter()
+                .collect::<gix_error::Metadata>(),
+            "the lookup retains only the native object path"
         );
+        assert_eq!(err.metadata().count(), 1, "only the lookup path carries metadata");
         assert_eq!(
             err.classify()
                 .map(|classification| classification.class())
@@ -652,7 +653,7 @@ cjHJZXWmV4CcRfmLsXzU8s2cR9A0DBvOxhPD1TlKC2JhBFXigjuL9U4Rbq9tdegB
     }
 
     #[test]
-    fn unrepresentable_allocation_preserves_the_original_cause() -> Result {
+    fn unrepresentable_allocation_preserves_the_original_cause() -> gix_testtools::TestResult {
         use std::io::Write;
 
         let tmp = gix_testtools::tempfile::tempdir()?;
@@ -690,26 +691,28 @@ cjHJZXWmV4CcRfmLsXzU8s2cR9A0DBvOxhPD1TlKC2JhBFXigjuL9U4Rbq9tdegB
             [Class::ResourceExhaustion(ResourceExhaustionKind::AllocationFailure)],
             "both integer conversion and reservation failures retain their allocation-failure class"
         );
-        let allocation = err
-            .metadata()
-            .find(|context| context.contains_key("size"))
-            .expect("the failed allocation records its requested size");
         let diagnostic = err
             .iter_errors()
             .filter_map(|error| error.downcast_ref::<Message>())
-            .find(|diagnostic| diagnostic.values.contains_key("size"))
+            .find(|diagnostic| diagnostic.message.starts_with("Cannot store loose object"))
             .expect("the failed allocation has a diagnostic");
-        assert_eq!(
-            allocation["size"],
-            MetadataValue::U64(size),
-            "the full unrepresentable size is retained"
+        assert!(
+            diagnostic.values.is_empty(),
+            "allocation diagnostics do not add size or limit metadata"
         );
         if usize::try_from(size).is_err() {
+            assert_eq!(
+                diagnostic.message,
+                format!(
+                    "Cannot store loose object of {size} bytes in memory: the object size cannot be represented in memory"
+                ),
+                "conversion diagnostics retain the full requested object size in prose"
+            );
             insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[(&path.to_string_lossy(), "<object-path>")]), "unrepresentable sizes retain the failed integer conversion", @r#"
-            Could not read loose object, "path"="<object-path>"
+            Could not read loose object, path="<object-path>"
 
             Caused by:
-                0: Cannot store loose object in memory: the object size cannot be represented in memory, "size"=18446744073709551615
+                0: Cannot store loose object of 18446744073709551615 bytes in memory: the object size cannot be represented in memory
                 1: out of range integral type conversion attempted
             "#);
             assert!(
@@ -722,11 +725,16 @@ cjHJZXWmV4CcRfmLsXzU8s2cR9A0DBvOxhPD1TlKC2JhBFXigjuL9U4Rbq9tdegB
                 "the generic context classifies the unrepresentable object size"
             );
         } else {
+            assert_eq!(
+                diagnostic.message,
+                format!("Cannot store loose object of {size} bytes in memory"),
+                "reservation diagnostics retain the full requested object size in prose"
+            );
             insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[(&path.to_string_lossy(), "<object-path>")]), "impossible allocations retain the failed capacity reservation", @r#"
-            Could not read loose object, "path"="<object-path>"
+            Could not read loose object, path="<object-path>"
 
             Caused by:
-                0: Cannot store loose object in memory, "size"=18446744073709551615
+                0: Cannot store loose object of 18446744073709551615 bytes in memory
                 1: memory allocation failed because the computed capacity exceeded the collection's maximum
             "#);
             assert!(
@@ -739,11 +747,13 @@ cjHJZXWmV4CcRfmLsXzU8s2cR9A0DBvOxhPD1TlKC2JhBFXigjuL9U4Rbq9tdegB
             );
         }
         assert_eq!(
-            err.metadata().next().expect("the lookup records its path")["path"],
-            MetadataValue::from(path.as_path()),
-            "the object path is retained separately from allocation details"
+            *err.metadata().next().expect("the lookup records its path"),
+            [("path".into(), MetadataValue::from(path.as_path()))]
+                .into_iter()
+                .collect::<gix_error::Metadata>(),
+            "the lookup retains only the native object path"
         );
-        assert_eq!(err.metadata().count(), 2, "only the two caller contexts carry metadata");
+        assert_eq!(err.metadata().count(), 1, "only the lookup path carries metadata");
         assert!(
             !err.is_corrupted() && !err.can_retry(),
             "an unrepresentable allocation cannot be repaired by retrying"
@@ -761,7 +771,7 @@ cjHJZXWmV4CcRfmLsXzU8s2cR9A0DBvOxhPD1TlKC2JhBFXigjuL9U4Rbq9tdegB
     }
 
     #[test]
-    fn tree() -> Result {
+    fn tree() -> gix_testtools::TestResult {
         let mut buf = Vec::new();
         let o = find("6ba2a0ded519f737fd5b8d5ccfb141125ef3176f", &mut buf);
         assert_eq!(o.kind, Kind::Tree);
@@ -790,11 +800,11 @@ cjHJZXWmV4CcRfmLsXzU8s2cR9A0DBvOxhPD1TlKC2JhBFXigjuL9U4Rbq9tdegB
     }
 
     mod header {
-        use crate::Result;
+
         use crate::{hex_to_id, store::loose::ldb};
 
         #[test]
-        fn existing() -> Result {
+        fn existing() -> gix_testtools::TestResult {
             let db = ldb();
             assert_eq!(
                 db.try_header(&hex_to_id("a706d7cd20fc8ce71489f34b50cf01011c104193"))?
@@ -805,7 +815,7 @@ cjHJZXWmV4CcRfmLsXzU8s2cR9A0DBvOxhPD1TlKC2JhBFXigjuL9U4Rbq9tdegB
         }
 
         #[test]
-        fn non_existing() -> Result {
+        fn non_existing() -> gix_testtools::TestResult {
             let db = ldb();
             assert_eq!(
                 db.try_header(&hex_to_id("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))?,
@@ -816,7 +826,7 @@ cjHJZXWmV4CcRfmLsXzU8s2cR9A0DBvOxhPD1TlKC2JhBFXigjuL9U4Rbq9tdegB
         }
 
         #[test]
-        fn all() -> Result {
+        fn all() -> gix_testtools::TestResult {
             let db = ldb();
             let mut buf = Vec::new();
             for id in db.iter() {

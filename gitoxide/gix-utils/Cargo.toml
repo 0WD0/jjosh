@@ -5,7 +5,7 @@ name = "gix-utils"
 version = "0.4.0"
 repository = "https://github.com/GitoxideLabs/gitoxide"
 license = "MIT OR Apache-2.0"
-description = "A crate with `gitoxide` utilities that don't need feature toggles"
+description = "Utilities shared by the gitoxide crates"
 authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
 edition = "2024"
 rust-version = "1.88"
@@ -19,9 +19,28 @@ name = "precompose"
 harness = false
 
 [features]
+## Byte-string conversion utilities.
 bstr = ["dep:bstr"]
+## Progress traits, types, and I/O wrappers backed by `prodash`.
+progress = ["dep:prodash"]
+## Human-readable numbers in progress units.
+progress-unit-human-numbers = ["prodash?/unit-human"]
+## Human-readable byte sizes and progress units.
+progress-unit-bytes = ["dep:bytesize", "prodash?/unit-bytes"]
+## I/O and iterator wrappers that preserve typed cancellation errors.
+interrupt = ["dep:gix-error"]
+## A bounded in-memory byte pipe.
+io-pipe = ["dep:bytes"]
+## Count cache hits, misses, and insertions and print diagnostics on drop.
+cache-efficiency-debug = []
 
 [dependencies]
+gix-error = { version = "^0.4.0", path = "../gix-error", optional = true }
+prodash = { version = "31.0.1", optional = true }
+bytesize = { version = "2.3.1", optional = true }
+bytes = { version = "1.11.1", optional = true }
+document-features = { version = "0.2.0", optional = true }
+
 # We seed our own thread-local `Rng` (see `src/rng.rs`), so `fastrand`'s global generator and its
 # `std` default feature aren't needed.
 fastrand = { version = "2.4.1", default-features = false }
@@ -35,5 +54,16 @@ unicode-normalization = { version = "0.1.19", default-features = false }
 getrandom = "0.4"
 
 [dev-dependencies]
+gix-testtools = { path = "../tests/tools", default-features = false, features = ["sha1"] }
+insta = "1.46.3"
 gix-utils = { path = ".", features = ["bstr" ]}
 criterion = "0.8.2"
+
+[[test]]
+name = "pipe"
+path = "tests/pipe.rs"
+required-features = ["io-pipe"]
+
+[package.metadata.docs.rs]
+all-features = true
+features = ["document-features"]

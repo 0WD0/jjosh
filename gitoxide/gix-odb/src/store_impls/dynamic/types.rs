@@ -8,7 +8,6 @@ use std::{
 };
 
 use arc_swap::ArcSwap;
-use gix_features::hash;
 
 /// An id to refer to an index file or a multipack index file
 pub type IndexId = usize;
@@ -111,8 +110,10 @@ impl SlotMapIndex {
     pub(crate) fn state_id(self: &Arc<SlotMapIndex>) -> StateId {
         // We let the loaded indices take part despite not being part of our own snapshot.
         // This is to account for indices being loaded in parallel without actually changing the snapshot itself.
-        let hash = hash::crc32(&(Arc::as_ptr(self) as usize).to_be_bytes());
-        hash::crc32_update(hash, &self.loaded_indices.load(Ordering::SeqCst).to_be_bytes())
+        let mut hash = crc32fast::Hasher::new();
+        hash.update(&(Arc::as_ptr(self) as usize).to_be_bytes());
+        hash.update(&self.loaded_indices.load(Ordering::SeqCst).to_be_bytes());
+        hash.finalize()
     }
 
     pub(crate) fn marker(self: &Arc<SlotMapIndex>) -> SlotIndexMarker {
@@ -174,7 +175,8 @@ impl<T: Clone> OnDiskFile<T> {
                     Ok(())
                 }
                 Err(err) => {
-                    // TODO: Should be provide more information? We don't even know what exactly failed right now, degenerating information.
+                    // TODO(odb-parallelism): only NotFound should become Missing; retain other failures
+                    // across shared handles and retry after file changes, using the branch's failure cache.
                     self.state = Missing;
                     Err(err)
                 }

@@ -9,7 +9,7 @@ pub fn repo(name: &str) -> Result<gix::Repository> {
 }
 
 mod open {
-    use crate::Result;
+    use gix_testtools::TestResult;
     use std::io::Write;
 
     use gix_sec::Trust;
@@ -19,7 +19,7 @@ mod open {
     use crate::{submodule::repo, util::named_subrepo_opts};
 
     #[test]
-    fn empty_worktree_config_is_not_an_uninitialized_submodule() -> Result {
+    fn empty_worktree_config_is_not_an_uninitialized_submodule() -> TestResult {
         let fixture = gix_testtools::scripted_fixture_writable("make_submodule_with_worktree.sh")?;
         let repo = gix::open_opts(
             fixture.path().join("submodule-with-extra-worktree-host"),
@@ -45,7 +45,7 @@ mod open {
             .open()
             .expect_err("invalid core.worktree configuration must propagate");
         insta::assert_debug_snapshot!(err, "the nested missing-path error must not hide the configuration failure", @r#"
-        The path at the 'core.worktree' configuration could not be interpolated, "input"=""
+        The path at the 'core.worktree' configuration could not be interpolated, input=""
 
         Caused by:
             0: path is missing
@@ -63,7 +63,7 @@ mod open {
     }
 
     #[test]
-    fn various() -> Result {
+    fn various() -> TestResult {
         for (name, expected) in [
             (
                 "with-submodules",
@@ -176,7 +176,7 @@ mod open {
     }
 
     #[test]
-    fn absolute_looking_names_remain_below_the_modules_directory() -> Result {
+    fn absolute_looking_names_remain_below_the_modules_directory() -> TestResult {
         let repo = repo("absolute-looking-submodule-names")?;
         let modules_dir = repo.common_dir().join("modules");
         let mut count = 0;
@@ -199,7 +199,7 @@ mod open {
     /// `git_dir_trust` from the parent repository because doing so skips recomputing
     /// trust for the submodule git-dir and can bypass ownership-based trust checks.
     #[test]
-    fn trust_is_recomputed_for_opened_submodules() -> Result {
+    fn trust_is_recomputed_for_opened_submodules() -> TestResult {
         let repo = named_subrepo_opts(
             "make_submodules.sh",
             "with-submodules",
@@ -226,7 +226,7 @@ mod open {
     }
 
     #[test]
-    fn gitlink_target_takes_precedence_over_name_in_git_dir_resolution() -> Result {
+    fn gitlink_target_takes_precedence_over_name_in_git_dir_resolution() -> TestResult {
         let repo = repo("submodule-with-divergent-gitlink")?;
         let sm = repo
             .submodules()?
@@ -290,7 +290,7 @@ mod open {
     }
 
     #[test]
-    fn status_uses_detached_worktree_from_symlinked_git_dir() -> Result {
+    fn status_uses_detached_worktree_from_symlinked_git_dir() -> TestResult {
         let root =
             gix_testtools::scripted_fixture_read_only("make_submodules.sh")?.join("linked-git-dir-detached-worktree");
         let repo = gix::open_opts(root.join("home"), gix::open::Options::isolated())?;
@@ -327,7 +327,7 @@ mod open {
 
     #[test]
     #[cfg(unix)] // symlinks are used here, let's not try our luck on Windows.
-    fn keeps_callers_path_namespace_when_opened_through_symlinked_ancestor() -> Result {
+    fn keeps_callers_path_namespace_when_opened_through_symlinked_ancestor() -> TestResult {
         let link = gix_testtools::scripted_fixture_read_only("make_submodules.sh")?.join("symlinked-ancestor");
 
         for parent_name in ["with-submodules", "with-submodule-uninitialized-checkout"] {
@@ -347,7 +347,7 @@ mod open {
                 );
                 assert_eq!(
                     sm_repo.workdir(),
-                    Some(worktree.join(gix_path::from_bstr(sm.path()?).as_ref())).as_deref(),
+                    Some(worktree.join(gix_path::from_bstr(sm.path()?)?.as_ref())).as_deref(),
                     "the submodule workdir stays in the same namespace instead of being canonicalized, \
                      so it can be related to the parent worktree and the submodule git dir with prefix logic"
                 );
@@ -358,7 +358,7 @@ mod open {
     }
 
     #[test]
-    fn broken_gitlink_target_is_reported() -> Result {
+    fn broken_gitlink_target_is_reported() -> TestResult {
         let mut error_snapshots = Vec::new();
         let repo = repo("submodule-with-missing-gitlink-target")?;
         let work_dir = repo.workdir().expect("fixture has a worktree");
@@ -415,7 +415,7 @@ mod open {
     }
 
     #[test]
-    fn malformed_gitlink_target_is_ignored_by_ignore_all_status() -> Result {
+    fn malformed_gitlink_target_is_ignored_by_ignore_all_status() -> TestResult {
         let repo = repo("submodule-with-malformed-gitlink")?;
         let work_dir = repo.workdir().expect("fixture has a worktree");
         let sm = repo
@@ -429,7 +429,7 @@ mod open {
         The gitdir file at "<repository>/m1/.git" contains an invalid gitdir target
 
         Caused by:
-            0: Format should be 'gitdir: <path>', but got, "input"="bogus\n"
+            0: Format should be 'gitdir: <path>', but got, input="bogus\n"
         "#);
         assert!(err.is_validation());
 
@@ -442,7 +442,7 @@ mod open {
             The gitdir file at "<repository>/m1/.git" contains an invalid gitdir target
 
             Caused by:
-                0: Format should be 'gitdir: <path>', but got, "input"="bogus\n"
+                0: Format should be 'gitdir: <path>', but got, input="bogus\n"
             "#);
             assert!(err.is_validation());
 
@@ -464,11 +464,11 @@ mod open {
 
     #[cfg(feature = "status")]
     mod status {
-        use crate::Result;
         use crate::{submodule::repo, util::hex_to_id};
+        use gix_testtools::TestResult;
 
         #[test]
-        fn changed_head_compared_to_superproject_index() -> Result {
+        fn changed_head_compared_to_superproject_index() -> TestResult {
             let repo = repo("submodule-head-changed")?;
             let sm = repo.submodules()?.into_iter().flatten().next().expect("one submodule");
             let mut status = sm.status(gix::submodule::config::Ignore::None, false)?;
@@ -524,7 +524,7 @@ mod open {
         }
 
         #[test]
-        fn modified_in_index_only() -> Result {
+        fn modified_in_index_only() -> TestResult {
             let mut repo: gix::Repository = repo("submodule-index-changed")?;
             let sm = repo.submodules()?.into_iter().flatten().next().expect("one submodule");
 
@@ -578,7 +578,7 @@ mod open {
         }
 
         #[test]
-        fn modified_and_untracked() -> Result {
+        fn modified_and_untracked() -> TestResult {
             let repo = repo("modified-and-untracked")?;
             let sm = repo.submodules()?.into_iter().flatten().next().expect("one submodule");
 
@@ -635,7 +635,7 @@ mod open {
         }
 
         #[test]
-        fn changed_head_empty_worktree() -> Result {
+        fn changed_head_empty_worktree() -> TestResult {
             let repo = repo("submodule-head-changed-no-worktree")?;
             let sm = repo.submodules()?.into_iter().flatten().next().expect("one submodule");
 
@@ -668,7 +668,7 @@ mod open {
         }
 
         #[test]
-        fn is_dirty_skips_expensive_checks() -> Result {
+        fn is_dirty_skips_expensive_checks() -> TestResult {
             let repo = repo("submodule-head-changed-and-modified")?;
             let sm = repo.submodules()?.into_iter().flatten().next().expect("one submodule");
 
@@ -692,7 +692,7 @@ mod open {
     }
 
     #[test]
-    fn not_a_submodule() -> Result {
+    fn not_a_submodule() -> TestResult {
         let repo = repo("not-a-submodule")?;
         let sm = repo.submodules()?.into_iter().flatten().next().expect("one submodule");
         assert!(sm.open()?.is_some(), "repo available as it was cloned");
@@ -702,7 +702,7 @@ mod open {
     }
 
     #[test]
-    fn in_unborn() -> Result {
+    fn in_unborn() -> TestResult {
         let repo = repo("unborn")?;
         assert_eq!(
             repo.submodules()?.into_iter().flatten().count(),
@@ -714,7 +714,7 @@ mod open {
 
     #[test]
     #[cfg(feature = "revision")]
-    fn submodule_worktrees() -> Result {
+    fn submodule_worktrees() -> TestResult {
         let sm_repo = crate::util::named_subrepo_opts(
             "make_submodule_with_worktree.sh",
             "worktree-of-submodule",
@@ -736,7 +736,7 @@ mod open {
 
     #[test]
     #[cfg(feature = "revision")]
-    fn list_submodule_worktrees() -> Result {
+    fn list_submodule_worktrees() -> TestResult {
         let sm_repo = crate::util::named_subrepo_opts(
             "make_submodule_with_worktree.sh",
             "submodule-with-extra-worktree-host/m1",
@@ -757,7 +757,7 @@ mod open {
     }
 
     #[test]
-    fn old_form() -> Result {
+    fn old_form() -> TestResult {
         for name in ["old-form-invalid-worktree-path", "old-form"] {
             let repo = repo(name)?;
             let sm = repo
@@ -793,14 +793,14 @@ mod open {
 
 #[cfg(unix)]
 mod advisory {
-    use crate::Result;
+    use gix_testtools::TestResult;
 
     /// Reproducer for GHSA-p3hw-mv63-rf9w and GHSA-fr8x-3vfx-f45h: a crafted submodule name with
     /// traversal components is reused to derive `.git/modules/<name>`, so `Submodule::state()` and
     /// `Submodule::open()` can be redirected to another repository outside the intended modules
     /// directory.
     #[test]
-    fn traversal_names_do_not_escape_the_modules_directory() -> Result {
+    fn traversal_names_do_not_escape_the_modules_directory() -> TestResult {
         let mut error_snapshots = Vec::new();
         let fixture = gix_testtools::scripted_fixture_writable("make_submodule_traversal_advisory.sh")?;
         let repo_dir = fixture.path().join("victim-repo");
@@ -862,7 +862,7 @@ mod advisory {
     /// after `git submodule init`: `gix` must reject them from `.gitmodules` instead of exposing
     /// them as executable updates.
     #[test]
-    fn update_commands_from_gitmodules_are_rejected_after_init() -> Result {
+    fn update_commands_from_gitmodules_are_rejected_after_init() -> TestResult {
         let fixture = gix_testtools::scripted_fixture_writable("make_submodule_update_advisory.sh")?;
         let victim = fixture.path().join("victim");
 
@@ -873,7 +873,7 @@ mod advisory {
             .next()
             .expect("one submodule");
         let err = sm.update().expect_err("commands from `.gitmodules` are forbidden");
-        insta::assert_debug_snapshot!(err, "update commands from gitmodules are rejected after init", @r#"The 'update' field of submodule 'sub' tried to set a command to be shared, "input"="touch pwned""#);
+        insta::assert_debug_snapshot!(err, "update commands from gitmodules are rejected after init", @r#"The 'update' field of submodule 'sub' tried to set a command to be shared, input="touch pwned""#);
         assert_eq!(
             err.metadata().find_map(|metadata| metadata.get("input")),
             Some(&gix_error::MetadataValue::Bytes("touch pwned".into()))

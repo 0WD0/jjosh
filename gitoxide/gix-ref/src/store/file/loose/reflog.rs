@@ -1,7 +1,10 @@
 use gix_error::Result;
 use gix_error::{Message, ResultExt, message};
 
-use std::{io::Read, path::PathBuf};
+use std::{
+    io::Read,
+    path::{Path, PathBuf},
+};
 
 use crate::{
     FullNameRef,
@@ -14,11 +17,15 @@ impl file::Store {
     /// Please note that this method shouldn't be used to check if a log exists before trying to read it, but instead
     /// is meant to be the fastest possible way to determine if a log exists or not.
     /// If the caller needs to know if it's readable, try to read the log instead with a reverse or forward iterator.
-    pub fn reflog_exists<'a, Name, E>(&self, name: Name) -> std::result::Result<bool, E>
+    pub fn reflog_exists<'a, Name, E>(&self, name: Name) -> Result<bool>
     where
         Name: TryInto<&'a FullNameRef, Error = E>,
+        std::result::Result<&'a FullNameRef, E>: ResultExt<Success = &'a FullNameRef>,
     {
-        Ok(self.reflog_path(name.try_into()?).is_file())
+        let name = name
+            .try_into()
+            .or_raise(|| message("The reflog name or path is not a valid ref name"))?;
+        Ok(self.reflog_path(name)?.is_file())
     }
 
     /// Return a reflog reverse iterator for the given fully qualified `name`, reading chunks from the back into the fixed buffer `buf`.
@@ -39,20 +46,20 @@ impl file::Store {
         let name = name
             .try_into()
             .or_raise(|| message("The reflog name or path is not a valid ref name"))?;
-        self.reflog_iter_rev_inner(name, buf)
-            .or_raise(|| read_reflog_error(self.reflog_path(name)))
+        let path = self.reflog_path(name)?;
+        self.reflog_iter_rev_inner(&path, buf)
+            .or_raise(|| read_reflog_error(path))
     }
 
     pub(crate) fn reflog_iter_rev_inner<'b>(
         &self,
-        name: &FullNameRef,
+        path: &Path,
         buf: &'b mut [u8],
     ) -> std::io::Result<Option<log::iter::Reverse<'b, std::fs::File>>> {
-        let path = self.reflog_path(name);
         if path.is_dir() {
             return Ok(None);
         }
-        match std::fs::File::open(&path) {
+        match std::fs::File::open(path) {
             Ok(file) => Ok(Some(log::iter::reverse(file, buf)?)),
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(err) => Err(err),
@@ -77,17 +84,16 @@ impl file::Store {
         let name = name
             .try_into()
             .or_raise(|| message("The reflog name or path is not a valid ref name"))?;
-        self.reflog_iter_inner(name, buf)
-            .or_raise(|| read_reflog_error(self.reflog_path(name)))
+        let path = self.reflog_path(name)?;
+        self.reflog_iter_inner(&path, buf).or_raise(|| read_reflog_error(path))
     }
 
     pub(crate) fn reflog_iter_inner<'b>(
         &self,
-        name: &FullNameRef,
+        path: &Path,
         buf: &'b mut Vec<u8>,
     ) -> std::io::Result<Option<log::iter::Forward<'b>>> {
-        let path = self.reflog_path(name);
-        match std::fs::File::open(&path) {
+        match std::fs::File::open(path) {
             Ok(mut file) => {
                 buf.clear();
                 if let Err(err) = file.read_to_end(buf) {
@@ -105,9 +111,9 @@ impl file::Store {
 
 impl file::Store {
     /// Implements the logic required to transform a fully qualified refname into its log name
-    pub(crate) fn reflog_path(&self, name: &FullNameRef) -> PathBuf {
-        let (base, rela_path) = self.reflog_base_and_relative_path(name);
-        base.join(rela_path)
+    pub(crate) fn reflog_path(&self, name: &FullNameRef) -> Result<PathBuf> {
+        let (base, rela_path) = self.reflog_base_and_relative_path(name)?;
+        Ok(base.join(rela_path))
     }
 }
 
@@ -144,7 +150,7 @@ pub mod create_or_update {
             message: &BStr,
             mut force_create_reflog: bool,
         ) -> Result {
-            let (reflog_base, full_name) = self.reflog_base_and_relative_path(name);
+            let (reflog_base, full_name) = self.reflog_base_and_relative_path(name)?;
             match self.write_reflog {
                 WriteReflog::Normal | WriteReflog::Always => {
                     if self.write_reflog == WriteReflog::Always {
@@ -210,18 +216,18 @@ pub mod create_or_update {
         pub(in crate::store_impl::file) fn reflog_base_and_relative_path<'a>(
             &self,
             name: &'a FullNameRef,
-        ) -> (PathBuf, Cow<'a, Path>) {
+        ) -> Result<(PathBuf, Cow<'a, Path>)> {
             let is_reflog = true;
-            let (base, name) = self.to_base_dir_and_relative_name(name, is_reflog);
-            (
+            let (base, name) = self.to_base_dir_and_relative_name(name, is_reflog)?;
+            Ok((
                 base.join("logs"),
                 match &self.namespace {
                     None => gix_path::to_native_path_on_windows(name.as_bstr()),
                     Some(namespace) => gix_path::to_native_path_on_windows(
                         namespace.to_owned().into_namespaced_name(name).into_inner(),
                     ),
-                },
-            )
+                }?,
+            ))
         }
     }
 

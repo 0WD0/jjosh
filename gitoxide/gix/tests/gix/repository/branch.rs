@@ -1,4 +1,4 @@
-use crate::Result;
+use gix_testtools::TestResult;
 use std::io::Write;
 
 use gix::refs::{
@@ -11,7 +11,7 @@ fn refname(value: &str) -> FullName {
 }
 
 #[test]
-fn deletes_a_batch_and_all_of_its_local_config_without_inspecting_commits() -> Result {
+fn deletes_a_batch_and_all_of_its_local_config_without_inspecting_commits() -> TestResult {
     let (mut repo, _tmp) = crate::repo_rw("make_references_repo.sh")?;
     let direct = refname("refs/heads/delete-direct");
     let symbolic = refname("refs/heads/delete-symbolic");
@@ -37,7 +37,7 @@ fn deletes_a_batch_and_all_of_its_local_config_without_inspecting_commits() -> R
     let mut config = std::fs::OpenOptions::new()
         .append(true)
         .open(repo.common_dir().join("config"))?;
-    let included_path_for_config = gix_path::to_unix_separators_on_windows(gix_path::into_bstr(&included_path));
+    let included_path_for_config = gix_path::to_unix_separators_on_windows(gix_path::into_bstr(&included_path)?);
     write!(
         config,
         "\n[branch \"delete-direct\"]\n\tremote = origin\n\
@@ -106,7 +106,7 @@ fn deletes_a_batch_and_all_of_its_local_config_without_inspecting_commits() -> R
 }
 
 #[test]
-fn validation_failure_leaves_the_entire_batch_unchanged() -> Result {
+fn validation_failure_leaves_the_entire_batch_unchanged() -> TestResult {
     let (mut repo, _tmp) = crate::repo_rw("make_references_repo.sh")?;
     let work_dir = repo
         .workdir()
@@ -140,7 +140,7 @@ fn validation_failure_leaves_the_entire_batch_unchanged() -> Result {
 }
 
 #[test]
-fn missing_branches_are_successful_and_their_config_is_removed() -> Result {
+fn missing_branches_are_successful_and_their_config_is_removed() -> TestResult {
     let (mut repo, _tmp) = crate::repo_rw("make_references_repo.sh")?;
     let existing = refname("refs/heads/d1");
     let missing = refname("refs/heads/does-not-exist");
@@ -214,7 +214,7 @@ fn missing_branches_are_successful_and_their_config_is_removed() -> Result {
 }
 
 #[test]
-fn expected_targets_prevent_deleting_a_branch_that_moved() -> crate::Result {
+fn expected_targets_prevent_deleting_a_branch_that_moved() -> gix_testtools::TestResult {
     let (mut repo, _tmp) = crate::repo_rw("make_references_repo.sh")?;
     let branch = refname("refs/heads/d1");
     let original = repo.find_reference(branch.as_ref())?.target().into_owned();
@@ -247,7 +247,7 @@ fn expected_targets_prevent_deleting_a_branch_that_moved() -> crate::Result {
 }
 
 #[test]
-fn expected_targets_delete_the_branch_and_its_config() -> crate::Result {
+fn expected_targets_delete_the_branch_and_its_config() -> gix_testtools::TestResult {
     let (mut repo, _tmp) = crate::repo_rw("make_references_repo.sh")?;
     let branch = refname("refs/heads/d1");
     let expected = repo.find_reference(branch.as_ref())?.target().into_owned();
@@ -271,7 +271,7 @@ fn expected_targets_delete_the_branch_and_its_config() -> crate::Result {
 }
 
 #[test]
-fn linked_worktree_branches_are_protected_and_common_config_is_updated() -> Result {
+fn linked_worktree_branches_are_protected_and_common_config_is_updated() -> TestResult {
     // `git worktree add --relative-paths`, used by the fixture, was added in Git 2.48.
     let Some(fixture) = gix_testtools::scripted_fixture_writable_with_args_with_git_version(
         "make_worktree_relative_linking.sh",
@@ -305,7 +305,7 @@ fn linked_worktree_branches_are_protected_and_common_config_is_updated() -> Resu
 
     let mut main = gix::open_opts(&main_path, crate::restricted())?;
     let linked_work_dir = main
-        .worktree_proxy_by_id("linked")
+        .worktree_proxy_by_id("linked")?
         .expect("the linked worktree is registered")
         .base()?;
     let err = main

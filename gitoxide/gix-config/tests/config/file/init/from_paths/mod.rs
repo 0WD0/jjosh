@@ -1,4 +1,4 @@
-use crate::Result;
+use crate::TestResult;
 use std::{fs, path::PathBuf};
 
 use gix_config::{File, Source};
@@ -55,7 +55,7 @@ mod from_path_no_includes {
 }
 
 #[test]
-fn multiple_paths_single_value() -> Result {
+fn multiple_paths_single_value() -> TestResult {
     let dir = tempdir()?;
 
     let a_path = dir.path().join("a");
@@ -83,7 +83,7 @@ fn multiple_paths_single_value() -> Result {
 }
 
 #[test]
-fn frontmatter_is_maintained_in_multiple_files() -> Result {
+fn frontmatter_is_maintained_in_multiple_files() -> TestResult {
     let dir = tempdir()?;
 
     let a_path = dir.path().join("a");
@@ -144,7 +144,7 @@ fn frontmatter_is_maintained_in_multiple_files() -> Result {
 }
 
 #[test]
-fn multiple_paths_multi_value_and_filter() -> Result {
+fn multiple_paths_multi_value_and_filter() -> TestResult {
     let dir = tempdir()?;
 
     let a_path = dir.path().join("a");

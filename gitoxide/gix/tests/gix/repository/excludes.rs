@@ -1,10 +1,10 @@
-use crate::Result;
+use gix_testtools::TestResult;
 use gix_worktree::stack::state::ignore::Source;
 
 use crate::util::named_subrepo_opts;
 
 #[test]
-fn empty_core_excludes() -> Result {
+fn empty_core_excludes() -> TestResult {
     let mut error_snapshots = Vec::new();
     let repo = named_subrepo_opts(
         "make_basic_repo.sh",
@@ -22,8 +22,7 @@ fn empty_core_excludes() -> Result {
     }
 
     let repo = gix::open_opts(repo.git_dir(), repo.open_options().clone().strict_config(false))?;
-    repo.excludes(&index, None, Source::WorktreeThenIdMappingIfNotSkipped)
-        .expect("empty paths are now just skipped");
+    repo.excludes(&index, None, Source::WorktreeThenIdMappingIfNotSkipped)?;
     insta::assert_debug_snapshot!(error_snapshots, "empty core excludes", @"
     [
         The value for `core.excludesFile` could not be read from configuration
@@ -36,7 +35,7 @@ fn empty_core_excludes() -> Result {
 }
 
 #[test]
-fn missing_core_excludes_is_ignored() -> Result {
+fn missing_core_excludes_is_ignored() -> TestResult {
     let mut repo = named_subrepo_opts(
         "make_basic_repo.sh",
         "empty-core-excludes",
@@ -46,13 +45,12 @@ fn missing_core_excludes_is_ignored() -> Result {
         .set_value(&gix::config::tree::Core::EXCLUDES_FILE, "definitely-missing")?;
 
     let index = repo.index_or_empty()?;
-    repo.excludes(&index, None, Source::WorktreeThenIdMappingIfNotSkipped)
-        .expect("the call works as missing excludes files are ignored");
+    repo.excludes(&index, None, Source::WorktreeThenIdMappingIfNotSkipped)?;
     Ok(())
 }
 
 #[test]
-fn worktree_info_exclude_from_common_dir() -> Result {
+fn worktree_info_exclude_from_common_dir() -> TestResult {
     let repo = named_subrepo_opts(
         "make_worktree_repo_with_info_exclude.sh",
         "worktree",

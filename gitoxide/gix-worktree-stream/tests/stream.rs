@@ -95,7 +95,7 @@ mod from_tree {
     }
 
     #[test]
-    fn can_receive_err_if_attribute_not_found() -> gix_testtools::Result {
+    fn can_receive_err_if_attribute_not_found() -> gix_testtools::TestResult {
         let (_dir, head_tree, odb, _cache) = basic()?;
         let mut stream = gix_worktree_stream::from_tree(head_tree, odb, mutating_pipeline(false), |_, _, _| {
             Err(Error::other("attribute retrieval failed"))
@@ -112,7 +112,7 @@ mod from_tree {
     }
 
     #[test]
-    fn filter_process_failure_during_shutdown_is_ignored() -> gix_testtools::Result {
+    fn filter_process_failure_during_shutdown_is_ignored() -> gix_testtools::TestResult {
         let (_dir, head_tree, odb, mut cache) = basic()?;
         let mut pipeline = mutating_pipeline(true);
         *pipeline
@@ -128,17 +128,14 @@ mod from_tree {
                     .map(|_| ())
             });
 
-        while let Some(mut entry) = stream
-            .next_entry()
-            .expect("a filter failure after successful conversion is ignored")
-        {
+        while let Some(mut entry) = stream.next_entry()? {
             std::io::copy(&mut entry, &mut std::io::sink())?;
         }
         Ok(())
     }
 
     #[test]
-    fn will_provide_all_information_and_respect_export_ignore() -> gix_testtools::Result {
+    fn will_provide_all_information_and_respect_export_ignore() -> gix_testtools::TestResult {
         let (dir, head_tree, odb, mut cache) = basic()?;
         let mut stream = gix_worktree_stream::from_tree(
             head_tree,
@@ -167,10 +164,10 @@ mod from_tree {
         let mut paths_and_modes = Vec::new();
         let mut stream = gix_worktree_stream::Stream::from_read(tee_read);
 
-        while let Some(mut entry) = stream.next_entry().expect("entry retrieval does not fail") {
+        while let Some(mut entry) = stream.next_entry()? {
             paths_and_modes.push((entry.relative_path().to_owned(), entry.mode.kind(), entry.id));
             let mut buf = Vec::new();
-            entry.read_to_end(&mut buf).expect("stream can always be read");
+            entry.read_to_end(&mut buf)?;
             if !buf.is_empty() && entry.mode.is_blob() {
                 if entry.relative_path().contains_str("extra") {
                     assert!(
@@ -296,10 +293,10 @@ mod from_tree {
             gix_worktree_stream::Stream::from_read(std::io::Cursor::new(copy.lock().as_bytes().to_owned()));
         let mut copied_paths_and_modes = Vec::new();
         let mut buf = Vec::new();
-        while let Some(mut entry) = copied_stream.next_entry().expect("entry retrieval does not fail") {
+        while let Some(mut entry) = copied_stream.next_entry()? {
             copied_paths_and_modes.push((entry.relative_path().to_owned(), entry.mode.kind(), entry.id));
             buf.clear();
-            entry.read_to_end(&mut buf).expect("stream can always be read");
+            entry.read_to_end(&mut buf)?;
         }
         assert_eq!(
             copied_paths_and_modes, paths_and_modes,
@@ -309,7 +306,7 @@ mod from_tree {
     }
 
     #[test]
-    fn can_drop_entry_without_reading_it() -> gix_testtools::Result {
+    fn can_drop_entry_without_reading_it() -> gix_testtools::TestResult {
         let (_dir, head_tree, odb, mut cache) = basic()?;
         let mut stream = gix_worktree_stream::from_tree(
             head_tree,
@@ -323,7 +320,7 @@ mod from_tree {
             },
         );
 
-        drop(stream.next_entry().expect("entry retrieval does not fail"));
+        drop(stream.next_entry()?);
         Ok(())
     }
 

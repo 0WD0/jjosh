@@ -154,9 +154,8 @@ impl Engine {
             } else {
                 let counter = repo_progress.counter();
                 let num_errors = AtomicUsize::default();
-                let repo_progress = gix::threading::OwnShared::new(gix::threading::Mutable::new(
-                    repo_progress.add_child("in parallel"),
-                ));
+                let repo_progress =
+                    gix::parallel::OwnShared::new(gix::parallel::Mutable::new(repo_progress.add_child("in parallel")));
                 gix::parallel::in_parallel_with_slice(
                     &mut repos,
                     Some(threads),
@@ -164,7 +163,7 @@ impl Engine {
                         let shared_repo_progress = repo_progress.clone();
                         let db_path = db_path.clone();
                         move |tid| {
-                            let mut progress = gix::threading::lock(&shared_repo_progress);
+                            let mut progress = gix::parallel::lock(&shared_repo_progress);
                             let lane_progress = progress.add_child(format!("{tid}"));
                             let guard = tracing::dispatcher::set_default(subscriber);
                             (guard, lane_progress, rusqlite::Connection::open(&db_path))
@@ -201,7 +200,7 @@ impl Engine {
                     || (!gix::interrupt::is_triggered()).then(|| Duration::from_millis(100)),
                     drop,
                 )?;
-                let repo_progress = gix::threading::lock(&repo_progress);
+                let repo_progress = gix::parallel::lock(&repo_progress);
                 repo_progress.show_throughput(task_start);
                 let num_errors = num_errors.load(Ordering::Relaxed);
                 if num_errors != 0 {

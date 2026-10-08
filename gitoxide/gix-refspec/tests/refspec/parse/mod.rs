@@ -1,4 +1,4 @@
-use crate::Result;
+use gix_testtools::TestResult;
 use std::panic::catch_unwind;
 
 use bstr::ByteSlice;
@@ -6,9 +6,9 @@ use gix_refspec::parse::Operation;
 use gix_testtools::scripted_fixture_read_only;
 
 #[test]
-fn baseline() {
-    let dir = scripted_fixture_read_only("parse_baseline.sh").unwrap();
-    let baseline = std::fs::read(dir.join("baseline.git")).unwrap();
+fn baseline() -> TestResult {
+    let dir = scripted_fixture_read_only("parse_baseline.sh")?;
+    let baseline = std::fs::read(dir.join("baseline.git"))?;
     let mut lines = baseline.lines();
     let mut panics = 0;
     let mut mismatch = 0;
@@ -17,13 +17,7 @@ fn baseline() {
         count += 1;
         let (kind, spec) = kind_spec.split_at(kind_spec.find_byte(b' ').expect("space between kind and spec"));
         let spec = &spec[1..];
-        let err_code: usize = lines
-            .next()
-            .expect("err code")
-            .to_str()
-            .unwrap()
-            .parse()
-            .expect("number");
+        let err_code: usize = lines.next().expect("err code").to_str()?.parse()?;
         let op = match kind {
             b"fetch" => Operation::Fetch,
             b"push" => Operation::Push,
@@ -56,10 +50,11 @@ fn baseline() {
             panics
         );
     }
+    Ok(())
 }
 
 #[test]
-fn local_and_remote() -> Result {
+fn local_and_remote() -> TestResult {
     let spec = gix_refspec::parse("remote:local".into(), Operation::Fetch)?;
     assert_eq!(spec.remote(), spec.source());
     assert_eq!(spec.local(), spec.destination());
@@ -75,6 +70,7 @@ mod invalid;
 mod push;
 
 mod util {
+    use bstr::ByteSlice;
     use gix_error::{Error, Result};
     use gix_refspec::{Instruction, RefSpecRef, parse::Operation};
 
@@ -120,11 +116,7 @@ mod util {
         else {
             panic!("the unsupported pattern is retained as bytes");
         };
-        assert!(
-            spec.as_bytes()
-                .windows(input.len())
-                .any(|candidate| candidate == input.as_slice())
-        );
+        assert!(spec.as_bytes().contains_str(input.as_slice()));
         err
     }
 

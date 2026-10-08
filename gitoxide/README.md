@@ -110,7 +110,7 @@ is usable to some extent.
   * [gix-commitgraph](https://github.com/GitoxideLabs/gitoxide/blob/main/crate-status.md#gix-commitgraph)
   * [gix-diff](https://github.com/GitoxideLabs/gitoxide/blob/main/crate-status.md#gix-diff)
   * [gix-traverse](https://github.com/GitoxideLabs/gitoxide/blob/main/crate-status.md#gix-traverse)
-  * [gix-features](https://github.com/GitoxideLabs/gitoxide/blob/main/crate-status.md#gix-features)
+  * [gix-parallel](https://github.com/GitoxideLabs/gitoxide/blob/main/crate-status.md#gix-parallel)
   * [gix-credentials](https://github.com/GitoxideLabs/gitoxide/blob/main/crate-status.md#gix-credentials)
   * [gix-sec](https://github.com/GitoxideLabs/gitoxide/blob/main/crate-status.md#gix-sec)
   * [gix-quote](https://github.com/GitoxideLabs/gitoxide/blob/main/crate-status.md#gix-quote)
@@ -342,7 +342,7 @@ Project non-goals can change over time as we learn more, and they can be challen
  * **use async IO everywhere**
    * for the most part, git operations are heavily reliant on memory mapped IO as well as CPU to decompress data,
      which doesn't lend itself well to async IO out of the box.
-   * Use `blocking` as well as `gix-features::interrupt` to bring operations into the async world and to control
+   * Use `blocking` as well as `gix_utils::interrupt` to bring operations into the async world and to control
      long running operations.
    * When connecting or streaming over TCP connections, especially when receiving on the server, async seems like a must
      though, but behind a feature flag.

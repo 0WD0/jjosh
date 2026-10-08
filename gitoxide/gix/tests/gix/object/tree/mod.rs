@@ -1,5 +1,5 @@
-use crate::Result;
 use crate::util::{named_repo, named_subrepo_opts};
+use gix_testtools::TestResult;
 
 #[cfg(all(feature = "blob-diff", feature = "revision"))]
 mod diff;
@@ -9,7 +9,7 @@ fn worktree_repo() -> std::result::Result<gix::Repository, gix_error::Error> {
 }
 
 #[test]
-fn find_entry() -> Result {
+fn find_entry() -> TestResult {
     let repo = named_repo("make_basic_repo.sh")?;
     let tree = repo.head_commit()?.tree()?;
     assert_eq!(tree.find_entry("this").expect("present").filename(), "this");
@@ -19,7 +19,7 @@ fn find_entry() -> Result {
 }
 
 #[test]
-fn lookup_entry_by_path() -> Result {
+fn lookup_entry_by_path() -> TestResult {
     let repo = worktree_repo()?;
     let tree = repo.head_commit()?.tree()?;
     assert_eq!(tree.lookup_entry_by_path("dir/c")?.expect("present").filename(), "c");
@@ -27,7 +27,7 @@ fn lookup_entry_by_path() -> Result {
 }
 
 #[test]
-fn decode_uses_the_tree_id_hash_kind() -> Result {
+fn decode_uses_the_tree_id_hash_kind() -> TestResult {
     use gix::bstr::ByteSlice;
 
     let repo = named_repo("make_basic_repo.sh")?;
@@ -57,10 +57,10 @@ fn decode_uses_the_tree_id_hash_kind() -> Result {
 }
 
 mod peel_to_entry {
-    use crate::Result;
+    use gix_testtools::TestResult;
 
     #[test]
-    fn top_level_file_keeps_the_current_tree() -> Result {
+    fn top_level_file_keeps_the_current_tree() -> TestResult {
         let repo = super::worktree_repo()?;
         let mut tree = repo.head_commit()?.tree()?;
         let root_id = tree.id();
@@ -73,7 +73,7 @@ mod peel_to_entry {
     }
 
     #[test]
-    fn nested_file_moves_to_the_last_seen_tree() -> Result {
+    fn nested_file_moves_to_the_last_seen_tree() -> TestResult {
         let repo = super::worktree_repo()?;
         let mut tree = repo.head_commit()?.tree()?;
         let dir_id = tree.lookup_entry(["dir"])?.expect("tree entry").object_id();
@@ -86,7 +86,7 @@ mod peel_to_entry {
     }
 
     #[test]
-    fn tree_leaf_moves_to_the_returned_tree() -> Result {
+    fn tree_leaf_moves_to_the_returned_tree() -> TestResult {
         let repo = super::worktree_repo()?;
         let mut tree = repo.head_commit()?.tree()?;
         let dir_id = tree.lookup_entry(["dir"])?.expect("tree entry").object_id();
@@ -104,7 +104,7 @@ mod peel_to_entry {
     }
 
     #[test]
-    fn missing_top_level_entry_keeps_the_current_tree() -> Result {
+    fn missing_top_level_entry_keeps_the_current_tree() -> TestResult {
         let repo = super::worktree_repo()?;
         let mut tree = repo.head_commit()?.tree()?;
         let root_id = tree.id();
@@ -117,7 +117,7 @@ mod peel_to_entry {
     }
 
     #[test]
-    fn missing_nested_entry_moves_to_the_last_seen_tree() -> Result {
+    fn missing_nested_entry_moves_to_the_last_seen_tree() -> TestResult {
         let repo = super::worktree_repo()?;
         let mut tree = repo.head_commit()?.tree()?;
         let dir_id = tree.lookup_entry(["dir"])?.expect("tree entry").object_id();
@@ -130,7 +130,7 @@ mod peel_to_entry {
     }
 
     #[test]
-    fn path_continuing_past_a_top_level_file_keeps_the_current_tree() -> Result {
+    fn path_continuing_past_a_top_level_file_keeps_the_current_tree() -> TestResult {
         let repo = super::worktree_repo()?;
         let mut tree = repo.head_commit()?.tree()?;
         let root_id = tree.id();
@@ -148,7 +148,7 @@ mod peel_to_entry {
     }
 
     #[test]
-    fn path_continuing_past_a_nested_file_keeps_the_last_seen_tree() -> Result {
+    fn path_continuing_past_a_nested_file_keeps_the_last_seen_tree() -> TestResult {
         let repo = super::worktree_repo()?;
         let mut tree = repo.head_commit()?.tree()?;
         let dir_id = tree.lookup_entry(["dir"])?.expect("tree entry").object_id();
@@ -166,7 +166,7 @@ mod peel_to_entry {
     }
 
     #[test]
-    fn by_path_has_the_same_tree_leaf_behavior() -> Result {
+    fn by_path_has_the_same_tree_leaf_behavior() -> TestResult {
         let repo = super::worktree_repo()?;
         let mut tree = repo.head_commit()?.tree()?;
         let dir_id = tree.lookup_entry(["dir"])?.expect("tree entry").object_id();

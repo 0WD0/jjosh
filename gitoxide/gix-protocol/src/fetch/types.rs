@@ -267,7 +267,7 @@ pub enum ProgressId {
     RemoteProgress,
 }
 
-impl From<ProgressId> for gix_features::progress::Id {
+impl From<ProgressId> for gix_utils::progress::Id {
     fn from(v: ProgressId) -> Self {
         match v {
             ProgressId::RemoteProgress => *b"FERP",

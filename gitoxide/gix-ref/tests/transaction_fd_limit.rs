@@ -8,7 +8,7 @@ use gix_ref::{
 
 /// Preparing a transaction must retain only a `gix_lock::Marker` per edit, not an open file descriptor.
 #[test]
-fn large_transactions_hold_a_constant_number_of_file_descriptors() -> gix_testtools::Result {
+fn large_transactions_hold_a_constant_number_of_file_descriptors() -> gix_testtools::TestResult {
     let limit = libc::rlimit {
         rlim_cur: 16,
         rlim_max: 16,

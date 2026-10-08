@@ -7,7 +7,7 @@ mod apply_environment {
 
     #[test]
     #[serial]
-    fn git_askpass_overrides_everything_and_ssh_askpass_does_not() -> gix_testtools::Result {
+    fn git_askpass_overrides_everything_and_ssh_askpass_does_not() -> gix_testtools::TestResult {
         let _environment = gix_testtools::isolate_git_environment()?
             .set("GIT_ASKPASS", "override")
             .set("SSH_ASKPASS", "does not matter");
@@ -27,7 +27,7 @@ mod apply_environment {
 
     #[test]
     #[serial]
-    fn git_askpass_is_used_first_and_sets_unset_askpass_values() -> gix_testtools::Result {
+    fn git_askpass_is_used_first_and_sets_unset_askpass_values() -> gix_testtools::TestResult {
         let _environment = gix_testtools::isolate_git_environment()?
             .set("GIT_ASKPASS", "from-env")
             .set("SSH_ASKPASS", "does not matter");
@@ -44,7 +44,7 @@ mod apply_environment {
 
     #[test]
     #[serial]
-    fn ssh_askpass_is_used_as_fallback() -> gix_testtools::Result {
+    fn ssh_askpass_is_used_as_fallback() -> gix_testtools::TestResult {
         let _environment = gix_testtools::isolate_git_environment()?
             .unset("GIT_ASKPASS")
             .set("SSH_ASKPASS", "fallback");
@@ -64,7 +64,7 @@ mod apply_environment {
 
     #[test]
     #[serial]
-    fn ssh_askpass_does_not_override_current_value() -> gix_testtools::Result {
+    fn ssh_askpass_does_not_override_current_value() -> gix_testtools::TestResult {
         let _environment = gix_testtools::isolate_git_environment()?
             .unset("GIT_ASKPASS")
             .set("SSH_ASKPASS", "fallback");
@@ -84,7 +84,7 @@ mod apply_environment {
 
     #[test]
     #[serial]
-    fn mode_is_left_untouched_if_terminal_prompt_is_trueish() -> gix_testtools::Result {
+    fn mode_is_left_untouched_if_terminal_prompt_is_trueish() -> gix_testtools::TestResult {
         let _environment = gix_testtools::isolate_git_environment()?.set("GIT_TERMINAL_PROMPT", "true");
 
         assert_eq!(
@@ -101,7 +101,7 @@ mod apply_environment {
 
     #[test]
     #[serial]
-    fn mode_is_disabled_if_terminal_prompt_is_falseish() -> gix_testtools::Result {
+    fn mode_is_disabled_if_terminal_prompt_is_falseish() -> gix_testtools::TestResult {
         let _environment = gix_testtools::isolate_git_environment()?.set("GIT_TERMINAL_PROMPT", "0");
 
         assert_eq!(
@@ -118,7 +118,7 @@ mod apply_environment {
 
     #[test]
     #[serial]
-    fn mode_is_unchanged_if_git_terminal_prompt_is_not_set() -> gix_testtools::Result {
+    fn mode_is_unchanged_if_git_terminal_prompt_is_not_set() -> gix_testtools::TestResult {
         let _environment = gix_testtools::isolate_git_environment()?.unset("GIT_TERMINAL_PROMPT");
         assert_eq!(
             Options {

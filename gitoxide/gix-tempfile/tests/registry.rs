@@ -8,7 +8,7 @@ fn filecount_in(path: impl AsRef<Path>) -> usize {
 }
 
 #[test]
-fn cleanup_tempfiles() -> Result<(), Box<dyn std::error::Error>> {
+fn cleanup_tempfiles() -> gix_testtools::TestResult {
     let dir = tempfile::tempdir()?;
     let mut tempfile = gix_tempfile::new(dir.path(), ContainingDirectory::Exists, AutoRemove::Tempfile)?;
     assert_eq!(

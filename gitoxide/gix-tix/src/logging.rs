@@ -6,7 +6,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use gix::features::threading::{Mutable, OwnShared, lock};
+use gix::parallel::{Mutable, OwnShared, lock};
 use gix::{
     Result,
     error::{OptionExt, ResultExt, message},

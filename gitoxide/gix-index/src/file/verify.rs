@@ -8,7 +8,7 @@ impl File {
     pub fn verify_integrity(&self) -> Result {
         use gix_error::{ResultExt, message};
 
-        let _span = gix_features::trace::coarse!("gix_index::File::verify_integrity()");
+        let _span = gix_trace::coarse!("gix_index::File::verify_integrity()");
         if let Some(checksum) = self.checksum {
             let num_bytes_to_hash = self
                 .path
@@ -21,7 +21,7 @@ impl File {
                 &self.path,
                 num_bytes_to_hash,
                 checksum.kind(),
-                &mut gix_features::progress::Discard,
+                &mut gix_utils::progress::Discard,
                 &should_interrupt,
             )
             .or_raise(|| message("Could not read index file to generate hash"))?

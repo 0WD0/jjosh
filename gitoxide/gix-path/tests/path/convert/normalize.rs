@@ -15,7 +15,7 @@ fn no_change_if_there_are_no_trailing_relative_components() {
 }
 
 #[test]
-fn special_cases_around_cwd() -> gix_error::TestResult {
+fn special_cases_around_cwd() -> gix_testtools::TestResult {
     let cwd = std::env::current_dir()?;
     assert_eq!(
         normalize(p("./../../.git/modules/src/llvm-project").into(), &cwd).unwrap(),

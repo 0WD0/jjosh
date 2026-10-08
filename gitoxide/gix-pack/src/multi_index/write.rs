@@ -34,7 +34,7 @@ pub enum ProgressId {
     BytesWritten,
 }
 
-impl From<ProgressId> for gix_features::progress::Id {
+impl From<ProgressId> for gix_utils::progress::Id {
     fn from(v: ProgressId) -> Self {
         match v {
             ProgressId::FromPathsCollectingEntries => *b"MPCE",
@@ -62,7 +62,7 @@ pub(super) mod function {
     };
 
     use gix_error::{ResourceExhaustionKind, ResultExt, cancelled, ensure};
-    use gix_features::progress::{Count, DynNestedProgress, Progress};
+    use gix_utils::progress::{Count, DynNestedProgress, Progress};
 
     use crate::{MMap, multi_index};
 
@@ -95,7 +95,7 @@ pub(super) mod function {
                 "Collecting entries".into(),
                 ProgressId::FromPathsCollectingEntries.into(),
             );
-            progress.init(Some(index_paths_sorted.len()), gix_features::progress::count("indices"));
+            progress.init(Some(index_paths_sorted.len()), gix_utils::progress::count("indices"));
 
             // This could be parallelized… but it's probably not worth it unless you have 500mio objects.
             for (index_id, index) in index_paths_sorted.iter().enumerate() {
@@ -124,7 +124,7 @@ pub(super) mod function {
 
             let start = Instant::now();
             progress.set_name("Deduplicate".into());
-            progress.init(Some(entries.len()), gix_features::progress::count("entries"));
+            progress.init(Some(entries.len()), gix_utils::progress::count("entries"));
             entries.sort_by(|l, r| {
                 l.id.cmp(&r.id)
                     .then_with(|| l.index_mtime.cmp(&r.index_mtime).reverse())
@@ -165,9 +165,9 @@ pub(super) mod function {
         let write_start = Instant::now();
         write_progress.init(
             Some(cf.planned_storage_size() as usize + multi_index::File::<MMap>::HEADER_LEN),
-            gix_features::progress::bytes(),
+            gix_utils::progress::bytes(),
         );
-        let mut out = gix_features::progress::Write {
+        let mut out = gix_utils::progress::Write {
             inner: out,
             progress: write_progress,
         };
@@ -182,7 +182,7 @@ pub(super) mod function {
 
         {
             progress.set_name("Writing chunks".into());
-            progress.init(Some(cf.num_chunks()), gix_features::progress::count("chunks"));
+            progress.init(Some(cf.num_chunks()), gix_utils::progress::count("chunks"));
 
             let mut chunk_write = cf
                 .into_write(&mut out, bytes_written)

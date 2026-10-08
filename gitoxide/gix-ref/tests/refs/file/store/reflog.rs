@@ -12,12 +12,11 @@ fn store() -> Result<crate::file::Store> {
 }
 
 mod iter_and_iter_rev {
-    use crate::Result;
     use crate::file::store::reflog::store;
 
     #[cfg(unix)]
     #[test]
-    fn read_failures_preserve_context() -> Result {
+    fn read_failures_preserve_context() -> gix_testtools::TestResult {
         let mut error_snapshots = Vec::new();
         let store = store()?;
         let name = "refs/heads/main/child";
@@ -55,11 +54,11 @@ mod iter_and_iter_rev {
         }
         insta::assert_debug_snapshot!(error_snapshots, "read failures preserve context", @r#"
         [
-            Could not read reflog, "path"="<git-dir>/logs/refs/heads/main/child"
+            Could not read reflog, path="<git-dir>/logs/refs/heads/main/child"
             
             Caused by:
                 0: NotADirectory,
-            Could not read reflog, "path"="<git-dir>/logs/refs/heads/main/child"
+            Could not read reflog, path="<git-dir>/logs/refs/heads/main/child"
             
             Caused by:
                 0: NotADirectory,
@@ -69,7 +68,7 @@ mod iter_and_iter_rev {
     }
 
     #[test]
-    fn non_existing_and_directory_returns_none() -> Result {
+    fn non_existing_and_directory_returns_none() -> gix_testtools::TestResult {
         let store = store()?;
         let mut buf = Vec::new();
         for name in &["FAILURE_NONEXISTING", "refs/heads"] {
@@ -82,7 +81,7 @@ mod iter_and_iter_rev {
     }
 
     #[test]
-    fn for_head_and_main() -> Result {
+    fn for_head_and_main() -> gix_testtools::TestResult {
         let store = store()?;
         let mut buf = Vec::new();
 
@@ -96,11 +95,10 @@ mod iter_and_iter_rev {
 }
 
 mod iter_rev {
-    use crate::Result;
     use crate::file::store::reflog::store;
 
     #[test]
-    fn non_existing_and_directory_returns_none() -> Result {
+    fn non_existing_and_directory_returns_none() -> gix_testtools::TestResult {
         let store = store()?;
         let mut buf = [0u8; 256];
         for name in &["FAILURE_NONEXISTING", "refs/heads"] {
@@ -113,7 +111,7 @@ mod iter_rev {
     }
 
     #[test]
-    fn for_head_and_main() -> Result {
+    fn for_head_and_main() -> gix_testtools::TestResult {
         let store = store()?;
         let mut buf = [0u8; 256];
 

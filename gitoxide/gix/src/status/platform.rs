@@ -5,7 +5,7 @@ use crate::status::{OwnedOrStaticAtomicBool, Platform, Submodule, UntrackedFiles
 /// Builder
 impl<Progress> Platform<'_, Progress>
 where
-    Progress: gix_features::progress::Progress,
+    Progress: gix_utils::progress::Progress,
 {
     /// Call `cb` on dirwalk options if these are set (which is the default when created through [`Repository::status()`](crate::Repository::status())).
     /// The directory walk is used to find untracked files or ignored files.

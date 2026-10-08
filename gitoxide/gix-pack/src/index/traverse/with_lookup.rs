@@ -1,11 +1,9 @@
 use gix_error::Result;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use gix_features::{
-    parallel::{self, in_parallel_if},
-    progress::{self, Count, DynNestedProgress, Progress},
-    threading::{Mutable, OwnShared, lock},
-};
+use gix_parallel::{self as parallel, in_parallel_if};
+use gix_parallel::{Mutable, OwnShared, lock};
+use gix_utils::progress::{self, Count, DynNestedProgress, Progress};
 
 use super::Reducer;
 use crate::{
@@ -49,7 +47,7 @@ pub enum ProgressId {
     DecodedObjects,
 }
 
-impl From<ProgressId> for gix_features::progress::Id {
+impl From<ProgressId> for gix_utils::progress::Id {
     fn from(v: ProgressId) -> Self {
         match v {
             ProgressId::HashPackDataBytes => *b"PTHP",
@@ -132,7 +130,7 @@ where
                             Vec::with_capacity(2048), // decode buffer
                             gix_zlib::Inflate::default(),
                             lock(&reduce_progress)
-                                .add_child_with_id(format!("thread {index}"), gix_features::progress::UNKNOWN), // per thread progress
+                                .add_child_with_id(format!("thread {index}"), gix_utils::progress::UNKNOWN), // per thread progress
                         )
                     }
                 };
@@ -147,7 +145,7 @@ where
                           -> Result<Vec<data::decode::entry::Outcome>> {
                         progress.init(
                             Some(entries.len()),
-                            gix_features::progress::count_with_decimals("objects", 2),
+                            gix_utils::progress::count_with_decimals("objects", 2),
                         );
                         let mut stats = exact_vec(entries.len());
                         progress.set(0);

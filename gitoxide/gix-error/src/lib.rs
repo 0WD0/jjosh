@@ -60,6 +60,20 @@
 //! metadata, and caller locations; `?`, `.into()`, and [`Exn::into_error()`] also convert exceptions to [`Error`].
 //! Use [`Error::into_exn()`] to recover an exception tree for internal processing, including rearranging child frames.
 //!
+//! # Caller locations
+//!
+//! The `error-print-location` feature enables caller locations in diagnostics. Paths with conventional
+//! `src`, `tests`, `examples`, or `benches` directories are shortened to the containing package directory
+//! and source path; Cargo registry package versions are omitted. For example,
+//! `/home/user/.cargo/registry/src/index.crates.io-hash/gix-url-0.39.0/src/parse.rs:349`
+//! is displayed as `gix-url/src/parse.rs:349`. Package-relative source paths are retained;
+//! paths whose package root cannot be inferred from these directory conventions fall back to the filename.
+//!
+//! This only changes formatting: inspected locations retain the compiler-provided file, line, and column.
+//! A location contains no Cargo package metadata, so a directory that differs from the package name cannot
+//! be renamed automatically. Build owners can use rustc's `--remap-path-prefix` to control captured paths
+//! for arbitrary source layouts. Alternate formatting continues to omit locations.
+//!
 //! # Standard Error Types
 //!
 //! Use these types for diagnostic context when recovery does not depend on a specific condition or structured payload.
@@ -210,7 +224,8 @@
 //! Accepted errors must convert into `Box<dyn std::error::Error + Send + Sync + 'static>`.
 //!
 //! When a test returns an error, Rust's test harness prints [`TestError`]'s [`Debug`](std::fmt::Debug) output,
-//! including the complete diagnostic tree or chain and captured caller locations.
+//! including the complete diagnostic tree or chain. Captured caller locations are printed when the
+//! `error-print-location` feature is enabled; alternate formatting omits them.
 //!
 //! ```rust,test_harness
 //! use gix_error::{message, ResultExt, TestResult};
@@ -587,6 +602,13 @@ pub use exn::{
 /// Use [`Error::downcast_any_ref()`] or [`Error::iter_errors()`] to inspect the original types, including sources
 /// within nested [`Error`] values. This also applies when the `auto-chain-error` feature is enabled.
 ///
+/// In tree mode, standard `source()` traversal prefers the stored error's native source; otherwise it follows the
+/// first explicitly raised child. Nonleaf explicit children are exposed through owning source boundaries so traversal
+/// retains their descendants. These boundaries display only their current diagnostic, including with alternate Display,
+/// while explicit leaves and native sources retain their raw concrete payloads. Raw standard-source downcasts can thus
+/// encounter wrappers; use [`Error::downcast_any_ref()`] or [`Error::iter_errors()`] for typed inspection of the complete
+/// tree. Standard traversal follows one path, not every branch; use [`Exn::into_chain()`] for a flattened source chain.
+///
 /// # The `auto-chain-error` feature
 ///
 /// If it's enabled, this type is merely a wrapper around [`ChainedError`](types::ChainedError). This happens automatically
@@ -595,8 +617,9 @@ pub use exn::{
 /// When both the `tree-error` and `auto-chain-error` features are enabled, the `tree-error`
 /// behavior takes precedence and this type uses the tree-based representation.
 ///
-/// With `auto-chain-error`, [`Debug`](std::fmt::Debug) reports the complete diagnostic chain and caller locations,
-/// so returning [`Result`] from `main()` retains the underlying causes. Alternate Debug (`{error:#?}`) omits locations.
+/// With `auto-chain-error`, [`Debug`](std::fmt::Debug) reports the complete diagnostic chain,
+/// so returning [`Result`] from `main()` retains the underlying causes. Caller locations are printed only with the
+/// `error-print-location` feature, including for errors returned from `main()`. Alternate Debug (`{error:#?}`) omits them.
 /// Normal [`Display`](std::fmt::Display) shows the root diagnostic; alternate Display (`{error:#}`) joins the
 /// complete chain with `: ` and omits locations, suitable for single-line error messages.
 pub struct Error {
@@ -701,6 +724,5 @@ pub use concrete::metadata::{
     permission_denied, resource_exhaustion, retryable, unauthenticated, unsupported, validation,
 };
 
-pub(crate) fn write_location(f: &mut std::fmt::Formatter<'_>, location: &std::panic::Location) -> std::fmt::Result {
-    write!(f, ", at {}:{}", location.file(), location.line())
-}
+mod location;
+pub(crate) use location::write as write_location;

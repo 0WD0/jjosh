@@ -1,8 +1,8 @@
-use crate::Result;
+use crate::TestResult;
 use bstr::ByteSlice;
 
 #[test]
-fn environment_variables_are_passed_one_by_one() -> Result {
+fn environment_variables_are_passed_one_by_one() -> TestResult {
     let out = gix_command::prepare("echo $FIRST $SECOND")
         .env("FIRST", "first")
         .env("SECOND", "second")
@@ -14,7 +14,7 @@ fn environment_variables_are_passed_one_by_one() -> Result {
 }
 
 #[test]
-fn disallow_shell() -> Result {
+fn disallow_shell() -> TestResult {
     let out = gix_command::prepare("PATH= echo hi")
         .command_may_be_shell_script_disallow_manual_argument_splitting()
         .spawn()?
@@ -24,7 +24,7 @@ fn disallow_shell() -> Result {
     let mut cmd: std::process::Command = gix_command::prepare("echo hi")
         .command_may_be_shell_script()
         .without_shell()
-        .into();
+        .try_into()?;
     assert!(
         cmd.env_remove("PATH").spawn().is_err(),
         "no command named 'echo hi' exists"
@@ -33,12 +33,12 @@ fn disallow_shell() -> Result {
 }
 
 #[test]
-fn script_with_dollar_at() -> Result {
-    let out = std::process::Command::from(
+fn script_with_dollar_at() -> TestResult {
+    let out = std::process::Command::try_from(
         gix_command::prepare(r#"echo "$@""#)
             .command_may_be_shell_script()
             .arg("arg"),
-    )
+    )?
     .spawn()?
     .wait_with_output()?;
     assert_eq!(
@@ -50,7 +50,7 @@ fn script_with_dollar_at() -> Result {
 }
 
 #[test]
-fn direct_command_execution_searches_in_path() -> Result {
+fn direct_command_execution_searches_in_path() -> TestResult {
     assert!(
         gix_command::prepare(if cfg!(unix) { "ls" } else { "attrib.exe" })
             .spawn()?
@@ -62,17 +62,17 @@ fn direct_command_execution_searches_in_path() -> Result {
 
 #[cfg(unix)]
 #[test]
-fn direct_command_with_absolute_command_path() -> Result {
+fn direct_command_with_absolute_command_path() -> TestResult {
     assert!(gix_command::prepare("/usr/bin/env").spawn()?.wait()?.success());
     Ok(())
 }
 
 mod with_shell {
-    use crate::Result;
+    use crate::TestResult;
     use gix_testtools::bstr::ByteSlice;
 
     #[test]
-    fn command_in_path_with_args() -> Result {
+    fn command_in_path_with_args() -> TestResult {
         // `ls` is occasionaly a builtin, as in busybox ash, but it is usually external.
         assert!(
             gix_command::prepare(if cfg!(unix) { "ls -l" } else { "attrib.exe /d" })
@@ -86,7 +86,7 @@ mod with_shell {
 
     #[cfg(unix)]
     #[test]
-    fn shell_builtin_or_command_in_path() -> Result {
+    fn shell_builtin_or_command_in_path() -> TestResult {
         let out = gix_command::prepare("echo")
             .command_may_be_shell_script()
             .spawn()?
@@ -98,7 +98,7 @@ mod with_shell {
 
     #[cfg(unix)]
     #[test]
-    fn shell_builtin_or_command_in_path_with_single_extra_arg() -> Result {
+    fn shell_builtin_or_command_in_path_with_single_extra_arg() -> TestResult {
         let out = gix_command::prepare("printf")
             .command_may_be_shell_script()
             .arg("1")
@@ -111,7 +111,7 @@ mod with_shell {
 
     #[cfg(unix)]
     #[test]
-    fn shell_builtin_or_command_in_path_with_multiple_extra_args() -> Result {
+    fn shell_builtin_or_command_in_path_with_multiple_extra_args() -> TestResult {
         let out = gix_command::prepare("printf")
             .command_may_be_shell_script()
             .arg("%s")
@@ -124,7 +124,7 @@ mod with_shell {
     }
 
     #[test]
-    fn force_shell_builtin() -> Result {
+    fn force_shell_builtin() -> TestResult {
         let out = gix_command::prepare("echo").with_shell().spawn()?.wait_with_output()?;
         assert!(out.status.success());
         assert_eq!(out.stdout.as_bstr(), "\n");
@@ -132,7 +132,7 @@ mod with_shell {
     }
 
     #[test]
-    fn force_shell_builtin_with_single_extra_arg() -> Result {
+    fn force_shell_builtin_with_single_extra_arg() -> TestResult {
         let out = gix_command::prepare("printf")
             .with_shell()
             .arg("1")
@@ -144,7 +144,7 @@ mod with_shell {
     }
 
     #[test]
-    fn force_shell_builtin_with_multiple_extra_args() -> Result {
+    fn force_shell_builtin_with_multiple_extra_args() -> TestResult {
         let out = gix_command::prepare("printf")
             .with_shell()
             .arg("%s")
@@ -157,7 +157,7 @@ mod with_shell {
     }
 
     #[test]
-    fn sh_shell_specific_script_code() -> Result {
+    fn sh_shell_specific_script_code() -> TestResult {
         assert!(
             gix_command::prepare(":;:;:")
                 .command_may_be_shell_script()
@@ -169,7 +169,7 @@ mod with_shell {
     }
 
     #[test]
-    fn sh_shell_specific_script_code_with_single_extra_arg() -> Result {
+    fn sh_shell_specific_script_code_with_single_extra_arg() -> TestResult {
         let out = gix_command::prepare(":;printf")
             .command_may_be_shell_script()
             .arg("1")
@@ -181,7 +181,7 @@ mod with_shell {
     }
 
     #[test]
-    fn sh_shell_specific_script_code_with_multiple_extra_args() -> Result {
+    fn sh_shell_specific_script_code_with_multiple_extra_args() -> TestResult {
         let out = gix_command::prepare(":;printf")
             .command_may_be_shell_script()
             .arg("%s")
@@ -195,7 +195,7 @@ mod with_shell {
 
     #[cfg(unix)]
     #[test]
-    fn dollar_zero_in_minus_c_is_basename_of_default_shell() -> Result {
+    fn dollar_zero_in_minus_c_is_basename_of_default_shell() -> TestResult {
         let out = gix_command::prepare(r#"printf %s "$0""#)
             .command_may_be_shell_script()
             .spawn()?
@@ -211,12 +211,12 @@ mod with_shell {
 
     #[cfg(unix)]
     #[test]
-    fn dollar_zero_in_minus_c_reflects_with_shell_program() -> Result {
-        let out = std::process::Command::from(
+    fn dollar_zero_in_minus_c_reflects_with_shell_program() -> TestResult {
+        let out = std::process::Command::try_from(
             gix_command::prepare(r#"printf %s "$0""#)
                 .command_may_be_shell_script()
                 .with_shell_program(gix_testtools::bash_program()),
-        )
+        )?
         .spawn()?
         .wait_with_output()?;
         assert_eq!(

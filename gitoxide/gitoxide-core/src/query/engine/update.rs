@@ -10,9 +10,9 @@ use gix::{
     bstr::{BStr, BString, ByteSlice},
     diff::{blob::platform::prepare_diff::Operation, rewrites::CopySource},
     error::{ResultExt, bail},
-    features::progress,
     parallel::{InOrderIter, SequenceId},
     prelude::ObjectIdExt,
+    progress,
 };
 use rusqlite::{Statement, Transaction, params};
 
@@ -30,7 +30,7 @@ pub fn update(
     }: Options,
 ) -> Result<Vec<gix::ObjectId>> {
     let commit_id = repo.head_id()?.detach();
-    let threads = gix::features::parallel::num_threads(threads);
+    let threads = gix::parallel::num_threads(threads);
 
     let mut stat_progress = {
         let mut p = progress.add_child("extract stats");

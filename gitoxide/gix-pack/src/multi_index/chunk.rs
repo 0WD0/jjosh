@@ -61,7 +61,7 @@ pub mod index_names {
                     "Pack path requires more memory than allowed",
                 ));
             }
-            let path = gix_path::try_from_byte_slice(path)
+            let path = gix_path::from_byte_slice(path)
                 .or_raise(|| {
                     corruption(format!(
                         "Couldn't turn path \"{}\" into OS path due to encoding issues",

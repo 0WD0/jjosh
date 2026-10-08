@@ -19,14 +19,14 @@ fn repository(overrides: impl IntoIterator<Item = impl Into<BString>>) -> gix_te
 
 #[test]
 #[serial]
-fn follows_git_editor_precedence() -> gix_testtools::Result {
+fn follows_git_editor_precedence() -> gix_testtools::TestResult {
     let _environment = gix_testtools::isolate_git_environment()?
         .set("TERM", "xterm")
         .set("GIT_EDITOR", ":")
         .set("VISUAL", "visual")
         .set("EDITOR", "editor");
     assert_eq!(
-        repository(["core.editor=core"])?.editor().as_deref(),
+        repository(["core.editor=core"])?.editor()?.as_deref(),
         Some(OsStr::new(":")),
         "the selected editor is available without preparing a command"
     );
@@ -81,7 +81,7 @@ fn follows_git_editor_precedence() -> gix_testtools::Result {
 
 #[test]
 #[serial]
-fn dumb_terminals_require_an_explicit_non_visual_editor() -> gix_testtools::Result {
+fn dumb_terminals_require_an_explicit_non_visual_editor() -> gix_testtools::TestResult {
     let _environment = gix_testtools::isolate_git_environment()?
         .set("TERM", "dumb")
         .unset("GIT_EDITOR")
@@ -101,7 +101,7 @@ fn dumb_terminals_require_an_explicit_non_visual_editor() -> gix_testtools::Resu
 
 #[test]
 #[serial]
-fn generic_editor_environment_is_available_as_gitoxide_configuration() -> gix_testtools::Result {
+fn generic_editor_environment_is_available_as_gitoxide_configuration() -> gix_testtools::TestResult {
     let _environment = gix_testtools::isolate_git_environment()?
         .set("TERM", "dumb")
         .set("VISUAL", "visual-from-environment")

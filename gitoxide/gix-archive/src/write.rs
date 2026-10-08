@@ -307,12 +307,12 @@ fn append_tar_entry<W: std::io::Write>(
     buf.clear();
     std::io::copy(&mut entry, buf).or_raise(|| message("Could not read entry data"))?;
 
-    let path = gix_path::from_bstr(add_prefix(entry.relative_path(), opts.tree_prefix.as_ref()));
+    let path = gix_path::from_bstr(add_prefix(entry.relative_path(), opts.tree_prefix.as_ref()))?;
     header.set_size(buf.len() as u64);
 
     if entry.mode.is_link() {
         use bstr::ByteSlice;
-        let target = gix_path::from_bstr(buf.as_bstr());
+        let target = gix_path::from_bstr(buf.as_bstr())?;
         header.set_entry_type(tar::EntryType::Symlink);
         header.set_size(0);
         ar.append_link(&mut header, path, target)

@@ -20,6 +20,120 @@ fn assure_windows_separators() {
 
 mod normalize;
 
+fn assert_roundtrip(bytes: &[u8]) -> gix_testtools::Result {
+    use std::borrow::Cow;
+
+    let path = gix_path::from_byte_slice(bytes)?;
+    let borrowed = gix_path::into_bstr(path)?;
+    assert!(matches!(borrowed, Cow::Borrowed(_)), "borrowed paths stay borrowed");
+    assert_eq!(
+        borrowed.as_ptr(),
+        bytes.as_ptr(),
+        "borrowed conversion keeps the original storage"
+    );
+    assert_eq!(borrowed.as_ref(), bytes.as_bstr(), "conversion preserves every byte");
+    assert!(
+        matches!(gix_path::from_bstr(bytes.as_bstr())?, Cow::Borrowed(_)),
+        "borrowed bytes stay borrowed"
+    );
+
+    let owned = gix_path::from_bstring(bytes.as_bstr())?;
+    let owned = gix_path::into_bstr(owned)?;
+    assert!(matches!(owned, Cow::Owned(_)), "owned paths stay owned");
+    assert_eq!(owned.as_ref(), bytes.as_bstr(), "owned conversion preserves every byte");
+    let owned = gix_path::from_bstr(owned)?;
+    assert!(matches!(owned, Cow::Owned(_)), "owned bytes stay owned");
+    assert_eq!(owned.as_ref(), path, "owned and borrowed conversions agree");
+    assert_eq!(gix_path::os_str_into_bstr(path.as_os_str())?, bytes.as_bstr());
+    assert_eq!(
+        gix_path::os_string_into_bstring(path.as_os_str().to_owned())?,
+        bytes.as_bstr()
+    );
+    assert!(matches!(
+        gix_path::try_os_str_into_bstr(Cow::Borrowed(path.as_os_str()))?,
+        Cow::Borrowed(_)
+    ));
+    assert!(matches!(
+        gix_path::try_os_str_into_bstr(Cow::Owned(path.as_os_str().to_owned()))?,
+        Cow::Owned(_)
+    ));
+    Ok(())
+}
+
+#[test]
+fn unicode_paths_preserve_bytes_and_ownership() -> gix_testtools::TestResult {
+    for input in ["", "directory/file", "é/😀"] {
+        assert_roundtrip(input.as_bytes())?;
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+#[test]
+fn unix_paths_preserve_non_utf8_bytes() -> gix_testtools::TestResult {
+    let bytes = b"directory/\xff\x80\xed\xa0\x80";
+    assert_roundtrip(bytes)?;
+    assert_eq!(
+        gix_path::to_native_path_on_windows(bytes.as_bstr())?
+            .as_os_str()
+            .as_encoded_bytes(),
+        bytes,
+        "Unix native paths retain arbitrary bytes"
+    );
+    Ok(())
+}
+
+#[cfg(windows)]
+#[test]
+fn all_conversions_reject_invalid_windows_encodings() -> gix_testtools::TestResult {
+    use std::{
+        borrow::Cow,
+        ffi::OsString,
+        os::windows::ffi::OsStringExt,
+        path::{Path, PathBuf},
+    };
+
+    let check = |err: gix_error::Error| {
+        assert!(err.is_validation(), "invalid path encoding is a validation error");
+        assert!(
+            err.downcast_any_ref::<std::str::Utf8Error>().is_some()
+                || err.downcast_any_ref::<std::string::FromUtf8Error>().is_some(),
+            "the encoding failure remains available in the error chain"
+        );
+    };
+    for surrogate in [0xd800, 0xdc00] {
+        let path = OsString::from_wide(&[surrogate]);
+        check(gix_path::into_bstr(Path::new(&path)).expect_err("borrowed native path rejects lone surrogates"));
+        check(gix_path::into_bstr(PathBuf::from(&path)).expect_err("owned native path rejects lone surrogates"));
+        check(gix_path::os_str_into_bstr(&path).expect_err("borrowed OS string rejects lone surrogates"));
+        check(gix_path::os_string_into_bstring(path.clone()).expect_err("owned OS string rejects lone surrogates"));
+        check(gix_path::try_os_str_into_bstr(Cow::Borrowed(&path)).expect_err("borrowed Cow rejects lone surrogates"));
+        check(gix_path::try_os_str_into_bstr(Cow::Owned(path)).expect_err("owned Cow rejects lone surrogates"));
+    }
+    for bytes in [b"\xff".as_slice(), b"\xc0\x80", b"\xed\xa0\x80", b"\xe2\x82"] {
+        check(gix_path::from_byte_slice(bytes).expect_err("byte slice must be UTF-8"));
+        check(gix_path::from_bstring(bytes.as_bstr()).expect_err("owned bytes must be UTF-8"));
+        check(gix_path::from_bstr(bytes.as_bstr()).expect_err("borrowed bytes must be UTF-8"));
+        check(gix_path::from_bstr(bytes.as_bstr().to_owned()).expect_err("owned Cow must be UTF-8"));
+        check(
+            gix_path::to_native_path_on_windows(bytes.as_bstr())
+                .expect_err("native separators do not hide invalid UTF-8"),
+        );
+    }
+    let pair = OsString::from_wide(&[0xd83d, 0xde00]);
+    assert_eq!(
+        gix_path::os_str_into_bstr(&pair)?,
+        "😀",
+        "paired surrogates are valid Unicode"
+    );
+    assert_eq!(
+        gix_path::from_bstring("😀")?.as_os_str(),
+        pair,
+        "valid pairs round-trip losslessly"
+    );
+    Ok(())
+}
+
 #[cfg(windows)]
 #[test]
 fn invalid_encodings_retain_their_sources() {
@@ -30,8 +144,8 @@ fn invalid_encodings_retain_their_sources() {
     for err in [
         gix_path::os_str_into_bstr(&path).expect_err("a lone surrogate is not UTF-8"),
         gix_path::os_string_into_bstring(path).expect_err("owned paths reject lone surrogates too"),
-        gix_path::try_from_byte_slice(b"\xff").expect_err("Windows paths require UTF-8"),
-        gix_path::try_from_bstring(b"\xff".as_bstr()).expect_err("owned Windows paths require UTF-8"),
+        gix_path::from_byte_slice(b"\xff").expect_err("Windows paths require UTF-8"),
+        gix_path::from_bstring(b"\xff".as_bstr()).expect_err("owned Windows paths require UTF-8"),
     ] {
         error_snapshots.push(gix_testtools::redact_debug_snapshot(&(err), &[]));
         assert!(err.is_validation(), "invalid encodings remain validation errors");
@@ -120,31 +234,57 @@ mod normalize_saturating {
     }
 
     #[test]
-    fn walking_up_too_much_stays_at_the_root() {
+    fn walking_up_too_much_stays_at_the_root() -> gix_testtools::TestResult {
         let cwd = "/users/name".as_ref();
         assert_eq!(
-            normalize_saturating(p("./a/b/../../../../../actually-valid").into(), cwd).as_ref(),
+            normalize_saturating(p("./a/b/../../../../../actually-valid").into(), cwd)?.as_ref(),
             p("/actually-valid")
         );
         assert_eq!(
-            normalize_saturating(p("/a/b/../../../../actually-valid").into(), cwd).as_ref(),
+            normalize_saturating(p("/a/b/../../../../actually-valid").into(), cwd)?.as_ref(),
             p("/actually-valid")
         );
         assert_eq!(
-            normalize_saturating(p("/a/b/../../../../..").into(), cwd).as_ref(),
+            normalize_saturating(p("/a/b/../../../../..").into(), cwd)?.as_ref(),
             p("/")
         );
+        Ok(())
     }
 
     #[test]
-    fn preserves_normal_paths() {
+    fn preserves_normal_paths() -> gix_testtools::TestResult {
         let path = p("a/b");
-        assert!(matches!(normalize_saturating(path.into(), p("/users")), Cow::Borrowed(actual) if actual == path));
+        assert!(matches!(normalize_saturating(path.into(), p("/users"))?, Cow::Borrowed(actual) if actual == path));
         assert_eq!(
-            normalize_saturating(p("a/../b").into(), p("/users")).as_ref(),
+            normalize_saturating(p("a/../b").into(), p("/users"))?.as_ref(),
             p("b"),
             "paths that do not reach the root normalize as usual"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn exhausted_relative_cwd_returns_an_error() -> gix_testtools::TestResult {
+        for (input, cwd) in [("../../x", "a"), ("../..", "")] {
+            let err = normalize_saturating(p(input).into(), p(cwd))
+                .expect_err("the relative current directory cannot supply another parent");
+            assert!(
+                err.is_validation(),
+                "an exhausted current directory is a validation error"
+            );
+        }
+        for cwd in ["", "a"] {
+            assert!(
+                matches!(normalize_saturating(p("a/b").into(), p(cwd))?, Cow::Borrowed(_)),
+                "an unused current directory does not prevent borrowing an unchanged path"
+            );
+            assert_eq!(
+                normalize_saturating(p("a/../b").into(), p(cwd))?.as_ref(),
+                p("b"),
+                "local normalization does not require an absolute current directory"
+            );
+        }
+        Ok(())
     }
 }
 

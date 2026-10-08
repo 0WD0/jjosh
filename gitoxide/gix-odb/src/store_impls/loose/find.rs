@@ -1,7 +1,7 @@
 use gix_error::Result;
 use std::{cmp::Ordering, collections::HashSet};
 
-use gix_error::{Message, ResultExt, allocation_failure, allocation_limit, bail, corruption};
+use gix_error::{Message, ResultExt, bail, corruption, message};
 
 use crate::store_impls::loose::{HEADER_MAX_SIZE, Store, hash_path};
 
@@ -29,15 +29,11 @@ impl Store {
         mut candidates: Option<&mut HashSet<gix_hash::ObjectId>>,
     ) -> std::result::Result<Option<crate::store::prefix::lookup::Outcome>, crate::loose::iter::Error> {
         let single_directory_iter = crate::loose::Iter {
-            inner: gix_features::fs::walkdir_new(
-                &self.path.join(prefix.as_oid().to_hex_with_len(2).to_string()),
-                gix_features::fs::walkdir::Parallelism::Serial,
-                false,
-            )
-            .min_depth(1)
-            .max_depth(1)
-            .follow_links(false)
-            .into_iter(),
+            inner: gix_fs::walkdir_new(&self.path.join(prefix.as_oid().to_hex_with_len(2).to_string()), false)
+                .min_depth(1)
+                .max_depth(1)
+                .follow_links(false)
+                .into_iter(),
             hash_hex_len: prefix.as_oid().kind().len_in_hex(),
         };
         let mut candidate = None;
@@ -114,9 +110,8 @@ impl Store {
         Ok(Some((size, kind)))
     }
 
-    /// Decode and allocation failures retain [metadata](gix_error::Error::metadata()) `size` (requested bytes) or
-    /// `actual` and `expected`
-    /// (inflated bytes); allocation limits also report `limit`. All counts are unsigned.
+    /// Decode failures retain [metadata](gix_error::Error::metadata()) `actual` and `expected` (unsigned inflated byte counts).
+    /// Allocation diagnostics include requested sizes and configured limits in their messages, not metadata.
     fn find_inner<'a>(&self, id: &gix_hash::oid, out: &'a mut Vec<u8>) -> Result<Option<gix_object::Data<'a>>> {
         let path = hash_path(id, self.path.clone());
         let map = match self.map_loose_object(&path)? {
@@ -133,10 +128,11 @@ impl Store {
 
         let (kind, size, header_size) = gix_object::decode::loose_header(&header[..consumed_out])?;
         self.ensure_in_alloc_limit(size)?;
-        let allocation = || allocation_error(size);
         let size_usize = usize::try_from(size).or_raise(|| {
-            allocation_failure("Cannot store loose object in memory: the object size cannot be represented in memory")
-                .with("size", size)
+            message!(
+                "Cannot store loose object of {size} bytes in memory: the object size cannot be represented in memory"
+            )
+            .allocation_failure()
         })?;
         let decompressed_body_prefix_len = consumed_out
             .checked_sub(header_size)
@@ -151,7 +147,8 @@ impl Store {
         // If the first inflate already reached the end of the stream, the fixed-size `header` buffer
         // contains the complete decompressed object, so we can skip a second streaming inflate pass.
         out.clear();
-        out.try_reserve(size_usize).or_raise(allocation)?;
+        out.try_reserve(size_usize)
+            .or_raise(|| message!("Cannot store loose object of {size} bytes in memory"))?;
         if status == gix_zlib::Status::StreamEnd {
             out.extend_from_slice(&header[header_size..consumed_out]);
         } else {
@@ -180,16 +177,12 @@ impl Store {
         }))
     }
 
-    /// Allocation-limit failures include [metadata](gix_error::Error::metadata()) `size` and `limit` (unsigned byte
-    /// counts).
+    /// Allocation-limit diagnostics include the requested size and configured limit in their messages.
     fn ensure_in_alloc_limit(&self, size: u64) -> Result {
         if let Some(limit) = self.alloc_limit_bytes.filter(|limit| size > *limit as u64) {
             bail!(
-                allocation_limit(
-                    "Cannot store loose object in memory: the object exceeds the configured allocation limit"
-                )
-                .with("size", size)
-                .with("limit", limit)
+                "Cannot store loose object of {size} bytes in memory: the object exceeds the configured allocation limit of {limit} bytes"
+                    .allocation_limit()
             );
         }
         Ok(())
@@ -219,12 +212,6 @@ mod mmap {
             memmap2::MmapOptions::new().map_copy_read_only(&file)
         }
     }
-}
-
-/// The raised error's [metadata](gix_error::Error::metadata()) `size` (unsigned bytes) identifies the requested
-/// loose-object allocation.
-fn allocation_error(size: u64) -> Message {
-    Message::new("Cannot store loose object in memory").with("size", size)
 }
 
 /// Report invalid inflation sizes in [metadata](gix_error::Error::metadata()) `actual` and `expected` (unsigned byte

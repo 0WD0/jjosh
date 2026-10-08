@@ -577,9 +577,7 @@ fn write_history(
     hide: &[OsString],
     mut out: impl Write,
 ) -> Result<()> {
-    let authors = gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(
-        crate::history::Authors::default(),
-    ));
+    let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(crate::history::Authors::default()));
     let refs = crate::history::snapshot(repository, revisions, hide, false)?;
     let mut app = crate::app::App::new(usize::MAX);
     app.id_mode = crate::app::IdMode::Commit;
@@ -3259,7 +3257,8 @@ mod tests {
 
         let base = render(&repository, "HEAD")?;
         assert!(
-            base.lines().any(|line| line.contains(&format!("base @ {short_head}"))),
+            base.lines()
+                .any(|line| line.contains("base @ ") && line.contains(&short_head)),
             "a HEAD base separator retains the marker: {base:?}"
         );
         Ok(())

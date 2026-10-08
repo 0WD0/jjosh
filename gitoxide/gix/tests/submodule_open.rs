@@ -5,7 +5,7 @@
     windows,
     ignore = "for now, windows gets Os { code: 267, kind: NotADirectory, message: 'The directory name is invalid.' } (maybe because of relative symlink)?"
 )]
-fn on_nested_symlink() -> gix_testtools::Result {
+fn on_nested_symlink() -> gix_testtools::TestResult {
     let symlink_root =
         gix_testtools::scripted_fixture_read_only("make_submodules.sh")?.join("link-to-dir-in-changed-parent-repo");
     // Note: even though this refers to a symlink, the CWD that is actually set will be the resolved directory.

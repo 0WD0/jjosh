@@ -51,13 +51,21 @@ impl Platform<'_, '_> {
     pub fn rev(&mut self) -> std::io::Result<Option<log::iter::Reverse<'_, std::fs::File>>> {
         self.buf.clear();
         self.buf.resize(1024 * 4, 0);
-        self.store.reflog_iter_rev_inner(self.name, &mut self.buf)
+        let path = self
+            .store
+            .reflog_path(self.name)
+            .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidInput, err))?;
+        self.store.reflog_iter_rev_inner(&path, &mut self.buf)
     }
 
     /// Return a forward iterator over all log-lines, oldest to most recent.
     pub fn all(&mut self) -> std::io::Result<Option<log::iter::Forward<'_>>> {
         self.buf.clear();
-        self.store.reflog_iter_inner(self.name, &mut self.buf)
+        let path = self
+            .store
+            .reflog_path(self.name)
+            .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidInput, err))?;
+        self.store.reflog_iter_inner(&path, &mut self.buf)
     }
 }
 

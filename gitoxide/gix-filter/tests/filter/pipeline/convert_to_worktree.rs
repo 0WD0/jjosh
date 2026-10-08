@@ -6,7 +6,7 @@ use gix_filter::pipeline::{CrlfRoundTripCheck, convert::to_worktree};
 use crate::{driver::apply::driver_with_process, pipeline::pipeline};
 
 #[test]
-fn all_stages() -> gix_testtools::Result {
+fn all_stages() -> gix_testtools::TestResult {
     let (mut cache, mut pipe) = pipeline("all-filters", || {
         (
             vec![driver_with_process()],
@@ -52,7 +52,7 @@ fn all_stages() -> gix_testtools::Result {
 }
 
 #[test]
-fn all_stages_no_filter() -> gix_testtools::Result {
+fn all_stages_no_filter() -> gix_testtools::TestResult {
     let (mut cache, mut pipe) = pipeline("all-filters", || {
         (vec![], Vec::new(), CrlfRoundTripCheck::Skip, Default::default())
     })?;
@@ -91,7 +91,7 @@ fn all_stages_no_filter() -> gix_testtools::Result {
 }
 
 #[test]
-fn no_filter() -> gix_testtools::Result {
+fn no_filter() -> gix_testtools::TestResult {
     let (mut cache, mut pipe) = pipeline("no-filters", || {
         (vec![], Vec::new(), CrlfRoundTripCheck::Skip, Default::default())
     })?;
@@ -119,7 +119,7 @@ fn no_filter() -> gix_testtools::Result {
 }
 
 #[test]
-fn unknown_encoding_is_ignored_after_other_conversions() -> gix_testtools::Result {
+fn unknown_encoding_is_ignored_after_other_conversions() -> gix_testtools::TestResult {
     let (mut cache, mut pipe) = pipeline("unknown-encoding", || {
         (vec![], Vec::new(), CrlfRoundTripCheck::Skip, Default::default())
     })?;
@@ -146,7 +146,7 @@ fn unknown_encoding_is_ignored_after_other_conversions() -> gix_testtools::Resul
 }
 
 #[test]
-fn encoding_failure_is_ignored_after_other_conversions() -> gix_testtools::Result {
+fn encoding_failure_is_ignored_after_other_conversions() -> gix_testtools::TestResult {
     let (mut cache, mut pipe) = pipeline("all-filters", || {
         (vec![], Vec::new(), CrlfRoundTripCheck::Skip, Default::default())
     })?;
@@ -173,7 +173,7 @@ fn encoding_failure_is_ignored_after_other_conversions() -> gix_testtools::Resul
 }
 
 #[test]
-fn encoding_failure_can_be_an_error() -> gix_testtools::Result {
+fn encoding_failure_can_be_an_error() -> gix_testtools::TestResult {
     let (mut cache, mut pipe) = pipeline("all-filters", || {
         (vec![], Vec::new(), CrlfRoundTripCheck::Skip, Default::default())
     })?;
@@ -199,7 +199,7 @@ fn encoding_failure_can_be_an_error() -> gix_testtools::Result {
 }
 
 #[test]
-fn unknown_encoding_can_be_an_error() -> gix_testtools::Result {
+fn unknown_encoding_can_be_an_error() -> gix_testtools::TestResult {
     let (mut cache, mut pipe) = pipeline("unknown-encoding", || {
         (vec![], Vec::new(), CrlfRoundTripCheck::Skip, Default::default())
     })?;

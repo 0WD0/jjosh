@@ -22,7 +22,7 @@ fn empty_input() {
     Message {
         message: "An empty string is not a valid pathspec",
         class: Validation,
-        values: {"input": Bytes("")},
+        values: {input: Bytes("")},
     }
     "#);
     assert_eq!(err.values.get("input"), Some(&MetadataValue::from(b"".as_slice())));
@@ -51,77 +51,77 @@ fn invalid_short_signatures() {
         Message {
             message: "Unimplemented short keyword",
             class: Validation,
-            values: {"input": Bytes("\"")},
+            values: {input: Bytes("\"")},
         },
         Message {
             message: "Unimplemented short keyword",
             class: Validation,
-            values: {"input": Bytes("#")},
+            values: {input: Bytes("#")},
         },
         Message {
             message: "Unimplemented short keyword",
             class: Validation,
-            values: {"input": Bytes("%")},
+            values: {input: Bytes("%")},
         },
         Message {
             message: "Unimplemented short keyword",
             class: Validation,
-            values: {"input": Bytes("&")},
+            values: {input: Bytes("&")},
         },
         Message {
             message: "Unimplemented short keyword",
             class: Validation,
-            values: {"input": Bytes("\'")},
+            values: {input: Bytes("\'")},
         },
         Message {
             message: "Unimplemented short keyword",
             class: Validation,
-            values: {"input": Bytes(",")},
+            values: {input: Bytes(",")},
         },
         Message {
             message: "Unimplemented short keyword",
             class: Validation,
-            values: {"input": Bytes("-")},
+            values: {input: Bytes("-")},
         },
         Message {
             message: "Unimplemented short keyword",
             class: Validation,
-            values: {"input": Bytes(";")},
+            values: {input: Bytes(";")},
         },
         Message {
             message: "Unimplemented short keyword",
             class: Validation,
-            values: {"input": Bytes("<")},
+            values: {input: Bytes("<")},
         },
         Message {
             message: "Unimplemented short keyword",
             class: Validation,
-            values: {"input": Bytes("=")},
+            values: {input: Bytes("=")},
         },
         Message {
             message: "Unimplemented short keyword",
             class: Validation,
-            values: {"input": Bytes(">")},
+            values: {input: Bytes(">")},
         },
         Message {
             message: "Unimplemented short keyword",
             class: Validation,
-            values: {"input": Bytes("@")},
+            values: {input: Bytes("@")},
         },
         Message {
             message: "Unimplemented short keyword",
             class: Validation,
-            values: {"input": Bytes("_")},
+            values: {input: Bytes("_")},
         },
         Message {
             message: "Unimplemented short keyword",
             class: Validation,
-            values: {"input": Bytes("`")},
+            values: {input: Bytes("`")},
         },
         Message {
             message: "Unimplemented short keyword",
             class: Validation,
-            values: {"input": Bytes("~")},
+            values: {input: Bytes("~")},
         },
     ]
     "##);
@@ -152,22 +152,22 @@ fn invalid_keywords() {
         Message {
             message: "Found invalid keyword in pathspec signature",
             class: Validation,
-            values: {"input": Bytes(" ")},
+            values: {input: Bytes(" ")},
         },
         Message {
             message: "Found invalid keyword in pathspec signature",
             class: Validation,
-            values: {"input": Bytes("tp")},
+            values: {input: Bytes("tp")},
         },
         Message {
             message: "Found invalid keyword in pathspec signature",
             class: Validation,
-            values: {"input": Bytes(" exclude")},
+            values: {input: Bytes(" exclude")},
         },
         Message {
             message: "Found invalid keyword in pathspec signature",
             class: Validation,
-            values: {"input": Bytes("icse")},
+            values: {input: Bytes("icse")},
         },
     ]
     "#);
@@ -205,42 +205,42 @@ fn invalid_attributes() {
         Message {
             message: "Attribute has non-ascii characters or starts with '-'",
             class: Validation,
-            values: {"input": Bytes("+invalidAttr")},
+            values: {input: Bytes("+invalidAttr")},
         },
         Message {
             message: "Attribute has non-ascii characters or starts with '-'",
             class: Validation,
-            values: {"input": Bytes("+invalidAttr")},
+            values: {input: Bytes("+invalidAttr")},
         },
         Message {
             message: "Attribute has non-ascii characters or starts with '-'",
             class: Validation,
-            values: {"input": Bytes("+invalidAttr")},
+            values: {input: Bytes("+invalidAttr")},
         },
         Message {
             message: "Attribute has non-ascii characters or starts with '-'",
             class: Validation,
-            values: {"input": Bytes("inva\\lid")},
+            values: {input: Bytes("inva\\lid")},
         },
         Message {
             message: "Attribute has non-ascii characters or starts with '-'",
             class: Validation,
-            values: {"input": Bytes("a\tb")},
+            values: {input: Bytes("a\tb")},
         },
         Message {
             message: "Attribute has non-ascii characters or starts with '-'",
             class: Validation,
-            values: {"input": Bytes("a\rb")},
+            values: {input: Bytes("a\rb")},
         },
         Message {
             message: "Attribute has non-ascii characters or starts with '-'",
             class: Validation,
-            values: {"input": Bytes("a=b")},
+            values: {input: Bytes("a=b")},
         },
         Message {
             message: "Attribute has non-ascii characters or starts with '-'",
             class: Validation,
-            values: {"input": Bytes("a=b")},
+            values: {input: Bytes("a=b")},
         },
     ]
     "#);
@@ -259,7 +259,7 @@ fn attribute_values_are_not_split_on_non_space_blanks() {
     Message {
         message: "Invalid character in attribute value",
         class: Validation,
-        values: {"input": Bytes("\t")},
+        values: {input: Bytes("\t")},
     }
     "#);
     assert_eq!(err.values.get("input"), Some(&MetadataValue::from(b"\t".as_slice())));
@@ -294,42 +294,42 @@ fn invalid_attribute_values() {
         Message {
             message: "Invalid character in attribute value",
             class: Validation,
-            values: {"input": Bytes("#")},
+            values: {input: Bytes("#")},
         },
         Message {
             message: "Invalid character in attribute value",
             class: Validation,
-            values: {"input": Bytes("\\")},
+            values: {input: Bytes("\\")},
         },
         Message {
             message: "Invalid character in attribute value",
             class: Validation,
-            values: {"input": Bytes("\\")},
+            values: {input: Bytes("\\")},
         },
         Message {
             message: "Invalid character in attribute value",
             class: Validation,
-            values: {"input": Bytes("#")},
+            values: {input: Bytes("#")},
         },
         Message {
             message: "Invalid character in attribute value",
             class: Validation,
-            values: {"input": Bytes("=")},
+            values: {input: Bytes("=")},
         },
         Message {
             message: "Invalid character in attribute value",
             class: Validation,
-            values: {"input": Bytes("#")},
+            values: {input: Bytes("#")},
         },
         Message {
             message: "Invalid character in attribute value",
             class: Validation,
-            values: {"input": Bytes("\xef")},
+            values: {input: Bytes("\xef")},
         },
         Message {
             message: "Invalid character in attribute value",
             class: Validation,
-            values: {"input": Bytes("\xef")},
+            values: {input: Bytes("\xef")},
         },
     ]
     "##);
@@ -362,17 +362,17 @@ fn escape_character_at_end_of_attribute_value() {
         Message {
             message: "Escape character '\\' is not allowed as the last character in an attribute value",
             class: Validation,
-            values: {"input": Bytes("invalid\\")},
+            values: {input: Bytes("invalid\\")},
         },
         Message {
             message: "Escape character '\\' is not allowed as the last character in an attribute value",
             class: Validation,
-            values: {"input": Bytes("invalid\\")},
+            values: {input: Bytes("invalid\\")},
         },
         Message {
             message: "Escape character '\\' is not allowed as the last character in an attribute value",
             class: Validation,
-            values: {"input": Bytes("invalid\\")},
+            values: {input: Bytes("invalid\\")},
         },
     ]
     "#);
@@ -410,7 +410,7 @@ fn multiple_attribute_specifications() {
     Message {
         message: "Only one attribute specification is allowed in the same pathspec",
         class: Validation,
-        values: {"input": Bytes("attr:two")},
+        values: {input: Bytes("attr:two")},
     }
     "#);
     assert!(
@@ -433,7 +433,7 @@ fn missing_parentheses() {
     Message {
         message: "Missing ')' at the end of pathspec signature",
         class: Validation,
-        values: {"input": Bytes(":(top")},
+        values: {input: Bytes(":(top")},
     }
     "#);
     assert_eq!(err.values.get("input"), Some(&MetadataValue::from(input.as_bytes())));
@@ -453,7 +453,7 @@ fn glob_and_literal_keywords_present() {
     Message {
         message: "'literal' and 'glob' keywords cannot be used together in the same pathspec",
         class: Validation,
-        values: {"input": Bytes("literal")},
+        values: {input: Bytes("literal")},
     }
     "#);
     assert_eq!(

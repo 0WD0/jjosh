@@ -1,9 +1,9 @@
 use crate::error::{ResultExt, message};
-use gix_features::progress::Progress;
 #[cfg(feature = "async-network-client")]
 use gix_transport::client::async_io::Transport;
 #[cfg(feature = "blocking-network-client")]
 use gix_transport::client::blocking_io::Transport;
+use gix_utils::progress::Progress;
 
 use crate::{
     Result,

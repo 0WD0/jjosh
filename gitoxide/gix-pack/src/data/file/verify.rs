@@ -1,7 +1,7 @@
 use gix_error::Result;
 use std::sync::atomic::AtomicBool;
 
-use gix_features::progress::Progress;
+use gix_utils::progress::Progress;
 
 use crate::data::File;
 
@@ -19,7 +19,7 @@ where
     /// returning the actual checksum equivalent to the return value of [`checksum()`][File::checksum()] if there
     /// is no mismatch.
     ///
-    /// Note that if no `progress` is desired, one can pass [`gix_features::progress::Discard`].
+    /// Note that if no `progress` is desired, one can pass [`gix_utils::progress::Discard`].
     ///
     /// Have a look at [`index::File::verify_integrity(…)`][crate::index::File::verify_integrity()] for an
     /// even more thorough integrity check.

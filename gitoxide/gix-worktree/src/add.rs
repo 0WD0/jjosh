@@ -137,7 +137,7 @@ pub fn prepare(
     })?;
     let basename = gix_path::os_str_into_bstr(basename)
         .map(gix_validate::reference::name_partial_or_sanitize)
-        .and_then(gix_path::try_from_bstring)
+        .and_then(gix_path::from_bstring)
         .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?;
     let git_dir = reserve_git_dir(&worktrees_dir, basename.as_os_str())?;
 
@@ -258,7 +258,7 @@ fn write_path(path: PathBuf, prefix: &[u8], value: &Path) -> io::Result<()> {
 }
 
 fn write_path_to(mut out: impl Write, prefix: &[u8], value: &Path) -> io::Result<()> {
-    let value = gix_path::try_into_bstr(value).map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?;
+    let value = gix_path::into_bstr(value).map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?;
     let value = gix_path::to_unix_separators_on_windows(value);
     out.write_all(prefix)?;
     out.write_all(&value)?;

@@ -1,4 +1,4 @@
-use gix_error::{Result, TestResult};
+use gix_error::Result;
 use std::{
     path::{Path, PathBuf},
     time::Duration,
@@ -14,7 +14,7 @@ fn assert_validation<T>(result: Result<T>) -> gix_error::Error {
 }
 
 #[test]
-fn fuzzed_timeout() -> TestResult {
+fn fuzzed_timeout() -> gix_testtools::TestResult {
     let path = PathBuf::from(std::fs::read("tests/fixtures/fuzzed/54k-path-components.path")?.into_string()?);
     assert_eq!(path.components().count(), 54862);
     let start = std::time::Instant::now();
@@ -34,7 +34,7 @@ fn fuzzed_timeout() -> TestResult {
 }
 
 #[test]
-fn assorted() -> TestResult {
+fn assorted() -> gix_testtools::TestResult {
     let cwd = tempfile::tempdir()?;
     let cwd = cwd.path();
     let symlinks_disabled = 0;
@@ -88,7 +88,7 @@ fn assorted() -> TestResult {
 
 #[test]
 #[cfg(windows)]
-fn drive_relative_paths_use_the_supplied_directory_on_the_same_drive() -> TestResult {
+fn drive_relative_paths_use_the_supplied_directory_on_the_same_drive() -> gix_testtools::TestResult {
     for cwd in [r"C:\gix-realpath-test-base", r"\\?\C:\gix-realpath-test-base"] {
         let cwd = Path::new(cwd);
         for (input, suffix) in [
@@ -114,7 +114,7 @@ fn drive_relative_paths_use_the_supplied_directory_on_the_same_drive() -> TestRe
 
 #[test]
 #[cfg(windows)]
-fn drive_relative_paths_use_windows_drive_directories_when_needed() -> TestResult {
+fn drive_relative_paths_use_windows_drive_directories_when_needed() -> gix_testtools::TestResult {
     for input in ["C:", "C:gix-realpath-test-missing", "D:gix-realpath-test-missing"] {
         let input = Path::new(input);
         let expected = std::path::absolute(input)?;
@@ -133,7 +133,7 @@ fn drive_relative_paths_use_windows_drive_directories_when_needed() -> TestResul
 }
 
 #[test]
-fn parent_components_are_resolved_after_symlinks() -> TestResult {
+fn parent_components_are_resolved_after_symlinks() -> gix_testtools::TestResult {
     let tmp = canonicalized_tempdir()?;
     let target = tmp.path().join("target/nested");
     std::fs::create_dir_all(&target)?;
@@ -148,7 +148,7 @@ fn parent_components_are_resolved_after_symlinks() -> TestResult {
 }
 
 #[test]
-fn link_cycle_is_detected() -> TestResult {
+fn link_cycle_is_detected() -> gix_testtools::TestResult {
     let tmp_dir = canonicalized_tempdir()?;
     let dir = tmp_dir.path();
     let link_name = "link";
@@ -162,7 +162,7 @@ fn link_cycle_is_detected() -> TestResult {
 }
 
 #[test]
-fn symlink_with_absolute_path_gets_expanded() -> TestResult {
+fn symlink_with_absolute_path_gets_expanded() -> gix_testtools::TestResult {
     let tmp_dir = canonicalized_tempdir()?;
     let dir = tmp_dir.path();
     let link_from = dir.join("a").join("b").join("tmp_p_q_link");
@@ -178,7 +178,7 @@ fn symlink_with_absolute_path_gets_expanded() -> TestResult {
 }
 
 #[test]
-fn symlink_to_relative_path_gets_expanded_into_absolute_path() -> TestResult {
+fn symlink_to_relative_path_gets_expanded_into_absolute_path() -> gix_testtools::TestResult {
     let cwd = canonicalized_tempdir()?;
     let dir = cwd.path();
     let link_name = "pq_link";
@@ -192,7 +192,7 @@ fn symlink_to_relative_path_gets_expanded_into_absolute_path() -> TestResult {
 }
 
 #[test]
-fn symlink_processing_is_disabled_if_the_value_is_zero() -> TestResult {
+fn symlink_processing_is_disabled_if_the_value_is_zero() -> gix_testtools::TestResult {
     let cwd = canonicalized_tempdir()?;
     let link_name = "x_link";
     create_symlink(cwd.path().join(link_name), Path::new("link destination does not exist"))?;

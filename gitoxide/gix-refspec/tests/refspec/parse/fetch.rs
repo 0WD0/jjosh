@@ -221,9 +221,9 @@ fn patterns_with_multiple_asterisks_are_rejected() {
     }
     insta::assert_debug_snapshot!(diagnostics, "patterns with multiple asterisks are rejected", @r#"
     [
-        refspec patterns may only contain a single '*' character, "input"="refs/*/foo/*",
-        refspec patterns may only contain a single '*' character, "input"="refs/*/*",
-        refspec patterns may only contain a single '*' character, "input"="a/*/c/*",
+        refspec patterns may only contain a single '*' character, input="refs/*/foo/*",
+        refspec patterns may only contain a single '*' character, input="refs/*/*",
+        refspec patterns may only contain a single '*' character, input="a/*/c/*",
     ]
     "#);
 }

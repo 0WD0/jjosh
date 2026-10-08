@@ -1,17 +1,17 @@
-use gix_error::Result;
+use gix_error::{Result, bail};
 use std::{
     cell::Cell,
     collections::BTreeSet,
     io::{self, Read},
 };
 
-use gix_error::bail;
 use gix_hash::{Kind, ObjectId, oid};
 use gix_object::{
     FindExt, Tree, Write,
     bstr::{BString, ByteSlice},
     tree::{Entry, EntryKind},
 };
+use gix_testtools::TestResult;
 
 type ObjectDb = gix_odb::memory::Proxy<gix_object::find::Never>;
 
@@ -112,27 +112,27 @@ impl gix_object::Write for CountingObjectDb {
 }
 
 #[test]
-fn reads_notes_without_fanout() -> gix_testtools::Result {
-    assert_note_at_fanout(0)
+fn reads_notes_without_fanout() -> gix_testtools::TestResult {
+    assert_note_at_fanout(0).map_err(Into::into)
 }
 
 #[test]
-fn reads_notes_with_one_fanout_level() -> gix_testtools::Result {
-    assert_note_at_fanout(1)
+fn reads_notes_with_one_fanout_level() -> gix_testtools::TestResult {
+    assert_note_at_fanout(1).map_err(Into::into)
 }
 
 #[test]
-fn reads_notes_with_two_fanout_levels() -> gix_testtools::Result {
-    assert_note_at_fanout(2)
+fn reads_notes_with_two_fanout_levels() -> gix_testtools::TestResult {
+    assert_note_at_fanout(2).map_err(Into::into)
 }
 
 #[test]
-fn reads_notes_with_three_fanout_levels() -> gix_testtools::Result {
-    assert_note_at_fanout(3)
+fn reads_notes_with_three_fanout_levels() -> gix_testtools::TestResult {
+    assert_note_at_fanout(3).map_err(Into::into)
 }
 
 #[test]
-fn replacing_a_note_does_not_read_untouched_fanout_subtrees() -> gix_testtools::Result {
+fn replacing_a_note_does_not_read_untouched_fanout_subtrees() -> gix_testtools::TestResult {
     let kind = gix_testtools::object_hash();
     let objects = CountingObjectDb::new(kind);
     let note = objects.write_buf(gix_object::Kind::Blob, b"note")?;
@@ -198,7 +198,7 @@ fn replacing_a_note_does_not_read_untouched_fanout_subtrees() -> gix_testtools::
 }
 
 #[test]
-fn state_reuses_materialized_trees_across_operations() -> gix_testtools::Result {
+fn state_reuses_materialized_trees_across_operations() -> gix_testtools::TestResult {
     let kind = gix_testtools::object_hash();
     let objects = CountingObjectDb::new(kind);
     let annotated = gix_object::compute_hash(kind, gix_object::Kind::Blob, b"annotated")?;
@@ -259,7 +259,7 @@ fn state_reuses_materialized_trees_across_operations() -> gix_testtools::Result 
 }
 
 #[test]
-fn staged_edits_reuse_state_without_writing_trees() -> gix_testtools::Result {
+fn staged_edits_reuse_state_without_writing_trees() -> gix_testtools::TestResult {
     let kind = gix_testtools::object_hash();
     let objects = CountingObjectDb::new(kind);
     let note_blob_id = objects.write_buf(gix_object::Kind::Blob, b"note")?;
@@ -356,7 +356,7 @@ fn staged_edits_reuse_state_without_writing_trees() -> gix_testtools::Result {
 }
 
 #[test]
-fn state_recovers_after_failed_operations() -> gix_testtools::Result {
+fn state_recovers_after_failed_operations() -> TestResult {
     let kind = gix_testtools::object_hash();
     let objects = CountingObjectDb::new(kind);
     let annotated = gix_object::compute_hash(kind, gix_object::Kind::Blob, b"annotated")?;
@@ -448,7 +448,7 @@ fn notes_tree(objects: &impl Write, annotated: &oid, note: ObjectId, fanout: usi
 }
 
 #[test]
-fn ignores_entries_that_are_not_notes() -> gix_testtools::Result {
+fn ignores_entries_that_are_not_notes() -> gix_testtools::TestResult {
     let kind = gix_testtools::object_hash();
     let objects = gix_odb::memory::Proxy::new(gix_object::find::Never, kind);
     let annotated = gix_object::compute_hash(kind, gix_object::Kind::Blob, b"annotated")?;
@@ -470,7 +470,7 @@ fn ignores_entries_that_are_not_notes() -> gix_testtools::Result {
 }
 
 #[test]
-fn mutations_rebalance_when_each_nibble_bucket_has_multiple_notes_and_preserve_non_notes() -> gix_testtools::Result {
+fn mutations_rebalance_when_each_nibble_bucket_has_multiple_notes_and_preserve_non_notes() -> TestResult {
     let kind = gix_testtools::object_hash();
     let objects = ObjectDb::new(gix_object::find::Never, kind);
     let unrelated = objects.write_buf(gix_object::Kind::Blob, b"keep")?;
@@ -584,7 +584,7 @@ fn mutations_rebalance_when_each_nibble_bucket_has_multiple_notes_and_preserve_n
 }
 
 #[test]
-fn mutation_fanout_matches_git_at_bucket_count_boundaries() -> gix_testtools::Result {
+fn mutation_fanout_matches_git_at_bucket_count_boundaries() -> gix_testtools::TestResult {
     let fixture = gix_testtools::scripted_fixture_read_only("make_notes_fanout_repo.sh")?;
     let baseline = std::fs::read_to_string(fixture.join("fanout.baseline"))?;
     let mut lines = baseline.lines();
@@ -672,7 +672,7 @@ fn mutation_fanout_matches_git_at_bucket_count_boundaries() -> gix_testtools::Re
 }
 
 #[test]
-fn edit_lifecycle_handles_empty_trees_replacements_and_no_op_removals() -> gix_testtools::Result {
+fn edit_lifecycle_handles_empty_trees_replacements_and_no_op_removals() -> gix_testtools::TestResult {
     let kind = gix_testtools::object_hash();
     let objects = ObjectDb::new(gix_object::find::Never, kind);
     let root = objects.write(&Tree { entries: Vec::new() })?;
@@ -738,7 +738,7 @@ fn edit_lifecycle_handles_empty_trees_replacements_and_no_op_removals() -> gix_t
 }
 
 #[test]
-fn mutations_create_and_collapse_mixed_deep_fanout() -> gix_testtools::Result {
+fn mutations_create_and_collapse_mixed_deep_fanout() -> gix_testtools::TestResult {
     let kind = gix_testtools::object_hash();
     let objects = ObjectDb::new(gix_object::find::Never, kind);
     let note = objects.write_buf(gix_object::Kind::Blob, b"note")?;
@@ -803,7 +803,7 @@ fn mutations_create_and_collapse_mixed_deep_fanout() -> gix_testtools::Result {
 }
 
 #[test]
-fn mutations_preserve_non_notes_at_root_and_below_hex_trees() -> gix_testtools::Result {
+fn mutations_preserve_non_notes_at_root_and_below_hex_trees() -> gix_testtools::TestResult {
     let kind = gix_testtools::object_hash();
     let objects = ObjectDb::new(gix_object::find::Never, kind);
     let payload = objects.write_buf(gix_object::Kind::Blob, b"keep")?;
@@ -876,7 +876,7 @@ fn mutations_preserve_non_notes_at_root_and_below_hex_trees() -> gix_testtools::
 }
 
 #[test]
-fn mutations_reject_mixed_hash_kinds() -> gix_testtools::Result {
+fn mutations_reject_mixed_hash_kinds() -> TestResult {
     let objects = ObjectDb::new(gix_object::find::Never, Kind::Sha1);
     let root = objects.write(&Tree { entries: Vec::new() })?;
     let sha1 = ObjectId::null(Kind::Sha1);
@@ -918,7 +918,7 @@ fn mutations_reject_mixed_hash_kinds() -> gix_testtools::Result {
 
 #[test]
 #[cfg(feature = "sha256")]
-fn edits_support_sha256_notes_trees() -> gix_testtools::Result {
+fn edits_support_sha256_notes_trees() -> gix_testtools::TestResult {
     let kind = Kind::Sha256;
     let objects = ObjectDb::new(gix_object::find::Never, kind);
     let root = objects.write(&Tree { entries: Vec::new() })?;
@@ -944,7 +944,7 @@ fn edits_support_sha256_notes_trees() -> gix_testtools::Result {
 }
 
 #[test]
-fn mutations_reject_duplicate_mappings_across_layouts() -> gix_testtools::Result {
+fn mutations_reject_duplicate_mappings_across_layouts() -> TestResult {
     let kind = gix_testtools::object_hash();
     let objects = ObjectDb::new(gix_object::find::Never, kind);
     let annotated = ObjectId::null(kind);

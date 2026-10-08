@@ -1,7 +1,7 @@
-use crate::Result;
+use gix_testtools::TestResult;
 
 #[test]
-fn missing_objects_info_does_not_prevent_merge_base() -> Result {
+fn missing_objects_info_does_not_prevent_merge_base() -> TestResult {
     let (repo, _tmp) = crate::util::basic_rw_repo()?;
     let info_dir = repo.objects.store_ref().path().join("info");
     std::fs::create_dir_all(&info_dir)?;
@@ -31,7 +31,7 @@ fn missing_objects_info_does_not_prevent_merge_base() -> Result {
 }
 
 #[test]
-fn merge_base_variants_find_common_ancestors() -> Result {
+fn merge_base_variants_find_common_ancestors() -> TestResult {
     let (repo, _tmp) = crate::util::basic_rw_repo()?;
     let head_commit_id = repo.head_id()?;
     let parent_commit_id = repo.rev_parse_single("HEAD^")?;
@@ -79,7 +79,7 @@ fn merge_base_variants_find_common_ancestors() -> Result {
 }
 
 #[test]
-fn unrelated_histories_have_no_merge_base() -> Result {
+fn unrelated_histories_have_no_merge_base() -> TestResult {
     let (repo, _tmp) = crate::util::basic_rw_repo()?;
     let head = repo.head_commit()?;
     let head_commit_id = head.id();
@@ -110,7 +110,7 @@ fn unrelated_histories_have_no_merge_base() -> Result {
 }
 
 #[test]
-fn date() -> Result {
+fn date() -> TestResult {
     let repo = crate::named_repo("make_rev_parse_repo.sh")?;
     let actual = repo
         .rev_parse_single("old@{20 years ago}")

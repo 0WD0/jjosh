@@ -197,14 +197,23 @@ pub(crate) mod function {
         }
     }
 
-    /// Find the location of the git repository directly in `directory` or in any of its parent directories and provide
-    /// an associated Trust level by looking at the git directory's ownership, and control discovery using `options`.
+    /// Find the location of the git repository directly in `directory` or in any of its parent directories,
+    /// controlling discovery using `options`, and return its path and associated trust level.
+    ///
+    /// [`Options::trust`] determines whether trust is [derived from ownership of all relevant repository paths][TrustPolicy::Required]
+    /// or [supplied by the caller without ownership checks][TrustPolicy::Assume]. The returned trust is not
+    /// necessarily derived only from the returned path; see [`TrustPolicy`] for details.
     ///
     /// Fail if no valid-looking git repository could be found.
     /// Downcast to [`Error`] to distinguish a missing repository or a search limit from an untrusted candidate.
     /// Filesystem and other operational failures retain their original causes.
+    pub fn discover_opts(directory: &Path, options: Options<'_>) -> Result<(crate::repository::Path, gix_sec::Trust)> {
+        discover_opts_with_trust(directory, options, Trust::from_path_ownership)
+    }
+
+    /// Note that `trust_from_path` is really only needed for testability.
     #[cfg_attr(not(unix), allow(unused_variables))]
-    pub fn discover_opts(
+    fn discover_opts_with_trust(
         directory: &Path,
         Options {
             trust,
@@ -214,6 +223,7 @@ pub(crate) mod function {
             current_dir,
             dot_git_only,
         }: Options<'_>,
+        mut trust_from_path: impl FnMut(&Path) -> std::io::Result<Trust>,
     ) -> Result<(crate::repository::Path, gix_sec::Trust)> {
         // Normalize the path so that `Path::parent()` _actually_ gives
         // us the parent directory. (`Path::parent` just strips off the last
@@ -262,20 +272,39 @@ pub(crate) mod function {
         let initial_device = device_id(&dir_metadata);
         let resolved = OnceCell::<Option<PathBuf>>::new();
         let resolved = || resolved.get_or_init(|| resolved_directory_for_parent_traversal(directory, cwd.as_ref()));
-        let filter_by_trust = |dir: &Path| -> Result<std::result::Result<Trust, (Trust, Trust)>> {
-            match trust {
-                TrustPolicy::Required(required) => {
-                    let trust = Trust::from_path_ownership(dir)
-                        .or_raise(|| message!("Could not determine trust level for path \"{}\".", dir.display()))?;
-                    Ok(if trust >= required {
-                        Ok(trust)
-                    } else {
-                        Err((required, trust))
-                    })
+        let mut filter_by_trust =
+            |dir: &Path, kind: &crate::repository::Kind| -> Result<std::result::Result<Trust, (Trust, Trust)>> {
+                match trust {
+                    TrustPolicy::Required(required) => {
+                        use crate::repository::Kind;
+                        let git_dir = match kind {
+                            Kind::Submodule { git_dir }
+                            | Kind::WorkTree {
+                                linked_git_dir: Some(git_dir),
+                            } => git_dir.as_path(),
+                            _ => dir,
+                        };
+                        let work_dir = match kind {
+                            Kind::WorkTree { .. } | Kind::Submodule { .. } => dir.parent(),
+                            Kind::WorkTreeGitDir { work_dir } => Some(work_dir.as_path()),
+                            _ => None,
+                        };
+                        let trust = crate::repository::trust_with(
+                            git_dir,
+                            work_dir,
+                            cwd.as_ref(),
+                            (dir, None),
+                            &mut trust_from_path,
+                        )?;
+                        Ok(if trust >= required {
+                            Ok(trust)
+                        } else {
+                            Err((required, trust))
+                        })
+                    }
+                    TrustPolicy::Assume(trust) => Ok(Ok(trust)),
                 }
-                TrustPolicy::Assume(trust) => Ok(Ok(trust)),
-            }
-        };
+            };
 
         // A preceding symlink makes `..` ascend from its target rather than its lexical parent.
         // Resolve any input containing `..` before probing because only the filesystem can distinguish these cases.
@@ -321,7 +350,7 @@ pub(crate) mod function {
             }
 
             if let Some((kind, appended_dot_git)) = search.probe_repository(cwd.as_ref(), dot_git_only) {
-                match filter_by_trust(&search.current)? {
+                match filter_by_trust(&search.current, &kind)? {
                     Err((required, trust)) => {
                         break 'outer Err(Error::NoTrustedGitRepository {
                             path: search.logical,
@@ -386,11 +415,105 @@ pub(crate) mod function {
         }
     }
 
-    /// Find the location of the git repository directly in `directory` or in any of its parent directories, and provide
-    /// the trust level derived from Path ownership.
+    /// Find the location of the git repository directly in `directory` or in any of its parent directories,
+    /// and return its path and ownership-derived trust level.
+    ///
+    /// Uses default options with [`TrustPolicy::Required`] set to [`Trust::Reduced`]. The returned trust is the
+    /// minimum ownership-derived trust of all paths described by that policy, not just the returned path,
+    /// and can be [`Trust::Full`]. See [`crate::upwards_opts()`] to customize discovery and its trust policy.
     ///
     /// Fail if no valid-looking git repository could be found.
     pub fn discover(directory: &Path) -> Result<(crate::repository::Path, gix_sec::Trust)> {
         discover_opts(directory, Default::default())
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::{Options, Trust, TrustPolicy, discover_opts_with_trust};
+
+        #[test]
+        fn ownership_checks_skip_identical_candidate_and_git_directory() -> gix_testtools::TestResult {
+            let root = gix_testtools::scripted_fixture_read_only("make_ownership_repos.sh")?;
+            let root = std::env::current_dir()?.join(root);
+            for (name, bare) in [("worktree", false), ("bare", true)] {
+                let repository = root.join(name);
+                let git_dir = if bare {
+                    repository.clone()
+                } else {
+                    repository.join(".git")
+                };
+                let mut expected_paths = vec![git_dir];
+                if !bare {
+                    expected_paths.push(repository.clone());
+                }
+                let mut checked_paths = Vec::new();
+                let (_, trust) = discover_opts_with_trust(&repository, Options::default(), |path| {
+                    checked_paths.push(path.to_path_buf());
+                    Ok(Trust::Reduced)
+                })?;
+                assert_eq!(
+                    checked_paths, expected_paths,
+                    "{name} discovery checks each distinct repository path exactly once"
+                );
+                assert_eq!(
+                    trust,
+                    Trust::Reduced,
+                    "skipping a duplicate must preserve ownership-derived trust"
+                );
+            }
+            Ok(())
+        }
+
+        #[test]
+        fn ownership_of_every_linked_repository_path_limits_trust() -> gix_testtools::TestResult {
+            let root = gix_testtools::scripted_fixture_read_only("make_linked_ownership_repo.sh")?;
+            let main = root.join("main");
+            let worktree = root.join("linked");
+
+            for foreign_path in [
+                worktree.clone(),
+                worktree.join(".git"),
+                main.join(".git/worktrees/linked"),
+                main.join(".git"),
+            ] {
+                let foreign_path = foreign_path.canonicalize()?;
+                let mut ownership = |path: &std::path::Path| {
+                    Ok(if path.canonicalize()? == foreign_path {
+                        Trust::Reduced
+                    } else {
+                        Trust::Full
+                    })
+                };
+                let (_, trust) = discover_opts_with_trust(&worktree, Options::default(), &mut ownership)?;
+                assert_eq!(
+                    trust,
+                    Trust::Reduced,
+                    "untrusted {} must constrain discovery",
+                    foreign_path.display()
+                );
+                assert!(
+                    discover_opts_with_trust(
+                        &worktree,
+                        Options {
+                            trust: TrustPolicy::Required(Trust::Full),
+                            ..Options::default()
+                        },
+                        &mut ownership,
+                    )
+                    .is_err(),
+                    "requiring full trust rejects every untrusted link in the repository paths"
+                );
+            }
+            let (_, trust) = discover_opts_with_trust(
+                &worktree,
+                Options {
+                    trust: TrustPolicy::Assume(Trust::Full),
+                    ..Options::default()
+                },
+                |_| panic!("explicit trust overrides must not inspect ownership"),
+            )?;
+            assert_eq!(trust, Trust::Full, "explicit trust overrides remain authoritative");
+            Ok(())
+        }
     }
 }

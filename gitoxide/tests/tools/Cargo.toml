@@ -22,7 +22,7 @@ default = ["worktree-exclusions", "repo-snapshot"]
 ## Use the current repository's complete ignore rules to decide if generated fixture archives should be written.
 ## Without this feature, only the `.gitignore` next to the archive is consulted using a fallback matcher
 ## that supports literal patterns and `*`, but not the full `.gitignore` syntax.
-worktree-exclusions = ["dep:gix-config", "dep:gix-discover", "dep:gix-worktree"]
+worktree-exclusions = ["dep:gix-config", "dep:gix-discover", "dep:gix-worktree", "gix-parallel/parallel"]
 ## Capture repository snapshots using `gix-*` plumbing crates instead of invoking Git.
 ## Without this feature, repository snapshots use the Git executable selected by `gix-path`.
 repo-snapshot = [
@@ -62,7 +62,7 @@ xz = ["dep:xz2"]
 sbom = ["dep:serde_json"]
 
 [dependencies]
-gix-error = { version = "^0.4.0", path = "../../gix-error" }
+gix-error = { version = "^0.4.0", path = "../../gix-error", features = ["error-print-location"] }
 gix-hash = { version = "^0.27.0", path = "../../gix-hash" }
 gix-lock = { version = "^25.0.0", path = "../../gix-lock" }
 gix-path = { version = "^0.13.0", path = "../../gix-path" }
@@ -73,7 +73,8 @@ gix-object = { version = "^0.65.0", path = "../../gix-object", optional = true, 
 gix-odb = { version = "^0.85.0", path = "../../gix-odb", optional = true, default-features = false }
 gix-ref = { version = "^0.68.0", path = "../../gix-ref", optional = true, default-features = false }
 gix-shallow = { version = "^0.14.0", path = "../../gix-shallow", optional = true }
-gix-worktree = { version = "^0.57.0", path = "../../gix-worktree", optional = true, features = ["parallel"] }
+gix-worktree = { version = "^0.57.0", path = "../../gix-worktree", optional = true }
+gix-parallel = { version = "^0.50.0", path = "../../gix-parallel", optional = true }
 gix-tempfile = { version = "^25.0.0", path = "../../gix-tempfile", default-features = false, features = ["signals"] }
 
 fastrand = "2.0.0"
@@ -98,3 +99,7 @@ insta = "1.46.3"
 [package.metadata.docs.rs]
 all-features = true
 features = ["document-features", "sha1", "sha256"]
+
+[package.metadata.cargo-machete]
+# Enables a thread-safe worktree stack for the shared fixture-exclusion cache.
+ignored = ["gix-parallel"]

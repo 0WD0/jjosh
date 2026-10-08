@@ -4,13 +4,13 @@ use gix_date::{
 };
 
 #[test]
-fn short() -> gix_testtools::Result {
+fn short() -> gix_testtools::TestResult {
     assert_eq!(time().format(format::SHORT)?, "1973-11-30");
     Ok(())
 }
 
 #[test]
-fn unix() -> gix_testtools::Result {
+fn unix() -> gix_testtools::TestResult {
     let expected = "123456789";
     assert_eq!(time().format(Format::Unix)?, expected);
     assert_eq!(time().format(format::UNIX)?, expected);
@@ -18,7 +18,7 @@ fn unix() -> gix_testtools::Result {
 }
 
 #[test]
-fn raw() -> gix_testtools::Result {
+fn raw() -> gix_testtools::TestResult {
     for (time, expected) in [
         (time(), "123456789 +0230"),
         (
@@ -36,26 +36,26 @@ fn raw() -> gix_testtools::Result {
 }
 
 #[test]
-fn iso8601() -> gix_testtools::Result {
+fn iso8601() -> gix_testtools::TestResult {
     assert_eq!(time().format(format::ISO8601)?, "1973-11-30 00:03:09 +0230");
     Ok(())
 }
 
 #[test]
-fn iso8601_strict() -> gix_testtools::Result {
+fn iso8601_strict() -> gix_testtools::TestResult {
     assert_eq!(time().format(format::ISO8601_STRICT)?, "1973-11-30T00:03:09+02:30");
     Ok(())
 }
 
 #[test]
-fn rfc2822() -> gix_testtools::Result {
+fn rfc2822() -> gix_testtools::TestResult {
     assert_eq!(time().format(format::RFC2822)?, "Fri, 30 Nov 1973 00:03:09 +0230");
     assert_eq!(time_dec1().format(format::RFC2822)?, "Sat, 01 Dec 1973 00:03:09 +0230");
     Ok(())
 }
 
 #[test]
-fn git_rfc2822() -> gix_testtools::Result {
+fn git_rfc2822() -> gix_testtools::TestResult {
     assert_eq!(time().format(format::GIT_RFC2822)?, "Fri, 30 Nov 1973 00:03:09 +0230");
     assert_eq!(
         time_dec1().format(format::GIT_RFC2822)?,
@@ -65,7 +65,7 @@ fn git_rfc2822() -> gix_testtools::Result {
 }
 
 #[test]
-fn default() -> gix_testtools::Result {
+fn default() -> gix_testtools::TestResult {
     assert_eq!(time().format(format::GITOXIDE)?, "Fri Nov 30 1973 00:03:09 +0230");
     assert_eq!(time_dec1().format(format::GITOXIDE)?, "Sat Dec 01 1973 00:03:09 +0230");
     Ok(())
@@ -84,7 +84,7 @@ fn format_or_unix() {
 }
 
 #[test]
-fn git_default() -> gix_testtools::Result {
+fn git_default() -> gix_testtools::TestResult {
     assert_eq!(
         time().format(gix_date::time::format::DEFAULT)?,
         "Fri Nov 30 00:03:09 1973 +0230"

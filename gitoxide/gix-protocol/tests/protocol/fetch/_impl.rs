@@ -13,7 +13,6 @@ pub enum RefsAction {
 mod fetch_fn {
     use crate::bisync::bisync;
     use gix_error::{ErrorExt, Result, ResultExt, message};
-    use gix_features::progress::NestedProgress;
     use gix_protocol::{
         Command, LsRefsCommand, credentials,
         fetch::{Arguments, Response},
@@ -23,6 +22,7 @@ mod fetch_fn {
     use gix_transport::client::async_io::{ExtendedBufRead, HandleProgress, Transport};
     #[cfg(feature = "blocking-client")]
     use gix_transport::client::blocking_io::{ExtendedBufRead, HandleProgress, Transport};
+    use gix_utils::progress::NestedProgress;
     use std::ops::ControlFlow;
 
     use super::{Action, Delegate, RefsAction};
@@ -398,8 +398,8 @@ mod delegate {
             ops::DerefMut,
         };
 
-        use gix_features::progress::NestedProgress;
         use gix_protocol::{fetch::Response, handshake::Ref};
+        use gix_utils::progress::NestedProgress;
 
         use super::DelegateBlocking;
 
@@ -459,8 +459,8 @@ mod delegate {
 
         use async_trait::async_trait;
         use futures_io::AsyncBufRead;
-        use gix_features::progress::NestedProgress;
         use gix_protocol::{fetch::Response, handshake::Ref};
+        use gix_utils::progress::NestedProgress;
 
         use super::DelegateBlocking;
 

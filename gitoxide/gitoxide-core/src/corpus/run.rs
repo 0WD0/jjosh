@@ -86,8 +86,8 @@ impl Execute for WorktreeStream {
         progress.init(None, gix::progress::bytes());
         std::io::copy(
             &mut stream.into_read(),
-            &mut gix::features::interrupt::Write {
-                inner: gix::features::progress::Write {
+            &mut gix::utils::interrupt::Write {
+                inner: gix::progress::Write {
                     inner: std::io::sink(),
                     progress,
                 },

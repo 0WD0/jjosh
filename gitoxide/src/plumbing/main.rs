@@ -1434,7 +1434,7 @@ mod tests {
 
     #[test]
     #[cfg(feature = "tix")]
-    fn tix_aliases_are_visible_and_route_to_tix() {
+    fn tix_aliases_are_visible_and_route_to_tix() -> gix::error::TestResult {
         use clap::{CommandFactory, Parser};
 
         let command = Args::command();
@@ -1445,7 +1445,7 @@ mod tests {
             "all aliases are shown in help"
         );
         for name in ["tix", "tui", "interactive", "i"] {
-            let args = Args::try_parse_from(["gix", name]).expect("the command or alias parses");
+            let args = Args::try_parse_from(["gix", name])?;
             assert!(
                 matches!(args.cmd, Subcommands::Tix(_)),
                 "{name} routes to the tix command"
@@ -1454,8 +1454,7 @@ mod tests {
 
         #[cfg(feature = "tracing")]
         {
-            let args = Args::try_parse_from(["gix", "-tt", "tix"])
-                .expect("the outer parser accepts tracing even though tix manages its own diagnostics");
+            let args = Args::try_parse_from(["gix", "-tt", "tix"])?;
             assert_eq!(args.trace, 2);
             assert_eq!(
                 Args::try_parse_from(["gix", "tix", "-t"])
@@ -1471,10 +1470,7 @@ mod tests {
             vec!["gix", "tix", "spill"],
         ] {
             assert!(
-                matches!(
-                    Args::try_parse_from(arguments).expect("shared tix arguments parse").cmd,
-                    Subcommands::Tix(_)
-                ),
+                matches!(Args::try_parse_from(arguments)?.cmd, Subcommands::Tix(_)),
                 "the complete tix command is delegated"
             );
         }
@@ -1482,8 +1478,7 @@ mod tests {
             (vec!["gix", "tix", "worktrunk"], true),
             (vec!["gix", "tix", "worktrunk", "shell-init", "bash"], false),
         ] {
-            let Subcommands::Tix(command) = Args::try_parse_from(arguments).expect("worktrunk command parses").cmd
-            else {
+            let Subcommands::Tix(command) = Args::try_parse_from(arguments)?.cmd else {
                 panic!("worktrunk routes to the tix command")
             };
             assert_eq!(
@@ -1508,5 +1503,6 @@ mod tests {
                 "embedded tix supports {help}"
             );
         }
+        Ok(())
     }
 }

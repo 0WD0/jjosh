@@ -1,4 +1,4 @@
-use crate::Result;
+use crate::TestResult;
 
 #[test]
 fn section_mut_must_exist_as_section_is_not_created_automatically() {
@@ -7,7 +7,7 @@ fn section_mut_must_exist_as_section_is_not_created_automatically() {
 }
 
 #[test]
-fn section_mut_or_create_new_is_infallible() -> Result {
+fn section_mut_or_create_new_is_infallible() -> TestResult {
     let mut config = multi_value_section();
     let section = config.section_mut_or_create_new("name", "subsection")?;
     assert_eq!(section.header().name(), "name");
@@ -16,7 +16,7 @@ fn section_mut_or_create_new_is_infallible() -> Result {
 }
 
 #[test]
-fn section_mut_or_create_new_filter_may_reject_existing_sections() -> Result {
+fn section_mut_or_create_new_filter_may_reject_existing_sections() -> TestResult {
     let mut config = multi_value_section();
     let section = config.section_mut_or_create_new_filter("a", None, |_| false)?;
     assert_eq!(section.header().name(), "a");
@@ -40,11 +40,11 @@ fn section_mut_by_id() {
 }
 
 mod rename {
-    use crate::Result;
+    use crate::TestResult;
     use bstr::ByteSlice;
 
     #[test]
-    fn detached_sections_can_be_renamed() -> Result {
+    fn detached_sections_can_be_renamed() -> TestResult {
         let mut section = gix_config::file::Section::new("remote", "origin", gix_config::file::Metadata::default())?;
         section.to_mut().rename("branch", "main")?;
 
@@ -55,7 +55,7 @@ mod rename {
     }
 
     #[test]
-    fn attached_sections_are_renamed_unambiguously_and_update_lookups() -> Result {
+    fn attached_sections_are_renamed_unambiguously_and_update_lookups() -> TestResult {
         let mut file = gix_config::File::try_from(
             "[target \"same\"] key = first\n\
              [source \"old\"] key = selected\n\
@@ -93,7 +93,7 @@ mod rename {
     }
 
     #[test]
-    fn invalid_names_leave_attached_sections_unchanged() -> Result {
+    fn invalid_names_leave_attached_sections_unchanged() -> TestResult {
         let mut file = gix_config::File::try_from("[core] key = value\n")?;
         assert!(file.section_mut("core", None)?.rename("not_valid", None).is_err());
         assert_eq!(
@@ -111,10 +111,10 @@ mod rename {
 
 mod remove {
     use super::multi_value_section;
-    use crate::Result;
+    use crate::TestResult;
 
     #[test]
-    fn all() -> Result {
+    fn all() -> TestResult {
         let mut config = multi_value_section();
         let mut section = config.section_mut("a", None)?;
 
@@ -138,10 +138,10 @@ mod remove {
 
 mod pop {
     use super::multi_value_section;
-    use crate::Result;
+    use crate::TestResult;
 
     #[test]
-    fn all() -> Result {
+    fn all() -> TestResult {
         let mut config = multi_value_section();
         let mut section = config.section_mut_by_key("a")?;
 
@@ -165,10 +165,10 @@ mod pop {
 
 mod set {
     use super::multi_value_section;
-    use crate::Result;
+    use crate::TestResult;
 
     #[test]
-    fn various_escapes_onto_various_kinds_of_values() -> Result {
+    fn various_escapes_onto_various_kinds_of_values() -> TestResult {
         let mut config = multi_value_section();
         let mut section = config.section_mut("a", None)?;
         let values = vec!["", " a", "b\t", "; comment", "a\n\tc  d\\ \"x\""];
@@ -195,10 +195,10 @@ mod set {
 }
 
 mod value_name_validation {
-    use crate::Result;
+    use crate::TestResult;
 
     #[test]
-    fn mutations_validate_names_and_leave_the_section_unchanged_on_error() -> Result {
+    fn mutations_validate_names_and_leave_the_section_unchanged_on_error() -> TestResult {
         let mut config = gix_config::File::default();
         let mut section = config.new_section("core", None)?;
 
@@ -210,7 +210,7 @@ mod value_name_validation {
         Message {
             message: "Valid value names consist of alphanumeric characters or dashes, starting with an alphabetic character.",
             class: Validation,
-            values: {"input": Bytes("not.valid")},
+            values: {input: Bytes("not.valid")},
         }
         "#);
         let err = section
@@ -223,7 +223,7 @@ mod value_name_validation {
         Message {
             message: "Valid value names consist of alphanumeric characters or dashes, starting with an alphabetic character.",
             class: Validation,
-            values: {"input": Bytes("1invalid")},
+            values: {input: Bytes("1invalid")},
         }
         "#);
         let err = section.set("also invalid", "value").unwrap_err();
@@ -234,7 +234,7 @@ mod value_name_validation {
         Message {
             message: "Valid value names consist of alphanumeric characters or dashes, starting with an alphabetic character.",
             class: Validation,
-            values: {"input": Bytes("also invalid")},
+            values: {input: Bytes("also invalid")},
         }
         "#);
         assert_eq!(section.num_values(), 0, "validation happens before mutation");
@@ -242,7 +242,7 @@ mod value_name_validation {
     }
 
     #[test]
-    fn names_returned_by_public_apis_are_strings() -> Result {
+    fn names_returned_by_public_apis_are_strings() -> TestResult {
         let mut config = super::multi_value_section();
         let mut section = config.section_mut("a", None)?;
         let names: Vec<String> = section.value_names().collect();
@@ -255,11 +255,11 @@ mod value_name_validation {
 }
 
 mod push {
-    use crate::Result;
+    use crate::TestResult;
     use crate::file::bstring;
 
     #[test]
-    fn none_as_value_omits_the_key_value_separator() -> Result {
+    fn none_as_value_omits_the_key_value_separator() -> TestResult {
         let mut file = gix_config::File::default();
         let mut section = file.section_mut_or_create_new("a", "sub")?;
         section.push("key", None)?;
@@ -275,7 +275,7 @@ mod push {
     }
 
     #[test]
-    fn whitespace_is_derived_from_whitespace_before_first_value() -> Result {
+    fn whitespace_is_derived_from_whitespace_before_first_value() -> TestResult {
         for (input, expected_pre_key, expected_sep) in [
             ("[a]\n\t\tb=c", Some("\t\t".into()), (None, None)),
             ("[a]\nb= c", None, (None, Some(" "))),
@@ -308,7 +308,7 @@ mod push {
     }
 
     #[test]
-    fn values_are_escaped() {
+    fn values_are_escaped() -> gix_testtools::TestResult {
         for (value, expected) in [
             ("a b", "$head\tk = a b$nl"),
             (" a b", "$head\tk = \" a b\"$nl"),
@@ -318,22 +318,21 @@ mod push {
             ("a\nb\n\tc", "$head\tk = a\\nb\\n\\tc$nl"),
         ] {
             let mut config = gix_config::File::default();
-            let mut section = config.new_section("a", None).unwrap();
+            let mut section = config.new_section("a", None)?;
             section.set_implicit_newline(false);
-            section
-                .push("k", Some(value.into()))
-                .expect("the fixture fits into the backing buffer");
+            section.push("k", Some(value.into()))?;
             let expected = expected
                 .replace("$head", &format!("[a]{nl}", nl = section.newline()))
                 .replace("$nl", &section.newline().to_string());
             assert_eq!(config.to_bstring(), expected);
         }
+        Ok(())
     }
 }
 
 mod push_with_comment {
     #[test]
-    fn various_comments_and_escaping() {
+    fn various_comments_and_escaping() -> gix_testtools::TestResult {
         for (comment, expected) in [
             ("", "$head\tk = v #$nl"),
             ("this is v!", "$head\tk = v # this is v!$nl"),
@@ -349,24 +348,23 @@ mod push_with_comment {
             ),
         ] {
             let mut config = gix_config::File::default();
-            let mut section = config.new_section("a", None).unwrap();
+            let mut section = config.new_section("a", None)?;
             section.set_implicit_newline(false);
-            section
-                .push_with_comment("k", Some("v".into()), comment)
-                .expect("the fixture fits into the backing buffer");
+            section.push_with_comment("k", Some("v".into()), comment)?;
             let expected = expected
                 .replace("$head", &format!("[a]{nl}", nl = section.newline()))
                 .replace("$nl", &section.newline().to_string());
             assert_eq!(config.to_bstring(), expected);
         }
+        Ok(())
     }
 }
 
 mod set_leading_whitespace {
-    use crate::Result;
+    use crate::TestResult;
 
     #[test]
-    fn any_whitespace_is_ok() -> Result {
+    fn any_whitespace_is_ok() -> TestResult {
         let mut config = gix_config::File::default();
         let mut section = config.new_section("core", None)?;
 

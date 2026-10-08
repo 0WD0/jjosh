@@ -1,4 +1,4 @@
-use crate::Result;
+use crate::TestResult;
 #[cfg(feature = "blocking-client")]
 use std::io::{BufRead, Write};
 use std::{ops::Deref, sync::Arc};
@@ -26,7 +26,7 @@ use crate::fixture_bytes;
 
 #[cfg(any(feature = "blocking-client", feature = "async-std"))]
 mod connect {
-    use gix_error::TestResult;
+    use gix_testtools::TestResult;
     #[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
     use gix_transport::client::async_io::connect::connect;
     #[cfg(feature = "blocking-client")]
@@ -132,7 +132,7 @@ mod connect {
 #[crate::bisync::bisync]
 #[cfg_attr(feature = "blocking-client", test)]
 #[cfg_attr(all(feature = "async-client", not(feature = "blocking-client")), async_std::test)]
-async fn refused_connections_remain_retryable() -> Result {
+async fn refused_connections_remain_retryable() -> TestResult {
     #[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
     use client::async_io::connect::connect;
     #[cfg(feature = "blocking-client")]
@@ -181,7 +181,7 @@ async fn refused_connections_remain_retryable() -> Result {
 #[crate::bisync::bisync]
 #[cfg_attr(feature = "blocking-client", test)]
 #[cfg_attr(all(feature = "async-client", not(feature = "blocking-client")), async_std::test)]
-async fn handshake_v1_and_request() -> Result {
+async fn handshake_v1_and_request() -> TestResult {
     let mut out = Vec::new();
     let server_response = fixture_bytes("v1/clone.response");
     let c = Connection::new(
@@ -311,7 +311,7 @@ async fn handshake_v1_and_request() -> Result {
 #[crate::bisync::bisync]
 #[cfg_attr(feature = "blocking-client", test)]
 #[cfg_attr(all(feature = "async-client", not(feature = "blocking-client")), async_std::test)]
-async fn git_daemon_request_rejects_nul_and_lf() -> Result {
+async fn git_daemon_request_rejects_nul_and_lf() -> TestResult {
     let mut error_snapshots = Vec::new();
     for (control, name) in [(b'\0', "NUL"), (b'\n', "newline")] {
         let mut invalid_path = b"/foo.git".to_vec();
@@ -402,7 +402,7 @@ async fn git_daemon_request_rejects_nul_and_lf() -> Result {
 #[crate::bisync::bisync]
 #[cfg_attr(feature = "blocking-client", test)]
 #[cfg_attr(all(feature = "async-client", not(feature = "blocking-client")), async_std::test)]
-async fn push_v1_simulated() -> Result {
+async fn push_v1_simulated() -> TestResult {
     let mut out = Vec::new();
     let server_response = fixture_bytes("v1/push.response");
     let mut c = Connection::new(
@@ -470,7 +470,7 @@ async fn push_v1_simulated() -> Result {
 #[crate::bisync::bisync]
 #[cfg_attr(feature = "blocking-client", test)]
 #[cfg_attr(all(feature = "async-client", not(feature = "blocking-client")), async_std::test)]
-async fn handshake_v1_process_mode() -> Result {
+async fn handshake_v1_process_mode() -> TestResult {
     let mut out = Vec::new();
     let server_response = fixture_bytes("v1/clone.response");
     let mut c = Connection::new(
@@ -495,7 +495,7 @@ async fn handshake_v1_process_mode() -> Result {
 #[crate::bisync::bisync]
 #[cfg_attr(feature = "blocking-client", test)]
 #[cfg_attr(all(feature = "async-client", not(feature = "blocking-client")), async_std::test)]
-async fn handshake_v2_downgrade_to_v1() -> Result {
+async fn handshake_v2_downgrade_to_v1() -> TestResult {
     let mut out = Vec::new();
     let input = fixture_bytes("v1/clone.response");
     let mut c = Connection::new(
@@ -526,14 +526,14 @@ async fn handshake_v2_downgrade_to_v1() -> Result {
 #[crate::bisync::bisync]
 #[cfg_attr(feature = "blocking-client", test)]
 #[cfg_attr(all(feature = "async-client", not(feature = "blocking-client")), async_std::test)]
-async fn handshake_v2_and_request() -> Result {
+async fn handshake_v2_and_request() -> TestResult {
     #[crate::bisync::only_sync]
-    fn run() -> Result {
+    fn run() -> TestResult {
         handshake_v2_and_request_inner()
     }
 
     #[crate::bisync::only_async]
-    async fn run() -> Result {
+    async fn run() -> TestResult {
         // This simulates processing a pack received with async I/O as blocking `BufRead` without blocking the executor.
         blocking::unblock(|| futures_lite::future::block_on(handshake_v2_and_request_inner()).expect("no failure"))
             .await;
@@ -544,7 +544,7 @@ async fn handshake_v2_and_request() -> Result {
 }
 
 #[crate::bisync::bisync]
-async fn handshake_v2_and_request_inner() -> Result {
+async fn handshake_v2_and_request_inner() -> TestResult {
     let mut out = Vec::new();
     let input = fixture_bytes("v2/clone.response");
     let mut c = Connection::new(
@@ -704,7 +704,7 @@ async fn handshake_v2_and_request_inner() -> Result {
 #[crate::bisync::bisync]
 #[cfg_attr(feature = "blocking-client", test)]
 #[cfg_attr(all(feature = "async-client", not(feature = "blocking-client")), async_std::test)]
-async fn handshake_v2_with_sha256_object_format() -> Result {
+async fn handshake_v2_with_sha256_object_format() -> TestResult {
     let mut out = Vec::new();
     let input = fixture_bytes("v2/handshake-sha256.response");
     let mut c = Connection::new(

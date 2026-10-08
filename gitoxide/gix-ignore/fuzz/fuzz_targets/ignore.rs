@@ -94,7 +94,9 @@ fn fuzz(input: &[u8]) {
     }
 
     let mut search = Search::default();
-    search.add_patterns_buffer(&sane_input, "fuzz.gitignore", None, ignore);
+    search
+        .add_patterns_buffer(&sane_input, "fuzz.gitignore", None, ignore)
+        .expect("a global pattern list has no base path to convert");
 
     let overrides: Vec<String> = sane_input
         .split(|b| *b == 0 || *b == b'\n')

@@ -26,13 +26,13 @@ fn binary() {
 }
 
 mod text {
-    use crate::Result;
     use arbitrary::Arbitrary;
     use bstr::ByteSlice;
     use gix_merge::blob::{
         Resolution, builtin_driver,
         builtin_driver::text::{self, Conflict, ConflictStyle},
     };
+    use gix_testtools::TestResult;
     use pretty_assertions::assert_str_eq;
     use std::num::NonZero;
 
@@ -202,7 +202,7 @@ mod text {
     }
 
     #[test]
-    fn run_baseline() -> Result {
+    fn run_baseline() -> TestResult {
         let root = gix_testtools::scripted_fixture_read_only("text-baseline.sh")?;
         for (baseline, diverging, expected_percentage) in [
             ("baseline.cases", DIVERGING, 10),

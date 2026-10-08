@@ -11,10 +11,9 @@ use crate::{
 };
 
 #[test]
-fn invalid_timestsamp() {
+fn invalid_timestsamp() -> gix_testtools::TestResult {
     assert_eq!(
-        CommitRef::from_bytes(&fixture_name("commit", "invalid-timestamp.txt"), gix_hash::Kind::Sha1)
-            .expect("auto-correct invalid timestamp by discarding it (time is still valid UTC)"),
+        CommitRef::from_bytes(&fixture_name("commit", "invalid-timestamp.txt"), gix_hash::Kind::Sha1)?,
         CommitRef {
             tree: b"7989dfb2ec2f41914611a22fb30bbc2b3849df9a".as_bstr(),
             parents: [b"8845ae683e2688bc619baade49510c17e978518f".as_bstr()].into(),
@@ -26,10 +25,11 @@ fn invalid_timestsamp() {
         },
         "the offset of the actor is null, leaving the UTC time"
     );
+    Ok(())
 }
 
 #[test]
-fn sha256_with_all_fields_and_signature() -> Result {
+fn sha256_with_all_fields_and_signature() -> gix_testtools::TestResult {
     let input = b"tree 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 parent 1111111111111111111111111111111111111111111111111111111111111111
 parent 2222222222222222222222222222222222222222222222222222222222222222
@@ -98,7 +98,7 @@ U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgZXhhbXBsZS1zaGEyNTY=
 }
 
 #[test]
-fn uppercase_tree_id() -> Result {
+fn uppercase_tree_id() -> gix_testtools::TestResult {
     let input = b"tree 7989DFB2EC2F41914611A22FB30BBC2B3849DF9A
 author Name <name@example.com> 1312735823 +0518
 committer Name <name@example.com> 1312735823 +0518
@@ -111,7 +111,7 @@ message";
 }
 
 #[test]
-fn invalid_email_of_committer() -> Result {
+fn invalid_email_of_committer() -> gix_testtools::TestResult {
     let actor = gix_actor::SignatureRef {
         name: b"Gregor Hartmann".as_bstr(),
         email: b"gh <Gregor Hartmann<gh@openoffice.org".as_bstr(),
@@ -120,7 +120,7 @@ fn invalid_email_of_committer() -> Result {
 
     let mut buf = vec![];
     let backing = fixture_name("commit", "invalid-actor.txt");
-    let commit = CommitRef::from_bytes(&backing, gix_hash::Kind::Sha1).expect("ignore strangely formed actor format");
+    let commit = CommitRef::from_bytes(&backing, gix_hash::Kind::Sha1)?;
     assert_eq!(
         commit,
         CommitRef {
@@ -136,9 +136,9 @@ fn invalid_email_of_committer() -> Result {
     assert_eq!(commit.author()?, actor);
     assert_eq!(commit.committer()?, actor);
 
-    commit.write_to(&mut buf).expect("we can write invalid actors back");
+    commit.write_to(&mut buf)?;
     assert_eq!(
-        CommitRef::from_bytes(&buf, gix_hash::Kind::Sha1).expect("this is the same commit and it can be parsed"),
+        CommitRef::from_bytes(&buf, gix_hash::Kind::Sha1)?,
         commit,
         "round-tripping works"
     );
@@ -147,7 +147,7 @@ fn invalid_email_of_committer() -> Result {
 }
 
 #[test]
-fn unsigned() -> Result {
+fn unsigned() -> gix_testtools::TestResult {
     let tree = fixture_oid_hex("1b2dfb4ac5e42080b682fc676e9738c94ce6d54d");
     assert_eq!(
         CommitRef::from_bytes(&commit_fixture("unsigned.txt")?, crate::fixture_hash_kind())?,
@@ -165,7 +165,7 @@ fn unsigned() -> Result {
 }
 
 #[test]
-fn whitespace() -> Result {
+fn whitespace() -> gix_testtools::TestResult {
     let tree = fixture_oid_hex("9bed6275068a0575243ba8409253e61af81ab2ff");
     let parent = fixture_oid_hex("26b4df046d1776c123ac69d918f5aec247b58cc6");
     assert_eq!(
@@ -184,7 +184,7 @@ fn whitespace() -> Result {
 }
 
 #[test]
-fn signed_singleline() -> Result {
+fn signed_singleline() -> gix_testtools::TestResult {
     let tree = fixture_oid_hex("00fc39317701176e326974ce44f5bd545a32ec0b");
     let parent = fixture_oid_hex("09d8d3a12e161a7f6afb522dbe8900a9c09bce06");
     assert_eq!(
@@ -203,7 +203,7 @@ fn signed_singleline() -> Result {
 }
 
 #[test]
-fn mergetag() -> Result {
+fn mergetag() -> gix_testtools::TestResult {
     let fixture = commit_fixture("mergetag.txt")?;
     let tree = fixture_oid_hex("1c61918031bf2c7fab9e17dde3c52a6a9884fcb5");
     let parent_a = fixture_oid_hex("44ebe016df3aad96e3be8f95ec52397728dd7701");
@@ -230,7 +230,7 @@ fn mergetag() -> Result {
 }
 
 #[test]
-fn signed() -> Result {
+fn signed() -> gix_testtools::TestResult {
     let tree = fixture_oid_hex("00fc39317701176e326974ce44f5bd545a32ec0b");
     let parent = fixture_oid_hex("09d8d3a12e161a7f6afb522dbe8900a9c09bce06");
     assert_eq!(
@@ -249,7 +249,7 @@ fn signed() -> Result {
 }
 
 #[test]
-fn signed_with_encoding() -> Result {
+fn signed_with_encoding() -> gix_testtools::TestResult {
     let tree = fixture_oid_hex("1973afa74d87b2bb73fa884aaaa8752aec43ea88");
     let parent = fixture_oid_hex("79c51cc86923e2b8ca0ee5c4eb75e48027133f9a");
     assert_eq!(
@@ -268,7 +268,7 @@ fn signed_with_encoding() -> Result {
 }
 
 #[test]
-fn with_encoding() -> Result {
+fn with_encoding() -> gix_testtools::TestResult {
     let tree = fixture_oid_hex("4a1c03029e7407c0afe9fc0320b3258e188b115e");
     let parent = fixture_oid_hex("7ca98aad461a5c302cb4c9e3acaaa6053cc67a62");
     assert_eq!(
@@ -287,7 +287,7 @@ fn with_encoding() -> Result {
 }
 
 #[test]
-fn pre_epoch() -> Result {
+fn pre_epoch() -> gix_testtools::TestResult {
     let tree = fixture_oid_hex("71cdd4015386b764b178005cad4c88966bc9d61a");
     assert_eq!(
         CommitRef::from_bytes(&commit_fixture("pre-epoch.txt")?, crate::fixture_hash_kind())?,
@@ -305,7 +305,7 @@ fn pre_epoch() -> Result {
 }
 
 #[test]
-fn double_dash_special_time_offset() -> Result {
+fn double_dash_special_time_offset() -> gix_testtools::TestResult {
     assert_eq!(
         CommitRef::from_bytes(
             &fixture_name("commit", "double-dash-date-offset.txt"),
@@ -325,7 +325,7 @@ fn double_dash_special_time_offset() -> Result {
 }
 
 #[test]
-fn with_trailer() -> Result {
+fn with_trailer() -> gix_testtools::TestResult {
     let kim = SignatureRef {
         name: "Kim Altintop".into(),
         email: "kim@eagain.st".into(),
@@ -413,7 +413,7 @@ instead of depending directly on the lower-level crates.
 }
 
 #[test]
-fn merge() -> Result {
+fn merge() -> gix_testtools::TestResult {
     let tree = fixture_oid_hex("0cf16ce8e229b59a761198975f0c0263229faf82");
     let parent_a = fixture_oid_hex("6a6054db4ce3c1e4e6a37f8c4d7acb63a4d6ad71");
     let parent_b = fixture_oid_hex("c91d592913d47ac4e4a76daf16fd649b276e211e");
@@ -433,7 +433,7 @@ fn merge() -> Result {
 }
 
 #[test]
-fn newline_right_after_signature_multiline_header_sha1() -> Result {
+fn newline_right_after_signature_multiline_header_sha1() -> gix_testtools::TestResult {
     let fixture = commit_fixture("signed-whitespace.txt")?;
     let commit = CommitRef::from_bytes(&fixture, crate::fixture_hash_kind())?;
     let pgp_sig = crate::commit::OTHER_SIGNATURE.as_bstr();
@@ -455,7 +455,7 @@ fn newline_right_after_signature_multiline_header_sha1() -> Result {
 
 #[test]
 #[cfg(feature = "sha256")]
-fn sha256_commits_use_their_own_signature_header() -> Result {
+fn sha256_commits_use_their_own_signature_header() -> gix_testtools::TestResult {
     let data = b"tree 0000000000000000000000000000000000000000000000000000000000000000\n\
 author A <a@example.com> 0 +0000\n\
 committer A <a@example.com> 0 +0000\n\
@@ -468,7 +468,7 @@ gpgsig-sha256 signature\n\
 }
 
 #[test]
-fn bogus_multi_gpgsig_header_sha1() -> Result {
+fn bogus_multi_gpgsig_header_sha1() -> gix_testtools::TestResult {
     let fixture = commit_fixture("bogus-gpgsig-lines-in-git.git.txt")?;
     let commit = CommitRef::from_bytes(&fixture, crate::fixture_hash_kind())?;
     let pgp_sig = b"-----BEGIN PGP SIGNATURE-----".as_bstr();

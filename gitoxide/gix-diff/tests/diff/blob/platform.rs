@@ -1,9 +1,11 @@
-use crate::Result;
+use std::process::Command;
+
 use gix_diff::blob::{Algorithm, Platform, ResourceKind, pipeline, platform, platform::prepare_diff::Operation};
 use gix_object::{
     bstr::{BString, ByteSlice},
     tree::EntryKind,
 };
+use gix_testtools::TestResult;
 
 use crate::{
     blob::pipeline::convert_to_diffable::default_options,
@@ -12,7 +14,7 @@ use crate::{
 };
 
 #[test]
-fn resources_of_worktree_and_odb_and_check_link() -> Result {
+fn resources_of_worktree_and_odb_and_check_link() -> TestResult {
     let mut platform = new_platform(
         Some(gix_diff::blob::Driver {
             name: "a".into(),
@@ -64,6 +66,8 @@ fn resources_of_worktree_and_odb_and_check_link() -> Result {
         "it ends up with the default, as it's not overridden anywhere"
     );
 
+    let program = Command::try_from(gix_diff::command::prepare("test"))?;
+    let program = program.get_program().to_string_lossy();
     assert_eq!(
         comparable_ext_diff(platform.prepare_diff_command(
             "test".into(),
@@ -75,7 +79,7 @@ fn resources_of_worktree_and_odb_and_check_link() -> Result {
             3
         )),
         format!(
-            "{}test a <tmp-path> 0000000000000000000000000000000000000000 100644 <tmp-path> {new_id} 100755",
+            "{}{program} a <tmp-path> 0000000000000000000000000000000000000000 100644 <tmp-path> {new_id} 100755",
             if !cfg!(windows) {
                 "GIT_DIFF_PATH_COUNTER=3 GIT_DIFF_PATH_TOTAL=3 GIT_DIR=. "
             } else {
@@ -137,7 +141,7 @@ fn resources_of_worktree_and_odb_and_check_link() -> Result {
             1
         )),
         format!(
-            "{}test a <tmp-path> 0000000000000000000000000000000000000000 100644 <tmp-path> {new_id} 120000",
+            "{}{program} a <tmp-path> 0000000000000000000000000000000000000000 100644 <tmp-path> {new_id} 120000",
             if !cfg!(windows) {
                 r#"GIT_DIFF_PATH_COUNTER=1 GIT_DIFF_PATH_TOTAL=1 GIT_DIR=. "#
             } else {
@@ -209,7 +213,7 @@ fn comparable_ext_diff(cmd: gix_error::Result<gix_diff::blob::platform::prepare_
 }
 
 #[test]
-fn diff_binary() -> Result {
+fn diff_binary() -> TestResult {
     let mut platform = new_platform(
         Some(gix_diff::blob::Driver {
             name: "a".into(),
@@ -252,7 +256,7 @@ fn diff_binary() -> Result {
 }
 
 #[test]
-fn diff_performed_despite_external_command() -> Result {
+fn diff_performed_despite_external_command() -> TestResult {
     let mut platform = new_platform(
         Some(gix_diff::blob::Driver {
             name: "a".into(),
@@ -291,7 +295,7 @@ fn diff_performed_despite_external_command() -> Result {
 }
 
 #[test]
-fn diff_skipped_due_to_external_command_and_enabled_option() -> Result {
+fn diff_skipped_due_to_external_command_and_enabled_option() -> TestResult {
     let command: BString = "something-to-be-ignored".into();
     let mut platform = new_platform(
         Some(gix_diff::blob::Driver {
@@ -329,7 +333,7 @@ fn diff_skipped_due_to_external_command_and_enabled_option() -> Result {
 }
 
 #[test]
-fn source_and_destination_do_not_exist() -> Result {
+fn source_and_destination_do_not_exist() -> TestResult {
     let mut platform = new_platform(None, pipeline::Mode::default());
     let err = platform.prepare_diff().expect_err("neither resource has been set");
     assert!(
@@ -377,23 +381,22 @@ fn source_and_destination_do_not_exist() -> Result {
     );
     insta::assert_debug_snapshot!(err, "source and destination do not exist", @"Tried to diff resources that are both considered removed");
 
+    let program = Command::try_from(gix_diff::command::prepare("test"))?;
     assert_eq!(
         format!(
             "{:?}",
-            *platform
-                .prepare_diff_command(
-                    "test".into(),
-                    gix_diff::command::Context {
-                        git_dir: Some(".".into()),
-                        ..Default::default()
-                    },
-                    0,
-                    1
-                )
-                .expect("resources set")
+            *platform.prepare_diff_command(
+                "test".into(),
+                gix_diff::command::Context {
+                    git_dir: Some(".".into()),
+                    ..Default::default()
+                },
+                0,
+                1
+            )?
         ),
         format!(
-            r#"{}"test" "missing" "/dev/null" "." "." "/dev/null" "." "." "a""#,
+            r#"{}{program:?} "missing" "/dev/null" "." "." "/dev/null" "." "." "a""#,
             if !cfg!(windows) {
                 r#"GIT_DIFF_PATH_COUNTER="1" GIT_DIFF_PATH_TOTAL="1" GIT_DIR="." "#
             } else {
@@ -405,7 +408,7 @@ fn source_and_destination_do_not_exist() -> Result {
 }
 
 #[test]
-fn invalid_resource_types() -> Result {
+fn invalid_resource_types() -> TestResult {
     let mut error_snapshots = Vec::new();
     let mut platform = new_platform(None, pipeline::Mode::default());
     for mode in [EntryKind::Commit, EntryKind::Tree] {
@@ -465,7 +468,7 @@ fn invalid_resource_types() -> Result {
 }
 
 #[test]
-fn resource_setup_errors_retain_paths_causes_and_clear_the_failed_side() -> Result {
+fn resource_setup_errors_retain_paths_causes_and_clear_the_failed_side() -> TestResult {
     use platform::set_resource::Error;
 
     let mut platform = new_platform(None, pipeline::Mode::default());

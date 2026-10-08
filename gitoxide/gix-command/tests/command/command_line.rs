@@ -4,7 +4,7 @@ use gix_command::parse::{self, Outcome};
 use gix_error::{Result, ResultExt};
 
 #[test]
-fn words_are_split_without_expansion() -> gix_testtools::Result {
+fn words_are_split_without_expansion() -> gix_testtools::TestResult {
     assert_eq!(
         command_line(
             r#"cmd 'single quoted' "double \"quoted\"" escaped\ word "kept\q" "" # ignored
@@ -32,7 +32,7 @@ next"#,
 }
 
 #[test]
-fn assignments_are_returned_separately() -> gix_testtools::Result {
+fn assignments_are_returned_separately() -> gix_testtools::TestResult {
     assert_eq!(
         command_line(r#" FIRST=one SECOND="two words" _THIRD='' command arg"#)?,
         Outcome {
@@ -49,7 +49,7 @@ fn assignments_are_returned_separately() -> gix_testtools::Result {
 }
 
 #[test]
-fn invalid_assignment_names_are_arguments() -> gix_testtools::Result {
+fn invalid_assignment_names_are_arguments() -> gix_testtools::TestResult {
     for (input, expected) in [
         ("tool-name=value arg", &["tool-name=value", "arg"]),
         (r#"'FOO'=bar command"#, &["FOO=bar", "command"]),
@@ -168,7 +168,7 @@ fn parse_errors_retain_their_classification() {
 
 #[test]
 #[cfg(unix)]
-fn non_utf8_input_is_preserved() -> gix_testtools::Result {
+fn non_utf8_input_is_preserved() -> gix_testtools::TestResult {
     use bstr::ByteSlice;
     use std::os::unix::ffi::OsStringExt;
 

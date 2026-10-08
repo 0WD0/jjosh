@@ -1,6 +1,5 @@
 const SHA1_SIZE: usize = gix_hash::Kind::Sha1.len_in_bytes();
 
-use crate::Result;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use gix_object::{self as object};
@@ -18,7 +17,7 @@ fn memory_backed_index(at: &str) -> gix_pack::index::File<&'static [u8]> {
 mod fuzzed;
 
 #[test]
-fn unsupported_version_is_classified() -> gix_error::TestResult {
+fn unsupported_version_is_classified() -> gix_testtools::TestResult {
     let mut data = std::fs::read(fixture_path(SMALL_PACK_INDEX))?;
     data[4..8].copy_from_slice(&3u32.to_be_bytes());
     let err = gix_pack::index::File::from_data(data, "unsupported.idx".into(), gix_hash::Kind::Sha1)
@@ -34,13 +33,12 @@ fn unsupported_version_is_classified() -> gix_error::TestResult {
 
 mod version {
     mod v1 {
-        use crate::Result;
         use gix_pack::index;
 
         use crate::{INDEX_V1, fixture_path};
 
         #[test]
-        fn lookup() -> Result {
+        fn lookup() -> gix_testtools::TestResult {
             let object_hash = gix_hash::Kind::Sha1;
             let file = index::File::at(fixture_path(INDEX_V1), object_hash)?;
             for (id, desired_index, assertion) in &[
@@ -79,13 +77,12 @@ mod version {
     }
 
     mod v2 {
-        use crate::Result;
         use gix_pack::index;
 
         use crate::{INDEX_V2, fixture_path};
 
         #[test]
-        fn lookup() -> Result {
+        fn lookup() -> gix_testtools::TestResult {
             let object_hash = gix_hash::Kind::Sha1;
             let file = index::File::at(fixture_path(INDEX_V2), object_hash)?;
             for (id, expected, assertion_message, hex_len) in [
@@ -137,9 +134,9 @@ mod version {
         use crate::Result;
         use std::{fs, io, sync::atomic::AtomicBool};
 
-        use gix_features::progress;
         use gix_odb::pack;
         use gix_pack::{data::input, index};
+        use gix_utils::progress;
 
         use crate::{INDEX_V2, SMALL_PACK, V2_PACKS_AND_INDICES, fixture_path};
 
@@ -148,7 +145,7 @@ mod version {
         }
 
         #[test]
-        fn write_to_stream() -> Result {
+        fn write_to_stream() -> gix_testtools::TestResult {
             fn assert_index_write(
                 mode: &input::Mode,
                 compressed: &input::EntryDataMode,
@@ -248,7 +245,7 @@ mod version {
         }
 
         #[test]
-        fn write_to_stream_respects_alloc_limit_bytes() -> Result {
+        fn write_to_stream_respects_alloc_limit_bytes() -> gix_testtools::TestResult {
             let data_path = SMALL_PACK;
             let mut pack_iter = pack::data::input::BytesToEntriesIter::new_from_header(
                 io::BufReader::new(fs::File::open(fixture_path(data_path))?),
@@ -319,7 +316,7 @@ fn traverse_with_index_and_forward_ref_deltas() {
 }
 
 #[test]
-fn traverse_with_index_respects_alloc_limit_bytes() -> Result {
+fn traverse_with_index_respects_alloc_limit_bytes() -> gix_testtools::TestResult {
     let index = index::File::at(fixture_path(SMALL_PACK_INDEX), gix_hash::Kind::Sha1)?;
     let data = pack::data::File::at(fixture_path(SMALL_PACK), gix_hash::Kind::Sha1)?;
 
@@ -345,7 +342,7 @@ fn traverse_with_index_respects_alloc_limit_bytes() -> Result {
 
 #[test]
 fn from_memory_backing_supports_verification_and_traversal() {
-    use gix_features::progress;
+    use gix_utils::progress;
 
     let index = memory_backed_index(SMALL_PACK_INDEX);
     let data = pack_from_memory_at(SMALL_PACK);
@@ -377,8 +374,8 @@ fn from_memory_backing_supports_verification_and_traversal() {
     assert_eq!(count.load(Ordering::SeqCst), index.num_objects() as usize);
 }
 
-use gix_features::progress;
 use gix_pack::{cache, data::decode::entry::Outcome, index};
+use gix_utils::progress;
 use maplit::btreemap;
 
 use crate::{INDEX_V2, PACK_FOR_INDEX_V2};
@@ -395,7 +392,7 @@ static MODES: &[index::verify::Mode] = &[
 ];
 
 #[test]
-fn pack_lookup() -> Result {
+fn pack_lookup() -> gix_testtools::TestResult {
     for (index_path, pack_path, stats) in &[
         (
             INDEX_V2,
@@ -563,7 +560,7 @@ fn pack_lookup() -> Result {
 }
 
 #[test]
-fn verify_integrity_respects_pack_alloc_limit_bytes() -> Result {
+fn verify_integrity_respects_pack_alloc_limit_bytes() -> gix_testtools::TestResult {
     let mut errors = Vec::new();
     let prevent_allocation = Some(0);
     let idx = index::File::at(fixture_path(SMALL_PACK_INDEX), gix_hash::Kind::Sha1)?;
@@ -611,7 +608,7 @@ fn verify_integrity_respects_pack_alloc_limit_bytes() -> Result {
 }
 
 #[test]
-fn iter() -> Result {
+fn iter() -> gix_testtools::TestResult {
     for (path, kind, num_objects, index_checksum, pack_checksum) in [
         (
             INDEX_V1,

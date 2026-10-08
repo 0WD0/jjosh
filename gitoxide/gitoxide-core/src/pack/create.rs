@@ -242,7 +242,7 @@ where
                 version: Default::default(),
                 compression: pack_compression,
             },
-        ))
+        )?)
     };
 
     let mut entries_progress = progress.add_child("consuming");

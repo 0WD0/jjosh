@@ -155,7 +155,7 @@ fn prepare(repo: &gix::Repository, args: &Todo) -> Result<todo::Prepared> {
     }
     let refs = history::snapshot(repo, &args.tips, &hide, false)?;
 
-    let authors = gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+    let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
     let mut app = App::new(usize::MAX);
     let mut decorations = Decorations::default();
     let mut graph = None;

@@ -576,7 +576,7 @@ impl Platform {
         let (old, new) = self
             .resources()
             .ok_or_raise(|| message("Either the source or the destination of the diff operation were not set"))?;
-        let mut cmd: std::process::Command = gix_command::prepare(gix_path::from_bstring(diff_command))
+        let mut cmd: std::process::Command = gix_command::prepare(gix_path::from_bstring(diff_command)?)
             .command_may_be_shell_script_disallow_manual_argument_splitting()
             .with_context(context)
             .env("GIT_DIFF_PATH_COUNTER", (count + 1).to_string())
@@ -584,9 +584,9 @@ impl Platform {
             .stdin(Stdio::inherit())
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
-            .into();
+            .try_into()?;
 
-        cmd.arg(gix_path::from_bstr(old.rela_path).into_owned());
+        cmd.arg(gix_path::from_bstr(old.rela_path)?.into_owned());
         let mut out = prepare_diff_command::Command {
             cmd,
             old: None,
@@ -597,7 +597,7 @@ impl Platform {
         out.new = add_resource(&mut out.cmd, new)?;
 
         if old.rela_path != new.rela_path {
-            out.cmd.arg(gix_path::from_bstr(new.rela_path).into_owned());
+            out.cmd.arg(gix_path::from_bstr(new.rela_path)?.into_owned());
         }
 
         Ok(out)

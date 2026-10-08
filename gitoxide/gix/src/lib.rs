@@ -139,13 +139,6 @@ pub use gix_date as date;
 #[cfg(feature = "dirwalk")]
 pub use gix_dir as dir;
 pub use gix_error as error;
-pub use gix_features as features;
-use gix_features::threading::OwnShared;
-pub use gix_features::{
-    parallel,
-    progress::{Count, DynNestedProgress, NestedProgress, Progress},
-    threading,
-};
 pub use gix_fs as fs;
 pub use gix_glob as glob;
 pub use gix_hash as hash;
@@ -161,6 +154,8 @@ pub use gix_negotiate as negotiate;
 pub use gix_object as objs;
 pub use gix_object::bstr;
 pub use gix_odb as odb;
+pub use gix_parallel as parallel;
+use gix_parallel::OwnShared;
 #[cfg(feature = "credentials")]
 pub use gix_prompt as prompt;
 pub use gix_protocol as protocol;
@@ -176,6 +171,7 @@ pub use gix_url as url;
 #[doc(inline)]
 pub use gix_url::Url;
 pub use gix_utils as utils;
+pub use gix_utils::progress::{Count, DynNestedProgress, NestedProgress, Progress};
 pub use gix_validate as validate;
 pub use gix_zlib as zlib;
 pub use hash::{ObjectId, oid};

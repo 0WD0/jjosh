@@ -1432,7 +1432,7 @@ fn markers_remain_transparent_alongside_classified_errors() {
         "classifications remain ordered and are not deduplicated"
     );
     insta::assert_debug_snapshot!(err, "markers supply classifications without becoming diagnostic errors", @r#"
-    context with input, "input"="bad"
+    context with input, input="bad"
 
     Caused by:
         0: specific diagnostic
@@ -1462,20 +1462,20 @@ fn markers_remain_transparent_alongside_classified_errors() {
     );
     insta::assert_debug_snapshot!(err.iter_errors().map(ToString::to_string).collect::<Vec<_>>(), "only real diagnostics remain visible in diagnostic iteration", @r#"
     [
-        "context with input, \"input\"=\"bad\"",
+        "context with input, input=\"bad\"",
         "specific diagnostic",
     ]
     "#);
     #[cfg(any(feature = "tree-error", not(feature = "auto-chain-error")))]
     insta::assert_debug_snapshot!(err, @r#"
-    context with input, "input"="bad"
+    context with input, input="bad"
 
     Caused by:
         0: specific diagnostic
     "#);
     #[cfg(all(feature = "auto-chain-error", not(feature = "tree-error")))]
     insta::assert_debug_snapshot!(err, "chain Debug retains the classified message's concrete type", @r#"
-    context with input, "input"="bad"
+    context with input, input="bad"
 
     Caused by:
         0: specific diagnostic

@@ -407,13 +407,13 @@ mod tests {
     }
 
     #[test]
-    fn git_schemes_allow_unbracketed_ipv6() {
+    fn git_schemes_allow_unbracketed_ipv6() -> gix_testtools::TestResult {
         for scheme in ["git", "ssh", "git+ssh", "ssh+git"] {
-            let url = ParsedUrl::parse(&format!("{scheme}://user@::1/repo"))
-                .expect("Git schemes allow unbracketed IPv6 hosts");
+            let url = ParsedUrl::parse(&format!("{scheme}://user@::1/repo"))?;
             assert_eq!(url.host.as_deref(), Some("::1"), "the IPv6 address is the host");
             assert_eq!(url.path, "/repo", "the path remains separate from the IPv6 host");
         }
+        Ok(())
     }
 
     #[test]

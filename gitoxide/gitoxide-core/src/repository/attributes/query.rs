@@ -41,7 +41,7 @@ pub(crate) mod function {
         match input {
             PathsOrPatterns::Paths(paths) => {
                 for path in paths {
-                    let mode = gix::path::from_bstr(Cow::Borrowed(path.as_ref()))
+                    let mode = gix::path::from_bstr(Cow::Borrowed(path.as_ref()))?
                         .metadata()
                         .ok()
                         .map(|m| is_dir_to_mode(m.is_dir()));
@@ -88,11 +88,14 @@ pub(crate) mod function {
                     let workdir = repo.workdir();
                     for pattern in pathspec.search().patterns() {
                         let path = pattern.path();
+                        let is_dir = match workdir {
+                            Some(wd) => wd.join(gix::path::from_bstr(path)?).is_dir(),
+                            None => false,
+                        };
                         let entry = cache.at_entry(
                             path,
                             Some(is_dir_to_mode(
-                                workdir.is_some_and(|wd| wd.join(gix::path::from_bstr(path)).is_dir())
-                                    || pattern.signature.contains(gix::pathspec::MagicSignature::MUST_BE_DIR),
+                                is_dir || pattern.signature.contains(gix::pathspec::MagicSignature::MUST_BE_DIR),
                             )),
                         )?;
                         if !entry.matching_attributes(&mut matches) {

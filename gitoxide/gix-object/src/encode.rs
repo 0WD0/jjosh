@@ -71,7 +71,7 @@ pub(crate) fn header_field(name: &[u8], value: &[u8], out: &mut dyn io::Write) -
     if value.is_empty() {
         return Err(io::Error::other(validation("Header values must not be empty")));
     }
-    if value.find(NL).is_some() {
+    if value.contains_str(NL) {
         return Err(io::Error::other(
             validation("Newlines are not allowed in header values").with_input(value),
         ));

@@ -35,7 +35,7 @@ pub struct File<T = MMap> {
     index_names: Vec<PathBuf>,
     lookup_ofs: usize,
     offsets_ofs: usize,
-    large_offsets_ofs: Option<usize>,
+    large_offsets: Option<std::ops::Range<usize>>,
 }
 
 ///

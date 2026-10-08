@@ -1,5 +1,5 @@
 mod invoke {
-    use crate::Result;
+    use crate::TestResult;
     use bstr::ByteSlice;
     use gix_credentials::{
         Program,
@@ -8,6 +8,41 @@ mod invoke {
         protocol::Context,
     };
     use gix_sec::identity::Account;
+
+    #[test]
+    fn reconstructed_urls_cannot_change_the_host_sent_to_helpers() -> TestResult {
+        for user in ["victim@trusted.example?", "victim@trusted.example/", "github.com/"] {
+            let outcome = Cascade::default()
+                .extend([Program::from_custom_definition(
+                    r#"!f() {
+                        while IFS= read -r line; do
+                            case "$line" in host=*) printf 'password=%s\n' "${line#host=}" ;; esac
+                        done
+                    }; f"#,
+                )?])
+                .invoke(
+                    Action::Get(Context {
+                        protocol: Some("https".into()),
+                        host: Some("evil.example".into()),
+                        username: Some(user.into()),
+                        ..Default::default()
+                    }),
+                    gix_prompt::Options {
+                        mode: gix_prompt::Mode::Disable,
+                        askpass: None,
+                    },
+                )?
+                .expect("the helper reports the host for which it was asked to obtain credentials");
+            assert_eq!(
+                outcome.identity,
+                identity(user, "evil.example"),
+                "the helper sees the requested host and the complete username; otherwise URL delimiters in \
+                 the username could redirect credential lookup to trusted.example or github.com, exposing \
+                 that host's credentials when the caller authenticates to evil.example"
+            );
+        }
+        Ok(())
+    }
 
     #[test]
     fn invalid_authentication_challenges_fail_without_helpers() {
@@ -37,27 +72,27 @@ mod invoke {
             I/O error (Other)
             
             Caused by:
-                0: "wwwauth[]"="Basic realm=\"a\rb\"" must not contain null bytes or newlines neither in key nor in value., "input"="Basic realm=\"a\rb\"",
+                0: "wwwauth[]"="Basic realm=\"a\rb\"" must not contain null bytes or newlines neither in key nor in value., input="Basic realm=\"a\rb\"",
             I/O error (Other)
             
             Caused by:
-                0: "wwwauth[]"="Basic\nusername=other" must not contain null bytes or newlines neither in key nor in value., "input"="Basic\nusername=other",
+                0: "wwwauth[]"="Basic\nusername=other" must not contain null bytes or newlines neither in key nor in value., input="Basic\nusername=other",
             I/O error (Other)
             
             Caused by:
-                0: "wwwauth[]"="Basic\0realm=example" must not contain null bytes or newlines neither in key nor in value., "input"="Basic\0realm=example",
+                0: "wwwauth[]"="Basic\0realm=example" must not contain null bytes or newlines neither in key nor in value., input="Basic\0realm=example",
         ]
         "#);
     }
 
     #[test]
-    fn a_helper_closing_its_input_does_not_prevent_fallback_with_challenges() -> Result {
+    fn a_helper_closing_its_input_does_not_prevent_fallback_with_challenges() -> TestResult {
         let outcome = Cascade::default()
             .extend([
-                Program::from_custom_definition("!f() { exit 1; }; f"),
+                Program::from_custom_definition("!f() { exit 1; }; f")?,
                 Program::from_custom_definition(
                     "!f() { cat >/dev/null; printf 'username=user\\npassword=pass\\n'; }; f",
-                ),
+                )?,
             ])
             .invoke(
                 Action::Get(Context {
@@ -81,10 +116,10 @@ mod invoke {
     }
 
     #[test]
-    fn authentication_challenges_reach_all_helpers_until_credentials_are_complete() -> Result {
+    fn authentication_challenges_reach_all_helpers_until_credentials_are_complete() -> TestResult {
         let outcome = Cascade::default()
             .extend([
-                Program::from_custom_definition("!f() { cat >/dev/null; echo username=user; }; f"),
+                Program::from_custom_definition("!f() { cat >/dev/null; echo username=user; }; f")?,
                 Program::from_custom_definition(
                     r#"!f() {
                         while IFS= read -r line; do
@@ -93,7 +128,7 @@ mod invoke {
                             fi
                         done
                     }; f"#,
-                ),
+                )?,
             ])
             .invoke(
                 Action::Get(Context {
@@ -121,15 +156,14 @@ mod invoke {
     }
 
     #[test]
-    fn credentials_are_filled_in_one_by_one_and_stop_when_complete() {
-        let actual = invoke_cascade(["username", "password", "custom-helper"], action_get())
-            .unwrap()
-            .expect("credentials");
+    fn credentials_are_filled_in_one_by_one_and_stop_when_complete() -> TestResult {
+        let actual = invoke_cascade(["username", "password", "custom-helper"], action_get())?.expect("credentials");
         assert_eq!(actual.identity, identity("user", "pass"));
+        Ok(())
     }
 
     #[test]
-    fn disabled_protocol_protection_is_preserved_for_the_next_action() {
+    fn disabled_protocol_protection_is_preserved_for_the_next_action() -> TestResult {
         let actual = Cascade {
             context_options: protocol::ContextOptions {
                 protect_protocol: false,
@@ -143,90 +177,79 @@ mod invoke {
                 mode: gix_prompt::Mode::Disable,
                 askpass: None,
             },
-        )
-        .expect("CR is allowed")
+        )?
         .expect("credentials are complete");
 
         assert_eq!(actual.identity, identity("user\rname", "pass"));
-        let context: Context = (&actual.next).try_into().expect("the next action retains its options");
+        let context: Context = (&actual.next).try_into()?;
         assert_eq!(context.username.as_deref(), Some("user\rname"));
         let mut serialized = Vec::new();
-        actual
-            .next
-            .store()
-            .send(&mut serialized)
-            .expect("in-memory write succeeds");
-        assert!(
-            serialized
-                .windows(b"username=user\rname".len())
-                .any(|value| value == b"username=user\rname")
-        );
+        actual.next.store().send(&mut serialized)?;
+        assert!(serialized.contains_str("username=user\rname"));
+        Ok(())
     }
 
     #[test]
-    fn usernames_in_urls_are_kept_if_the_helper_does_not_overwrite_it() {
+    fn usernames_in_urls_are_kept_if_the_helper_does_not_overwrite_it() -> TestResult {
         let actual = invoke_cascade(
             ["password", "custom-helper"],
             Action::get_for_url("ssh://git@host.org/path"),
-        )
-        .unwrap()
+        )?
         .expect("credentials");
         assert_eq!(actual.identity, identity("git", "pass"));
+        Ok(())
     }
 
     #[test]
-    fn partial_credentials_can_be_overwritten_by_complete_ones() {
-        let actual = invoke_cascade(["username", "custom-helper"], action_get())
-            .unwrap()
-            .expect("credentials");
+    fn partial_credentials_can_be_overwritten_by_complete_ones() -> TestResult {
+        let actual = invoke_cascade(["username", "custom-helper"], action_get())?.expect("credentials");
         assert_eq!(actual.identity, identity("user-script", "pass-script"));
+        Ok(())
     }
 
     #[test]
-    fn failing_helpers_for_filling_dont_interrupt() {
-        let actual = invoke_cascade(["fail", "custom-helper"], action_get())
-            .unwrap()
-            .expect("credentials");
+    fn failing_helpers_for_filling_dont_interrupt() -> TestResult {
+        let actual = invoke_cascade(["fail", "custom-helper"], action_get())?.expect("credentials");
         assert_eq!(actual.identity, identity("user-script", "pass-script"));
+        Ok(())
     }
 
     #[test]
-    fn urls_are_split_in_get_to_support_scripts() {
+    fn urls_are_split_in_get_to_support_scripts() -> TestResult {
         let actual = invoke_cascade(
             ["reflect", "custom-helper"],
             Action::get_for_url("https://example.com:8080/path/git/"),
-        )
-        .unwrap()
+        )?
         .expect("credentials");
 
-        let ctx: Context = (&actual.next).try_into().unwrap();
+        let ctx: Context = (&actual.next).try_into()?;
         assert_eq!(ctx.protocol.as_deref().expect("protocol"), "https");
         assert_eq!(ctx.host.as_deref().expect("host"), "example.com:8080");
         assert_eq!(ctx.path.as_deref().expect("path").as_bstr(), "path/git");
+        Ok(())
     }
 
     #[test]
-    fn urls_are_split_in_get_but_can_skip_the_path_in_host_only_urls() {
-        let actual = invoke_cascade(["reflect", "custom-helper"], Action::get_for_url("http://example.com"))
-            .unwrap()
+    fn urls_are_split_in_get_but_can_skip_the_path_in_host_only_urls() -> TestResult {
+        let actual = invoke_cascade(["reflect", "custom-helper"], Action::get_for_url("http://example.com"))?
             .expect("credentials");
 
-        let ctx: Context = (&actual.next).try_into().unwrap();
+        let ctx: Context = (&actual.next).try_into()?;
         assert_eq!(ctx.protocol.as_deref().expect("protocol"), "http");
         assert_eq!(ctx.host.as_deref().expect("host"), "example.com");
         assert_eq!(ctx.path, None);
+        Ok(())
     }
 
     #[test]
-    fn helpers_can_set_any_context_value() {
+    fn helpers_can_set_any_context_value() -> TestResult {
         let actual = invoke_cascade(
             ["all-but-credentials", "custom-helper"],
             Action::get_for_url("http://github.com"),
-        )
-        .unwrap()
+        )?
         .expect("credentials");
 
-        let ctx: Context = (&actual.next).try_into().unwrap();
+        let ctx: Context = (&actual.next).try_into()?;
         assert_eq!(ctx.protocol.as_deref().expect("protocol"), "ftp");
         assert_eq!(ctx.host.as_deref().expect("host"), "example.com:8080");
         assert_eq!(
@@ -234,15 +257,15 @@ mod invoke {
             "/path/to/git/",
             "values are passed verbatim even if they would otherwise look different"
         );
+        Ok(())
     }
 
     #[test]
-    fn helpers_can_set_any_context_value_using_the_url_only() {
-        let actual = invoke_cascade(["url", "custom-helper"], Action::get_for_url("http://github.com"))
-            .unwrap()
-            .expect("credentials");
+    fn helpers_can_set_any_context_value_using_the_url_only() -> TestResult {
+        let actual =
+            invoke_cascade(["url", "custom-helper"], Action::get_for_url("http://github.com"))?.expect("credentials");
 
-        let ctx: Context = (&actual.next).try_into().unwrap();
+        let ctx: Context = (&actual.next).try_into()?;
         assert_eq!(
             ctx.protocol.as_deref().expect("protocol"),
             "http",
@@ -254,24 +277,24 @@ mod invoke {
             "path/to/git",
             "the url is processed like any other"
         );
+        Ok(())
     }
 
     #[test]
-    fn helpers_can_quit_and_their_creds_are_taken_if_complete() {
-        let actual = invoke_cascade(["last-pass", "custom-helper"], Action::get_for_url("http://github.com"))
-            .unwrap()
+    fn helpers_can_quit_and_their_creds_are_taken_if_complete() -> TestResult {
+        let actual = invoke_cascade(["last-pass", "custom-helper"], Action::get_for_url("http://github.com"))?
             .expect("credentials");
 
         assert_eq!(actual.identity, identity("user", "pass"));
+        Ok(())
     }
 
     #[test]
-    fn expired_credentials_are_not_returned() {
+    fn expired_credentials_are_not_returned() -> TestResult {
         let actual = invoke_cascade(
             ["expired", "oauth-token", "custom-helper"],
             Action::get_for_url("http://github.com"),
-        )
-        .unwrap()
+        )?
         .expect("credentials");
 
         assert_eq!(
@@ -282,10 +305,11 @@ mod invoke {
             },
             "it ignored the expired password, which otherwise would have come first"
         );
+        Ok(())
     }
 
     #[test]
-    fn bogus_password_overrides_any_helper_and_helper_overrides_username_in_url() {
+    fn bogus_password_overrides_any_helper_and_helper_overrides_username_in_url() -> TestResult {
         let actual = Cascade::default()
             .query_user_only(true)
             .extend(fixtures(["username", "password"]))
@@ -295,10 +319,10 @@ mod invoke {
                     mode: gix_prompt::Mode::Disable,
                     askpass: None,
                 },
-            )
-            .unwrap()
+            )?
             .expect("credentials");
         assert_eq!(actual.identity, identity("user", ""));
+        Ok(())
     }
 
     fn action_get() -> Action {

@@ -29,7 +29,7 @@ test = false
 doctest = false
 
 [features]
-default = ["max", "auto-chain-error"]
+default = ["max"]
 
 #! ### Build Configuration
 #! These combine common choices of building blocks to represent typical builds.
@@ -84,14 +84,12 @@ lean-async = ["hashes", "fast", "tracing", "pretty-cli", "tix", "gitoxide-core-t
 #! ### Package Maintainers
 #! `*-control` features leave it to you to configure C libraries, involving choices for HTTP transport implementation.
 #!
-#! Additional features *can* be provided with `--features` and are handled by the [`gix-features` crate](https://docs.rs/gix-features/latest).
+#! Additional features *can* be provided with `--features` and are handled by the [`gix` crate](https://docs.rs/gix/latest/gix/#feature-flags).
 #! Note that only one HTTP transport can be enabled at a time. See the *Building Blocks for mutually exclusive networking* headline.
 
 #! ### Building Blocks
 #! Typical combinations of features of our dependencies, some of which are referred to in the `gitoxide` crate's code for conditional compilation.
 
-## Flatten error trees into chains with source locations in error reports.
-auto-chain-error = ["gix/auto-chain-error"]
 
 ## Provide support for all known hashes. If this isn't enabled, select an individual hash algorithms.
 hashes = ["sha1", "sha256"]
@@ -111,7 +109,7 @@ fast = ["gix/max-performance", "gix/comfort"]
 fast-safe = ["fast"]
 
 ## Enable tracing in `gitoxide-core`.
-tracing = ["dep:anstream", "dep:tracing", "gitoxide-core/tracing", "gix-features/tracing", "gix-features/tracing-detail"]
+tracing = ["dep:anstream", "dep:tracing", "gitoxide-core/tracing", "gix/tracing-detail"]
 
 ## Also measure user and kernel CPU time in trace trees on supported Unix platforms.
 ## Sampling adds overhead on span entry and exit.
@@ -129,7 +127,7 @@ prodash-render-line = ["prodash/render-line", "prodash-render-line-crossterm", "
 
 ## Prints statistical information to inform about cache efficiency when those are dropped.
 ## Use this as a way to understand if bigger caches actually produce greater yields.
-cache-efficiency-debug = ["gix-features/cache-efficiency-debug"]
+cache-efficiency-debug = ["gix/cache-efficiency-debug"]
 
 ##  A way to enable most `gitoxide-core` tools found in `ein tools`, namely `organize` and `estimate hours`.
 gitoxide-core-tools = ["gitoxide-core/organize", "gitoxide-core/estimate-hours", "gitoxide-core-tools-archive", "gitoxide-core-tools-clean"]
@@ -171,8 +169,7 @@ gitoxide-core-async-client = ["gitoxide-core/async-client", "futures-lite"]
 
 [dependencies]
 gitoxide-core = { version = "^0.62.0", path = "gitoxide-core" }
-gix-features = { version = "^0.50.0", path = "gix-features" }
-gix = { version = "^0.88.0", path = "gix", default-features = false }
+gix = { version = "^0.88.0", path = "gix", default-features = false, features = ["error-print-location"] }
 gix-tix = { version = "^0.4.0", path = "gix-tix", default-features = false, optional = true }
 
 clap = { version = "4.5.42", features = ["derive", "cargo"] }
@@ -238,7 +235,7 @@ members = [
     "gix-config",
     "gix-config-value",
     "gix-discover",
-    "gix-features",
+    "gix-parallel",
     "gix-zlib",
     "gix-trace",
     "gix-commitgraph",

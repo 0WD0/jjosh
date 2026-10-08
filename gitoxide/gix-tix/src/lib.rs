@@ -320,6 +320,7 @@ impl RefWatcher {
 struct WorktreeDirectories {
     root: PathBuf,
     paths: HashSet<PathBuf>,
+    error: Option<gix::Error>,
 }
 
 impl gix::dir::walk::Delegate for WorktreeDirectories {
@@ -328,7 +329,11 @@ impl gix::dir::walk::Delegate for WorktreeDirectories {
         _entry: gix::dir::EntryRef<'_>,
         _collapsed_directory_status: Option<gix::dir::entry::Status>,
     ) -> gix::dir::walk::Action {
-        std::ops::ControlFlow::Continue(())
+        if self.error.is_some() {
+            std::ops::ControlFlow::Break(())
+        } else {
+            std::ops::ControlFlow::Continue(())
+        }
     }
 
     fn can_recurse(
@@ -337,6 +342,9 @@ impl gix::dir::walk::Delegate for WorktreeDirectories {
         for_deletion: Option<gix::dir::walk::ForDeletionMode>,
         worktree_root_is_repository: bool,
     ) -> bool {
+        if self.error.is_some() {
+            return false;
+        }
         let recurse = entry.status.can_recurse(
             entry.disk_kind,
             entry.pathspec_match,
@@ -344,8 +352,15 @@ impl gix::dir::walk::Delegate for WorktreeDirectories {
             worktree_root_is_repository,
         );
         if recurse {
-            self.paths
-                .insert(self.root.join(gix::path::from_bstr(entry.rela_path.as_ref())));
+            match gix::path::from_bstr(entry.rela_path.as_ref()) {
+                Ok(path) => {
+                    self.paths.insert(self.root.join(path));
+                }
+                Err(err) => {
+                    self.error = Some(err);
+                    return false;
+                }
+            }
         }
         recurse
     }
@@ -401,7 +416,7 @@ fn worktree_status_event_scopes(
         {
             return None;
         }
-        let relative = gix::path::try_into_bstr(relative).ok()?;
+        let relative = gix::path::into_bstr(relative).ok()?;
         out.push(gix::path::to_unix_separators_on_windows(relative).into_owned());
     }
     (!out.is_empty()).then_some(out)
@@ -1411,7 +1426,7 @@ fn event_loop(
     } else {
         drop(view_repository);
     }
-    let authors = gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+    let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
     let mut watcher_retry_deadline = None;
     let mut ref_watcher = if preview_mode {
         None
@@ -1433,7 +1448,7 @@ fn event_loop(
         &revisions,
         if show_hidden { &[] } else { &hide },
         false,
-        gix::features::threading::OwnShared::clone(&authors),
+        gix::parallel::OwnShared::clone(&authors),
     );
 
     let mut app = App::new(1);
@@ -2503,7 +2518,7 @@ fn event_loop(
                     hide.clone(),
                     false,
                     Default::default(),
-                    gix::features::threading::OwnShared::clone(&authors),
+                    gix::parallel::OwnShared::clone(&authors),
                     history_graph
                         .take()
                         .expect("worktree preview starts only with a cached history graph"),
@@ -2529,7 +2544,7 @@ fn event_loop(
                 if app.show_hidden { Vec::new() } else { hide.clone() },
                 true,
                 Default::default(),
-                gix::features::threading::OwnShared::clone(&authors),
+                gix::parallel::OwnShared::clone(&authors),
                 history_graph
                     .take()
                     .expect("ref-tree refresh starts only with a cached history graph"),
@@ -2605,7 +2620,7 @@ fn event_loop(
                 hidden,
                 ref_tree.is_active(),
                 expand,
-                gix::features::threading::OwnShared::clone(&authors),
+                gix::parallel::OwnShared::clone(&authors),
                 history_graph
                     .take()
                     .expect("refresh starts only with a cached history graph"),
@@ -5623,7 +5638,7 @@ fn push_branch(
             };
             locks.push(
                 gix::lock::Marker::acquire_to_hold_resource(
-                    directory.join(gix::path::from_bstr(relative)),
+                    directory.join(gix::path::from_bstr(relative)?),
                     gix::lock::acquire::Fail::Immediately,
                     Some(directory.to_owned()),
                     0,
@@ -5658,8 +5673,8 @@ fn push_branch(
     }
     let output = command
         .arg("--")
-        .arg(gix::path::from_bstr(remote).as_ref())
-        .arg(gix::path::from_bstr(branch).as_ref())
+        .arg(gix::path::from_bstr(remote)?.as_ref())
+        .arg(gix::path::from_bstr(branch)?.as_ref())
         .env("GIT_TERMINAL_PROMPT", "0")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -6065,10 +6080,13 @@ fn worktree_watch_directories_with_index(
     let mut directories = WorktreeDirectories {
         root: root.clone(),
         paths: HashSet::from([root]),
+        error: None,
     };
-    repository
-        .dirwalk(index, None::<&str>, &AtomicBool::default(), options, &mut directories)
-        .or_raise(|| message("could not enumerate worktree directories"))?;
+    let result = repository.dirwalk(index, None::<&str>, &AtomicBool::default(), options, &mut directories);
+    if let Some(err) = directories.error {
+        return Err(err.and_raise(message("could not represent a directory path for worktree watching")));
+    }
+    result.or_raise(|| message("could not enumerate worktree directories"))?;
     Ok(directories.paths)
 }
 
@@ -6090,16 +6108,17 @@ fn changed_index_watch_scopes(
     before: &[IndexWatchEntry],
     after: &[IndexWatchEntry],
     workdir: &Path,
-) -> HashSet<PathBuf> {
-    fn add_scope(entry: &IndexWatchEntry, workdir: &Path, out: &mut HashSet<PathBuf>) {
+) -> Result<HashSet<PathBuf>> {
+    fn add_scope(entry: &IndexWatchEntry, workdir: &Path, out: &mut HashSet<PathBuf>) -> Result<()> {
         let path = entry.path.as_bstr();
         let scope = path
             .find_byte(b'/')
             .map(|pos| &path[..pos])
             .or_else(|| (entry.mode == gix::index::entry::Mode::DIR.bits()).then_some(path.as_ref()));
         if let Some(scope) = scope {
-            out.insert(workdir.join(gix::path::from_bstr(scope)));
+            out.insert(workdir.join(gix::path::from_bstr(scope)?));
         }
+        Ok(())
     }
 
     let mut out = HashSet::new();
@@ -6108,11 +6127,11 @@ fn changed_index_watch_scopes(
         match (before.get(left), after.get(right)) {
             (Some(a), Some(b)) => match a.cmp(b) {
                 std::cmp::Ordering::Less => {
-                    add_scope(a, workdir, &mut out);
+                    add_scope(a, workdir, &mut out)?;
                     left += 1;
                 }
                 std::cmp::Ordering::Greater => {
-                    add_scope(b, workdir, &mut out);
+                    add_scope(b, workdir, &mut out)?;
                     right += 1;
                 }
                 std::cmp::Ordering::Equal => {
@@ -6121,17 +6140,17 @@ fn changed_index_watch_scopes(
                 }
             },
             (Some(a), None) => {
-                add_scope(a, workdir, &mut out);
+                add_scope(a, workdir, &mut out)?;
                 left += 1;
             }
             (None, Some(b)) => {
-                add_scope(b, workdir, &mut out);
+                add_scope(b, workdir, &mut out)?;
                 right += 1;
             }
             (None, None) => break,
         }
     }
-    out
+    Ok(out)
 }
 
 fn minimize_worktree_scopes(scopes: HashSet<PathBuf>) -> Vec<PathBuf> {
@@ -6169,7 +6188,7 @@ fn reconcile_worktree_watcher(
             &watcher.index_projection,
             &next_projection,
             &watcher.workdir,
-        ));
+        )?);
     }
     if !refresh.full && refresh.scopes.is_empty() {
         if update_projection {
@@ -7475,7 +7494,7 @@ fn prepare_file_diff_content(
     }
     let global_command = repository
         .config_snapshot()
-        .trusted_program(gix::config::tree::Diff::EXTERNAL)
+        .trusted_program(gix::config::tree::Diff::EXTERNAL)?
         .map(gix::path::os_string_into_bstring)
         .transpose()
         .or_raise(|| message("external diff command is not representable on this platform"))?;
@@ -7556,7 +7575,7 @@ fn prepare_file_diff_content(
 }
 
 fn prepare_pager(repository: &gix::Repository, diff: BuiltInDiff) -> Result<FileDiff> {
-    let Some(program) = repository.config_snapshot().trusted_program("core.pager") else {
+    let Some(program) = repository.config_snapshot().trusted_program("core.pager")? else {
         return Ok(FileDiff::BuiltIn(diff));
     };
     if program.is_empty() || program == "cat" {
@@ -7573,7 +7592,7 @@ fn prepare_pager(repository: &gix::Repository, diff: BuiltInDiff) -> Result<File
         .stdin(Stdio::piped())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
-        .into();
+        .try_into()?;
     Ok(FileDiff::Pager { command, diff })
 }
 
@@ -7996,7 +8015,7 @@ fn stage_resolved_conflict_paths(repository: &gix::Repository) -> Result<()> {
     let mut command = git_command(workdir);
     command.arg("--literal-pathspecs").args(["add", "-A", "--"]);
     for path in &paths {
-        command.arg(gix::path::from_bstr(path.as_bstr()).as_ref());
+        command.arg(gix::path::from_bstr(path.as_bstr())?.as_ref());
     }
     let output = command
         .output()
@@ -8474,16 +8493,19 @@ fn push_remote_deletions(repository_path: &Path, groups: &[ref_tree::RemoteDelet
         failures: Vec::new(),
     };
     for group in groups {
-        let mut command = git_command(repository_path);
-        command
-            .arg("push")
-            .arg(gix::path::from_bstr(group.remote.as_bstr()).as_ref());
-        for reference in &group.references {
-            let mut refspec = b":".to_vec();
-            refspec.extend_from_slice(reference.as_bstr());
-            command.arg(gix::path::from_bstr(refspec.as_bstr()).as_ref());
-        }
-        match command.status() {
+        let result = (|| -> Result<ExitStatus> {
+            let mut command = git_command(repository_path);
+            command
+                .arg("push")
+                .arg(gix::path::from_bstr(group.remote.as_bstr())?.as_ref());
+            for reference in &group.references {
+                let mut refspec = b":".to_vec();
+                refspec.extend_from_slice(reference.as_bstr());
+                command.arg(gix::path::from_bstr(refspec.as_bstr())?.as_ref());
+            }
+            command.status().or_error()
+        })();
+        match result {
             Ok(status) if status.success() => outcome.deleted += group.references.len(),
             Ok(status) => outcome.failures.push(format!("{} exited with {status}", group.remote)),
             Err(err) => outcome.failures.push(format!("{}: {err}", group.remote)),
@@ -10952,7 +10974,7 @@ mod tests {
                     matches!(
                         push_branch(
                             repository.git_dir(),
-                            gix::path::into_bstr(remote.path()).as_ref(),
+                            gix::path::into_bstr(remote.path())?.as_ref(),
                             branch.into(),
                             &hidden_tips,
                             force_with_lease,
@@ -11009,7 +11031,7 @@ mod tests {
                 matches!(
                     push_branch(
                         repository.git_dir(),
-                        gix::path::into_bstr(remote.path()).as_ref(),
+                        gix::path::into_bstr(remote.path())?.as_ref(),
                         branch.into(),
                         &unfinished.parents,
                         false,
@@ -11090,7 +11112,7 @@ mod tests {
                         matches!(
                             push_branch(
                                 repository.git_dir(),
-                                gix::path::into_bstr(remote.path()).as_ref(),
+                                gix::path::into_bstr(remote.path())?.as_ref(),
                                 branch.as_str().into(),
                                 &original.parents,
                                 force_with_lease,
@@ -11711,8 +11733,7 @@ mod tests {
         let repository = test_repository::open(&fixture)?;
         let topic = repository.rev_parse_single("topic")?.detach();
         let main = repository.rev_parse_single("main")?.detach();
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
         let mut graph = None;
         history::load(
             &repository,
@@ -11785,8 +11806,7 @@ mod tests {
             .status()?;
         assert!(status.success(), "the configured tracking ref exists");
         let repository = test_repository::open(path)?;
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
         let mut graph = None;
         history::load(
             &repository,
@@ -12358,8 +12378,7 @@ mod tests {
             gix::refs::transaction::PreviousValue::MustNotExist,
             "test optional non-commit remote reference",
         )?;
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
         let hidden = vec![OsString::from("merged")];
         let mut graph = HistoryGraph::default();
         let history = graph.refresh(&repository, &[], &hidden, false, &HashSet::new(), &authors)?;
@@ -12552,8 +12571,7 @@ mod tests {
         let repository = test_repository::open(&worktree)?;
         let mut repository_path = repository.git_dir().to_owned();
         std::env::set_current_dir(&worktree)?;
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
         let mut graph = HistoryGraph::default();
         let expected = graph
             .refresh(&repository, &[], &[], false, &Default::default(), &authors)?
@@ -13735,8 +13753,7 @@ mod tests {
     fn tree_selection_keys_require_deliberate_confirmations_and_restore_normal_navigation() -> gix_testtools::Result {
         let fixture = gix_testtools::scripted_fixture_read_only("rebase_edit.sh")?;
         let repository = test_repository::open(&fixture)?;
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
         let mut graph = HistoryGraph::default();
         let history = graph.refresh(&repository, &[], &[], false, &HashSet::new(), &authors)?;
         let mut app = App::new(10);
@@ -14726,7 +14743,7 @@ mod tests {
         let index = repository.index_or_empty()?;
         let after_path = index_watch_projection(&index);
         assert_eq!(
-            changed_index_watch_scopes(&after_content, &after_path, root),
+            changed_index_watch_scopes(&after_content, &after_path, root)?,
             HashSet::from([root.join("new")]),
             "index topology changes identify the affected top-level directory"
         );
@@ -14931,7 +14948,7 @@ mod tests {
         );
         let rendered = diagnostic.to_string();
         assert_eq!(
-            rendered.matches("\"exit_status\"=").count(),
+            rendered.matches("exit_status=").count(),
             1,
             "status appears only in metadata"
         );
@@ -15065,8 +15082,7 @@ mod tests {
             .collect::<gix_testtools::Result<Vec<_>>>()?;
         let mut app = App::new(1);
         app.extend_commits(rows);
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
 
         let commits = load_rebase_todo_commits(&repository, &mut app, &authors, &scope)?;
 
@@ -15095,8 +15111,7 @@ mod tests {
             ["user.name=preview author", "user.email=preview@example.com"],
         )?;
         let before = gix_testtools::repository::snapshot(fixture.path())?;
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
         let mut graph = HistoryGraph::default();
         let history = graph.refresh(&repo, &[], &["HEAD~2".into()], false, &HashSet::new(), &authors)?;
         let mut app = App::new(usize::MAX);

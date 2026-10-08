@@ -18,7 +18,7 @@ pub struct RequestWriter<'a> {
 impl io::Write for RequestWriter<'_> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         if self.trace {
-            gix_features::trace::trace!(">> {}", bstr::BStr::new(buf));
+            gix_trace::trace!(">> {}", bstr::BStr::new(buf));
         }
         self.writer.write(buf)
     }
@@ -59,25 +59,25 @@ impl<'a> RequestWriter<'a> {
         match message {
             MessageKind::Flush => {
                 if self.trace {
-                    gix_features::trace::trace!(">> FLUSH");
+                    gix_trace::trace!(">> FLUSH");
                 }
                 encode::write_packet_line(&gix_packetline::PacketLineRef::Flush, self.writer.inner_mut())
             }
             MessageKind::Delimiter => {
                 if self.trace {
-                    gix_features::trace::trace!(">> DELIM");
+                    gix_trace::trace!(">> DELIM");
                 }
                 encode::write_packet_line(&gix_packetline::PacketLineRef::Delimiter, self.writer.inner_mut())
             }
             MessageKind::ResponseEnd => {
                 if self.trace {
-                    gix_features::trace::trace!(">> RESPONSE_END");
+                    gix_trace::trace!(">> RESPONSE_END");
                 }
                 encode::write_packet_line(&gix_packetline::PacketLineRef::ResponseEnd, self.writer.inner_mut())
             }
             MessageKind::Text(t) => {
                 if self.trace {
-                    gix_features::trace::trace!(">> {}", bstr::BStr::new(t));
+                    gix_trace::trace!(">> {}", bstr::BStr::new(t));
                 }
                 encode::write_text(&gix_packetline::TextRef::from(t), self.writer.inner_mut())
             }

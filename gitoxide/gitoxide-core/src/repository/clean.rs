@@ -167,7 +167,7 @@ pub(crate) mod function {
             };
             if entry.disk_kind.is_none() {
                 entry.disk_kind = workdir
-                    .join(gix::path::from_bstr(entry.rela_path.as_bstr()))
+                    .join(gix::path::from_bstr(entry.rela_path.as_bstr())?)
                     .symlink_metadata()
                     .ok()
                     .map(|e| e.file_type().into());
@@ -186,7 +186,7 @@ pub(crate) mod function {
             }
 
             if disk_kind == gix::dir::entry::Kind::Directory
-                && gix::discover::is_git(&workdir.join(gix::path::from_bstr(entry.rela_path.as_bstr()))).is_ok()
+                && gix::discover::is_git(&workdir.join(gix::path::from_bstr(entry.rela_path.as_bstr())?)).is_ok()
             {
                 if debug {
                     writeln!(
@@ -228,7 +228,7 @@ pub(crate) mod function {
             }
 
             let is_ignored = matches!(entry.status, gix::dir::entry::Status::Ignored(_));
-            let entry_path = gix::path::from_bstr(entry.rela_path);
+            let entry_path = gix::path::from_bstr(entry.rela_path)?;
             let display_path = gix::path::relativize_with_prefix(&entry_path, prefix);
             if disk_kind == gix::dir::entry::Kind::Directory {
                 saw_ignored_directory |= is_ignored;

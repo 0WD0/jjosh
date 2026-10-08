@@ -60,6 +60,9 @@
 # Generate this small uninitialized-submodule fixture instead of storing its archives.
 /make_uninitialized_submodule.tar
 /make_uninitialized_submodule_sha256.tar
+# Generate this small submodule-config fixture instead of storing its archives.
+/make_submodule_config_overrides.tar
+/make_submodule_config_overrides_sha256.tar
 # Uses `mkfifo`, `ln -s`, executable-bit changes, and adds a submodule —
 # none of which round-trip cleanly through a committed tar across platforms.
 /repo_with_untracked_files.tar
@@ -77,3 +80,6 @@
 /make_sha256_remote_sha256.tar
 # These are generated, no need to check them in as regeneration works.
 /make_worktree_add_repos_*
+# Symlink preflight depends on the host filesystem and privileges; regenerate
+# locally rather than archiving either links or an unsupported-host marker.
+/make_symlinked_mailmap_repo*.tar*

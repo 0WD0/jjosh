@@ -55,7 +55,7 @@ impl Pipeline {
     {
         use gix_error::{ResultExt, message};
 
-        let bstr_rela_path = gix_path::to_unix_separators_on_windows(gix_path::into_bstr(rela_path));
+        let bstr_rela_path = gix_path::to_unix_separators_on_windows(gix_path::into_bstr(rela_path)?);
         let Configuration {
             driver,
             digest,

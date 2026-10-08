@@ -202,7 +202,7 @@ mod changes {
         }
 
         #[test]
-        fn many_different_states() -> Result {
+        fn many_different_states() -> gix_testtools::TestResult {
             let db = db(None)?;
             let all_commits = all_commits(&db);
             pretty_assertions::assert_eq!(
@@ -606,7 +606,7 @@ mod changes {
         }
 
         #[test]
-        fn many_different_states_nested() -> Result {
+        fn many_different_states_nested() -> gix_testtools::TestResult {
             let db = db(["a"].iter().copied())?;
             let all_commits = all_commits(&db);
 
@@ -677,7 +677,7 @@ mod changes {
         }
 
         #[test]
-        fn maximal_difference() -> Result {
+        fn maximal_difference() -> gix_testtools::TestResult {
             let db = db(None)?;
             let all_commits = all_commits(&db);
 
@@ -743,7 +743,7 @@ mod changes {
         }
 
         #[test]
-        fn maximal_difference_nested() -> Result {
+        fn maximal_difference_nested() -> gix_testtools::TestResult {
             let db = db(["a"].iter().copied())?;
             let all_commits = all_commits(&db);
             let empty_blob_id = hex_to_id(
@@ -814,7 +814,7 @@ mod changes {
         }
 
         #[test]
-        fn directory_rename() -> Result {
+        fn directory_rename() -> gix_testtools::TestResult {
             let db = db(None)?;
             let all_commits = all_commits(&db);
             let empty_blob_id = hex_to_id(
@@ -903,7 +903,7 @@ mod changes {
         }
 
         #[test]
-        fn reverse_directory_rename() -> Result {
+        fn reverse_directory_rename() -> gix_testtools::TestResult {
             let db = db(None)?;
             let all_commits = all_commits(&db);
             let empty_blob_id = hex_to_id(

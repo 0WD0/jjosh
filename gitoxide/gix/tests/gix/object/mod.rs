@@ -5,7 +5,7 @@ mod tree;
 use gix_testtools::size_ok;
 
 #[test]
-fn public_errors_use_the_crate_result_and_preserve_diagnostics() -> crate::Result {
+fn public_errors_use_the_crate_result_and_preserve_diagnostics() -> gix_testtools::TestResult {
     let repo = crate::basic_repo()?;
     let mut commit = repo.head_commit()?;
     commit.data = b"invalid commit".to_vec();
@@ -50,7 +50,7 @@ fn public_errors_use_the_crate_result_and_preserve_diagnostics() -> crate::Resul
 }
 
 #[test]
-fn failed_object_conversions_return_the_original_object() -> crate::Result {
+fn failed_object_conversions_return_the_original_object() -> gix_testtools::TestResult {
     use gix::objs::Kind;
 
     let repo = crate::basic_repo()?;

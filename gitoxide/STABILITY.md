@@ -64,7 +64,7 @@ The following schematic helps to visualize what follows.
     ║    │ │ gix-object  │   │  gix-lock   │ │    ║
     ║    │ └─────────────┘   └─────────────┘ │    ║  │
     ║    │ ┌───────────────────────────────┐ │    ║
-    ║    │ │         gix-features          │ │    ║  │
+    ║    │ │         gix-parallel          │ │    ║  │
     ║    │ └───────────────────────────────┘ │    ║
     ║    └───────────────────────────────────┘    ║  │
     ║                                             ║

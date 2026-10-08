@@ -304,7 +304,7 @@ mod tests {
     }
 
     #[test]
-    fn resource_is_resolved_on_each_lock_attempt() {
+    fn resource_is_resolved_on_each_lock_attempt() -> gix_testtools::TestResult {
         let resolutions = std::cell::Cell::new(0);
         let resolve = |_: &Path| {
             let current = resolutions.get();
@@ -324,11 +324,11 @@ mod tests {
                     Ok(())
                 }
             },
-        )
-        .expect("the second target can be locked");
+        )?;
 
         assert_eq!(resolutions.get(), 2, "the resource is resolved before every attempt");
         assert_eq!(resource_path, Path::new("second"), "the locked target is retained");
         assert_eq!(lock_path, Path::new("second.lock"), "the lock follows that target");
+        Ok(())
     }
 }

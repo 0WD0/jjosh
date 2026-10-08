@@ -1,7 +1,56 @@
+use gix_error::{ResourceExhaustionKind, Result, ResultExt, bail};
+
 ///
 pub mod entry;
 ///
 pub mod header;
+
+/// Check the whole buffer size before growing it, avoiding amortized growth beyond a configured cap.
+pub(crate) fn resize_with_limit(out: &mut Vec<u8>, len: usize, alloc_limit_bytes: Option<usize>) -> Result {
+    if alloc_limit_bytes.is_some_and(|limit| len > limit) {
+        bail!(allocation_error(ResourceExhaustionKind::AllocationLimit));
+    }
+    let additional = len.saturating_sub(out.len());
+    if alloc_limit_bytes.is_some() {
+        out.try_reserve_exact(additional)
+    } else {
+        out.try_reserve(additional)
+    }
+    .or_raise(|| allocation_error(ResourceExhaustionKind::AllocationFailure))?;
+    out.resize(len, 0);
+    Ok(())
+}
+
+/// Brent's cycle detection keeps one exponentially spaced checkpoint instead of allocating
+/// a visited-offset set on every header or object lookup.
+struct DeltaCycle {
+    checkpoint: u64,
+    distance: usize,
+    interval: usize,
+}
+
+impl DeltaCycle {
+    fn new(offset: u64) -> Self {
+        Self {
+            checkpoint: offset,
+            distance: 0,
+            interval: 1,
+        }
+    }
+
+    fn check(&mut self, offset: u64) -> Result {
+        if offset == self.checkpoint {
+            bail!(gix_error::corruption("A pack delta chain contains a cycle"));
+        }
+        self.distance += 1;
+        if self.distance == self.interval {
+            self.checkpoint = offset;
+            self.interval = self.interval.saturating_mul(2);
+            self.distance = 0;
+        }
+        Ok(())
+    }
+}
 
 /// A ref-delta base that could not be resolved.
 ///

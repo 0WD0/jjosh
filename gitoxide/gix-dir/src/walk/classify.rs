@@ -37,7 +37,7 @@ pub fn root(
             buf.push(b'/');
         }
         path_buf.push(component);
-        buf.extend_from_slice(gix_path::os_str_into_bstr(component.as_os_str()).expect("no illformed UTF8"));
+        buf.extend_from_slice(gix_path::os_str_into_bstr(component.as_os_str())?);
         let file_kind = path_buf.symlink_metadata().ok().map(|m| m.file_type().into());
 
         out = path(

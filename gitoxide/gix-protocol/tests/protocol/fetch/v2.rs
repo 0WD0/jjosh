@@ -1,8 +1,8 @@
-use crate::Result;
+use crate::TestResult;
 use bstr::ByteSlice;
-use gix_features::progress;
 use gix_protocol::handshake;
 use gix_transport::Protocol;
+use gix_utils::progress;
 
 use crate::fetch::{
     _impl::FetchConnection, CloneDelegate, CloneRefInWantDelegate, LsRemoteDelegate, helper_unused, oid, transport,
@@ -11,7 +11,7 @@ use crate::fetch::{
 #[crate::bisync::bisync]
 #[cfg_attr(feature = "blocking-client", test)]
 #[cfg_attr(all(feature = "async-client", not(feature = "blocking-client")), async_std::test)]
-async fn clone_abort_prep() -> Result {
+async fn clone_abort_prep() -> TestResult {
     let out = Vec::new();
     let mut dlg = CloneDelegate {
         abort_with: Some(std::io::Error::other("hello world")),
@@ -62,7 +62,7 @@ async fn clone_abort_prep() -> Result {
 #[crate::bisync::bisync]
 #[cfg_attr(feature = "blocking-client", test)]
 #[cfg_attr(all(feature = "async-client", not(feature = "blocking-client")), async_std::test)]
-async fn ls_remote() -> Result {
+async fn ls_remote() -> TestResult {
     let out = Vec::new();
     let mut delegate = LsRemoteDelegate::default();
     let mut transport = transport(
@@ -119,7 +119,7 @@ async fn ls_remote() -> Result {
 #[crate::bisync::bisync]
 #[cfg_attr(feature = "blocking-client", test)]
 #[cfg_attr(all(feature = "async-client", not(feature = "blocking-client")), async_std::test)]
-async fn ls_remote_abort_in_prep_ls_refs() -> Result {
+async fn ls_remote_abort_in_prep_ls_refs() -> TestResult {
     let out = Vec::new();
     let mut delegate = LsRemoteDelegate {
         abort_with: Some(std::io::Error::other("hello world")),
@@ -159,7 +159,7 @@ async fn ls_remote_abort_in_prep_ls_refs() -> Result {
 #[crate::bisync::bisync]
 #[cfg_attr(feature = "blocking-client", test)]
 #[cfg_attr(all(feature = "async-client", not(feature = "blocking-client")), async_std::test)]
-async fn ref_in_want() -> Result {
+async fn ref_in_want() -> TestResult {
     let out = Vec::new();
     let mut delegate = CloneRefInWantDelegate {
         want_refs: vec!["refs/heads/main".into()],
@@ -218,7 +218,7 @@ async fn ref_in_want() -> Result {
 #[crate::bisync::bisync]
 #[cfg_attr(feature = "blocking-client", test)]
 #[cfg_attr(all(feature = "async-client", not(feature = "blocking-client")), async_std::test)]
-async fn ref_in_want_sha256() -> Result {
+async fn ref_in_want_sha256() -> TestResult {
     let out = Vec::new();
     let mut delegate = CloneRefInWantDelegate {
         want_refs: vec!["refs/heads/main".into()],

@@ -65,23 +65,22 @@ mod sha1 {
     }
 
     #[test]
-    fn empty_blob() {
+    fn empty_blob() -> gix_testtools::TestResult {
         let actual = ObjectId::empty_blob(Kind::Sha1);
-        assert_eq!(actual, hash_contents(b"blob 0\0").expect("empty blob to not collide"),);
+        assert_eq!(actual, hash_contents(b"blob 0\0")?,);
         assert_eq!(format!("{actual:?}"), "Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391)");
+        Ok(())
     }
 
     #[test]
-    fn empty_tree() {
-        assert_eq!(
-            ObjectId::empty_tree(Kind::Sha1),
-            hash_contents(b"tree 0\0").expect("empty tree to not collide"),
-        );
+    fn empty_tree() -> gix_testtools::TestResult {
+        assert_eq!(ObjectId::empty_tree(Kind::Sha1), hash_contents(b"tree 0\0")?);
+        Ok(())
     }
 
     /// Check the test vectors from RFC 3174.
     #[test]
-    fn rfc_3174() {
+    fn rfc_3174() -> gix_testtools::TestResult {
         let fixtures: &[(&[u8], &str)] = &[
             (b"abc", "A9 99 3E 36 47 06 81 6A BA 3E 25 71 78 50 C2 6C 9C D0 D8 9D"),
             (
@@ -99,10 +98,11 @@ mod sha1 {
         ];
         for (input, output) in fixtures {
             assert_eq!(
-                hash_contents(input).expect("RFC inputs to not collide"),
-                ObjectId::from_str(&output.to_lowercase().replace(' ', "")).expect("RFC digests to be valid"),
+                hash_contents(input)?,
+                ObjectId::from_str(&output.to_lowercase().replace(' ', ""))?,
             );
         }
+        Ok(())
     }
 
     /// Check the “SHA‐1 is a Shambles” chosen‐prefix collision.
@@ -133,20 +133,19 @@ mod sha256 {
     }
 
     #[test]
-    fn empty_blob() {
+    fn empty_blob() -> gix_testtools::TestResult {
         let actual = ObjectId::empty_blob(Kind::Sha256);
-        assert_eq!(actual, hash_contents(b"blob 0\0").expect("empty blob to not collide"),);
+        assert_eq!(actual, hash_contents(b"blob 0\0")?,);
         assert_eq!(
             format!("{actual:?}"),
             "Sha256(473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813)"
         );
+        Ok(())
     }
 
     #[test]
-    fn empty_tree() {
-        assert_eq!(
-            ObjectId::empty_tree(Kind::Sha256),
-            hash_contents(b"tree 0\0").expect("empty tree to not collide"),
-        );
+    fn empty_tree() -> gix_testtools::TestResult {
+        assert_eq!(ObjectId::empty_tree(Kind::Sha256), hash_contents(b"tree 0\0")?);
+        Ok(())
     }
 }

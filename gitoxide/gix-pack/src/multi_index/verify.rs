@@ -2,7 +2,7 @@ use gix_error::{Result, corruption, message};
 use std::{cmp::Ordering, sync::atomic::AtomicBool, time::Instant};
 
 use gix_error::{OptionExt, bail, cancelled};
-use gix_features::progress::{Count, DynNestedProgress, Progress};
+use gix_utils::progress::{Count, DynNestedProgress, Progress};
 
 use crate::{exact_vec, index, multi_index::File};
 
@@ -28,7 +28,7 @@ pub mod integrity {
         ObjectOffsets,
     }
 
-    impl From<ProgressId> for gix_features::progress::Id {
+    impl From<ProgressId> for gix_utils::progress::Id {
         fn from(v: ProgressId) -> Self {
             match v {
                 ProgressId::ChecksumBytes => *b"MVCK",
@@ -135,11 +135,8 @@ where
         let mut pack_ids_and_offsets = exact_vec(self.num_objects as usize);
         {
             let order_start = Instant::now();
-            let mut progress = progress.add_child_with_id("checking oid order".into(), gix_features::progress::UNKNOWN);
-            progress.init(
-                Some(self.num_objects as usize),
-                gix_features::progress::count("objects"),
-            );
+            let mut progress = progress.add_child_with_id("checking oid order".into(), gix_utils::progress::UNKNOWN);
+            progress.init(Some(self.num_objects as usize), gix_utils::progress::count("objects"));
 
             for entry_index in 0..(self.num_objects - 1) {
                 let lhs = self.oid_at_index(entry_index);
@@ -150,13 +147,13 @@ where
                         "The object id at multi-index entry {entry_index} wasn't in order"
                     )));
                 }
-                let (pack_id, _) = self.pack_id_and_pack_offset_at_index(entry_index);
+                let (pack_id, _) = self.pack_id_and_pack_offset_at_index(entry_index)?;
                 pack_ids_and_offsets.push((pack_id, entry_index));
                 progress.inc();
             }
             {
                 let entry_index = self.num_objects - 1;
-                let (pack_id, _) = self.pack_id_and_pack_offset_at_index(entry_index);
+                let (pack_id, _) = self.pack_id_and_pack_offset_at_index(entry_index)?;
                 pack_ids_and_offsets.push((pack_id, entry_index));
             }
             // sort by pack-id to allow handling all indices matching a pack while its open.
@@ -164,10 +161,7 @@ where
             progress.show_throughput(order_start);
         };
 
-        progress.init(
-            Some(self.num_indices as usize),
-            gix_features::progress::count("indices"),
-        );
+        progress.init(Some(self.num_indices as usize), gix_utils::progress::count("indices"));
 
         let mut pack_ids_slice = pack_ids_and_offsets.as_slice();
 
@@ -196,15 +190,12 @@ where
                     "verify object offsets".into(),
                     integrity::ProgressId::ObjectOffsets.into(),
                 );
-                offsets_progress.init(
-                    Some(pack_ids_and_offsets.len()),
-                    gix_features::progress::count("objects"),
-                );
+                offsets_progress.init(Some(pack_ids_and_offsets.len()), gix_utils::progress::count("objects"));
                 pack_ids_slice = &pack_ids_slice[slice_end..];
 
                 for entry_id in multi_index_entries_to_check.iter().map(|e| e.1) {
                     let oid = self.oid_at_index(entry_id);
-                    let (_, expected_pack_offset) = self.pack_id_and_pack_offset_at_index(entry_id);
+                    let (_, expected_pack_offset) = self.pack_id_and_pack_offset_at_index(entry_id)?;
                     let entry_in_bundle_index = index.lookup(oid).ok_or_raise(|| {
                         message!("{oid} wasn't found in the index referenced in the multi-pack index").corrupted()
                     })?;

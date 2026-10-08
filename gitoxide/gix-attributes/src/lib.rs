@@ -14,7 +14,7 @@
 //!     None,
 //!     &mut collection,
 //!     true,
-//! );
+//! )?;
 //!
 //! let mut out = Outcome::default();
 //! out.initialize_with_selection(&collection, ["text", "eol"]);
@@ -25,6 +25,7 @@
 //!     .map(|m| m.assignment.to_string())
 //!     .collect::<Vec<_>>();
 //! assert_eq!(assignments, vec!["text", "eol=lf"]);
+//! # Ok::<(), std::io::Error>(())
 //! ```
 //!
 //! ## Feature Flags
@@ -94,10 +95,10 @@ pub enum State {
 
 /// Represents a validated attribute name.
 ///
-/// Enable the `parallel` feature to make this type thread-safe. Without it, the name is backed by an `Rc<str>` and is
-/// neither `Send` nor `Sync`; with `parallel`, it is backed by an `Arc<str>` instead.
+/// Enable `gix-parallel/parallel` to make this type thread-safe. Without it, the name is backed by an `Rc<str>` and is
+/// neither `Send` nor `Sync`; with it, the name is backed by an `Arc<str>` instead.
 #[derive(PartialEq, Eq, Debug, Hash, Ord, PartialOrd, Clone)]
-pub struct Name(pub(crate) gix_features::threading::OwnShared<str>);
+pub struct Name(pub(crate) gix_parallel::OwnShared<str>);
 
 /// Holds a validated attribute name as a reference
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash, Ord, PartialOrd)]

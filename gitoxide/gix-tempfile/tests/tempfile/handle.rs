@@ -1,9 +1,9 @@
 mod mark_path {
-    use crate::Result;
+    use crate::TestResult;
     use gix_tempfile::{AutoRemove, ContainingDirectory};
 
     #[test]
-    fn it_persists_markers_along_with_newly_created_directories() -> Result {
+    fn it_persists_markers_along_with_newly_created_directories() -> TestResult {
         let dir = tempfile::tempdir()?;
         let target = dir.path().join("a").join("b").join("file.tmp");
         let new_filename = target.parent().unwrap().join("file.ext");
@@ -39,7 +39,7 @@ mod mark_path {
     }
 
     #[test]
-    fn it_can_create_the_containing_directory_and_remove_it_on_drop() -> Result {
+    fn it_can_create_the_containing_directory_and_remove_it_on_drop() -> TestResult {
         let dir = tempfile::tempdir()?;
         let first_dir = "dir";
         let filename = dir.path().join(first_dir).join("subdir").join("file.tmp");
@@ -67,11 +67,11 @@ mod mark_path {
     }
 }
 mod at_path {
-    use crate::Result;
+    use crate::TestResult;
     use gix_tempfile::{AutoRemove, ContainingDirectory};
 
     #[test]
-    fn reduce_resource_usage_by_converting_files_to_markers_and_persist_them() -> Result {
+    fn reduce_resource_usage_by_converting_files_to_markers_and_persist_them() -> TestResult {
         let dir = tempfile::tempdir()?;
         let target = dir.path().join("a").join("file.tmp");
         let new_filename = target.parent().unwrap().join("file.ext");
@@ -103,7 +103,7 @@ mod at_path {
     use std::io::{ErrorKind, Write};
 
     #[test]
-    fn it_persists_tempfiles_along_with_newly_created_directories() -> Result {
+    fn it_persists_tempfiles_along_with_newly_created_directories() -> TestResult {
         let dir = tempfile::tempdir()?;
         let target = dir.path().join("a").join("b").join("file.tmp");
         let new_filename = target.parent().unwrap().join("file.ext");
@@ -150,7 +150,7 @@ mod at_path {
 
     #[test]
     #[cfg(windows)]
-    fn persistence_replaces_readonly_files_and_retains_the_tempfiles_permissions() -> Result {
+    fn persistence_replaces_readonly_files_and_retains_the_tempfiles_permissions() -> TestResult {
         let dir = tempfile::tempdir()?;
         let tempfile_path = dir.path().join("file.lock");
         let destination = dir.path().join("file");
@@ -179,7 +179,7 @@ mod at_path {
     }
 
     #[test]
-    fn it_can_create_the_containing_directory_and_remove_it_on_drop() -> Result {
+    fn it_can_create_the_containing_directory_and_remove_it_on_drop() -> TestResult {
         let dir = tempfile::tempdir()?;
         let first_dir = "dir";
         let filename = dir.path().join(first_dir).join("subdir").join("file.tmp");
@@ -208,7 +208,7 @@ mod at_path {
     }
 
     #[test]
-    fn it_names_files_correctly_and_similarly_named_tempfiles_cannot_be_created() -> Result {
+    fn it_names_files_correctly_and_similarly_named_tempfiles_cannot_be_created() -> TestResult {
         let dir = tempfile::tempdir()?;
         let filename = dir.path().join("something-specific.ext");
         let tempfile = gix_tempfile::writable_at(&filename, ContainingDirectory::Exists, AutoRemove::Tempfile)?;
@@ -236,7 +236,7 @@ mod at_path {
 }
 
 mod new {
-    use crate::Result;
+    use crate::TestResult;
     use std::{
         io::{ErrorKind, Write},
         path::Path,
@@ -249,7 +249,7 @@ mod new {
     }
 
     #[test]
-    fn it_can_be_kept() -> Result {
+    fn it_can_be_kept() -> TestResult {
         let dir = tempfile::tempdir()?;
         drop(
             gix_tempfile::new(dir.path(), ContainingDirectory::Exists, AutoRemove::Tempfile)?
@@ -262,7 +262,7 @@ mod new {
     }
 
     #[test]
-    fn it_is_removed_if_it_goes_out_of_scope() -> Result {
+    fn it_is_removed_if_it_goes_out_of_scope() -> TestResult {
         let dir = tempfile::tempdir()?;
         {
             let _keep = gix_tempfile::new(dir.path(), ContainingDirectory::Exists, AutoRemove::Tempfile)?;
@@ -273,7 +273,7 @@ mod new {
     }
 
     #[test]
-    fn it_can_create_the_containing_directory_and_remove_it_when_dropped() -> Result {
+    fn it_can_create_the_containing_directory_and_remove_it_when_dropped() -> TestResult {
         let dir = tempfile::tempdir()?;
         let containing_dir = dir.path().join("dir");
         assert!(!containing_dir.exists());
@@ -303,9 +303,7 @@ mod new {
             )
             ");
             assert_eq!(err.kind(), ErrorKind::Other, "errors are propagated");
-            writable
-                .with_mut(|tf| assert!(tf.path().is_file()))
-                .expect("after seeing an error before the file still exists");
+            writable.with_mut(|tf| assert!(tf.path().is_file()))?;
         }
         assert!(!containing_dir.is_dir(), "the now empty directory was deleted as well");
         assert!(dir.path().is_dir(), "it won't touch the containing directory");

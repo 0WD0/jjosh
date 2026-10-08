@@ -6,6 +6,7 @@ use std::{
 };
 
 use bstr::ByteSlice;
+use gix_error::Result;
 
 use crate::{Context, Prepare, extract_interpreter, is_bare_command, split_paths, win_path_lookup};
 
@@ -15,8 +16,8 @@ impl Prepare {
     /// scripts, and if found will use `sh` to execute it or whatever is set as
     /// [`with_shell_program()`](Self::with_shell_program()).
     ///
-    /// Commands are inspected as bytes, including non-UTF-8 commands on Unix. If the platform
-    /// cannot represent a command as bytes, it is invoked directly.
+    /// Commands are inspected using their native encoded bytes, including commands that cannot
+    /// be represented as UTF-8.
     ///
     /// If a shell is used, then arguments given here with [arg()](Self::arg) or
     /// [args()](Self::args) will be substituted via `"$@"` if it's not already present in the
@@ -30,8 +31,11 @@ impl Prepare {
     /// If neither this method nor [`with_shell()`](Self::with_shell()) is called, commands are
     /// always executed verbatim and directly, without the use of a shell.
     pub fn command_may_be_shell_script(mut self) -> Self {
-        self.use_shell = gix_path::os_str_into_bstr(&self.command)
-            .is_ok_and(|cmd| cmd.find_byteset(b"|&;<>()$`\\\"' \t\n*?[#~=%").is_some());
+        self.use_shell = self
+            .command
+            .as_encoded_bytes()
+            .find_byteset(b"|&;<>()$`\\\"' \t\n*?[#~=%")
+            .is_some();
         self
     }
 
@@ -168,15 +172,20 @@ impl Prepare {
 /// Finalization
 impl Prepare {
     /// Spawn the command as configured.
+    ///
+    /// Encoding errors during preparation are returned with [`std::io::ErrorKind::InvalidInput`].
     pub fn spawn(self) -> std::io::Result<std::process::Child> {
-        let mut cmd = Command::from(self);
+        let mut cmd =
+            Command::try_from(self).map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidInput, err))?;
         gix_trace::debug!(cmd = ?cmd);
         cmd.spawn()
     }
 }
 
-impl From<Prepare> for Command {
-    fn from(mut prep: Prepare) -> Command {
+impl TryFrom<Prepare> for Command {
+    type Error = gix_error::Error;
+
+    fn try_from(mut prep: Prepare) -> Result<Self> {
         let mut inline_env = Vec::new();
         let mut cmd = if prep.use_shell {
             let split_args = prep
@@ -218,11 +227,10 @@ impl From<Prepare> for Command {
                         .to_os_string();
                     cmd.arg("-c");
                     if !prep.args.is_empty() {
-                        if !gix_path::os_str_into_bstr(&prep.command).is_ok_and(|cmd| cmd.contains_str("$@")) {
-                            if prep.quote_command
-                                && let Ok(command) = gix_path::os_str_into_bstr(&prep.command)
-                            {
-                                prep.command = gix_path::from_bstring(gix_quote::single(command)).into();
+                        if !prep.command.as_encoded_bytes().contains_str("$@") {
+                            if prep.quote_command {
+                                let command = gix_path::os_str_into_bstr(&prep.command)?;
+                                prep.command = gix_path::from_bstring(gix_quote::single(command))?.into();
                             }
                             prep.command.push(r#" "$@""#);
                         } else {
@@ -265,7 +273,7 @@ impl From<Prepare> for Command {
                 cmd.env("GIT_NO_REPLACE_OBJECTS", usize::from(value).to_string());
             }
             if let Some(namespace) = ctx.ref_namespace {
-                cmd.env("GIT_NAMESPACE", gix_path::from_bstring(namespace));
+                cmd.env("GIT_NAMESPACE", gix_path::from_bstring(namespace)?);
             }
             if let Some(value) = ctx.literal_pathspecs {
                 cmd.env("GIT_LITERAL_PATHSPECS", usize::from(value).to_string());
@@ -288,7 +296,7 @@ impl From<Prepare> for Command {
             }
         }
         cmd.envs(inline_env);
-        cmd
+        Ok(cmd)
     }
 }
 
@@ -296,7 +304,7 @@ impl From<Prepare> for Command {
 ///
 /// The last `PATH` in `inline_env` overrides the last one in `env`, which overrides the inherited value (of this process).
 /// The selected `PATH` is searched in order. A resolved shebang script is launched through its interpreter, ignoring shebang
-/// arguments. If an explicit `PATH` does not resolve a bare command, the missing program remains anchored in its first entry
+/// arguments. If `PATH` does not resolve a bare command, the missing program remains anchored in its first entry
 /// so Rust's broader Windows lookup cannot find it elsewhere.
 fn windows_command(command: OsString, env: &[(OsString, OsString)], inline_env: &[(String, OsString)]) -> Command {
     let explicit_joined_paths = inline_env
@@ -316,15 +324,17 @@ fn windows_command(command: OsString, env: &[(OsString, OsString)], inline_env: 
     let looked_up = joined_paths
         .as_deref()
         .and_then(|joined_paths| win_path_lookup(command.as_ref(), joined_paths));
-    let program: Cow<'_, Path> = match (looked_up, explicit_joined_paths) {
+    let program: Cow<'_, Path> = match looked_up {
         // Use the manually resolved path.
-        (Some(program), _) => Cow::Owned(program),
-        // An explicit `PATH` miss must not fall back to `std::process::Command` broader Windows search.
-        (None, Some(explicit_joined_paths)) if is_bare_command(Path::new(&command)) => {
-            Cow::Owned(prevent_further_path_lookup(command.as_ref(), explicit_joined_paths))
+        Some(program) => Cow::Owned(program),
+        // A bare PATH miss must neither probe a worktree file nor use Rust's broader Windows search.
+        None if is_bare_command(Path::new(&command)) => {
+            return Command::new(prevent_further_path_lookup(
+                command.as_ref(),
+                joined_paths.as_deref().unwrap_or_else(|| OsStr::new("")),
+            ));
         }
-        // Preserve non-bare commands and let `std::process::Command` resolve bare commands without an explicit `PATH`.
-        (None, _) => Cow::Borrowed(command.as_ref()),
+        None => Cow::Borrowed(command.as_ref()),
     };
     if let Some(shebang) = extract_interpreter(program.as_ref()) {
         let mut cmd = Command::new(shebang.interpreter);
@@ -332,18 +342,13 @@ fn windows_command(command: OsString, env: &[(OsString, OsString)], inline_env: 
         cmd.arg(program.as_ref());
         cmd
     } else {
-        match program {
-            // Process lookup happens before the child's environment is installed, so an explicitly
-            // configured PATH must be handled here for ordinary executables as well.
-            Cow::Owned(program) if explicit_joined_paths.is_some() => Command::new(program),
-            _ => Command::new(command),
-        }
+        Command::new(program.as_ref())
     }
 }
 
-/// Represent the failed lookup of `command` in an explicitly assigned `PATH` without permitting another search.
+/// Represent the failed lookup of `command` in `PATH` without permitting another search.
 ///
-/// `joined_paths` is the complete value of the explicit `PATH`, not one of its entries. The first non-empty entry is
+/// `joined_paths` is the complete value of `PATH`, not one of its entries. The first non-empty entry is
 /// joined with `command`, producing a path that Rust's Windows resolver will not look up elsewhere. If there is no such
 /// entry, a trailing separator makes `command` invalid instead.
 fn prevent_further_path_lookup(command: &Path, joined_paths: &OsStr) -> PathBuf {
@@ -363,7 +368,60 @@ mod tests {
     use super::*;
 
     #[test]
-    fn explicit_path_lookup_failure_stays_within_that_path() -> gix_testtools::Result {
+    fn inherited_path_is_used_for_both_probing_and_execution() -> gix_testtools::TestResult {
+        if gix_testtools::run_in_isolated_process()? {
+            return Ok(());
+        }
+        let root = gix_testtools::tempfile::tempdir()?;
+        let bin = root.path().join("bin");
+        std::fs::create_dir(&bin)?;
+        let _cwd = gix_testtools::set_current_dir(root.path())?;
+        std::fs::write("ssh", b"#!/untrusted/interpreter\n")?;
+
+        for path in [Some(bin.to_str().expect("temporary path is UTF-8")), Some(""), None] {
+            let environment = gix_testtools::Env::new();
+            let _environment = match path {
+                Some(path) => environment.set("PATH", path),
+                None => environment.unset("PATH"),
+            };
+            let mut cmd = windows_command("ssh".into(), &[], &[]);
+            let expected = match path {
+                Some(path) if !path.is_empty() => bin.join("ssh"),
+                _ => Path::new("ssh").join(""),
+            };
+            assert_eq!(
+                cmd.get_program(),
+                expected,
+                "a PATH miss cannot probe a worktree file or leave a bare command for another lookup"
+            );
+            assert!(cmd.get_args().next().is_none(), "the planted shebang is never used");
+            assert!(cmd.spawn().is_err(), "a missing program fails to spawn");
+        }
+
+        let _environment = gix_testtools::Env::new().set("PATH", bin.to_str().expect("temporary path is UTF-8"));
+        let executable = bin.join("ssh.exe");
+        std::fs::write(&executable, b"executable placeholder")?;
+        assert_eq!(
+            windows_command("ssh".into(), &[], &[]).get_program(),
+            executable,
+            "the executable selected from PATH is also the one passed to the process launcher"
+        );
+        let explicit_script = windows_command("./ssh".into(), &[], &[]);
+        assert_eq!(
+            explicit_script.get_program(),
+            Path::new("/untrusted/interpreter"),
+            "an explicitly requested script retains shebang support"
+        );
+        assert_eq!(
+            explicit_script.get_args().collect::<Vec<_>>(),
+            [OsStr::new("./ssh")],
+            "the interpreter receives the explicitly requested script"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn explicit_path_lookup_failure_stays_within_that_path() -> gix_testtools::TestResult {
         let joined_paths = std::env::join_paths(["", "not/a/real/path", "also/not/real"])?;
         let cmd = windows_command("missing.exe".into(), &[], &[("PATH".into(), joined_paths)]);
         assert_eq!(

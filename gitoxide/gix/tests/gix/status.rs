@@ -18,9 +18,9 @@ pub fn repo(name: &str) -> Result<gix::Repository> {
 }
 
 mod into_iter {
-    use crate::Result;
     use gix::status::{Item, Submodule, tree_index::TrackRenames};
     use gix_diff::Rewrites;
+    use gix_testtools::TestResult;
     use gix_testtools::size_ok;
 
     use crate::status::{repo, submodule_repo};
@@ -38,7 +38,7 @@ mod into_iter {
     }
 
     #[test]
-    fn submodule_tree_index_modification() -> Result {
+    fn submodule_tree_index_modification() -> TestResult {
         let repo = submodule_repo("git-mv-and-untracked-and-submodule-head-changed-and-modified")?;
         let mut status = repo
             .status(gix::progress::Discard)?
@@ -97,7 +97,7 @@ mod into_iter {
     }
 
     #[test]
-    fn submodule_fully_ignored_by_override() -> Result {
+    fn submodule_fully_ignored_by_override() -> TestResult {
         let repo = submodule_repo("git-mv-and-untracked-and-submodule-head-changed-and-modified")?;
         let mut status = repo
             .status(gix::progress::Discard)?
@@ -163,7 +163,7 @@ mod into_iter {
         Ok(())
     }
     #[test]
-    fn submodule_fully_ignored_by_configuration() -> Result {
+    fn submodule_fully_ignored_by_configuration() -> TestResult {
         let repo = submodule_repo("git-mv-and-untracked-and-submodule-head-changed-and-modified-ignore-all")?;
         let mut status = repo
             .status(gix::progress::Discard)?
@@ -204,7 +204,7 @@ mod into_iter {
     }
 
     #[test]
-    fn tree_index_modification_worktree_modification_racy_git() -> Result {
+    fn tree_index_modification_worktree_modification_racy_git() -> TestResult {
         let repo = repo("racy-git")?;
         let mut status = repo.status(gix::progress::Discard)?.into_iter(None)?;
         let mut items: Vec<_> = status.by_ref().filter_map(std::result::Result::ok).collect();
@@ -214,7 +214,7 @@ mod into_iter {
     }
 
     #[test]
-    fn untracked_unborn() -> Result {
+    fn untracked_unborn() -> TestResult {
         let repo = repo("untracked-unborn")?;
         let mut status = repo.status(gix::progress::Discard)?.into_iter(None)?;
         let mut items: Vec<_> = status.by_ref().filter_map(std::result::Result::ok).collect();
@@ -244,7 +244,7 @@ mod into_iter {
     }
 
     #[test]
-    fn added_unborn() -> Result {
+    fn added_unborn() -> TestResult {
         let repo = repo("added-unborn")?;
         let mut status = repo.status(gix::progress::Discard)?.into_iter(None)?;
         let mut items: Vec<_> = status.by_ref().filter_map(std::result::Result::ok).collect();
@@ -278,7 +278,7 @@ mod into_iter {
     }
 
     #[test]
-    fn untracked_added() -> Result {
+    fn untracked_added() -> TestResult {
         let repo = repo("untracked-added")?;
         let mut status = repo.status(gix::progress::Discard)?.into_iter(None)?;
         let mut items: Vec<_> = status.by_ref().filter_map(std::result::Result::ok).collect();
@@ -303,7 +303,7 @@ mod into_iter {
 
     #[test]
     #[cfg(unix)]
-    fn submodule_assume_unchanged_replaced_with_symlink_is_ignored() -> Result {
+    fn submodule_assume_unchanged_replaced_with_symlink_is_ignored() -> TestResult {
         let repo = repo("submodule-assume-unchanged-symlink")?;
         let mut status = repo.status(gix::progress::Discard)?.into_iter(None)?;
         let items: Vec<_> = status.by_ref().filter_map(std::result::Result::ok).collect();
@@ -315,7 +315,7 @@ mod into_iter {
     }
 
     #[test]
-    fn uninitialized_submodule_with_files_is_clean() -> Result {
+    fn uninitialized_submodule_with_files_is_clean() -> TestResult {
         let root = gix_testtools::scripted_fixture_read_only("make_uninitialized_submodule.sh")?.join("uninitialized");
         assert_eq!(
             gix_testtools::git(&root, "--no-optional-locks status --porcelain=v1 --untracked-files=all")?,
@@ -343,7 +343,7 @@ mod into_iter {
 
     #[test]
     #[cfg_attr(not(target_os = "macos"), ignore = "Needs Git's macOS Unicode precomposition")]
-    fn emoji_with_decomposed_unicode_matches_git() -> Result {
+    fn emoji_with_decomposed_unicode_matches_git() -> TestResult {
         let root = gix_testtools::scripted_fixture_read_only_needs_archive("make_emoji_with_decomposed_unicode.sh")?;
         assert_eq!(
             gix_testtools::git(&root, "--no-optional-locks status --porcelain=v1 --untracked-files=all")?,
@@ -364,7 +364,7 @@ mod into_iter {
     }
 
     #[test]
-    fn error_during_tree_traversal_causes_failure() -> Result {
+    fn error_during_tree_traversal_causes_failure() -> TestResult {
         let mut error_snapshots = Vec::new();
         let repo = repo("untracked-only")?;
         let invalid_tree_id = repo.object_hash().empty_blob();
@@ -404,8 +404,8 @@ mod into_iter {
 
 mod index_worktree {
     mod iter {
-        use crate::Result;
         use gix::status::index_worktree::Item;
+        use gix_testtools::TestResult;
         use gix_testtools::size_ok;
         use pretty_assertions::assert_eq;
 
@@ -424,7 +424,7 @@ mod index_worktree {
         }
 
         #[test]
-        fn submodule_modification() -> Result {
+        fn submodule_modification() -> TestResult {
             let repo = submodule_repo("modified-untracked-and-submodule-head-changed-and-modified")?;
             let mut status = repo
                 .status(gix::progress::Discard)?
@@ -439,7 +439,7 @@ mod index_worktree {
         }
 
         #[test]
-        fn untracked_files_collapse_by_default() -> Result {
+        fn untracked_files_collapse_by_default() -> TestResult {
             let repo = repo("untracked-only")?;
             let status = repo
                 .status(gix::progress::Discard)?
@@ -482,7 +482,7 @@ mod index_worktree {
         }
 
         #[test]
-        fn untracked_files_settings_none() -> Result {
+        fn untracked_files_settings_none() -> TestResult {
             let mut repo = repo("untracked-only")?;
             repo.config_snapshot_mut()
                 .set_value(&gix::config::tree::Status::SHOW_UNTRACKED_FILES, "no")?;
@@ -505,7 +505,7 @@ mod index_worktree {
         }
 
         #[test]
-        fn early_drop_for_is_dirty_emulation() -> Result {
+        fn early_drop_for_is_dirty_emulation() -> TestResult {
             let repo = submodule_repo("modified-untracked-and-submodule-head-changed-and-modified")?;
             let is_dirty = repo
                 .status(gix::progress::Discard)?
@@ -523,7 +523,7 @@ mod index_worktree {
 
         #[test]
         #[cfg(unix)] // symlinks are used here, let's not try our luck on Windows.
-        fn tracked_entries_under_a_symlinked_directory_are_reported_as_removed() -> Result {
+        fn tracked_entries_under_a_symlinked_directory_are_reported_as_removed() -> TestResult {
             let repo = repo("symlink-replaces-tracked-dir")?;
             let mut items: Vec<_> = repo
                 .status(gix::progress::Discard)?
@@ -582,25 +582,25 @@ mod index_worktree {
 }
 
 mod is_dirty {
-    use crate::Result;
     use crate::status::{repo, submodule_repo};
+    use gix_testtools::TestResult;
 
     #[test]
-    fn various_changes_positive() -> Result {
+    fn various_changes_positive() -> TestResult {
         let repo = submodule_repo("modified-untracked-and-submodule-head-changed-and-modified")?;
         assert!(repo.is_dirty()?, "The repository has various changes");
         Ok(())
     }
 
     #[test]
-    fn submodule_changes_are_picked_up() -> Result {
+    fn submodule_changes_are_picked_up() -> TestResult {
         let repo = submodule_repo("submodule-head-changed")?;
         assert!(repo.is_dirty()?, "head-changes are also discovered");
         Ok(())
     }
 
     #[test]
-    fn untracked_files_are_excluded() -> Result {
+    fn untracked_files_are_excluded() -> TestResult {
         let repo = submodule_repo("module1")?;
         assert_eq!(
             repo.status(gix::progress::Discard)?
@@ -617,7 +617,7 @@ mod is_dirty {
     }
 
     #[test]
-    fn unborn_head_is_not_an_error() -> Result {
+    fn unborn_head_is_not_an_error() -> TestResult {
         let repo = repo("untracked-unborn")?;
 
         assert!(
@@ -628,7 +628,7 @@ mod is_dirty {
     }
 
     #[test]
-    fn added_files_in_unborn_head_are_dirty() -> Result {
+    fn added_files_in_unborn_head_are_dirty() -> TestResult {
         let repo = repo("added-unborn")?;
 
         assert!(
@@ -639,7 +639,7 @@ mod is_dirty {
     }
 
     #[test]
-    fn index_changed() -> Result {
+    fn index_changed() -> TestResult {
         let repo = repo("git-mv")?;
         assert!(
             repo.is_dirty()?,

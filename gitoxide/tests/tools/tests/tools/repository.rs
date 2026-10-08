@@ -5,7 +5,7 @@ mod snapshot {
     use gix_testtools::repository::{Head, WorktreeEntryKind};
 
     #[test]
-    fn captures_refs_commits_index_tree_and_exact_worktree() -> gix_testtools::Result {
+    fn captures_refs_commits_index_tree_and_exact_worktree() -> gix_testtools::TestResult {
         let fixture = gix_testtools::scripted_fixture_writable("make_repository_state.sh")?;
         let state = gix_testtools::repository::snapshot(fixture.path())?;
 
@@ -69,7 +69,7 @@ mod snapshot {
     }
 
     #[test]
-    fn local_config_paths_are_normalized_and_portable_values_are_stabilized() -> gix_testtools::Result {
+    fn local_config_paths_are_normalized_and_portable_values_are_stabilized() -> gix_testtools::TestResult {
         let fixture = gix_testtools::scripted_fixture_writable("make_repository_state.sh")?;
         let config_path = fixture.path().join(".git/config");
         let included_config = fixture.path().join(".git/included-config");
@@ -82,9 +82,10 @@ mod snapshot {
         std::fs::write(&included_config, b"[included]\n\tvalue = true\n")?;
         let mut config = std::fs::OpenOptions::new().append(true).open(&config_path)?;
         let outside_repository_for_config =
-            gix_path::to_unix_separators_on_windows(gix_path::into_bstr(&outside_repository));
-        let sibling_source_for_config = gix_path::to_unix_separators_on_windows(gix_path::into_bstr(&sibling_source));
-        let included_config_for_config = gix_path::to_unix_separators_on_windows(gix_path::into_bstr(&included_config));
+            gix_path::to_unix_separators_on_windows(gix_path::into_bstr(&outside_repository)?);
+        let sibling_source_for_config = gix_path::to_unix_separators_on_windows(gix_path::into_bstr(&sibling_source)?);
+        let included_config_for_config =
+            gix_path::to_unix_separators_on_windows(gix_path::into_bstr(&included_config)?);
         write!(
             config,
             "\n# retained comment\n[snapshot]\n\tstable = keep\n\
@@ -161,7 +162,7 @@ mod snapshot {
     }
 
     #[test]
-    fn portable_snapshots_alias_annotated_tags() -> gix_testtools::Result {
+    fn portable_snapshots_alias_annotated_tags() -> gix_testtools::TestResult {
         let fixture = gix_testtools::scripted_fixture_writable("make_repository_state.sh")?;
         gix_testtools::git(fixture.path(), "tag -a annotated -m annotated")?;
         let tag_id = gix_testtools::git(fixture.path(), "rev-parse refs/tags/annotated")?
@@ -191,7 +192,7 @@ mod snapshot {
     }
 
     #[test]
-    fn broken_references_are_ignored() -> gix_testtools::Result {
+    fn broken_references_are_ignored() -> gix_testtools::TestResult {
         let fixture = gix_testtools::scripted_fixture_writable("make_repository_state.sh")?;
         let refs_dir = fixture.path().join(".git/refs");
         std::fs::write(refs_dir.join("broken"), b"notahexsha\n")?;
@@ -211,7 +212,7 @@ mod snapshot {
     }
 
     #[test]
-    fn repository_variants_are_captured_portably() -> gix_testtools::Result {
+    fn repository_variants_are_captured_portably() -> gix_testtools::TestResult {
         // Sparse indexes were introduced in Git 2.34 and are one of the repository forms created by this fixture.
         let Some(fixture) = gix_testtools::scripted_fixture_writable_with_args_with_git_version(
             "make_repository_variants.sh",
@@ -426,7 +427,7 @@ mod snapshot {
     }
 
     #[test]
-    fn state_is_a_stable_visual_snapshot() -> gix_testtools::Result {
+    fn state_is_a_stable_visual_snapshot() -> gix_testtools::TestResult {
         let fixture = gix_testtools::scripted_fixture_writable("make_repository_state.sh")?;
         #[cfg(unix)]
         {

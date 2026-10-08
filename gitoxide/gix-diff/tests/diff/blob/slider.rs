@@ -9,7 +9,7 @@ use gix_object::bstr::ByteSlice;
 use pretty_assertions::StrComparison;
 
 #[test]
-fn baseline() -> gix_testtools::Result {
+fn baseline() -> gix_testtools::TestResult {
     let should_assert_strictly = std::env::var_os("GIX_DIFF_SLIDER_STRICT").is_some();
     if let Some(case) = try_single_case(should_assert_strictly)? {
         eprintln!("{}", selected_case_report(&case)?);
@@ -693,12 +693,12 @@ mod baseline {
 
 mod heuristics {
     //! We can consider to move some of these tests to the actual imara-diff test-suite as well.
-    use crate::Result;
     use gix_diff::blob::{self, diff_with_slider_heuristics};
     use gix_object::bstr::BStr;
+    use gix_testtools::TestResult;
 
     #[test]
-    fn basic_usage() -> Result {
+    fn basic_usage() -> TestResult {
         let before = r#"fn foo() {
         let x = 1;
         println!("x = {}", x);
@@ -726,7 +726,7 @@ mod heuristics {
     }
 
     #[test]
-    fn unified_diff_with_bstr_printer_usage() -> Result {
+    fn unified_diff_with_bstr_printer_usage() -> TestResult {
         let before: &BStr = r#"fn foo() {
         let x = 1;
         println!("x = {}", x);
@@ -757,7 +757,7 @@ mod heuristics {
 
     /// Test slider heuristics with indentation
     #[test]
-    fn slider_heuristics_with_indentation() -> Result {
+    fn slider_heuristics_with_indentation() -> TestResult {
         let before = r#"fn main() {
         if true {
             println!("hello");
@@ -786,7 +786,7 @@ mod heuristics {
 
     /// Test that Myers algorithm also works with slider heuristics
     #[test]
-    fn myers_with_slider_heuristics() -> Result {
+    fn myers_with_slider_heuristics() -> TestResult {
         let before = "a\nb\nc\n";
         let after = "a\nx\nc\n";
 
@@ -804,7 +804,7 @@ mod heuristics {
 
     /// Test empty diff
     #[test]
-    fn empty_diff_with_slider_heuristics() -> Result {
+    fn empty_diff_with_slider_heuristics() -> TestResult {
         let before = "unchanged\n";
         let after = "unchanged\n";
 
@@ -819,7 +819,7 @@ mod heuristics {
 
     /// Test complex multi-hunk diff with slider heuristics
     #[test]
-    fn multi_hunk_diff_with_slider_heuristics() -> Result {
+    fn multi_hunk_diff_with_slider_heuristics() -> TestResult {
         let before = r#"struct Foo {
         x: i32,
     }
@@ -859,7 +859,7 @@ mod heuristics {
 
     /// Test custom context size in the local unified diff printer.
     #[test]
-    fn custom_context_size() -> Result {
+    fn custom_context_size() -> TestResult {
         let before = "line1\nline2\nline3\nline4\nline5\nline6\nline7\n";
         let after = "line1\nline2\nline3\nMODIFIED\nline5\nline6\nline7\n";
 
@@ -897,7 +897,7 @@ mod heuristics {
 
     /// Test that hunks iterator works correctly
     #[test]
-    fn hunks_iterator() -> Result {
+    fn hunks_iterator() -> TestResult {
         let before = "a\nb\nc\nd\ne\n";
         let after = "a\nX\nc\nY\ne\n";
 
@@ -932,7 +932,7 @@ mod heuristics {
 
     /// Test postprocessing without heuristic
     #[test]
-    fn postprocess_no_heuristic() -> Result {
+    fn postprocess_no_heuristic() -> TestResult {
         let before = "a\nb\nc\n";
         let after = "a\nX\nc\n";
 
@@ -952,7 +952,7 @@ mod heuristics {
     }
 
     #[test]
-    fn indent_heuristic_available() -> Result {
+    fn indent_heuristic_available() -> TestResult {
         let before = "fn foo() {\n    x\n}\n";
         let after = "fn foo() {\n    y\n}\n";
 

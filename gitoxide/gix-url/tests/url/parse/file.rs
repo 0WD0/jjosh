@@ -4,7 +4,7 @@ use gix_url::Scheme;
 use crate::parse::{assert_url_roundtrip, url, url_alternate};
 
 #[test]
-fn file_path_with_protocol() -> gix_error::TestResult {
+fn file_path_with_protocol() -> gix_testtools::TestResult {
     Ok(assert_url_roundtrip(
         "file:///path/to/git",
         url(Scheme::File, None, None, None, b"/path/to/git"),
@@ -12,7 +12,7 @@ fn file_path_with_protocol() -> gix_error::TestResult {
 }
 
 #[test]
-fn file_to_root() -> gix_error::TestResult {
+fn file_to_root() -> gix_testtools::TestResult {
     Ok(assert_url_roundtrip(
         "file:///",
         url(Scheme::File, None, None, None, b"/"),
@@ -20,7 +20,7 @@ fn file_to_root() -> gix_error::TestResult {
 }
 
 #[test]
-fn file_path_without_protocol() -> gix_error::TestResult {
+fn file_path_without_protocol() -> gix_testtools::TestResult {
     Ok(assert_url_roundtrip(
         "/path/to/git",
         url_alternate(Scheme::File, None, None, None, b"/path/to/git"),
@@ -28,7 +28,7 @@ fn file_path_without_protocol() -> gix_error::TestResult {
 }
 
 #[test]
-fn file_path_with_whitespace() -> gix_error::TestResult {
+fn file_path_with_whitespace() -> gix_testtools::TestResult {
     Ok(assert_url_roundtrip(
         "/path/to/git with spaces ",
         url_alternate(Scheme::File, None, None, None, b"/path/to/git with spaces "),
@@ -36,7 +36,7 @@ fn file_path_with_whitespace() -> gix_error::TestResult {
 }
 
 #[test]
-fn no_username_expansion_for_file_paths_without_protocol() -> gix_error::TestResult {
+fn no_username_expansion_for_file_paths_without_protocol() -> gix_testtools::TestResult {
     Ok(assert_url_roundtrip(
         "~/path/to/git",
         url_alternate(Scheme::File, None, None, None, b"~/path/to/git"),
@@ -44,7 +44,7 @@ fn no_username_expansion_for_file_paths_without_protocol() -> gix_error::TestRes
 }
 
 #[test]
-fn no_username_expansion_for_file_paths_with_protocol() -> gix_error::TestResult {
+fn no_username_expansion_for_file_paths_with_protocol() -> gix_testtools::TestResult {
     assert_url_roundtrip(
         "file:///~username/path/to/git",
         url(Scheme::File, None, None, None, b"/~username/path/to/git"),
@@ -56,7 +56,7 @@ fn no_username_expansion_for_file_paths_with_protocol() -> gix_error::TestResult
 }
 
 #[test]
-fn non_utf8_file_path_without_protocol() -> gix_error::TestResult {
+fn non_utf8_file_path_without_protocol() -> gix_testtools::TestResult {
     let url = gix_url::parse(b"/path/to\xff/git".as_bstr())?;
     assert_eq!(url, url_alternate(Scheme::File, None, None, None, b"/path/to\xff/git"));
     let url_lossless = url.to_bstring();
@@ -70,7 +70,7 @@ fn non_utf8_file_path_without_protocol() -> gix_error::TestResult {
 }
 
 #[test]
-fn relative_file_path_without_protocol() -> gix_error::TestResult {
+fn relative_file_path_without_protocol() -> gix_testtools::TestResult {
     assert_url_roundtrip(
         "../../path/to/git",
         url_alternate(Scheme::File, None, None, None, b"../../path/to/git"),
@@ -82,7 +82,7 @@ fn relative_file_path_without_protocol() -> gix_error::TestResult {
 }
 
 #[test]
-fn shortest_possible_absolute_path() -> gix_error::TestResult {
+fn shortest_possible_absolute_path() -> gix_testtools::TestResult {
     assert_url_roundtrip("/", url_alternate(Scheme::File, None, None, None, b"/"))?;
     Ok(assert_url_roundtrip(
         "file:///",
@@ -91,7 +91,7 @@ fn shortest_possible_absolute_path() -> gix_error::TestResult {
 }
 
 #[test]
-fn shortest_possible_relative_path() -> gix_error::TestResult {
+fn shortest_possible_relative_path() -> gix_testtools::TestResult {
     assert_url_roundtrip("a", url_alternate(Scheme::File, None, None, None, b"a"))?;
     assert_url_roundtrip("../", url_alternate(Scheme::File, None, None, None, b"../"))?;
     assert_url_roundtrip(r"..\", url_alternate(Scheme::File, None, None, None, br"..\"))?;
@@ -102,7 +102,7 @@ fn shortest_possible_relative_path() -> gix_error::TestResult {
 }
 
 #[test]
-fn no_relative_paths_if_protocol() -> gix_error::TestResult {
+fn no_relative_paths_if_protocol() -> gix_testtools::TestResult {
     assert_url_roundtrip("file://../", url(Scheme::File, None, "..", None, b"/"))?;
     assert_url_roundtrip("file://./", url(Scheme::File, None, ".", None, b"/"))?;
     assert_url_roundtrip("file://a/", url(Scheme::File, None, "a", None, b"/"))?;
@@ -114,13 +114,13 @@ fn no_relative_paths_if_protocol() -> gix_error::TestResult {
         );
     } else {
         let err = gix_url::parse(r"file://.\").expect_err("the input must be rejected");
-        insta::assert_debug_snapshot!(err, "Unix requires a forward slash after the host", @r#"URL does not specify a path to a repository, "input"="file://.\\""#);
+        insta::assert_debug_snapshot!(err, "Unix requires a forward slash after the host", @r#"URL does not specify a path to a repository, input="file://.\\""#);
     }
     Ok(())
 }
 
 #[test]
-fn interior_relative_file_path_without_protocol() -> gix_error::TestResult {
+fn interior_relative_file_path_without_protocol() -> gix_testtools::TestResult {
     Ok(assert_url_roundtrip(
         "/abs/path/../../path/to/git",
         url_alternate(Scheme::File, None, None, None, b"/abs/path/../../path/to/git"),
@@ -128,7 +128,7 @@ fn interior_relative_file_path_without_protocol() -> gix_error::TestResult {
 }
 
 #[test]
-fn url_from_relative_path_with_colon_in_name() -> gix_error::TestResult {
+fn url_from_relative_path_with_colon_in_name() -> gix_testtools::TestResult {
     Ok(assert_url_roundtrip(
         "./weird/directory/na:me",
         url_alternate(Scheme::File, None, None, None, b"./weird/directory/na:me"),
@@ -142,7 +142,7 @@ mod windows {
     use crate::parse::{assert_url, assert_url_roundtrip, url, url_alternate};
 
     #[test]
-    fn reproduce_1063() -> gix_error::TestResult {
+    fn reproduce_1063() -> gix_testtools::TestResult {
         let input = r"C:\Users\RUNNER~1\AppData\Local\Temp\tmp.vIa4tyjv17";
         let url_input = r"file://C:\Users\RUNNER~1\AppData\Local\Temp\tmp.vIa4tyjv17";
         assert_url(url_input, url(Scheme::File, None, None, None, input.as_bytes()))?;
@@ -151,7 +151,7 @@ mod windows {
     }
 
     #[test]
-    fn url_from_absolute_path() -> gix_error::TestResult {
+    fn url_from_absolute_path() -> gix_testtools::TestResult {
         // Test with a Windows path directly instead of using url::Url::from_directory_path
         assert_url(
             r"C:\users\1\",
@@ -164,7 +164,7 @@ mod windows {
     }
 
     #[test]
-    fn file_path_without_protocol() -> gix_error::TestResult {
+    fn file_path_without_protocol() -> gix_testtools::TestResult {
         Ok(assert_url_roundtrip(
             "x:/path/to/git",
             url_alternate(Scheme::File, None, None, None, b"x:/path/to/git"),
@@ -172,7 +172,7 @@ mod windows {
     }
 
     #[test]
-    fn file_path_with_backslashes_without_protocol() -> gix_error::TestResult {
+    fn file_path_with_backslashes_without_protocol() -> gix_testtools::TestResult {
         Ok(assert_url_roundtrip(
             r"x:\path\to\git",
             url_alternate(Scheme::File, None, None, None, br"x:\path\to\git"),
@@ -180,7 +180,7 @@ mod windows {
     }
 
     #[test]
-    fn file_path_with_protocol() -> gix_error::TestResult {
+    fn file_path_with_protocol() -> gix_testtools::TestResult {
         Ok(assert_url_roundtrip(
             "file://x:/path/to/git",
             url(Scheme::File, None, None, None, b"x:/path/to/git"),
@@ -195,7 +195,7 @@ mod unix {
     use crate::parse::{assert_url_roundtrip, url, url_alternate};
 
     #[test]
-    fn url_from_absolute_path() -> gix_error::TestResult {
+    fn url_from_absolute_path() -> gix_testtools::TestResult {
         // Test with a simple file path instead of using url::Url::from_directory_path
         Ok(assert_url_roundtrip(
             "/users/foo/",
@@ -204,7 +204,7 @@ mod unix {
     }
 
     #[test]
-    fn file_path_without_protocol() -> gix_error::TestResult {
+    fn file_path_without_protocol() -> gix_testtools::TestResult {
         Ok(assert_url_roundtrip(
             "x:/path/to/git",
             url_alternate(Scheme::Ssh, None, "x", None, b"/path/to/git"),
@@ -212,7 +212,7 @@ mod unix {
     }
 
     #[test]
-    fn file_path_with_backslashes_without_protocol() -> gix_error::TestResult {
+    fn file_path_with_backslashes_without_protocol() -> gix_testtools::TestResult {
         Ok(assert_url_roundtrip(
             r"x:\path\to\git",
             url_alternate(Scheme::Ssh, None, "x", None, br"\path\to\git"),
@@ -220,7 +220,7 @@ mod unix {
     }
 
     #[test]
-    fn file_path_with_protocol() -> gix_error::TestResult {
+    fn file_path_with_protocol() -> gix_testtools::TestResult {
         Ok(assert_url_roundtrip(
             "file://x:/path/to/git",
             url(Scheme::File, None, "x:", None, b"/path/to/git"),
@@ -228,7 +228,7 @@ mod unix {
     }
 
     #[test]
-    fn file_url_with_ipv6_and_user() -> gix_error::TestResult {
+    fn file_url_with_ipv6_and_user() -> gix_testtools::TestResult {
         Ok(assert_url_roundtrip(
             "file://User@[::1]/repo",
             gix_url::Url::from_parts(
@@ -244,7 +244,7 @@ mod unix {
     }
 
     #[test]
-    fn file_url_with_ipv6() -> gix_error::TestResult {
+    fn file_url_with_ipv6() -> gix_testtools::TestResult {
         Ok(assert_url_roundtrip(
             "file://[::1]/repo",
             url(Scheme::File, None, "[::1]", None, b"/repo"),

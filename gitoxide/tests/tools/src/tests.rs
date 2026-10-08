@@ -1,17 +1,19 @@
 use super::*;
 
 #[test]
-fn parse_version() {
-    assert_eq!(git_version_from_bytes(b"git version 2.37.2").unwrap(), (2, 37, 2));
+fn parse_version() -> TestResult {
+    assert_eq!(git_version_from_bytes(b"git version 2.37.2")?, (2, 37, 2));
     assert_eq!(
-        git_version_from_bytes(b"git version 2.32.1 (Apple Git-133)").unwrap(),
+        git_version_from_bytes(b"git version 2.32.1 (Apple Git-133)")?,
         (2, 32, 1)
     );
+    Ok(())
 }
 
 #[test]
-fn parse_version_with_trailing_newline() {
-    assert_eq!(git_version_from_bytes(b"git version 2.37.2\n").unwrap(), (2, 37, 2));
+fn parse_version_with_trailing_newline() -> TestResult {
+    assert_eq!(git_version_from_bytes(b"git version 2.37.2\n")?, (2, 37, 2));
+    Ok(())
 }
 
 const SCOPE_ENV_VALUE: &str = "gitconfig";
@@ -37,8 +39,8 @@ fn populate_ad_hoc_config_files(dir: &Path) {
 }
 
 #[test]
-fn configure_command_clears_external_config() {
-    let temp = tempfile::TempDir::new().expect("can create temp dir");
+fn configure_command_clears_external_config() -> TestResult {
+    let temp = tempfile::TempDir::new()?;
     populate_ad_hoc_config_files(temp.path());
 
     for (count, parameters) in [
@@ -60,11 +62,10 @@ fn configure_command_clears_external_config() {
             temp.path(),
         );
 
-        let output = cmd.output().expect("can run git");
+        let output = cmd.output()?;
         let lines: Vec<_> = output
             .stdout
-            .to_str()
-            .expect("valid UTF-8")
+            .to_str()?
             .lines()
             .filter(|line| !line.starts_with("command line:\t"))
             .collect();
@@ -76,10 +77,11 @@ fn configure_command_clears_external_config() {
             "inherited command-scope configuration must also be discarded"
         );
     }
+    Ok(())
 }
 
 #[test]
-fn configure_command_keeps_destructive_git_operations_in_the_fixture() -> Result {
+fn configure_command_keeps_destructive_git_operations_in_the_fixture() -> TestResult {
     let fixture = tempfile::TempDir::new()?;
     let outside = tempfile::TempDir::new()?;
     for dir in [fixture.path(), outside.path()] {
@@ -119,7 +121,7 @@ fn configure_command_keeps_destructive_git_operations_in_the_fixture() -> Result
 }
 
 #[test]
-fn isolated_process_runs_the_test_with_fixture_defaults() -> Result {
+fn isolated_process_runs_the_test_with_fixture_defaults() -> TestResult {
     // Exercise sanitization in the child process itself, rather than changing this test runner's environment.
     if run_in_isolated_process()? {
         return Ok(());
@@ -134,7 +136,7 @@ fn isolated_process_runs_the_test_with_fixture_defaults() -> Result {
 }
 
 #[test]
-fn isolated_process_waits_for_serial_environment_changes() -> Result {
+fn isolated_process_waits_for_serial_environment_changes() -> TestResult {
     #[serial_test::serial]
     fn launch_while_locked() -> Result<std::thread::JoinHandle<Result<bool>>> {
         let name = "tests::isolated_process_runs_the_test_with_fixture_defaults";
@@ -163,7 +165,7 @@ fn isolated_process_waits_for_serial_environment_changes() -> Result {
 }
 
 #[test]
-fn configure_command_clears_external_git_templates() -> Result {
+fn configure_command_clears_external_git_templates() -> TestResult {
     let temp = tempfile::TempDir::new()?;
     let template = temp.path().join("template");
     std::fs::create_dir(&template)?;
@@ -182,8 +184,8 @@ fn configure_command_clears_external_git_templates() -> Result {
 }
 
 #[test]
-fn an_absolute_selected_git_is_preferred_in_path() {
-    let temp = tempfile::TempDir::new().expect("can create temp dir");
+fn an_absolute_selected_git_is_preferred_in_path() -> TestResult {
+    let temp = tempfile::TempDir::new()?;
     let git = temp.path().join("bin").join("git");
     let mut command = std::process::Command::new("fixture-script");
 
@@ -199,6 +201,7 @@ fn an_absolute_selected_git_is_preferred_in_path() {
         git.parent(),
         "the selected Git executable's directory is searched first"
     );
+    Ok(())
 }
 
 #[test]
@@ -216,7 +219,7 @@ fn a_path_resolved_selected_git_does_not_override_path() {
 }
 
 #[test]
-fn configure_command_overrides_xdg_config_home() -> gix_error::TestResult {
+fn configure_command_overrides_xdg_config_home() -> TestResult {
     let current_dir = env::current_dir()?;
     let temp = tempfile::tempdir_in(&current_dir)?;
     let config_dir = temp.path().join(".gix-testtools-xdg-config/git");
@@ -249,14 +252,11 @@ fn configure_command_overrides_xdg_config_home() -> gix_error::TestResult {
 
 #[test]
 #[cfg(windows)]
-fn bash_program_ok_for_platform() {
+fn bash_program_ok_for_platform() -> TestResult {
     let path = bash_program();
     assert!(path.is_absolute());
 
-    let for_version = std::process::Command::new(path)
-        .arg("--version")
-        .output()
-        .expect("can pass it `--version`");
+    let for_version = std::process::Command::new(path).arg("--version").output()?;
     assert!(for_version.status.success(), "passing `--version` succeeds");
     for_version
         .stdout
@@ -264,16 +264,14 @@ fn bash_program_ok_for_platform() {
         .nth(0)
         .expect("`--version` output has first line");
 
-    let for_uname_os = std::process::Command::new(path)
-        .args(["-c", "uname -o"])
-        .output()
-        .expect("can tell it to run `uname -o`");
+    let for_uname_os = std::process::Command::new(path).args(["-c", "uname -o"]).output()?;
     assert!(for_uname_os.status.success(), "telling it to run `uname -o` succeeds");
     assert_eq!(
         for_uname_os.stdout.trim_end(),
         b"Msys",
         "it runs commands in an MSYS environment"
     );
+    Ok(())
 }
 
 #[test]
@@ -311,32 +309,31 @@ fn bash_program_absolute_or_unrooted() {
 }
 
 #[test]
-fn invoke_bash_runs_in_given_working_directory() {
-    let dir = tempfile::TempDir::new().expect("can create temp dir");
+fn invoke_bash_runs_in_given_working_directory() -> TestResult {
+    let dir = tempfile::TempDir::new()?;
     invoke_bash(dir.path(), "printf '%s' hello > out");
-    assert_eq!(
-        std::fs::read(dir.path().join("out")).expect("script wrote output"),
-        b"hello"
-    );
+    assert_eq!(std::fs::read(dir.path().join("out"))?, b"hello");
+    Ok(())
 }
 
 #[test]
-fn invoke_bash_disables_auto_maintenance_for_git_commands() {
-    let dir = tempfile::TempDir::new().expect("can create temp dir");
+fn invoke_bash_disables_auto_maintenance_for_git_commands() -> TestResult {
+    let dir = tempfile::TempDir::new()?;
     invoke_bash(
         dir.path(),
         "git config --get maintenance.auto > out && git config --get gc.auto >> out",
     );
     assert_eq!(
-        std::fs::read_to_string(dir.path().join("out")).expect("script wrote output"),
+        std::fs::read_to_string(dir.path().join("out"))?,
         "false\n0\n",
         "Git commands run from the shell should not run automatic maintenance"
     );
+    Ok(())
 }
 
 #[test]
-fn run_git_disables_auto_maintenance() -> Result {
-    let dir = tempfile::TempDir::new().expect("can create temp dir");
+fn run_git_disables_auto_maintenance() -> TestResult {
+    let dir = tempfile::TempDir::new()?;
     let status = run_git(dir.path(), &["config", "--get", "maintenance.auto"])?;
     assert!(status.success(), "command-scope maintenance.auto should be visible");
     let status = run_git(dir.path(), &["config", "--get", "gc.auto"])?;
@@ -345,8 +342,8 @@ fn run_git_disables_auto_maintenance() -> Result {
 }
 
 #[test]
-fn git_helper_disables_auto_maintenance() -> Result {
-    let dir = tempfile::TempDir::new().expect("can create temp dir");
+fn git_helper_disables_auto_maintenance() -> TestResult {
+    let dir = tempfile::TempDir::new()?;
     assert_eq!(
         git(dir.path(), "config --get maintenance.auto")?,
         "false\n",
@@ -361,27 +358,26 @@ fn git_helper_disables_auto_maintenance() -> Result {
 }
 
 #[test]
-fn split_git_arguments_handles_multiline_whitespace() {
+fn split_git_arguments_handles_multiline_whitespace() -> TestResult {
     assert_eq!(
         split_git_arguments(
             "log
              --graph
              --oneline",
-        )
-        .expect("valid arguments"),
+        )?,
         ["log", "--graph", "--oneline"]
     );
+    Ok(())
 }
 
 #[test]
-fn split_git_arguments_handles_quoted_arguments() {
+fn split_git_arguments_handles_quoted_arguments() -> TestResult {
     assert_eq!(
         split_git_arguments(
             "commit
              -m 'subject with spaces'
              --author=\"A U Thor <author@example.com>\"",
-        )
-        .expect("valid arguments"),
+        )?,
         [
             "commit",
             "-m",
@@ -389,34 +385,32 @@ fn split_git_arguments_handles_quoted_arguments() {
             "--author=A U Thor <author@example.com>"
         ]
     );
+    Ok(())
 }
 
 #[test]
-fn split_git_arguments_handles_empty_quoted_arguments() {
-    assert_eq!(
-        split_git_arguments("diff -- pathspec:''").expect("valid arguments"),
-        ["diff", "--", "pathspec:"]
-    );
-    assert_eq!(
-        split_git_arguments("diff -- ''").expect("valid arguments"),
-        ["diff", "--", ""]
-    );
+fn split_git_arguments_handles_empty_quoted_arguments() -> TestResult {
+    assert_eq!(split_git_arguments("diff -- pathspec:''")?, ["diff", "--", "pathspec:"]);
+    assert_eq!(split_git_arguments("diff -- ''")?, ["diff", "--", ""]);
+    Ok(())
 }
 
 #[test]
-fn split_git_arguments_handles_escaped_whitespace() {
+fn split_git_arguments_handles_escaped_whitespace() -> TestResult {
     assert_eq!(
-        split_git_arguments(r"add path\ with\ spaces").expect("valid arguments"),
+        split_git_arguments(r"add path\ with\ spaces")?,
         ["add", "path with spaces"]
     );
+    Ok(())
 }
 
 #[test]
-fn split_git_arguments_concatenates_quoted_and_unquoted_parts() {
+fn split_git_arguments_concatenates_quoted_and_unquoted_parts() -> TestResult {
     assert_eq!(
-        split_git_arguments(r#"commit -m prefix" quoted "suffix"#).expect("valid arguments"),
+        split_git_arguments(r#"commit -m prefix" quoted "suffix"#)?,
         ["commit", "-m", "prefix quoted suffix"]
     );
+    Ok(())
 }
 
 #[test]
@@ -427,9 +421,9 @@ fn split_git_arguments_rejects_unterminated_quotes() {
 
 #[test]
 #[cfg(feature = "sha1")]
-fn normalize_debug_snapshot_returns_replaced_ids_by_placeholder_index() {
-    let first = gix_hash::ObjectId::from_hex(b"e69de29bb2d1d6434b8b29ae775ad8c2e48c5391").expect("valid SHA1");
-    let second = gix_hash::ObjectId::from_hex(b"496d6428b9cf92981dc9495211e6e1120fb6f2ba").expect("valid SHA1");
+fn normalize_debug_snapshot_returns_replaced_ids_by_placeholder_index() -> TestResult {
+    let first = gix_hash::ObjectId::from_hex(b"e69de29bb2d1d6434b8b29ae775ad8c2e48c5391")?;
+    let second = gix_hash::ObjectId::from_hex(b"496d6428b9cf92981dc9495211e6e1120fb6f2ba")?;
     let (snapshot, ids) = normalize_debug_snapshot(&vec![first, first, second, first]);
 
     assert_eq!(ids, vec![first, second]);
@@ -442,14 +436,14 @@ fn normalize_debug_snapshot_returns_replaced_ids_by_placeholder_index() {
     Oid(1),
 ]"#
     );
+    Ok(())
 }
 
 #[test]
 #[cfg(all(feature = "sha1", feature = "sha256"))]
-fn normalize_hashes_replaces_raw_object_ids() {
-    let sha1 = gix_hash::ObjectId::from_hex(b"e69de29bb2d1d6434b8b29ae775ad8c2e48c5391").expect("valid SHA1");
-    let sha256 = gix_hash::ObjectId::from_hex(b"473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813")
-        .expect("valid SHA256");
+fn normalize_hashes_replaces_raw_object_ids() -> TestResult {
+    let sha1 = gix_hash::ObjectId::from_hex(b"e69de29bb2d1d6434b8b29ae775ad8c2e48c5391")?;
+    let sha256 = gix_hash::ObjectId::from_hex(b"473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813")?;
 
     let (snapshot, ids) = normalize_hashes(
         "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 \
@@ -459,6 +453,7 @@ fn normalize_hashes_replaces_raw_object_ids() {
 
     assert_eq!(ids, vec![sha1, sha256]);
     assert_eq!(snapshot, "Oid(1) Oid(2) Oid(1)");
+    Ok(())
 }
 
 #[test]
@@ -593,8 +588,8 @@ fn write_test_archive(source: &Path, archive: &Path, identity: u32) {
 }
 
 #[test]
-fn required_archives_never_fall_back_to_fixture_generation() {
-    let temp = tempfile::TempDir::new().expect("temporary directory can be created");
+fn required_archives_never_fall_back_to_fixture_generation() -> TestResult {
+    let temp = tempfile::TempDir::new()?;
     let archive = temp.path().join("missing.tar");
     let destination = temp.path().join("fixture");
     let mut generator_was_called = false;
@@ -611,8 +606,7 @@ fn required_archives_never_fall_back_to_fixture_generation() {
             generator_was_called = true;
             Ok(())
         },
-    )
-    .expect("a missing required archive is not an error");
+    )?;
 
     assert!(result.is_none(), "the unavailable fixture is reported to the caller");
     assert!(
@@ -623,15 +617,16 @@ fn required_archives_never_fall_back_to_fixture_generation() {
         !destination.exists(),
         "an unavailable archive leaves no reusable cache directory"
     );
+    Ok(())
 }
 
 #[test]
 #[serial_test::serial]
-fn required_archives_are_extracted_even_when_archives_are_ignored() {
-    let temp = tempfile::TempDir::new().expect("temporary directory can be created");
+fn required_archives_are_extracted_even_when_archives_are_ignored() -> TestResult {
+    let temp = tempfile::TempDir::new()?;
     let source = temp.path().join("source");
-    std::fs::create_dir(&source).expect("source directory can be created");
-    std::fs::write(source.join("payload"), "from archive").expect("payload can be written");
+    std::fs::create_dir(&source)?;
+    std::fs::write(source.join("payload"), "from archive")?;
     let archive = temp.path().join(tar_extension());
     write_test_archive(&source, &archive, 42);
     let destination = temp.path().join("fixture");
@@ -649,10 +644,10 @@ fn required_archives_are_extracted_even_when_archives_are_ignored() {
             assert!(matches!(state, FixtureState::Fresh(_)), "the generator is not invoked");
             std::fs::read_to_string(state.path().join("payload")).map_err(Into::into)
         },
-    )
-    .expect("the required archive can be extracted");
+    )?;
 
     assert_eq!(result.as_deref(), Some("from archive"));
+    Ok(())
 }
 
 /// Verify that forced execution with normal archive policy honors the explicit destination instead of extracting a
@@ -660,14 +655,14 @@ fn required_archives_are_extracted_even_when_archives_are_ignored() {
 /// absolute paths: extracting an archive into a new location would leave those paths pointing at the archived
 /// location. In-place execution must also leave the canonical archive unchanged.
 #[test]
-fn forced_normal_fixtures_execute_in_place_instead_of_extracting_archives() {
-    let temp = tempfile::TempDir::new().expect("temporary directory can be created");
+fn forced_normal_fixtures_execute_in_place_instead_of_extracting_archives() -> TestResult {
+    let temp = tempfile::TempDir::new()?;
     let source = temp.path().join("source");
-    std::fs::create_dir(&source).expect("source directory can be created");
-    std::fs::write(source.join("payload"), "from archive").expect("archive payload can be written");
+    std::fs::create_dir(&source)?;
+    std::fs::write(source.join("payload"), "from archive")?;
     let archive = temp.path().join(tar_extension());
     write_test_archive(&source, &archive, 42);
-    let archived_contents = std::fs::read(&archive).expect("archive can be read");
+    let archived_contents = std::fs::read(&archive)?;
     let destination = temp.path().join("fixture");
 
     let result = run_fixture_generator_with_marker_handling(
@@ -690,31 +685,31 @@ fn forced_normal_fixtures_execute_in_place_instead_of_extracting_archives() {
             std::fs::write(state.path().join("payload"), "from script")?;
             std::fs::read_to_string(state.path().join("payload")).map_err(Into::into)
         },
-    )
-    .expect("the fixture can be generated in place");
+    )?;
 
     assert_eq!(result.as_deref(), Some("from script"));
     assert_eq!(
-        std::fs::read(&archive).expect("archive can still be read"),
+        std::fs::read(&archive)?,
         archived_contents,
         "executing in a writable location does not replace the canonical archive"
     );
+    Ok(())
 }
 
 #[test]
 #[serial_test::serial]
-fn version_incompatible_writable_fixtures_use_required_archives_in_both_creation_modes() -> Result {
+fn version_incompatible_writable_fixtures_use_required_archives_in_both_creation_modes() -> TestResult {
     let _environment = isolate_git_environment()?;
-    let temp = tempfile::TempDir::new().expect("temporary directory can be created");
+    let temp = tempfile::TempDir::new()?;
     let fixture_base = temp.path().join("tests/fixtures");
     let archive_dir = fixture_base.join(ARCHIVE_DIR_NAME);
-    std::fs::create_dir_all(&archive_dir).expect("fixture directories can be created");
+    std::fs::create_dir_all(&archive_dir)?;
     let script = b"#!/bin/sh\nprintf from-script >payload\n";
-    std::fs::write(fixture_base.join("make_required.sh"), script).expect("fixture script can be written");
+    std::fs::write(fixture_base.join("make_required.sh"), script)?;
 
     let source = temp.path().join("archive-source");
-    std::fs::create_dir(&source).expect("archive source can be created");
-    std::fs::write(source.join("payload"), "from archive").expect("archive payload can be written");
+    std::fs::create_dir(&source)?;
+    std::fs::write(source.join("payload"), "from archive")?;
     let crc = crc::Crc::<u32>::new(&crc::CRC_32_CKSUM);
     let mut digest = crc.digest();
     digest.update(script);
@@ -730,16 +725,15 @@ fn version_incompatible_writable_fixtures_use_required_archives_in_both_creation
         digest.finalize(),
     );
 
-    let _cwd = set_current_dir(temp.path()).expect("temporary fixture root is accessible");
+    let _cwd = set_current_dir(temp.path())?;
     let _environment = _environment.set("GIX_TEST_IGNORE_ARCHIVES", "1");
 
     for mode in [Creation::CopyFromReadOnly, Creation::Execute] {
         let fixture =
-            scripted_fixture_writable_with_args_with_git_version("make_required.sh", None::<String>, mode, |_| false)
-                .expect("required archive can be loaded")
+            scripted_fixture_writable_with_args_with_git_version("make_required.sh", None::<String>, mode, |_| false)?
                 .expect("matching required archive is available");
         assert_eq!(
-            std::fs::read_to_string(fixture.path().join("payload")).expect("archived payload can be read"),
+            std::fs::read_to_string(fixture.path().join("payload"))?,
             "from archive",
             "the fixture comes from the archive instead of the incompatible script"
         );
@@ -755,10 +749,10 @@ fn hash_kinds_are_classified_independently_of_gix_testtools_features() {
 }
 
 #[test]
-fn stale_required_archives_are_unavailable_instead_of_generated() {
-    let temp = tempfile::TempDir::new().expect("temporary directory can be created");
+fn stale_required_archives_are_unavailable_instead_of_generated() -> TestResult {
+    let temp = tempfile::TempDir::new()?;
     let source = temp.path().join("source");
-    std::fs::create_dir(&source).expect("source directory can be created");
+    std::fs::create_dir(&source)?;
     let archive = temp.path().join(tar_extension());
     write_test_archive(&source, &archive, 41);
     let destination = temp.path().join("fixture");
@@ -776,14 +770,14 @@ fn stale_required_archives_are_unavailable_instead_of_generated() {
             generator_was_called = true;
             Ok(())
         },
-    )
-    .expect("a stale required archive is not an error");
+    )?;
 
     assert!(result.is_none(), "the stale fixture is reported to the caller");
     assert!(
         !generator_was_called,
         "a stale archive must not fall back to generation"
     );
+    Ok(())
 }
 
 #[test]

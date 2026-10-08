@@ -5,7 +5,7 @@ use crate::{Repository, Result, config, config::cache::util::ApplyLeniencyDefaul
 /// A structure to hold options configuring the status request, which can then be turned into an iterator.
 pub struct Platform<'repo, Progress>
 where
-    Progress: gix_features::progress::Progress + 'static,
+    Progress: gix_utils::progress::Progress + 'static,
 {
     repo: &'repo Repository,
     progress: Progress,
@@ -88,7 +88,7 @@ impl Repository {
     /// ultimately is much faster.
     pub fn status<P>(&self, progress: P) -> Result<Platform<'_, P>>
     where
-        P: gix_features::progress::Progress + 'static,
+        P: gix_utils::progress::Progress + 'static,
     {
         let platform = Platform {
             repo: self,
@@ -168,7 +168,7 @@ pub mod is_dirty {
                 }
             }
             let is_dirty = self
-                .status(gix_features::progress::Discard)?
+                .status(gix_utils::progress::Discard)?
                 .index_worktree_rewrites(None)
                 .index_worktree_submodules(crate::status::Submodule::AsConfigured { check_dirty: true })
                 .index_worktree_options_mut(|opts| {

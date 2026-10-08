@@ -89,6 +89,7 @@ pub fn entries(multi_index_path: PathBuf, format: OutputFormat, mut out: impl st
     }
     let file = gix::odb::pack::multi_index::File::at(multi_index_path, None)?;
     for entry in file.iter() {
+        let entry = entry?;
         writeln!(out, "{} {} {}", entry.oid, entry.pack_index, entry.pack_offset).or_error()?;
     }
     Ok(())

@@ -70,7 +70,7 @@ impl packed::Buffer {
             .or_raise(|| message("The ref name or path is not a valid ref name"))?;
         self.try_find::<_, std::convert::Infallible>(name)?
             .ok_or_raise(|| crate::file::find::NotFound {
-                name: name.to_partial_path().to_owned(),
+                name: name.as_bstr().to_owned(),
             })
     }
 

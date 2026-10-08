@@ -21,10 +21,12 @@ sha1 = ["gix-hash/sha1"]
 sha256 = ["gix-hash/sha256"]
 
 [dependencies]
-gix-features = { version = "^0.50.0", path = "../gix-features", features = ["progress", "io-pipe", "parallel"] }
+gix-trace = { version = "^0.2.0", path = "../gix-trace" }
+gix-utils = { version = "^0.4.0", path = "../gix-utils", features = ["io-pipe"] }
 gix-hash = { version = "^0.27.0", path = "../gix-hash" }
 gix-object = { version = "^0.65.0", path = "../gix-object" }
-gix-attributes = { version = "^0.36.0", path = "../gix-attributes", features = ["parallel"] }
+gix-attributes = { version = "^0.36.0", path = "../gix-attributes" }
+gix-parallel = { version = "^0.50.0", path = "../gix-parallel", features = ["parallel"] }
 gix-filter = { version = "^0.35.0", path = "../gix-filter" }
 gix-traverse = { version = "^0.62.0", path = "../gix-traverse" }
 gix-fs = { version = "^0.23.0", path = "../gix-fs" }
@@ -43,3 +45,7 @@ gix-worktree = { path = "../gix-worktree", default-features = false, features = 
 
 [package.metadata.docs.rs]
 features = ["sha1"]
+
+[package.metadata.cargo-machete]
+# Enables thread-safe attribute and filter types passed to the stream's worker thread.
+ignored = ["gix-parallel"]

@@ -1,4 +1,3 @@
-use crate::Result;
 use gix_object::{
     Tree,
     tree::{Entry, EntryKind},
@@ -13,7 +12,7 @@ fn null_id() -> gix_hash::ObjectId {
 }
 
 #[test]
-fn from_empty_cursor() -> Result {
+fn from_empty_cursor() -> gix_testtools::TestResult {
     let (storage, mut write, num_writes_and_clear) = new_inmemory_writes();
     let odb = StorageOdb::new(storage.clone());
     let mut edit = gix_object::tree::Editor::new(Tree::default(), &odb, hash_kind());
@@ -142,7 +141,7 @@ fn from_empty_cursor() -> Result {
     Ok(())
 }
 #[test]
-fn from_existing_cursor() -> Result {
+fn from_existing_cursor() -> gix_testtools::TestResult {
     let (storage, mut write, num_writes_and_clear) = new_inmemory_writes();
     let odb = StorageOdb::new_with_odb(storage.clone(), tree_odb()?);
     let root_tree_id = crate::generated_tree_root_id()?;
@@ -223,7 +222,7 @@ fn from_existing_cursor() -> Result {
     Ok(())
 }
 #[test]
-fn from_empty_removal() -> Result {
+fn from_empty_removal() -> gix_testtools::TestResult {
     let (storage, mut write, num_writes_and_clear) = new_inmemory_writes();
     let odb = StorageOdb::new(storage.clone());
     let mut edit = gix_object::tree::Editor::new(Tree::default(), &odb, hash_kind());
@@ -309,7 +308,7 @@ fn from_empty_removal() -> Result {
 }
 
 #[test]
-fn from_empty_remove_accepts_empty_segments_after_unreachable_paths() -> Result {
+fn from_empty_remove_accepts_empty_segments_after_unreachable_paths() -> gix_testtools::TestResult {
     let (storage, mut write, _num_writes_and_clear) = new_inmemory_writes();
     let odb = StorageOdb::new(storage.clone());
     let mut edit = gix_object::tree::Editor::new(Tree::default(), &odb, hash_kind());
@@ -336,7 +335,7 @@ fn from_empty_remove_accepts_empty_segments_after_unreachable_paths() -> Result 
 }
 
 #[test]
-fn remove_if_leaf_preserves_trees_and_removes_files() -> Result {
+fn remove_if_leaf_preserves_trees_and_removes_files() -> gix_testtools::TestResult {
     let (storage, mut write, _num_writes_and_clear) = new_inmemory_writes();
     let odb = StorageOdb::new(storage.clone());
     let mut edit = gix_object::tree::Editor::new(Tree::default(), &odb, hash_kind());
@@ -382,7 +381,7 @@ fn remove_if_leaf_preserves_trees_and_removes_files() -> Result {
 }
 
 #[test]
-fn from_empty_remove_leaf_rejects_tree_entries() -> Result {
+fn from_empty_remove_leaf_rejects_tree_entries() -> gix_testtools::TestResult {
     let (storage, mut write, _num_writes_and_clear) = new_inmemory_writes();
     let odb = StorageOdb::new(storage.clone());
     let mut edit = gix_object::tree::Editor::new(Tree::default(), &odb, hash_kind());
@@ -434,7 +433,7 @@ fn from_empty_remove_leaf_rejects_tree_entries() -> Result {
 }
 
 #[test]
-fn from_existing_remove() -> Result {
+fn from_existing_remove() -> gix_testtools::TestResult {
     let (storage, mut write, num_writes_and_clear) = new_inmemory_writes();
     let odb = StorageOdb::new_with_odb(storage.clone(), tree_odb()?);
     let root_tree_id = crate::generated_tree_root_id()?;
@@ -498,15 +497,14 @@ fn from_existing_remove() -> Result {
     Ok(())
 }
 #[test]
-fn from_empty_invalid_write() -> Result {
+fn from_empty_invalid_write() -> gix_testtools::TestResult {
     let (storage, mut write, _num_writes_and_clear) = new_inmemory_writes();
     let odb = StorageOdb::new(storage.clone());
     let mut edit = gix_object::tree::Editor::new(Tree::default(), &odb, hash_kind());
 
     let actual = edit
         .upsert(["a", "\n"], EntryKind::Blob, any_blob())?
-        .write(&mut write)
-        .expect("no validation is performed");
+        .write(&mut write)?;
     insta::assert_snapshot!(crate::normalize_tree_snapshot(&display_tree(actual, &storage)), @r#"
         Oid(1)
         └── a
@@ -524,7 +522,7 @@ fn from_empty_invalid_write() -> Result {
         error: Message {
             message: "Nullbytes are invalid in file paths as they are separators",
             class: Validation,
-            values: {"input": Bytes("with\0null")},
+            values: {input: Bytes("with\0null")},
         },
     }
     "#);
@@ -552,12 +550,12 @@ fn from_empty_invalid_write() -> Result {
     Ok(())
 }
 #[test]
-fn from_empty_add() -> Result {
+fn from_empty_add() -> gix_testtools::TestResult {
     let (storage, mut write, num_writes_and_clear) = new_inmemory_writes();
     let odb = StorageOdb::new(storage.clone());
     let mut edit = gix_object::tree::Editor::new(Tree::default(), &odb, hash_kind());
 
-    let actual = edit.write(&mut write).expect("no changes are fine");
+    let actual = edit.write(&mut write)?;
     assert_eq!(actual, empty_tree(), "empty stays empty");
     assert_eq!(num_writes_and_clear(), 1, "the empty tree was written");
     insta::assert_snapshot!(crate::normalize_tree_snapshot(&display_tree(actual, &storage)), @"Oid(1)");
@@ -568,10 +566,7 @@ fn from_empty_add() -> Result {
         "the 'root' can't be obtained, no entry exists for it, ever"
     );
 
-    let actual = edit
-        .upsert(Some("hi"), EntryKind::Blob, null_id())?
-        .write(&mut write)
-        .expect("effectively no changes are fine");
+    let actual = edit.upsert(Some("hi"), EntryKind::Blob, null_id())?.write(&mut write)?;
     assert_eq!(
         actual,
         empty_tree(),
@@ -583,8 +578,7 @@ fn from_empty_add() -> Result {
     let actual = edit
         .upsert(["a", "b", "c"], EntryKind::Blob, null_id())?
         .upsert(["a", "b", "d", "e"], EntryKind::Blob, null_id())?
-        .write(&mut write)
-        .expect("effectively no changes are fine");
+        .write(&mut write)?;
     assert_eq!(
         actual,
         empty_tree(),
@@ -619,7 +613,7 @@ fn from_empty_add() -> Result {
         }),
     );
 
-    let actual = edit.write(&mut write).expect("it's OK to write empty trees");
+    let actual = edit.write(&mut write)?;
     insta::assert_snapshot!(
         crate::normalize_tree_snapshot(&display_tree(actual, &storage)),
         "one can write through trees, and empty trees are also fine",
@@ -639,8 +633,7 @@ fn from_empty_add() -> Result {
         gix_hash::Kind::Sha1 => &b"850bf83c26003cb0541318718bc9217c4a5bde6d"[..],
         gix_hash::Kind::Sha256 => &b"76be2e1aa5ce87f85b81d707c3a5f91c37d09fd064e28e13442b657d419e15f4"[..],
         _ => unreachable!("tests only support sha1 and sha256 fixtures"),
-    })
-    .expect("valid object id");
+    })?;
     assert_eq!(
         edit.get(Some("a")),
         Some(&Entry {
@@ -656,8 +649,7 @@ fn from_empty_add() -> Result {
         .upsert(["a", "b"], EntryKind::Blob, any_blob())?
         .upsert(["a", "b", "c"], EntryKind::BlobExecutable, any_blob())?
         .upsert(["x", "z"], EntryKind::Blob, any_blob())?
-        .write(&mut write)
-        .expect("writing made-up blobs is fine");
+        .write(&mut write)?;
     insta::assert_snapshot!(
         crate::normalize_tree_snapshot(&display_tree(actual, &storage)),
         "it's possible to write through previously added blobs",
@@ -700,8 +692,7 @@ fn from_empty_add() -> Result {
     let actual = edit
         .upsert(["a", "b", "c"], EntryKind::Blob, any_blob())?
         .upsert(["a"], EntryKind::Blob, any_blob())?
-        .write(&mut write)
-        .expect("we can turn overwrite a newly added tree (at 'a/') with a blob");
+        .write(&mut write)?;
     insta::assert_snapshot!(
         crate::normalize_tree_snapshot(&display_tree(actual, &storage)),
         "now a tree was once again changed into a blob",
@@ -755,7 +746,7 @@ fn from_empty_add() -> Result {
     Ok(())
 }
 #[test]
-fn from_existing_add() -> Result {
+fn from_existing_add() -> gix_testtools::TestResult {
     let (storage, mut write, num_writes_and_clear) = new_inmemory_writes();
     let odb = StorageOdb::new_with_odb(storage.clone(), tree_odb()?);
     let root_tree_id = crate::generated_tree_root_id()?;
@@ -764,7 +755,7 @@ fn from_existing_add() -> Result {
     let mut edit = gix_object::tree::Editor::new(root_tree.clone(), &odb, hash_kind());
     assert!(edit.get(["bin"]).is_some(), "the root is immediately available");
 
-    let actual = edit.write(&mut write).expect("no changes are fine");
+    let actual = edit.write(&mut write)?;
     assert_eq!(actual, root_tree_id, "it rewrites the same tree");
     assert_eq!(odb.access_count_and_clear(), 0);
     insta::assert_snapshot!(crate::normalize_tree_snapshot(&(display_tree_with_odb(actual, &storage, &odb))), @r#"
@@ -786,8 +777,7 @@ fn from_existing_add() -> Result {
 
     let actual = edit
         .upsert(["file", "hi"], EntryKind::Blob, null_id())?
-        .write(&mut write)
-        .expect("effectively no changes are fine");
+        .write(&mut write)?;
     assert_eq!(
         actual, root_tree_id,
         "null-ids are dropped automatically, they act as placeholders, ultimately the tree is not changed"
@@ -803,8 +793,7 @@ fn from_existing_add() -> Result {
     let actual = edit
         .upsert(["a", "b", "c"], EntryKind::Blob, null_id())?
         .upsert(["a", "b", "d", "e"], EntryKind::Blob, null_id())?
-        .write(&mut write)
-        .expect("effectively no changes are fine");
+        .write(&mut write)?;
     assert_eq!(
         actual, root_tree_id,
         "null-ids are dropped automatically, recursively, and empty intermediate trees are removed as well"
@@ -822,8 +811,7 @@ fn from_existing_add() -> Result {
         .upsert(["bin", "b"], EntryKind::Tree, empty_tree())?
         .upsert(["bin", "b", "c"], EntryKind::Tree, empty_tree())?
         .upsert(["a", "b", "d", "e"], EntryKind::Tree, empty_tree())?
-        .write(&mut write)
-        .expect("it's OK to write empty leaf-trees");
+        .write(&mut write)?;
     assert_eq!(
         odb.access_count_and_clear(),
         0,

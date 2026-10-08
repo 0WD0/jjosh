@@ -1,4 +1,3 @@
-use crate::Result;
 use bstr::ByteSlice;
 use gix_filter::{eol, eol::AutoCrlf};
 use gix_merge::blob::{
@@ -6,13 +5,14 @@ use gix_merge::blob::{
     pipeline::{self, Mode, WorktreeRoots},
 };
 use gix_object::tree::EntryKind;
+use gix_testtools::TestResult;
 
 use crate::blob::util::{insert, object_db};
 
 const ALL_MODES: [pipeline::Mode; 2] = [pipeline::Mode::ToGit, pipeline::Mode::Renormalize];
 
 #[test]
-fn without_transformation() -> Result {
+fn without_transformation() -> TestResult {
     let mut error_snapshots = Vec::new();
     for mode in ALL_MODES {
         let tmp = gix_testtools::tempfile::TempDir::new()?;
@@ -124,7 +124,7 @@ fn without_transformation() -> Result {
 }
 
 #[test]
-fn binary_below_large_file_threshold() -> Result {
+fn binary_below_large_file_threshold() -> TestResult {
     let tmp = gix_testtools::tempfile::TempDir::new()?;
     let mut filter = Pipeline::new(
         WorktreeRoots {
@@ -174,7 +174,7 @@ fn binary_below_large_file_threshold() -> Result {
 }
 
 #[test]
-fn above_large_file_threshold() -> Result {
+fn above_large_file_threshold() -> TestResult {
     let tmp = gix_testtools::tempfile::TempDir::new()?;
     let mut filter = gix_merge::blob::Pipeline::new(
         WorktreeRoots {
@@ -235,7 +235,7 @@ fn above_large_file_threshold() -> Result {
 }
 
 #[test]
-fn non_existing() -> Result {
+fn non_existing() -> TestResult {
     let tmp = gix_testtools::tempfile::TempDir::new()?;
     let mut filter = Pipeline::new(
         WorktreeRoots {
@@ -311,7 +311,7 @@ fn non_existing() -> Result {
 }
 
 #[test]
-fn worktree_filter() -> Result {
+fn worktree_filter() -> TestResult {
     let tmp = gix_testtools::tempfile::TempDir::new()?;
     let filter = gix_filter::Pipeline::new(
         Default::default(),

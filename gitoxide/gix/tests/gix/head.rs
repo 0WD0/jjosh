@@ -1,9 +1,9 @@
 mod peel {
-    use crate::Result;
     use crate::util::{hex_to_id, named_subrepo_opts};
+    use gix_testtools::TestResult;
 
     #[test]
-    fn all_cases() -> Result {
+    fn all_cases() -> TestResult {
         let expected_commit = hex_to_id("fafd9d08a839d99db60b222cd58e2e0bfaf1f7b2");
         for name in ["detached", "symbolic", "tag-detached", "tag-symbolic"] {
             let repo = named_subrepo_opts("make_head_repos.sh", name, gix::open::Options::isolated())?;
@@ -22,7 +22,7 @@ mod peel {
     }
 
     #[test]
-    fn a_missing_detached_head_object_is_not_an_empty_tree() -> Result {
+    fn a_missing_detached_head_object_is_not_an_empty_tree() -> TestResult {
         let (repo, _keep) = crate::basic_rw_repo()?;
         let mut missing_id = repo.object_hash().null();
         missing_id.as_mut_slice()[0] = 1;
@@ -38,11 +38,11 @@ mod peel {
 }
 
 mod into_remote {
-    use crate::Result;
     use crate::remote;
+    use gix_testtools::TestResult;
 
     #[test]
-    fn unborn_is_none() -> Result {
+    fn unborn_is_none() -> TestResult {
         let repo = remote::repo("url-rewriting");
         assert_eq!(
             repo.head()?.into_remote(gix::remote::Direction::Fetch).transpose()?,
@@ -57,7 +57,7 @@ mod into_remote {
     }
 
     #[test]
-    fn detached_is_none() -> Result {
+    fn detached_is_none() -> TestResult {
         let repo = remote::repo("detached-head");
         assert_eq!(
             repo.head()?.into_remote(gix::remote::Direction::Fetch).transpose()?,

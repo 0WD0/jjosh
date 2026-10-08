@@ -202,7 +202,7 @@ pub struct ThreadSafeRepository {
     /// A store for references to point at objects
     pub refs: crate::RefStore,
     /// A store for objects that contain data
-    pub objects: gix_features::threading::OwnShared<gix_odb::Store>,
+    pub objects: gix_parallel::OwnShared<gix_odb::Store>,
     /// The path to the worktree at which to find checked out files
     pub work_tree: Option<PathBuf>,
     /// The path to the index selected when the repository was opened.

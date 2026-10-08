@@ -79,7 +79,7 @@ pub(crate) mod function {
                 let mut progress = progress.add_child("attributes");
                 move || -> Result<()> {
                     let mut child =
-                        std::process::Command::from(gix::command::prepare(gix::path::env::exe_invocation()))
+                        std::process::Command::try_from(gix::command::prepare(gix::path::env::exe_invocation()))?
                             .args(["check-attr", "--stdin", "-a"])
                             .stdin(std::process::Stdio::piped())
                             .stdout(std::process::Stdio::piped())
@@ -132,7 +132,7 @@ pub(crate) mod function {
                 let mut progress = progress.add_child("excludes");
                 move || -> Result<()> {
                     let mut child =
-                        std::process::Command::from(gix::command::prepare(gix::path::env::exe_invocation()))
+                        std::process::Command::try_from(gix::command::prepare(gix::path::env::exe_invocation()))?
                             .args(["check-ignore", "--stdin", "-nv", "--no-index"])
                             .stdin(std::process::Stdio::piped())
                             .stdout(std::process::Stdio::piped())

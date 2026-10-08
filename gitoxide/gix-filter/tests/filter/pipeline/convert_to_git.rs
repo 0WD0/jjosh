@@ -6,7 +6,7 @@ use gix_filter::{eol, pipeline::CrlfRoundTripCheck};
 use crate::{driver::apply::driver_with_process, pipeline::pipeline};
 
 #[test]
-fn no_driver_but_filter_with_autocrlf() -> gix_testtools::Result {
+fn no_driver_but_filter_with_autocrlf() -> gix_testtools::TestResult {
     let (_cache, mut pipe) = pipeline("no-filter", || {
         (
             vec![],
@@ -38,7 +38,7 @@ fn no_driver_but_filter_with_autocrlf() -> gix_testtools::Result {
 }
 
 #[test]
-fn all_stages_mean_streaming_is_impossible() -> gix_testtools::Result {
+fn all_stages_mean_streaming_is_impossible() -> gix_testtools::TestResult {
     let (mut cache, mut pipe) = pipeline("all-filters", || {
         (
             vec![driver_with_process()],
@@ -73,7 +73,7 @@ fn all_stages_mean_streaming_is_impossible() -> gix_testtools::Result {
 }
 
 #[test]
-fn only_driver_means_streaming_is_possible() -> gix_testtools::Result {
+fn only_driver_means_streaming_is_possible() -> gix_testtools::TestResult {
     let (mut cache, mut pipe) = pipeline("driver-only", || {
         (
             vec![driver_with_process()],
@@ -113,7 +113,7 @@ fn only_driver_means_streaming_is_possible() -> gix_testtools::Result {
 }
 
 #[test]
-fn no_filter_means_reader_is_returned_unchanged() -> gix_testtools::Result {
+fn no_filter_means_reader_is_returned_unchanged() -> gix_testtools::TestResult {
     let (mut cache, mut pipe) = pipeline("no-filters", || {
         (vec![], Vec::new(), CrlfRoundTripCheck::Fail, Default::default())
     })?;

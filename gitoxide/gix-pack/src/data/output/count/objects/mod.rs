@@ -1,8 +1,8 @@
 use gix_error::Result;
 use std::{cell::RefCell, sync::atomic::AtomicBool};
 
-use gix_features::parallel;
 use gix_hash::ObjectId;
+use gix_parallel as parallel;
 
 use crate::data::output;
 
@@ -33,7 +33,7 @@ mod tree;
 pub fn objects<Find>(
     db: Find,
     objects_ids: Box<dyn Iterator<Item = Result<ObjectId>> + Send>,
-    objects: &dyn gix_features::progress::Count,
+    objects: &dyn gix_utils::progress::Count,
     should_interrupt: &AtomicBool,
     Options {
         thread_limit,
@@ -51,7 +51,7 @@ where
         thread_limit,
         None,
     );
-    let chunks = gix_features::iter::Chunks {
+    let chunks = gix_utils::iter::Chunks {
         inner: objects_ids,
         size: chunk_size,
     };
@@ -94,7 +94,7 @@ where
 pub fn objects_unthreaded(
     db: &dyn crate::Find,
     object_ids: &mut dyn Iterator<Item = Result<ObjectId>>,
-    objects: &dyn gix_features::progress::Count,
+    objects: &dyn gix_utils::progress::Count,
     should_interrupt: &AtomicBool,
     input_object_expansion: ObjectExpansion,
 ) -> Result<(Vec<output::Count>, Outcome)> {
@@ -143,7 +143,7 @@ mod expand {
         oids: &mut dyn Iterator<Item = Result<ObjectId>>,
         buf1: &mut Vec<u8>,
         buf2: &mut Vec<u8>,
-        objects: &gix_features::progress::AtomicStep,
+        objects: &gix_utils::progress::AtomicStep,
         should_interrupt: &AtomicBool,
         allow_pack_lookups: bool,
     ) -> Result<(Vec<output::Count>, Outcome)> {
@@ -268,7 +268,7 @@ mod expand {
                                     &changes_delegate.objects
                                 };
                                 for id in objects_ref.iter() {
-                                    out.push(id_to_count(db, buf2, id, objects, stats, allow_pack_lookups));
+                                    out.push(id_to_count(db, buf2, id, objects, stats, allow_pack_lookups)?);
                                 }
                                 break;
                             }
@@ -295,7 +295,7 @@ mod expand {
                                     out = objects.dissolve(stats);
                                 }
                                 for id in &traverse_delegate.non_trees {
-                                    out.push(id_to_count(db, buf1, id, objects, stats, allow_pack_lookups));
+                                    out.push(id_to_count(db, buf1, id, objects, stats, allow_pack_lookups)?);
                                 }
                                 break;
                             }
@@ -332,7 +332,7 @@ mod expand {
         all_seen: &impl util::InsertImmutable,
         id: &oid,
         location: Option<crate::data::entry::Location>,
-        objects: &gix_features::progress::AtomicStep,
+        objects: &gix_utils::progress::AtomicStep,
         statistics: &mut Outcome,
         count_expanded: bool,
     ) {
@@ -352,20 +352,20 @@ mod expand {
         db: &dyn crate::Find,
         buf: &mut Vec<u8>,
         id: &oid,
-        objects: &gix_features::progress::AtomicStep,
+        objects: &gix_utils::progress::AtomicStep,
         statistics: &mut Outcome,
         allow_pack_lookups: bool,
-    ) -> output::Count {
+    ) -> Result<output::Count> {
         objects.fetch_add(1, Ordering::Relaxed);
         statistics.expanded_objects += 1;
-        output::Count {
+        Ok(output::Count {
             id: id.to_owned(),
             entry_pack_location: if allow_pack_lookups {
-                PackLocation::LookedUp(db.location_by_oid(id, buf))
+                PackLocation::LookedUp(db.location_by_oid(id, buf)?)
             } else {
                 PackLocation::NotLookedUp
             },
-        }
+        })
     }
 
     struct CountingObjects<'a> {
@@ -398,7 +398,7 @@ mod expand {
         decoded_objects: std::cell::RefCell<usize>,
         expanded_objects: std::cell::RefCell<usize>,
         out: std::cell::RefCell<Vec<output::Count>>,
-        objects_count: &'a gix_features::progress::AtomicStep,
+        objects_count: &'a gix_utils::progress::AtomicStep,
         objects: &'a dyn crate::Find,
     }
 
@@ -406,7 +406,7 @@ mod expand {
         fn new(
             objects: &'a dyn crate::Find,
             out: Vec<output::Count>,
-            objects_count: &'a gix_features::progress::AtomicStep,
+            objects_count: &'a gix_utils::progress::AtomicStep,
         ) -> Self {
             Self {
                 decoded_objects: Default::default(),
