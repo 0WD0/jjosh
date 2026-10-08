@@ -203,7 +203,7 @@ pub async fn cmd_git_fetch(
             if target.adds().flatten().next().is_none() {
                 continue;
             }
-            state.validate_project(id).map_err(user_error)?;
+            view.projects().validate_project(id).map_err(user_error)?;
             projects.push(Some(id.clone()));
         }
         if projects.is_empty() {
@@ -216,7 +216,7 @@ pub async fn cmd_git_fetch(
         args.project
             .iter()
             .map(|name| {
-                state
+                view.projects()
                     .project_by_name(name)
                     .map(|(id, _)| Some(id))
                     .map_err(user_error)

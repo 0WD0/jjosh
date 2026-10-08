@@ -2038,11 +2038,8 @@ fn builtin_workspace_ref_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'rep
             // Workspaces created before jj 0.38.0 may not have a recorded path. List
             // templates should also keep rendering if a recorded path is stale or
             // unavailable. Use `jj workspace root --name` for strict path diagnostics.
-            let out_property = self_property.and_then(|ws_ref| {
-                Ok(workspace_store
-                    .get_workspace_path(&ws_ref.name)?
-                    .and_then(|path| dunce::canonicalize(path).ok()))
-            });
+            let out_property = self_property
+                .and_then(|ws_ref| Ok(workspace_store.get_workspace_path(&ws_ref.name)?));
             Ok(out_property.into_dyn_wrapped())
         },
     );

@@ -51,6 +51,96 @@ where
 }
 
 #[test]
+fn test_project_validation_tracks_view_mutations_and_clones() {
+    use jj_lib::merge::Merge;
+    use jj_lib::project::{
+        BindingId, BindingRecord, BindingTarget, ConnectionId, ProjectId, ProjectRecord,
+        Representation, ScopedRemoteName,
+    };
+    use jj_lib::repo_path::RepoPathBuf;
+
+    let test_repo = TestRepo::init();
+    let mut view = test_repo.repo.view().clone();
+    let project = ProjectId::new(vec![1; 16]);
+    let connection = ConnectionId::new(vec![2; 16]);
+    let binding = BindingId::new(vec![3; 16]);
+    let remote = RemoteName::new("physical");
+    let state = view.project_state_mut();
+    state.projects.insert(
+        project.clone(),
+        Merge::normal(ProjectRecord {
+            name: "app".into(),
+            canonical_root: RepoPathBuf::from_internal_string("app").unwrap(),
+        }),
+    );
+    state.labels.insert("app".into(), Merge::normal(project.clone()));
+    state.bindings.insert(
+        binding.clone(),
+        Merge::normal(BindingRecord {
+            target: BindingTarget::Project(project.clone()),
+            connection_id: connection.clone(),
+            representation: Representation::Whole,
+            base: None,
+        }),
+    );
+    state.remote_names.insert(
+        connection.clone(),
+        Merge::normal(ScopedRemoteName {
+            project: project.clone(),
+            name: "origin".into(),
+        }),
+    );
+    view.store_view_mut()
+        .remote_connections
+        .insert(remote.to_owned(), Merge::normal(connection.clone()));
+    let healthy = view.store_view().clone();
+
+    assert_eq!(
+        view.projects().resolve_label("app").unwrap(),
+        Some(project.clone())
+    );
+    assert_eq!(
+        view.projects().binding_for_connection(&connection).unwrap().unwrap().0,
+        binding
+    );
+    assert_eq!(
+        view.remote_identity(remote).unwrap().unwrap().scoped_name.unwrap().project,
+        project
+    );
+
+    view.project_state_mut().projects.insert(
+        ProjectId::new(vec![5; 16]),
+        Merge::normal(ProjectRecord {
+            name: "collision".into(),
+            canonical_root: RepoPathBuf::from_internal_string("app").unwrap(),
+        }),
+    );
+    assert!(view.projects().resolve_label("app").is_err());
+    assert!(view.projects().binding_for_connection(&connection).is_err());
+    assert!(view.remote_identity(remote).is_err());
+
+    *view.store_view_mut() = healthy.clone();
+    view.projects().validate_project(&project).unwrap();
+    let mut other = view.clone();
+    other.project_state_mut().remote_names.insert(
+        connection,
+        Merge::normal(ScopedRemoteName {
+            project: ProjectId::new(vec![4; 16]),
+            name: "origin".into(),
+        }),
+    );
+    assert!(other.projects().validate_project(&project).is_err());
+    assert!(other.remote_identity(remote).is_err());
+    assert_eq!(view.projects().resolve_label("app").unwrap(), Some(project.clone()));
+
+    view.set_view(other.store_view().clone(), true);
+    assert!(view.projects().validate_project(&project).is_err());
+    assert!(view.remote_identity(remote).is_err());
+    view.set_view(healthy, true);
+    assert_eq!(view.projects().resolve_label("app").unwrap(), Some(project));
+}
+
+#[test]
 fn test_heads_empty() {
     let test_repo = TestRepo::init();
     let repo = &test_repo.repo;

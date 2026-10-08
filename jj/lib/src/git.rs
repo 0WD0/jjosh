@@ -606,7 +606,7 @@ fn check_remote_capability_inner(
     check_remote_owner(view, remote, connection.as_ref())?;
     let binding = connection
         .as_ref()
-        .map(|id| view.project_state().binding_for_connection(id))
+        .map(|id| view.projects().binding_for_connection(id))
         .transpose()?
         .flatten();
     if let Some(required) = remote_required_capability(git_repo, remote) {
@@ -632,7 +632,7 @@ fn check_remote_capability_inner(
             ));
         }
         if let BindingTarget::Project(id) = &binding.target {
-            view.project_state().validate_project(id)?;
+            view.projects().validate_project(id)?;
         }
     }
     Ok(())
@@ -1053,7 +1053,7 @@ pub async fn import_remote_observations(
             continue;
         }
         if let Some((_, label)) = observation.symbol.name.as_str().rsplit_once('#')
-            && let Some(project) = mut_repo.view().project_state().resolve_label(label)
+            && let Some(project) = mut_repo.view().projects().resolve_label(label)
                 .map_err(GitImportError::ManagedState)?
             && !observation.evidence.as_ref().is_some_and(|evidence| {
                 matches!(&evidence.binding.target, BindingTarget::Project(id) if id == &project)
@@ -1593,7 +1593,7 @@ fn diff_refs_to_import(
                 .map_err(GitImportError::ManagedState)?;
             let binding = connection
                 .as_ref()
-                .map(|id| view.project_state().binding_for_connection(id))
+                .map(|id| view.projects().binding_for_connection(id))
                 .transpose()
                 .map_err(GitImportError::ManagedState)?
                 .flatten();
@@ -1664,9 +1664,7 @@ fn diff_refs_to_import(
                     symbol.remote.as_symbol()
                 )));
             } else if let Some((_, label)) = symbol.name.as_str().rsplit_once('#') {
-                if view
-                    .project_state()
-                    .resolve_label(label)
+                if view.projects().resolve_label(label)
                     .map_err(GitImportError::ManagedState)?
                     .is_some()
                 {

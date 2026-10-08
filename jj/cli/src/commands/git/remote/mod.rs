@@ -91,9 +91,9 @@ fn new_remote_name(
     name: &RemoteName,
     project: Option<&str>,
 ) -> Result<(RemoteNameBuf, Option<ProjectId>), CommandError> {
-    let state = workspace.repo().view().project_state();
+    let projects = workspace.repo().view().projects();
     let requested_scope = project
-        .map(|name| state.project_by_name(name).map(|(id, _)| id))
+        .map(|name| projects.project_by_name(name).map(|(id, _)| id))
         .transpose()
         .map_err(user_error)?;
     let (local, scope) = crate::git_remote::parse_remote_selector_scope(

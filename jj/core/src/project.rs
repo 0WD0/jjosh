@@ -186,6 +186,30 @@ impl ProjectState {
                 );
             }
         }
+        // Compare only equal-name/root groups, not every pair of projects. Keep
+        // candidate order for diagnostics, including unresolved positive terms.
+        let mut conflicts = BTreeSet::new();
+        let mut add_conflicts = |group: &[usize]| {
+            for (offset, &i) in group.iter().enumerate() {
+                for &j in &group[offset + 1..] {
+                    if candidates[i].0 != candidates[j].0 {
+                        conflicts.insert((i.min(j), i.max(j)));
+                    }
+                }
+            }
+        };
+        let mut order: Vec<_> = (0..candidates.len()).collect();
+        order.sort_unstable_by_key(|&i| &candidates[i].1.name);
+        for group in order.chunk_by(|&i, &j| candidates[i].1.name == candidates[j].1.name) {
+            add_conflicts(group);
+        }
+        order.sort_unstable_by_key(|&i| &candidates[i].1.canonical_root);
+        for group in order
+            .chunk_by(|&i, &j| candidates[i].1.canonical_root == candidates[j].1.canonical_root)
+        {
+            add_conflicts(group);
+        }
+        let mut conflicts = conflicts.into_iter().peekable();
         for (i, (id, record)) in candidates.iter().enumerate() {
             if record.name.is_empty()
                 || record.name.contains(['#', '/', '\\'])
@@ -199,20 +223,17 @@ impl ProjectState {
                     vec![],
                 );
             }
-            for (other_id, other) in &candidates[i + 1..] {
-                if id == other_id {
-                    continue;
-                }
-                if record.name == other.name || record.canonical_root == other.canonical_root {
-                    report(
-                        format!(
-                            "Projects {id} and {other_id} have conflicting names or identical roots"
-                        ),
-                        vec![(*id).clone(), (*other_id).clone()],
-                        vec![],
-                        vec![],
-                    );
-                }
+            while conflicts.peek().is_some_and(|&(first, _)| first == i) {
+                let (_, other) = conflicts.next().unwrap();
+                let other_id = candidates[other].0;
+                report(
+                    format!(
+                        "Projects {id} and {other_id} have conflicting names or identical roots"
+                    ),
+                    vec![(*id).clone(), other_id.clone()],
+                    vec![],
+                    vec![],
+                );
             }
         }
         let healthy_project = |id: &ProjectId| {
@@ -223,18 +244,20 @@ impl ProjectState {
         };
         let mut connections: BTreeMap<&ConnectionId, BTreeSet<&BindingId>> = BTreeMap::new();
         for (id, target) in &self.bindings {
-            let projects: Vec<_> = target
-                .adds()
-                .flatten()
-                .filter_map(|record| match &record.target {
-                    BindingTarget::Project(id) => Some(id.clone()),
-                    BindingTarget::RepositoryView => None,
-                })
-                .collect();
+            let projects = || {
+                target
+                    .adds()
+                    .flatten()
+                    .filter_map(|record| match &record.target {
+                        BindingTarget::Project(id) => Some(id.clone()),
+                        BindingTarget::RepositoryView => None,
+                    })
+                    .collect()
+            };
             if !target.is_resolved() {
                 report(
                     format!("Binding {id} has an unresolved active state"),
-                    projects.clone(),
+                    projects(),
                     vec![id.clone()],
                     vec![],
                 );
@@ -245,7 +268,7 @@ impl ProjectState {
             {
                 report(
                     format!("Binding {id} has inconsistent immutable definitions"),
-                    projects.clone(),
+                    projects(),
                     vec![id.clone()],
                     vec![],
                 );
@@ -267,7 +290,7 @@ impl ProjectState {
                 }
             }
         }
-        for (connection, bindings) in connections {
+        for (connection, bindings) in &connections {
             if bindings.len() > 1 {
                 let projects = bindings
                     .iter()
@@ -280,17 +303,16 @@ impl ProjectState {
                 report(
                     format!("Connection {connection} has multiple active bindings"),
                     projects,
-                    bindings.into_iter().cloned().collect(),
+                    bindings.iter().map(|id| (*id).clone()).collect(),
                     vec![],
                 );
             }
         }
         for (label, target) in &self.labels {
-            let projects: Vec<_> = target.adds().flatten().cloned().collect();
-            if !target.is_resolved() || projects.iter().any(|id| !healthy_project(id)) {
+            if !target.is_resolved() || target.adds().flatten().any(|id| !healthy_project(id)) {
                 report(
                     format!("Label {label:?} has an unresolved or unavailable project"),
-                    projects,
+                    target.adds().flatten().cloned().collect(),
                     vec![],
                     vec![label.clone()],
                 );
@@ -298,15 +320,14 @@ impl ProjectState {
         }
         let mut names = BTreeMap::new();
         for (connection, target) in &self.remote_names {
-            let projects = target
-                .adds()
-                .flatten()
-                .map(|identity| identity.project.clone())
-                .collect();
             if !target.is_resolved() {
                 report(
                     format!("Connection {connection} has an unresolved scoped remote name"),
-                    projects,
+                    target
+                        .adds()
+                        .flatten()
+                        .map(|identity| identity.project.clone())
+                        .collect(),
                     vec![],
                     vec![],
                 );
@@ -337,13 +358,15 @@ impl ProjectState {
                         vec![],
                     );
                 }
-                for (binding_id, bindings) in &self.bindings {
-                    for binding in bindings
+                for binding_id in connections.get(connection).into_iter().flatten() {
+                    for binding in self.bindings[*binding_id]
                         .adds()
                         .flatten()
                         .filter(|binding| &binding.connection_id == connection)
                     {
-                        if binding.target != BindingTarget::Project(identity.project.clone()) {
+                        if !matches!(&binding.target,
+                            BindingTarget::Project(project) if project == &identity.project)
+                        {
                             let mut projects = vec![identity.project.clone()];
                             if let BindingTarget::Project(project) = &binding.target {
                                 projects.push(project.clone());
@@ -354,7 +377,7 @@ impl ProjectState {
                                      binding {binding_id}"
                                 ),
                                 projects,
-                                vec![binding_id.clone()],
+                                vec![(*binding_id).clone()],
                                 vec![],
                             );
                         }
@@ -363,90 +386,6 @@ impl ProjectState {
             }
         }
         result
-    }
-
-    pub fn validate_project(&self, id: &ProjectId) -> Result<(), String> {
-        if !self
-            .projects
-            .get(id)
-            .and_then(Merge::as_resolved)
-            .is_some_and(Option::is_some)
-        {
-            return Err(format!("Project {id} is unavailable or unresolved"));
-        }
-        if let Some(diagnostic) = self
-            .diagnostics()
-            .into_iter()
-            .find(|d| d.projects.contains(id))
-        {
-            return Err(diagnostic.message);
-        }
-        Ok(())
-    }
-
-    pub fn project_by_name(&self, name: &str) -> Result<(ProjectId, &ProjectRecord), String> {
-        let mut candidates = self
-            .projects
-            .iter()
-            .filter(|(_, target)| target.adds().flatten().any(|r| r.name == name));
-        let (id, target) = candidates
-            .next()
-            .ok_or_else(|| format!("No project named {name:?}"))?;
-        if candidates.next().is_some() {
-            return Err(format!("Project name {name:?} is conflicted"));
-        }
-        self.validate_project(id)?;
-        let record = target
-            .as_resolved()
-            .and_then(Option::as_ref)
-            .ok_or_else(|| format!("Project {id} is unresolved"))?;
-        Ok((id.clone(), record))
-    }
-
-    pub fn resolve_label(&self, label: &str) -> Result<Option<ProjectId>, String> {
-        let Some(target) = self.labels.get(label) else {
-            return Ok(None);
-        };
-        let id = target
-            .as_resolved()
-            .ok_or_else(|| format!("Project label {label:?} is unresolved"))?;
-        if let Some(id) = id {
-            self.validate_project(id)?;
-        }
-        Ok(id.clone())
-    }
-
-    pub fn binding_for_connection(
-        &self,
-        connection: &ConnectionId,
-    ) -> Result<Option<(BindingId, &BindingRecord)>, String> {
-        let mut candidates = self.bindings.iter().filter(|(_, target)| {
-            target
-                .adds()
-                .flatten()
-                .any(|r| &r.connection_id == connection)
-        });
-        let Some((id, target)) = candidates.next() else {
-            return Ok(None);
-        };
-        if candidates.next().is_some() {
-            return Err(format!("Connection {connection} has multiple bindings"));
-        }
-        if let Some(diagnostic) = self
-            .diagnostics()
-            .into_iter()
-            .find(|d| d.bindings.contains(id))
-        {
-            return Err(diagnostic.message);
-        }
-        let record = target
-            .as_resolved()
-            .and_then(Option::as_ref)
-            .ok_or_else(|| format!("Binding {id} is unresolved"))?;
-        if let BindingTarget::Project(project) = &record.target {
-            self.validate_project(project)?;
-        }
-        Ok(Some((id.clone(), record)))
     }
 
     pub fn merge(&mut self, base: &Self, other: &Self) {
@@ -506,69 +445,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn conflicted_positive_candidates_reserve_roots_but_negative_terms_do_not() {
-        let a = ProjectId::generate();
-        let b = ProjectId::generate();
-        let mut state = ProjectState::default();
-        state.projects.insert(
-            a.clone(),
-            Merge::from_vec(vec![
-                Some(record("renamed", "packages/a")),
-                None,
-                Some(record("other", "packages/a")),
-            ]),
-        );
-        state
-            .projects
-            .insert(b.clone(), Merge::normal(record("b", "packages/a")));
-        assert!(state.validate_project(&b).is_err());
-        state.projects.insert(
-            a,
-            Merge::from_vec(vec![None, Some(record("retired", "packages/a")), None]),
-        );
-        assert!(state.validate_project(&b).is_ok());
-    }
-
-    #[test]
-    fn nested_roots_are_independent_and_only_identical_roots_conflict() {
-        let parent = ProjectId::generate();
-        let child = ProjectId::generate();
-        let mut state = ProjectState::default();
-        state
-            .projects
-            .insert(parent.clone(), Merge::normal(record("outer", "pkg")));
-        state
-            .projects
-            .insert(child.clone(), Merge::normal(record("inner", "pkg/inner")));
-        assert!(state.diagnostics().is_empty());
-        state.validate_project(&parent).unwrap();
-        state.validate_project(&child).unwrap();
-
-        // An unresolved ancestor does not make a healthy child's path ambiguous.
-        state.projects.insert(
-            parent.clone(),
-            Merge::from_vec(vec![
-                Some(record("left", "pkg")),
-                Some(record("outer", "pkg")),
-                Some(record("right", "pkg")),
-            ]),
-        );
-        assert!(state.validate_project(&parent).is_err());
-        state.validate_project(&child).unwrap();
-
-        state.projects.insert(
-            parent.clone(),
-            Merge::from_vec(vec![None, Some(record("outer", "pkg")), None]),
-        );
-        state.validate_project(&child).unwrap();
-
-        state
-            .projects
-            .insert(parent.clone(), Merge::normal(record("other", "pkg/inner")));
-        assert!(state.validate_project(&parent).is_err());
-        assert!(state.validate_project(&child).is_err());
-    }
 
     #[test]
     fn recursive_merge_retains_absence_and_resolves_concurrent_rename() {
@@ -589,26 +465,6 @@ mod tests {
         assert_eq!(own, resolved);
     }
 
-    #[test]
-    fn unrelated_project_remains_selectable_with_dangling_binding() {
-        let good = ProjectId::generate();
-        let missing = ProjectId::generate();
-        let mut state = ProjectState::default();
-        state
-            .projects
-            .insert(good.clone(), Merge::normal(record("good", "good")));
-        state.bindings.insert(
-            BindingId::generate(),
-            Merge::normal(BindingRecord {
-                target: BindingTarget::Project(missing),
-                connection_id: ConnectionId::generate(),
-                representation: Representation::Whole,
-                base: None,
-            }),
-        );
-        assert!(!state.diagnostics().is_empty());
-        assert_eq!(state.project_by_name("good").unwrap().0, good);
-    }
 
     #[test]
     fn scoped_rename_delete_merge_retains_signed_identity_without_rebinding() {

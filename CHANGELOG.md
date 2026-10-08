@@ -16,7 +16,11 @@
 
 ### 主要能力
 
-- 跟随上游将 operation-store 类型及项目、稀疏配置的底层表示移至 `jj-core`；保留现有 View 哈希、protobuf 编码和 `simple_op_store_projects_v3` 格式，已有仓库与 operation 历史无需迁移。
+- 合并 gitoxide `eba4c9c5`（gix 0.89）、JJ `dd1fe17a`（0.46）和 Josh `73d2ce31` 上游主线；同步对象错误、过滤器 hash、引用锁和 DSL API，保留本地 project、sparse、传输及 CAS 语义。
+  `workspace list` 的 `root` 模板直接使用登记路径，移除额外的文件系统校验和错误吞并；目录已删除时仍显示原路径。
+- project 查询从持久化 `ProjectState` 移至绑定所选 operation View 的 `ProjectView`：按需派生索引并在拓扑修改时失效，避免 `new`、`status`、`log` 的模板／revset 对每条引用重建全局诊断；transport session 不再重复复制项目状态。冲突可检查、精确选择严格校验及历史观察边界不变，不跳过工作区快照。
+  本地测试复用上游已有 fixture，移除默认布局、错误文案及简单转发的重复检查；保留项目身份、冲突恢复、CAS 和传输边界覆盖。
+- 跟随上游将 operation-store、files/fileset 后端及项目、稀疏配置的底层表示和类型转换移至 `jj-core`；保留现有 View 哈希、protobuf 编码和 `simple_op_store_projects_v3` 格式，已有仓库与 operation 历史无需迁移。
 - Git HTTP 后端不再继承 reqwest 默认的 30 秒响应读取等待限制，避免服务端生成或传输 pack 暂停时误中断 fetch；现有 20 秒连接超时保持不变，不增加自动重试。
 - Git fetch 仅使用当前 endpoint 已保留的原始提交作为协商起点，不再扫描 monorepo 及 alternate 对象库的全部引用，避免大量内部保留引用拖慢小型上游仓库的获取。
   首次获取不发送无关历史，后续获取仍进行增量协商；advertisement-pinned 对象请求和默认完整历史语义不变。

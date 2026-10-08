@@ -2580,7 +2580,7 @@ pub fn resolve_remote_ref_symbol(
     let reference_project = remote_ref_project(view, symbol.name)?;
     let (remote_name, project) = match symbol.remote.as_str().rsplit_once('#') {
         Some((name, "")) => (RemoteName::new(name), None),
-        Some((name, label)) => match view.project_state().resolve_label(label)? {
+        Some((name, label)) => match view.projects().resolve_label(label)? {
             Some(project) => {
                 if reference_project.as_ref() != Some(&project) {
                     return Err(
@@ -2629,7 +2629,7 @@ pub fn remote_ref_project(
     name: &RefName,
 ) -> Result<Option<crate::project::ProjectId>, String> {
     match name.as_str().rsplit_once('#') {
-        Some((_, label)) => view.store_view().project_state.resolve_label(label),
+        Some((_, label)) => view.projects().resolve_label(label),
         None => Ok(None),
     }
 }

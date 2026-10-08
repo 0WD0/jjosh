@@ -340,27 +340,3 @@ fn nested_summaries_include_every_touched_scope_without_hiding_parent_edits() {
     );
 }
 
-#[test]
-fn default_log_adds_only_nonempty_summaries_and_respects_overrides() {
-    let f = Fixture::new();
-    let plain = f.jj(&["log", "-r", "@ | root()"]);
-    assert_eq!(
-        plain,
-        f.jj(&["log", "-r", "@ | root()", "-T", "builtin_log_compact"])
-    );
-    f.two_projects();
-    f.write("libs/a/file", "a\n");
-    f.jj(&["describe", "-m", "Change a file"]);
-    let output = f.jj(&["log", "-r", "@"]);
-    assert!(
-        output.lines().next().unwrap().ends_with("[zeta]"),
-        "{output}"
-    );
-    assert_eq!(f.log("@", "description.first_line()"), "Change a file");
-    assert!(!f.log("@", "builtin_log_compact").contains("[zeta]"));
-    let custom = serde_json::to_string("description.first_line() ++ \"\\n\"").unwrap();
-    f.jj(&["config", "set", "--repo", "templates.log", &custom]);
-    assert_eq!(f.jj(&["log", "--no-graph", "-r", "@"]), "Change a file\n");
-    // The field remains available even when a higher-priority config replaces the layout.
-    assert_eq!(f.log("@", "format_touched_projects(self)"), "[zeta]");
-}

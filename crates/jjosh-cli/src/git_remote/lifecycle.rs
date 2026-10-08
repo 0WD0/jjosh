@@ -54,7 +54,7 @@ pub(super) fn prepare_binding(
             Err(error) => return Err(user_error(error)),
         }
     }
-    let state = workspace.repo().view().project_state();
+    let projects = workspace.repo().view().projects();
     let count = usize::from(args.whole)
         + usize::from(args.filter.is_some())
         + usize::from(args.view.is_some())
@@ -69,8 +69,7 @@ pub(super) fn prepare_binding(
         .project
         .as_deref()
         .map(|name| {
-            let (id, _) = state.project_by_name(name).map_err(user_error)?;
-            state.validate_project(&id).map_err(user_error)?;
+            let (id, _) = projects.project_by_name(name).map_err(user_error)?;
             Ok::<_, CommandError>(id)
         })
         .transpose()?;
@@ -89,7 +88,7 @@ pub(super) fn prepare_binding(
                      migrated with a historical jjosh version"
                 ))
             })?;
-        let (_, source_binding) = state
+        let (_, source_binding) = projects
             .binding_for_connection(&id)
             .map_err(user_error)?
             .ok_or_else(|| user_error(format!("Remote {source} has no binding to copy")))?;
@@ -131,7 +130,7 @@ pub(super) fn prepare_binding(
         )
     };
     if let BindingTarget::Project(project) = &target {
-        state.validate_project(project).map_err(user_error)?;
+        projects.validate_project(project).map_err(user_error)?;
     }
     crate::binding_config::filter(&representation).map_err(user_error)?;
     if target == BindingTarget::RepositoryView && representation == Representation::Whole {

@@ -78,6 +78,18 @@ View.remote_connections:
 
 项目 remote 的逻辑命名空间是 =(ProjectId, name)=，所以不同项目都可以有 origin。根 remote 保留普通 Git 名字。项目内别名改动不改变 ConnectionId、BindingId 或物理 handle；项目显示名改动也不改变已有引用 label。
 
+** 派生查询绑定所选 View
+
+=ProjectState= 是可合并的持久化数据，不是另一个 Repo，也不要求所有定义健康才能加载 operation。项目没有独立的 commit DAG 或 transaction。
+
+=jj_lib::view::ProjectView= 负责当前项目名、label、binding 的严格查询；它只借用同一份不可变 ProjectState，派生索引不能由调用方任意配对。仓库查询使用 =View::projects()=，裸 operation 状态的导入／修复规划使用 =ProjectView::new()=，并在每次状态修改后重新建立查询视图。
+
+=View= 按需构建项目约束及 connection→binding 索引；未修改的 View clone 共享只读索引，=project_state_mut()=、=store_view_mut()= 和 =set_view()= 在可变访问或替换前使本实例的索引失效。索引不参与编码、散列、相等判断或 operation 合并，也不按仓库路径、commit ID 或全局进程缓存：相同 commit 可以对应不同 operation 拓扑。仅修改 heads 的规范化不使项目索引失效。
+
+约束推导保留所有正项候选以及相关实体的首个错误，后续引用查询不重新生成全局诊断。同名／同根只比较相同键的候选组，严格包含仍合法。坏定义只阻断相关身份；完整诊断仍由显式 check/list 路径组合。
+
+此索引只依赖 ProjectState 的四张映射，不缓存物理 remote 所有权、历史观察、Git 配置或发布 lease。历史身份查询及恢复继续使用记录的 signed 证据；transport session 复用捕获的 View，不另存一份可能分离的 ProjectState。
+
 ** 本地配置与物理兼容
 
 Git remote section 是扁平的。项目连接的物理名字是 =REMOTE#LABEL=，例如 =origin#parser=；普通根 remote 仍使用 origin。ConnectionId 只存储为显式身份元数据，不编码成 remote 名。创建、重命名和导入都检查配置碰撞；同名 section 不证明连接身份相同。
@@ -354,8 +366,8 @@ Git config 与 refs 是独立的原生事务：ref 锁在 config 发布前准备
 
 | 合同 | 源码 |
 |------+------|
-| 定义、不变量、signed merge | [[file:../jj/lib/src/project.rs][project.rs]] |
-| View 字段与当前拓扑验证 | [[file:../jj/lib/src/op_store.rs][op_store.rs]]、[[file:../jj/lib/src/view.rs][view.rs]] |
+| 定义、不变量、signed merge | [[file:../jj/core/src/project.rs][core/project.rs]] |
+| 持久化 View 与快照绑定的项目查询 | [[file:../jj/core/src/op_store.rs][core/op_store.rs]]、[[file:../jj/lib/src/view.rs][view.rs]]、[[file:../jj/lib/src/view/project.rs][ProjectView]] |
 | 带来源的身份查询与 signed 候选范围 | [[file:../jj/lib/src/view/remote_identity.rs][remote_identity.rs]] |
 | 完整观察状态的记录、删除、归档与重映射 | [[file:../jj/lib/src/view/remote_observations.rs][remote_observations.rs]] |
 | operation 合并及部分恢复 | [[file:../jj/lib/src/repo.rs][repo.rs]]、[[file:../jj/lib/src/view/restore.rs][restore.rs]]；[[file:../jj/cli/src/commands/operation/mod.rs][CLI]]只选择恢复来源 |

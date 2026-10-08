@@ -200,8 +200,9 @@ pub async fn cmd_debug_object(
             };
             let view = repo_loader.op_store().read_view(&id).await?;
             if args.project_labels {
+                let projects = jj_lib::view::ProjectView::new(&view.project_state);
                 let labels = view.project_state.labels.keys().map(|label| {
-                    let project = view.project_state.resolve_label(label).map_err(user_error)?;
+                    let project = projects.resolve_label(label).map_err(user_error)?;
                     Ok((label, project.map(|project| project.hex())))
                 }).collect::<Result<std::collections::BTreeMap<_, _>, CommandError>>()?;
                 serde_json::to_writer(ui.stdout(), &labels).map_err(user_error)?;

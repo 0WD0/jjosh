@@ -1019,8 +1019,7 @@ async fn resolve_push_routes<'a>(
             .as_str()
             .rsplit_once('#')
             .map(|(name, label)| {
-                view.project_state()
-                    .resolve_label(label)
+                view.projects().resolve_label(label)
                     .map(|project| project.map(|project| (name, project)))
             })
             .transpose()

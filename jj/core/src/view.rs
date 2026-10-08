@@ -14,6 +14,7 @@
 
 #![expect(missing_docs)]
 
+mod project;
 pub mod remote_identity;
 pub mod remote_observations;
 pub mod restore;
@@ -21,10 +22,14 @@ pub mod restore;
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::collections::HashSet;
+use std::sync::Arc;
+use std::sync::OnceLock;
 
 use itertools::Itertools as _;
 use thiserror::Error;
 
+use self::project::ProjectIndex;
+pub use self::project::ProjectView;
 use crate::backend::CommitId;
 use crate::index::Index;
 use crate::index::IndexResult;
@@ -74,6 +79,7 @@ impl std::fmt::Display for DisplayRemoteRefSymbol<'_> {
 pub struct View {
     data: op_store::View,
     head_normalized: bool,
+    project_index: OnceLock<Arc<ProjectIndex>>,
 }
 
 impl PartialEq for View {
@@ -87,6 +93,7 @@ impl View {
         Self {
             data: op_store_view,
             head_normalized,
+            project_index: OnceLock::new(),
         }
     }
 
@@ -103,7 +110,17 @@ impl View {
     }
 
     pub fn project_state_mut(&mut self) -> &mut crate::project::ProjectState {
+        self.project_index.take();
         &mut self.data.project_state
+    }
+
+    /// Query the selected operation's project namespace. The derived index is
+    /// shared by unchanged View clones, never serialized into operation state.
+    pub fn projects(&self) -> ProjectView<'_> {
+        let index = self
+            .project_index
+            .get_or_init(|| Arc::new(ProjectIndex::new(&self.data.project_state)));
+        ProjectView::with_index(&self.data.project_state, index)
     }
 
     /// Resolve a physical Git key through explicit connection metadata only.
@@ -128,7 +145,7 @@ impl View {
                 "Connection {connection} has multiple physical remotes"
             ));
         }
-        let binding = self.data.project_state.binding_for_connection(connection)?;
+        let binding = self.projects().binding_for_connection(connection)?;
         match (identity.scoped_name, binding) {
             (Some(name), binding) => {
                 if binding.is_some_and(|(_, binding)| {
@@ -140,7 +157,7 @@ impl View {
                          active binding"
                     ));
                 }
-                self.data.project_state.validate_project(&name.project)?;
+                self.projects().validate_project(&name.project)?;
             }
             (None, Some((_, binding))) if matches!(binding.target, BindingTarget::Project(_)) => {
                 return Err(format!(
@@ -294,7 +311,7 @@ impl View {
                 .name
                 .as_str()
                 .rsplit_once('#')
-                .and_then(|(_, label)| self.data.project_state.resolve_label(label).ok().flatten())
+                .and_then(|(_, label)| self.projects().resolve_label(label).ok().flatten())
                 .as_ref()
                 != Some(&name.project)
         }) {
@@ -517,7 +534,7 @@ impl View {
 
     pub fn project_diagnostics(&self) -> Vec<crate::project::ProjectDiagnostic> {
         use crate::project::ProjectDiagnostic;
-        let mut diagnostics = self.data.project_state.diagnostics();
+        let mut diagnostics = self.projects().diagnostics().to_vec();
         for (remote, owners) in &self.data.remote_connections {
             let Err(message) = self.remote_identity(remote) else {
                 continue;
@@ -1238,6 +1255,7 @@ impl View {
     }
 
     pub fn set_view(&mut self, data: op_store::View, head_normalized: bool) {
+        self.project_index.take();
         self.data = data;
         self.head_normalized = head_normalized;
     }
@@ -1247,6 +1265,7 @@ impl View {
     }
 
     pub fn store_view_mut(&mut self) -> &mut op_store::View {
+        self.project_index.take();
         &mut self.data
     }
 
@@ -1262,7 +1281,7 @@ impl View {
         if self.head_normalized {
             return Ok(());
         }
-        let view = self.store_view_mut();
+        let view = &mut self.data;
         if view.head_ids.is_empty() {
             view.head_ids.insert(root_commit_id.clone());
         } else if view.head_ids.len() > 1 {
@@ -1310,10 +1329,7 @@ mod tests {
 
     #[test]
     fn test_absent_tracked_bookmarks() {
-        let mut view = View {
-            data: op_store::View::make_root(CommitId::from_hex("000000")),
-            head_normalized: true,
-        };
+        let mut view = View::new(op_store::View::make_root(CommitId::from_hex("000000")), true);
         let absent_tracked_ref = RemoteRef {
             target: RefTarget::absent(),
             state: RemoteRefState::Tracked,
@@ -1362,10 +1378,7 @@ mod tests {
 
     #[test]
     fn test_absent_tracked_tags() {
-        let mut view = View {
-            data: op_store::View::make_root(CommitId::from_hex("000000")),
-            head_normalized: true,
-        };
+        let mut view = View::new(op_store::View::make_root(CommitId::from_hex("000000")), true);
         let absent_tracked_ref = RemoteRef {
             target: RefTarget::absent(),
             state: RemoteRefState::Tracked,
@@ -1423,18 +1436,17 @@ mod tests {
         let mut view = View::new(op_store::View::make_root(CommitId::from_hex("00")), true);
         let project = ProjectId::generate();
         let connection = ConnectionId::generate();
-        view.data.project_state.projects.insert(
+        view.project_state_mut().projects.insert(
             project.clone(),
             Merge::normal(ProjectRecord {
                 name: "parser".into(),
                 canonical_root: RepoPathBuf::from_internal_string("parser").unwrap(),
             }),
         );
-        view.data
-            .project_state
+        view.project_state_mut()
             .labels
             .insert("parser".into(), Merge::normal(project.clone()));
-        view.data.project_state.bindings.insert(
+        view.project_state_mut().bindings.insert(
             BindingId::generate(),
             Merge::normal(BindingRecord {
                 target: BindingTarget::Project(project.clone()),
@@ -1447,8 +1459,7 @@ mod tests {
             project: project.clone(),
             name: "origin".into(),
         };
-        view.data
-            .project_state
+        view.project_state_mut()
             .remote_names
             .insert(connection.clone(), Merge::normal(identity.clone()));
         view.data
@@ -1460,7 +1471,7 @@ mod tests {
         view.data
             .remote_connections
             .insert("broken".into(), Merge::normal(broken.clone()));
-        view.data.project_state.remote_names.insert(
+        view.project_state_mut().remote_names.insert(
             broken,
             Merge::from_vec(vec![
                 Some(ScopedRemoteName {
@@ -1493,15 +1504,14 @@ mod tests {
             "origin#parser"
         );
         // Import bridges preserve identities but never activate foreign bindings.
-        view.data.project_state.bindings.clear();
+        view.project_state_mut().bindings.clear();
         assert_eq!(
             view.resolve_remote_name(&remotes, Some(&project), "origin".as_ref())
                 .unwrap(),
             "opaque"
         );
         assert!(view.project_state().bindings.is_empty());
-        view.data
-            .project_state
+        view.project_state_mut()
             .remote_names
             .insert(connection.clone(), Merge::absent());
         assert!(view.remote_identity("opaque".as_ref()).is_err());
@@ -1509,12 +1519,10 @@ mod tests {
             view.resolve_remote_name(&remotes, None, "opaque".as_ref())
                 .is_err()
         );
-        view.data
-            .project_state
+        view.project_state_mut()
             .remote_names
             .insert(connection, Merge::normal(identity.clone()));
-        view.data
-            .project_state
+        view.project_state_mut()
             .remote_names
             .insert(ConnectionId::generate(), Merge::normal(identity));
         assert!(
@@ -1555,7 +1563,7 @@ mod tests {
                 .unwrap(),
             old_remote
         );
-        view.data.project_state.projects.insert(
+        view.project_state_mut().projects.insert(
             project.clone(),
             Merge::normal(ProjectRecord {
                 name: "lib".into(),
@@ -1565,8 +1573,7 @@ mod tests {
         view.data
             .remote_connections
             .insert(new_remote.clone(), Merge::normal(new.clone()));
-        view.data
-            .project_state
+        view.project_state_mut()
             .remote_names
             .insert(new.clone(), Merge::normal(identity));
         assert_eq!(
@@ -1579,8 +1586,7 @@ mod tests {
                 .unwrap(),
             old_remote
         );
-        view.data
-            .project_state
+        view.project_state_mut()
             .remote_names
             .insert(new, Merge::absent());
         assert!(

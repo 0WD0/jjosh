@@ -201,7 +201,7 @@ pub fn resolve_remote_selector(
 ) -> Result<RemoteNameBuf, CommandError> {
     let view = workspace.repo().view();
     let project = project
-        .map(|name| view.project_state().project_by_name(name).map(|(id, _)| id))
+        .map(|name| view.projects().project_by_name(name).map(|(id, _)| id))
         .transpose()
         .map_err(user_error)?;
     let candidates = jj_lib::git::get_all_remote_names(workspace.repo().store())?;
@@ -235,9 +235,7 @@ pub fn parse_remote_selector_scope<'a>(
         return Ok((name, None));
     }
     if let Some((name, label)) = selector.rsplit_once('#')
-        && let Some(scope) = view
-            .project_state()
-            .resolve_label(label)
+        && let Some(scope) = view.projects().resolve_label(label)
             .map_err(user_error)?
     {
         if project.is_some_and(|project| project != &scope) {
@@ -402,8 +400,7 @@ pub fn select_remote_names(
         Some(explicit)
     } else {
         let label = if let Some(project) = project {
-            view.project_state()
-                .validate_project(project)
+            view.projects().validate_project(project)
                 .map_err(user_error)?;
             let labels: Vec<_> = view
                 .project_state()
@@ -694,7 +691,7 @@ pub fn check_selected_ref(
     let project = name
         .as_str()
         .rsplit_once('#')
-        .map(|(_, label)| view.project_state().resolve_label(label))
+        .map(|(_, label)| view.projects().resolve_label(label))
         .transpose()
         .map_err(user_error)?
         .flatten();
@@ -702,7 +699,7 @@ pub fn check_selected_ref(
     let connection = jj_lib::git::remote_connection_id(&git_repo, remote).map_err(user_error)?;
     let destination = connection
         .as_ref()
-        .map(|id| view.project_state().binding_for_connection(id))
+        .map(|id| view.projects().binding_for_connection(id))
         .transpose()
         .map_err(user_error)?
         .flatten();
@@ -715,8 +712,7 @@ pub fn check_selected_ref(
             .map_err(user_error)?
             .ok_or_else(|| user_error("--source must name a bound connection"))?;
         Some(
-            view.project_state()
-                .binding_for_connection(&id)
+            view.projects().binding_for_connection(&id)
                 .map_err(user_error)?
                 .ok_or_else(|| user_error("--source has no active binding"))?,
         )
@@ -741,8 +737,7 @@ pub fn check_selected_ref(
     }
     let binding = destination.or(selected);
     if let Some(project) = project {
-        view.project_state()
-            .validate_project(&project)
+        view.projects().validate_project(&project)
             .map_err(user_error)?;
         if !binding
             .is_some_and(|(_, binding)| binding.target == BindingTarget::Project(project.clone()))

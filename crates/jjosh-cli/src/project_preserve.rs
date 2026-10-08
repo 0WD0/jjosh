@@ -156,6 +156,7 @@ pub(crate) fn prepare(
         .collect();
     let mut remotes = BTreeMap::new();
     let mut physical_names = BTreeSet::new();
+    let source_projects = jj_lib::view::ProjectView::new(&source.project_state);
     for remote in source_remotes {
         let identity =
             jj_lib::view::remote_identity::resolve(source, remote).map_err(anyhow::Error::msg)?;
@@ -165,7 +166,7 @@ pub(crate) fn prepare(
             })
             .map(|identity| identity.connection);
         let required_capability = active_connection
-            .map(|connection| source.project_state.binding_for_connection(connection))
+            .map(|connection| source_projects.binding_for_connection(connection))
             .transpose()
             .map_err(anyhow::Error::msg)?
             .flatten()
@@ -231,8 +232,7 @@ pub(crate) fn prepare(
                         remote.as_str()
                     )
                 })?;
-            source
-                .project_state
+            source_projects
                 .validate_project(project)
                 .map_err(anyhow::Error::msg)?;
             let labels: Vec<_> = source
@@ -387,8 +387,7 @@ fn validate_source(source: &View) -> Result<()> {
         let BindingTarget::Project(project) = &binding.target else {
             unreachable!()
         };
-        source
-            .project_state
+        source_view.projects()
             .validate_project(project)
             .map_err(anyhow::Error::msg)
             .with_context(|| {

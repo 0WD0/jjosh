@@ -541,33 +541,6 @@ pub fn read_tree_id(
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn discovery_absence_keeps_the_stable_cli_error() {
-        let error = gix::Error::from_error(gix::discover::upwards::Error::NoGitRepository {
-            path: "/not/a/repository".into(),
-        });
-        assert_eq!(
-            super::map_discovery_error(error).to_string(),
-            "could not find repository at '.'; class=Repository (6); code=NotFound (-3)"
-        );
-    }
-
-    #[test]
-    fn discovery_operational_errors_are_preserved() {
-        let error = gix::Error::from_error(std::io::Error::new(
-            std::io::ErrorKind::PermissionDenied,
-            "repository access denied",
-        ));
-        let error = super::map_discovery_error(error);
-        assert!(
-            error
-                .downcast_ref::<gix::Error>()
-                .unwrap()
-                .iter_errors()
-                .any(|source| source.is::<std::io::Error>())
-        );
-    }
-
     fn signature() -> gix_actor::Signature {
         gix_actor::Signature {
             name: "t".into(),

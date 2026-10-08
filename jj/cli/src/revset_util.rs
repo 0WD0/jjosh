@@ -441,10 +441,7 @@ pub fn resolve_remote_settings(
     for (selector, settings) in settings {
         let (name, project) = match selector.as_str().rsplit_once('#') {
             Some((name, "")) => (RemoteName::new(name), None),
-            Some((name, label)) => match view
-                .store_view()
-                .project_state
-                .resolve_label(label)
+            Some((name, label)) => match view.projects().resolve_label(label)
                 .map_err(user_error)?
             {
                 Some(project) => (RemoteName::new(name), Some(project)),

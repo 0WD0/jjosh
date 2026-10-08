@@ -591,7 +591,7 @@ pub(super) async fn run(
                 if let Some((_, name)) = source_ref(source)
                     && let Some((_, label)) = name.rsplit_once('#')
                     && session
-                        .state
+                        .view.projects()
                         .resolve_label(label)
                         .map_err(user_error)?
                         .is_some()

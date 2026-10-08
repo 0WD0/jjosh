@@ -34,7 +34,6 @@ use jj_lib::project::BindingTarget;
 use jj_lib::project::ConnectionId;
 use jj_lib::project::ConversionObservation;
 use jj_lib::project::ProjectId;
-use jj_lib::project::ProjectState;
 use jj_lib::project::Representation;
 use jj_lib::ref_name::RefName;
 use jj_lib::ref_name::RefNameBuf;
@@ -64,7 +63,6 @@ pub(crate) struct Session {
     pub project: Option<Project>,
     pub binding: Option<(BindingId, BindingRecord)>,
     pub connection: Option<ConnectionId>,
-    pub state: ProjectState,
     view: jj_lib::view::View,
     filter: Option<Filter>,
     /// Initial import fetches use an endpoint before its remote config is installed.
@@ -154,7 +152,6 @@ impl Session {
         view: &jj_lib::view::View,
         name: &RemoteName,
     ) -> Result<Self, CommandError> {
-        let state = view.project_state();
         view.remote_identity(name).map_err(user_error)?;
         jj_lib::git::check_obsolete_remote_config(git, name).map_err(user_error)?;
         git.find_remote(name.as_str()).map_err(user_error)?;
@@ -183,7 +180,7 @@ impl Session {
         }
         let binding = connection
             .as_ref()
-            .map(|id| state.binding_for_connection(id).map_err(user_error))
+            .map(|id| view.projects().binding_for_connection(id).map_err(user_error))
             .transpose()?
             .flatten()
             .map(|(id, record)| (id, record.clone()));
@@ -229,9 +226,7 @@ impl Session {
         endpoint: String,
     ) -> Result<Self, CommandError> {
         view.remote_identity(name).map_err(user_error)?;
-        let (id, record) = view
-            .project_state()
-            .binding_for_connection(&connection)
+        let (id, record) = view.projects().binding_for_connection(&connection)
             .map_err(user_error)?
             .ok_or_else(|| user_error("Imported connection has no active binding"))?;
         // Parse and apply the destination's URL rules without saving any config.
@@ -264,7 +259,7 @@ impl Session {
                 return Err(user_error("Project conversion requires SHA-1"));
             }
             if let BindingTarget::Project(id) = &record.target {
-                state.validate_project(id).map_err(user_error)?;
+                view.projects().validate_project(id).map_err(user_error)?;
                 let definition = state
                     .projects
                     .get(id)
@@ -305,7 +300,6 @@ impl Session {
             project,
             binding,
             connection,
-            state: state.clone(),
             view: view.clone(),
             filter,
             endpoint,
@@ -388,7 +382,7 @@ impl Session {
             .await
             .map_err(user_error)?;
         if let Some(project) = &self.project {
-            for (id, value) in &self.state.bindings {
+            for (id, value) in &self.view.project_state().bindings {
                 let Some(record) = value.as_resolved().and_then(Option::as_ref) else {
                     continue;
                 };
@@ -489,7 +483,7 @@ impl GitRemoteSession for Session {
         local
             .as_str()
             .rsplit_once('#')
-            .filter(|(_, label)| self.state.resolve_label(label).ok().flatten().is_some())
+            .filter(|(_, label)| self.view.projects().resolve_label(label).ok().flatten().is_some())
             .map_or(local.as_str(), |(name, _)| name)
     }
     fn push_validation_commits<'a>(

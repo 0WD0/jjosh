@@ -60,7 +60,7 @@ fn source_destination(
     };
     let (source, scope) = match local.rsplit_once('#') {
         Some((source, label)) => match session
-            .state
+            .view.projects()
             .resolve_label(label)
             .map_err(anyhow::Error::msg)?
         {
@@ -671,7 +671,7 @@ fn session_remote_display(session: &Session) -> String {
     if let Some(identity) = session
         .connection
         .as_ref()
-        .and_then(|connection| session.state.remote_names.get(connection))
+        .and_then(|connection| session.view.project_state().remote_names.get(connection))
         .and_then(Merge::as_resolved)
         .and_then(Option::as_ref)
         && let Some(project) = &session.project
