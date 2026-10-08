@@ -159,7 +159,7 @@ fn reftable() -> TestResult {
 }
 
 #[test]
-fn repo_with_detached_head_is_discovered_as_worktree() -> Result {
+fn repo_with_detached_head_is_discovered_as_worktree() -> TestResult {
     let repo = gix_testtools::scripted_fixture_read_only("make_detached_head_repo.sh")?;
     assert_eq!(
         std::fs::read_to_string(repo.join(".git/HEAD"))?.trim().len(),
