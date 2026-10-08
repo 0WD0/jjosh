@@ -9,6 +9,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
+name = "adler32furious"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "67753fa0e5e56fa79255f125be5bb94b2f3570537bd1c66e9b146858f53cd298"
+
+[[package]]
 name = "aho-corasick"
 version = "1.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -74,7 +80,7 @@ version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40c48f72fd53cd289104fc64099abca73db4166ad86ea0b4341abe65af83dadc"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -85,14 +91,14 @@ checksum = "291e6a250ff86cd4a820112fb8898808a366d8f9f58ce16d1f538353ad55747d"
 dependencies = [
  "anstyle",
  "once_cell_polyfill",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
 name = "anyhow"
-version = "1.0.103"
+version = "1.0.104"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2a4385e2e34eb35d6b3efe798b9eb88096925d87726c0798709bf56d9ed84af3"
+checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "approx"
@@ -435,12 +441,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cesu8"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6d43a04d8753f35258c91f8ec639f792891f748a1edbd759cf1dcea3382ad83c"
-
-[[package]]
 name = "cfg-if"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -454,9 +454,9 @@ checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 
 [[package]]
 name = "chacha20"
-version = "0.10.1"
+version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d524456ba66e72eb8b115ff89e01e497f8e6d11d78b70b1aa13c0fbd97540a81"
+checksum = "65c35e4b699c7e15ccbe7ee35c005e4fc0a278d22238a2857e6ce2dadeda1b06"
 dependencies = [
  "cfg-if",
  "cpufeatures",
@@ -798,7 +798,6 @@ dependencies = [
  "crossterm_winapi",
  "derive_more",
  "document-features",
- "futures-core",
  "mio",
  "parking_lot",
  "rustix",
@@ -822,14 +821,8 @@ version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6ae462f0b868614980d59df41e217a77648de7ad7cf8b2a407155659896d889"
 dependencies = [
- "async-channel 2.5.0",
  "crossterm",
- "futures-channel",
- "futures-core",
- "futures-lite",
  "nu-ansi-term",
- "ratatui",
- "tui-react",
 ]
 
 [[package]]
@@ -859,7 +852,7 @@ dependencies = [
  "openssl-sys",
  "schannel",
  "socket2",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -875,7 +868,7 @@ dependencies = [
  "pkg-config",
  "rustls-ffi",
  "vcpkg",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -940,6 +933,15 @@ checksum = "930c7171c8df9fb1782bdf9b918ed9ed2d33d1d22300abb754f9085bc48bf8e8"
 
 [[package]]
 name = "defmt"
+version = "0.3.100"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f0963443817029b2024136fc4dd07a5107eb8f977eaf18fcd1fdeb11306b64ad"
+dependencies = [
+ "defmt 1.1.0",
+]
+
+[[package]]
+name = "defmt"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6e524506490a1953d237cb87b1cfc1e46f88c18f10a22dfe0f507dc6bfc7f7f"
@@ -967,7 +969,7 @@ version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "10d60334b3b2e7c9d91ef8150abfb6fa4c1c39ebbcf4a81c2e346aad939fee3e"
 dependencies = [
- "thiserror 2.0.18",
+ "thiserror",
 ]
 
 [[package]]
@@ -1043,7 +1045,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -1074,11 +1076,12 @@ dependencies = [
 
 [[package]]
 name = "dua-core"
-version = "2.41.1"
+version = "4.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f5eb6fcfdefafb636afa3858535f557376e9fb575def4ccef9f1bf0cfa8646d6"
+checksum = "0664627ab16c082ac5136a232dfef44ce0627a6cc43fca6f98e0284d3f9b1d79"
 dependencies = [
  "crossbeam",
+ "libc",
  "windows-sys 0.61.2",
 ]
 
@@ -1145,7 +1148,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -1217,10 +1220,12 @@ checksum = "dd2e7510819d6fbf51a5545c8f922716ecfb14df168a3242f7d33e0239efe6a1"
 
 [[package]]
 name = "faster-hex"
-version = "0.10.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7223ae2d2f179b803433d9c830478527e92b8117eab39460edae7f1614d9fb73"
+checksum = "04839bdf9d8c10f66806fad16b852fc72aab80873aebc3cb69d85b4fa41543ed"
 dependencies = [
+ "autocfg",
+ "defmt 0.3.100",
  "heapless",
  "serde",
 ]
@@ -1460,9 +1465,9 @@ dependencies = [
 
 [[package]]
 name = "gitoxide"
-version = "0.58.0"
+version = "0.60.0"
 dependencies = [
- "anyhow",
+ "anstream",
  "clap",
  "clap_complete",
  "crosstermion",
@@ -1471,22 +1476,17 @@ dependencies = [
  "futures-lite",
  "gitoxide-core",
  "gix",
- "gix-features",
  "gix-tix",
- "is-terminal",
  "prodash",
  "serde_derive",
  "terminal_size",
  "tracing",
- "tracing-forest 0.1.6",
- "tracing-subscriber",
 ]
 
 [[package]]
 name = "gitoxide-core"
-version = "0.61.1"
+version = "0.63.0"
 dependencies = [
- "anyhow",
  "async-io",
  "async-net",
  "async-trait",
@@ -1498,14 +1498,17 @@ dependencies = [
  "fs-err",
  "futures-io",
  "futures-lite",
+ "gitoxide-core",
  "gix",
  "gix-archive",
- "gix-error",
  "gix-fsck",
  "gix-pack",
  "gix-status",
+ "gix-testtools",
+ "gix-trace",
  "gix-transport",
  "gix-url",
+ "insta",
  "layout-rs",
  "open",
  "parking_lot",
@@ -1515,18 +1518,15 @@ dependencies = [
  "smallvec",
  "sysinfo",
  "tempfile",
- "thiserror 2.0.18",
  "tracing",
- "tracing-forest 0.2.0",
  "tracing-subscriber",
  "unicode-width",
 ]
 
 [[package]]
 name = "gix"
-version = "0.87.1"
+version = "0.89.0"
 dependencies = [
- "anyhow",
  "async-std",
  "document-features",
  "gix",
@@ -1543,7 +1543,6 @@ dependencies = [
  "gix-dir",
  "gix-discover",
  "gix-error",
- "gix-features",
  "gix-filter",
  "gix-fs",
  "gix-glob",
@@ -1559,6 +1558,7 @@ dependencies = [
  "gix-object",
  "gix-odb",
  "gix-pack",
+ "gix-parallel",
  "gix-path",
  "gix-pathspec",
  "gix-prompt",
@@ -1596,12 +1596,11 @@ dependencies = [
  "signal-hook 0.4.4",
  "smallvec",
  "termtree",
- "thiserror 2.0.18",
 ]
 
 [[package]]
 name = "gix-actor"
-version = "0.42.0"
+version = "0.44.0"
 dependencies = [
  "bstr",
  "document-features",
@@ -1609,13 +1608,14 @@ dependencies = [
  "gix-error",
  "gix-hash",
  "gix-testtools",
+ "insta",
  "pretty_assertions",
  "serde",
 ]
 
 [[package]]
 name = "gix-archive"
-version = "0.36.1"
+version = "0.38.0"
 dependencies = [
  "bstr",
  "document-features",
@@ -1637,19 +1637,20 @@ dependencies = [
 
 [[package]]
 name = "gix-attributes"
-version = "0.35.0"
+version = "0.37.0"
 dependencies = [
  "bstr",
  "criterion",
  "document-features",
  "gix-error",
- "gix-features",
  "gix-fs",
  "gix-glob",
+ "gix-parallel",
  "gix-path",
  "gix-quote",
  "gix-testtools",
  "gix-trace",
+ "insta",
  "serde",
  "smallvec",
  "unicode-bom",
@@ -1657,7 +1658,7 @@ dependencies = [
 
 [[package]]
 name = "gix-bitmap"
-version = "0.4.0"
+version = "0.6.0"
 dependencies = [
  "gix-error",
  "gix-testtools",
@@ -1665,7 +1666,7 @@ dependencies = [
 
 [[package]]
 name = "gix-blame"
-version = "0.17.1"
+version = "0.19.0"
 dependencies = [
  "gix-commitgraph",
  "gix-date",
@@ -1683,32 +1684,34 @@ dependencies = [
  "gix-trace",
  "gix-traverse",
  "gix-worktree",
+ "insta",
  "pretty_assertions",
  "smallvec",
- "thiserror 2.0.18",
 ]
 
 [[package]]
 name = "gix-chunk"
-version = "0.8.0"
+version = "0.10.0"
 dependencies = [
  "gix-error",
 ]
 
 [[package]]
 name = "gix-command"
-version = "0.10.1"
+version = "0.12.0"
 dependencies = [
  "bstr",
+ "gix-error",
  "gix-path",
  "gix-quote",
  "gix-testtools",
  "gix-trace",
+ "insta",
 ]
 
 [[package]]
 name = "gix-commitgraph"
-version = "0.39.0"
+version = "0.41.0"
 dependencies = [
  "bstr",
  "document-features",
@@ -1717,6 +1720,7 @@ dependencies = [
  "gix-error",
  "gix-hash",
  "gix-testtools",
+ "insta",
  "memmap2",
  "nonempty",
  "serde",
@@ -1724,7 +1728,7 @@ dependencies = [
 
 [[package]]
 name = "gix-config"
-version = "0.60.0"
+version = "0.62.0"
 dependencies = [
  "bstr",
  "bytesize",
@@ -1733,37 +1737,41 @@ dependencies = [
  "document-features",
  "gix-config",
  "gix-config-value",
- "gix-features",
+ "gix-error",
  "gix-glob",
+ "gix-parallel",
  "gix-path",
  "gix-ref",
  "gix-sec",
  "gix-testtools",
+ "gix-trace",
  "gix-utils",
  "insta",
  "serde",
  "serial_test",
  "smallvec",
- "thiserror 2.0.18",
  "unicode-bom",
 ]
 
 [[package]]
 name = "gix-config-value"
-version = "0.19.1"
+version = "0.21.0"
 dependencies = [
  "bitflags 2.13.0",
  "bstr",
  "document-features",
+ "gix-error",
  "gix-path",
+ "gix-testtools",
+ "gix-utils",
+ "insta",
  "libc",
  "serde",
- "thiserror 2.0.18",
 ]
 
 [[package]]
 name = "gix-credentials"
-version = "0.40.0"
+version = "0.42.0"
 dependencies = [
  "bstr",
  "document-features",
@@ -1778,19 +1786,21 @@ dependencies = [
  "gix-testtools",
  "gix-trace",
  "gix-url",
+ "insta",
+ "percent-encoding",
  "serde",
- "thiserror 2.0.18",
 ]
 
 [[package]]
 name = "gix-date"
-version = "0.16.0"
+version = "0.18.0"
 dependencies = [
  "bstr",
  "document-features",
  "gix-error",
  "gix-hash",
  "gix-testtools",
+ "insta",
  "itoa",
  "jiff",
  "pretty_assertions",
@@ -1799,7 +1809,7 @@ dependencies = [
 
 [[package]]
 name = "gix-diff"
-version = "0.67.1"
+version = "0.69.0"
 dependencies = [
  "bstr",
  "criterion",
@@ -1807,6 +1817,7 @@ dependencies = [
  "getrandom 0.4.3",
  "gix-attributes",
  "gix-command",
+ "gix-error",
  "gix-filter",
  "gix-fs",
  "gix-hash",
@@ -1824,16 +1835,16 @@ dependencies = [
  "insta",
  "pretty_assertions",
  "serde",
- "thiserror 2.0.18",
 ]
 
 [[package]]
 name = "gix-dir"
-version = "0.29.1"
+version = "0.31.0"
 dependencies = [
  "bstr",
  "gix-dir",
  "gix-discover",
+ "gix-error",
  "gix-fs",
  "gix-ignore",
  "gix-index",
@@ -1844,56 +1855,39 @@ dependencies = [
  "gix-trace",
  "gix-utils",
  "gix-worktree",
+ "insta",
  "pretty_assertions",
- "thiserror 2.0.18",
 ]
 
 [[package]]
 name = "gix-discover"
-version = "0.55.0"
+version = "0.57.0"
 dependencies = [
  "bstr",
  "defer",
  "dunce",
+ "gix-error",
  "gix-fs",
  "gix-path",
  "gix-ref",
  "gix-sec",
  "gix-testtools",
+ "insta",
  "is_ci",
  "serial_test",
  "tempfile",
- "thiserror 2.0.18",
 ]
 
 [[package]]
 name = "gix-error"
-version = "0.3.2"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "bstr",
  "document-features",
  "gix-error",
+ "gix-testtools",
  "insta",
-]
-
-[[package]]
-name = "gix-features"
-version = "0.49.1"
-dependencies = [
- "bytes",
- "bytesize",
- "crc32fast",
- "crossbeam-channel",
- "document-features",
- "gix-path",
- "gix-trace",
- "gix-utils",
- "libc",
- "once_cell",
- "parking_lot",
- "prodash",
- "walkdir",
 ]
 
 [[package]]
@@ -1902,45 +1896,53 @@ version = "0.0.0"
 
 [[package]]
 name = "gix-filter"
-version = "0.34.0"
+version = "0.36.0"
 dependencies = [
  "bstr",
  "encoding_rs",
  "gix-attributes",
  "gix-command",
+ "gix-error",
  "gix-filter",
  "gix-hash",
  "gix-object",
  "gix-packetline",
+ "gix-parallel",
  "gix-path",
  "gix-quote",
  "gix-testtools",
  "gix-trace",
  "gix-utils",
  "gix-worktree",
+ "insta",
  "smallvec",
- "thiserror 2.0.18",
 ]
 
 [[package]]
 name = "gix-fs"
-version = "0.22.1"
+version = "0.24.0"
 dependencies = [
  "bstr",
  "crossbeam-channel",
+ "document-features",
  "gix-error",
- "gix-features",
+ "gix-parallel",
  "gix-path",
+ "gix-testtools",
  "gix-utils",
+ "insta",
  "is_ci",
+ "libc",
  "serde",
  "tempfile",
+ "walkdir",
 ]
 
 [[package]]
 name = "gix-fsck"
-version = "0.25.1"
+version = "0.27.0"
 dependencies = [
+ "gix-error",
  "gix-hash",
  "gix-hashtable",
  "gix-object",
@@ -1950,30 +1952,32 @@ dependencies = [
 
 [[package]]
 name = "gix-glob"
-version = "0.27.1"
+version = "0.29.0"
 dependencies = [
  "bitflags 2.13.0",
  "bstr",
  "criterion",
  "document-features",
- "gix-features",
+ "gix-fs",
  "gix-path",
  "gix-testtools",
+ "gix-trace",
  "gix-utils",
  "serde",
 ]
 
 [[package]]
 name = "gix-hash"
-version = "0.26.2"
+version = "0.28.0"
 dependencies = [
  "bstr",
  "document-features",
  "faster-hex",
  "gix-error",
- "gix-features",
  "gix-hash",
  "gix-testtools",
+ "gix-utils",
+ "insta",
  "serde",
  "sha1dc",
  "sha2",
@@ -1981,7 +1985,7 @@ dependencies = [
 
 [[package]]
 name = "gix-hashtable"
-version = "0.16.0"
+version = "0.18.0"
 dependencies = [
  "gix-hash",
  "hashbrown 0.17.1",
@@ -1990,7 +1994,7 @@ dependencies = [
 
 [[package]]
 name = "gix-ignore"
-version = "0.22.1"
+version = "0.24.0"
 dependencies = [
  "bstr",
  "document-features",
@@ -2005,7 +2009,7 @@ dependencies = [
 
 [[package]]
 name = "gix-imara-diff"
-version = "0.2.5"
+version = "0.3.1"
 dependencies = [
  "arbitrary",
  "bstr",
@@ -2014,12 +2018,13 @@ dependencies = [
  "gix-hash",
  "gix-imara-diff",
  "gix-object",
- "hashbrown 0.17.1",
+ "gix-testtools",
+ "hashbrown 0.16.1",
 ]
 
 [[package]]
 name = "gix-index"
-version = "0.55.0"
+version = "0.57.0"
 dependencies = [
  "bitflags 2.13.0",
  "bstr",
@@ -2028,14 +2033,16 @@ dependencies = [
  "filetime",
  "fnv",
  "gix-bitmap",
- "gix-features",
+ "gix-error",
  "gix-fs",
  "gix-hash",
  "gix-hashtable",
  "gix-lock",
  "gix-object",
  "gix-odb",
+ "gix-parallel",
  "gix-testtools",
+ "gix-trace",
  "gix-traverse",
  "gix-utils",
  "gix-validate",
@@ -2047,7 +2054,6 @@ dependencies = [
  "rustix",
  "serde",
  "smallvec",
- "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -2056,17 +2062,20 @@ version = "0.0.0"
 
 [[package]]
 name = "gix-lock"
-version = "24.0.0"
+version = "26.0.0"
 dependencies = [
  "gix-error",
+ "gix-fs",
  "gix-tempfile",
+ "gix-testtools",
  "gix-utils",
+ "insta",
  "tempfile",
 ]
 
 [[package]]
 name = "gix-macros"
-version = "0.1.6"
+version = "0.2.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2076,7 +2085,7 @@ dependencies = [
 
 [[package]]
 name = "gix-mailmap"
-version = "0.34.1"
+version = "0.36.0"
 dependencies = [
  "bstr",
  "document-features",
@@ -2084,12 +2093,13 @@ dependencies = [
  "gix-date",
  "gix-error",
  "gix-testtools",
+ "insta",
  "serde",
 ]
 
 [[package]]
 name = "gix-merge"
-version = "0.20.1"
+version = "0.22.0"
 dependencies = [
  "arbitrary",
  "bstr",
@@ -2097,6 +2107,7 @@ dependencies = [
  "document-features",
  "gix-command",
  "gix-diff",
+ "gix-error",
  "gix-filter",
  "gix-fs",
  "gix-hash",
@@ -2114,20 +2125,21 @@ dependencies = [
  "gix-trace",
  "gix-utils",
  "gix-worktree",
+ "insta",
  "nonempty",
  "pretty_assertions",
  "serde",
  "termtree",
- "thiserror 2.0.18",
 ]
 
 [[package]]
 name = "gix-negotiate"
-version = "0.35.1"
+version = "0.37.0"
 dependencies = [
  "bitflags 2.13.0",
  "gix-commitgraph",
  "gix-date",
+ "gix-error",
  "gix-hash",
  "gix-object",
  "gix-odb",
@@ -2138,7 +2150,7 @@ dependencies = [
 
 [[package]]
 name = "gix-note"
-version = "0.1.1"
+version = "0.3.0"
 dependencies = [
  "criterion",
  "gix-error",
@@ -2147,11 +2159,12 @@ dependencies = [
  "gix-object",
  "gix-odb",
  "gix-testtools",
+ "insta",
 ]
 
 [[package]]
 name = "gix-object"
-version = "0.64.1"
+version = "0.66.0"
 dependencies = [
  "bstr",
  "criterion",
@@ -2159,7 +2172,7 @@ dependencies = [
  "gix-actor",
  "gix-command",
  "gix-date",
- "gix-features",
+ "gix-error",
  "gix-hash",
  "gix-hashtable",
  "gix-object",
@@ -2175,76 +2188,81 @@ dependencies = [
  "serde",
  "smallvec",
  "termtree",
- "thiserror 2.0.18",
 ]
 
 [[package]]
 name = "gix-odb"
-version = "0.84.0"
+version = "0.86.0"
 dependencies = [
  "arc-swap",
+ "crc32fast",
  "crossbeam-channel",
  "document-features",
  "filetime",
  "gix-actor",
  "gix-date",
  "gix-error",
- "gix-features",
  "gix-fs",
  "gix-hash",
  "gix-hashtable",
  "gix-object",
  "gix-odb",
  "gix-pack",
+ "gix-parallel",
  "gix-path",
  "gix-quote",
  "gix-testtools",
+ "gix-trace",
+ "gix-utils",
  "gix-zlib",
+ "insta",
  "maplit",
  "memmap2",
  "parking_lot",
  "pretty_assertions",
  "serde",
  "tempfile",
- "thiserror 2.0.18",
 ]
 
 [[package]]
 name = "gix-pack"
-version = "0.74.2"
+version = "0.76.0"
 dependencies = [
  "bstr",
  "clru",
+ "crc32fast",
  "criterion",
  "crossbeam-deque",
  "document-features",
  "gix-chunk",
  "gix-diff",
  "gix-error",
- "gix-features",
  "gix-hash",
  "gix-hashtable",
  "gix-object",
  "gix-odb",
  "gix-pack",
+ "gix-parallel",
  "gix-path",
  "gix-tempfile",
  "gix-testtools",
+ "gix-trace",
  "gix-traverse",
+ "gix-utils",
  "gix-zlib",
  "insta",
  "maplit",
  "memmap2",
  "parking_lot",
+ "prodash",
  "serde",
  "smallvec",
- "thiserror 2.0.18",
  "uluru",
 ]
 
 [[package]]
 name = "gix-packetline"
-version = "0.22.2"
+version = "0.24.0"
 dependencies = [
  "async-std",
  "bstr",
@@ -2252,24 +2270,42 @@ dependencies = [
  "faster-hex",
  "futures-io",
  "futures-lite",
+ "gix-error",
  "gix-hash",
  "gix-macros",
  "gix-odb",
  "gix-pack",
+ "gix-testtools",
  "gix-trace",
+ "insta",
  "pin-project-lite",
  "serde",
- "thiserror 2.0.18",
+]
+
+[[package]]
+name = "gix-parallel"
+version = "0.50.0"
+dependencies = [
+ "crossbeam-channel",
+ "document-features",
+ "gix-testtools",
+ "gix-trace",
+ "insta",
+ "once_cell",
+ "parking_lot",
+ "tracing-subscriber",
 ]
 
 [[package]]
 name = "gix-path"
-version = "0.12.6"
+version = "0.14.0"
 dependencies = [
  "bstr",
  "gix-error",
+ "gix-testtools",
  "gix-trace",
  "gix-validate",
+ "insta",
  "serial_test",
  "tempfile",
  "windows 0.62.2",
@@ -2278,36 +2314,39 @@ dependencies = [
 
 [[package]]
 name = "gix-pathspec"
-version = "0.20.0"
+version = "0.22.0"
 dependencies = [
  "bitflags 2.13.0",
  "bstr",
  "gix-attributes",
  "gix-config-value",
+ "gix-error",
  "gix-glob",
+ "gix-parallel",
  "gix-path",
  "gix-testtools",
+ "insta",
  "serial_test",
- "thiserror 2.0.18",
 ]
 
 [[package]]
 name = "gix-prompt"
-version = "0.17.0"
+version = "0.19.0"
 dependencies = [
  "expectrl",
  "gix-command",
  "gix-config-value",
+ "gix-error",
  "gix-testtools",
+ "insta",
  "parking_lot",
  "rustix",
  "serial_test",
- "thiserror 2.0.18",
 ]
 
 [[package]]
 name = "gix-protocol"
-version = "0.65.1"
+version = "0.67.0"
 dependencies = [
  "async-std",
  "async-trait",
@@ -2317,7 +2356,7 @@ dependencies = [
  "futures-lite",
  "gix-credentials",
  "gix-date",
- "gix-features",
+ "gix-error",
  "gix-hash",
  "gix-lock",
  "gix-macros",
@@ -2329,17 +2368,18 @@ dependencies = [
  "gix-refspec",
  "gix-revwalk",
  "gix-shallow",
+ "gix-testtools",
  "gix-trace",
  "gix-transport",
  "gix-utils",
+ "insta",
  "nonempty",
  "serde",
- "thiserror 2.0.18",
 ]
 
 [[package]]
 name = "gix-quote"
-version = "0.8.0"
+version = "0.10.0"
 dependencies = [
  "bstr",
  "gix-error",
@@ -2352,19 +2392,19 @@ version = "0.0.0"
 
 [[package]]
 name = "gix-ref"
-version = "0.67.1"
+version = "0.69.0"
 dependencies = [
  "document-features",
  "gix-actor",
  "gix-date",
  "gix-discover",
  "gix-error",
- "gix-features",
  "gix-fs",
  "gix-hash",
  "gix-lock",
  "gix-object",
  "gix-odb",
+ "gix-parallel",
  "gix-path",
  "gix-tempfile",
  "gix-testtools",
@@ -2374,25 +2414,24 @@ dependencies = [
  "libc",
  "memmap2",
  "serde",
- "thiserror 2.0.18",
 ]
 
 [[package]]
 name = "gix-refspec"
-version = "0.45.1"
+version = "0.47.0"
 dependencies = [
  "bstr",
+ "gix-error",
  "gix-hash",
  "gix-testtools",
  "gix-validate",
  "insta",
  "smallvec",
- "thiserror 2.0.18",
 ]
 
 [[package]]
 name = "gix-revision"
-version = "0.49.1"
+version = "0.51.0"
 dependencies = [
  "bitflags 2.13.0",
  "bstr",
@@ -2415,7 +2454,7 @@ dependencies = [
 
 [[package]]
 name = "gix-revwalk"
-version = "0.35.0"
+version = "0.37.0"
 dependencies = [
  "gix-commitgraph",
  "gix-date",
@@ -2425,12 +2464,11 @@ dependencies = [
  "gix-object",
  "gix-testtools",
  "smallvec",
- "thiserror 2.0.18",
 ]
 
 [[package]]
 name = "gix-sec"
-version = "0.14.2"
+version = "0.16.0"
 dependencies = [
  "bitflags 2.13.0",
  "document-features",
@@ -2447,68 +2485,72 @@ version = "0.0.0"
 
 [[package]]
 name = "gix-shallow"
-version = "0.13.0"
+version = "0.15.0"
 dependencies = [
  "bstr",
+ "gix-error",
  "gix-hash",
  "gix-lock",
  "nonempty",
  "serde",
  "tempfile",
- "thiserror 2.0.18",
 ]
 
 [[package]]
 name = "gix-status"
-version = "0.34.1"
+version = "0.36.0"
 dependencies = [
  "bstr",
  "document-features",
  "filetime",
  "gix-diff",
  "gix-dir",
- "gix-features",
+ "gix-error",
  "gix-filter",
  "gix-fs",
  "gix-hash",
  "gix-index",
  "gix-object",
  "gix-odb",
+ "gix-parallel",
  "gix-path",
  "gix-pathspec",
  "gix-status",
  "gix-testtools",
+ "gix-trace",
+ "gix-utils",
  "gix-worktree",
  "hashbrown 0.16.1",
+ "insta",
  "portable-atomic",
  "pretty_assertions",
- "thiserror 2.0.18",
- "windows-sys 0.61.2",
 ]
 
 [[package]]
 name = "gix-submodule"
-version = "0.34.0"
+version = "0.36.0"
 dependencies = [
  "bstr",
  "gix-config",
  "gix-error",
- "gix-features",
+ "gix-fs",
  "gix-path",
  "gix-pathspec",
  "gix-refspec",
  "gix-testtools",
  "gix-url",
- "thiserror 2.0.18",
+ "insta",
 ]
 
 [[package]]
 name = "gix-tempfile"
-version = "24.0.0"
+version = "26.0.0"
 dependencies = [
  "dashmap",
  "document-features",
  "gix-fs",
+ "gix-testtools",
+ "insta",
  "libc",
  "parking_lot",
  "signal-hook 0.4.4",
@@ -2519,7 +2561,7 @@ dependencies = [
 
 [[package]]
 name = "gix-testtools"
-version = "0.20.0"
+version = "0.22.0"
 dependencies = [
  "bstr",
  "crc",
@@ -2534,6 +2576,7 @@ dependencies = [
  "gix-lock",
  "gix-object",
  "gix-odb",
+ "gix-parallel",
  "gix-path",
  "gix-ref",
  "gix-shallow",
@@ -2553,14 +2596,15 @@ dependencies = [
 
 [[package]]
 name = "gix-tix"
-version = "0.3.0"
+version = "0.5.0"
 dependencies = [
- "anyhow",
  "clap",
  "crossterm",
  "directories",
  "gix",
  "gix-testtools",
+ "gix-trace",
+ "gix-worktree",
  "insta",
  "notify",
  "ratatui",
@@ -2573,15 +2617,20 @@ dependencies = [
 
 [[package]]
 name = "gix-trace"
-version = "0.1.21"
+version = "0.3.0"
 dependencies = [
  "document-features",
+ "gix-error",
+ "libc",
+ "nu-ansi-term",
+ "smallvec",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
 name = "gix-transport"
-version = "0.59.2"
+version = "0.61.0"
 dependencies = [
  "async-std",
  "async-trait",
@@ -2595,7 +2644,6 @@ dependencies = [
  "gix-command",
  "gix-credentials",
  "gix-error",
- "gix-features",
  "gix-hash",
  "gix-macros",
  "gix-pack",
@@ -2603,22 +2651,26 @@ dependencies = [
  "gix-path",
  "gix-quote",
  "gix-sec",
+ "gix-testtools",
+ "gix-trace",
  "gix-transport",
  "gix-url",
+ "gix-utils",
+ "insta",
  "parking_lot",
  "pin-project-lite",
  "reqwest",
  "serde",
- "thiserror 2.0.18",
 ]
 
 [[package]]
 name = "gix-traverse"
-version = "0.61.0"
+version = "0.63.0"
 dependencies = [
  "bitflags 2.13.0",
  "gix-commitgraph",
  "gix-date",
+ "gix-error",
  "gix-hash",
  "gix-hashtable",
  "gix-object",
@@ -2629,7 +2681,6 @@ dependencies = [
  "gix-traverse",
  "insta",
  "smallvec",
- "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -2638,7 +2689,7 @@ version = "0.0.0"
 
 [[package]]
 name = "gix-url"
-version = "0.38.0"
+version = "0.40.0"
 dependencies = [
  "assert_matches",
  "bstr",
@@ -2647,6 +2698,7 @@ dependencies = [
  "gix-path",
  "gix-testtools",
  "gix-utils",
+ "insta",
  "percent-encoding",
  "serde",
  "serde_json",
@@ -2654,32 +2706,44 @@ dependencies = [
 
 [[package]]
 name = "gix-utils"
-version = "0.3.6"
+version = "0.5.1"
 dependencies = [
  "bstr",
+ "bytes",
+ "bytesize",
+ "criterion",
+ "document-features",
  "fastrand",
  "getrandom 0.4.3",
+ "gix-error",
+ "gix-testtools",
  "gix-utils",
+ "insta",
+ "prodash",
  "unicode-normalization",
 ]
 
 [[package]]
 name = "gix-validate"
-version = "0.11.4"
+version = "0.13.0"
 dependencies = [
  "bstr",
+ "gix-error",
  "gix-testtools",
+ "insta",
 ]
 
 [[package]]
 name = "gix-worktree"
-version = "0.56.0"
+version = "0.58.0"
 dependencies = [
  "bstr",
+ "criterion",
  "document-features",
+ "dua-core",
  "gix-attributes",
  "gix-discover",
- "gix-features",
+ "gix-error",
  "gix-fs",
  "gix-glob",
  "gix-hash",
@@ -2689,58 +2753,70 @@ dependencies = [
  "gix-odb",
  "gix-path",
  "gix-testtools",
+ "gix-trace",
+ "gix-utils",
  "gix-validate",
+ "gix-worktree",
+ "insta",
  "serde",
 ]
 
 [[package]]
 name = "gix-worktree-state"
-version = "0.34.1"
+version = "0.36.0"
 dependencies = [
  "bstr",
- "gix-features",
+ "gix-error",
  "gix-filter",
  "gix-fs",
  "gix-hash",
  "gix-index",
  "gix-object",
  "gix-odb",
+ "gix-parallel",
  "gix-path",
  "gix-testtools",
+ "gix-trace",
+ "gix-utils",
  "gix-worktree",
  "gix-worktree-state",
+ "insta",
  "io-close",
- "thiserror 2.0.18",
  "walkdir",
 ]
 
 [[package]]
 name = "gix-worktree-stream"
-version = "0.36.1"
+version = "0.38.0"
 dependencies = [
  "gix-attributes",
  "gix-error",
- "gix-features",
  "gix-filter",
  "gix-fs",
  "gix-hash",
  "gix-object",
  "gix-odb",
+ "gix-parallel",
  "gix-path",
  "gix-testtools",
+ "gix-trace",
  "gix-traverse",
+ "gix-utils",
  "gix-worktree",
  "gix-worktree-stream",
+ "insta",
  "parking_lot",
 ]
 
 [[package]]
 name = "gix-zlib"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "bstr",
  "gix-error",
+ "insta",
  "serde",
+ "sirocco",
  "zlib-rs",
 ]
 
@@ -2862,9 +2938,9 @@ checksum = "fc0fef456e4baa96da950455cd02c081ca953b141298e41db3fc7e36b1da849c"
 
 [[package]]
 name = "hickory-net"
-version = "0.26.1"
+version = "0.26.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e2295ed2f9c31e471e1428a8f88a3f0e1f4b27c15049592138d1eebe9c35b183"
+checksum = "c480823ed7c2c5d0f09c41020cb6b7c28029ce60ec42dc942158dcf22f8e0a4d"
 dependencies = [
  "async-trait",
  "cfg-if",
@@ -2875,9 +2951,9 @@ dependencies = [
  "hickory-proto",
  "idna",
  "ipnet",
- "jni 0.22.4",
+ "jni",
  "rand 0.10.1",
- "thiserror 2.0.18",
+ "thiserror",
  "tinyvec",
  "tokio",
  "tracing",
@@ -2886,19 +2962,19 @@ dependencies = [
 
 [[package]]
 name = "hickory-proto"
-version = "0.26.1"
+version = "0.26.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0bab31817bfb44672a252e97fe81cd0c18d1b2cf892108922f6818820df8c643"
+checksum = "12b92608f679a6fa515dd1d15c1ff89443026e391200a2c840c7afcba482893d"
 dependencies = [
  "data-encoding",
  "idna",
  "ipnet",
- "jni 0.22.4",
+ "jni",
  "once_cell",
  "prefix-trie",
  "rand 0.10.1",
  "ring",
- "thiserror 2.0.18",
+ "thiserror",
  "tinyvec",
  "tracing",
  "url",
@@ -2906,9 +2982,9 @@ dependencies = [
 
 [[package]]
 name = "hickory-resolver"
-version = "0.26.1"
+version = "0.26.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f0d58d28879ceecde6607729660c2667a081ccdc082e082675042793960f178c"
+checksum = "3f3da5255c95d5a716857d54b5b8f4e8d67c3484d3beaaaae2ce25063b3ba981"
 dependencies = [
  "cfg-if",
  "futures-util",
@@ -2916,7 +2992,7 @@ dependencies = [
  "hickory-proto",
  "ipconfig",
  "ipnet",
- "jni 0.22.4",
+ "jni",
  "moka",
  "ndk-context",
  "once_cell",
@@ -2925,7 +3001,7 @@ dependencies = [
  "resolv-conf",
  "smallvec",
  "system-configuration",
- "thiserror 2.0.18",
+ "thiserror",
  "tokio",
  "tracing",
 ]
@@ -3238,7 +3314,6 @@ dependencies = [
 name = "internal-tools"
 version = "0.0.0"
 dependencies = [
- "anyhow",
  "clap",
  "gix",
  "gix-testtools",
@@ -3284,17 +3359,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "928bae27f42bc99b60d9ac7334e3a21d10ad8f1835a4e12ec3ec0464765ed1b3"
 dependencies = [
  "once_cell",
-]
-
-[[package]]
-name = "is-terminal"
-version = "0.4.17"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3640c1c38b8e4e43584d8df18be5fc6b0aa314ce6ebf51b53313d4306cca8e46"
-dependencies = [
- "hermit-abi",
- "libc",
- "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3358,7 +3422,7 @@ version = "0.2.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ccfe6121cbe750cf81efa362d85c0bde7ea298ec43092d3a193baca59cdbd634"
 dependencies = [
- "defmt",
+ "defmt 1.1.0",
  "jiff-static",
  "jiff-tzdb-platform",
  "log",
@@ -3396,22 +3460,6 @@ dependencies = [
 
 [[package]]
 name = "jni"
-version = "0.21.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1a87aa2bb7d2af34197c04845522473242e1aa17c12f4935d5856491a7fb8c97"
-dependencies = [
- "cesu8",
- "cfg-if",
- "combine",
- "jni-sys 0.3.1",
- "log",
- "thiserror 1.0.69",
- "walkdir",
- "windows-sys 0.45.0",
-]
-
-[[package]]
-name = "jni"
 version = "0.22.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5efd9a482cf3a427f00d6b35f14332adc7902ce91efb778580e180ff90fa3498"
@@ -3419,10 +3467,10 @@ dependencies = [
  "cfg-if",
  "combine",
  "jni-macros",
- "jni-sys 0.4.1",
+ "jni-sys",
  "log",
  "simd_cesu8",
- "thiserror 2.0.18",
+ "thiserror",
  "walkdir",
  "windows-link",
 ]
@@ -3438,15 +3486,6 @@ dependencies = [
  "rustc_version",
  "simd_cesu8",
  "syn 2.0.118",
-]
-
-[[package]]
-name = "jni-sys"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41a652e1f9b6e0275df1f15b32661cf0d4b78d4d87ddec5e0c3c20f097433258"
-dependencies = [
- "jni-sys 0.4.1",
 ]
 
 [[package]]
@@ -3497,7 +3536,7 @@ checksum = "bde5057d6143cc94e861d90f591b9303d6716c6b9602309150bd068853c10899"
 dependencies = [
  "hashbrown 0.16.1",
  "portable-atomic",
- "thiserror 2.0.18",
+ "thiserror",
 ]
 
 [[package]]
@@ -3657,10 +3696,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "macro_rules_attribute"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b3ae8f6d608c795738406608304d30a2dfbdc8e58e44f7ba43236da5208ded3c"
+dependencies = [
+ "macro_rules_attribute-proc_macro",
+ "pastey",
+]
+
+[[package]]
+name = "macro_rules_attribute-proc_macro"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fc04a4c58212d57930a24bf47d3fa87485264a3a054e9c10e042eb373573ad3c"
+
+[[package]]
 name = "maplit"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3e2e65a1a2e43cfcb47a895c4c8b10d1f4a61097f9f254f183aee60cad9c651d"
+
+[[package]]
+name = "matchers"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d1525a2a28c7f4fa0fc98bb91ae755d1e2d1505079e05539e35bc876b5d65ae9"
+dependencies = [
+ "regex-automata",
+]
 
 [[package]]
 name = "memchr"
@@ -3818,7 +3882,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -4015,6 +4079,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "pastey"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2ee67f1008b1ba2321834326597b8e186293b049a023cdef258527550b9935b4"
+
+[[package]]
 name = "percent-encoding"
 version = "2.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4199,24 +4269,17 @@ dependencies = [
 
 [[package]]
 name = "prodash"
-version = "31.0.0"
+version = "31.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "962200e2d7d551451297d9fdce85138374019ada198e30ea9ede38034e27604c"
+checksum = "cf52d87428247c5aa3760ac8e7d8b13ec7b3579b955a8c3f311668b6860acba5"
 dependencies = [
- "async-io",
  "bytesize",
  "crosstermion",
- "futures-core",
- "futures-lite",
  "human_format",
- "is-terminal",
  "jiff",
  "log",
  "parking_lot",
- "ratatui",
  "signal-hook 0.4.4",
- "tui-react",
- "unicode-segmentation",
  "unicode-width",
 ]
 
@@ -4262,7 +4325,7 @@ dependencies = [
  "rustc-hash",
  "rustls",
  "socket2",
- "thiserror 2.0.18",
+ "thiserror",
  "tokio",
  "tracing",
  "web-time",
@@ -4284,7 +4347,7 @@ dependencies = [
  "rustls",
  "rustls-pki-types",
  "slab",
- "thiserror 2.0.18",
+ "thiserror",
  "tinyvec",
  "tracing",
  "web-time",
@@ -4399,7 +4462,7 @@ dependencies = [
  "palette",
  "serde",
  "strum",
- "thiserror 2.0.18",
+ "thiserror",
  "unicode-segmentation",
  "unicode-truncate",
  "unicode-width",
@@ -4480,7 +4543,7 @@ checksum = "a4e608c6638b9c18977b00b475ac1f28d14e84b27d8d42f70e0bf1e3dec127ac"
 dependencies = [
  "getrandom 0.2.17",
  "libredox",
- "thiserror 2.0.18",
+ "thiserror",
 ]
 
 [[package]]
@@ -4549,7 +4612,7 @@ dependencies = [
  "quinn",
  "rustls",
  "rustls-pki-types",
- "rustls-platform-verifier 0.7.0",
+ "rustls-platform-verifier",
  "sync_wrapper",
  "tokio",
  "tokio-native-tls",
@@ -4590,7 +4653,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c51c9ae4df8a7fba42103df5c621fa3c37eccf3a3c650879e90fc48b11cc192c"
 dependencies = [
  "hashbrown 0.16.1",
- "thiserror 2.0.18",
+ "thiserror",
 ]
 
 [[package]]
@@ -4662,14 +4725,14 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
 name = "rustls"
-version = "0.23.45"
+version = "0.23.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634"
+checksum = "48e13bd8c0e9365c43cfa5c9e8f9ad49d3c8444926c9aac819e0e4dc503c8fdf"
 dependencies = [
  "aws-lc-rs",
  "once_cell",
@@ -4681,14 +4744,15 @@ dependencies = [
 
 [[package]]
 name = "rustls-ffi"
-version = "0.15.0"
+version = "0.15.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4128514cb6472050cba340cdac098a235c53e6aad276737ce1d7b24a19260392"
+checksum = "3aecdfbab945bcfa0370aad902c225448e0c7c002f49304d8bd1a0ad7de6439d"
 dependencies = [
  "libc",
  "log",
+ "macro_rules_attribute",
  "rustls",
- "rustls-platform-verifier 0.5.3",
+ "rustls-platform-verifier",
  "rustls-webpki",
 ]
 
@@ -4716,34 +4780,13 @@ dependencies = [
 
 [[package]]
 name = "rustls-platform-verifier"
-version = "0.5.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "19787cda76408ec5404443dc8b31795c87cd8fec49762dc75fa727740d34acc1"
-dependencies = [
- "core-foundation 0.10.1",
- "core-foundation-sys",
- "jni 0.21.1",
- "log",
- "once_cell",
- "rustls",
- "rustls-native-certs",
- "rustls-platform-verifier-android",
- "rustls-webpki",
- "security-framework",
- "security-framework-sys",
- "webpki-root-certs 0.26.11",
- "windows-sys 0.59.0",
-]
-
-[[package]]
-name = "rustls-platform-verifier"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "26d1e2536ce4f35f4846aa13bff16bd0ff40157cdb14cc056c7b14ba41233ba0"
 dependencies = [
  "core-foundation 0.10.1",
  "core-foundation-sys",
- "jni 0.22.4",
+ "jni",
  "log",
  "once_cell",
  "rustls",
@@ -4752,8 +4795,8 @@ dependencies = [
  "rustls-webpki",
  "security-framework",
  "security-framework-sys",
- "webpki-root-certs 1.0.8",
- "windows-sys 0.61.2",
+ "webpki-root-certs",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -4764,9 +4807,9 @@ checksum = "f87165f0995f63a9fbeea62b64d10b4d9d8e78ec6d7d51fb2125fda7bb36788f"
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.15"
+version = "0.103.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3c3cf1d8b1e7d4927e2d154c3fcb02979afb9939629c62cd9048d4f07b60ac2"
+checksum = "4443b1b6d39d7c663139942cc4558262562d2c84123bb6282ef177009ca8b281"
 dependencies = [
  "aws-lc-rs",
  "ring",
@@ -4918,9 +4961,9 @@ dependencies = [
 
 [[package]]
 name = "sha1dc"
-version = "0.1.2"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1fdf1713fb0547b120571e5f7b37dc2650dc03d2abf46a18928f54372000947f"
+checksum = "8ce90db4b52deca3f18199593dda33de804c4837d7c94423e5407e8248d37ecf"
 
 [[package]]
 name = "sha2"
@@ -5018,6 +5061,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbbb5d9659141646ae647b42fe094daf6c6192d1620870b449d9557f748b2daa"
 
 [[package]]
+name = "sirocco"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "499ced3fc3dd59058047e304ca01b6ae973c05568f40318674853fb0cf6edec0"
+dependencies = [
+ "adler32furious",
+ "crc32fast",
+]
+
+[[package]]
 name = "slab"
 version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5039,7 +5092,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "52d1cfed4120b4d927bf7c0f86d2087a4a7d6027c906d9f9d525a80573b9be51"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -5224,7 +5277,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -5269,7 +5322,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "230a1b821ccbd75b185820a1f1ff7b14d21da1e442e22c0863ea5f08771a8874"
 dependencies = [
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -5280,31 +5333,11 @@ checksum = "d4d1330fe7f7f872cd05165130b10602d667b205fd85be09be2814b115d4ced9"
 
 [[package]]
 name = "thiserror"
-version = "1.0.69"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6aaf5339b578ea85b50e080feb250a3e8ae8cfcdff9a461c9ec2904bc923f52"
-dependencies = [
- "thiserror-impl 1.0.69",
-]
-
-[[package]]
-name = "thiserror"
 version = "2.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4288b5bcbc7920c07a1149a35cf9590a2aa808e0bc1eafaade0b80947865fbc4"
 dependencies = [
- "thiserror-impl 2.0.18",
-]
-
-[[package]]
-name = "thiserror-impl"
-version = "1.0.69"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4fee6c4efc90059e10f81e6d42c60a18f76588c3d74cb83a0b242a2b6c7504c1"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.118",
+ "thiserror-impl",
 ]
 
 [[package]]
@@ -5568,7 +5601,7 @@ checksum = "050686193eb999b4bb3bc2acfa891a13da00f79734704c4b8b4ef1a10b368a3c"
 dependencies = [
  "crossbeam-channel",
  "symlink",
- "thiserror 2.0.18",
+ "thiserror",
  "time",
  "tracing-subscriber",
 ]
@@ -5595,32 +5628,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tracing-forest"
-version = "0.1.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ee40835db14ddd1e3ba414292272eddde9dad04d3d4b65509656414d1c42592f"
-dependencies = [
- "serde",
- "smallvec",
- "thiserror 1.0.69",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "tracing-forest"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3298fe855716711a00474eceb89cc7dc254bbe67f6bc4afafdeec5f0c538771c"
-dependencies = [
- "serde",
- "smallvec",
- "thiserror 2.0.18",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "tracing-log"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5637,10 +5644,14 @@ version = "0.3.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb7f578e5945fb242538965c2d0b04418d38ec25c79d160cd279bf0731c8d319"
 dependencies = [
+ "matchers",
  "nu-ansi-term",
+ "once_cell",
+ "regex-automata",
  "sharded-slab",
  "smallvec",
  "thread_local",
+ "tracing",
  "tracing-core",
  "tracing-log",
 ]
@@ -5678,18 +5689,6 @@ dependencies = [
  "ratatui-core",
  "rstest",
  "tracing",
-]
-
-[[package]]
-name = "tui-react"
-version = "0.24.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3c07031f0f4eb182785a8621967da6c75b9b21cfc7dfaaac78400b9a12492e66"
-dependencies = [
- "log",
- "ratatui",
- "unicode-segmentation",
- "unicode-width",
 ]
 
 [[package]]
@@ -5936,18 +5935,9 @@ dependencies = [
 
 [[package]]
 name = "webpki-root-certs"
-version = "0.26.11"
+version = "1.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "75c7f0ef91146ebfb530314f5f1d24528d7f0767efbfd31dce919275413e393e"
-dependencies = [
- "webpki-root-certs 1.0.8",
-]
-
-[[package]]
-name = "webpki-root-certs"
-version = "1.0.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d46a5a140e6f7afeccd8eae97eff335163939eac8b929834875168b29b3d267"
+checksum = "58ec80e73fd8baf57bf0d9615554c75348bda990d6d5bbeab964dd068319fecb"
 dependencies = [
  "rustls-pki-types",
 ]
@@ -5980,7 +5970,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -6112,27 +6102,9 @@ dependencies = [
 
 [[package]]
 name = "windows-sys"
-version = "0.45.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "75283be5efb2831d37ea142365f009c02ec203cd29a3ebecbc093d52315b66d0"
-dependencies = [
- "windows-targets 0.42.2",
-]
-
-[[package]]
-name = "windows-sys"
 version = "0.52.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "282be5f36a8ce781fad8c8ae18fa3f9beff57ec1b52cb3de0789201425d9a33d"
-dependencies = [
- "windows-targets 0.52.6",
-]
-
-[[package]]
-name = "windows-sys"
-version = "0.59.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e38bc4d79ed67fd075bcc251a1c39b32a1776bbe92e5bef1f0bf1f8c531853b"
 dependencies = [
  "windows-targets 0.52.6",
 ]
@@ -6366,7 +6338,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d6f32a0ff4a9f6f01231eb2059cc85479330739333e0e58cadf03b6af2cca10"
 dependencies = [
  "cfg-if",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]

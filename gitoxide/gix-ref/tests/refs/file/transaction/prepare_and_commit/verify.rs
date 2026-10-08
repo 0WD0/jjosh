@@ -1,12 +1,14 @@
 use std::path::Path;
 
 use gix_date::parse::TimeBuf;
+use gix_error::{Class, ErrorExt};
 use gix_lock::acquire::Fail;
 use gix_ref::{
     Target,
-    file::transaction::{PackedRefs, prepare::Error},
+    file::transaction::{PackedRefs, prepare::{MustNotExist, ReferenceOutOfDate}},
     transaction::{PreviousValue, RefEdit},
 };
+use gix_testtools::TestResult;
 
 use crate::file::{
     odb_at, store_writable,
@@ -15,14 +17,14 @@ use crate::file::{
 
 fn assert_locked(path: impl AsRef<Path>) {
     assert!(matches!(
-        gix_lock::File::acquire_to_update_resource(path, Fail::Immediately, None),
+        gix_lock::File::acquire_to_update_resource(path, Fail::Immediately, None, 0),
         Err(err) if err.downcast_any_ref::<std::io::Error>()
             .is_some_and(|source| source.kind() == std::io::ErrorKind::AlreadyExists)
     ));
 }
 
 #[test]
-fn absent_verification_holds_loose_and_packed_locks_until_commit_or_drop() -> crate::Result {
+fn absent_verification_holds_loose_and_packed_locks_until_commit_or_drop() -> TestResult {
     for commit in [false, true] {
         let (dir, store) = empty_store()?;
         let name = "refs/heads/missing";
@@ -49,18 +51,20 @@ fn absent_verification_holds_loose_and_packed_locks_until_commit_or_drop() -> cr
             dir.path().join(name),
             Fail::Immediately,
             Some(dir.path().to_owned()),
+            0,
         )?);
         drop(gix_lock::File::acquire_to_update_resource(
             store.packed_refs_path(),
             Fail::Immediately,
             None,
+            0,
         )?);
     }
     Ok(())
 }
 
 #[test]
-fn direct_verification_rejects_existing_or_mismatched_targets_and_preserves_ref_and_log() -> crate::Result {
+fn direct_verification_rejects_existing_or_mismatched_targets_and_preserves_ref_and_log() -> TestResult {
     let (_keep, store) = store_writable("make_repo_for_reflog.sh")?;
     let reference = store.find("refs/heads/main")?;
     let path = store.git_dir().join(reference.name.as_bstr().to_string());
@@ -73,7 +77,7 @@ fn direct_verification_rejects_existing_or_mismatched_targets_and_preserves_ref_
             Fail::Immediately,
             Fail::Immediately,
         ),
-        Err(Error::VerifyMustNotExist { actual, .. }) if actual == reference.target
+        Err(err) if err.downcast_any_ref::<MustNotExist>().is_some_and(|err| err.actual == reference.target)
     ));
     assert!(matches!(
         store.transaction().prepare(
@@ -84,7 +88,7 @@ fn direct_verification_rejects_existing_or_mismatched_targets_and_preserves_ref_
             Fail::Immediately,
             Fail::Immediately,
         ),
-        Err(Error::ReferenceOutOfDate { actual, .. }) if actual == reference.target
+        Err(err) if err.downcast_any_ref::<ReferenceOutOfDate>().is_some_and(|err| err.actual == reference.target)
     ));
     let transaction = store.transaction().prepare(
         [RefEdit::verify(
@@ -103,7 +107,7 @@ fn direct_verification_rejects_existing_or_mismatched_targets_and_preserves_ref_
 }
 
 #[test]
-fn packed_verification_checks_the_target_without_creating_a_loose_ref_or_rewriting_the_pack() -> crate::Result {
+fn packed_verification_checks_the_target_without_creating_a_loose_ref_or_rewriting_the_pack() -> TestResult {
     let (_keep, store) = store_writable("make_packed_ref_repository.sh")?;
     let reference = store.find("refs/heads/main")?;
     let path = store.git_dir().join("refs/heads/main");
@@ -117,7 +121,7 @@ fn packed_verification_checks_the_target_without_creating_a_loose_ref_or_rewriti
             Fail::Immediately,
             Fail::Immediately,
         ),
-        Err(Error::VerifyMustNotExist { actual, .. }) if actual == reference.target
+        Err(err) if err.downcast_any_ref::<MustNotExist>().is_some_and(|err| err.actual == reference.target)
     ));
     assert!(matches!(
         store.transaction().prepare(
@@ -128,7 +132,7 @@ fn packed_verification_checks_the_target_without_creating_a_loose_ref_or_rewriti
             Fail::Immediately,
             Fail::Immediately,
         ),
-        Err(Error::ReferenceOutOfDate { .. })
+        Err(err) if err.downcast_any_ref::<ReferenceOutOfDate>().is_some()
     ));
     let transaction = store.transaction().prepare(
         [RefEdit::verify(
@@ -148,7 +152,7 @@ fn packed_verification_checks_the_target_without_creating_a_loose_ref_or_rewriti
 }
 
 #[test]
-fn verification_and_real_updates_can_share_a_packed_transaction() -> crate::Result {
+fn verification_and_real_updates_can_share_a_packed_transaction() -> TestResult {
     let (_keep, store) = store_writable("make_packed_ref_repository.sh")?;
     let reference = store.find("refs/heads/main")?;
     let odb = odb_at(store.git_dir().join("objects"))?;
@@ -183,7 +187,7 @@ fn verification_and_real_updates_can_share_a_packed_transaction() -> crate::Resu
 }
 
 #[test]
-fn namespaced_packed_verification_uses_the_store_namespace() -> crate::Result {
+fn namespaced_packed_verification_uses_the_store_namespace() -> TestResult {
     let (dir, mut store) = empty_store()?;
     let target = crate::hex_to_id("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391");
     std::fs::write(
@@ -197,7 +201,7 @@ fn namespaced_packed_verification_uses_the_store_namespace() -> crate::Result {
             Fail::Immediately,
             Fail::Immediately,
         ),
-        Err(Error::VerifyMustNotExist { actual, .. }) if actual == Target::Object(target)
+        Err(err) if err.downcast_any_ref::<MustNotExist>().is_some_and(|err| err.actual == Target::Object(target))
     ));
     let transaction = store.transaction().prepare(
         [RefEdit::verify(
@@ -215,7 +219,7 @@ fn namespaced_packed_verification_uses_the_store_namespace() -> crate::Result {
 }
 
 #[test]
-fn dereferenced_verification_locks_the_symbolic_chain_without_writing_logs() -> crate::Result {
+fn dereferenced_verification_locks_the_symbolic_chain_without_writing_logs() -> TestResult {
     let (_keep, store) = store_writable("make_repo_for_reflog.sh")?;
     let target = store.find("refs/heads/main")?.target;
     let head_path = store.git_dir().join("HEAD");
@@ -236,7 +240,7 @@ fn dereferenced_verification_locks_the_symbolic_chain_without_writing_logs() -> 
 }
 
 #[test]
-fn missing_required_and_invalid_loose_refs_cannot_be_verified() -> crate::Result {
+fn missing_required_and_invalid_loose_refs_cannot_be_verified() -> TestResult {
     let (dir, store) = empty_store()?;
     assert!(matches!(
         store.transaction().prepare(
@@ -244,7 +248,7 @@ fn missing_required_and_invalid_loose_refs_cannot_be_verified() -> crate::Result
             Fail::Immediately,
             Fail::Immediately,
         ),
-        Err(Error::VerifyMustExist { .. })
+        Err(err) if err.classify().has(Class::NotFound)
     ));
     std::fs::write(dir.path().join("HEAD"), b"invalid reference\n")?;
     assert!(matches!(
@@ -253,14 +257,14 @@ fn missing_required_and_invalid_loose_refs_cannot_be_verified() -> crate::Result
             Fail::Immediately,
             Fail::Immediately,
         ),
-        Err(Error::ReferenceDecode(_))
+        Err(err) if err.classify().has(Class::Corruption)
     ));
     assert!(!dir.path().join("HEAD.lock").exists());
     Ok(())
 }
 
 #[test]
-fn locked_edits_excludes_released_no_op_updates_but_includes_verifications_and_changes() -> crate::Result {
+fn locked_edits_excludes_released_no_op_updates_but_includes_verifications_and_changes() -> TestResult {
     let (_keep, store) = store_writable("make_repo_for_reflog.sh")?;
     let target = store.find("refs/heads/main")?.target;
     let transaction = store.transaction().prepare(
@@ -293,6 +297,7 @@ fn locked_edits_excludes_released_no_op_updates_but_includes_verifications_and_c
         store.git_dir().join("refs/heads/main"),
         Fail::Immediately,
         None,
+        0,
     )?);
     assert_locked(store.git_dir().join("HEAD"));
     assert_locked(store.git_dir().join("refs/heads/new"));

@@ -2,9 +2,9 @@ use std::io::Write;
 
 use gix_object::{FindExt, bstr::BStr};
 
-use gix_error::{ResultExt, message};
+use gix_error::{Result, ResultExt, message};
 
-use crate::{AdditionalEntry, SharedErrorSlot, Stream, entry, entry::Error, protocol};
+use crate::{AdditionalEntry, SharedErrorSlot, Stream, entry, protocol};
 
 /// Use `objects` to traverse `tree` and fetch the contained blobs to return as [`Stream`], which makes them queryable
 /// on demand with support for streaming each entry.
@@ -38,7 +38,11 @@ pub fn from_tree<Find, E>(
     tree: gix_hash::ObjectId,
     objects: Find,
     pipeline: gix_filter::Pipeline,
-    attributes: impl FnMut(&BStr, gix_object::tree::EntryMode, &mut gix_attributes::search::Outcome) -> Result<(), E>
+    attributes: impl FnMut(
+        &BStr,
+        gix_object::tree::EntryMode,
+        &mut gix_attributes::search::Outcome,
+    ) -> std::result::Result<(), E>
     + Send
     + 'static,
 ) -> Stream
@@ -47,7 +51,7 @@ where
     E: std::error::Error + Send + Sync + 'static,
 {
     let (stream, mut write, additional_entries) = Stream::new();
-    std::thread::spawn({
+    std::thread::spawn(gix_trace::in_thread({
         let slot = stream.err.clone();
         move || {
             if let Err(err) = run(
@@ -65,12 +69,12 @@ where
                         *slot = Some(err);
                     } else {
                         drop(slot);
-                        write.channel.send(Err(std::io::Error::other(err.into_error()))).ok();
+                        write.channel.send(Err(std::io::Error::other(err))).ok();
                     }
                 }
             }
         }
-    });
+    }));
     stream
 }
 
@@ -78,13 +82,17 @@ fn run<Find, E>(
     tree: gix_hash::ObjectId,
     objects: Find,
     mut pipeline: gix_filter::Pipeline,
-    mut attributes: impl FnMut(&BStr, gix_object::tree::EntryMode, &mut gix_attributes::search::Outcome) -> Result<(), E>
+    mut attributes: impl FnMut(
+        &BStr,
+        gix_object::tree::EntryMode,
+        &mut gix_attributes::search::Outcome,
+    ) -> std::result::Result<(), E>
     + Send
     + 'static,
-    out: &mut gix_features::io::pipe::Writer,
+    out: &mut gix_utils::io::pipe::Writer,
     err: SharedErrorSlot,
     additional_entries: std::sync::mpsc::Receiver<AdditionalEntry>,
-) -> Result<(), Error>
+) -> Result
 where
     Find: gix_object::Find + Clone,
     E: std::error::Error + Send + Sync + 'static,

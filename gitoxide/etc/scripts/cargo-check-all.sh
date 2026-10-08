@@ -45,6 +45,8 @@ cargo check --no-default-features --features lean-async
 cargo check --no-default-features --features max
 cargo check -p gitoxide-core --features gix/sha1,blocking-client
 cargo check -p gitoxide-core --features gix/sha1,async-client
+cargo check -p gix-zlib
+cargo check -p gix-zlib --features sirocco
 cargo check -p gix-pack --no-default-features --features sha1
 cargo check -p gix-pack --no-default-features --features sha1,generate
 cargo check -p gix-pack --no-default-features --features sha1,streaming-input
@@ -77,13 +79,21 @@ cargo check -p gix-revision --no-default-features --features sha1,describe
 cargo check -p gix-mailmap --features serde
 cargo check -p gix-url --all-features
 cargo check -p gix-status --all-features
-cargo check -p gix-features --all-features
-cargo check -p gix-features --features parallel
-cargo check -p gix-features --features fs-read-dir
-cargo check -p gix-features --features progress
-cargo check -p gix-features --features io-pipe
-cargo check -p gix-features --features crc32
-cargo check -p gix-features --features cache-efficiency-debug
+cargo check -p gix-parallel --no-default-features
+cargo check -p gix-parallel --all-features
+cargo check -p gix-parallel --features parallel
+cargo check -p gix-parallel --features once_cell
+cargo check -p gix-utils --no-default-features
+cargo check -p gix-utils --all-features
+cargo check -p gix-utils --features progress
+cargo check -p gix-utils --features progress,progress-unit-bytes
+cargo check -p gix-utils --features progress,progress-unit-human-numbers
+cargo check -p gix-utils --features interrupt
+cargo check -p gix-utils --features io-pipe
+cargo check -p gix-utils --features cache-efficiency-debug
+cargo check -p gix-fs --no-default-features
+cargo check -p gix-fs --features walkdir
+cargo check -p gix-fs --all-features
 cargo check -p gix-commitgraph --all-features
 cargo check -p gix-config-value --all-features
 cargo check -p gix-config --all-features
@@ -104,7 +114,7 @@ cargo check -p gix --no-default-features --features sha1,blocking-network-client
 cargo check -p gix --no-default-features --features sha1,blocking-http-transport-curl
 cargo check -p gix --no-default-features --features sha1,blocking-http-transport-reqwest
 cargo check -p gix --no-default-features --features max-performance --tests
-cargo check -p gix --no-default-features --features max-performance-safe --tests
+cargo check -p gix --no-default-features --features max-performance --tests
 cargo check -p gix --no-default-features --features progress-tree --tests
 cargo check -p gix --no-default-features --features blob-diff --tests
 cargo check -p gix --no-default-features --features revision --tests

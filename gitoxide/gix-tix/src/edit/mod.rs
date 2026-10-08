@@ -1,35 +1,38 @@
 use std::{io::Write, process::Command};
 
-use anyhow::{Context, Result};
+use gix::{
+    Result,
+    error::{OptionExt, ResultExt, bail, message},
+};
 
+pub(crate) fn is_internal_ref(name: &gix::bstr::BStr) -> bool {
+    undo::is_queue_ref(name) || rebase::session::is_ref(name)
+}
+
+#[cfg(test)]
 pub(super) fn loaded_graph(repo: &gix::Repository) -> Result<crate::history::HistoryGraph> {
     if repo.head_id().is_err() {
         return Ok(crate::history::HistoryGraph::default());
     }
     let mut revisions = Vec::new();
     for reference in repo.references()?.all()? {
-        let reference = reference.map_err(|err| anyhow::anyhow!("could not read reference: {err}"))?;
+        let reference = reference?;
         if reference.name().as_bstr().starts_with(crate::history::STASH_PREFIX)
             || reference
                 .name()
                 .as_bstr()
                 .starts_with(crate::history::REVIEW_STASH_PREFIX)
-            || undo::is_queue_ref(reference.name().as_bstr())
+            || is_internal_ref(reference.name().as_bstr())
+            || replay_refs::is_ref(reference.name().as_bstr())
         {
             continue;
         }
         let Some(id) = reference.try_id() else { continue };
-        if reference.name().as_bstr() == b"HEAD"
-            || repo
-                .find_header(id)
-                .context("could not inspect reference target")?
-                .kind()
-                != gix::object::Kind::Commit
-        {
+        if reference.name().as_bstr() == b"HEAD" || repo.find_header(id)?.kind() != gix::object::Kind::Commit {
             continue;
         }
         revisions.push(
-            gix::path::from_bstr(reference.name().as_bstr())
+            gix::path::from_bstr(reference.name().as_bstr())?
                 .into_owned()
                 .into_os_string(),
         );
@@ -41,17 +44,11 @@ pub(super) fn loaded_graph(repo: &gix::Repository) -> Result<crate::history::His
 }
 
 pub(super) fn loaded_view_graph(repo: &gix::Repository) -> Result<crate::history::HistoryGraph> {
-    load_graph(repo, &[], &[])
+    let hidden = crate::history::available_hidden_revisions(repo, &[], true)?.0;
+    load_graph(repo, &[], &hidden)
 }
 
-pub(super) fn loaded_view_graph_with(
-    repo: &gix::Repository,
-    revisions: &[std::ffi::OsString],
-) -> Result<crate::history::HistoryGraph> {
-    load_graph(repo, revisions, &[])
-}
-
-pub(super) fn loaded_view_graph_with_hidden(
+pub(super) fn loaded_explicit_view_graph(
     repo: &gix::Repository,
     revisions: &[std::ffi::OsString],
     hidden_revisions: &[std::ffi::OsString],
@@ -66,9 +63,7 @@ fn load_graph(
 ) -> Result<crate::history::HistoryGraph> {
     use std::sync::atomic::AtomicBool;
 
-    let authors = gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(
-        crate::history::Authors::default(),
-    ));
+    let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(crate::history::Authors::default()));
     let mut graph = None;
     crate::history::load(
         repo,
@@ -84,19 +79,24 @@ fn load_graph(
             true
         },
     )?;
-    graph.context("history traversal did not produce a graph")
+    graph.ok_or_raise(|| message("history traversal did not produce a graph"))
 }
 
+pub(crate) mod auto_merge;
 pub(crate) mod create;
-pub(crate) mod forget;
+pub(crate) mod delete;
+pub(crate) mod discard;
+pub(crate) mod enrich;
 pub(crate) mod head;
 pub(crate) mod rebase;
+pub(crate) mod replay_refs;
 pub(crate) mod review;
 pub(crate) mod reword;
 pub(crate) mod split;
 pub(crate) mod stash;
 pub(crate) mod time_travel;
 pub(crate) mod todo;
+pub(crate) mod transplant;
 pub(crate) mod undo;
 
 #[tracing::instrument(skip_all, fields(filename))]
@@ -122,35 +122,103 @@ pub(crate) fn edit_document_without_terminal(
         gix::tempfile::ContainingDirectory::Exists,
         gix::tempfile::AutoRemove::Tempfile,
     )
-    .context("could not create commit message file")?;
+    .or_raise(|| message("could not create commit message file"))?;
     tempfile
         .write_all(document)
-        .context("could not write commit message file")?;
-    tempfile.flush().context("could not flush commit message file")?;
+        .or_raise(|| message("could not write commit message file"))?;
+    tempfile
+        .flush()
+        .or_raise(|| message("could not flush commit message file"))?;
     let path = tempfile
         .with_mut(|tempfile| tempfile.path().to_owned())
-        .context("commit message file disappeared")?;
-    let _tempfile = tempfile.close().context("could not close commit message file")?;
+        .or_raise(|| message("commit message file disappeared"))?;
+    let _tempfile = tempfile
+        .close()
+        .or_raise(|| message("could not close commit message file"))?;
 
     let editor_display = editor.command.to_string_lossy().into_owned();
-    let status = Command::from(editor.arg(&path))
-        .status()
-        .with_context(|| format!("could not launch Git editor {editor_display}"))?;
-    if !status.success() {
-        anyhow::bail!("Git editor {editor_display} exited with {status}");
+    let mut command = Command::try_from(editor.arg(&path))?;
+    let editor_display = if editor_display == command.get_program().to_string_lossy() {
+        String::new()
+    } else {
+        format!(" {editor_display}")
+    };
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // gix-command uses CREATE_NO_WINDOW for background helpers. Interactive editors
+        // must inherit our console instead of running in a separate, invisible console.
+        command.creation_flags(0);
     }
-    let edited = std::fs::read(path).context("could not read edited commit message")?;
+    let status = command
+        .status()
+        .or_raise(|| message!("could not launch Git editor{editor_display}").with_program(command.get_program()))?;
+    if !status.success() {
+        bail!("Git editor{editor_display} failed".with_command_status(&command, status));
+    }
+    let edited = std::fs::read(path).or_raise(|| message("could not read edited commit message"))?;
     Ok((edited != document).then_some(edited))
 }
 
 #[cfg(test)]
 mod tests {
-    use std::{path::Path, process::Command};
+    use std::path::Path;
 
     use super::*;
 
+    #[cfg(windows)]
+    #[test]
+    fn editor_inherits_the_windows_console() -> gix_testtools::Result {
+        if gix_testtools::run_in_isolated_process()? {
+            return Ok(());
+        }
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        if std::env::var_os("GIX_TIX_TEST_CONSOLE").is_none() {
+            // Cargo may run without a console. Give this test its own hidden console so
+            // inheritance is observable without opening a window or using the user's terminal.
+            let output_dir = gix_testtools::tempfile::tempdir()?;
+            let thread = std::thread::current();
+            let test_name = thread.name().expect("libtest names its test threads");
+            let mut command = Command::new("pwsh");
+            let output = gix_testtools::configure_git_environment(&mut command, output_dir.path())
+                .env("GIX_TIX_TEST_CONSOLE", "1")
+                .args(["-NoProfile", "-NonInteractive", "-File"])
+                .arg(fixtures.join("with-console.ps1"))
+                .arg(std::env::current_exe()?)
+                .arg(test_name)
+                .arg(output_dir.path())
+                .output()?;
+            assert!(
+                output.status.success(),
+                "the editor test succeeds in its private console: {}\n{}\n{}",
+                output.status,
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return Ok(());
+        }
+
+        let fixture = gix_testtools::scripted_fixture_writable("create_commit.sh")?;
+        let editor = format!(
+            "pwsh -NoProfile -NonInteractive -File \"{}\" {}",
+            fixtures.join("console-editor.ps1").display(),
+            std::process::id()
+        );
+        let repo = crate::test_repository::open_with(fixture.path(), [format!("core.editor={editor}")])?;
+        for shell in [false, true] {
+            let editor = repo.editor_command()?.expect("the console editor is configured");
+            let editor = if shell { editor.with_shell() } else { editor };
+            assert_eq!(
+                edit_document_without_terminal(editor, b"original\n", "tix-console-editor.md")?,
+                Some(b"edited with an inherited console\n".to_vec()),
+                "both direct and shell editors share the caller's console and edit the file (shell: {shell})"
+            );
+        }
+        Ok(())
+    }
+
     fn git(path: &Path, args: &[&str]) -> gix_testtools::Result<Vec<u8>> {
-        let output = Command::new("git").arg("-C").arg(path).args(args).output()?;
+        let output = gix_testtools::git_command(path).args(args).output()?;
         if !output.status.success() {
             return Err(format!(
                 "git {} failed: {}",
@@ -160,6 +228,74 @@ mod tests {
             .into());
         }
         Ok(output.stdout)
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn editor_errors_keep_command_context_without_repeating_metadata() -> gix::error::TestResult {
+        for (editor, expected, exit_code) in [
+            (gix::command::prepare("/usr/bin/false"), "Git editor failed", 1),
+            (
+                gix::command::prepare("exit 23;").with_shell(),
+                "Git editor exit 23; failed",
+                23,
+            ),
+        ] {
+            let err = edit_document_without_terminal(editor, b"message", "tix-editor-error.md")
+                .expect_err("a failing editor cannot supply an edited document");
+            let diagnostic = err
+                .downcast_any_ref::<gix::error::Message>()
+                .expect("editor failures carry metadata");
+            assert_eq!(
+                diagnostic.message, expected,
+                "prose retains editor arguments, not the program-only name"
+            );
+            let rendered = diagnostic.to_string();
+            assert_eq!(
+                rendered.matches("exit status:").count(),
+                1,
+                "status appears only in metadata"
+            );
+            assert_eq!(
+                err.metadata_merged()["exit_code"],
+                exit_code.into(),
+                "the exit code is retained"
+            );
+        }
+
+        let fixture = gix_testtools::tempfile::tempdir()?;
+        let editor = gix::command::prepare("editor --wait")
+            .with_shell()
+            .with_shell_program(fixture.path().join("missing-shell"));
+        let err = edit_document_without_terminal(editor, b"message", "tix-editor-launch-error.md")
+            .expect_err("a missing shell cannot launch the editor");
+        assert_eq!(
+            err.downcast_any_ref::<gix::error::Message>()
+                .expect("launch failures carry metadata")
+                .message,
+            "could not launch Git editor editor --wait",
+            "launch failures retain the full editor command, not just shell metadata"
+        );
+        let editor_path = fixture.path().join("missing-editor");
+        let err = edit_document_without_terminal(
+            gix::command::prepare(editor_path.clone()),
+            b"message",
+            "tix-editor-missing.md",
+        )
+        .expect_err("a missing editor cannot launch");
+        let diagnostic = err
+            .downcast_any_ref::<gix::error::Message>()
+            .expect("launch failures carry metadata");
+        assert_eq!(
+            diagnostic.message, "could not launch Git editor",
+            "program-only names are metadata, not prose"
+        );
+        assert_eq!(
+            diagnostic.values["program"],
+            editor_path.into(),
+            "the missing editor path remains in metadata"
+        );
+        Ok(())
     }
 
     #[test]

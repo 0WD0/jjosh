@@ -1,3 +1,4 @@
+use gix_error::{Message, MetadataValue};
 use gix_revision::spec::parse::delegate::Traversal;
 
 use crate::spec::parse::{PeelToOwned as PeelTo, parse, try_parse};
@@ -57,9 +58,18 @@ fn followed_by_zero_is_peeling_to_commit() {
 
 #[test]
 fn explicitly_positive_numbers_are_invalid() {
-    let err = try_parse("@^+1").unwrap_err().into_inner();
-    assert_eq!(err.input.as_ref().map(AsRef::as_ref), Some(b"+1".as_ref()));
-    assert!(err.message.contains("positive numbers are invalid"));
+    let err = try_parse("@^+1").unwrap_err();
+    let err = err
+        .downcast_any_ref::<Message>()
+        .expect("the parser message is retained");
+    assert_eq!(err.values.get("input"), Some(&MetadataValue::from(b"+1".as_ref())));
+    insta::assert_debug_snapshot!(err, "explicitly positive numbers are invalid", @r#"
+    Message {
+        message: "explicitly positive numbers are invalid here",
+        class: Validation,
+        values: {input: Bytes("+1")},
+    }
+    "#);
 }
 
 #[test]
@@ -181,19 +191,39 @@ fn empty_braces_deref_a_tag() {
 
 #[test]
 fn invalid_object_type() {
-    let err = try_parse("@^{invalid}").unwrap_err().into_inner();
-    assert_eq!(err.input.as_ref().map(AsRef::as_ref), Some(b"invalid".as_ref()));
-    assert!(err.message.contains("cannot peel"));
+    let err = try_parse("@^{invalid}").unwrap_err();
+    let err = err
+        .downcast_any_ref::<Message>()
+        .expect("the parser message is retained");
+    assert_eq!(err.values.get("input"), Some(&MetadataValue::from(b"invalid".as_ref())));
+    insta::assert_debug_snapshot!(err, "invalid object type", @r#"
+    Message {
+        message: "cannot peel to unknown target",
+        class: Validation,
+        values: {input: Bytes("invalid")},
+    }
+    "#);
 
-    let err = try_parse("@^{Commit}").unwrap_err().into_inner();
+    let err = try_parse("@^{Commit}").unwrap_err();
+    let err = err
+        .downcast_any_ref::<Message>()
+        .expect("the parser message is retained");
+    insta::assert_debug_snapshot!(err, "these types are case sensitive", @r#"
+    Message {
+        message: "cannot peel to unknown target",
+        class: Validation,
+        values: {input: Bytes("Commit")},
+    }
+    "#);
     assert!(
-        err.input.as_ref().map(AsRef::as_ref) == Some(b"Commit".as_ref()) && err.message.contains("cannot peel"),
+        err.values.get("input") == Some(&MetadataValue::from(b"Commit".as_ref())),
         "these types are case sensitive"
     );
 }
 
 #[test]
 fn invalid_caret_without_previous_refname() {
+    let mut message_diagnostics = Vec::new();
     let rec = parse(r"^^");
     assert_eq!(rec.calls, 2);
     assert_eq!(rec.kind, Some(gix_revision::spec::Kind::ExcludeReachable));
@@ -204,40 +234,110 @@ fn invalid_caret_without_previous_refname() {
     );
 
     for revspec in ["^^^HEAD", "^^HEAD"] {
-        let err = try_parse(revspec).unwrap_err().into_inner();
-        assert_eq!(err.input.as_ref().map(AsRef::as_ref), Some(b"HEAD".as_ref()));
-        assert!(err.message.contains("unconsumed input"));
+        let err = try_parse(revspec).unwrap_err();
+        let err = err
+            .downcast_any_ref::<Message>()
+            .expect("the parser message is retained");
+        assert_eq!(err.values.get("input"), Some(&MetadataValue::from(b"HEAD".as_ref())));
+        message_diagnostics.push(gix_testtools::redact_debug_snapshot(&(err), &[]));
     }
+    insta::assert_debug_snapshot!(message_diagnostics, "invalid caret without previous refname", @r#"
+    [
+        Message {
+            message: "unconsumed input",
+            class: Validation,
+            values: {input: Bytes("HEAD")},
+        },
+        Message {
+            message: "unconsumed input",
+            class: Validation,
+            values: {input: Bytes("HEAD")},
+        },
+    ]
+    "#);
 }
 
 #[test]
 fn incomplete_escaped_braces_in_regex_are_invalid() {
-    let err = try_parse(r"@^{/a\{1}}").unwrap_err().into_inner();
-    assert_eq!(err.input.as_ref().map(AsRef::as_ref), Some(b"}".as_ref()));
-    assert!(err.message.contains("unconsumed input"));
+    let err = try_parse(r"@^{/a\{1}}").unwrap_err();
+    let err = err
+        .downcast_any_ref::<Message>()
+        .expect("the parser message is retained");
+    assert_eq!(err.values.get("input"), Some(&MetadataValue::from(b"}".as_ref())));
+    insta::assert_debug_snapshot!(err, "incomplete escaped braces in regex are invalid", @r#"
+    Message {
+        message: "unconsumed input",
+        class: Validation,
+        values: {input: Bytes("}")},
+    }
+    "#);
 
-    let err = try_parse(r"@^{/a{1\}}").unwrap_err().into_inner();
+    let err = try_parse(r"@^{/a{1\}}").unwrap_err();
+    let err = err
+        .downcast_any_ref::<Message>()
+        .expect("the parser message is retained");
+    insta::assert_debug_snapshot!(err, "incomplete escaped braces in regex are invalid", @r#"
+    Message {
+        message: "unclosed brace pair",
+        class: Validation,
+        values: {input: Bytes("{/a{1\\}}")},
+    }
+    "#);
     assert!(
-        err.input.as_ref().map(AsRef::as_ref) == Some(br"{/a{1\}}".as_ref()) && err.message.contains("unclosed brace")
+        err.values.get("input") == Some(&MetadataValue::from(br"{/a{1\}}".as_ref())),
+        "incomplete escaped braces in regex are invalid"
     );
 }
 
 #[test]
 fn regex_with_empty_exclamation_mark_prefix_is_invalid() {
-    let err = try_parse(r#"@^{/!hello}"#).unwrap_err().into_inner();
-    assert_eq!(err.input.as_ref().map(AsRef::as_ref), Some(b"!hello".as_ref()));
-    assert!(err.message.contains("need one character after"));
+    let err = try_parse(r#"@^{/!hello}"#).unwrap_err();
+    let err = err
+        .downcast_any_ref::<Message>()
+        .expect("the parser message is retained");
+    assert_eq!(err.values.get("input"), Some(&MetadataValue::from(b"!hello".as_ref())));
+    insta::assert_debug_snapshot!(err, "regex with empty exclamation mark prefix is invalid", @r#"
+    Message {
+        message: "need one character after /!, typically -",
+        class: Validation,
+        values: {input: Bytes("!hello")},
+    }
+    "#);
 }
 
 #[test]
 fn bad_escapes_can_cause_brace_mismatch() {
-    let err = try_parse(r"@^{\}").unwrap_err().into_inner();
-    assert!(err.input.as_ref().map(AsRef::as_ref) == Some(br"{\}".as_ref()) && err.message.contains("unclosed brace"));
-
-    let err = try_parse(r"@^{{\}}").unwrap_err().into_inner();
-    // The raw string r"{{\}}" contains actual backslashes, so the input would be r"{{\}}"
+    let err = try_parse(r"@^{\}").unwrap_err();
+    let err = err
+        .downcast_any_ref::<Message>()
+        .expect("the parser message is retained");
+    insta::assert_debug_snapshot!(err, "bad escapes can cause brace mismatch", @r#"
+    Message {
+        message: "unclosed brace pair",
+        class: Validation,
+        values: {input: Bytes("{\\}")},
+    }
+    "#);
     assert!(
-        err.input.as_ref().map(AsRef::as_ref) == Some(br"{{\}}".as_ref()) && err.message.contains("unclosed brace")
+        err.values.get("input") == Some(&MetadataValue::from(br"{\}".as_ref())),
+        "bad escapes can cause brace mismatch"
+    );
+
+    let err = try_parse(r"@^{{\}}").unwrap_err();
+    let err = err
+        .downcast_any_ref::<Message>()
+        .expect("the parser message is retained");
+    // The raw string r"{{\}}" contains actual backslashes, so the input would be r"{{\}}"
+    insta::assert_debug_snapshot!(err, "bad escapes can cause brace mismatch", @r#"
+    Message {
+        message: "unclosed brace pair",
+        class: Validation,
+        values: {input: Bytes("{{\\}}")},
+    }
+    "#);
+    assert!(
+        err.values.get("input") == Some(&gix_error::MetadataValue::from(br"{{\}}".as_ref())),
+        "bad escapes can cause brace mismatch"
     );
 }
 

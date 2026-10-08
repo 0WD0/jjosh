@@ -10,12 +10,13 @@
 use std::{io, sync::atomic::AtomicBool};
 
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group};
-use gix_features::{parallel::InOrderIter, progress};
 use gix_object::Write as _;
 use gix_pack::{
     data::output::{self, bytes::FromEntriesIter, count, entry},
     testing::Memory,
 };
+use gix_parallel::InOrderIter;
+use gix_utils::progress;
 
 /// Object counts to exercise. Kept modest so the benchmark stays runnable while still showing how
 /// the phases scale; raise locally to probe larger, more degenerate repositories.
@@ -71,15 +72,18 @@ impl io::Write for CountingSink {
 /// Phase 2: resolve, sort and encode `counts` into a pack stream, returning the pack size in bytes.
 fn write_pack(odb: &Memory, counts: Vec<output::Count>) -> u64 {
     let num_objects = counts.len() as u32;
-    let entries = InOrderIter::from(entry::iter_from_counts(
-        counts,
-        odb.clone(),
-        Box::new(progress::Discard),
-        entry::iter_from_counts::Options {
-            mode: entry::iter_from_counts::Mode::PackCopyAndBaseObjects,
-            ..Default::default()
-        },
-    ));
+    let entries = InOrderIter::from(
+        entry::iter_from_counts(
+            counts,
+            odb.clone(),
+            Box::new(progress::Discard),
+            entry::iter_from_counts::Options {
+                mode: entry::iter_from_counts::Mode::PackCopyAndBaseObjects,
+                ..Default::default()
+            },
+        )
+        .expect("resolving in-memory object locations succeeds"),
+    );
     let mut sink = CountingSink::default();
     let mut iter = FromEntriesIter::new(
         entries,

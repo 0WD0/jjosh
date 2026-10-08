@@ -5,6 +5,7 @@ use std::{
 };
 
 use bstr::{BStr, BString, ByteSlice, ByteVec};
+use gix_error::{Result, bail, validation};
 use gix_hash::ObjectId;
 
 use crate::{
@@ -29,18 +30,6 @@ impl std::fmt::Debug for Editor<'_> {
             .field("trees", &self.trees)
             .finish()
     }
-}
-
-/// The error returned by [Editor] or [Cursor] edit operation.
-#[derive(Debug, thiserror::Error)]
-#[expect(missing_docs)]
-pub enum Error {
-    #[error("Empty path components are not allowed")]
-    EmptyPathComponent,
-    #[error(transparent)]
-    FindExistingObject(#[from] crate::find::existing_object::Error),
-    #[error("Cannot remove '{rela_path}' as leaf entry because it is a tree")]
-    CannotRemoveNonLeaf { rela_path: BString },
 }
 
 /// Lifecycle
@@ -80,14 +69,17 @@ impl Editor<'_> {
     /// Note that no additional validation is performed to assure correctness of entry-names.
     /// It is absolutely and intentionally possible to write out invalid trees with this method.
     /// Higher layers are expected to perform detailed validation.
-    pub fn write<E>(&mut self, out: impl FnMut(&Tree) -> Result<ObjectId, E>) -> Result<ObjectId, E> {
+    pub fn write<E>(
+        &mut self,
+        out: impl FnMut(&Tree) -> std::result::Result<ObjectId, E>,
+    ) -> std::result::Result<ObjectId, E> {
         self.path_buf.borrow_mut().clear();
         self.write_at_pathbuf(out, WriteMode::Normal)
     }
 
     /// Remove the entry at `rela_path`, loading all trees on the path accordingly.
     /// It's no error if the entry doesn't exist, or if `rela_path` doesn't lead to an existing entry at all.
-    pub fn remove<I, C>(&mut self, rela_path: I) -> Result<&mut Self, Error>
+    pub fn remove<I, C>(&mut self, rela_path: I) -> Result<&mut Self>
     where
         I: IntoIterator<Item = C>,
         C: AsRef<BStr>,
@@ -99,16 +91,30 @@ impl Editor<'_> {
     /// Remove a non-tree entry at `rela_path`, loading all trees on the path accordingly.
     /// It's no error if the entry doesn't exist, or if `rela_path` doesn't lead to an existing entry at all.
     ///
-    /// Return an error if the entry exists and is a tree, as that would otherwise also remove all entries below it.
-    /// Empty path components are rejected if reached while loading the path. This is useful to not unintentionally
-    /// remove a directory.
-    pub fn remove_leaf<I, C>(&mut self, rela_path: I) -> Result<&mut Self, Error>
+    /// Return a validation error if the entry exists and is a tree, as that would otherwise also remove all entries below it.
+    /// To leave tree entries untouched instead, use [`Self::remove_if_leaf()`].
+    /// Empty path components produce a validation error if reached while loading the path.
+    pub fn remove_leaf<I, C>(&mut self, rela_path: I) -> Result<&mut Self>
     where
         I: IntoIterator<Item = C>,
         C: AsRef<BStr>,
     {
         self.path_buf.borrow_mut().clear();
         self.upsert_or_remove_at_pathbuf(rela_path, EditMode::Remove(RemoveMode::LeafOnly))
+    }
+
+    /// Remove the entry at `rela_path` only if it is not a tree, loading trees along the path as needed.
+    ///
+    /// An existing tree and its descendants are left untouched. It's also no error if the entry doesn't exist.
+    /// Empty path components produce a validation error if reached while loading the path, and tree-loading errors
+    /// are propagated.
+    pub fn remove_if_leaf<I, C>(&mut self, rela_path: I) -> Result<&mut Self>
+    where
+        I: IntoIterator<Item = C>,
+        C: AsRef<BStr>,
+    {
+        self.path_buf.borrow_mut().clear();
+        self.upsert_or_remove_at_pathbuf(rela_path, EditMode::Remove(RemoveMode::IfLeaf))
     }
 
     /// Obtain the entry at `rela_path` or return `None` if none was found, or the tree wasn't yet written
@@ -139,7 +145,7 @@ impl Editor<'_> {
     ///
     /// `id` can also be an empty tree, along with [the respective `kind`](EntryKind::Tree), even though that's normally not allowed
     /// in Git trees.
-    pub fn upsert<I, C>(&mut self, rela_path: I, kind: EntryKind, id: ObjectId) -> Result<&mut Self, Error>
+    pub fn upsert<I, C>(&mut self, rela_path: I, kind: EntryKind, id: ObjectId) -> Result<&mut Self>
     where
         I: IntoIterator<Item = C>,
         C: AsRef<BStr>,
@@ -181,9 +187,9 @@ impl Editor<'_> {
 
     fn write_at_pathbuf<E>(
         &mut self,
-        mut out: impl FnMut(&Tree) -> Result<ObjectId, E>,
+        mut out: impl FnMut(&Tree) -> std::result::Result<ObjectId, E>,
         mode: WriteMode,
-    ) -> Result<ObjectId, E> {
+    ) -> std::result::Result<ObjectId, E> {
         assert_ne!(self.trees.len(), 0, "there is at least the root tree");
 
         // back is for children, front is for parents.
@@ -266,7 +272,7 @@ impl Editor<'_> {
         unreachable!("we exit as soon as everything is consumed")
     }
 
-    fn upsert_or_remove_at_pathbuf<I, C>(&mut self, rela_path: I, edit: EditMode) -> Result<&mut Self, Error>
+    fn upsert_or_remove_at_pathbuf<I, C>(&mut self, rela_path: I, edit: EditMode) -> Result<&mut Self>
     where
         I: IntoIterator<Item = C>,
         C: AsRef<BStr>,
@@ -278,7 +284,7 @@ impl Editor<'_> {
         while let Some(name) = rela_path.next() {
             let name = name.as_ref();
             if name.is_empty() {
-                return Err(Error::EmptyPathComponent);
+                bail!(validation("Empty path components are not allowed"));
             }
             let is_last = rela_path.peek().is_none();
             let mut needs_sorting = false;
@@ -303,10 +309,17 @@ impl Editor<'_> {
                     match edit {
                         EditMode::Remove(mode) => {
                             if is_last {
-                                if mode == RemoveMode::LeafOnly && cursor.entries[idx].mode.is_tree() {
-                                    return Err(Error::CannotRemoveNonLeaf {
-                                        rela_path: path_with_component(path_buf.as_bstr(), name),
-                                    });
+                                if cursor.entries[idx].mode.is_tree() {
+                                    match mode {
+                                        RemoveMode::Any => {}
+                                        RemoveMode::IfLeaf => break,
+                                        RemoveMode::LeafOnly => {
+                                            let rela_path = path_with_component(path_buf.as_bstr(), name);
+                                            bail!(validation(format!(
+                                                "Cannot remove \"{rela_path}\" as leaf entry because it is a tree"
+                                            )));
+                                        }
+                                    }
                                 }
                                 cursor.entries.remove(idx);
                                 break;
@@ -361,8 +374,9 @@ impl Editor<'_> {
             if is_last && matches!(edit, EditMode::Upsert(_, _, UpsertMode::Normal)) {
                 break;
             }
-            let stop_at_unedited_empty_tree = matches!(edit, EditMode::Remove(RemoveMode::LeafOnly))
-                && tree_to_lookup.is_some_and(|id| id.is_empty_tree());
+            let stop_at_unedited_empty_tree =
+                matches!(edit, EditMode::Remove(RemoveMode::LeafOnly | RemoveMode::IfLeaf))
+                    && tree_to_lookup.is_some_and(|id| id.is_empty_tree());
             push_path_component(&mut path_buf, name);
             cursor = match self.trees.entry(path_buf.clone()) {
                 hash_map::Entry::Occupied(e) => e.into_mut(),
@@ -394,6 +408,8 @@ impl Editor<'_> {
 
 mod cursor {
     use bstr::{BStr, BString};
+
+    use gix_error::Result;
     use gix_hash::ObjectId;
 
     use crate::{
@@ -420,7 +436,7 @@ mod cursor {
         ///
         /// The returned cursor will then allow applying edits to the tree at `rela_path` as root.
         /// If `rela_path` is a single empty string, it is equivalent to using the current instance itself.
-        pub fn cursor_at<I, C>(&mut self, rela_path: I) -> Result<Cursor<'_, 'a>, super::Error>
+        pub fn cursor_at<I, C>(&mut self, rela_path: I) -> Result<Cursor<'_, 'a>>
         where
             I: IntoIterator<Item = C>,
             C: AsRef<BStr>,
@@ -454,7 +470,7 @@ mod cursor {
         }
 
         /// Like [`Editor::upsert()`], but with the constraint of only editing in this cursor's tree.
-        pub fn upsert<I, C>(&mut self, rela_path: I, kind: EntryKind, id: ObjectId) -> Result<&mut Self, super::Error>
+        pub fn upsert<I, C>(&mut self, rela_path: I, kind: EntryKind, id: ObjectId) -> Result<&mut Self>
         where
             I: IntoIterator<Item = C>,
             C: AsRef<BStr>,
@@ -466,7 +482,7 @@ mod cursor {
         }
 
         /// Like [`Editor::remove()`], but with the constraint of only editing in this cursor's tree.
-        pub fn remove<I, C>(&mut self, rela_path: I) -> Result<&mut Self, super::Error>
+        pub fn remove<I, C>(&mut self, rela_path: I) -> Result<&mut Self>
         where
             I: IntoIterator<Item = C>,
             C: AsRef<BStr>,
@@ -478,7 +494,7 @@ mod cursor {
         }
 
         /// Like [`Editor::remove_leaf()`], but with the constraint of only editing in this cursor's tree.
-        pub fn remove_leaf<I, C>(&mut self, rela_path: I) -> Result<&mut Self, super::Error>
+        pub fn remove_leaf<I, C>(&mut self, rela_path: I) -> Result<&mut Self>
         where
             I: IntoIterator<Item = C>,
             C: AsRef<BStr>,
@@ -490,7 +506,10 @@ mod cursor {
         }
 
         /// Like [`Editor::write()`], but will write only the subtree of the cursor.
-        pub fn write<E>(&mut self, out: impl FnMut(&Tree) -> Result<ObjectId, E>) -> Result<ObjectId, E> {
+        pub fn write<E>(
+            &mut self,
+            out: impl FnMut(&Tree) -> std::result::Result<ObjectId, E>,
+        ) -> std::result::Result<ObjectId, E> {
             self.parent.path_buf.borrow_mut().clone_from(&self.prefix);
             self.parent.write_at_pathbuf(out, WriteMode::FromCursor)
         }
@@ -510,6 +529,8 @@ enum RemoveMode {
     Any,
     /// Only remove leaf entries, and reject an existing tree at the target path.
     LeafOnly,
+    /// Only remove leaf entries, leaving an existing tree at the target path untouched.
+    IfLeaf,
 }
 
 #[derive(Copy, Clone)]

@@ -1,18 +1,18 @@
 mod fuzzed {
     #[test]
-    fn ewah_artifacts_run_fuzzer() {
+    fn ewah_artifacts_run_fuzzer() -> gix_testtools::TestResult {
         for path in artifact_paths("ewah") {
-            let data = std::fs::read(path).expect("artifact is readable");
+            let data = std::fs::read(path)?;
             let _ = gix_bitmap::ewah::decode(&data);
         }
+        Ok(())
     }
 
     #[test]
-    fn runaway_run_length_is_rejected() {
+    fn runaway_run_length_is_rejected() -> gix_testtools::TestResult {
         let (bitmap, rest) = gix_bitmap::ewah::decode(include_bytes!(
             "../fuzz/artifacts/ewah/slow-unit-ac817962d1a6c123d4d1f73860f5b779423ed171"
-        ))
-        .expect("fixture must decode");
+        ))?;
 
         assert!(rest.is_empty(), "fixture should be fully consumed");
         assert_eq!(
@@ -20,28 +20,23 @@ mod fuzzed {
             None,
             "impossible run lengths must be rejected instead of iterating unboundedly"
         );
+        Ok(())
     }
 
     #[test]
-    fn non_zero_padding_bits_in_last_literal_word_are_rejected() {
+    fn non_zero_padding_bits_in_last_literal_word_are_rejected() -> gix_testtools::TestResult {
         let bitmap = gix_bitmap::ewah::Vec::from_bits(&[false]).expect("small test fixtures must fit into u32");
         let mut data = Vec::new();
-        bitmap
-            .write_to(&mut data)
-            .expect("writing a valid test fixture to bytes must succeed");
+        bitmap.write_to(&mut data)?;
         let header_size = 4 + 4;
         // Skip the fixed-size header and the RLW word, then flip bit 33 in the first literal word
         // so the bitmap stays logically empty while the serialized padding becomes invalid.
         let literal_word_offset = header_size + 8;
-        let mut literal_word = u64::from_be_bytes(
-            data[literal_word_offset..literal_word_offset + 8]
-                .try_into()
-                .expect("literal word"),
-        );
+        let mut literal_word = u64::from_be_bytes(data[literal_word_offset..literal_word_offset + 8].try_into()?);
         literal_word |= 1u64 << 33;
         data[literal_word_offset..literal_word_offset + 8].copy_from_slice(&literal_word.to_be_bytes());
 
-        let (bitmap, rest) = gix_bitmap::ewah::decode(&data).expect("fixture must decode");
+        let (bitmap, rest) = gix_bitmap::ewah::decode(&data)?;
 
         assert!(rest.is_empty(), "fixture should be fully consumed");
         assert_eq!(
@@ -49,10 +44,11 @@ mod fuzzed {
             None,
             "set bits outside the declared bit length must be rejected"
         );
+        Ok(())
     }
 
     #[test]
-    fn literal_only_bitmaps_preserve_all_set_bits() {
+    fn literal_only_bitmaps_preserve_all_set_bits() -> gix_testtools::TestResult {
         for bits in [
             vec![],
             vec![false],
@@ -70,10 +66,8 @@ mod fuzzed {
                 .filter_map(|(idx, bit)| bit.then_some(idx))
                 .collect();
 
-            bitmap
-                .write_to(&mut encoded)
-                .expect("writing a valid test fixture to bytes must succeed");
-            let (bitmap, rest) = gix_bitmap::ewah::decode(&encoded).expect("serialized test fixture must decode");
+            bitmap.write_to(&mut encoded)?;
+            let (bitmap, rest) = gix_bitmap::ewah::decode(&encoded)?;
             let mut actual = Vec::new();
 
             assert!(rest.is_empty(), "serialized test fixture should be fully consumed");
@@ -95,6 +89,7 @@ mod fuzzed {
                 "iteration should report exactly the set bits from the source bitmap"
             );
         }
+        Ok(())
     }
 
     #[test]

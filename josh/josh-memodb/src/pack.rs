@@ -85,7 +85,7 @@ pub(crate) fn write_snapshot(objects_dir: &Path, snapshot: &Snapshot) -> anyhow:
     let outcome = gix_pack::Bundle::write_to_directory(
         &mut std::io::BufReader::new(spool),
         Some(&pack_dir),
-        &mut gix_features::progress::Discard,
+        &mut gix_utils::progress::Discard,
         &AtomicBool::new(false),
         None::<gix_object::find::Never>,
         gix_hash::Kind::Sha1,

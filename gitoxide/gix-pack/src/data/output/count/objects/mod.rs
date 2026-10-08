@@ -1,7 +1,8 @@
+use gix_error::Result;
 use std::{cell::RefCell, sync::atomic::AtomicBool};
 
-use gix_features::parallel;
 use gix_hash::ObjectId;
+use gix_parallel as parallel;
 
 use crate::data::output;
 
@@ -9,7 +10,7 @@ pub(in crate::data::output::count::objects_impl) mod reduce;
 mod util;
 
 mod types;
-pub use types::{Error, ObjectExpansion, Options, Outcome};
+pub use types::{ObjectExpansion, Options, Outcome};
 
 mod tree;
 
@@ -31,15 +32,15 @@ mod tree;
 ///   * more configuration
 pub fn objects<Find>(
     db: Find,
-    objects_ids: Box<dyn Iterator<Item = Result<ObjectId, Box<dyn std::error::Error + Send + Sync + 'static>>> + Send>,
-    objects: &dyn gix_features::progress::Count,
+    objects_ids: Box<dyn Iterator<Item = Result<ObjectId>> + Send>,
+    objects: &dyn gix_utils::progress::Count,
     should_interrupt: &AtomicBool,
     Options {
         thread_limit,
         input_object_expansion,
         chunk_size,
     }: Options,
-) -> Result<(Vec<output::Count>, Outcome), Error>
+) -> Result<(Vec<output::Count>, Outcome)>
 where
     Find: crate::Find + Send + Clone,
 {
@@ -50,7 +51,7 @@ where
         thread_limit,
         None,
     );
-    let chunks = gix_features::iter::Chunks {
+    let chunks = gix_utils::iter::Chunks {
         inner: objects_ids,
         size: chunk_size,
     };
@@ -92,11 +93,11 @@ where
 /// Like [`objects()`] but using a single thread only to mostly save on the otherwise required overhead.
 pub fn objects_unthreaded(
     db: &dyn crate::Find,
-    object_ids: &mut dyn Iterator<Item = Result<ObjectId, Box<dyn std::error::Error + Send + Sync + 'static>>>,
-    objects: &dyn gix_features::progress::Count,
+    object_ids: &mut dyn Iterator<Item = Result<ObjectId>>,
+    objects: &dyn gix_utils::progress::Count,
     should_interrupt: &AtomicBool,
     input_object_expansion: ObjectExpansion,
-) -> Result<(Vec<output::Count>, Outcome), Error> {
+) -> Result<(Vec<output::Count>, Outcome)> {
     let seen_objs = RefCell::new(gix_hashtable::HashSet::default());
 
     let (mut buf1, mut buf2) = (Vec::new(), Vec::new());
@@ -114,17 +115,19 @@ pub fn objects_unthreaded(
 }
 
 mod expand {
+    use gix_error::Result;
     use std::{
         cell::RefCell,
         sync::atomic::{AtomicBool, Ordering},
     };
 
+    use gix_error::{ResultExt, bail, cancelled, message};
     use gix_hash::{ObjectId, oid};
-    use gix_object::{CommitRefIter, Data, TagRefIter};
+    use gix_object::{CommitRefIter, TagRefIter};
 
     use super::{
         tree,
-        types::{Error, ObjectExpansion, Outcome},
+        types::{ObjectExpansion, Outcome},
         util,
     };
     use crate::{
@@ -137,13 +140,13 @@ mod expand {
         db: &dyn crate::Find,
         input_object_expansion: ObjectExpansion,
         seen_objs: &impl util::InsertImmutable,
-        oids: &mut dyn Iterator<Item = Result<ObjectId, Box<dyn std::error::Error + Send + Sync + 'static>>>,
+        oids: &mut dyn Iterator<Item = Result<ObjectId>>,
         buf1: &mut Vec<u8>,
         buf2: &mut Vec<u8>,
-        objects: &gix_features::progress::AtomicStep,
+        objects: &gix_utils::progress::AtomicStep,
         should_interrupt: &AtomicBool,
         allow_pack_lookups: bool,
-    ) -> Result<(Vec<output::Count>, Outcome), Error> {
+    ) -> Result<(Vec<output::Count>, Outcome)> {
         use ObjectExpansion::*;
 
         let mut out = Vec::new();
@@ -157,10 +160,10 @@ mod expand {
         let stats = &mut outcome;
         for id in oids {
             if should_interrupt.load(Ordering::Relaxed) {
-                return Err(Error::Interrupted);
+                bail!(cancelled("Operation interrupted"));
             }
 
-            let id = id.map_err(Error::InputIteration)?;
+            let id = id.or_raise(|| message("Could not iterate input objects"))?;
             let (obj, location) = db.find(&id, buf1)?;
             stats.input_objects += 1;
             match input_object_expansion {
@@ -197,7 +200,7 @@ mod expand {
                                                 parent_commit_ids.push(id);
                                             }
                                             Ok(_) => break,
-                                            Err(err) => return Err(Error::CommitDecode(err)),
+                                            Err(err) => return Err(err),
                                         }
                                     }
                                     let (obj, location) = db.find(&tree_id, buf1)?;
@@ -215,8 +218,7 @@ mod expand {
                                         &mut tree_traversal_state,
                                         &objects,
                                         &mut traverse_delegate,
-                                    )
-                                    .map_err(Error::TreeTraverse)?;
+                                    )?;
                                     out = objects.dissolve(stats);
                                     &traverse_delegate.non_trees
                                 } else {
@@ -260,13 +262,13 @@ mod expand {
                                             &objects,
                                             &mut changes_delegate,
                                         )
-                                        .map_err(Error::TreeChanges)?;
+                                        .or_raise(|| message("Could not compare trees while generating pack"))?;
                                         stats.decoded_objects += objects.into_count();
                                     }
                                     &changes_delegate.objects
                                 };
                                 for id in objects_ref.iter() {
-                                    out.push(id_to_count(db, buf2, id, objects, stats, allow_pack_lookups));
+                                    out.push(id_to_count(db, buf2, id, objects, stats, allow_pack_lookups)?);
                                 }
                                 break;
                             }
@@ -289,12 +291,11 @@ mod expand {
                                         &mut tree_traversal_state,
                                         &objects,
                                         &mut traverse_delegate,
-                                    )
-                                    .map_err(Error::TreeTraverse)?;
+                                    )?;
                                     out = objects.dissolve(stats);
                                 }
                                 for id in &traverse_delegate.non_trees {
-                                    out.push(id_to_count(db, buf1, id, objects, stats, allow_pack_lookups));
+                                    out.push(id_to_count(db, buf1, id, objects, stats, allow_pack_lookups)?);
                                 }
                                 break;
                             }
@@ -331,7 +332,7 @@ mod expand {
         all_seen: &impl util::InsertImmutable,
         id: &oid,
         location: Option<crate::data::entry::Location>,
-        objects: &gix_features::progress::AtomicStep,
+        objects: &gix_utils::progress::AtomicStep,
         statistics: &mut Outcome,
         count_expanded: bool,
     ) {
@@ -351,20 +352,20 @@ mod expand {
         db: &dyn crate::Find,
         buf: &mut Vec<u8>,
         id: &oid,
-        objects: &gix_features::progress::AtomicStep,
+        objects: &gix_utils::progress::AtomicStep,
         statistics: &mut Outcome,
         allow_pack_lookups: bool,
-    ) -> output::Count {
+    ) -> Result<output::Count> {
         objects.fetch_add(1, Ordering::Relaxed);
         statistics.expanded_objects += 1;
-        output::Count {
+        Ok(output::Count {
             id: id.to_owned(),
             entry_pack_location: if allow_pack_lookups {
-                PackLocation::LookedUp(db.location_by_oid(id, buf))
+                PackLocation::LookedUp(db.location_by_oid(id, buf)?)
             } else {
                 PackLocation::NotLookedUp
             },
-        }
+        })
     }
 
     struct CountingObjects<'a> {
@@ -386,7 +387,7 @@ mod expand {
     }
 
     impl gix_object::Find for CountingObjects<'_> {
-        fn try_find<'a>(&self, id: &oid, buffer: &'a mut Vec<u8>) -> Result<Option<Data<'a>>, gix_object::find::Error> {
+        fn try_find<'a>(&self, id: &oid, buffer: &'a mut Vec<u8>) -> Result<std::option::Option<gix_object::Data<'a>>> {
             let res = Ok(self.objects.try_find(id, buffer)?.map(|t| t.0));
             *self.decoded_objects.borrow_mut() += 1;
             res
@@ -397,7 +398,7 @@ mod expand {
         decoded_objects: std::cell::RefCell<usize>,
         expanded_objects: std::cell::RefCell<usize>,
         out: std::cell::RefCell<Vec<output::Count>>,
-        objects_count: &'a gix_features::progress::AtomicStep,
+        objects_count: &'a gix_utils::progress::AtomicStep,
         objects: &'a dyn crate::Find,
     }
 
@@ -405,7 +406,7 @@ mod expand {
         fn new(
             objects: &'a dyn crate::Find,
             out: Vec<output::Count>,
-            objects_count: &'a gix_features::progress::AtomicStep,
+            objects_count: &'a gix_utils::progress::AtomicStep,
         ) -> Self {
             Self {
                 decoded_objects: Default::default(),
@@ -424,7 +425,7 @@ mod expand {
     }
 
     impl gix_object::Find for ExpandedCountingObjects<'_> {
-        fn try_find<'a>(&self, id: &oid, buffer: &'a mut Vec<u8>) -> Result<Option<Data<'a>>, gix_object::find::Error> {
+        fn try_find<'a>(&self, id: &oid, buffer: &'a mut Vec<u8>) -> Result<std::option::Option<gix_object::Data<'a>>> {
             let maybe_obj = self.objects.try_find(id, buffer)?;
             *self.decoded_objects.borrow_mut() += 1;
             match maybe_obj {

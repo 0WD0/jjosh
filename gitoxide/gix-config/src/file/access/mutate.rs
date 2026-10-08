@@ -1,9 +1,10 @@
 use bstr::BStr;
-use gix_features::threading::OwnShared;
+use gix_error::{Result, ResultExt};
+use gix_parallel::OwnShared;
 
 use crate::{
     AsBStrOpt, File,
-    file::{self, IntoBStringOpt, Metadata, SectionId, SectionMut, rename_section, write::ends_with_newline},
+    file::{self, IntoBStringOpt, Metadata, SectionId, SectionMut, write::ends_with_newline},
     lookup,
     parse::{Event, FrontMatterEvents, Span, section},
 };
@@ -47,19 +48,11 @@ impl<T: crate::AsBStr + ?Sized> IntoBStringOpt for &T {
 /// Mutating low-level access methods.
 impl File {
     /// Returns the last mutable section with a given `name` and optional `subsection_name`, _if it exists_.
-    pub fn section_mut(
-        &mut self,
-        name: impl AsRef<str>,
-        subsection_name: impl AsBStrOpt,
-    ) -> Result<SectionMut<'_>, lookup::existing::Error> {
+    pub fn section_mut(&mut self, name: impl AsRef<str>, subsection_name: impl AsBStrOpt) -> Result<SectionMut<'_>> {
         self.section_mut_inner(name.as_ref(), subsection_name.as_bstr_opt())
     }
 
-    fn section_mut_inner<'a>(
-        &'a mut self,
-        name: &str,
-        subsection_name: Option<&BStr>,
-    ) -> Result<SectionMut<'a>, lookup::existing::Error> {
+    fn section_mut_inner<'a>(&'a mut self, name: &str, subsection_name: Option<&BStr>) -> Result<SectionMut<'a>> {
         let id = self
             .section_ids_by_name_and_subname(name, subsection_name)?
             .next_back()
@@ -71,8 +64,8 @@ impl File {
     }
 
     /// Returns the last found mutable section with a given `key`, identifying the name and subsection name like `core` or `remote.origin`.
-    pub fn section_mut_by_key(&mut self, key: impl crate::AsBStr) -> Result<SectionMut<'_>, lookup::existing::Error> {
-        let key = section::unvalidated::KeyRef::parse(&key).ok_or(lookup::existing::Error::KeyMissing)?;
+    pub fn section_mut_by_key(&mut self, key: impl crate::AsBStr) -> Result<SectionMut<'_>> {
+        let key = section::unvalidated::KeyRef::parse(&key).ok_or_else(lookup::existing::key_missing)?;
         self.section_mut_inner(key.section_name, key.subsection_name)
     }
 
@@ -89,7 +82,7 @@ impl File {
         &mut self,
         name: impl AsRef<str>,
         subsection_name: impl AsBStrOpt,
-    ) -> Result<SectionMut<'_>, section::header::Error> {
+    ) -> Result<SectionMut<'_>> {
         self.section_mut_or_create_new_inner(name.as_ref(), subsection_name.as_bstr_opt())
     }
 
@@ -97,7 +90,7 @@ impl File {
         &'a mut self,
         name: &str,
         subsection_name: Option<&BStr>,
-    ) -> Result<SectionMut<'a>, section::header::Error> {
+    ) -> Result<SectionMut<'a>> {
         self.section_mut_or_create_new_filter_inner(name, subsection_name, |_| true)
     }
 
@@ -108,7 +101,7 @@ impl File {
         name: impl AsRef<str>,
         subsection_name: impl AsBStrOpt,
         filter: impl FnMut(&Metadata) -> bool,
-    ) -> Result<SectionMut<'_>, section::header::Error> {
+    ) -> Result<SectionMut<'_>> {
         self.section_mut_or_create_new_filter_inner(name.as_ref(), subsection_name.as_bstr_opt(), filter)
     }
 
@@ -117,7 +110,7 @@ impl File {
         name: &str,
         subsection_name: Option<&BStr>,
         mut filter: impl FnMut(&Metadata) -> bool,
-    ) -> Result<SectionMut<'a>, section::header::Error> {
+    ) -> Result<SectionMut<'a>> {
         match self
             .section_ids_by_name_and_subname(name, subsection_name)
             .ok()
@@ -131,7 +124,11 @@ impl File {
                     .section_mut_from_id(id, nl)
                     .expect("BUG: Section did not have id from lookup"))
             }
-            None => self.new_section_inner(name, subsection_name.map(bstr::BString::from)),
+            None => self.new_section_inner(
+                name,
+                subsection_name.map(bstr::BString::from),
+                OwnShared::clone(&self.meta),
+            ),
         }
     }
 
@@ -144,7 +141,7 @@ impl File {
         name: impl AsRef<str>,
         subsection_name: impl AsBStrOpt,
         filter: impl FnMut(&Metadata) -> bool,
-    ) -> Result<Option<file::SectionMut<'_>>, lookup::existing::Error> {
+    ) -> Result<Option<file::SectionMut<'_>>> {
         self.section_mut_filter_inner(name.as_ref(), subsection_name.as_bstr_opt(), filter)
     }
 
@@ -153,7 +150,7 @@ impl File {
         name: &str,
         subsection_name: Option<&BStr>,
         mut filter: impl FnMut(&Metadata) -> bool,
-    ) -> Result<Option<file::SectionMut<'a>>, lookup::existing::Error> {
+    ) -> Result<Option<file::SectionMut<'a>>> {
         let id = self
             .section_ids_by_name_and_subname(name, subsection_name)?
             .rev()
@@ -171,14 +168,17 @@ impl File {
         &mut self,
         key: impl crate::AsBStr,
         filter: impl FnMut(&Metadata) -> bool,
-    ) -> Result<Option<file::SectionMut<'_>>, lookup::existing::Error> {
-        let key = section::unvalidated::KeyRef::parse(&key).ok_or(lookup::existing::Error::KeyMissing)?;
+    ) -> Result<Option<file::SectionMut<'_>>> {
+        let key = section::unvalidated::KeyRef::parse(&key).ok_or_else(lookup::existing::key_missing)?;
         self.section_mut_filter_inner(key.section_name, key.subsection_name, filter)
     }
 
     /// Adds a new section. If a subsection name was provided, then
     /// the generated header will use the modern subsection syntax.
     /// Returns a reference to the new section for immediate editing.
+    ///
+    /// The section inherits this file's [metadata][Self::meta()]. Use
+    /// [`Self::new_section_with_meta()`] to provide a different origin for just this section.
     ///
     /// # Examples
     ///
@@ -191,7 +191,7 @@ impl File {
     /// let section = git_config.new_section("hello", "world")?;
     /// let nl = section.newline().to_owned();
     /// assert_eq!(git_config.to_string(), format!("[hello \"world\"]{nl}"));
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
     /// ```
     ///
     /// Creating a new empty section and adding values to it:
@@ -208,26 +208,39 @@ impl File {
     /// assert_eq!(git_config.to_string(), format!("[hello \"world\"]{nl}\ta = b{nl}"));
     /// let _section = git_config.new_section("core", None);
     /// assert_eq!(git_config.to_string(), format!("[hello \"world\"]{nl}\ta = b{nl}[core]{nl}"));
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
     /// ```
-    pub fn new_section(
+    pub fn new_section(&mut self, name: impl AsRef<str>, subsection: impl IntoBStringOpt) -> Result<SectionMut<'_>> {
+        self.new_section_with_meta(name, subsection, OwnShared::clone(&self.meta))
+    }
+
+    /// Like [`Self::new_section()`], but attaches the given `meta`data to the new section instead of
+    /// inheriting this file's metadata.
+    ///
+    /// This leaves the file's metadata and that of existing sections unchanged. Subsequent sections
+    /// created with [`Self::new_section()`] still inherit the file's metadata.
+    pub fn new_section_with_meta(
         &mut self,
         name: impl AsRef<str>,
         subsection: impl IntoBStringOpt,
-    ) -> Result<SectionMut<'_>, section::header::Error> {
-        self.new_section_inner(name.as_ref(), subsection.into_bstring_opt())
+        meta: impl Into<OwnShared<Metadata>>,
+    ) -> Result<SectionMut<'_>> {
+        self.new_section_inner(name.as_ref(), subsection.into_bstring_opt(), meta.into())
     }
 
     fn new_section_inner(
         &mut self,
         name: &str,
         subsection: Option<bstr::BString>,
-    ) -> Result<SectionMut<'_>, section::header::Error> {
-        let section = file::SectionData::new(name, subsection, OwnShared::clone(&self.meta), &mut self.backing)?;
+        meta: OwnShared<Metadata>,
+    ) -> Result<SectionMut<'_>> {
+        let section = file::SectionData::new(name, subsection, meta, &mut self.backing)?;
         let id = self.push_section_internal(section);
         let nl = self.detect_newline_style_smallvec();
         let mut section = self.section_mut_from_id(id, nl).expect("each id yields a section");
-        section.push_newline()?;
+        section
+            .push_newline()
+            .or_raise(|| gix_error::message("Could not add section newline"))?;
         Ok(section)
     }
 
@@ -250,7 +263,7 @@ impl File {
     /// let section = git_config.remove_section("hello", "world");
     /// assert!(section.is_some());
     /// assert_eq!(git_config.to_string(), "");
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
     /// ```
     ///
     /// Precedence example for removing sections with the same name:
@@ -268,7 +281,7 @@ impl File {
     /// let section = git_config.remove_section("hello", "world");
     /// assert!(section.is_some());
     /// assert_eq!(git_config.to_string(), "[hello \"world\"]\n    some-value = 4\n");
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
     /// ```
     pub fn remove_section(&mut self, name: impl AsRef<str>, subsection_name: impl AsBStrOpt) -> Option<file::Section> {
         let id = self
@@ -332,7 +345,7 @@ impl File {
 
     /// Adds the provided `section` to the config, returning a mutable reference to it for immediate editing.
     /// Note that its meta-data will remain as is.
-    pub fn push_section(&mut self, section: file::Section) -> Result<SectionMut<'_>, crate::parse::span::Error> {
+    pub fn push_section(&mut self, section: file::Section) -> Result<SectionMut<'_>> {
         let section = section.into_data(&mut self.backing)?;
         let id = self.push_section_internal(section);
         let nl = self.detect_newline_style_smallvec();
@@ -349,7 +362,7 @@ impl File {
         subsection_name: impl AsBStrOpt,
         new_name: impl AsRef<str>,
         new_subsection_name: impl IntoBStringOpt,
-    ) -> Result<(), rename_section::Error> {
+    ) -> Result {
         self.rename_section_filter(name, subsection_name, new_name, new_subsection_name, |_| true)
     }
 
@@ -358,8 +371,7 @@ impl File {
     ///
     /// Existing sections with the target name are preserved.
     ///
-    /// Note that the otherwise unused [`lookup::existing::Error::KeyMissing`] variant is used to indicate
-    /// that the `filter` rejected all candidates, leading to no section being renamed after all.
+    /// A not-found error indicates that the `filter` rejected all candidates, leading to no section being renamed.
     pub fn rename_section_filter(
         &mut self,
         name: impl AsRef<str>,
@@ -367,14 +379,15 @@ impl File {
         new_name: impl AsRef<str>,
         new_subsection_name: impl IntoBStringOpt,
         mut filter: impl FnMut(&Metadata) -> bool,
-    ) -> Result<(), rename_section::Error> {
+    ) -> Result {
         let ids: Vec<_> = self
             .section_ids_by_name_and_subname(name.as_ref(), subsection_name.as_bstr_opt())?
             .filter(|id| filter(&self.sections.get(id).expect("each id has a section").meta))
             .collect();
         if ids.is_empty() {
-            return Err(rename_section::Error::Lookup(lookup::existing::Error::KeyMissing));
+            return Err(lookup::existing::key_missing());
         }
+
         let header = section::HeaderData::new_in(new_name, new_subsection_name.into_bstring_opt(), &mut self.backing)?;
         for id in ids {
             file::util::set_section_header(
@@ -391,7 +404,7 @@ impl File {
     }
 
     /// Append another File to the end of ourselves, without losing any information.
-    pub fn append(&mut self, other: Self) -> Result<&mut Self, crate::parse::span::Error> {
+    pub fn append(&mut self, other: Self) -> Result<&mut Self> {
         self.append_or_insert(other, None)
     }
 
@@ -400,7 +413,7 @@ impl File {
         &mut self,
         mut other: Self,
         mut insert_after: Option<SectionId>,
-    ) -> Result<&mut Self, crate::parse::span::Error> {
+    ) -> Result<&mut Self> {
         let nl = self.detect_newline_style_smallvec();
         let our_last_section_before_append =
             insert_after.or_else(|| (self.next_section_id != 0).then(|| SectionId(self.next_section_id - 1)));
@@ -464,7 +477,7 @@ impl File {
         Ok(self)
     }
 
-    fn rebase_events(&mut self, offset: usize) -> Result<(), crate::parse::span::Error> {
+    fn rebase_events(&mut self, offset: usize) -> Result {
         for event in &mut self.frontmatter_events {
             event.rebase(offset)?;
         }

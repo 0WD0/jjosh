@@ -1,4 +1,4 @@
-#![allow(clippy::unnecessary_literal_bound)]
+#![expect(clippy::unnecessary_literal_bound)]
 #![allow(missing_docs)]
 
 /// The `author` top-level section.
@@ -142,3 +142,8 @@ mod user;
 #[derive(Copy, Clone, Default)]
 pub struct Url;
 mod url;
+
+/// The `worktree` top-level section.
+#[derive(Copy, Clone, Default)]
+pub struct Worktree;
+mod worktree;

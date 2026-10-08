@@ -7,7 +7,7 @@ These are the config settings available to jj/Jujutsu.
 `jj` loads several types of config settings:
 
 - The built-in settings. These cannot be edited. They can be viewed in the
-  [`cli/src/config/`] directory in `jj`'s source repo.
+  [`cli/src/config/`][config dir] directory in `jj`'s source repo.
 
 - The user settings. These can be edited with `jj config edit --user`. User
   settings are located in [the user config files], which can be found with
@@ -20,6 +20,9 @@ These are the config settings available to jj/Jujutsu.
 - The workspace settings. These can be edited with `jj config edit --workspace`,
   or found with `jj config path --workspace`. For security reasons, they are not
   located inside the workspace.
+
+- Settings from [environment variable overrides](#environment-variable-overrides)
+  (for example `$JJ_USER` / `$JJ_EMAIL`).
 
 - Settings [specified on the command-line].
 
@@ -40,7 +43,7 @@ syntax. We cover some of the basics below.
 The first thing to remember is that the value of a setting (the part to the
 right of the `=` sign) should be surrounded in quotes if it's a string.
 
-[`cli/src/config/`]: https://github.com/jj-vcs/jj/blob/main/cli/src/config/
+[config dir]: https://github.com/jj-vcs/jj/blob/main/cli/src/config/
 [JSON Schema Support]: #json-schema-support
 [specified on the command-line]: #specifying-config-on-the-command-line
 [syntax guide]: https://toml.io/en/latest
@@ -135,6 +138,20 @@ email = "YOUR_EMAIL@example.com"
 
 Don't forget to change these to your own details!
 
+These can also be set with environment variables (handy with tools like
+[direnv](https://direenv.net/)):
+
+```bash
+export JJ_USER="Your Name"
+export JJ_EMAIL="you@example.com"
+```
+
+`$JJ_USER` overrides `user.name` and `$JJ_EMAIL` overrides `user.email`. They
+take precedence over values in config files (but not over `--config` /
+`--config-file`). See [Environment variable overrides](#environment-variable-overrides)
+for the full list. For directory-based switching without env vars, use
+[conditional variables](#conditional-variables).
+
 ## UI settings
 
 ### Colorizing output
@@ -218,9 +235,10 @@ commit_id = "green"
 Parts of the style that are not overridden - such as the foreground color in the
 example above - are inherited from the style of the parent label.
 
-Which elements can be colored is not yet documented, but see
-the [default color configuration](https://github.com/jj-vcs/jj/blob/main/cli/src/config/colors.toml)
-for some examples of what's possible.
+Which elements can be colored is not yet documented, but see the
+[default color configuration][colors.toml] for some examples of what's possible.
+
+[colors.toml]: https://github.com/jj-vcs/jj/blob/main/cli/src/config/colors.toml
 
 ### Default command
 
@@ -1336,6 +1354,15 @@ merge-editor = "meld"  # Or "vscode" or "vscodium" or "kdiff3" or "vimdiff"
 merge-editor = ["meld", "$left", "$base", "$right", "-o", "$output"]
 ```
 
+The following built-in tools are always available:
+
+- `:builtin` launches a TUI tool for 3-way merges (the default).
+- `:editor` opens the conflicted file with conflict markers in your text editor
+  (`ui.editor`). Unlike the other tools, it supports conflicts with any number
+  of sides. Conflict markers left in the file are kept as a partially resolved
+  conflict.
+- `:ours` and `:theirs` pick side #1 or side #2 of the conflict respectively.
+
 The following tools can be used out of the box, as long as they are installed:
 - "kdiff3"
 - "meld"
@@ -1761,12 +1788,8 @@ to do with signing commits on modification of a change (e.g., rebasing or edits)
 - `force`: sign all commits after modification, always, even if you are not the
   author.
 
-Instead of signing all commits during creation when `signing.behavior` is
-set to `own`, the `git.sign-on-push` configuration can be used to sign
-commits only upon running `jj git push`. All mutable unsigned commits
-being pushed will be signed prior to pushing. This might be preferred if the
-signing backend requires user interaction or is slow, so that signing is
-performed in a single batch operation.
+To sign commits only when pushing, set `signing.behavior = "drop"` and
+`git.sign-on-push = true`:
 
 ```toml
 # Configure signing backend as before, but lazily signing only on push.
@@ -1778,6 +1801,24 @@ key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGj+J6N6SO+4P8dOZqfR1oiay2yxhhHnagH52
 [git]
 sign-on-push = true
 ```
+
+With this setup, commits are not signed when they are created or rewritten. At
+push time, `git.sign-on-push` only signs commits that are not yet signed (that
+are mutable and authored by you, behaving like `own` even though write-time
+signing uses `drop`).
+
+This is useful when the signing backend requires user interaction or is slow,
+because the signing work is deferred to push time. If `signing.behavior` is set
+to `own` or `force`, commits may already be signed when written, and
+`git.sign-on-push` would have little or nothing left to sign.
+
+The commits are signed in their own transaction which is committed before
+the push starts. If the push fails, the commits stay signed and retrying
+does not have to sign them again. If nothing needs signing, no extra
+transaction is created.
+
+Because signing and pushing are separate operations, `jj undo` of the push
+operation would not undo the commit signatures.
 
 ## Commit Signature Verification
 
@@ -1804,7 +1845,7 @@ The setting `git.colocate` is a boolean option that controls whether or not the
 `jj git init` and `jj git clone` commands should create colocated workspace by
 default. Set `git.colocate` to `false` to disable it.
 
-See [Colocated Jujutsu/Git workspaces](git-compatibility.md#colocated-jujutsugit-repos)
+See [Colocated Jujutsu/Git workspaces](git-compatibility.md#colocated-jujutsugit-workspaces)
 for more information.
 
 ### Default object hash format
@@ -2408,6 +2449,27 @@ Here are some popular editors with TOML schema validation support:
 - Emacs
   - Install [lsp-mode](https://github.com/emacs-lsp/lsp-mode) and [toml-mode](https://github.com/dryman/toml-mode.el)
   - Configure [taplo](https://github.com/tamasfe/taplo) as the LSP server
+
+### Environment variable overrides
+
+Besides `$JJ_CONFIG` (which controls [where user config files are loaded
+from](#user-config-files)), these environment variables override individual
+config keys. They take precedence over config files and are themselves
+overridden by `--config` / `--config-file`.
+
+| Variable          | Config key          |
+| :---------------- | :------------------ |
+| `$JJ_USER`        | `user.name`         |
+| `$JJ_EMAIL`       | `user.email`        |
+| `$JJ_EDITOR`      | `ui.editor`         |
+| `$JJ_PAGER`       | `ui.pager`          |
+| `$JJ_OP_HOSTNAME` | `operation.hostname` |
+| `$JJ_OP_USERNAME` | `operation.username` |
+
+A few other variables act as fallbacks when no matching config is set (for
+example `$VISUAL` / `$EDITOR` for the editor, and `$NO_COLOR` for color), rather
+than hard overrides of configured values. See [Editor](#editor) and
+[Colorizing output](#colorizing-output).
 
 ### Specifying config on the command-line
 

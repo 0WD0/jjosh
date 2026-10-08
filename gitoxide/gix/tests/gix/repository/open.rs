@@ -1,4 +1,5 @@
-use std::{borrow::Cow, error::Error};
+use gix_testtools::TestResult;
+use std::borrow::Cow;
 
 use gix::bstr::BString;
 use gix::config::tree::Key;
@@ -13,7 +14,7 @@ fn open_permissions_is_isolated() {
 
 #[test]
 #[serial_test::serial]
-fn discover_with_git_dir_environment_override_uses_it_and_sets_trust() -> crate::Result {
+fn discover_with_git_dir_environment_override_uses_it_and_sets_trust() -> TestResult {
     let _environment = gix_testtools::isolate_git_environment()?;
     let fallback = gix_testtools::tempfile::TempDir::new()?;
     crate::init_repo_isolated(fallback.path(), gix::create::Kind::WithWorktree)?;
@@ -41,7 +42,7 @@ fn discover_with_git_dir_environment_override_uses_it_and_sets_trust() -> crate:
 }
 
 #[test]
-fn core_worktree_paths_are_literal() -> crate::Result {
+fn core_worktree_paths_are_literal() -> TestResult {
     let fixture = gix_testtools::scripted_fixture_read_only("make_literal_worktree_paths.sh")?;
     let baseline = std::fs::read_to_string(fixture.join("worktrees.baseline"))?;
     for line in baseline.lines() {
@@ -66,7 +67,7 @@ fn core_worktree_paths_are_literal() -> crate::Result {
 }
 
 #[test]
-fn core_worktree_cli_override_does_not_override_bare() -> crate::Result {
+fn core_worktree_cli_override_does_not_override_bare() -> TestResult {
     let fixture = gix_testtools::scripted_fixture_read_only("make_config_repos.sh")?;
     let worktree = gix_testtools::tempfile::TempDir::new()?;
     let repo = gix::open_opts(
@@ -84,7 +85,7 @@ fn core_worktree_cli_override_does_not_override_bare() -> crate::Result {
 }
 
 #[test]
-fn on_root_with_decomposed_unicode() -> crate::Result {
+fn on_root_with_decomposed_unicode() -> TestResult {
     let tmp = gix_testtools::tempfile::TempDir::new()?;
 
     let decomposed = "a\u{308}";
@@ -133,7 +134,7 @@ fn on_root_with_decomposed_unicode() -> crate::Result {
 }
 
 #[test]
-fn non_bare_reftable() -> crate::Result {
+fn non_bare_reftable() -> TestResult {
     let Some(root) = gix_testtools::scripted_fixture_read_only_with_git_version("make_reftable_repo.sh", |version| {
         version >= (2, 44, 0)
     })?
@@ -142,11 +143,13 @@ fn non_bare_reftable() -> crate::Result {
     };
     let repo = gix::open_opts(root.join("reftable-clone"), gix::open::Options::isolated())?;
     let err = repo.head_id().expect_err("reftable references are not supported");
-    assert_eq!(
-        err.source().expect("reference decoding error").to_string(),
-        "This reference uses an unsupported storage backend, such as reftable",
-        "accessing HEAD explains that the reference storage backend is unsupported"
-    );
+    assert!(err.is_unsupported(), "the reference backend requires changing strategy");
+    insta::assert_debug_snapshot!(err.probable_cause(), "accessing HEAD explains that the reference storage backend is unsupported", @r#"
+    Message {
+        message: "This reference uses an unsupported storage backend, such as reftable",
+        class: Unsupported,
+    }
+    "#);
     assert!(!repo.is_bare());
     assert_eq!(repo.kind(), gix::repository::Kind::Common);
     assert_ne!(
@@ -158,7 +161,7 @@ fn non_bare_reftable() -> crate::Result {
 }
 
 #[test]
-fn bare_repo_with_index() -> crate::Result {
+fn bare_repo_with_index() -> TestResult {
     let repo = named_subrepo_opts(
         "make_basic_repo.sh",
         "bare-repo-with-index.git",
@@ -174,7 +177,7 @@ fn bare_repo_with_index() -> crate::Result {
 }
 
 #[test]
-fn git_index_file_overrides_the_index_in_the_git_dir() -> crate::Result {
+fn git_index_file_overrides_the_index_in_the_git_dir() -> TestResult {
     let repository = gix_testtools::scripted_fixture_writable("make_basic_repo.sh")?;
     let index_file = repository.path().join(".git/temporary-index");
     let repo = gix::open_opts(repository.path(), gix::open::Options::isolated())?;
@@ -224,7 +227,149 @@ fn git_index_file_overrides_the_index_in_the_git_dir() -> crate::Result {
 
 #[test]
 #[cfg(feature = "index")]
-fn git_index_file_missing_yields_no_index() -> crate::Result {
+fn index_paths_are_absolute_and_use_the_selected_values_base() -> TestResult {
+    use std::io::Write;
+
+    if gix_testtools::run_in_isolated_process()? {
+        return Ok(());
+    }
+    let repository = gix_testtools::scripted_fixture_writable("make_basic_repo.sh")?;
+    let repo = gix::open_opts(repository.path(), gix::open::Options::isolated())?;
+    let opening_cwd = repo.current_dir().to_owned();
+    let git_dir = repo.git_dir().to_owned();
+    assert!(repo.index_path().is_absolute(), "the default index path is absolute");
+    assert_eq!(
+        repo.index_path(),
+        git_dir.join("index"),
+        "the default index uses the private Git directory"
+    );
+
+    // Quoting is parsed before resolving a configured path, including filenames with spaces.
+    writeln!(
+        std::fs::OpenOptions::new().append(true).open(git_dir.join("config"))?,
+        r#"
+[gitoxide "core"]
+    indexFile = "disk index"
+"#
+    )?;
+    for (source, options, filename) in [
+        ("disk", gix::open::Options::isolated(), "disk index"),
+        (
+            "API",
+            gix::open::Options::isolated().config_overrides(["gitoxide.core.indexFile=api-index"]),
+            "api-index",
+        ),
+        (
+            "CLI",
+            gix::open::Options::isolated().cli_overrides(["gitoxide.core.indexFile=cli-index"]),
+            "cli-index",
+        ),
+    ] {
+        let repo = gix::open_opts(repository.path(), options)?;
+        assert!(repo.index_path().is_absolute(), "the {source} index path is absolute");
+        assert_eq!(
+            repo.index_path(),
+            git_dir.join(filename),
+            "relative {source} values use the private Git directory, not the opening CWD"
+        );
+    }
+    let absolute_index = opening_cwd.join("absolute index");
+    let repo = gix::open_opts(
+        repository.path(),
+        gix::open::Options::isolated()
+            .config_overrides([format!("gitoxide.core.indexFile={}", absolute_index.display())]),
+    )?;
+    assert_eq!(
+        repo.index_path(),
+        absolute_index,
+        "an absolute configured path is unchanged"
+    );
+
+    let _environment = gix_testtools::Env::new().set("GIT_INDEX_FILE", "environment index");
+    let mut options = gix::open::Options::isolated()
+        .config_overrides(["gitoxide.core.indexFile=api-index"])
+        .cli_overrides(["gitoxide.core.indexFile=cli-index"]);
+    options.permissions.env.git_prefix = gix_sec::Permission::Allow;
+    let repo = gix::open_opts(repository.path(), options)?;
+    assert!(
+        repo.index_path().is_absolute(),
+        "the environment-selected index path is absolute"
+    );
+    assert_eq!(
+        repo.index_path(),
+        opening_cwd.join("environment index"),
+        "GIT_INDEX_FILE overrides disk, API, and CLI values and uses the opening CWD"
+    );
+    let _absolute_environment = gix_testtools::Env::new().set("GIT_INDEX_FILE", absolute_index.display().to_string());
+    let mut options = gix::open::Options::isolated();
+    options.permissions.env.git_prefix = gix_sec::Permission::Allow;
+    let repo = gix::open_opts(repository.path(), options)?;
+    assert_eq!(
+        repo.index_path(),
+        absolute_index,
+        "an absolute environment path is unchanged"
+    );
+
+    drop(_absolute_environment);
+    let mut options = gix::open::Options::isolated()
+        .config_overrides(["gitoxide.core.indexFile=missing index"])
+        .filter_config_section(|metadata| metadata.source != gix::config::Source::EnvOverride);
+    options.permissions.env.git_prefix = gix_sec::Permission::Allow;
+    let repo = gix::open_opts(repository.path(), options)?;
+    let selected_index = git_dir.join("missing index");
+    assert_eq!(
+        repo.index_path(),
+        selected_index,
+        "a filtered-out environment override does not change the selected API value's base"
+    );
+    assert!(
+        repo.index_path().is_absolute(),
+        "a missing index still has an absolute path"
+    );
+    assert!(repo.try_index()?.is_none(), "opening permits a missing selected index");
+    assert_eq!(
+        repo.index_or_empty()?.path(),
+        selected_index,
+        "an in-memory index retains the absolute selected path"
+    );
+    Ok(())
+}
+
+#[test]
+#[cfg(windows)]
+fn drive_relative_index_is_rejected_during_opening() -> TestResult {
+    let (source, _fixture) = crate::basic_rw_repo()?;
+    gix::open_opts(
+        source.git_dir(),
+        crate::restricted().config_overrides(["gitoxide.core.indexFile=C:custom-index"]),
+    )
+    .expect_err("opening rejects an unresolved drive-relative index instead of capturing an unstable path");
+    Ok(())
+}
+
+#[test]
+#[cfg(windows)]
+fn drive_relative_common_dir_is_rejected_during_opening() -> TestResult {
+    let repository = gix_testtools::scripted_fixture_writable("make_basic_repo.sh")?;
+    let git_dir = repository.path().join(".git");
+    assert!(
+        git_dir.is_absolute(),
+        "the private Git directory is opened with an absolute path"
+    );
+    std::fs::write(git_dir.join("commondir"), b"C:other.git\n")?;
+
+    let err = gix::open_opts(git_dir, gix::open::Options::isolated().with(gix_sec::Trust::Full))
+        .expect_err("opening rejects an unresolved drive-relative common directory before loading stores");
+    assert!(
+        err.is_validation(),
+        "the common directory is rejected as an invalid path without requiring its config or stores to exist: {err:?}"
+    );
+    Ok(())
+}
+
+#[test]
+#[cfg(feature = "index")]
+fn git_index_file_missing_yields_no_index() -> TestResult {
     let repository = gix_testtools::scripted_fixture_read_only("make_basic_repo.sh")?;
     let index_file = repository.join(".git/missing");
     let repo = gix::open_opts(
@@ -245,7 +390,7 @@ fn git_index_file_missing_yields_no_index() -> crate::Result {
 }
 
 #[test]
-fn git_index_file_empty_is_invalid_even_with_lenient_config() -> crate::Result {
+fn git_index_file_empty_is_invalid_even_with_lenient_config() -> TestResult {
     assert!(
         gix::config::tree::gitoxide::Core::INDEX_FILE
             .validated_assignment("".into())
@@ -259,17 +404,18 @@ fn git_index_file_empty_is_invalid_even_with_lenient_config() -> crate::Result {
     )
     .expect_err("an empty index path must be rejected");
 
-    assert_eq!(
-        err.source().expect("configuration error").to_string(),
-        "The key \"gitoxide.core.indexFile=\" (possibly from GIT_INDEX_FILE) was invalid",
-        "an empty index path is never ignored, even though configuration is lenient by default"
-    );
+    insta::assert_debug_snapshot!(err, "an empty index path is never ignored, even though configuration is lenient by default", @r#"
+    Invalid configuration value, environment_override="GIT_INDEX_FILE", input="", key="gitoxide.core.indexFile"
+
+    Caused by:
+        0: index file path must not be empty
+    "#);
     Ok(())
 }
 
 #[test]
 #[cfg(feature = "index")]
-fn git_index_file_receives_writes_while_the_git_dir_index_is_locked() -> crate::Result {
+fn git_index_file_receives_writes_while_the_git_dir_index_is_locked() -> TestResult {
     let repository = gix_testtools::scripted_fixture_writable("make_basic_repo.sh")?;
     let index_file = repository.path().join(".git/temporary-index");
     let repo = gix::open_opts(
@@ -295,7 +441,7 @@ fn git_index_file_receives_writes_while_the_git_dir_index_is_locked() -> crate::
 }
 
 #[test]
-fn non_bare_repo_with_git_extension() -> crate::Result {
+fn non_bare_repo_with_git_extension() -> TestResult {
     let repo = named_subrepo_opts("make_basic_repo.sh", "repo.git", gix::open::Options::isolated())?;
     assert_eq!(repo.kind(), gix::repository::Kind::Common);
     assert!(!repo.is_bare());
@@ -313,7 +459,7 @@ fn non_bare_repo_with_git_extension() -> crate::Result {
 }
 
 #[test]
-fn non_bare_turned_bare() -> crate::Result {
+fn non_bare_turned_bare() -> TestResult {
     let repo = named_subrepo_opts(
         "make_worktree_repo.sh",
         "non-bare-turned-bare",
@@ -329,7 +475,7 @@ fn non_bare_turned_bare() -> crate::Result {
 }
 
 #[test]
-fn worktree_of_bare_repo() -> crate::Result {
+fn worktree_of_bare_repo() -> TestResult {
     let repo = named_subrepo_opts(
         "make_worktree_repo.sh",
         "worktree-of-bare-repo",
@@ -356,7 +502,7 @@ fn worktree_of_bare_repo() -> crate::Result {
 }
 
 #[test]
-fn worktree_of_natively_bare_repo() -> crate::Result {
+fn worktree_of_natively_bare_repo() -> TestResult {
     let repo = named_subrepo_opts(
         "make_worktree_repo.sh",
         "worktree-of-natively-bare-repo",
@@ -383,7 +529,7 @@ fn worktree_of_natively_bare_repo() -> crate::Result {
 }
 
 #[test]
-fn natively_bare_repo_itself_is_common() -> crate::Result {
+fn natively_bare_repo_itself_is_common() -> TestResult {
     let repo = named_subrepo_opts(
         "make_worktree_repo.sh",
         "natively-bare-repo",
@@ -401,7 +547,7 @@ fn natively_bare_repo_itself_is_common() -> crate::Result {
 }
 
 #[test]
-fn non_bare_non_git_repo_without_worktree() -> crate::Result {
+fn non_bare_non_git_repo_without_worktree() -> TestResult {
     let repo = named_subrepo_opts(
         "make_basic_repo.sh",
         "non-bare-without-worktree",
@@ -426,7 +572,7 @@ fn non_bare_non_git_repo_without_worktree() -> crate::Result {
 }
 
 #[test]
-fn none_bare_repo_without_index() -> crate::Result {
+fn none_bare_repo_without_index() -> TestResult {
     let mut repo = named_subrepo_opts(
         "make_basic_repo.sh",
         "non-bare-repo-without-index",
@@ -450,7 +596,7 @@ fn none_bare_repo_without_index() -> crate::Result {
         "this is a minimal path"
     );
 
-    let old = repo.set_workdir(None).expect("should never fail");
+    let old = repo.set_workdir(None)?;
     assert_eq!(
         old.as_ref().and_then(|wd| wd.file_name()?.to_str()),
         Some("non-bare-repo-without-index")
@@ -463,11 +609,7 @@ fn none_bare_repo_without_index() -> crate::Result {
     );
     assert_eq!(repo.kind(), gix::repository::Kind::Common);
 
-    assert_eq!(
-        repo.set_workdir(old.clone()).expect("does not fail as it exists"),
-        None,
-        "nothing was set before"
-    );
+    assert_eq!(repo.set_workdir(old.clone())?, None, "nothing was set before");
     assert_eq!(repo.workdir(), old.as_deref());
 
     let worktree = repo.worktree().expect("should be present after setting");
@@ -476,7 +618,7 @@ fn none_bare_repo_without_index() -> crate::Result {
 }
 
 #[test]
-fn non_bare_split_worktree() -> crate::Result {
+fn non_bare_split_worktree() -> TestResult {
     for (name, worktree_exists) in [
         ("repo-with-worktree-in-config-unborn-no-worktreedir", false),
         ("repo-with-worktree-in-config-unborn", true),
@@ -498,23 +640,20 @@ fn non_bare_split_worktree() -> crate::Result {
 }
 
 #[test]
-fn non_bare_split_worktree_invalid_worktree_path_boolean() -> crate::Result {
+fn non_bare_split_worktree_invalid_worktree_path_boolean() -> TestResult {
     let err = named_subrepo_opts(
         "make_worktree_repo.sh",
         "repo-with-worktree-in-config-unborn-worktreedir-missing-value",
         gix::open::Options::isolated().strict_config(true),
     )
-    .unwrap_err();
-    assert_eq!(
-        err.source().expect("present").to_string(),
-        "The key \"core.worktree\" (possibly from GIT_WORK_TREE) was invalid",
-        "in strict mode, we fail just like git does"
-    );
+    .expect_err("a bare worktree-path key is invalid in strict mode");
+    assert!(err.is_validation(), "in strict mode, we fail just like git does");
+    insta::assert_debug_snapshot!(err, "non bare split worktree invalid worktree path boolean", @r#"Invalid configuration value, environment_override="GIT_WORK_TREE", key="core.worktree""#);
     Ok(())
 }
 
 #[test]
-fn non_bare_split_worktree_invalid_worktree_path_empty() -> crate::Result {
+fn non_bare_split_worktree_invalid_worktree_path_empty() -> TestResult {
     // "repo-with-worktree-in-config-unborn-worktreedir-missing-value",
     let err = named_subrepo_opts(
         "make_worktree_repo.sh",
@@ -522,18 +661,33 @@ fn non_bare_split_worktree_invalid_worktree_path_empty() -> crate::Result {
         gix::open::Options::isolated(),
     )
     .unwrap_err();
+    insta::assert_debug_snapshot!(err, "DEVIATION: could not read path at core.worktree as empty is always invalid, git tries to use an empty path, even though it's better to reject it", @r#"
+    The path at the 'core.worktree' configuration could not be interpolated, input=""
+
+    Caused by:
+        0: path is missing
+    "#);
     assert!(
-        matches!(
-            err,
-            gix::open::Error::Config(gix::config::Error::PathInterpolation { .. })
-        ),
+        err.is_validation(),
         "DEVIATION: could not read path at core.worktree as empty is always invalid, git tries to use an empty path, even though it's better to reject it"
     );
+    let validation = err
+        .classify()
+        .filter(|classification| classification.class() == gix_error::Class::Validation)
+        .find_map(|classification| classification.error().downcast_ref::<gix::error::Message>())
+        .expect("the invalid core.worktree path remains classified");
+    insta::assert_debug_snapshot!(validation, "non bare split worktree invalid worktree path empty", @r#"
+    Message {
+        message: "The path at the 'core.worktree' configuration could not be interpolated",
+        class: Validation,
+        values: {input: Bytes("")},
+    }
+    "#);
     Ok(())
 }
 
 #[test]
-fn bare_with_worktree_is_still_bare() -> crate::Result {
+fn bare_with_worktree_is_still_bare() -> TestResult {
     let repo = named_subrepo_opts("make_config_repos.sh", "bare-link", gix::open::Options::isolated())?;
     assert!(
         repo.is_bare(),
@@ -552,9 +706,10 @@ fn bare_with_worktree_is_still_bare() -> crate::Result {
 mod missing_config_file {
 
     use crate::util::named_subrepo_opts;
+    use gix_testtools::TestResult;
 
     #[test]
-    fn bare() -> crate::Result {
+    fn bare() -> TestResult {
         let repo = named_subrepo_opts("make_config_repos.sh", "bare-no-config", gix::open::Options::isolated())?;
         assert!(
             repo.is_bare(),
@@ -572,7 +727,7 @@ mod missing_config_file {
     }
 
     #[test]
-    fn non_bare() -> crate::Result {
+    fn non_bare() -> TestResult {
         let repo = named_subrepo_opts(
             "make_config_repos.sh",
             "worktree-no-config",
@@ -595,14 +750,48 @@ mod missing_config_file {
 }
 
 mod not_a_repository {
+    use gix_testtools::TestResult;
 
     #[test]
-    fn shows_proper_error() -> crate::Result {
+    fn shows_proper_error() -> TestResult {
+        let mut error_snapshots = Vec::new();
         for name in ["empty-dir", "with-files"] {
             let name = format!("not-a-repo-{name}");
             let repo_path = gix_testtools::scripted_fixture_read_only("make_config_repos.sh")?.join(name);
             let err = gix::open_opts(&repo_path, gix::open::Options::isolated()).unwrap_err();
-            assert!(matches!(err, gix::open::Error::NotARepository { path, .. } if path == repo_path));
+            error_snapshots.push(gix_testtools::redact_debug_snapshot(
+                &(err),
+                &[(&(repo_path).to_string_lossy(), "<repository>")],
+            ));
+            assert!(err.is_not_found());
+        }
+        insta::assert_debug_snapshot!(error_snapshots, "shows proper error", @r#"
+        [
+            "<repository>" does not appear to be a git repository
+            
+            Caused by:
+                0: Missing HEAD at ".git/HEAD",
+            "<repository>" does not appear to be a git repository
+            
+            Caused by:
+                0: Missing HEAD at ".git/HEAD",
+        ]
+        "#);
+        Ok(())
+    }
+}
+
+mod relative_worktrees_extension {
+    #[test]
+    fn requires_v1_and_a_valid_boolean() -> gix_testtools::TestResult {
+        for name in [
+            "relative-worktrees-false-with-repository-format-v0",
+            "relative-worktrees-true-with-repository-format-v0",
+            "relative-worktrees-invalid-with-repository-format-v1",
+        ] {
+            let err = crate::util::named_subrepo_opts("make_config_repos.sh", name, crate::restricted())
+                .expect_err("relativeWorktrees is a v1-only boolean extension");
+            assert!(err.is_validation(), "the invalid extension is reported: {err:?}");
         }
         Ok(())
     }
@@ -610,9 +799,11 @@ mod not_a_repository {
 
 mod object_format_extension {
     use crate::util::named_subrepo_opts;
+    use gix_testtools::TestResult;
 
     #[test]
-    fn rejects_object_format_on_v0_repo() -> crate::Result {
+    fn rejects_object_format_on_v0_repo() -> TestResult {
+        let mut error_snapshots = Vec::new();
         // objectFormat is a "v1-only" extension: git refuses to operate on a version-0 repo that
         // sets it, even for sha1 (unlike grandfathered extensions like preciousObjects, which v0
         // still honours). This rejection was introduced in git 2.29.0 (2020). We match it.
@@ -622,19 +813,29 @@ mod object_format_extension {
         ] {
             let err = named_subrepo_opts("make_config_repos.sh", name, gix::open::Options::isolated())
                 .expect_err("a v0 repository setting extensions.objectFormat must be rejected");
+            error_snapshots.push(gix_testtools::redact_debug_snapshot(&(err), &[]));
             assert!(
-                matches!(
-                    err,
-                    gix::open::Error::Config(gix::config::Error::ObjectFormatRequiresV1)
-                ),
+                err.is_validation(),
                 "objectFormat on a v0 repository must be rejected, got {err:?} for {name}"
             );
         }
+        insta::assert_debug_snapshot!(error_snapshots, "rejects object format on v0 repo", @"
+        [
+            Repository configuration could not be loaded
+            
+            Caused by:
+                0: extensions.objectFormat is a v1-only extension, but the repository format version is 0; set core.repositoryFormatVersion=1 to use it, or remove extensions.objectFormat to fall back to the default Sha1 format (if supported by this build),
+            Repository configuration could not be loaded
+            
+            Caused by:
+                0: extensions.objectFormat is a v1-only extension, but the repository format version is 0; set core.repositoryFormatVersion=1 to use it, or remove extensions.objectFormat to fall back to the default Sha1 format (if supported by this build),
+        ]
+        ");
         Ok(())
     }
 
     #[test]
-    fn rejects_future_repository_format_versions() -> crate::Result {
+    fn rejects_future_repository_format_versions() -> TestResult {
         let err = named_subrepo_opts(
             "make_config_repos.sh",
             "repository-format-v2-with-objectformat-sha1",
@@ -642,12 +843,16 @@ mod object_format_extension {
         )
         .expect_err("future repository format versions must be rejected");
         assert!(
-            matches!(
-                err,
-                gix::open::Error::Config(gix::config::Error::UnsupportedRepositoryFormatVersion { version: 2 })
-            ),
+            err.is_unsupported(),
             "future repository format versions must be rejected before interpreting extensions, got {err:?}"
         );
+        insta::assert_debug_snapshot!(err.probable_cause(), "rejects future repository format versions", @r#"
+        Message {
+            message: "Unsupported repository format version; only versions 0 and 1 are supported",
+            class: Unsupported,
+            values: {input: I64(2), key: String("core.repositoryFormatVersion")},
+        }
+        "#);
         Ok(())
     }
 }
@@ -655,32 +860,46 @@ mod object_format_extension {
 mod open_path_as_is {
 
     use crate::util::{named_subrepo_opts, repo_opts};
+    use gix::error::Message;
+    use gix_testtools::TestResult;
 
     fn open_path_as_is() -> gix::open::Options {
         gix::open::Options::isolated().open_path_as_is(true)
     }
 
     #[test]
-    fn bare_repos_open_normally() -> crate::Result {
+    fn bare_repos_open_normally() -> TestResult {
         assert!(named_subrepo_opts("make_basic_repo.sh", "bare.git", open_path_as_is())?.is_bare());
         Ok(())
     }
 
     #[test]
-    fn worktrees_cannot_be_opened() -> crate::Result {
+    fn worktrees_cannot_be_opened() -> TestResult {
         let err = repo_opts("make_basic_repo.sh", open_path_as_is()).unwrap_err();
-        assert!(matches!(err, gix::open::Error::NotARepository { .. }));
+        insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&(err), &[(&(gix_testtools::scripted_fixture_read_only("make_basic_repo.sh")?).to_string_lossy(), "<worktree>")]), "worktrees cannot be opened", @r#"
+        "<worktree>" does not appear to be a git repository
+
+        Caused by:
+            0: Missing HEAD at ".git/HEAD"
+        "#);
+        assert!(err.is_not_found());
+        assert_eq!(
+            err.error().downcast_ref::<Message>().and_then(|error| error.class),
+            Some(gix_error::Class::NotFound),
+            "the outer not-a-repository classification survives erasure"
+        );
         Ok(())
     }
 
     #[test]
-    fn git_dir_within_worktrees_open_normally() -> crate::Result {
+    fn git_dir_within_worktrees_open_normally() -> TestResult {
         assert!(!named_subrepo_opts("make_basic_repo.sh", ".git", open_path_as_is())?.is_bare());
         Ok(())
     }
 }
 
 mod submodules {
+    use crate::Result;
     use std::path::Path;
 
     #[test]
@@ -710,7 +929,7 @@ mod submodules {
         }
     }
 
-    fn discover_repo(name: impl AsRef<Path>) -> crate::Result<gix::Repository> {
+    fn discover_repo(name: impl AsRef<Path>) -> Result<gix::Repository> {
         let dir = gix_testtools::scripted_fixture_read_only("make_submodules.sh")?;
         let repo_dir = dir.join(name);
         Ok(gix::ThreadSafeRepository::discover_opts(
@@ -728,24 +947,27 @@ mod submodules {
 mod object_caches {
 
     use crate::util::named_subrepo_opts;
+    use gix_testtools::TestResult;
 
     #[test]
-    fn default_git_and_custom_caches() -> crate::Result {
+    fn default_git_and_custom_caches() -> TestResult {
         let opts = gix::open::Options::isolated();
         let repo = named_subrepo_opts("make_config_repos.sh", "object-caches", opts)?;
         assert_eq!(
             repo.objects.has_object_cache(),
-            cfg!(all(feature = "parallel", feature = "comfort"))
+            cfg!(feature = "max-performance"),
+            "configured object caching requires the performance feature"
         );
         assert_eq!(
             repo.objects.has_pack_cache(),
-            cfg!(all(feature = "parallel", feature = "comfort"))
+            cfg!(feature = "max-performance"),
+            "configured pack caching requires the performance feature"
         );
         Ok(())
     }
 
     #[test]
-    fn disabled() -> crate::Result {
+    fn disabled() -> TestResult {
         let opts = gix::open::Options::isolated();
         let repo = named_subrepo_opts("make_config_repos.sh", "disabled-object-caches", opts)?;
         assert!(!repo.objects.has_object_cache());
@@ -758,11 +980,12 @@ mod pack_alloc_limit_bytes {
     use gix_odb::HeaderExt;
     use gix_odb::find::Header;
     use gix_sec::Trust;
+    use gix_testtools::TestResult;
 
     use crate::util::repo_opts;
 
     #[test]
-    fn limits_packed_object_allocations() -> crate::Result {
+    fn limits_packed_object_allocations() -> TestResult {
         let repo = repo_opts("make_packed_and_loose.sh", crate::util::restricted())?.to_thread_local();
         let packed_only_id = repo
             .objects
@@ -790,7 +1013,7 @@ mod pack_alloc_limit_bytes {
     }
 
     #[test]
-    fn limits_loose_object_allocations() -> crate::Result {
+    fn limits_loose_object_allocations() -> TestResult {
         let repo = repo_opts("make_packed_and_loose.sh", crate::util::restricted())?.to_thread_local();
         let loose_only_blob_id = repo
             .objects
@@ -834,12 +1057,12 @@ mod pack_alloc_limit_bytes {
     }
 
     #[test]
-    fn reduced_trust_sets_a_default_limit_unless_disabled() -> crate::Result {
+    fn reduced_trust_sets_a_default_limit_unless_disabled() -> TestResult {
         let base = repo_opts("make_packed_and_loose.sh", crate::util::restricted())?.to_thread_local();
         let packed_only_id = base
             .objects
             .iter()?
-            .map(Result::unwrap)
+            .map(std::result::Result::unwrap)
             .next()
             .expect("fixture contains packed-only objects");
         assert!(
@@ -879,7 +1102,7 @@ mod worktree {
     use gix::open;
 
     #[test]
-    fn with_worktree_configs() -> gix_testtools::Result {
+    fn with_worktree_configs() -> gix_testtools::TestResult {
         let manifest_dir = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR")?);
         let fixture_dir = gix_testtools::scripted_fixture_read_only("make_worktree_repo_with_configs.sh")?;
         let worktree_base = manifest_dir.join(&fixture_dir).join("repo/.git/worktrees");
@@ -919,7 +1142,7 @@ mod worktree {
             let wt1_config = wt1.config_snapshot();
             assert_eq!(
                 wt1.workdir(),
-                Some(fixture_dir.join("wt-1").as_path()),
+                Some(manifest_dir.join(&fixture_dir).join("wt-1").as_path()),
                 "a linked worktree in its own location"
             );
             assert_eq!(
@@ -949,7 +1172,7 @@ mod worktree {
             let wt2_config = wt2.config_snapshot();
             assert_eq!(
                 wt2.workdir(),
-                Some(fixture_dir.join("wt-2").as_path()),
+                Some(manifest_dir.join(&fixture_dir).join("wt-2").as_path()),
                 "another linked worktree as sibling to wt-1"
             );
             assert_eq!(wt2.git_dir(), worktree_base.join("wt-2"));

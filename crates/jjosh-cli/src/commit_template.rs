@@ -83,13 +83,13 @@ impl TouchedProjectsCache {
         // With no registered projects, don't load parent trees at all. With projects, use the
         // same merged-parent baseline as `jj diff`, not a first-parent or ancestry union.
         if !layout.is_empty() {
-            let before = commit.parent_tree(repo).await?;
+            let before = commit.parent_tree(repo.index()).await?;
             let after = commit.tree();
             if before.tree_ids() != after.tree_ids() {
                 for project in layout {
                     // Native tree diff skips equal subtrees. One changed entry establishes a
                     // project hit; no text hunks, blob reads, or rename detection are needed.
-                    if let Some(entry) = before.diff_stream(&after, &project.matcher).next().await {
+                    if let Some(entry) = before.diff(&after, &project.matcher).next().await {
                         entry.values?; // An unreadable tree is not an empty project diff.
                         names.push(project.display.clone());
                     }

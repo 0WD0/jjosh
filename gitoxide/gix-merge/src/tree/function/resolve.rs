@@ -2,6 +2,7 @@
 //!
 //! See [`tree()`] for the main entrypoint and how it works.
 
+use gix_error::Result;
 use std::borrow::Cow;
 
 use bstr::{BString, ByteSlice};
@@ -15,7 +16,7 @@ use gix_object::{
 use crate::tree::{
     Conflict, ConflictIndexEntry, ConflictIndexEntryPathHint, ConflictMapping,
     ConflictMapping::{Original, Swapped},
-    ContentMerge, Error, Options, Outcome, Resolution, ResolutionFailure, ResolveWith,
+    ContentMerge, Options, Outcome, Resolution, ResolutionFailure, ResolveWith,
     utils::{
         ChangeDisposition, ChangeList, PossibleConflict, TrackedChange, apply_change, perform_blob_merge,
         possibly_rewritten_location, rewrite_location_with_renamed_directory, to_components, unique_path_in_tree,
@@ -83,25 +84,28 @@ use super::change::{MatchKind, collect as collect_changes, matching as matching_
 /// which recorded resolutions a caller still considers unresolved, so unresolved conflicts are not limited to content
 /// containing conflict markers.
 ///
+/// ### Errors
+///
+/// Selecting an absent binary merge resource, such as the ancestor in an add/add conflict, returns
+/// [`crate::tree::Error::MissingBinaryMergeResult`], classified as [`gix_error::Class::NotFound`].
+/// Downcast to [`crate::tree::Error`] and match this variant to distinguish it from missing object headers or data.
+///
 /// ### Performance
 ///
 /// Note that `objects` *should* have an object cache to greatly accelerate tree-retrieval.
 #[expect(clippy::too_many_arguments)]
-pub fn tree<'objects, E>(
+pub fn tree<'objects>(
     base_tree: &gix_hash::oid,
     our_tree: &gix_hash::oid,
     their_tree: &gix_hash::oid,
     mut labels: crate::blob::builtin_driver::text::Labels<'_>,
     objects: &'objects impl gix_object::FindObjectOrHeader,
-    mut write_blob_to_odb: impl FnMut(&[u8]) -> Result<ObjectId, E>,
+    mut write_blob_to_odb: impl FnMut(&[u8]) -> Result<ObjectId>,
     diff_state: &mut gix_diff::tree::State,
     diff_resource_cache: &mut gix_diff::blob::Platform,
     blob_merge: &mut crate::blob::Platform,
     options: Options,
-) -> Result<Outcome<'objects>, Error>
-where
-    E: Into<Box<dyn std::error::Error + Send + Sync + 'static>>,
-{
+) -> Result<Outcome<'objects>> {
     let _span = gix_trace::coarse!("gix_merge::tree", ?base_tree, ?our_tree, ?their_tree, ?labels);
     let (mut base_buf, mut side_buf) = (Vec::new(), Vec::new());
     let mut editor = {
@@ -207,7 +211,7 @@ where
                             )) {
                                 break 'outer;
                             }
-                            editor.remove(to_components(theirs.location()))?;
+                            editor.remove_if_leaf(to_components(theirs.location()))?;
                         }
                         apply_change(&mut editor, theirs, rewritten_location.as_ref().map(|t| &t.0))?;
                         their_changes[theirs_idx].mark_applied();
@@ -428,7 +432,7 @@ where
                                         (merged_blob_id, Some(resolution))
                                     };
 
-                                    editor.remove(toc(our_location))?;
+                                    editor.remove_if_leaf(toc(our_location))?;
                                     pick_mut(side, our_tree, their_tree).remove_existing_change(our_location.as_bstr());
                                     let final_location = their_rewritten_location.clone();
                                     let new_change = Change::Addition {
@@ -466,7 +470,7 @@ where
                                             editor.upsert(toc(their_location), their_mode.kind(), *their_id)?;
                                         }
                                         Some(ResolveWith::Ours) => {
-                                            editor.remove(toc(source_location))?;
+                                            editor.remove_if_leaf(toc(source_location))?;
                                             if side.to_global(outer_side).is_swapped() {
                                                 editor.upsert(toc(their_location), their_mode.kind(), *their_id)?;
                                             } else {
@@ -691,8 +695,8 @@ where
 
                                 match resolve_tree_conflicts {
                                     None => {
-                                        editor.remove(toc(source_location))?;
-                                        editor.remove(toc(blocking_location))?;
+                                        editor.remove_if_leaf(toc(source_location))?;
+                                        editor.remove_if_leaf(toc(blocking_location))?;
                                         our_tree.remove_change(blocking_location.as_bstr());
                                         editor.upsert(toc(&renamed_location), blocking_mode.kind(), *blocking_id)?;
                                         apply_change_and_mark(&mut editor, theirs, &mut theirs_disposition)?;
@@ -752,7 +756,7 @@ where
 
                                 match resolve_tree_conflicts {
                                     None => {
-                                        editor.remove(toc(blocking_location))?;
+                                        editor.remove_if_leaf(toc(blocking_location))?;
                                         our_tree.remove_change(blocking_location.as_bstr());
                                         editor.upsert(toc(&renamed_location), blocking_mode.kind(), *blocking_id)?;
                                         apply_change_and_mark(&mut editor, theirs, &mut theirs_disposition)?;
@@ -763,7 +767,7 @@ where
                                             apply_change_and_mark(&mut editor, ours, &mut ours_disposition)?;
                                         }
                                         Swapped => {
-                                            editor.remove(toc(blocking_location))?;
+                                            editor.remove_if_leaf(toc(blocking_location))?;
                                             our_tree.remove_change(blocking_location.as_bstr());
                                             apply_change_and_mark(&mut editor, theirs, &mut theirs_disposition)?;
                                         }
@@ -995,7 +999,7 @@ where
                                                 our_tree,
                                                 label_of_side_to_be_moved,
                                             )?;
-                                            editor.remove(toc(location))?;
+                                            editor.remove_if_leaf(toc(location))?;
                                             our_tree.remove_existing_change(location.as_bstr());
 
                                             let new_change = Change::Addition {
@@ -1027,7 +1031,7 @@ where
                                                 }
                                                 Swapped => {
                                                     // ours is deletion
-                                                    editor.remove(toc(location))?;
+                                                    editor.remove_if_leaf(toc(location))?;
                                                 }
                                             }
                                             should_fail_on_conflict(Conflict::without_resolution(
@@ -1065,7 +1069,7 @@ where
                                                     editor.upsert(toc(location), entry_mode.kind(), *id)?;
                                                 }
                                                 Change::Deletion { .. } => {
-                                                    editor.remove(toc(location))?;
+                                                    editor.remove_if_leaf(toc(location))?;
                                                 }
                                                 _ => unreachable!("parent-match assures this"),
                                             }
@@ -1164,7 +1168,7 @@ where
 
                                 match resolve_tree_conflicts {
                                     None => {
-                                        editor.remove(toc(source_location))?;
+                                        editor.remove_if_leaf(toc(source_location))?;
                                         editor.upsert(toc(&renamed_location), entry_mode.kind(), *id)?;
                                         their_tree.remove_existing_change(location.as_bstr());
                                         ours_disposition = ChangeDisposition::Applied;
@@ -1251,8 +1255,8 @@ where
                                 && our_mode == their_mode
                                 && our_id == their_id =>
                             {
-                                editor.remove(toc(our_source_location))?;
-                                editor.remove(toc(their_source_location))?;
+                                editor.remove_if_leaf(toc(our_source_location))?;
+                                editor.remove_if_leaf(toc(their_source_location))?;
                                 our_tree.remove_change(our_source_location.as_bstr());
                                 their_tree.remove_change(their_source_location.as_bstr());
                                 editor.upsert(toc(location), our_mode.kind(), *our_id)?;
@@ -1284,8 +1288,8 @@ where
                             {
                                 match resolve_tree_conflicts {
                                     None => {
-                                        editor.remove(toc(our_source_location))?;
-                                        editor.remove(toc(their_source_location))?;
+                                        editor.remove_if_leaf(toc(our_source_location))?;
+                                        editor.remove_if_leaf(toc(their_source_location))?;
                                         our_tree.remove_change(our_source_location.as_bstr());
                                         their_tree.remove_change(their_source_location.as_bstr());
                                         let conflict = if let Some(merged_mode) = merge_modes(*our_mode, *their_mode) {
@@ -1378,7 +1382,7 @@ where
                                                     (their_source_location, their_mode, their_id, &mut *their_tree)
                                                 }
                                             };
-                                            editor.remove(toc(source))?;
+                                            editor.remove_if_leaf(toc(source))?;
                                             tree.remove_change(source.as_bstr());
                                             editor.upsert(toc(location), mode.kind(), *id)?;
                                         }
@@ -1439,7 +1443,7 @@ where
                                 };
                                 match resolve_tree_conflicts {
                                     None => {
-                                        editor.remove(toc(source_location))?;
+                                        editor.remove_if_leaf(toc(source_location))?;
                                         pick_mut(side, our_tree, their_tree).remove_change(source_location.as_bstr());
                                         editor.upsert(toc(location), our_mode.kind(), *our_id)?;
                                         editor.upsert(toc(add_location), their_mode.kind(), *their_id)?;
@@ -1448,7 +1452,7 @@ where
                                     }
                                     Some(ResolveWith::Ours) => match side.to_global(outer_side) {
                                         Original => {
-                                            editor.remove(toc(source_location))?;
+                                            editor.remove_if_leaf(toc(source_location))?;
                                             editor.upsert(toc(location), our_mode.kind(), *our_id)?;
                                             match side {
                                                 Original => ours_disposition = ChangeDisposition::Applied,
@@ -1456,7 +1460,7 @@ where
                                             }
                                         }
                                         Swapped => {
-                                            editor.remove(toc(source_location))?;
+                                            editor.remove_if_leaf(toc(source_location))?;
                                             editor.upsert(toc(add_location), their_mode.kind(), *their_id)?;
                                             match side {
                                                 Original => theirs_disposition = ChangeDisposition::Applied,
@@ -1511,8 +1515,8 @@ where
 
                                 match resolve_tree_conflicts {
                                     None => {
-                                        editor.remove(toc(blocking_source))?;
-                                        editor.remove(toc(blocking_location))?;
+                                        editor.remove_if_leaf(toc(blocking_source))?;
+                                        editor.remove_if_leaf(toc(blocking_location))?;
                                         our_tree.remove_change(blocking_location.as_bstr());
                                         editor.upsert(toc(&renamed_location), blocking_mode.kind(), *blocking_id)?;
                                         apply_change_and_mark(&mut editor, theirs, &mut theirs_disposition)?;
@@ -1579,7 +1583,7 @@ where
                                     merge_modes(*our_mode, *their_mode).expect("this case was assured earlier");
 
                                 if matches!(resolve_tree_conflicts, None | Some(ResolveWith::Ours)) {
-                                    editor.remove(toc(source_location))?;
+                                    editor.remove_if_leaf(toc(source_location))?;
                                     our_tree.remove_change(source_location.as_bstr());
                                     their_tree.remove_change(source_location.as_bstr());
                                 }
@@ -1731,7 +1735,7 @@ where
 
                                 match resolve_tree_conflicts {
                                     None | Some(ResolveWith::Ours) => {
-                                        editor.remove(toc(source_location))?;
+                                        editor.remove_if_leaf(toc(source_location))?;
                                         pick_mut(side, our_tree, their_tree).remove_change(source_location.as_bstr());
                                         match side {
                                             Original => ours_disposition = ChangeDisposition::Applied,
@@ -1881,7 +1885,7 @@ where
                                         (id, Some(resolution))
                                     };
 
-                                    editor.remove(toc(source_location))?;
+                                    editor.remove_if_leaf(toc(source_location))?;
                                     pick_mut(side, our_tree, their_tree).remove_change(source_location.as_bstr());
 
                                     if let Some(resolution) = resolution
@@ -1910,7 +1914,7 @@ where
                                         || ours_is_rename
                                         || add_location != source_location;
                                     if remove_rename_source {
-                                        editor.remove(toc(source_location))?;
+                                        editor.remove_if_leaf(toc(source_location))?;
                                         pick_mut(side, our_tree, their_tree).remove_change(source_location.as_bstr());
                                     }
 
@@ -2032,7 +2036,7 @@ fn apply_change_and_mark(
     editor: &mut tree::Editor<'_>,
     change: &Change,
     disposition: &mut ChangeDisposition,
-) -> Result<(), tree::editor::Error> {
+) -> Result {
     apply_change(editor, change, None)?;
     *disposition = ChangeDisposition::Applied;
     Ok(())
@@ -2045,12 +2049,12 @@ fn apply_our_resolution(
     editor: &mut gix_object::tree::Editor<'_>,
     local_ours_disposition: &mut ChangeDisposition,
     local_theirs_disposition: &mut ChangeDisposition,
-) -> Result<(), Error> {
+) -> Result {
     let (ours, disposition) = match outer_side {
         Original => (local_ours, local_ours_disposition),
         Swapped => (local_theirs, local_theirs_disposition),
     };
-    Ok(apply_change_and_mark(editor, ours, disposition)?)
+    apply_change_and_mark(editor, ours, disposition)
 }
 
 fn involves_submodule(a: &EntryMode, b: &EntryMode) -> bool {

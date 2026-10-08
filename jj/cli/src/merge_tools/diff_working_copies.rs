@@ -146,7 +146,7 @@ pub(crate) async fn check_out_trees(
     let store = trees.before.store();
     let changed_files: Vec<_> = trees
         .before
-        .diff_stream(trees.after, matcher)
+        .diff(trees.after, matcher)
         .map(|TreeDiffEntry { path, .. }| path)
         .collect()
         .await;
@@ -165,7 +165,7 @@ pub(crate) async fn check_out_trees(
     let temp_path = temp_dir.path();
 
     // Checkout a tree into our temp directory with the given prefix.
-    let check_out = |name: &str, tree| -> Result<TreeState, DiffCheckoutError> {
+    let check_out = async |name: &str, tree| -> Result<TreeState, DiffCheckoutError> {
         let wc_path = temp_path.join(name);
         let state_dir = temp_path.join(format!("{name}_state"));
         std::fs::create_dir(&wc_path).map_err(DiffCheckoutError::SetUpDir)?;
@@ -177,16 +177,16 @@ pub(crate) async fn check_out_trees(
             fsmonitor_settings: FsmonitorSettings::None,
         };
         let mut state = TreeState::init(store.clone(), wc_path, state_dir, &tree_state_settings)?;
-        state.set_sparse_patterns(sparse_patterns.clone().into())?;
-        state.check_out(tree)?;
+        state.set_sparse_patterns(sparse_patterns.clone().into()).await?;
+        state.check_out(tree).await?;
         Ok(state)
     };
 
-    let left = check_out("left", trees.before)?;
-    let right = check_out("right", trees.after)?;
+    let left = check_out("left", trees.before).await?;
+    let right = check_out("right", trees.after).await?;
     let output = match diff_type {
         DiffType::TwoWay => None,
-        DiffType::ThreeWay => Some(check_out("output", trees.after)?),
+        DiffType::ThreeWay => Some(check_out("output", trees.after).await?),
     };
     Ok(DiffWorkingCopies {
         temp_dir,

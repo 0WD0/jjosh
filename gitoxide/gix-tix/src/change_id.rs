@@ -3,10 +3,10 @@ use std::{
     collections::{HashMap, HashSet},
 };
 
-use anyhow::{Context, Result};
 use gix::{
-    ObjectId,
+    ObjectId, Result,
     bstr::{BStr, BString},
+    error::{ResultExt, bail, message},
     hash::ChangeId,
     prelude::ObjectIdExt,
 };
@@ -20,10 +20,8 @@ pub(crate) fn effective<'a>(commit_id: ObjectId, mut values: impl Iterator<Item 
 }
 
 pub(crate) fn for_commit(repo: &gix::Repository, id: ObjectId) -> Result<ChangeId> {
-    let object = repo
-        .find_commit(id)
-        .context("could not read commit for its change ID")?;
-    let commit = object.decode().context("could not decode commit for its change ID")?;
+    let object = repo.find_commit(id)?;
+    let commit = object.decode()?;
     Ok(effective(id, commit.extra_headers().find_all(HEADER)))
 }
 
@@ -36,11 +34,7 @@ pub(crate) fn display(repo: &gix::Repository, id: ObjectId, len: usize) -> Resul
 }
 
 pub(crate) fn display_short(repo: &gix::Repository, id: ObjectId) -> Result<String> {
-    let hash = id
-        .attach(repo)
-        .shorten()
-        .context("could not shorten commit ID")?
-        .to_string();
+    let hash = id.attach(repo).shorten()?.to_string();
     Ok(format!(
         "{hash} {}",
         for_commit(repo, id)?.to_reverse_hex_with_len(hash.len())
@@ -79,7 +73,7 @@ pub(crate) fn resolve_prefix(
             continue;
         }
         if found.replace(id).is_some() {
-            anyhow::bail!(
+            bail!(
                 "change ID prefix {} is ambiguous in the default Tix view",
                 prefix.to_reverse_hex()
             );
@@ -104,7 +98,7 @@ fn collect_abbreviations(values: impl IntoIterator<Item = (ObjectId, ChangeId)>,
 }
 
 pub(crate) fn inherit(repo: &gix::Repository, commit: &mut gix::objs::Commit, predecessor: ObjectId) -> Result<()> {
-    let change_id = for_commit(repo, predecessor).context("could not preserve predecessor change ID")?;
+    let change_id = for_commit(repo, predecessor).or_raise(|| message("could not preserve predecessor change ID"))?;
     store(commit, change_id);
     Ok(())
 }
@@ -127,12 +121,8 @@ pub(crate) fn scan(repo: &gix::Repository, ids: &[ObjectId]) -> Result<Scan> {
     let mut first_by_change = HashMap::new();
     let mut duplicates = HashSet::new();
     for &id in ids {
-        let object = repo
-            .find_commit(id)
-            .context("could not read commit while scanning change IDs")?;
-        let commit = object
-            .decode()
-            .context("could not decode commit while scanning change IDs")?;
+        let object = repo.find_commit(id)?;
+        let commit = object.decode()?;
         let change_id = effective(id, commit.extra_headers().find_all(HEADER));
         if change_id != ChangeId::from(id) {
             overrides.insert(id, change_id);

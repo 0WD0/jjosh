@@ -1,12 +1,13 @@
-#![allow(clippy::result_large_err, clippy::unnecessary_debug_formatting)]
 mod util;
 use util::*;
 
 mod clone;
+mod clone_refs;
 mod commit;
 mod config;
 #[cfg(feature = "blob-diff")]
 mod diff;
+mod error;
 mod head;
 mod id;
 mod init;

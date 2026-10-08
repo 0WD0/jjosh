@@ -6,7 +6,8 @@ use std::{
     thread,
 };
 
-use gix_features::io;
+use gix_error::{ClassificationMarker, Error, Result, ResultExt, message};
+use gix_utils::io;
 use parking_lot::Mutex;
 
 use crate::client::blocking_io::http::{self, traits::PostBodyDataKind};
@@ -22,32 +23,7 @@ pub struct Options {
     pub schannel_check_revoke: Option<bool>,
 }
 
-/// The error returned by the 'remote' helper, a purely internal construct to perform http requests.
-///
-/// It can be used for downcasting errors, which are boxed to hide the actual implementation.
-#[derive(Debug, thiserror::Error)]
-#[expect(missing_docs)]
-pub enum Error {
-    #[error(transparent)]
-    Curl(#[from] curl::Error),
-    #[error(transparent)]
-    Redirect(#[from] http::redirect::Error),
-    #[error("Could not finish reading all data to post to the remote")]
-    ReadPostBody(#[from] std::io::Error),
-    #[error(transparent)]
-    Authenticate(#[from] gix_credentials::protocol::Error),
-}
-
-impl crate::IsSpuriousError for Error {
-    fn is_spurious(&self) -> bool {
-        match self {
-            Error::Curl(err) => curl_is_spurious(err),
-            _ => false,
-        }
-    }
-}
-
-pub(crate) fn curl_is_spurious(err: &curl::Error) -> bool {
+pub(crate) fn curl_is_retryable(err: &curl::Error) -> bool {
     err.is_couldnt_connect()
         || err.is_couldnt_resolve_proxy()
         || err.is_couldnt_resolve_host()
@@ -64,13 +40,13 @@ pub(crate) fn curl_is_spurious(err: &curl::Error) -> bool {
 pub struct Curl {
     req: SyncSender<remote::Request>,
     res: Receiver<remote::Response>,
-    handle: Option<thread::JoinHandle<Result<(), Error>>>,
+    handle: Option<thread::JoinHandle<Result>>,
     config: http::Options,
     redirected_base_url: Arc<Mutex<Option<String>>>,
 }
 
 impl Curl {
-    fn restore_thread_after_failure(&mut self) -> http::Error {
+    fn restore_thread_after_failure(&mut self) -> Error {
         let err_that_brought_thread_down = self
             .handle
             .take()
@@ -83,7 +59,7 @@ impl Curl {
         self.req = req;
         self.res = res;
         self.redirected_base_url = redirected_base_url;
-        err_that_brought_thread_down.into()
+        err_that_brought_thread_down
     }
 
     fn make_request(
@@ -92,10 +68,18 @@ impl Curl {
         base_url: &str,
         headers: impl IntoIterator<Item = impl AsRef<str>>,
         upload_body_kind: Option<PostBodyDataKind>,
-    ) -> Result<http::PostResponse<io::pipe::Reader, io::pipe::Reader, io::pipe::Writer>, http::Error> {
+    ) -> Result<http::PostResponse<io::pipe::Reader, io::pipe::Reader, io::pipe::Writer>> {
         let mut list = curl::easy::List::new();
         for header in headers {
-            list.append(header.as_ref())?;
+            list.append(header.as_ref())
+                .map_err(|err| {
+                    if curl_is_retryable(&err) {
+                        Error::from_error(ClassificationMarker::with_source(gix_error::Class::Retryable, err))
+                    } else {
+                        Error::from_error(err)
+                    }
+                })
+                .or_raise(|| message("Could not add HTTP header"))?;
         }
         if self
             .req
@@ -149,7 +133,7 @@ impl http::Http for Curl {
         url: &str,
         base_url: &str,
         headers: impl IntoIterator<Item = impl AsRef<str>>,
-    ) -> Result<http::GetResponse<Self::Headers, Self::ResponseBody>, http::Error> {
+    ) -> Result<http::GetResponse<Self::Headers, Self::ResponseBody>> {
         self.make_request(url, base_url, headers, None).map(Into::into)
     }
 
@@ -159,14 +143,11 @@ impl http::Http for Curl {
         base_url: &str,
         headers: impl IntoIterator<Item = impl AsRef<str>>,
         body: PostBodyDataKind,
-    ) -> Result<http::PostResponse<Self::Headers, Self::ResponseBody, Self::PostBody>, http::Error> {
+    ) -> Result<http::PostResponse<Self::Headers, Self::ResponseBody, Self::PostBody>> {
         self.make_request(url, base_url, headers, Some(body))
     }
 
-    fn configure(
-        &mut self,
-        config: &dyn std::any::Any,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+    fn configure(&mut self, config: &dyn std::any::Any) -> Result {
         if let Some(config) = config.downcast_ref::<http::Options>() {
             self.config = config.clone();
         }

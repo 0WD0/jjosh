@@ -1,10 +1,9 @@
 use std::str::FromStr;
 
-use crate::Error;
-use gix_error::{Exn, ResultExt, ValidationError};
+use gix_error::{OptionExt, Result, ResultExt, message, validation};
 use jiff::{SignedDuration, Zoned, civil, tz::TimeZone};
 
-pub fn parse(input: &str, now: Option<Zoned>) -> Option<Result<Zoned, Exn<Error>>> {
+pub fn parse(input: &str, now: Option<Zoned>) -> Option<Result<Zoned>> {
     // First try named dates
     if let Some(result) = parse_named(input, now.as_ref()) {
         return Some(result);
@@ -15,7 +14,7 @@ pub fn parse(input: &str, now: Option<Zoned>) -> Option<Result<Zoned, Exn<Error>
 }
 
 /// Parse named relative dates like "now", "today", "yesterday".
-fn parse_named(input: &str, now: Option<&Zoned>) -> Option<Result<Zoned, Exn<Error>>> {
+fn parse_named(input: &str, now: Option<&Zoned>) -> Option<Result<Zoned>> {
     let input = input.trim();
     let duration = if input.eq_ignore_ascii_case("now") {
         SignedDuration::ZERO
@@ -140,7 +139,7 @@ fn unit(period: &str, ago: bool) -> Option<(&str, Unit)> {
 /// Seconds-based units subtract from the timestamp, while months and years only step down the
 /// respective fields and normalize later, so that repeated units accumulate and a day beyond
 /// the end of the target month rolls over.
-fn subtract_pairs(now: Option<Zoned>, pairs: &[Pair<'_>]) -> Result<Zoned, Exn<Error>> {
+fn subtract_pairs(now: Option<Zoned>, pairs: &[Pair<'_>]) -> Result<Zoned> {
     /// The calendar and clock fields for subtraction.
     struct Fields {
         year: i16,
@@ -165,39 +164,39 @@ fn subtract_pairs(now: Option<Zoned>, pairs: &[Pair<'_>]) -> Result<Zoned, Exn<E
     impl Fields {
         /// Turn the fields back into a point in time: a day beyond the end of the month rolls over into the
         /// following month. One month before May 31st is thus May 1st, a day after April 30th.
-        fn normalize(&self) -> Result<Zoned, Exn<Error>> {
+        fn normalize(&self) -> Result<Zoned> {
             let first_of_month = civil::Date::new(self.year, self.month, 1)
-                .or_raise(|| Error::new(format!("Date lies out of range: {}-{:02}", self.year, self.month)))?;
+                .or_raise(|| message!("Date lies out of range: {}-{:02}", self.year, self.month).validation())?;
             let days_beyond_first = SignedDuration::from_secs((i64::from(self.day) - 1) * 24 * 60 * 60);
             first_of_month
                 .checked_add(days_beyond_first)
-                .or_raise(|| Error::new(format!("Day {} lies out of range", self.day)))?
+                .or_raise(|| message!("Day {} lies out of range", self.day).validation())?
                 .to_datetime(self.time)
                 .to_zoned(self.timezone.clone())
-                .or_raise(|| Error::new("Could not convert date to a point in time"))
+                .or_raise(|| gix_error::validation("Could not convert date to a point in time"))
         }
     }
 
-    let now = now.ok_or(ValidationError::new("Missing current time"))?;
+    let now = now.ok_or_raise(|| validation("Missing current time"))?;
     let mut fields = Fields::from(now);
     for Pair { period, count, unit } in pairs {
-        let err = || Error::new(format!("Couldn't parse span from '{period} {count}'"));
+        let err = || message!("Couldn't parse span from '{period} {count}'").validation();
         match unit {
             Unit::Seconds(factor) => {
                 let seconds = count
                     .checked_mul(*factor)
                     .map(SignedDuration::from_secs)
-                    .ok_or_else(err)?;
+                    .ok_or_raise(err)?;
                 let ts = fields.normalize()?.timestamp().checked_sub(seconds).or_raise(err)?;
                 fields = ts.to_zoned(fields.timezone.clone()).into();
             }
             Unit::Months(factor) => {
-                let months = count.checked_mul(*factor).ok_or_else(err)?;
+                let months = count.checked_mul(*factor).ok_or_raise(err)?;
                 fields = fields.normalize()?.into();
                 let total = (i64::from(fields.year) * 12 + i64::from(fields.month) - 1)
                     .checked_sub(months)
-                    .ok_or_else(err)?;
-                fields.year = i16::try_from(total.div_euclid(12)).ok().ok_or_else(err)?;
+                    .ok_or_raise(err)?;
+                fields.year = i16::try_from(total.div_euclid(12)).ok().ok_or_raise(err)?;
                 fields.month = i8::try_from(total.rem_euclid(12) + 1).expect("a value in 1..=12");
             }
         }
@@ -205,10 +204,10 @@ fn subtract_pairs(now: Option<Zoned>, pairs: &[Pair<'_>]) -> Result<Zoned, Exn<E
     fields.normalize()
 }
 
-fn subtract_duration(now: Option<&Zoned>, duration: SignedDuration) -> Result<Zoned, Exn<ValidationError>> {
-    let now = now.ok_or(ValidationError::new("Missing current time"))?;
+fn subtract_duration(now: Option<&Zoned>, duration: SignedDuration) -> Result<Zoned> {
+    let now = now.ok_or_raise(|| validation("Missing current time"))?;
     now.timestamp()
         .checked_sub(duration)
         .map(|timestamp| timestamp.to_zoned(now.time_zone().clone()))
-        .or_raise(|| Error::new(format!("Failed to subtract {duration} from {now}")))
+        .or_raise(|| message!("Failed to subtract {duration} from {now}").validation())
 }

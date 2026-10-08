@@ -29,8 +29,6 @@ name = "runner"
 async-trait = { workspace = true }
 blake2 = { workspace = true }
 bstr = { workspace = true }
-chrono = { workspace = true }
-clru = { workspace = true }
 digest = { workspace = true }
 dunce = { workspace = true }
 either = { workspace = true }
@@ -39,14 +37,13 @@ gix = { workspace = true, optional = true, features = ["serde"] }
 gix-ignore = { workspace = true }
 globset = { workspace = true }
 indexmap = { workspace = true }
-interim = { workspace = true }
 itertools = { workspace = true }
+jiff = { workspace = true }
 jj-core = { workspace = true }
+jj-dsl = { workspace = true }
 maplit = { workspace = true }
 memchr = { workspace = true }
 once_cell = { workspace = true }
-pest = { workspace = true }
-pest_derive = { workspace = true }
 pollster = { workspace = true }
 prost = { workspace = true }
 rand = { workspace = true }
@@ -57,7 +54,6 @@ regex = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 smallvec = { workspace = true }
-strsim = { workspace = true }
 tempfile = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, optional = true }

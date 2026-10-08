@@ -27,11 +27,11 @@ use std::time::SystemTime;
 
 use bstr::BString;
 use futures::AsyncReadExt as _;
+use futures::StreamExt as _;
 use gix::odb::pack::FindExt as _;
 use indoc::indoc;
 use itertools::Itertools as _;
 use jj_lib::backend::CopyId;
-use jj_lib::backend::TreeId;
 use jj_lib::backend::TreeValue;
 use jj_lib::conflict_labels::ConflictLabels;
 use jj_lib::conflicts::ConflictMaterializeOptions;
@@ -41,6 +41,7 @@ use jj_lib::file_util::check_symlink_support;
 use jj_lib::file_util::symlink_dir;
 use jj_lib::file_util::symlink_file;
 use jj_lib::files::FileMergeHunkLevel;
+use jj_lib::files::MergeOptions;
 use jj_lib::fsmonitor::FsmonitorSettings;
 use jj_lib::git::get_git_backend;
 use jj_lib::gitignore::GitIgnoreFile;
@@ -61,13 +62,10 @@ use jj_lib::repo_path::RepoPath;
 use jj_lib::repo_path::RepoPathBuf;
 use jj_lib::rewrite::merge_commit_trees;
 use jj_lib::secret_backend::SecretBackend;
-use jj_lib::tree_builder::TreeBuilder;
-use jj_lib::tree_merge::MergeOptions;
 use jj_lib::working_copy::CheckoutError;
 use jj_lib::working_copy::CheckoutStats;
 use jj_lib::working_copy::SnapshotOptions;
 use jj_lib::working_copy::UntrackedReason;
-use jj_lib::working_copy::WorkingCopy as _;
 use jj_lib::workspace::Workspace;
 use pollster::FutureExt as _;
 use prost::Message as _;
@@ -266,7 +264,7 @@ fn test_checkout_file_transitions(backend: TestRepoBackend) -> TestResult {
                     executable: false,
                     copy_id: copy_id.clone(),
                 };
-                tree_builder.set_or_remove(file_path, Merge::normal(value));
+                tree_builder.set_or_remove(file_path, Some(value));
                 return;
             }
             Kind::GitSubmodule => {
@@ -276,7 +274,9 @@ fn test_checkout_file_transitions(backend: TestRepoBackend) -> TestResult {
                 Merge::normal(TreeValue::GitSubmodule(id))
             }
         };
-        tree_builder.set_or_remove(path.to_owned(), value);
+        tree_builder
+            .set_or_remove_merge(path.to_owned(), value)
+            .unwrap();
     }
 
     let mut kinds = vec![
@@ -292,8 +292,15 @@ fn test_checkout_file_transitions(backend: TestRepoBackend) -> TestResult {
     if backend == TestRepoBackend::Git {
         kinds.push(Kind::GitSubmodule);
     }
-    let mut left_tree_builder = MergedTreeBuilder::new(store.empty_merged_tree());
-    let mut right_tree_builder = MergedTreeBuilder::new(store.empty_merged_tree());
+    // Some of the paths are 2-sided conflicts, so the builders need a base tree
+    // with the same number of sides.
+    let base_tree = MergedTree::new(
+        store.clone(),
+        Merge::repeated(store.empty_tree_id().clone(), 2),
+        ConflictLabels::unlabeled(),
+    );
+    let mut left_tree_builder = MergedTreeBuilder::new(base_tree.clone());
+    let mut right_tree_builder = MergedTreeBuilder::new(base_tree);
     let mut files = vec![];
     for left_kind in &kinds {
         for right_kind in &kinds {
@@ -563,22 +570,14 @@ fn test_acl() -> TestResult {
 }
 
 #[test]
-fn test_tree_builder_file_directory_transition() -> TestResult {
+fn test_merged_tree_builder_file_directory_transition() -> TestResult {
     let test_workspace = TestWorkspace::init();
     let repo = &test_workspace.repo;
     let store = repo.store();
     let mut ws = test_workspace.workspace;
     let workspace_root = ws.workspace_root().to_owned();
-    let mut check_out_tree = |tree_id: &TreeId| {
-        let tree = repo
-            .store()
-            .get_tree(RepoPathBuf::root(), tree_id)
-            .block_on()
-            .unwrap();
-        let commit = commit_with_tree(
-            repo.store(),
-            MergedTree::resolved(repo.store().clone(), tree.id().clone()),
-        );
+    let mut check_out_tree = |tree: &MergedTree| {
+        let commit = commit_with_tree(repo.store(), tree.clone());
         ws.check_out(repo.op_id().clone(), None, &commit)
             .block_on()
             .unwrap();
@@ -588,49 +587,49 @@ fn test_tree_builder_file_directory_transition() -> TestResult {
     let child_path = repo_path("foo/bar/baz");
 
     // Add file at parent_path
-    let mut tree_builder = TreeBuilder::new(store.clone(), store.empty_tree_id().clone());
-    tree_builder.set(
+    let mut tree_builder = MergedTreeBuilder::new(store.empty_merged_tree());
+    tree_builder.set_or_remove(
         parent_path.to_owned(),
-        TreeValue::File {
+        Some(TreeValue::File {
             id: testutils::write_file(store, parent_path, ""),
             executable: false,
             copy_id: CopyId::placeholder(),
-        },
+        }),
     );
-    let tree_id = tree_builder.write_tree().block_on()?;
-    check_out_tree(&tree_id);
+    let tree = tree_builder.write_tree().block_on()?;
+    check_out_tree(&tree);
     assert!(parent_path.to_fs_path_unchecked(&workspace_root).is_file());
     assert!(!child_path.to_fs_path_unchecked(&workspace_root).exists());
 
     // Turn parent_path into directory, add file at child_path
-    let mut tree_builder = TreeBuilder::new(store.clone(), tree_id);
-    tree_builder.remove(parent_path.to_owned());
-    tree_builder.set(
+    let mut tree_builder = MergedTreeBuilder::new(tree);
+    tree_builder.set_or_remove(parent_path.to_owned(), None);
+    tree_builder.set_or_remove(
         child_path.to_owned(),
-        TreeValue::File {
+        Some(TreeValue::File {
             id: testutils::write_file(store, child_path, ""),
             executable: false,
             copy_id: CopyId::placeholder(),
-        },
+        }),
     );
-    let tree_id = tree_builder.write_tree().block_on()?;
-    check_out_tree(&tree_id);
+    let tree = tree_builder.write_tree().block_on()?;
+    check_out_tree(&tree);
     assert!(parent_path.to_fs_path_unchecked(&workspace_root).is_dir());
     assert!(child_path.to_fs_path_unchecked(&workspace_root).is_file());
 
     // Turn parent_path back to file
-    let mut tree_builder = TreeBuilder::new(store.clone(), tree_id);
-    tree_builder.remove(child_path.to_owned());
-    tree_builder.set(
+    let mut tree_builder = MergedTreeBuilder::new(tree);
+    tree_builder.set_or_remove(child_path.to_owned(), None);
+    tree_builder.set_or_remove(
         parent_path.to_owned(),
-        TreeValue::File {
+        Some(TreeValue::File {
             id: testutils::write_file(store, parent_path, ""),
             executable: false,
             copy_id: CopyId::placeholder(),
-        },
+        }),
     );
-    let tree_id = tree_builder.write_tree().block_on()?;
-    check_out_tree(&tree_id);
+    let tree = tree_builder.write_tree().block_on()?;
+    check_out_tree(&tree);
     assert!(parent_path.to_fs_path_unchecked(&workspace_root).is_file());
     assert!(!child_path.to_fs_path_unchecked(&workspace_root).exists());
     Ok(())
@@ -1463,7 +1462,10 @@ fn test_snapshot_special_file() -> TestResult {
         .block_on()?;
     // Only the regular files should be in the tree
     assert_eq!(
-        tree.entries().map(|(path, _value)| path).collect_vec(),
+        tree.entries()
+            .map(|(path, _value)| path)
+            .collect::<Vec<_>>()
+            .block_on(),
         to_owned_path_vec(&[file1_path, file2_path])
     );
     let wc: &LocalWorkingCopy = ws.working_copy().downcast_ref().unwrap();
@@ -1478,7 +1480,10 @@ fn test_snapshot_special_file() -> TestResult {
     let tree = test_workspace.snapshot()?;
     // Only the regular file should be in the tree
     assert_eq!(
-        tree.entries().map(|(path, _value)| path).collect_vec(),
+        tree.entries()
+            .map(|(path, _value)| path)
+            .collect::<Vec<_>>()
+            .block_on(),
         to_owned_path_vec(&[file2_path])
     );
     let ws = &mut test_workspace.workspace;
@@ -1528,7 +1533,10 @@ fn test_snapshot_non_utf8_path() -> TestResult {
     // Only the path with a valid UTF-8 name should be in the tree. The
     // directory isn't descended into, so it's reported as a single path.
     assert_eq!(
-        tree.entries().map(|(path, _value)| path).collect_vec(),
+        tree.entries()
+            .map(|(path, _value)| path)
+            .collect::<Vec<_>>()
+            .block_on(),
         to_owned_path_vec(&[file_path])
     );
     assert_eq!(
@@ -1565,7 +1573,11 @@ fn test_gitignores() -> TestResult {
     testutils::write_working_copy_file(&workspace_root, subdir_modified_path, "1");
 
     let tree1 = test_workspace.snapshot()?;
-    let files1 = tree1.entries().map(|(name, _value)| name).collect_vec();
+    let files1 = tree1
+        .entries()
+        .map(|(name, _value)| name)
+        .collect::<Vec<_>>()
+        .block_on();
     assert_eq!(
         files1,
         to_owned_path_vec(&[
@@ -1589,7 +1601,11 @@ fn test_gitignores() -> TestResult {
     testutils::write_working_copy_file(&workspace_root, subdir_ignored_path, "2");
 
     let tree2 = test_workspace.snapshot()?;
-    let files2 = tree2.entries().map(|(name, _value)| name).collect_vec();
+    let files2 = tree2
+        .entries()
+        .map(|(name, _value)| name)
+        .collect::<Vec<_>>()
+        .block_on();
     assert_eq!(
         files2,
         to_owned_path_vec(&[
@@ -1632,7 +1648,11 @@ fn test_gitignores_walk() -> TestResult {
     testutils::write_working_copy_file(&workspace_root, nested_path, "2");
 
     let tree1 = test_workspace.snapshot()?;
-    let files1 = tree1.entries().map(|(name, _value)| name).collect_vec();
+    let files1 = tree1
+        .entries()
+        .map(|(name, _value)| name)
+        .collect::<Vec<_>>()
+        .block_on();
     assert_eq!(
         files1,
         to_owned_path_vec(&[
@@ -1877,7 +1897,7 @@ fn test_git_submodule(gitignore_content: &str) -> TestResult {
 
     tree_builder.set_or_remove(
         added_path.to_owned(),
-        Merge::normal(TreeValue::File {
+        Some(TreeValue::File {
             id: testutils::write_file(repo.store(), added_path, "added\n"),
             executable: false,
             copy_id: CopyId::new(vec![]),
@@ -1888,7 +1908,7 @@ fn test_git_submodule(gitignore_content: &str) -> TestResult {
 
     tree_builder.set_or_remove(
         submodule_path.to_owned(),
-        Merge::normal(TreeValue::GitSubmodule(submodule_id1)),
+        Some(TreeValue::GitSubmodule(submodule_id1)),
     );
 
     let tree_id1 = tree_builder.write_tree().block_on()?;
@@ -1898,7 +1918,7 @@ fn test_git_submodule(gitignore_content: &str) -> TestResult {
     let submodule_id2 = write_random_commit(tx.repo_mut()).id().clone();
     tree_builder.set_or_remove(
         submodule_path.to_owned(),
-        Merge::normal(TreeValue::GitSubmodule(submodule_id2)),
+        Some(TreeValue::GitSubmodule(submodule_id2)),
     );
     let tree_id2 = tree_builder.write_tree().block_on()?;
     let commit2 = commit_with_tree(repo.store(), tree_id2.clone());
@@ -1907,7 +1927,7 @@ fn test_git_submodule(gitignore_content: &str) -> TestResult {
     let mut tree_builder = MergedTreeBuilder::new(store.empty_merged_tree());
     tree_builder.set_or_remove(
         submodule_path.to_owned(),
-        Merge::normal(TreeValue::File {
+        Some(TreeValue::File {
             id: testutils::write_file(
                 repo.store(),
                 submodule_path,

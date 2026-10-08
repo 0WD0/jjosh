@@ -17,7 +17,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use itertools::Itertools as _;
+use futures::StreamExt as _;
 use jj_cli::cli_util::CliRunner;
 use jj_cli::cli_util::CommandHelper;
 use jj_cli::command_error::CommandError;
@@ -271,7 +271,8 @@ impl LockedWorkingCopy for LockedConflictsWorkingCopy {
             .tree()
             .conflicts()
             .map(|(path, _value)| format!("{}\n", path.as_internal_file_string()))
-            .join("");
+            .collect::<String>()
+            .await;
         std::fs::write(self.wc_path.join(".conflicts"), conflicts).unwrap();
         self.inner
             .check_out_with_sparse_patterns(commit, patterns)

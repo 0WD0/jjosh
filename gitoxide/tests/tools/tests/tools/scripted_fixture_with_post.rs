@@ -1,9 +1,9 @@
-use gix_testtools::{Creation, Result};
+use gix_testtools::{Creation, TestResult};
 
 const SCRIPT_NAME: &str = "make_basic.sh";
 
 #[test]
-fn scripted_fixture_read_only_with_post_returns_value() -> Result {
+fn scripted_fixture_read_only_with_post_returns_value() -> TestResult {
     let (dir, value) = gix_testtools::scripted_fixture_read_only_with_post(SCRIPT_NAME, 1, |fixture| {
         let dir = fixture.path();
         // The script should have already created these files
@@ -25,7 +25,7 @@ fn scripted_fixture_read_only_with_post_returns_value() -> Result {
 }
 
 #[test]
-fn scripted_fixture_writable_with_post_returns_value() -> Result {
+fn scripted_fixture_writable_with_post_returns_value() -> TestResult {
     let (tmp, value) = gix_testtools::scripted_fixture_writable_with_args_with_post(
         SCRIPT_NAME,
         None::<String>,
@@ -50,7 +50,7 @@ fn scripted_fixture_writable_with_post_returns_value() -> Result {
 }
 
 #[test]
-fn scripted_fixture_with_post_can_return_complex_types() -> Result {
+fn scripted_fixture_with_post_can_return_complex_types() -> TestResult {
     #[derive(Debug, PartialEq)]
     struct FixtureInfo {
         file_count: usize,
@@ -80,7 +80,7 @@ fn scripted_fixture_with_post_can_return_complex_types() -> Result {
 }
 
 #[test]
-fn version_compatible_writable_fixtures_support_both_creation_modes() -> Result {
+fn version_compatible_writable_fixtures_support_both_creation_modes() -> TestResult {
     let copied = gix_testtools::scripted_fixture_writable_with_args_with_git_version(
         SCRIPT_NAME,
         ["version-compatible-copy"],
@@ -105,7 +105,7 @@ fn version_compatible_writable_fixtures_support_both_creation_modes() -> Result 
 }
 
 #[test]
-fn version_incompatible_writable_fixtures_never_run_the_script() -> Result {
+fn version_incompatible_writable_fixtures_never_run_the_script() -> TestResult {
     assert!(
         gix_testtools::scripted_fixture_writable_with_args_with_git_version(
             SCRIPT_NAME,

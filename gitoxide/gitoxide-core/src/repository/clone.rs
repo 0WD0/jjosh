@@ -15,8 +15,12 @@ pub const PROGRESS_RANGE: std::ops::RangeInclusive<u8> = 1..=3;
 pub(crate) mod function {
     use std::{borrow::Cow, ffi::OsStr};
 
-    use anyhow::{Context, bail};
-    use gix::{NestedProgress, bstr::BString, remote::fetch::Status};
+    use gix::{
+        NestedProgress, Result,
+        bstr::BString,
+        error::{OptionExt, ResultExt, bail},
+        remote::fetch::Status,
+    };
 
     use super::Options;
     use crate::{OutputFormat, repository::fetch::function::print_updates};
@@ -37,25 +41,25 @@ pub(crate) mod function {
             revision,
             shallow,
         }: Options,
-    ) -> anyhow::Result<()>
+    ) -> Result<()>
     where
         P: NestedProgress,
         P::SubProgress: 'static,
     {
         if format != OutputFormat::Human {
-            bail!("JSON output isn't yet supported for fetching.");
+            bail!(gix::error::unsupported("JSON output isn't yet supported for fetching."));
         }
 
         let url: gix::Url = url.as_ref().try_into()?;
         let directory = directory.map_or_else(
             || {
-                let path = gix::path::from_bstr(Cow::Borrowed(url.path.as_ref()));
+                let path = gix::path::from_bstr(Cow::Borrowed(url.path.as_ref()))?;
                 if !bare && path.extension() == Some(OsStr::new("git")) {
                     path.file_stem().map(Into::into)
                 } else {
                     path.file_name().map(Into::into)
                 }
-                .context("Filename extraction failed - path too short")
+                .ok_or_raise(|| gix::error::validation("Filename extraction failed - path too short"))
             },
             |dir| Ok(dir.into()),
         )?;
@@ -91,27 +95,25 @@ pub(crate) mod function {
         };
 
         if handshake_info {
-            writeln!(out, "Handshake Information")?;
-            writeln!(out, "\t{:?}", fetch_outcome.handshake)?;
+            writeln!(out, "Handshake Information").or_error()?;
+            writeln!(out, "\t{:?}", fetch_outcome.handshake).or_error()?;
         }
 
         match fetch_outcome.status {
             Status::NoPackReceived { dry_run, .. } => {
                 assert!(!dry_run, "dry-run unsupported");
-                writeln!(err, "The cloned repository appears to be empty")?;
+                writeln!(err, "The cloned repository appears to be empty").or_error()?;
             }
             Status::Change {
                 update_refs, negotiate, ..
             } => {
-                let remote = repo
-                    .find_default_remote(gix::remote::Direction::Fetch)
-                    .expect("one origin remote")?;
-                let ref_specs = remote.refspecs(gix::remote::Direction::Fetch);
+                // Bare clones don't persist the refspecs used for their initial fetch.
+                let ref_specs = fetch_outcome.ref_map.refspecs.clone();
                 print_updates(
                     &repo,
                     &negotiate,
                     update_refs,
-                    ref_specs,
+                    &ref_specs,
                     fetch_outcome.ref_map,
                     &mut out,
                     &mut err,

@@ -1,5 +1,54 @@
+#[test]
+fn cancellation_is_intrinsically_classified_and_failure_sources_survive() {
+    use gix_error::ErrorExt;
+
+    let err = gix_diff::tree::Error::Cancelled;
+    assert!(
+        gix_error::classify(&err).is_cancelled(),
+        "every cancellation construction is classified"
+    );
+    let err = err.raise();
+    assert!(
+        !err.is_retryable() && !err.can_retry(),
+        "cancellation stops rather than retries"
+    );
+    assert!(
+        err.downcast_any_ref::<gix_diff::tree::Error>().is_some(),
+        "the concrete variant survives"
+    );
+
+    let err =
+        gix_diff::tree::Error::Failure(std::io::Error::new(std::io::ErrorKind::TimedOut, "lookup timed out").raise())
+            .raise();
+    assert!(!err.is_cancelled(), "ordinary failures are not cancellation");
+    assert!(err.can_retry(), "the callee's retry semantics survive");
+    assert!(
+        err.downcast_any_ref::<std::io::Error>().is_some(),
+        "the original I/O source survives"
+    );
+}
+
+#[test]
+fn cancellation_vetoes_sibling_retryable_failures() {
+    use gix_error::ErrorExt;
+
+    let err = gix_error::retryable("transient lookup failure")
+        .raise_typed()
+        .chain(gix_diff::tree::Error::Cancelled)
+        .into_error();
+    assert!(
+        err.is_retryable() && err.is_cancelled(),
+        "both sibling classifications survive"
+    );
+    assert!(
+        !err.can_retry() && !err.can_retry_lenient(),
+        "delegate cancellation vetoes both policies even after a retryable sibling"
+    );
+}
+
 mod changes {
     mod to_obtain_tree {
+        use crate::Result;
         use std::collections::HashMap;
 
         use gix_diff::tree::{
@@ -15,7 +64,7 @@ mod changes {
 
         type Changes = Vec<recorder::Change>;
 
-        fn db(args: impl IntoIterator<Item = &'static str>) -> crate::Result<gix_odb::Handle> {
+        fn db(args: impl IntoIterator<Item = &'static str>) -> Result<gix_odb::Handle> {
             crate::open_odb(
                 crate::scripted_fixture_read_only_with_args("make_diff_repo.sh", args)?
                     .join(".git")
@@ -28,7 +77,7 @@ mod changes {
             db: &gix_odb::Handle,
             commit: &oid,
             buf: &'a mut Vec<u8>,
-        ) -> crate::Result<TreeRefIter<'a>> {
+        ) -> Result<TreeRefIter<'a>> {
             let tree_id = db
                 .try_find(commit, buf)?
                 .ok_or_else(|| format!("start commit {commit:?} to be present"))?
@@ -51,7 +100,7 @@ mod changes {
             lhs: impl Into<Option<ObjectId>>,
             rhs: &oid,
             location: Option<Location>,
-        ) -> crate::Result<Changes> {
+        ) -> Result<Changes> {
             let mut buf = Vec::new();
             let lhs_tree = lhs
                 .into()
@@ -69,7 +118,7 @@ mod changes {
             Ok(recorder.records)
         }
 
-        fn diff_with_previous_commit_from(db: &gix_odb::Handle, commit_id: &oid) -> crate::Result<Changes> {
+        fn diff_with_previous_commit_from(db: &gix_odb::Handle, commit_id: &oid) -> Result<Changes> {
             let mut buf = Vec::new();
             let (main_tree_id, parent_commit_id) = {
                 let commit = db
@@ -133,7 +182,7 @@ mod changes {
 
             let head = head_of(db);
             gix_traverse::commit::Simple::new(Some(head), &db)
-                .collect::<Result<Vec<_>, _>>()
+                .collect::<std::result::Result<Vec<_>, _>>()
                 .expect("valid iteration")
                 .into_iter()
                 .map(|c| {
@@ -153,7 +202,7 @@ mod changes {
         }
 
         #[test]
-        fn many_different_states() -> crate::Result {
+        fn many_different_states() -> gix_testtools::TestResult {
             let db = db(None)?;
             let all_commits = all_commits(&db);
             pretty_assertions::assert_eq!(
@@ -557,7 +606,7 @@ mod changes {
         }
 
         #[test]
-        fn many_different_states_nested() -> crate::Result {
+        fn many_different_states_nested() -> gix_testtools::TestResult {
             let db = db(["a"].iter().copied())?;
             let all_commits = all_commits(&db);
 
@@ -628,7 +677,7 @@ mod changes {
         }
 
         #[test]
-        fn maximal_difference() -> crate::Result {
+        fn maximal_difference() -> gix_testtools::TestResult {
             let db = db(None)?;
             let all_commits = all_commits(&db);
 
@@ -694,7 +743,7 @@ mod changes {
         }
 
         #[test]
-        fn maximal_difference_nested() -> crate::Result {
+        fn maximal_difference_nested() -> gix_testtools::TestResult {
             let db = db(["a"].iter().copied())?;
             let all_commits = all_commits(&db);
             let empty_blob_id = hex_to_id(
@@ -765,7 +814,7 @@ mod changes {
         }
 
         #[test]
-        fn directory_rename() -> crate::Result {
+        fn directory_rename() -> gix_testtools::TestResult {
             let db = db(None)?;
             let all_commits = all_commits(&db);
             let empty_blob_id = hex_to_id(
@@ -854,7 +903,7 @@ mod changes {
         }
 
         #[test]
-        fn reverse_directory_rename() -> crate::Result {
+        fn reverse_directory_rename() -> gix_testtools::TestResult {
             let db = db(None)?;
             let all_commits = all_commits(&db);
             let empty_blob_id = hex_to_id(

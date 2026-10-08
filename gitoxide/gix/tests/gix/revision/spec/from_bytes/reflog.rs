@@ -1,9 +1,39 @@
 use gix::{prelude::ObjectIdExt, revision::Spec};
+use gix_testtools::TestResult;
 
 use crate::{
     revision::spec::from_bytes::{parse_spec, parse_spec_no_baseline, repo},
     util::hex_to_id_sha1_only,
 };
+
+#[test]
+fn symbolic_references_use_their_own_log_or_the_final_targets() -> gix_testtools::TestResult {
+    let fixture = gix_testtools::scripted_fixture_read_only("make_symbolic_ref_reflogs.sh")?;
+    let repo = gix::open_opts(fixture, crate::restricted())?;
+    for name in ["refs/symref", "refs/symref-chain"] {
+        assert!(
+            !repo.find_reference(name)?.log_exists()?,
+            "{name} must exercise fallback to the final target's reflog"
+        );
+        for query in ["0", "1", "2", "1979-02-26 00:00:00 +0000"] {
+            let revspec = format!("{name}@{{{query}}}");
+            assert_eq!(
+                parse_spec(&revspec, &repo)?.single(),
+                parse_spec(format!("main@{{{query}}}"), &repo)?.single(),
+                "{revspec} uses the final target's reflog"
+            );
+        }
+    }
+    assert!(
+        repo.find_reference("refs/heads/symref")?.log_exists()?,
+        "a symbolic branch has its own reflog"
+    );
+    assert!(
+        parse_spec("refs/heads/symref@{1}", &repo).is_err(),
+        "an existing reflog takes precedence over the target's longer log"
+    );
+    Ok(())
+}
 
 #[test]
 fn nth_prior_checkout() {
@@ -21,27 +51,27 @@ fn nth_prior_checkout() {
         assert_eq!(parsed.second_reference(), None);
     }
 
-    assert_eq!(
-        parse_spec("@{-6}", &repo).unwrap_err().probable_cause().to_string(),
-        "HEAD has 5 prior checkouts and checkout number 6 is out of range"
-    );
+    insta::assert_debug_snapshot!(parse_spec("@{-6}", &repo).expect_err("nth prior checkout").probable_cause(), "nth prior checkout", @r#"
+    Message {
+        message: "HEAD has 5 prior checkouts and checkout number 6 is out of range",
+    }
+    "#);
 }
 
 #[test]
-fn nth_prior_checkout_to_deleted_branch_fails_like_git() -> crate::Result {
+fn nth_prior_checkout_to_deleted_branch_fails_like_git() -> TestResult {
     let repo = repo("deleted_prior_checkout")?;
     let err = parse_spec("@{-1}", &repo).expect_err("deleted prior checkout branch must not resolve by object id");
-    assert!(
-        err.probable_cause()
-            .to_string()
-            .contains("Previous checkout 'prev-target' does not resolve"),
-        "error should explain that the reflog name no longer resolves"
-    );
+    insta::assert_debug_snapshot!(err.probable_cause(), "error should explain that the reflog name no longer resolves", @r#"
+    Message {
+        message: "Previous checkout 'prev-target' does not resolve to an existing revision",
+    }
+    "#);
     Ok(())
 }
 
 #[test]
-fn nth_prior_checkout_to_deleted_branch_named_like_object_matches_git() -> crate::Result {
+fn nth_prior_checkout_to_deleted_branch_named_like_object_matches_git() -> TestResult {
     let repo = repo("deleted_prior_checkout_named_like_object")?;
     assert_eq!(
         parse_spec("@{-1}", &repo)?,
@@ -55,10 +85,11 @@ fn nth_prior_checkout_to_deleted_branch_named_like_object_matches_git() -> crate
 fn by_index_unborn_head() {
     let repo = &repo("new").unwrap();
 
-    assert_eq!(
-        parse_spec("@{1}", repo).unwrap_err().probable_cause().to_string(),
-        "Unborn heads do not have a reflog yet"
-    );
+    insta::assert_debug_snapshot!(parse_spec("@{1}", repo).expect_err("by index unborn head").probable_cause(), "by index unborn head", @r#"
+    Message {
+        message: "Unborn heads do not have a reflog yet",
+    }
+    "#);
 }
 
 #[test]
@@ -92,13 +123,13 @@ fn by_index() {
         assert_eq!(spec.second_reference(), None);
     }
 
-    assert_eq!(
-        parse_spec("main@{12345}", repo)
-            .unwrap_err()
-            .probable_cause()
-            .to_string(),
-        "Reference 'refs/heads/main' has 4 ref-log entries and entry number 12345 is out of range"
-    );
+    insta::assert_debug_snapshot!(parse_spec("main@{12345}", repo)
+            .expect_err("by index")
+            .probable_cause(), "by index", @r#"
+    Message {
+        message: "Reference 'refs/heads/main' has 4 ref-log entries and entry number 12345 is out of range",
+    }
+    "#);
 }
 
 #[test]

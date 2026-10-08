@@ -1,28 +1,25 @@
+use crate::error::{ErrorExt, validation};
 use std::borrow::Cow;
 
 use super::Name;
-use crate::bstr::{BStr, BString, ByteSlice, ByteVec};
-
-/// The error returned by [validated()].
-#[derive(Debug, thiserror::Error)]
-#[error("remote names must be valid within refspecs for fetching: {name:?}")]
-#[expect(missing_docs)]
-pub struct Error {
-    pub source: gix_refspec::parse::Error,
-    pub name: BString,
-}
+use crate::{
+    Error, Result,
+    bstr::{BStr, BString, ByteSlice, ByteVec},
+};
 
 /// Return `name` if it is valid as symbolic remote name.
 ///
 /// This means it has to be valid within a the ref path of a tracking branch.
-pub fn validated(name: impl Into<BString>) -> Result<BString, Error> {
+/// Errors include the remote name bytes as `input` [metadata](gix_error::Error::metadata()).
+pub fn validated(name: impl Into<BString>) -> Result<BString> {
     let name = name.into();
     match gix_refspec::parse(
         format!("refs/heads/test:refs/remotes/{name}/test").as_str().into(),
         gix_refspec::parse::Operation::Fetch,
     ) {
         Ok(_) => Ok(name),
-        Err(err) => Err(Error { source: err, name }),
+        Err(err) => Err(err
+            .and_raise(validation("remote names must be valid within refspecs for fetching").with_input(name.clone()))),
     }
 }
 
@@ -61,9 +58,9 @@ impl Name<'_> {
 }
 
 impl<'a> TryFrom<Cow<'a, BStr>> for Name<'a> {
-    type Error = Cow<'a, BStr>;
+    type Error = Error;
 
-    fn try_from(name: Cow<'a, BStr>) -> Result<Self, Self::Error> {
+    fn try_from(name: Cow<'a, BStr>) -> Result<Self> {
         if name.contains(&b'/') || name.as_ref() == "." {
             Ok(Name::Url(name))
         } else {
@@ -75,6 +72,11 @@ impl<'a> TryFrom<Cow<'a, BStr>> for Name<'a> {
                     .map(Cow::Owned),
             }
             .map(Name::Symbol)
+            .map_err(|invalid| {
+                gix_error::message("Illformed UTF-8 in remote name")
+                    .with_input(invalid.into_owned())
+                    .validation_error()
+            })
         }
     }
 }

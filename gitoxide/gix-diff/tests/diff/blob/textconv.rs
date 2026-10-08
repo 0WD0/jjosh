@@ -1,3 +1,4 @@
+use crate::Result;
 use std::path::Path;
 
 use gix_diff::blob::{self, ResourceKind, pipeline::WorktreeRoots};
@@ -7,7 +8,7 @@ use imara_diff::{Algorithm::Histogram, Diff};
 use crate::blob::pipeline::convert_to_diffable::default_options;
 
 #[test]
-fn binary_diff_with_textconv() -> gix_testtools::Result {
+fn binary_diff_with_textconv() -> gix_testtools::TestResult {
     let workdir = crate::scripted_fixture_read_only("make_blob_textconv_repo.sh")?;
 
     let new_file_id = read_id(&workdir.join("new-file.id"))?;
@@ -22,7 +23,7 @@ fn binary_diff_with_textconv() -> gix_testtools::Result {
     };
     let pipeline = gix_diff::blob::Pipeline::new(
         WorktreeRoots::default(),
-        gix_filter::Pipeline::default(),
+        gix_filter::Pipeline::new(Default::default(), gix_testtools::object_hash(), Default::default()),
         vec![driver],
         default_options(),
     );
@@ -72,7 +73,7 @@ fn binary_diff_with_textconv() -> gix_testtools::Result {
     Ok(())
 }
 
-fn read_id(path: &Path) -> crate::Result<gix_hash::ObjectId> {
+fn read_id(path: &Path) -> Result<gix_hash::ObjectId> {
     let hex = std::fs::read_to_string(path)?;
 
     Ok(gix_hash::ObjectId::from_hex(hex.trim().as_bytes())?)

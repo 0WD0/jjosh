@@ -4,6 +4,8 @@ use crate::{
     protocol,
     protocol::{Context, ContextOptions},
 };
+use gix_error::Result;
+use gix_error::ResultExt;
 
 impl Default for Cascade {
     fn default() -> Self {
@@ -38,7 +40,11 @@ impl Cascade {
         } else {
             None
         }
-        .map(|name| vec![Program::from_custom_definition(name)])
+        .map(|name| {
+            vec![Program::from_kind(crate::program::Kind::ExternalName {
+                name_and_args: name.into(),
+            })]
+        })
         .unwrap_or_default()
     }
 }
@@ -75,14 +81,14 @@ impl Cascade {
     /// When _getting_ credentials, all programs are asked until the credentials are complete, stopping the cascade.
     /// When _storing_ or _erasing_ all programs are instructed in order.
     /// The input context is validated even if no helpers are available.
-    #[expect(
-        clippy::result_large_err,
-        reason = "will be removed once `gix-error` is used consistently"
-    )]
-    pub fn invoke(&mut self, mut action: helper::Action, mut prompt: gix_prompt::Options) -> protocol::Result {
+    pub fn invoke(
+        &mut self,
+        mut action: helper::Action,
+        mut prompt: gix_prompt::Options,
+    ) -> Result<Option<protocol::Outcome>> {
         if let Some(ctx) = action.context_mut() {
             ctx.options = self.context_options;
-            ctx.write_to(std::io::sink()).map_err(helper::Error::from)?;
+            ctx.write_to(std::io::sink()).or_error()?;
         }
         let mut url = action
             .context_mut()
@@ -158,8 +164,12 @@ impl Cascade {
                         }
                     }
                 }
-                Err(helper::Error::CredentialsHelperFailed { .. }) => continue, // ignore helpers that we can't call
-                Err(err) if action.context().is_some() => return Err(err.into()), // communication errors are fatal when getting credentials
+                Err(err)
+                    if !err.is_cancelled() && err.downcast_any_ref::<helper::invoke::HelperFailure>().is_some() =>
+                {
+                    continue;
+                }
+                Err(err) if action.context().is_some() => return Err(err), // communication errors are fatal when getting credentials
                 Err(_) => {} // for other actions, ignore everything, try the operation
             }
         }
@@ -172,20 +182,14 @@ impl Cascade {
                 let message = ctx.to_prompt("Username");
                 prompt.mode = gix_prompt::Mode::Visible;
                 ctx.username = gix_prompt::ask(&message, &prompt)
-                    .map_err(|err| protocol::Error::Prompt {
-                        prompt: message,
-                        source: err,
-                    })?
+                    .or_raise(|| gix_error::message!("Couldn't obtain {message}"))?
                     .into();
             }
             if ctx.password.is_none() {
                 let message = ctx.to_prompt("Password");
                 prompt.mode = gix_prompt::Mode::Hidden;
                 ctx.password = gix_prompt::ask(&message, &prompt)
-                    .map_err(|err| protocol::Error::Prompt {
-                        prompt: message,
-                        source: err,
-                    })?
+                    .or_raise(|| gix_error::message!("Couldn't obtain {message}"))?
                     .into();
             }
         }

@@ -28,6 +28,7 @@ use std::rc::Rc;
 
 use bstr::BStr;
 use bstr::BString;
+use itertools::Itertools as _;
 use jj_lib::backend::Signature;
 use jj_lib::backend::Timestamp;
 use jj_lib::config::ConfigValue;
@@ -436,6 +437,54 @@ where
     }
 }
 
+/// Marker for types that don't support implicit boolean cast.
+pub trait NoTemplateBooleanCast {}
+
+/// Converts a value of the `Option<Self>` type to a template property value.
+///
+/// Types that support implicit boolean conversion should map `Option<T>` to
+/// `T`. Other types should return `Option<T>` transparently.
+#[diagnostic::on_unimplemented(
+    message = "`NoTemplateBooleanCast` not implemented for the template value type `{Self}`"
+)]
+pub trait OptionalTemplateValue: Sized {
+    type Optional;
+
+    fn from_option(value: Option<Self>) -> Self::Optional;
+}
+
+impl<T: NoTemplateBooleanCast> OptionalTemplateValue for T {
+    type Optional = Option<Self>;
+
+    fn from_option(value: Option<Self>) -> Self::Optional {
+        value
+    }
+}
+
+impl OptionalTemplateValue for BString {
+    type Optional = Self;
+
+    fn from_option(value: Option<Self>) -> Self::Optional {
+        value.unwrap_or_default()
+    }
+}
+
+impl OptionalTemplateValue for String {
+    type Optional = Self;
+
+    fn from_option(value: Option<Self>) -> Self::Optional {
+        value.unwrap_or_default()
+    }
+}
+
+impl<T> OptionalTemplateValue for Vec<T> {
+    type Optional = Self;
+
+    fn from_option(value: Option<Self>) -> Self::Optional {
+        value.unwrap_or_default()
+    }
+}
+
 /// Wrapper around an error occurred during template evaluation.
 #[derive(Debug)]
 pub struct TemplatePropertyError(pub Box<dyn error::Error + Send + Sync>);
@@ -678,6 +727,44 @@ impl<T: Template> TemplateProperty for PlainTextFormattedProperty<T> {
         let mut wrapper = TemplateFormatter::new(&mut formatter, propagate_property_error);
         self.template.format(&mut wrapper)?;
         Ok(BString::new(output))
+    }
+}
+
+/// Wrapper for `(key, value)` property pairs that can be evaluated to
+/// serializable objects.
+pub struct SerializeMapProperty<'a> {
+    entries: Vec<(BoxedSerializeProperty<'a>, BoxedSerializeProperty<'a>)>,
+}
+
+impl<'a> SerializeMapProperty<'a> {
+    pub fn new(entries: Vec<(BoxedSerializeProperty<'a>, BoxedSerializeProperty<'a>)>) -> Self {
+        SerializeMapProperty { entries }
+    }
+}
+
+impl<'a> TemplateProperty for SerializeMapProperty<'a> {
+    type Output = SerializeMap<'a>;
+
+    fn extract(&self) -> Result<Self::Output, TemplatePropertyError> {
+        let entries = self.entries.iter().map(|e| e.extract()).try_collect()?;
+        Ok(SerializeMap { entries })
+    }
+}
+
+/// Wrapper for serializable `(key, value)` pairs.
+pub struct SerializeMap<'a> {
+    entries: Vec<(
+        Box<dyn erased_serde::Serialize + 'a>,
+        Box<dyn erased_serde::Serialize + 'a>,
+    )>,
+}
+
+impl serde::Serialize for SerializeMap<'_> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.collect_map(self.entries.iter().map(|(k, v)| (k, v)))
     }
 }
 

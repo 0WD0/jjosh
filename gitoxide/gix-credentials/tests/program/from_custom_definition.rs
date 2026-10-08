@@ -1,4 +1,5 @@
 use gix_credentials::{Program, helper, program::Kind};
+use gix_testtools::TestResult;
 use std::sync::LazyLock;
 
 static GIT: std::sync::LazyLock<&'static str> = std::sync::LazyLock::new(|| {
@@ -20,105 +21,140 @@ static SH: LazyLock<&'static str> = LazyLock::new(|| {
 const SH_BASENAME: &str = if cfg!(windows) { "sh.exe" } else { "sh" };
 
 #[test]
-fn empty() {
-    let prog = Program::from_custom_definition("");
-    let git = gix_path::to_unix_separators_on_windows(gix_path::into_bstr(std::path::Path::new(*GIT)));
+fn empty() -> TestResult {
+    let prog = Program::from_custom_definition("")?;
     assert!(matches!(&prog.kind, Kind::ExternalName { name_and_args } if name_and_args.is_empty()));
+    let cmd = prog.to_command(&helper::Action::Store("egal".into()))?;
     assert_eq!(
-        format!("{:?}", prog.to_command(&helper::Action::Store("egal".into()))),
-        format!(r#""{git}" "credential-" "store""#),
+        std::path::Path::new(cmd.get_program()),
+        std::path::Path::new(
+            std::process::Command::try_from(gix_command::prepare(gix_path::env::exe_invocation()))?.get_program()
+        ),
+        "Git uses the platform's command resolution"
+    );
+    assert_eq!(
+        cmd.get_args().collect::<Vec<_>>(),
+        ["credential-", "store"],
         "not useful, but allowed, would have to be caught elsewhere"
     );
+    Ok(())
 }
 
 #[test]
-fn simple_script_in_path() {
-    let prog = Program::from_custom_definition("!exe");
+fn simple_script_in_path() -> TestResult {
+    let prog = Program::from_custom_definition("!exe")?;
     assert!(matches!(&prog.kind, Kind::ExternalShellScript(script) if script == "exe"));
+    let cmd = prog.to_command(&helper::Action::Store("egal".into()))?;
     assert_eq!(
-        format!("{:?}", prog.to_command(&helper::Action::Store("egal".into()))),
-        r#""exe" "store""#,
+        cmd.get_program(),
+        std::process::Command::try_from(gix_command::prepare("exe"))?.get_program(),
         "it didn't detect anything shell-scripty, and thus doesn't use a shell"
     );
-}
-
-#[test]
-fn name_with_args() {
-    let input = "name --arg --bar=\"a b\"";
-    let prog = Program::from_custom_definition(input);
-    let git = gix_path::to_unix_separators_on_windows(gix_path::into_bstr(std::path::Path::new(*GIT)));
-    assert!(matches!(&prog.kind, Kind::ExternalName{name_and_args} if name_and_args == input));
     assert_eq!(
-        format!("{:?}", prog.to_command(&helper::Action::Store("egal".into()))),
-        format!(r#""{git}" "credential-name" "--arg" "--bar=a b" "store""#)
+        cmd.get_args().collect::<Vec<_>>(),
+        ["store"],
+        "the helper receives its action"
     );
+    Ok(())
 }
 
 #[test]
-fn name_with_special_args() {
+fn name_with_args() -> TestResult {
+    let input = "name --arg --bar=\"a b\"";
+    let prog = Program::from_custom_definition(input)?;
+    assert!(matches!(&prog.kind, Kind::ExternalName{name_and_args} if name_and_args == input));
+    let cmd = prog.to_command(&helper::Action::Store("egal".into()))?;
+    assert_eq!(
+        std::path::Path::new(cmd.get_program()),
+        std::path::Path::new(
+            std::process::Command::try_from(gix_command::prepare(gix_path::env::exe_invocation()))?.get_program()
+        ),
+        "Git uses the platform's command resolution"
+    );
+    assert_eq!(
+        cmd.get_args().collect::<Vec<_>>(),
+        ["credential-name", "--arg", "--bar=a b", "store"],
+        "quoted arguments are split without losing their contents"
+    );
+    Ok(())
+}
+
+#[test]
+fn name_with_special_args() -> TestResult {
     let input = "name --arg --bar=~/folder/in/home";
-    let prog = Program::from_custom_definition(input);
+    let prog = Program::from_custom_definition(input)?;
     let sh = gix_path::env::shell_command();
-    let git = gix_path::to_unix_separators_on_windows(gix_path::into_bstr(std::path::Path::new(*GIT)));
+    let git = gix_path::to_unix_separators_on_windows(gix_path::into_bstr(std::path::Path::new(*GIT))?);
     let quoted_git = gix_quote::single(git.as_ref());
     assert!(matches!(&prog.kind, Kind::ExternalName{name_and_args} if name_and_args == input));
     assert_eq!(
-        format!("{:?}", prog.to_command(&helper::Action::Store("egal".into()))),
+        format!("{:?}", prog.to_command(&helper::Action::Store("egal".into()))?),
         format!(
             r#"{sh:?} "-c" "{quoted_git} credential-name --arg --bar=~/folder/in/home \"$@\"" "{SH_BASENAME}" "store""#
         )
     );
+    Ok(())
 }
 
 #[test]
-fn name() {
+fn name() -> TestResult {
     let input = "name";
-    let prog = Program::from_custom_definition(input);
-    let git = gix_path::to_unix_separators_on_windows(gix_path::into_bstr(std::path::Path::new(*GIT)));
+    let prog = Program::from_custom_definition(input)?;
     assert!(matches!(&prog.kind, Kind::ExternalName{name_and_args} if name_and_args == input));
+    let cmd = prog.to_command(&helper::Action::Store("egal".into()))?;
     assert_eq!(
-        format!("{:?}", prog.to_command(&helper::Action::Store("egal".into()))),
-        format!(r#""{git}" "credential-name" "store""#),
+        std::path::Path::new(cmd.get_program()),
+        std::path::Path::new(
+            std::process::Command::try_from(gix_command::prepare(gix_path::env::exe_invocation()))?.get_program()
+        ),
         "we detect that this can run without shell, which is also more portable on windows"
     );
+    assert_eq!(
+        cmd.get_args().collect::<Vec<_>>(),
+        ["credential-name", "store"],
+        "Git receives the helper name and action"
+    );
+    Ok(())
 }
 
 #[test]
-fn path_with_args_that_definitely_need_shell() {
+fn path_with_args_that_definitely_need_shell() -> TestResult {
     let input = "/abs/name --arg --bar=\"a b\"";
-    let prog = Program::from_custom_definition(input);
+    let prog = Program::from_custom_definition(input)?;
     assert!(matches!(&prog.kind, Kind::ExternalPath{path_and_args} if path_and_args == input));
     let sh = *SH;
     assert_eq!(
-        format!("{:?}", prog.to_command(&helper::Action::Store("egal".into()))),
+        format!("{:?}", prog.to_command(&helper::Action::Store("egal".into()))?),
         if cfg!(windows) {
             r#""/abs/name" "--arg" "--bar=a b" "store""#.to_owned()
         } else {
             format!(r#""{sh}" "-c" "/abs/name --arg --bar=\"a b\" \"$@\"" "{SH_BASENAME}" "store""#)
         }
     );
+    Ok(())
 }
 
 #[test]
-fn path_without_args() {
+fn path_without_args() -> TestResult {
     let input = "/abs/name";
-    let prog = Program::from_custom_definition(input);
+    let prog = Program::from_custom_definition(input)?;
     assert!(matches!(&prog.kind, Kind::ExternalPath{path_and_args} if path_and_args == input));
     assert_eq!(
-        format!("{:?}", prog.to_command(&helper::Action::Store("egal".into()))),
+        format!("{:?}", prog.to_command(&helper::Action::Store("egal".into()))?),
         r#""/abs/name" "store""#,
         "no shell is used"
     );
+    Ok(())
 }
 
 #[test]
-fn path_with_simple_args() {
+fn path_with_simple_args() -> TestResult {
     let input = "/abs/name a b";
-    let prog = Program::from_custom_definition(input);
+    let prog = Program::from_custom_definition(input)?;
     assert!(matches!(&prog.kind, Kind::ExternalPath{path_and_args} if path_and_args == input));
     let sh = *SH;
     assert_eq!(
-        format!("{:?}", prog.to_command(&helper::Action::Store("egal".into()))),
+        format!("{:?}", prog.to_command(&helper::Action::Store("egal".into()))?),
         if cfg!(windows) {
             r#""/abs/name" "a" "b" "store""#.to_owned()
         } else {
@@ -126,4 +162,5 @@ fn path_with_simple_args() {
         },
         "a shell is used as there are arguments, and it's generally more flexible, but on windows we split ourselves"
     );
+    Ok(())
 }

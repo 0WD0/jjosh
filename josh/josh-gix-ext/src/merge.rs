@@ -35,8 +35,9 @@ fn attributes() -> gix_worktree::Stack {
     )
 }
 
-fn platforms() -> Platforms {
-    let filter = || gix_filter::Pipeline::new(Default::default(), Default::default());
+fn platforms(object_hash: gix_hash::Kind) -> Platforms {
+    let filter =
+        || gix_filter::Pipeline::new(Default::default(), object_hash, Default::default());
     Platforms {
         diff: gix_diff::blob::Platform::new(
             Default::default(),
@@ -136,7 +137,7 @@ pub fn merge_trees(
     ours: gix_hash::ObjectId,
     theirs: gix_hash::ObjectId,
 ) -> anyhow::Result<gix_hash::ObjectId> {
-    let mut platforms = platforms();
+    let mut platforms = platforms(ours.kind());
     let outcome = gix_merge::tree(
         &base,
         &ours,
@@ -161,7 +162,7 @@ pub fn merge_commits(
     theirs: gix_hash::ObjectId,
     favor: Option<Favor>,
 ) -> anyhow::Result<gix_hash::ObjectId> {
-    let mut platforms = platforms();
+    let mut platforms = platforms(ours.kind());
     let mut graph = gix_revwalk::Graph::new(objects, None);
     let outcome = gix_merge::commit(
         ours,

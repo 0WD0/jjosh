@@ -1,5 +1,6 @@
 use bstr::{BStr, BString, ByteSlice};
-use gix_features::threading::OwnShared;
+use gix_error::Result;
+use gix_parallel::OwnShared;
 use smallvec::SmallVec;
 
 use crate::{
@@ -37,14 +38,14 @@ impl File {
     ///         a = 10k
     ///         c = false
     /// "#;
-    /// let git_config = gix_config::File::try_from(config)?;
+    /// let git_config = gix_config::File::try_from(config).expect("valid config");
     /// // You can either use the turbofish to determine the type...
-    /// let a_value = git_config.value::<Integer>("core.a")?;
+    /// let a_value = git_config.value::<Integer>("core.a").expect("valid value");
     /// // ... or explicitly declare the type to avoid the turbofish
-    /// let c_value: Boolean = git_config.value("core.c")?;
+    /// let c_value: Boolean = git_config.value("core.c").expect("valid value");
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn value<T: TryFrom<BString>>(&self, key: impl AsKey) -> Result<T, lookup::Error<T::Error>> {
+    pub fn value<T: TryFrom<BString>>(&self, key: impl AsKey) -> std::result::Result<T, lookup::Error<T::Error>> {
         let key = key.as_key();
         self.value_by(key.section_name, key.subsection_name, key.value_name)
     }
@@ -71,11 +72,11 @@ impl File {
     ///         a = 10k
     ///         c = false
     /// "#;
-    /// let git_config = gix_config::File::try_from(config)?;
+    /// let git_config = gix_config::File::try_from(config).expect("valid config");
     /// // You can either use the turbofish to determine the type...
-    /// let a_value = git_config.value_by::<Integer>("core", None, "a")?;
+    /// let a_value = git_config.value_by::<Integer>("core", None, "a").expect("valid value");
     /// // ... or explicitly declare the type to avoid the turbofish
-    /// let c_value: Boolean = git_config.value_by("core", None, "c")?;
+    /// let c_value: Boolean = git_config.value_by("core", None, "c").expect("valid value");
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn value_by<T: TryFrom<BString>>(
@@ -83,7 +84,7 @@ impl File {
         section_name: impl AsRef<str>,
         subsection_name: impl AsBStrOpt,
         value_name: impl AsRef<str>,
-    ) -> Result<T, lookup::Error<T::Error>> {
+    ) -> std::result::Result<T, lookup::Error<T::Error>> {
         T::try_from(self.raw_value_by(section_name, subsection_name, value_name)?)
             .map_err(lookup::Error::FailedConversion)
     }
@@ -95,7 +96,7 @@ impl File {
     pub fn value_with_section<T: TryFrom<BString>>(
         &self,
         key: impl AsKey,
-    ) -> Result<(T, file::SectionRef<'_>), lookup::Error<T::Error>> {
+    ) -> std::result::Result<(T, file::SectionRef<'_>), lookup::Error<T::Error>> {
         let key = key.as_key();
         self.value_with_section_by(key.section_name, key.subsection_name, key.value_name)
     }
@@ -109,7 +110,7 @@ impl File {
         section_name: impl AsRef<str>,
         subsection_name: impl AsBStrOpt,
         value_name: impl AsRef<str>,
-    ) -> Result<(T, file::SectionRef<'_>), lookup::Error<T::Error>> {
+    ) -> std::result::Result<(T, file::SectionRef<'_>), lookup::Error<T::Error>> {
         let (value, section) = self.raw_value_with_section_by(section_name, subsection_name, value_name)?;
         T::try_from(value)
             .map(|value| (value, section))
@@ -117,7 +118,7 @@ impl File {
     }
 
     /// Like [`value()`](File::value()), but returning an `None` if the value wasn't found at `section[.subsection].value_name`
-    pub fn try_value<T: TryFrom<BString>>(&self, key: impl AsKey) -> Result<Option<T>, T::Error> {
+    pub fn try_value<T: TryFrom<BString>>(&self, key: impl AsKey) -> std::result::Result<Option<T>, T::Error> {
         let key = key.as_key();
         self.try_value_by(key.section_name, key.subsection_name, key.value_name)
     }
@@ -128,7 +129,7 @@ impl File {
         section_name: impl AsRef<str>,
         subsection_name: impl AsBStrOpt,
         value_name: impl AsRef<str>,
-    ) -> Result<Option<T>, T::Error> {
+    ) -> std::result::Result<Option<T>, T::Error> {
         self.raw_value_by(section_name, subsection_name, value_name)
             .ok()
             .map(T::try_from)
@@ -162,9 +163,9 @@ impl File {
     ///         a
     ///         a = false
     /// "#;
-    /// let git_config = gix_config::File::try_from(config).unwrap();
+    /// let git_config = gix_config::File::try_from(config).expect("valid config");
     /// // You can either use the turbofish to determine the type...
-    /// let a_value = git_config.values::<Boolean>("core.a")?;
+    /// let a_value = git_config.values::<Boolean>("core.a").expect("valid values");
     /// assert_eq!(
     ///     a_value,
     ///     vec![
@@ -174,18 +175,18 @@ impl File {
     ///     ]
     /// );
     /// // ... or explicitly declare the type to avoid the turbofish
-    /// let c_value: Vec<Boolean> = git_config.values("core.c").unwrap();
+    /// let c_value: Vec<Boolean> = git_config.values("core.c")?;
     /// assert_eq!(c_value, vec![Boolean(false)]);
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # Ok::<(), gix_config::lookup::Error<gix_error::Error>>(())
     /// ```
     ///
     /// [`value`]: crate::value
     /// [`TryFrom`]: std::convert::TryFrom
-    pub fn values<T: TryFrom<BString>>(&self, key: impl AsKey) -> Result<Vec<T>, lookup::Error<T::Error>> {
+    pub fn values<T: TryFrom<BString>>(&self, key: impl AsKey) -> std::result::Result<Vec<T>, lookup::Error<T::Error>> {
         self.raw_values(key)?
             .into_iter()
             .map(T::try_from)
-            .collect::<Result<Vec<_>, _>>()
+            .collect::<std::result::Result<Vec<_>, _>>()
             .map_err(lookup::Error::FailedConversion)
     }
 
@@ -216,9 +217,9 @@ impl File {
     ///         a
     ///         a = false
     /// "#;
-    /// let git_config = gix_config::File::try_from(config).unwrap();
+    /// let git_config = gix_config::File::try_from(config).expect("valid config");
     /// // You can either use the turbofish to determine the type...
-    /// let a_value = git_config.values_by::<Boolean>("core", None, "a")?;
+    /// let a_value = git_config.values_by::<Boolean>("core", None, "a").expect("valid values");
     /// assert_eq!(
     ///     a_value,
     ///     vec![
@@ -228,9 +229,9 @@ impl File {
     ///     ]
     /// );
     /// // ... or explicitly declare the type to avoid the turbofish
-    /// let c_value: Vec<Boolean> = git_config.values_by("core", None, "c").unwrap();
+    /// let c_value: Vec<Boolean> = git_config.values_by("core", None, "c")?;
     /// assert_eq!(c_value, vec![Boolean(false)]);
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # Ok::<(), gix_config::lookup::Error<gix_error::Error>>(())
     /// ```
     ///
     /// [`value`]: crate::value
@@ -240,11 +241,11 @@ impl File {
         section_name: impl AsRef<str>,
         subsection_name: impl AsBStrOpt,
         value_name: impl AsRef<str>,
-    ) -> Result<Vec<T>, lookup::Error<T::Error>> {
+    ) -> std::result::Result<Vec<T>, lookup::Error<T::Error>> {
         self.raw_values_by(section_name, subsection_name, value_name)?
             .into_iter()
             .map(T::try_from)
-            .collect::<Result<Vec<_>, _>>()
+            .collect::<std::result::Result<Vec<_>, _>>()
             .map_err(lookup::Error::FailedConversion)
     }
 
@@ -252,7 +253,7 @@ impl File {
     pub fn values_with_sections<T: TryFrom<BString>>(
         &self,
         key: impl AsKey,
-    ) -> Result<Vec<(T, file::SectionRef<'_>)>, lookup::Error<T::Error>> {
+    ) -> std::result::Result<Vec<(T, file::SectionRef<'_>)>, lookup::Error<T::Error>> {
         let key = key.as_key();
         self.values_with_sections_by(key.section_name, key.subsection_name, key.value_name)
     }
@@ -264,32 +265,25 @@ impl File {
         section_name: impl AsRef<str>,
         subsection_name: impl AsBStrOpt,
         value_name: impl AsRef<str>,
-    ) -> Result<Vec<(T, file::SectionRef<'_>)>, lookup::Error<T::Error>> {
+    ) -> std::result::Result<Vec<(T, file::SectionRef<'_>)>, lookup::Error<T::Error>> {
         self.raw_values_with_sections_by(section_name, subsection_name, value_name)?
             .into_iter()
             .map(|(value, section)| T::try_from(value).map(|value| (value, section)))
-            .collect::<Result<Vec<_>, _>>()
+            .collect::<std::result::Result<Vec<_>, _>>()
             .map_err(lookup::Error::FailedConversion)
     }
 
     /// Returns the last found immutable section with a given `name` and optional `subsection_name`.
-    pub fn section(
-        &self,
-        name: impl AsRef<str>,
-        subsection_name: impl AsBStrOpt,
-    ) -> Result<file::SectionRef<'_>, lookup::existing::Error> {
+    pub fn section(&self, name: impl AsRef<str>, subsection_name: impl AsBStrOpt) -> Result<file::SectionRef<'_>> {
         self.section_filter(name, subsection_name, |_| true)?
-            .ok_or(lookup::existing::Error::SectionMissing)
+            .ok_or_else(lookup::existing::section_missing)
     }
 
     /// Returns the last found immutable section with a given `section_key`, identifying the name and subsection name like `core`
     /// or `remote.origin`.
-    pub fn section_by_key(
-        &self,
-        section_key: impl crate::AsBStr,
-    ) -> Result<file::SectionRef<'_>, lookup::existing::Error> {
+    pub fn section_by_key(&self, section_key: impl crate::AsBStr) -> Result<file::SectionRef<'_>> {
         let key = crate::parse::section::unvalidated::KeyRef::parse(section_key.as_bstr())
-            .ok_or(lookup::existing::Error::KeyMissing)?;
+            .ok_or_else(lookup::existing::key_missing)?;
         self.section(key.section_name, key.subsection_name)
     }
 
@@ -302,7 +296,7 @@ impl File {
         name: impl AsRef<str>,
         subsection_name: impl AsBStrOpt,
         mut filter: impl FnMut(&Metadata) -> bool,
-    ) -> Result<Option<file::SectionRef<'_>>, lookup::existing::Error> {
+    ) -> Result<Option<file::SectionRef<'_>>> {
         Ok(self
             .section_ids_by_name_and_subname(name.as_ref(), subsection_name.as_bstr_opt())?
             .rev()
@@ -320,9 +314,9 @@ impl File {
         &self,
         section_key: impl crate::AsBStr,
         filter: impl FnMut(&Metadata) -> bool,
-    ) -> Result<Option<file::SectionRef<'_>>, lookup::existing::Error> {
+    ) -> Result<Option<file::SectionRef<'_>>> {
         let key = crate::parse::section::unvalidated::KeyRef::parse(section_key.as_bstr())
-            .ok_or(lookup::existing::Error::KeyMissing)?;
+            .ok_or_else(lookup::existing::key_missing)?;
         self.section_filter(key.section_name, key.subsection_name, filter)
     }
 
@@ -432,7 +426,7 @@ impl File {
 
     /// Return this file's metadata, typically set when it was first created to indicate its origins.
     ///
-    /// It will be used in all newly created sections to identify them.
+    /// Newly created sections inherit it unless created with [`File::new_section_with_meta()`].
     /// Change it with [`File::set_meta()`].
     pub fn meta(&self) -> &Metadata {
         &self.meta
@@ -440,7 +434,8 @@ impl File {
 
     /// Change the origin of this instance to be the given `meta`data.
     ///
-    /// This is useful to control what origin about-to-be-added sections receive.
+    /// This is useful to control what origin about-to-be-added sections receive by default.
+    /// Use [`File::new_section_with_meta()`] to set the origin of a single new section instead.
     pub fn set_meta(&mut self, meta: impl Into<OwnShared<Metadata>>) -> &mut Self {
         self.meta = meta.into();
         self

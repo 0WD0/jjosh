@@ -69,7 +69,19 @@ mod mmap {
         // SAFETY: we have to take the risk of somebody changing the file underneath. Git never writes into the same file.
         #[expect(unsafe_code)]
         unsafe {
-            memmap2::MmapOptions::new().map_copy_read_only(&file)
+            // On Windows, a copy-on-write view is charged against the system commit limit in full when it is
+            // created, so mapping a pack larger than the available commit fails with `ERROR_COMMITMENT_LIMIT`
+            // (os error 1455) even though no page is ever written. A plain read-only view costs no commit.
+            #[cfg(windows)]
+            {
+                memmap2::MmapOptions::new().map(&file)
+            }
+            // Everywhere else, `MAP_PRIVATE` is free and works under more circumstances. And in fact, it's
+            // needed for best compatibilty and won't cause troble on *nix systems.
+            #[cfg(not(windows))]
+            {
+                memmap2::MmapOptions::new().map_copy_read_only(&file)
+            }
         }
     }
 }

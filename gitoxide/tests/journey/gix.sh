@@ -2,6 +2,103 @@
 
 title plumbing "${kind}"
 snapshot="$snapshot/plumbing"
+
+if test "$kind" != "small"; then
+title "gix tracing"
+(with "buffered traces on stderr"
+  sandbox
+  unset CLICOLOR CLICOLOR_FORCE FORCE_COLOR NO_COLOR
+
+  # Pipe stderr to exercise terminal detection, keeping command output separate.
+  # pipefail preserves the command's failure status through the capture pipeline.
+  function capture-trace() (
+    set -o pipefail
+    "$exe_plumbing" "$@" 2>&1 >trace-out | cat >trace-err
+  )
+
+  expect_run $SUCCESSFULLY capture-trace env
+  cp trace-out expected-out
+  for trace in -t -tt -ttt -tttt; do
+    case "$trace" in
+      -t|-tt) span_marker='run [' ;;
+      *) span_marker='run:' ;;
+    esac
+    it "$trace preserves stdout and emits plain spans without progress" && {
+      expect_run $SUCCESSFULLY capture-trace "$trace" --no-verbose env
+      expect_run $SUCCESSFULLY cmp expected-out trace-out
+      expect_run $SUCCESSFULLY grep -Fq "$span_marker" trace-err
+      expect_run $WITH_FAILURE grep -Fq $'\033' trace-err
+    }
+  done
+
+  it "traces independently of verbose progress" && {
+    expect_run $SUCCESSFULLY capture-trace -t --verbose env
+    expect_run $SUCCESSFULLY cmp expected-out trace-out
+    expect_run $SUCCESSFULLY grep -Fq 'run [' trace-err
+  }
+
+  it "flushes completed spans when a command fails" && {
+    expect_run $WITH_FAILURE capture-trace -t --format json env
+    expect_run $SUCCESSFULLY test ! -s trace-out
+    expect_run $SUCCESSFULLY grep -Fq 'run [' trace-err
+    expect_run $SUCCESSFULLY grep -Fq "JSON output isn't supported" trace-err
+    expect_run $WITH_FAILURE grep -Fq $'\033' trace-err
+  }
+
+  it "traces completion generation without changing the generated script" && {
+    expect_run $SUCCESSFULLY capture-trace completions --shell bash
+    cp trace-out expected-completions
+    expect_run $SUCCESSFULLY capture-trace -t completions --shell bash
+    expect_run $SUCCESSFULLY cmp expected-completions trace-out
+    expect_run $SUCCESSFULLY grep -Fq 'run [' trace-err
+  }
+
+  if test "$kind" = "max" || test "$kind" = "async"; then
+    # Empty bare repos keep OPNR cheap; fresh databases give each case run IDs 1 and 2.
+    mkdir corpus
+    git init --bare -q corpus/one.git
+    git init --bare -q corpus/two.git
+
+    for threads in 1 2; do
+      it "keeps corpus runs silent without tracing ($threads threads)" && {
+        expect_run $SUCCESSFULLY capture-trace --no-verbose --threads "$threads" \
+          corpus --db "corpus-$threads-off.db" --path corpus run --include-task OPNR
+        expect_run $SUCCESSFULLY test ! -s trace-out
+        expect_run $SUCCESSFULLY test ! -s trace-err
+      }
+
+      for trace in -t -tt -ttt -tttt; do
+        it "$trace flushes both corpus run traces ($threads threads)" && {
+          expect_run $SUCCESSFULLY capture-trace "$trace" --no-verbose --threads "$threads" \
+            corpus --db "corpus-$threads$trace.db" --path corpus run --include-task OPNR
+          expect_run $SUCCESSFULLY test ! -s trace-out
+          for run_id in 1 2; do
+            case "$trace" in
+              -t|-tt) span_pattern="run \[.*run_id: $run_id$" ;;
+              *) span_pattern="run\{run_id=$run_id\}:.*close" ;;
+            esac
+            expect_run $SUCCESSFULLY grep -Eq "$span_pattern" trace-err
+          done
+          expect_run $WITH_FAILURE grep -Fq $'\033' trace-err
+        }
+      done
+    done
+  fi
+  
+  it "keeps status worker spans under the command's root span" && {
+    git init -q status-repo
+    printf 'tracked\n' >status-repo/tracked
+    git -C status-repo add tracked
+    git -C status-repo commit -qm initial
+    expect_run $SUCCESSFULLY capture-trace -tt --no-verbose -r status-repo status
+    for span in gix::tree_index_status gix::index_worktree_status gix_status::index_as_worktree walk; do
+      expect_run $SUCCESSFULLY grep -Fq "$span [" trace-err
+    done
+    expect_run $SUCCESSFULLY test "$(grep -Ec '^(INFO|DEBUG) +[[:alnum:]_].* \[' trace-err)" = 1
+  }
+)
+fi
+
 title "gix-tempfile crate"
 (when "testing 'gix-tempfile'"
   snapshot="$snapshot/gix-tempfile"
@@ -246,6 +343,16 @@ title "gix (with repository)"
               WITH_SNAPSHOT="$snapshot/file-v-any" \
               expect_run $SUCCESSFULLY "$exe_plumbing" --no-verbose -c protocol.version=2 remote -n "$git_daemon_url" refs
             }
+            if [[ "$kind" == "async" ]]; then
+            it "keeps async progress alive while tracing" && {
+              expect_run $SUCCESSFULLY bash -c \
+                '"$1" -t -c protocol.version=2 remote -n "$2" refs >remote-out 2>remote-err' \
+                -- "$exe_plumbing" "$git_daemon_url"
+              expect_run $SUCCESSFULLY test -s remote-out
+              expect_run $SUCCESSFULLY grep -Fq 'Connecting to' remote-err
+              expect_run $SUCCESSFULLY grep -Fq 'run [' remote-err
+            }
+            fi
           )
         )
         if [[ "$kind" == "small" ]]; then
@@ -368,6 +475,46 @@ title "gix commit-graph"
 
 (with "gix free"
   snapshot="$snapshot/no-repo"
+  title "gix free commit-graph verify"
+  (when "verifying standalone commit-graphs"
+    for object_format in sha1 sha256; do
+      (sandbox
+        # Copy both graph layouts out of the repository so verification cannot infer its object format from it.
+        git init --object-format="$object_format" -q repo
+        (
+          cd repo
+          git -c commit.gpgsign=false commit --allow-empty -q -m "first"
+          git commit-graph write --reachable
+          cp -R .git/objects/info ../graph-info
+          rm .git/objects/info/commit-graph
+          git commit-graph write --reachable --split
+          git -c commit.gpgsign=false commit --allow-empty -q -m "second"
+          git commit-graph write --reachable --split=no-merge
+          cp -R .git/objects/info ../split-graph-info
+        )
+
+        if test "$object_format" = sha1; then
+          mismatched_format=sha256
+        else
+          mismatched_format=sha1
+        fi
+        for graph_path in graph-info graph-info/commit-graph split-graph-info split-graph-info/commit-graphs; do
+          it "verifies $object_format at $graph_path with an explicit object format" && {
+            expect_run $SUCCESSFULLY "$exe_plumbing" --no-verbose --object-hash "$object_format" free commit-graph verify "$graph_path"
+          }
+          it "rejects $object_format at $graph_path when $mismatched_format is requested" && {
+            expect_run $WITH_FAILURE "$exe_plumbing" --no-verbose --object-hash "$mismatched_format" free commit-graph verify "$graph_path"
+          }
+        done
+
+        it "does not hide a corrupt $object_format monolithic graph behind a valid split graph" && {
+          printf 'invalid graph\n' >split-graph-info/commit-graph
+          expect_run $WITH_FAILURE "$exe_plumbing" --no-verbose --object-hash "$object_format" free commit-graph verify split-graph-info
+        }
+      )
+    done
+  )
+
   title "gix free pack"
   (when "running 'pack'"
     snapshot="$snapshot/pack"
@@ -574,6 +721,21 @@ title "gix commit-graph"
             }
             it "persists the origin remote" && {
               expect_run_sh $SUCCESSFULLY 'test -n "$(git -C clone config --get remote.origin.url)"'
+            }
+            it "records the remote default as a symbolic tracking reference" && {
+              expect_run_sh $SUCCESSFULLY 'test "$(git -C clone symbolic-ref refs/remotes/origin/HEAD)" = refs/remotes/origin/main'
+              expect_run_sh $SUCCESSFULLY 'test "$(git -C clone rev-parse refs/remotes/origin/HEAD)" = "$(git -C remote rev-parse HEAD)"'
+            }
+            it "prints the initial bare mapping without persisting it" && {
+              function clone-bare() {
+                "$exe_plumbing" --no-verbose clone --bare "$PWD/remote" bare >bare-output
+              }
+              expect_run $SUCCESSFULLY clone-bare
+              expect_run $SUCCESSFULLY grep -Fq '+refs/heads/*:refs/heads/*' bare-output
+              expect_run_sh $SUCCESSFULLY 'test "$(git -C bare rev-parse refs/heads/main)" = "$(git -C remote rev-parse HEAD)"'
+              expect_run_sh $SUCCESSFULLY 'test "$(git -C bare for-each-ref --format="%(refname)" refs/remotes)" = ""'
+              expect_run_sh $SUCCESSFULLY 'test "$(git -C bare config --get-all remote.origin.fetch)" = ""'
+              expect_run_sh $SUCCESSFULLY 'test "$(git -C bare config --get branch.main.remote)" = ""'
             }
           )
         )

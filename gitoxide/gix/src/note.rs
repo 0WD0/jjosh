@@ -5,10 +5,10 @@ use std::borrow::Cow;
 /// Low-level operations on Git notes trees.
 pub use gix_note as plumbing;
 
-use gix_error::{ErrorExt, ResultExt, message};
+use gix_error::{OptionExt, ResultExt, message};
 
 use crate::{
-    Blob, Id, Repository,
+    Blob, Id, Repository, Result,
     bstr::{BStr, BString, ByteSlice, ByteVec},
     config::tree::{Core, Key, Notes},
     ext::ObjectIdExt,
@@ -45,7 +45,7 @@ struct EditRoot {
 }
 
 impl<'repo> Platform<'repo> {
-    pub(crate) fn new(repo: &'repo Repository) -> Result<Self, crate::Error> {
+    pub(crate) fn new(repo: &'repo Repository) -> Result<Self> {
         let config = repo.config_snapshot();
         let value = config
             .string(Core::NOTES_REF)
@@ -60,9 +60,7 @@ impl<'repo> Platform<'repo> {
         };
         let mut refs = default_ref.iter().cloned().collect::<Vec<_>>();
         for value in config.plumbing().strings(Notes::DISPLAY_REF).unwrap_or_default() {
-            let display_refs = Notes::DISPLAY_REF
-                .try_into_display_refs(value)
-                .or_raise(|| message("Could not parse notes display references"))?;
+            let display_refs = Notes::DISPLAY_REF.try_into_display_refs(value)?;
             for pattern in display_refs {
                 add_refs(repo, pattern.as_bstr(), &mut refs)?;
             }
@@ -85,7 +83,7 @@ impl Platform<'_> {
     /// glob pattern. An item containing `*`, `?`, or `[` is treated as a glob and expanded against
     /// existing references. A literal reference may be absent and is then treated as containing no
     /// notes. Duplicate references are ignored and the resulting order is preserved.
-    pub fn with_refs(mut self, refs: impl IntoIterator<Item = impl Into<BString>>) -> Result<Self, crate::Error> {
+    pub fn with_refs(mut self, refs: impl IntoIterator<Item = impl Into<BString>>) -> Result<Self> {
         let mut selected = Vec::new();
         for pattern in refs {
             let pattern = pattern.into();
@@ -133,7 +131,7 @@ impl<'repo> Platform<'repo> {
     pub fn get<'platform>(
         &'platform mut self,
         object: impl Into<gix_hash::ObjectId>,
-    ) -> Result<Vec<Note<'platform, 'repo>>, crate::Error> {
+    ) -> Result<Vec<Note<'platform, 'repo>>> {
         let annotated_object_id = object.into();
         let mut out = Vec::new();
         let repo = self.repo;
@@ -170,7 +168,7 @@ impl<'repo> Platform<'repo> {
         notes_ref: N,
         object: impl Into<gix_hash::ObjectId>,
         data: impl AsRef<[u8]>,
-    ) -> Result<Option<Id<'repo>>, crate::Error>
+    ) -> Result<Option<Id<'repo>>>
     where
         N: TryInto<PartialName>,
         N::Error: std::error::Error + Send + Sync + 'static,
@@ -191,7 +189,7 @@ impl<'repo> Platform<'repo> {
         notes_ref: &gix_ref::FullNameRef,
         object: impl Into<gix_hash::ObjectId>,
         data: impl AsRef<[u8]>,
-    ) -> Result<Option<Id<'repo>>, crate::Error> {
+    ) -> Result<Option<Id<'repo>>> {
         let EditRoot {
             root_tree_id,
             parent_commit_id,
@@ -226,11 +224,7 @@ impl<'repo> Platform<'repo> {
     ///   preserved. Removing the last note from an existing reference retains it, pointing to
     ///   a new commit with an empty tree.
     /// * `object` identifies the Git object whose note should be removed.
-    pub fn remove<N>(
-        &mut self,
-        notes_ref: N,
-        object: impl Into<gix_hash::ObjectId>,
-    ) -> Result<Option<Id<'repo>>, crate::Error>
+    pub fn remove<N>(&mut self, notes_ref: N, object: impl Into<gix_hash::ObjectId>) -> Result<Option<Id<'repo>>>
     where
         N: TryInto<PartialName>,
         N::Error: std::error::Error + Send + Sync + 'static,
@@ -257,7 +251,7 @@ impl<'repo> Platform<'repo> {
     }
 
     /// Return the notes tree and commit to edit, and the direct reference to update.
-    fn lookup_edit_root(&self, notes_ref: &gix_ref::FullNameRef) -> Result<EditRoot, crate::Error> {
+    fn lookup_edit_root(&self, notes_ref: &gix_ref::FullNameRef) -> Result<EditRoot> {
         match self
             .repo
             .try_find_reference(notes_ref)
@@ -300,7 +294,7 @@ impl<'repo> Platform<'repo> {
         parent_commit_id: Option<gix_hash::ObjectId>,
         edit: gix_note::Edit,
         default_message: &str,
-    ) -> Result<(), crate::Error> {
+    ) -> Result<()> {
         let message = self.commit_message.as_deref().unwrap_or(default_message);
         let commit = self
             .repo
@@ -326,7 +320,7 @@ fn state_for<'a>(
     states: &'a mut Vec<gix_note::State>,
     root_tree_id: gix_hash::ObjectId,
     repo: &Repository,
-) -> Result<&'a mut gix_note::State, crate::Error> {
+) -> Result<&'a mut gix_note::State> {
     if let Some(index) = states.iter().position(|state| state.root_tree_id() == root_tree_id) {
         return Ok(&mut states[index]);
     }
@@ -355,7 +349,7 @@ impl Root {
         }
     }
 
-    fn tree_id(&mut self, repo: &Repository) -> Result<Option<gix_hash::ObjectId>, crate::Error> {
+    fn tree_id(&mut self, repo: &Repository) -> Result<Option<gix_hash::ObjectId>> {
         if let Some(root_tree_id) = self.tree_id {
             return Ok(root_tree_id);
         }
@@ -378,14 +372,14 @@ impl Root {
     }
 }
 
-fn add_refs(repo: &Repository, pattern: &BStr, out: &mut Vec<FullName>) -> Result<(), crate::Error> {
+fn add_refs(repo: &Repository, pattern: &BStr, out: &mut Vec<FullName>) -> Result<()> {
     let mut push_unique = |reference| {
         if !out.contains(&reference) {
             out.push(reference);
         }
     };
     let parsed = gix_glob::Pattern::from_bytes_without_negation(pattern)
-        .ok_or_else(|| message("Notes display references must not be empty").raise())?;
+        .ok_or_raise(|| message("Notes display references must not be empty"))?;
     if parsed
         .mode
         .intersects(gix_glob::pattern::Mode::ABSOLUTE | gix_glob::pattern::Mode::MUST_BE_DIR)
@@ -400,9 +394,7 @@ fn add_refs(repo: &Repository, pattern: &BStr, out: &mut Vec<FullName>) -> Resul
             .all()
             .or_raise(|| message!("Could not iterate notes references matching {pattern}"))?;
         for reference in references {
-            let reference = reference
-                .map_err(gix_error::Error::from_boxed)
-                .or_raise(|| message!("Could not read notes reference matching {pattern}"))?;
+            let reference = reference.or_raise(|| message!("Could not read notes reference matching {pattern}"))?;
             if parsed.matches(reference.name().as_bstr(), gix_glob::wildmatch::Mode::empty()) {
                 push_unique(reference.inner.name);
             }
@@ -416,10 +408,10 @@ fn add_refs(repo: &Repository, pattern: &BStr, out: &mut Vec<FullName>) -> Resul
     Ok(())
 }
 
-fn expand_notes_ref(name: &PartialNameRef) -> Result<Cow<'_, FullNameRef>, gix_error::Exn<gix_ref::name::Error>> {
+fn expand_notes_ref(name: &PartialNameRef) -> Result<Cow<'_, FullNameRef>> {
     let name = name.as_bstr();
     if name.starts_with_str("refs/notes/") {
-        return Ok(Cow::Borrowed(name.try_into()?));
+        return <&FullNameRef>::try_from(name).map(Cow::Borrowed).or_error();
     }
 
     let mut name = name.to_owned();
@@ -428,5 +420,5 @@ fn expand_notes_ref(name: &PartialNameRef) -> Result<Cow<'_, FullNameRef>, gix_e
     } else {
         name.insert_str(0, "refs/notes/");
     }
-    Ok(Cow::Owned(name.try_into()?))
+    FullName::try_from(name).map(Cow::Owned).or_error()
 }

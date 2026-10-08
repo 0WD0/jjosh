@@ -359,6 +359,13 @@ git clone submodule multiple-submodules
   git commit -m "add modules"
 )
 
+git clone --no-local multiple-submodules uninitialized-submodules-with-files
+(cd uninitialized-submodules-with-files
+  # Cloning without submodule recursion leaves gitlinks backed by ordinary directories.
+  printf '%s' content >submodule/untracked
+  printf '%s' content >a/b/untracked
+)
+
 git clone submodule one-ignored-submodule
 (cd one-ignored-submodule
   git submodule add ../submodule submodule

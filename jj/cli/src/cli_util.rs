@@ -17,7 +17,6 @@ use std::cell::OnceCell;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
-use std::collections::HashSet;
 use std::env;
 use std::ffi::OsString;
 use std::fmt;
@@ -25,7 +24,6 @@ use std::fmt::Debug;
 use std::io;
 use std::io::Write as _;
 use std::mem;
-use std::ops::Range;
 use std::path::Path;
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -34,19 +32,14 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use bstr::ByteVec as _;
-use chrono::TimeZone as _;
-use clap::ArgAction;
 use clap::ArgMatches;
 use clap::Command;
-use clap::FromArgMatches as _;
 use clap::builder::MapValueParser;
 use clap::builder::NonEmptyStringValueParser;
 use clap::builder::TypedValueParser as _;
 use clap::builder::ValueParserFactory;
 use clap::error::ContextKind;
 use clap::error::ContextValue;
-use clap_complete::ArgValueCandidates;
-use clap_complete::ArgValueCompleter;
 use futures::StreamExt as _;
 use futures::TryStreamExt as _;
 use futures::future::try_join_all;
@@ -56,6 +49,9 @@ use indexmap::IndexSet;
 use indoc::indoc;
 use indoc::writedoc;
 use itertools::Itertools as _;
+use jiff::Timestamp;
+use jiff::Zoned;
+use jiff::tz::TimeZone;
 use jj_lib::backend::BackendResult;
 use jj_lib::backend::ChangeId;
 use jj_lib::backend::CommitId;
@@ -68,7 +64,6 @@ use jj_lib::config::ConfigLayer;
 use jj_lib::config::ConfigMigrationRule;
 use jj_lib::config::ConfigNamePathBuf;
 use jj_lib::config::ConfigSource;
-use jj_lib::config::ConfigValue;
 use jj_lib::config::StackedConfig;
 use jj_lib::conflicts::ConflictMarkerStyle;
 use jj_lib::default_backend_factories::default_backend_factories;
@@ -133,6 +128,8 @@ use jj_lib::settings::UserSettings;
 use jj_lib::store::Store;
 use jj_lib::str_util::StringExpression;
 use jj_lib::str_util::StringMatcher;
+use jj_lib::template_parser::TemplateAliasesMap;
+use jj_lib::template_parser::TemplateDiagnostics;
 use jj_lib::transaction::Transaction;
 use jj_lib::transaction::TransactionCommitError;
 use jj_lib::ui_path::RepoPathUiConverter;
@@ -159,8 +156,15 @@ use tracing::instrument;
 use tracing_chrome::ChromeLayerBuilder;
 use tracing_subscriber::prelude::*;
 
+use crate::cli_args::GlobalArgs;
+use crate::cli_args::command_name;
+use crate::cli_args::expand_args;
+use crate::cli_args::expand_args_for_completion;
+use crate::cli_args::parse_args;
+use crate::cli_args::parse_early_args;
+use crate::cli_args::to_string_args;
+use crate::cli_args::warn_if_args_mismatch;
 use crate::command_error::CommandError;
-use crate::command_error::cli_error;
 use crate::command_error::config_error_with_message;
 use crate::command_error::handle_command_result;
 use crate::command_error::internal_error;
@@ -171,13 +175,10 @@ use crate::command_error::user_error;
 use crate::command_error::user_error_with_message;
 use crate::commit_templater::CommitTemplateLanguage;
 use crate::commit_templater::CommitTemplateLanguageExtension;
-use crate::complete;
-use crate::config::ConfigArgKind;
 use crate::config::ConfigEnv;
 use crate::config::RawConfig;
 use crate::config::config_from_environment;
 use crate::config::load_aliases_map;
-use crate::config::parse_config_args;
 use crate::description_util::TextEditor;
 use crate::diff_util;
 use crate::diff_util::DiffFormat;
@@ -196,12 +197,9 @@ use crate::revset_util::RevsetExpressionEvaluator;
 use crate::revset_util::parse_union_name_patterns;
 use crate::template_builder;
 use crate::template_builder::TemplateLanguage;
-use crate::template_parser::TemplateAliasesMap;
-use crate::template_parser::TemplateDiagnostics;
 use crate::templater::TemplateRenderer;
 use crate::templater::WrapTemplateProperty;
 use crate::text_util;
-use crate::ui::ColorChoice;
 use crate::ui::Ui;
 
 const SHORT_CHANGE_ID_TEMPLATE_TEXT: &str = "format_short_change_id_with_change_offset(self)";
@@ -738,12 +736,14 @@ impl CommandHelper {
                             workspace_command.env.path_converter.with_patterns(
                                 workspace_command.working_copy().sparse_patterns()?.clone(),
                             );
-                        workspace_command.print_updated_working_copy_stats(
-                            ui,
-                            Some(&stale_wc_commit),
-                            &desired_wc_commit,
-                            &stats,
-                        )?;
+                        workspace_command
+                            .print_updated_working_copy_stats(
+                                ui,
+                                Some(&stale_wc_commit),
+                                &desired_wc_commit,
+                                &stats,
+                            )
+                            .await?;
                         writeln!(
                             ui.status(),
                             "Updated working copy to fresh commit {}",
@@ -1056,6 +1056,87 @@ impl WorkspaceCommandEnvironment {
         Ok(GitImportExportLock { _lock: lock })
     }
 
+    pub fn auto_tracking_matcher(&self, ui: &Ui) -> Result<Box<dyn Matcher>, CommandError> {
+        let mut diagnostics = FilesetDiagnostics::new();
+        let pattern = self.settings.get_string("snapshot.auto-track")?;
+        let context = self.fileset_parse_context_for_config();
+        let expression = fileset::parse(&mut diagnostics, &pattern, &context)?;
+        print_parse_diagnostics(ui, "In `snapshot.auto-track`", &diagnostics)?;
+        Ok(expression.to_matcher())
+    }
+
+    pub fn snapshot_options_with_start_tracking_matcher<'a>(
+        &self,
+        store: &Store,
+        start_tracking_matcher: &'a dyn Matcher,
+    ) -> Result<SnapshotOptions<'a>, CommandError> {
+        let base_ignores = self.base_ignores(store)?;
+        let HumanByteSize(mut max_new_file_size) = self
+            .settings
+            .get_value_with("snapshot.max-new-file-size", TryInto::try_into)?;
+        if max_new_file_size == 0 {
+            max_new_file_size = u64::MAX;
+        }
+        Ok(SnapshotOptions {
+            base_ignores,
+            progress: None,
+            start_tracking_matcher,
+            force_tracking_matcher: &NothingMatcher,
+            max_new_file_size,
+        })
+    }
+
+    #[cfg(not(feature = "git"))]
+    pub fn base_ignores(&self, _store: &Store) -> Result<Arc<GitIgnoreFile>, GitIgnoreError> {
+        Ok(GitIgnoreFile::empty())
+    }
+
+    #[cfg(feature = "git")]
+    #[instrument(skip_all)]
+    pub fn base_ignores(&self, store: &Store) -> Result<Arc<GitIgnoreFile>, GitIgnoreError> {
+        let get_excludes_file_path = |config: &gix::config::File| -> Option<PathBuf> {
+            // TODO: maybe use path() and interpolate(), which can process non-utf-8
+            // path on Unix.
+            if let Some(value) = config.string("core.excludesFile") {
+                let home_dir = self.command.config_env().home_dir();
+                let path = str::from_utf8(&value)
+                    .ok()
+                    .map(|value| jj_lib::file_util::expand_home_path(value, home_dir))?;
+                // The configured path is usually absolute, but if it's relative,
+                // the "git" command would read the file at the work-tree directory.
+                Some(self.workspace_root().join(path))
+            } else {
+                xdg_config_home().map(|x| x.join("git").join("ignore"))
+            }
+        };
+
+        fn xdg_config_home() -> Option<PathBuf> {
+            if let Ok(x) = std::env::var("XDG_CONFIG_HOME")
+                && !x.is_empty()
+            {
+                return Some(PathBuf::from(x));
+            }
+            etcetera::home_dir().ok().map(|home| home.join(".config"))
+        }
+
+        let mut git_ignores = GitIgnoreFile::empty();
+        if let Ok(git_backend) = jj_lib::git::get_git_backend(store) {
+            let git_repo = git_backend.git_repo();
+            if let Some(excludes_file_path) = get_excludes_file_path(&git_repo.config_snapshot()) {
+                git_ignores = git_ignores.chain_with_file(RepoPath::root(), excludes_file_path)?;
+            }
+            git_ignores = git_ignores.chain_with_file(
+                RepoPath::root(),
+                git_backend.git_repo_path().join("info").join("exclude"),
+            )?;
+        } else if let Ok(git_config) = gix::config::File::from_globals()
+            && let Some(excludes_file_path) = get_excludes_file_path(&git_config)
+        {
+            git_ignores = git_ignores.chain_with_file(RepoPath::root(), excludes_file_path)?;
+        }
+        Ok(git_ignores)
+    }
+
     /// Parsing context for fileset expressions specified by command arguments.
     pub(crate) fn fileset_parse_context(&self) -> FilesetParseContext<'_> {
         FilesetParseContext {
@@ -1082,17 +1163,17 @@ impl WorkspaceCommandEnvironment {
             workspace_name: &self.workspace_name,
         };
         let now = if let Some(timestamp) = self.settings.commit_timestamp() {
-            chrono::Local
-                .timestamp_millis_opt(timestamp.timestamp.0)
+            Timestamp::from_millisecond(timestamp.timestamp.0)
                 .unwrap()
+                .to_zoned(TimeZone::system())
         } else {
-            chrono::Local::now()
+            Zoned::now()
         };
         RevsetParseContext {
             aliases_map: &self.revset_aliases_map,
             local_variables: HashMap::new(),
             user_email: self.settings.user_email(),
-            date_pattern_context: now.into(),
+            current_time: now,
             default_ignored_remote: self.default_ignored_remote,
             fileset_aliases_map: &self.fileset_aliases_map,
             extensions: self.command.revset_extensions(),
@@ -1840,88 +1921,22 @@ to the current parents may contain changes from multiple commits.
         Ok(FilesetExpression::union_all(expressions))
     }
 
-    pub fn auto_tracking_matcher(&self, ui: &Ui) -> Result<Box<dyn Matcher>, CommandError> {
-        let mut diagnostics = FilesetDiagnostics::new();
-        let pattern = self.settings().get_string("snapshot.auto-track")?;
-        let context = self.env.fileset_parse_context_for_config();
-        let expression = fileset::parse(&mut diagnostics, &pattern, &context)?;
-        print_parse_diagnostics(ui, "In `snapshot.auto-track`", &diagnostics)?;
-        Ok(expression.to_matcher())
-    }
-
     pub fn snapshot_options_with_start_tracking_matcher<'a>(
         &self,
         start_tracking_matcher: &'a dyn Matcher,
     ) -> Result<SnapshotOptions<'a>, CommandError> {
-        let base_ignores = self.base_ignores()?;
-        let HumanByteSize(mut max_new_file_size) = self
-            .settings()
-            .get_value_with("snapshot.max-new-file-size", TryInto::try_into)?;
-        if max_new_file_size == 0 {
-            max_new_file_size = u64::MAX;
-        }
-        Ok(SnapshotOptions {
-            base_ignores,
-            progress: None,
+        self.env.snapshot_options_with_start_tracking_matcher(
+            self.repo().store(),
             start_tracking_matcher,
-            force_tracking_matcher: &NothingMatcher,
-            max_new_file_size,
-        })
+        )
     }
 
     pub(crate) fn path_converter(&self) -> &RepoPathUiConverter {
         self.env.path_converter()
     }
 
-    #[cfg(not(feature = "git"))]
     pub fn base_ignores(&self) -> Result<Arc<GitIgnoreFile>, GitIgnoreError> {
-        Ok(GitIgnoreFile::empty())
-    }
-
-    #[cfg(feature = "git")]
-    #[instrument(skip_all)]
-    pub fn base_ignores(&self) -> Result<Arc<GitIgnoreFile>, GitIgnoreError> {
-        let get_excludes_file_path = |config: &gix::config::File| -> Option<PathBuf> {
-            // TODO: maybe use path() and interpolate(), which can process non-utf-8
-            // path on Unix.
-            if let Some(value) = config.string("core.excludesFile") {
-                let home_dir = self.env.command.config_env().home_dir();
-                let path = str::from_utf8(&value)
-                    .ok()
-                    .map(|value| jj_lib::file_util::expand_home_path(value, home_dir))?;
-                // The configured path is usually absolute, but if it's relative,
-                // the "git" command would read the file at the work-tree directory.
-                Some(self.workspace_root().join(path))
-            } else {
-                xdg_config_home().map(|x| x.join("git").join("ignore"))
-            }
-        };
-
-        fn xdg_config_home() -> Option<PathBuf> {
-            if let Ok(x) = std::env::var("XDG_CONFIG_HOME")
-                && !x.is_empty()
-            {
-                return Some(PathBuf::from(x));
-            }
-            etcetera::home_dir().ok().map(|home| home.join(".config"))
-        }
-
-        let mut git_ignores = GitIgnoreFile::empty();
-        if let Ok(git_backend) = jj_lib::git::get_git_backend(self.repo().store()) {
-            let git_repo = git_backend.git_repo();
-            if let Some(excludes_file_path) = get_excludes_file_path(&git_repo.config_snapshot()) {
-                git_ignores = git_ignores.chain_with_file(RepoPath::root(), excludes_file_path)?;
-            }
-            git_ignores = git_ignores.chain_with_file(
-                RepoPath::root(),
-                git_backend.git_repo_path().join("info").join("exclude"),
-            )?;
-        } else if let Ok(git_config) = gix::config::File::from_globals()
-            && let Some(excludes_file_path) = get_excludes_file_path(&git_config)
-        {
-            git_ignores = git_ignores.chain_with_file(RepoPath::root(), excludes_file_path)?;
-        }
-        Ok(git_ignores)
+        self.env.base_ignores(self.repo().store())
     }
 
     /// Creates textual diff renderer of the specified `formats`.
@@ -2283,7 +2298,8 @@ to the current parents may contain changes from multiple commits.
             let (lower_bound, upper_bound) = immutable_expr
                 .intersection(&to_rewrite_expr.descendants())
                 .evaluate(repo)?
-                .count_estimate()?;
+                .count_estimate()
+                .await?;
             let exact = upper_bound == Some(lower_bound);
             let or_more = if exact { "" } else { " or more" };
             error.add_hint(format!(
@@ -2304,6 +2320,7 @@ to the current parents may contain changes from multiple commits.
         let workspace_name = self.workspace_name().to_owned();
         let repo = self.repo().clone();
         let auto_tracking_matcher = self
+            .env
             .auto_tracking_matcher(ui)
             .map_err(snapshot_command_error)?;
         let options = self
@@ -2352,6 +2369,7 @@ to the current parents may contain changes from multiple commits.
                 .evaluate(tx.repo())
                 .map_err(snapshot_command_error)?
                 .is_empty()
+                .await
                 .map_err(snapshot_command_error)?;
             let mut_repo = tx.repo_mut();
             let new_wc_commit;
@@ -2525,9 +2543,10 @@ to the current parents may contain changes from multiple commits.
             .path_converter
             .with_patterns(self.working_copy().sparse_patterns()?.clone());
         self.print_updated_working_copy_stats(ui, maybe_old_commit, new_commit, &stats)
+            .await
     }
 
-    fn print_updated_working_copy_stats(
+    async fn print_updated_working_copy_stats(
         &self,
         ui: &Ui,
         maybe_old_commit: Option<&Commit>,
@@ -2553,7 +2572,7 @@ to the current parents may contain changes from multiple commits.
             && let Some(mut formatter) = ui.status_formatter()
             && new_commit.has_conflict()
         {
-            let conflicts = new_commit.tree().conflicts().collect_vec();
+            let conflicts = new_commit.tree().conflicts().collect().await;
             writeln!(
                 formatter.labeled("warning").with_heading("Warning: "),
                 "There are unresolved conflicts at these paths:"
@@ -2616,7 +2635,8 @@ to the current parents may contain changes from multiple commits.
             && !immutable_expr
                 .intersection(&RevsetExpression::commit(wc_commit.id().clone()))
                 .evaluate(tx.repo())?
-                .is_empty()?
+                .is_empty()
+                .await?
         {
             let new_wc_commit = tx
                 .repo_mut()
@@ -3725,6 +3745,33 @@ async fn sync_sparse_patterns(
         })
 }
 
+/// Rebases descendants of rewritten commits, or reparents them if `reparent`
+/// is set so that their content is preserved. Reports the number of rebased
+/// commits.
+pub async fn rebase_or_reparent_descendants(
+    ui: &Ui,
+    mut_repo: &mut MutableRepo,
+    reparent: bool,
+) -> Result<(), CommandError> {
+    let (num_rebased, extra_msg) = if reparent {
+        (
+            mut_repo.reparent_descendants().await?,
+            " (while preserving their content)",
+        )
+    } else {
+        (mut_repo.rebase_descendants().await?, "")
+    };
+    if let Some(mut formatter) = ui.status_formatter()
+        && num_rebased > 0
+    {
+        writeln!(
+            formatter,
+            "Rebased {num_rebased} descendant commits{extra_msg}."
+        )?;
+    }
+    Ok(())
+}
+
 pub async fn update_working_copy(
     ui: &Ui,
     repo: &Arc<ReadonlyRepo>,
@@ -3886,7 +3933,7 @@ impl LogContentFormat {
         if self.word_wrap {
             let mut recorder = FormatRecorder::new(formatter.maybe_color());
             content_fn(&mut recorder).await?;
-            text_util::write_wrapped(formatter, &recorder, self.width)?;
+            text_util::write_wrapped(formatter, &recorder, self.width, false)?;
         } else {
             content_fn(formatter).await?;
         }
@@ -4077,161 +4124,6 @@ async fn ensure_no_commit_loop(
     Ok(())
 }
 
-/// Jujutsu (An experimental VCS)
-///
-/// To get started, see the tutorial [`jj help -k tutorial`].
-///
-/// [`jj help -k tutorial`]:
-///     https://docs.jj-vcs.dev/latest/tutorial/
-#[derive(clap::Parser, Clone, Debug)]
-#[command(name = "jj")]
-pub struct Args {
-    #[command(flatten)]
-    pub global_args: GlobalArgs,
-}
-
-#[derive(clap::Args, Clone, Debug)]
-#[command(next_help_heading = "Global Options")]
-pub struct GlobalArgs {
-    /// Path to repository to operate on
-    ///
-    /// By default, Jujutsu searches for the closest .jj/ directory in an
-    /// ancestor of the current working directory.
-    #[arg(long, short = 'R', global = true, value_hint = clap::ValueHint::DirPath)]
-    pub repository: Option<String>,
-
-    /// Don't snapshot the working copy, and don't update it
-    ///
-    /// By default, Jujutsu snapshots the working copy at the beginning of every
-    /// command. The working copy is also updated at the end of the command,
-    /// if the command modified the working-copy commit (`@`). If you want
-    /// to avoid snapshotting the working copy and instead see a possibly
-    /// stale working-copy commit, you can use `--ignore-working-copy`.
-    /// This may be useful e.g. in a command prompt, especially if you have
-    /// another process that commits the working copy.
-    ///
-    /// Loading the repository at a specific operation with `--at-operation`
-    /// implies `--ignore-working-copy`.
-    #[arg(long, global = true)]
-    pub ignore_working_copy: bool,
-
-    /// Run the command as usual but don't integrate any operations
-    ///
-    /// When this option is given, the operations will still be created as usual
-    /// but they will not be integrated to the operation log. The working copy
-    /// will also not be updated.
-    ///
-    /// The command will print the resulting operation ID. You can pass that to
-    /// e.g. `jj --at-op` to inspect the resulting repo state, or you can pass
-    /// it to `jj op restore` to restore the repo to that state. You can also
-    /// pass the ID to `jj op integrate` to integrate the operation.
-    ///
-    /// Note that this does *not* prevent side effects outside the repo. For
-    /// example, `jj git push --no-integrate-operation` will still perform the
-    /// push.
-    #[arg(long, global = true)]
-    pub no_integrate_operation: bool,
-
-    /// Allow rewriting immutable commits
-    ///
-    /// By default, Jujutsu prevents rewriting commits in the configured set of
-    /// immutable commits. This option disables that check and lets you rewrite
-    /// any commit but the root commit.
-    ///
-    /// This option only affects the check. It does not affect the
-    /// `immutable_heads()` revset or the `immutable` template keyword.
-    #[arg(long, global = true)]
-    pub ignore_immutable: bool,
-
-    /// Operation to load the repo at
-    ///
-    /// Operation to load the repo at. By default, Jujutsu loads the repo at the
-    /// most recent operation, or at the merge of the divergent operations if
-    /// any.
-    ///
-    /// You can use `--at-op=<operation ID>` to see what the repo looked like at
-    /// an earlier operation. For example `jj --at-op=<operation ID> st` will
-    /// show you what `jj st` would have shown you when the given operation had
-    /// just finished. `--at-op=@` is pretty much the same as the default except
-    /// that divergent operations will never be merged.
-    ///
-    /// Use `jj op log` to find the operation ID you want. Any unambiguous
-    /// prefix of the operation ID is enough.
-    ///
-    /// When loading the repo at an earlier operation, the working copy will be
-    /// ignored, as if `--ignore-working-copy` had been specified.
-    ///
-    /// It is possible to run mutating commands when loading the repo at an
-    /// earlier operation. Doing that is equivalent to having run concurrent
-    /// commands starting at the earlier operation. There's rarely a reason to
-    /// do that, but it is possible.
-    #[arg(long, visible_alias = "at-op", global = true)]
-    #[arg(add = ArgValueCandidates::new(complete::operations))]
-    pub at_operation: Option<String>,
-
-    /// Enable debug logging
-    #[arg(long, global = true)]
-    pub debug: bool,
-
-    #[command(flatten)]
-    pub early_args: EarlyArgs,
-}
-
-#[derive(clap::Args, Clone, Debug)]
-pub struct EarlyArgs {
-    /// When to colorize output
-    #[arg(long, value_name = "WHEN", global = true)]
-    pub color: Option<ColorChoice>,
-
-    /// Silence non-primary command output
-    ///
-    /// For example, `jj file list` will still list files, but it won't tell
-    /// you if the working copy was snapshotted or if descendants were rebased.
-    ///
-    /// Warnings and errors will still be printed.
-    #[arg(long, global = true, action = ArgAction::SetTrue)]
-    // Parsing with ignore_errors will crash if this is bool, so use
-    // Option<bool>.
-    pub quiet: Option<bool>,
-
-    /// Disable the pager
-    #[arg(long, global = true, action = ArgAction::SetTrue)]
-    // Parsing with ignore_errors will crash if this is bool, so use
-    // Option<bool>.
-    pub no_pager: Option<bool>,
-
-    /// Additional configuration options (can be repeated)
-    ///
-    /// The name should be specified as TOML dotted keys. The value should be
-    /// specified as a TOML expression. If string value isn't enclosed by any
-    /// TOML constructs (such as array notation), quotes can be omitted.
-    #[arg(long, value_name = "NAME=VALUE", global = true)]
-    #[arg(add = ArgValueCompleter::new(complete::leaf_config_key_value))]
-    pub config: Vec<String>,
-
-    /// Additional configuration files (can be repeated)
-    #[arg(long, value_name = "PATH", global = true, value_hint = clap::ValueHint::FilePath)]
-    pub config_file: Vec<String>,
-}
-
-impl EarlyArgs {
-    pub(crate) fn merged_config_args(&self, matches: &ArgMatches) -> Vec<(ConfigArgKind, &str)> {
-        merge_args_with(
-            matches,
-            &[("config", &self.config), ("config_file", &self.config_file)],
-            |id, value| match id {
-                "config" => (ConfigArgKind::Item, value.as_ref()),
-                "config_file" => (ConfigArgKind::File, value.as_ref()),
-                _ => unreachable!("unexpected id {id:?}"),
-            },
-        )
-    }
-
-    fn has_config_args(&self) -> bool {
-        !self.config.is_empty() || !self.config_file.is_empty()
-    }
-}
-
 /// Wrapper around revset expression argument.
 ///
 /// An empty string is rejected early by the CLI value parser, but it's still
@@ -4269,253 +4161,6 @@ impl ValueParserFactory for RevisionArg {
     fn value_parser() -> Self::Parser {
         NonEmptyStringValueParser::new().map(Self::from)
     }
-}
-
-/// Merges multiple clap args in order of appearance.
-///
-/// The `id_values` is a list of `(id, values)` pairs, where `id` is the name of
-/// the clap `Arg`, and `values` are the parsed values for that arg. The
-/// `convert` function transforms each `(id, value)` pair to e.g. an enum.
-///
-/// This is a workaround for <https://github.com/clap-rs/clap/issues/3146>.
-pub fn merge_args_with<'k, 'v, T, U>(
-    matches: &ArgMatches,
-    id_values: &[(&'k str, &'v [T])],
-    mut convert: impl FnMut(&'k str, &'v T) -> U,
-) -> Vec<U> {
-    let mut pos_values: Vec<(usize, U)> = Vec::new();
-    for (id, values) in id_values {
-        pos_values.extend(itertools::zip_eq(
-            matches.indices_of(id).into_iter().flatten(),
-            values.iter().map(|v| convert(id, v)),
-        ));
-    }
-    pos_values.sort_unstable_by_key(|&(pos, _)| pos);
-    pos_values.into_iter().map(|(_, value)| value).collect()
-}
-
-fn resolve_default_command(
-    ui: &Ui,
-    config: &StackedConfig,
-    app: &Command,
-    mut string_args: Vec<String>,
-) -> Result<Vec<String>, CommandError> {
-    const PRIORITY_FLAGS: &[&str] = &["--help", "-h", "--version", "-V"];
-
-    let has_priority_flag = string_args
-        .iter()
-        .any(|arg| PRIORITY_FLAGS.contains(&arg.as_str()));
-    if has_priority_flag {
-        return Ok(string_args);
-    }
-
-    let app_clone = app
-        .clone()
-        .allow_external_subcommands(true)
-        .ignore_errors(true);
-    let matches = app_clone.try_get_matches_from(&string_args).ok();
-
-    if let Some(matches) = matches
-        && matches.subcommand_name().is_none()
-    {
-        // Try loading as either a string or an array.
-        // Only use `.optional()?` on the latter call to `config.get` - if it
-        // was used on both, the type error from the first check would return
-        // early.
-        let default_command = if let Ok(string) = config.get::<String>("ui.default-command") {
-            // Warn when the user has misconfigured their default command as
-            // "log -n 5" instead of ["log", "-n", "5"]
-            if string.contains(' ') {
-                let elements: ConfigValue = string.split_whitespace().collect();
-                writeln!(
-                    ui.warning_default(),
-                    "To include flags/arguments in `ui.default-command`, use an array instead of \
-                     a string: `ui.default-command = {elements}`"
-                )?;
-            }
-
-            vec![string]
-        } else if let Some(array) = config.get::<Vec<String>>("ui.default-command").optional()? {
-            array
-        } else {
-            writeln!(
-                ui.hint_default(),
-                "Use `jj -h` for a list of available commands."
-            )?;
-            writeln!(
-                ui.hint_no_heading(),
-                "Run `jj config set --user ui.default-command log` to disable this message."
-            )?;
-
-            vec!["log".to_string()]
-        };
-
-        // Insert the default command directly after the path to the binary.
-        string_args.splice(1..1, default_command);
-    }
-    Ok(string_args)
-}
-
-/// Loads alias definitions from the `aliases` table.
-fn load_aliases<'config>(
-    ui: &Ui,
-    config: &'config StackedConfig,
-    app: &Command,
-) -> Result<HashMap<&'config str, Vec<String>>, CommandError> {
-    let mut defined_aliases = HashMap::new();
-    for alias in config.table_keys("aliases") {
-        if config
-            .get::<bool>(["aliases", alias, "enabled"])
-            .optional()?
-            .is_some_and(|enabled| !enabled)
-        {
-            continue;
-        }
-        let definition: Result<Vec<String>, _> = match config.get(["aliases", alias]) {
-            Ok(definition) => Ok(definition),
-            Err(original_error) => match config.get(["aliases", alias, "definition"]) {
-                Ok(definition) => Ok(definition),
-                Err(_) => Err(original_error),
-            },
-        };
-        match definition {
-            Ok(definition) => {
-                defined_aliases.insert(alias, definition);
-            }
-            Err(err) => {
-                writeln!(
-                    ui.warning_default(),
-                    "Failed to load `aliases.{alias}`: Expected a string list or a table with a \
-                     `definition`"
-                )?;
-                print_error_sources(ui, Some(&err))?;
-            }
-        }
-    }
-    // Print warnings for aliases that match real commands and remove them from
-    // the mapping.
-    let mut real_commands = HashSet::new();
-    for command in app.get_subcommands() {
-        real_commands.insert(command.get_name());
-        for alias in command.get_all_aliases() {
-            real_commands.insert(alias);
-        }
-    }
-    for alias in defined_aliases
-        .extract_if(|a, _| real_commands.contains(*a))
-        .map(|(a, _)| a)
-        .sorted()
-    {
-        writeln!(
-            ui.warning_default(),
-            "Cannot define an alias that overrides the built-in command '{alias}'."
-        )?;
-    }
-    Ok(defined_aliases)
-}
-
-fn resolve_aliases(
-    app: &Command,
-    defined_aliases: &HashMap<&str, Vec<String>>,
-    mut string_args: Vec<String>,
-) -> Result<Vec<String>, CommandError> {
-    let mut recursion_check_stack: Vec<(&str, Range<usize>)> = Vec::new();
-
-    loop {
-        let app_clone = app.clone().allow_external_subcommands(true);
-        let matches = app_clone.try_get_matches_from(&string_args).ok();
-        let Some((command_name, submatches)) = matches.as_ref().and_then(|m| m.subcommand()) else {
-            // No more alias commands, or hit unknown option
-            return Ok(string_args);
-        };
-        let alias_name = command_name.to_string();
-        let alias_args = submatches
-            .get_many::<OsString>("")
-            .unwrap_or_default()
-            .map(|arg| arg.to_str().unwrap().to_string())
-            .collect_vec();
-        let Some((&alias_name, alias_definition)) = defined_aliases.get_key_value(&*alias_name)
-        else {
-            // Not a real command and not an alias, so return what we've
-            // resolved so far.
-            return Ok(string_args);
-        };
-        let alias_position = string_args.len() - 1 - alias_args.len();
-
-        // recursion check
-        while let Some((_, check_range)) = recursion_check_stack.last() {
-            if check_range.contains(&alias_position) {
-                // The tracked chain of alias expansions produced the current
-                // alias. Check for recursion.
-                if recursion_check_stack.iter().any(|&(a, _)| a == alias_name) {
-                    return Err(user_error(format!(
-                        "Recursive alias definition involving `{alias_name}`"
-                    )));
-                }
-                break;
-            }
-            // Last tracked alias did not produce the currently expanding alias.
-            // Remove it from stack and fixup the range of the next one.
-            let check_range = check_range.clone();
-            recursion_check_stack.pop();
-            if let Some((_, next_range)) = recursion_check_stack.last_mut() {
-                // Increase next range by the length of the current one, minus
-                // one to account for the removed alias name.
-                next_range.end += check_range.end - check_range.start - 1;
-            }
-        }
-        recursion_check_stack.push((
-            alias_name,
-            alias_position..(alias_position + alias_definition.len()),
-        ));
-
-        assert!(string_args.ends_with(&alias_args));
-        string_args.truncate(alias_position);
-        string_args.extend(alias_definition.clone());
-        string_args.extend_from_slice(&alias_args);
-    }
-}
-
-/// Parse args that must be interpreted early, e.g. before printing help.
-fn parse_early_args(
-    app: &Command,
-    args: &[String],
-) -> Result<(EarlyArgs, Vec<ConfigLayer>), CommandError> {
-    // ignore_errors() bypasses errors like missing subcommand
-    let early_matches = app
-        .clone()
-        .disable_version_flag(true)
-        // Do not emit DisplayHelp error
-        .disable_help_flag(true)
-        // Do not stop parsing at -h/--help
-        .arg(
-            clap::Arg::new("help")
-                .short('h')
-                .long("help")
-                .global(true)
-                .action(ArgAction::Count),
-        )
-        .ignore_errors(true)
-        .try_get_matches_from(args)?;
-    let args = EarlyArgs::from_arg_matches(&early_matches).unwrap();
-
-    let mut config_layers = parse_config_args(&args.merged_config_args(&early_matches))?;
-    // Command arguments overrides any other configuration including the
-    // variables loaded from --config* arguments.
-    let mut layer = ConfigLayer::empty(ConfigSource::CommandArg);
-    if let Some(choice) = args.color {
-        layer.set_value("ui.color", choice.to_string()).unwrap();
-    }
-    if args.quiet.unwrap_or_default() {
-        layer.set_value("ui.quiet", true).unwrap();
-    }
-    if args.no_pager.unwrap_or_default() {
-        layer.set_value("ui.paginate", "never").unwrap();
-    }
-    if !layer.is_empty() {
-        config_layers.push(layer);
-    }
-    Ok((args, config_layers))
 }
 
 fn handle_shell_completion(
@@ -4614,82 +4259,6 @@ fn hide_short_subcommand_aliases(cmd: &mut Command) {
         .visible_aliases(new_visible_aliases)
         // add to hidden aliases
         .aliases(short_aliases);
-}
-
-pub fn expand_args(
-    ui: &Ui,
-    app: &Command,
-    args_os: impl IntoIterator<Item = OsString>,
-    config: &StackedConfig,
-) -> Result<Vec<String>, CommandError> {
-    let mut string_args = to_string_args(args_os)?;
-    let aliases = load_aliases(ui, config, app)?;
-    string_args = resolve_aliases(app, &aliases, string_args)?;
-    string_args = resolve_default_command(ui, config, app, string_args)?;
-    string_args = resolve_aliases(app, &aliases, string_args)?;
-    Ok(string_args)
-}
-
-fn expand_args_for_completion(
-    ui: &Ui,
-    app: &Command,
-    args_os: impl IntoIterator<Item = OsString>,
-    config: &StackedConfig,
-) -> Result<Vec<String>, CommandError> {
-    let mut string_args = to_string_args(args_os)?;
-    let aliases = load_aliases(ui, config, app)?;
-
-    // Resolution of subcommand aliases must not consider the argument that is being
-    // completed.
-    let cursor_arg = string_args.pop();
-    string_args = resolve_aliases(app, &aliases, string_args)?;
-    string_args.extend(cursor_arg);
-
-    // If a subcommand has been given, including the potentially incomplete argument
-    // that is being completed, the default command is not resolved and the
-    // completion candidates for the subcommand are prioritized.
-    string_args = resolve_default_command(ui, config, app, string_args)?;
-
-    let cursor_arg = string_args.pop();
-    string_args = resolve_aliases(app, &aliases, string_args)?;
-    string_args.extend(cursor_arg);
-
-    Ok(string_args)
-}
-
-fn to_string_args(
-    args_os: impl IntoIterator<Item = OsString>,
-) -> Result<Vec<String>, CommandError> {
-    args_os
-        .into_iter()
-        .map(|arg_os| {
-            arg_os
-                .into_string()
-                .map_err(|_| cli_error("Non-UTF-8 argument"))
-        })
-        .collect()
-}
-
-fn parse_args(app: &Command, string_args: &[String]) -> Result<(ArgMatches, Args), clap::Error> {
-    let matches = app
-        .clone()
-        .arg_required_else_help(true)
-        .subcommand_required(true)
-        .try_get_matches_from(string_args)?;
-    let args = Args::from_arg_matches(&matches).unwrap();
-    Ok((matches, args))
-}
-
-fn command_name(mut matches: &ArgMatches) -> String {
-    let mut command = String::new();
-    while let Some((subcommand, new_matches)) = matches.subcommand() {
-        if !command.is_empty() {
-            command.push(' ');
-        }
-        command.push_str(subcommand);
-        matches = new_matches;
-    }
-    command
 }
 
 pub fn format_template<C: Clone>(ui: &Ui, arg: &C, template: &TemplateRenderer<C>) -> String {
@@ -5195,68 +4764,8 @@ fn format_template_aliases_hint(template_aliases: &TemplateAliasesMap) -> String
     hint
 }
 
-// If -R or --config* is specified, check if the expanded arguments differ.
-fn warn_if_args_mismatch(
-    ui: &Ui,
-    app: &Command,
-    config: &StackedConfig,
-    expected_args: &[String],
-) -> Result<(), CommandError> {
-    let new_string_args = expand_args(ui, app, env::args_os(), config).ok();
-    if new_string_args.as_deref() != Some(expected_args) {
-        writeln!(
-            ui.warning_default(),
-            "Command aliases cannot be loaded from -R/--repository path or --config/--config-file \
-             arguments."
-        )?;
-    }
-    Ok(())
-}
-
 pub fn shell_quote(s: &str) -> Cow<'_, str> {
     // shlex::try_quote fails if `s` has a nul byte, which
     // shouldn't usually happen. Fall back to unquoted on error.
     shlex::try_quote(s).unwrap_or(s.into())
-}
-
-#[cfg(test)]
-mod tests {
-    use clap::CommandFactory as _;
-
-    use super::*;
-
-    #[derive(clap::Parser, Clone, Debug)]
-    pub struct TestArgs {
-        #[arg(long)]
-        pub foo: Vec<u32>,
-        #[arg(long)]
-        pub bar: Vec<u32>,
-        #[arg(long)]
-        pub baz: bool,
-    }
-
-    #[test]
-    fn test_merge_args_with() {
-        let command = TestArgs::command();
-        let parse = |args: &[&str]| -> Vec<(&'static str, u32)> {
-            let matches = command.clone().try_get_matches_from(args).unwrap();
-            let args = TestArgs::from_arg_matches(&matches).unwrap();
-            merge_args_with(
-                &matches,
-                &[("foo", &args.foo), ("bar", &args.bar)],
-                |id, value| (id, *value),
-            )
-        };
-
-        assert_eq!(parse(&["jj"]), vec![]);
-        assert_eq!(parse(&["jj", "--foo=1"]), vec![("foo", 1)]);
-        assert_eq!(
-            parse(&["jj", "--foo=1", "--bar=2"]),
-            vec![("foo", 1), ("bar", 2)]
-        );
-        assert_eq!(
-            parse(&["jj", "--foo=1", "--baz", "--bar=2", "--foo", "3"]),
-            vec![("foo", 1), ("bar", 2), ("foo", 3)]
-        );
-    }
 }

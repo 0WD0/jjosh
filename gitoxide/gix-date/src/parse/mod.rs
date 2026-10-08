@@ -1,7 +1,9 @@
 use std::io;
 use std::str::FromStr;
 
-use crate::{Error, Time};
+use gix_error::{OptionExt, Result};
+
+use crate::Time;
 
 /// A container for just enough bytes to hold the largest possible serialization of a [`Time`].
 #[derive(Default, Clone)]
@@ -19,7 +21,7 @@ pub struct TimeBuf {
 struct TimeBufWriter<'a>(&'a mut TimeBuf);
 
 impl io::Write for TimeBufWriter<'_> {
-    fn write(&mut self, buf: &[u8]) -> Result<usize, io::Error> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         let idx = self.0.end_idx;
         let end_idx = idx
             .checked_add(buf.len())
@@ -64,10 +66,12 @@ impl Time {
 }
 
 impl FromStr for Time {
-    type Err = Error;
+    type Err = gix_error::Error;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        crate::parse_header(s).ok_or_else(|| Error::new_with_input("invalid time", s))
+    /// Invalid times produce a [validation error](gix_error::Error::is_validation()),
+    /// with the original bytes stored as `input` [metadata](gix_error::Error::metadata()).
+    fn from_str(s: &str) -> Result<Self> {
+        crate::parse_header(s).ok_or_raise(|| gix_error::validation("invalid time").with_input(s.as_bytes()))
     }
 }
 

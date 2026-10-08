@@ -1,16 +1,16 @@
 pub(crate) mod function {
+    use gix_error::Result;
     use std::{cmp::Ordering, sync::Arc};
 
-    use gix_features::{
-        parallel,
-        parallel::SequenceId,
-        progress::{
-            Progress,
-            prodash::{Count, DynNestedProgress},
-        },
+    use gix_error::{OptionExt, ResultExt, message, not_found};
+    use gix_parallel as parallel;
+    use gix_parallel::SequenceId;
+    use gix_utils::progress::{
+        Progress,
+        prodash::{Count, DynNestedProgress},
     };
 
-    use super::{Error, Mode, Options, Outcome, ProgressId, reduce, util};
+    use super::{Mode, Options, Outcome, ProgressId, reduce, util};
     use crate::data::output;
 
     /// Given a known list of object `counts`, calculate entries ready to be put into a data pack.
@@ -27,7 +27,7 @@ pub(crate) mod function {
     /// * `options`
     ///   * more configuration
     ///
-    /// _Returns_ the checksum of the pack
+    /// Returns an iterator over entry chunks, or an error if resolving pack locations fails before iteration.
     ///
     /// ## Discussion
     ///
@@ -54,8 +54,10 @@ pub(crate) mod function {
             chunk_size,
             compression,
         }: Options,
-    ) -> impl Iterator<Item = Result<(SequenceId, Vec<output::Entry>), Error>>
-    + parallel::reduce::Finalize<Reduce = reduce::Statistics<Error>>
+    ) -> Result<
+        impl Iterator<Item = Result<(SequenceId, Vec<output::Entry>)>>
+        + parallel::Finalize<Reduce = reduce::Statistics<gix_error::Error>>,
+    >
     where
         Find: crate::Find + Send + Clone + 'static,
     {
@@ -65,7 +67,7 @@ pub(crate) mod function {
             let progress = Arc::new(parking_lot::Mutex::new(
                 progress.add_child_with_id("resolving".into(), ProgressId::ResolveCounts.into()),
             ));
-            progress.lock().init(None, gix_features::progress::count("counts"));
+            progress.lock().init(None, gix_utils::progress::count("counts"));
             let enough_counts_present = counts.len() > 4_000;
             let start = std::time::Instant::now();
             parallel::in_parallel_if(
@@ -82,22 +84,23 @@ pub(crate) mod function {
                             use crate::data::output::count::PackLocation::*;
                             match count.entry_pack_location {
                                 LookedUp(_) => continue,
-                                NotLookedUp => count.entry_pack_location = LookedUp(db.location_by_oid(&count.id, buf)),
+                                NotLookedUp => {
+                                    count.entry_pack_location = LookedUp(db.location_by_oid(&count.id, buf)?);
+                                }
                             }
                         }
                         progress.lock().inc_by(chunk_size);
-                        Ok::<_, ()>(())
+                        Ok::<_, gix_error::Error>(())
                     }
                 },
-                parallel::reduce::IdentityWithResult::<(), ()>::default(),
-            )
-            .expect("infallible - we ignore none-existing objects");
+                parallel::IdentityWithResult::<(), gix_error::Error>::default(),
+            )?;
             progress.lock().show_throughput(start);
         }
         let counts_range_by_pack_id = match mode {
             Mode::PackCopyAndBaseObjects => {
                 let mut progress = progress.add_child_with_id("sorting".into(), ProgressId::SortEntries.into());
-                progress.init(Some(counts.len()), gix_features::progress::count("counts"));
+                progress.init(Some(counts.len()), gix_utils::progress::count("counts"));
                 let start = std::time::Instant::now();
 
                 use crate::data::output::count::PackLocation::*;
@@ -136,7 +139,7 @@ pub(crate) mod function {
         let progress = Arc::new(parking_lot::Mutex::new(progress));
         let chunks = util::ChunkRanges::new(chunk_size, counts.len());
 
-        parallel::reduce::Stepwise::new(
+        Ok(parallel::Stepwise::new(
             chunks.enumerate(),
             thread_limit,
             {
@@ -146,7 +149,7 @@ pub(crate) mod function {
                         Vec::new(), // object data buffer
                         progress
                             .lock()
-                            .add_child_with_id(format!("thread {n}"), gix_features::progress::UNKNOWN),
+                            .add_child_with_id(format!("thread {n}"), gix_utils::progress::UNKNOWN),
                     )
                 }
             },
@@ -157,7 +160,7 @@ pub(crate) mod function {
                     let chunk = &counts[chunk_range];
                     let mut stats = Outcome::default();
                     let mut pack_offsets_to_id = None;
-                    progress.init(Some(chunk.len()), gix_features::progress::count("objects"));
+                    progress.init(Some(chunk.len()), gix_utils::progress::count("objects"));
 
                     for count in chunk.iter() {
                         out.push(match count
@@ -185,20 +188,22 @@ pub(crate) mod function {
                                     base_index_offset,
                                     allow_thin_pack.then_some({
                                         |pack_id, base_offset| {
-                                            let (cached_pack_id, cache) = pack_offsets_to_id.get_or_insert_with(|| {
-                                                db.pack_offsets_and_oid(pack_id)
-                                                    .map(|mut v| {
-                                                        v.sort_by_key(|e| e.0);
-                                                        (pack_id, v)
-                                                    })
-                                                    .expect("pack used for counts is still available")
-                                            });
+                                            if pack_offsets_to_id.is_none() {
+                                                let mut offsets =
+                                                    db.pack_offsets_and_oid(pack_id)?.ok_or_raise(|| {
+                                                        not_found("Pack used for counts is no longer available")
+                                                    })?;
+                                                offsets.sort_by_key(|e| e.0);
+                                                pack_offsets_to_id = Some((pack_id, offsets));
+                                            }
+                                            let (cached_pack_id, cache) =
+                                                pack_offsets_to_id.as_ref().expect("just set");
                                             debug_assert_eq!(*cached_pack_id, pack_id);
                                             stats.ref_delta_objects += 1;
-                                            cache
+                                            Ok(cache
                                                 .binary_search_by_key(&base_offset, |e| e.0)
                                                 .ok()
-                                                .map(|idx| cache[idx].1)
+                                                .map(|idx| cache[idx].1))
                                         }
                                     }),
                                     version,
@@ -208,19 +213,27 @@ pub(crate) mod function {
                                         stats.objects_copied_from_pack += 1;
                                         entry
                                     }
-                                    None => match db.try_find(&count.id, buf).map_err(Error::Find)? {
-                                        Some((obj, _location)) => {
-                                            stats.decoded_and_recompressed_objects += 1;
-                                            output::Entry::from_data(count, &obj, compression)
+                                    None => {
+                                        match db
+                                            .try_find(&count.id, buf)
+                                            .or_raise(|| message("Could not find object while generating pack"))?
+                                        {
+                                            Some((obj, _location)) => {
+                                                stats.decoded_and_recompressed_objects += 1;
+                                                output::Entry::from_data(count, &obj, compression)
+                                            }
+                                            None => {
+                                                stats.missing_objects += 1;
+                                                Ok(output::Entry::invalid())
+                                            }
                                         }
-                                        None => {
-                                            stats.missing_objects += 1;
-                                            Ok(output::Entry::invalid())
-                                        }
-                                    },
+                                    }
                                 }
                             }
-                            None => match db.try_find(&count.id, buf).map_err(Error::Find)? {
+                            None => match db
+                                .try_find(&count.id, buf)
+                                .or_raise(|| message("Could not find object while generating pack"))?
+                            {
                                 Some((obj, _location)) => {
                                     stats.decoded_and_recompressed_objects += 1;
                                     output::Entry::from_data(count, &obj, compression)
@@ -237,7 +250,7 @@ pub(crate) mod function {
                 }
             },
             reduce::Statistics::default(),
-        )
+        ))
     }
 }
 
@@ -278,7 +291,8 @@ mod util {
 mod reduce {
     use std::marker::PhantomData;
 
-    use gix_features::{parallel, parallel::SequenceId};
+    use gix_parallel as parallel;
+    use gix_parallel::SequenceId;
 
     use super::Outcome;
     use crate::data::output;
@@ -317,8 +331,6 @@ mod reduce {
 }
 
 mod types {
-    use crate::data::output::entry;
-
     /// Information gathered during the run of [`iter_from_counts()`][crate::data::output::entry::iter_from_counts()].
     #[derive(Default, PartialEq, Eq, Debug, Hash, Ord, PartialOrd, Clone, Copy)]
     #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -404,16 +416,6 @@ mod types {
         }
     }
 
-    /// The error returned by the pack generation function [`iter_from_counts()`][crate::data::output::entry::iter_from_counts()].
-    #[derive(Debug, thiserror::Error)]
-    #[expect(missing_docs)]
-    pub enum Error {
-        #[error(transparent)]
-        Find(gix_object::find::Error),
-        #[error(transparent)]
-        NewEntry(#[from] entry::Error),
-    }
-
     /// The progress ids used in [`write_to_directory()`][crate::Bundle::write_to_directory()].
     ///
     /// Use this information to selectively extract the progress of interest in case the parent application has custom visualization.
@@ -425,7 +427,7 @@ mod types {
         SortEntries,
     }
 
-    impl From<ProgressId> for gix_features::progress::Id {
+    impl From<ProgressId> for gix_utils::progress::Id {
         fn from(v: ProgressId) -> Self {
             match v {
                 ProgressId::ResolveCounts => *b"ECRC",
@@ -434,4 +436,4 @@ mod types {
         }
     }
 }
-pub use types::{Error, Mode, Options, Outcome, ProgressId};
+pub use types::{Mode, Options, Outcome, ProgressId};

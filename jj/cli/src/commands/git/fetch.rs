@@ -23,7 +23,6 @@ use jj_lib::git::GitFetchRefExpression;
 use jj_lib::git::GitSettings;
 use jj_lib::git::IgnoredRefspec;
 use jj_lib::git::IgnoredRefspecs;
-use jj_lib::git::expand_fetch_refspecs;
 use jj_lib::git::get_git_backend;
 use jj_lib::git::load_default_fetch_bookmarks;
 use jj_lib::ref_name::RefName;
@@ -34,7 +33,6 @@ use jj_lib::str_util::StringExpression;
 use crate::cli_util::CommandHelper;
 use crate::cli_util::WorkspaceCommandTransaction;
 use crate::command_error::CommandError;
-use crate::command_error::cli_error;
 use crate::command_error::user_error;
 use crate::complete;
 use crate::git_remote::GitRemoteFetchOptions;
@@ -100,6 +98,7 @@ pub struct GitFetchArgs {
     /// [logical operators]:
     ///     https://docs.jj-vcs.dev/latest/revsets/#string-patterns
     #[arg(long = "tag", short, group = "specific", value_name = "TAG")]
+    #[arg(add = ArgValueCandidates::new(complete::tags))]
     tags: Option<Vec<String>>,
 
     /// Fetch a full source commit ID (can be repeated)
@@ -170,11 +169,6 @@ pub async fn cmd_git_fetch(
     command: &CommandHelper,
     args: &GitFetchArgs,
 ) -> Result<(), CommandError> {
-    if command.global_args().no_integrate_operation {
-        // TODO: Remove this restriction by fetching remote refs in memory or
-        // into a temporary namespace.
-        return Err(cli_error("--no-integrate-operation is not respected"));
-    }
     if !crate::git_remote::capabilities(command).contains(&"jjosh-v1")
         && (!args.revisions.is_empty()
             || args.deepen.is_some()
@@ -299,7 +293,8 @@ pub async fn cmd_git_fetch(
         Some(texts) => Some(parse_union_name_patterns(ui, texts)?),
         None => is_specific.then(StringExpression::none),
     };
-    let mut expansions = Vec::with_capacity(matching_remotes.len());
+    let mut expansions: Vec<(&RemoteName, GitFetchRefExpression)> =
+        Vec::with_capacity(matching_remotes.len());
     if args.tracked {
         for remote in &matching_remotes {
             let bookmark = StringExpression::union_all(
@@ -335,8 +330,7 @@ pub async fn cmd_git_fetch(
                 git::check_raw_fetch_selection(workspace_command.repo().view(), remote, &ref_expr)
                     .map_err(user_error)?;
             }
-            let expanded = expand_fetch_refspecs(remote, ref_expr)?;
-            expansions.push((remote, expanded));
+            expansions.push((*remote, ref_expr));
         }
     } else {
         let git_repo = get_git_backend(workspace_command.repo().store())?.git_repo();
@@ -373,14 +367,18 @@ pub async fn cmd_git_fetch(
                 git::check_raw_fetch_selection(workspace_command.repo().view(), remote, &ref_expr)
                     .map_err(user_error)?;
             }
-            let expanded = expand_fetch_refspecs(remote, ref_expr)?;
-            expansions.push((remote, expanded));
+            expansions.push((*remote, ref_expr));
         }
     }
 
     let git_settings = GitSettings::from_settings(workspace_command.settings())?;
     let import_options = load_git_import_options(ui, &git_settings, &remote_settings)?;
     let base_repo = workspace_command.repo().clone();
+    let remote_names = matching_remotes
+        .iter()
+        .map(|remote| base_repo.view().remote_qualified_name(remote))
+        .join(", ");
+    writeln!(ui.status(), "Fetching from Git remotes: {remote_names}")?;
     let mut tx = workspace_command.start_transaction();
     let mut extension_git_lock = None;
     let import_stats = if remote_sessions.is_empty() {
@@ -389,10 +387,10 @@ pub async fn cmd_git_fetch(
             git_settings.to_subprocess_options(),
             &import_options,
         )?;
-        for (completed, (remote, expanded)) in expansions.into_iter().enumerate() {
+        for (completed, (remote, ref_expr)) in expansions.into_iter().enumerate() {
             let mut callback = GitSubprocessUi::new(ui);
             git_fetch
-                .fetch(remote, expanded, &mut callback, fetch_options.depth)
+                .fetch(remote, &ref_expr, &mut callback, fetch_options.depth)
                 .map_err(|error| {
                     fetch_failure_context(
                         error.into(),
@@ -406,14 +404,13 @@ pub async fn cmd_git_fetch(
     } else {
         let mut prepared_fetches = Vec::with_capacity(expansions.len());
         let mut selections = Vec::with_capacity(expansions.len());
-        for (completed, (remote, expanded)) in expansions.into_iter().enumerate() {
-            let expr = expanded.into_expression();
-            let bookmarks = expr.bookmark.to_matcher();
-            let tags = expr.tag.to_matcher();
+        for (completed, (remote, ref_expr)) in expansions.into_iter().enumerate() {
+            let bookmarks = ref_expr.bookmark.to_matcher();
+            let tags = ref_expr.tag.to_matcher();
             let session = &remote_sessions[remote];
             prepared_fetches.push(
                 session
-                    .prepare_fetch(ui, command, tx.repo_mut(), expr, &fetch_options)
+                    .prepare_fetch(ui, command, tx.repo_mut(), ref_expr, &fetch_options)
                     .await
                     .map_err(|error| {
                         fetch_failure_context(error, base_repo.view(), &matching_remotes, completed)
@@ -422,7 +419,7 @@ pub async fn cmd_git_fetch(
             // An empty selected result still observes a configured peer. Keep
             // it addressable for explicit tracking and first publication.
             tx.repo_mut().ensure_remote(remote);
-            selections.push((*remote, bookmarks, tags));
+            selections.push((remote, bookmarks, tags));
         }
         // Network receive and conversion can be slow. Keep them outside the colocated Git
         // import/export lock so read-only commands can snapshot and inspect the previous
@@ -457,13 +454,7 @@ pub async fn cmd_git_fetch(
         warn_if_branches_not_found(ui, &tx, bookmark_expr, &matching_remotes, &remote_sessions)?;
     }
     // TODO: warn_if_tags_not_found()
-    let description = format!(
-        "fetch from git remote(s) {}",
-        matching_remotes
-            .iter()
-            .map(|n| tx.repo().view().remote_qualified_name(n))
-            .join(","),
-    );
+    let description = format!("fetch from git remote(s) {remote_names}");
     if remote_sessions.is_empty() {
         tx.finish(ui, description).await?;
     } else {

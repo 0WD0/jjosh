@@ -22,8 +22,8 @@ pin-project-lite = "^0"
 tracing-futures = "0.2.5"
 tracing-opentelemetry = "0.33.0"
 uuid = { version = "1.24.0", features = ["v4"] }
-gix-packetline = { version = "^0", features = ["blocking-io"] }
-gix-transport = "^0"
+gix-packetline = { version = "0.24.0", features = ["blocking-io"] }
+gix-transport = "0.61.0"
 opentelemetry = "0.32.0"
 opentelemetry-semantic-conventions = "0.32.1"
 opentelemetry-otlp = { version = "0.32.0", features = ["grpc-tonic", "trace"] }

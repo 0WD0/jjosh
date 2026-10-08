@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use gix_features::threading::OwnShared;
+use gix_parallel::OwnShared;
 use smallvec::SmallVec;
 
 use crate::{Assignment, AssignmentRef, Name};

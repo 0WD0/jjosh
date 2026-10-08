@@ -253,7 +253,7 @@ pub async fn fix_files(
         };
 
         // TODO: handle copy tracking
-        let mut diff_stream = diff_base_tree.diff_stream(&commit.tree(), &matcher);
+        let mut diff_stream = diff_base_tree.diff(&commit.tree(), &matcher);
         while let Some(TreeDiffEntry {
             path: repo_path,
             values,
@@ -358,7 +358,9 @@ pub async fn fix_files(
                     old_term.clone()
                 });
                 if new_value != old_value {
-                    tree_builder.set_or_remove(repo_path.clone(), new_value);
+                    tree_builder
+                        .set_or_remove_merge(repo_path.clone(), new_value)
+                        .unwrap();
                     has_changes = true;
                 }
             }

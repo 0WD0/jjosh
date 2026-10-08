@@ -1,3 +1,4 @@
+use crate::TestResult;
 use std::fs;
 
 use bstr::{BString, ByteSlice};
@@ -9,8 +10,110 @@ use gix_config::{
 
 use crate::file::bstring;
 
+fn lookup_error(err: gix_config::lookup::Error<gix_error::Error>) -> gix_error::Error {
+    err.into_error()
+}
+
 #[test]
-fn parsed_section_header_legacy_check_uses_backing_buffer() -> crate::Result {
+fn typed_lookup_errors_can_be_erased() -> TestResult {
+    let mut error_snapshots = Vec::new();
+    use gix_error::ResultExt;
+
+    let config = File::try_from("[core]\nvalue = invalid\n")?;
+    for result in [
+        config.value::<Boolean>("core.value").map(|_| ()),
+        config.value::<Integer>("core.value").map(|_| ()),
+        config.value::<Color>("core.value").map(|_| ()),
+        config.values::<Boolean>("core.value").map(|_| ()),
+        config.values::<Integer>("core.value").map(|_| ()),
+        config.values::<Color>("core.value").map(|_| ()),
+    ] {
+        let err = result
+            .map_err(gix_config::lookup::Error::into_error)
+            .or_erased()
+            .expect_err("invalid typed values must fail conversion")
+            .into_error();
+        error_snapshots.push(gix_testtools::redact_debug_snapshot(&(err), &[]));
+        assert!(err.is_validation(), "erasure retains the conversion error");
+    }
+    let err = config
+        .value::<Boolean>("core.missing")
+        .expect_err("the key does not exist")
+        .into_error();
+    insta::assert_debug_snapshot!(err, "erasure retains missing-value classification", @"The key does not exist in the requested section");
+    assert!(err.is_not_found(), "erasure retains missing-value classification");
+    insta::assert_debug_snapshot!(error_snapshots, "typed lookup errors can be erased", @r#"
+    [
+        Booleans need to be 'no', 'off', 'false', '' or 'yes', 'on', 'true' or any number, input="invalid",
+        Integers needs to be positive or negative numbers which may have a suffix like 1k, 42, or 50G, input="invalid",
+        Colors are specific color values and their attributes, like 'brightred', or 'blue', input="invalid",
+        Booleans need to be 'no', 'off', 'false', '' or 'yes', 'on', 'true' or any number, input="invalid",
+        Integers needs to be positive or negative numbers which may have a suffix like 1k, 42, or 50G, input="invalid",
+        Colors are specific color values and their attributes, like 'brightred', or 'blue', input="invalid",
+    ]
+    "#);
+    Ok(())
+}
+
+#[test]
+fn integer_accessors_apply_suffixes() -> TestResult {
+    let config = File::try_from("[core]\nvalue = -2k\nvalue = 0x10m\n")?;
+    assert_eq!(
+        config.integer("core.value")?,
+        Some(16 * 1024 * 1024),
+        "single-value access parses and multiplies the last value"
+    );
+    assert_eq!(
+        config.integers("core.value")?,
+        Some(vec![-2048, 16 * 1024 * 1024]),
+        "multi-value access parses and multiplies every value"
+    );
+    assert_eq!(config.integer("core.missing")?, None, "missing values are still absent");
+    assert_eq!(config.integers("core.missing")?, None, "missing lists are still absent");
+    assert_eq!(
+        config.integer_filter("core.value", |_| false)?,
+        None,
+        "single-value access still respects metadata filters"
+    );
+    assert_eq!(
+        config.integers_filter("core.value", |_| false)?,
+        None,
+        "multi-value access still respects metadata filters"
+    );
+    Ok(())
+}
+
+#[test]
+fn integer_accessors_retain_classification_and_input() -> TestResult {
+    for input in [
+        b"invalid".as_slice(),
+        b"9223372036854775808",
+        b"8589934592g",
+        b"-8589934593g",
+        b"\xff",
+    ] {
+        let mut bytes = b"[core]\nvalue = 1\nvalue = ".to_vec();
+        bytes.extend_from_slice(input);
+        let config = File::from_bytes_no_includes(&bytes, Metadata::api(), Default::default())?;
+        for err in [
+            config.integer("core.value").expect_err("the last integer is invalid"),
+            config
+                .integers("core.value")
+                .expect_err("one of the integers is invalid"),
+        ] {
+            assert!(err.is_validation(), "integer accessors preserve parser classification");
+            assert_eq!(
+                err.metadata().find_map(|metadata| metadata.get("input")),
+                Some(&gix_error::MetadataValue::Bytes(input.into())),
+                "integer accessors retain the original invalid value bytes"
+            );
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn parsed_section_header_legacy_check_uses_backing_buffer() -> TestResult {
     let config = File::try_from(
         "[remote.origin]\n\turl = https://example.com\n[remote \"upstream\"]\n\turl = https://example.com\n",
     )?;
@@ -24,7 +127,7 @@ fn parsed_section_header_legacy_check_uses_backing_buffer() -> crate::Result {
 
 /// Asserts we can cast into all variants of our type
 #[test]
-fn get_value_for_all_provided_values() -> crate::Result {
+fn get_value_for_all_provided_values() -> TestResult {
     let config = r#"
         [core]
             other-quoted = "hello"
@@ -53,7 +156,7 @@ fn get_value_for_all_provided_values() -> crate::Result {
             },
         )?;
 
-        assert!(!config.value::<Boolean>("core.bool-explicit")?.0);
+        assert!(!config.value::<Boolean>("core.bool-explicit").map_err(lookup_error)?.0);
         assert!(!config.boolean("core.bool-explicit")?.expect("exists"));
         assert!(!config.boolean("core.bool-explicit")?.expect("exists"));
 
@@ -105,7 +208,9 @@ fn get_value_for_all_provided_values() -> crate::Result {
         assert_eq!(config.string("doesn't.exist"), None);
 
         assert_eq!(
-            config.value::<Integer>("core.integer-no-prefix")?,
+            config
+                .value::<Integer>("core.integer-no-prefix")
+                .map_err(lookup_error)?,
             Integer {
                 value: 10,
                 suffix: None
@@ -113,7 +218,9 @@ fn get_value_for_all_provided_values() -> crate::Result {
         );
 
         assert_eq!(
-            config.value::<Integer>("core.integer-no-prefix")?,
+            config
+                .value::<Integer>("core.integer-no-prefix")
+                .map_err(lookup_error)?,
             Integer {
                 value: 10,
                 suffix: None
@@ -121,7 +228,7 @@ fn get_value_for_all_provided_values() -> crate::Result {
         );
 
         assert_eq!(
-            config.value::<Integer>("core.integer-prefix")?,
+            config.value::<Integer>("core.integer-prefix").map_err(lookup_error)?,
             Integer {
                 value: 10,
                 suffix: Some(integer::Suffix::Gibi),
@@ -129,7 +236,7 @@ fn get_value_for_all_provided_values() -> crate::Result {
         );
 
         assert_eq!(
-            config.value::<Color>("core.color")?,
+            config.value::<Color>("core.color").map_err(lookup_error)?,
             Color {
                 foreground: Some(color::Name::BrightGreen),
                 background: Some(color::Name::Red),
@@ -188,7 +295,7 @@ fn get_value_for_all_provided_values() -> crate::Result {
 }
 
 #[test]
-fn get_value_looks_up_all_sections_before_failing() -> crate::Result {
+fn get_value_looks_up_all_sections_before_failing() -> TestResult {
     let config = r#"
         [core]
             bool-explicit = false
@@ -201,7 +308,7 @@ fn get_value_looks_up_all_sections_before_failing() -> crate::Result {
 
     // Checks that we check the last entry first still
     assert!(
-        !file.value::<Boolean>("core.bool-implicit")?.0,
+        !file.value::<Boolean>("core.bool-implicit").map_err(lookup_error)?.0,
         "implicit bool is invisible to `value` and boolean is the only value we want. Would have to special case it."
     );
     assert!(
@@ -210,7 +317,7 @@ fn get_value_looks_up_all_sections_before_failing() -> crate::Result {
     );
 
     assert!(
-        !file.value::<Boolean>("core.bool-explicit")?.0,
+        !file.value::<Boolean>("core.bool-explicit").map_err(lookup_error)?.0,
         "explicit values always work"
     );
 
@@ -218,7 +325,7 @@ fn get_value_looks_up_all_sections_before_failing() -> crate::Result {
 }
 
 #[test]
-fn interpreted_values_can_be_returned_with_their_sections() -> crate::Result {
+fn interpreted_values_can_be_returned_with_their_sections() -> TestResult {
     let file = File::try_from(
         "[core]\n\
          a=1\n\
@@ -228,52 +335,59 @@ fn interpreted_values_can_be_returned_with_their_sections() -> crate::Result {
     )?;
     let section_ids: Vec<_> = file.sections().map(|section| section.id()).collect();
 
-    let (value, section) = file.value_with_section::<Integer>("core.a")?;
+    let (value, section) = file.value_with_section::<Integer>("core.a").map_err(lookup_error)?;
     assert_eq!(value.value, 3);
     assert_eq!(section.id(), section_ids[1]);
 
-    let values = file.values_with_sections::<Integer>("core.a")?;
+    let values = file.values_with_sections::<Integer>("core.a").map_err(lookup_error)?;
     let actual: Vec<_> = values
         .into_iter()
         .map(|(value, section)| (value.value, section.id()))
         .collect();
     assert_eq!(actual, [(1, section_ids[0]), (2, section_ids[0]), (3, section_ids[1])]);
 
-    let (value, section) = file.value_with_section_by::<Integer>("core", None, "a")?;
+    let (value, section) = file
+        .value_with_section_by::<Integer>("core", None, "a")
+        .map_err(lookup_error)?;
     assert_eq!((value.value, section.id()), (3, section_ids[1]));
-    assert_eq!(file.values_with_sections_by::<Integer>("core", None, "a")?.len(), 3);
+    assert_eq!(
+        file.values_with_sections_by::<Integer>("core", None, "a")
+            .map_err(lookup_error)?
+            .len(),
+        3
+    );
     Ok(())
 }
 
 #[test]
-fn section_names_are_case_insensitive() -> crate::Result {
+fn section_names_are_case_insensitive() -> TestResult {
     let config = "[core] a=true";
     let file = File::try_from(config)?;
     assert_eq!(
-        file.value::<Boolean>("core.a").unwrap(),
-        file.value::<Boolean>("CORE.a").unwrap()
+        file.value::<Boolean>("core.a").map_err(lookup_error)?,
+        file.value::<Boolean>("CORE.a").map_err(lookup_error)?
     );
 
     Ok(())
 }
 
 #[test]
-fn value_names_are_case_insensitive() -> crate::Result {
+fn value_names_are_case_insensitive() -> TestResult {
     let config = "[core]
         a = true
         A = false";
     let file = File::try_from(config)?;
-    assert_eq!(file.values::<Boolean>("core.a")?.len(), 2);
+    assert_eq!(file.values::<Boolean>("core.a").map_err(lookup_error)?.len(), 2);
     assert_eq!(
-        file.value::<Boolean>("core.a").unwrap(),
-        file.value::<Boolean>("core.A").unwrap()
+        file.value::<Boolean>("core.a").map_err(lookup_error)?,
+        file.value::<Boolean>("core.A").map_err(lookup_error)?
     );
 
     Ok(())
 }
 
 #[test]
-fn section_value_access_is_case_insensitive() -> crate::Result {
+fn section_value_access_is_case_insensitive() -> TestResult {
     let file = File::try_from("[core]\nMixedCase = one\nMIXEDCASE = two")?;
     let section = file.section("core", None)?;
 
@@ -301,7 +415,7 @@ fn single_section() {
 }
 
 #[test]
-fn sections_by_name() -> crate::Result {
+fn sections_by_name() -> TestResult {
     let config = r#"
     [core]
         repositoryformatversion = 0
@@ -320,7 +434,7 @@ fn sections_by_name() -> crate::Result {
 }
 
 #[test]
-fn sections_by_name_ignores_subsections_and_preserves_file_order() -> crate::Result {
+fn sections_by_name_ignores_subsections_and_preserves_file_order() -> TestResult {
     let config = File::try_from(
         "[remote] marker=plain\n\
          [other] marker=unrelated\n\
@@ -348,22 +462,20 @@ fn sections_by_name_ignores_subsections_and_preserves_file_order() -> crate::Res
 }
 
 #[test]
-fn unknown_section() -> crate::Result {
+fn unknown_section() -> TestResult {
     let config = File::default();
-    assert!(matches!(
-        config.section("missing", None).unwrap_err(),
-        gix_config::lookup::existing::Error::SectionMissing
-    ));
+    let err = config.section("missing", None).unwrap_err();
+    assert!(err.is_not_found());
+    insta::assert_debug_snapshot!(err, "unknown section", @"The requested section does not exist");
 
     let config = r#"
     [present]
         key = false
     "#;
     let mut config = File::try_from(config)?;
-    assert!(matches!(
-        config.section("present", Some("subsection".into())).unwrap_err(),
-        gix_config::lookup::existing::Error::SubSectionMissing
-    ));
+    let err = config.section("present", Some("subsection".into())).unwrap_err();
+    assert!(err.is_not_found());
+    insta::assert_debug_snapshot!(err, "unknown section", @"The requested subsection does not exist");
 
     config.set_raw_value_by("present", "subsection", "key", "value")?;
     assert!(config.section("present", Some("subsection".into())).is_ok());
@@ -374,10 +486,9 @@ fn unknown_section() -> crate::Result {
     for id in config.sections_and_ids().map(|(_, id)| id).collect::<Vec<_>>() {
         assert!(config.remove_section_by_id(id).is_some());
     }
-    assert!(matches!(
-        config.section("present", None).unwrap_err(),
-        gix_config::lookup::existing::Error::SectionMissing
-    ));
+    let err = config.section("present", None).unwrap_err();
+    assert!(err.is_not_found());
+    insta::assert_debug_snapshot!(err, "unknown section", @"The requested section does not exist");
 
     Ok(())
 }
@@ -473,7 +584,7 @@ fn multi_line_value_with_empty_continuation_line() {
         assert_eq!(
             file.raw_values("core.k").unwrap(),
             vec![bstring("abc")],
-            "Git reports only `abc` for {config:?}, as a continuation line that is empty ends the value"
+            "Git reports only `abc` for {config}, as a continuation line that is empty ends the value"
         );
     }
 
@@ -482,12 +593,12 @@ fn multi_line_value_with_empty_continuation_line() {
     assert_eq!(
         file.raw_value("core.k").unwrap(),
         bstring("abc\tk = def"),
-        "Git reports one value, `abc\tk = def`, for {config:?}, as the next line continues the first value"
+        "Git reports one value, `abc\tk = def`, for {config}, as the next line continues the first value"
     );
 }
 
 #[test]
-fn multi_line_value_starting_on_a_continuation_line_is_not_indented() -> crate::Result {
+fn multi_line_value_starting_on_a_continuation_line_is_not_indented() -> gix_testtools::TestResult {
     let baseline = crate::scripted_fixture_read_only("make_value_whitespace_baseline.sh")?;
     let baseline = fs::read(baseline.join("baseline.git"))?;
     let baseline = baseline
@@ -496,7 +607,7 @@ fn multi_line_value_starting_on_a_continuation_line_is_not_indented() -> crate::
 
     let mut records = baseline.split(|byte| *byte == 0);
     while let Some(description) = records.next() {
-        let description = std::str::from_utf8(description).expect("fixture descriptions must be valid UTF-8");
+        let description = std::str::from_utf8(description)?;
         let config = records.next().expect("each description must be followed by a config");
         let expected = records.next().expect("each config must be followed by Git's value");
         let expected = BString::from(expected);
@@ -516,18 +627,19 @@ fn multi_line_value_starting_on_a_continuation_line_is_not_indented() -> crate::
 }
 
 #[test]
-fn overrides_with_implicit_booleans_work_in_single_section() {
+fn overrides_with_implicit_booleans_work_in_single_section() -> gix_testtools::TestResult {
     let config = r#"
         [a]
             b = false
             b
         "#;
-    let config = File::try_from(config).unwrap();
-    assert_eq!(config.boolean("a.b"), Ok(Some(true)), "empty implicit booleans ");
+    let config = File::try_from(config)?;
+    assert_eq!(config.boolean("a.b")?, Some(true), "empty implicit booleans ");
+    Ok(())
 }
 
 #[test]
-fn implicit_booleans_may_be_followed_by_whitespace() -> crate::Result {
+fn implicit_booleans_may_be_followed_by_whitespace() -> TestResult {
     for config in [
         "[a]\n\tb \n",
         "[a]\n\tb\t\n",
@@ -539,9 +651,9 @@ fn implicit_booleans_may_be_followed_by_whitespace() -> crate::Result {
     ] {
         let file = File::try_from(config)?;
         assert_eq!(
-            file.boolean("a.b"),
-            Ok(Some(true)),
-            "Git sees no separator in {config:?}, so the value is an implicit boolean and thus true"
+            file.boolean("a.b")?,
+            Some(true),
+            "Git sees no separator in {config}, so the value is an implicit boolean and thus true"
         );
         assert_eq!(
             file.string("a.b"),
@@ -553,9 +665,9 @@ fn implicit_booleans_may_be_followed_by_whitespace() -> crate::Result {
     for config in ["[a]\n\tb =\n", "[a]\n\tb = \n", "[a]\n\tb=\"\"\n", "[a]\n\tb ="] {
         let file = File::try_from(config)?;
         assert_eq!(
-            file.boolean("a.b"),
-            Ok(Some(false)),
-            "a separator in {config:?} makes the value explicitly empty, and an empty value is false"
+            file.boolean("a.b")?,
+            Some(false),
+            "a separator in {config} makes the value explicitly empty, and an empty value is false"
         );
         assert_eq!(
             file.string("a.b"),
@@ -568,13 +680,14 @@ fn implicit_booleans_may_be_followed_by_whitespace() -> crate::Result {
 }
 
 #[test]
-fn overrides_with_implicit_booleans_work_across_sections() {
+fn overrides_with_implicit_booleans_work_across_sections() -> gix_testtools::TestResult {
     let config = r#"
         [a]
             b = false
         [a]
             b
         "#;
-    let config = File::try_from(config).unwrap();
-    assert_eq!(config.boolean("a.b"), Ok(Some(true)), "empty implicit booleans ");
+    let config = File::try_from(config)?;
+    assert_eq!(config.boolean("a.b")?, Some(true), "empty implicit booleans ");
+    Ok(())
 }

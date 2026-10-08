@@ -1,15 +1,15 @@
 use anyhow::Context;
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 
 use josh_cli::commands::auth::AuthArgs;
 use josh_cli::commands::cache::CacheArgs;
 use josh_cli::commands::changes::{DepsArgs, ListArgs, ShowArgs};
 use josh_cli::commands::comment::CommentArgs;
+use josh_cli::commands::compose::{ComposeArgs, ComposeCommand};
 use josh_cli::commands::fetch::FetchArgs;
 use josh_cli::commands::link::LinkArgs;
 use josh_cli::commands::pull::PullArgs;
 use josh_cli::commands::push::{PublishArgs, PushArgs};
-use josh_cli::commands::run::{ComposeArgs, ComposeCommand};
 use josh_cli::commands::sync::SyncArgs;
 use josh_cli::config::read_remote_config;
 use josh_cli::forge::{Forge, GerritMode};
@@ -90,7 +90,7 @@ pub struct CloneArgs {
     pub url: String,
 
     /// Workspace/projection identifier or path to spec
-    #[arg()]
+    #[arg(add = josh_cli::completion::filter_syntax())]
     pub filter: String,
 
     /// Checkout directory
@@ -98,7 +98,12 @@ pub struct CloneArgs {
     pub out: std::path::PathBuf,
 
     /// Branch or ref to clone
-    #[arg(short = 'b', long = "branch", default_value = "HEAD")]
+    #[arg(
+        short = 'b',
+        long = "branch",
+        default_value = "HEAD",
+        add = josh_cli::completion::git_ref()
+    )]
     pub branch: String,
 
     /// Separate push destination (a fork) for `josh changes publish`.
@@ -159,7 +164,11 @@ pub struct RemoteAddArgs {
     pub url: String,
 
     /// Workspace/projection identifier or path to spec
-    #[arg(required_unless_present = "submodules", conflicts_with = "submodules")]
+    #[arg(
+        required_unless_present = "submodules",
+        conflicts_with = "submodules",
+        add = josh_cli::completion::filter_syntax()
+    )]
     pub filter: Option<String>,
 
     /// Derive a combined gitlink view and links from HEAD's .gitmodules
@@ -199,11 +208,12 @@ pub struct ForgeArgs {
 #[derive(Debug, clap::Parser)]
 pub struct FilterArgs {
     /// Remote name to apply filtering to
-    #[arg()]
+    #[arg(add = josh_cli::completion::remote())]
     pub remote: String,
 }
 
 fn main() -> std::process::ExitCode {
+    josh_cli::completion::complete(Cli::command);
     let _flush_guard = josh_core::memodb::FlushGuard::new();
     env_logger::init();
     let cli = Cli::parse();
@@ -248,17 +258,18 @@ fn run_repo(cmd: &RepoCommand, distributed_cache: bool) -> anyhow::Result<()> {
     let is_compose = matches!(cmd, RepoCommand::Compose(_));
     let ephemeral_compose = match cmd {
         RepoCommand::Compose(args) => match &args.command {
-            ComposeCommand::Run(args) => !args.clean && !args.clean_all,
-            ComposeCommand::Graph(_)
+            ComposeCommand::Run(_)
+            | ComposeCommand::Shell(_)
+            | ComposeCommand::Graph(_)
             | ComposeCommand::ListImages(_)
             | ComposeCommand::ListJobs(_) => true,
-            ComposeCommand::Pull(_) | ComposeCommand::Push(_) => false,
+            ComposeCommand::Clean(_) | ComposeCommand::Pull(_) | ComposeCommand::Push(_) => false,
         },
         _ => false,
     };
 
     let mut cache_stack = josh_core::cache::CacheStack::new();
-    // Compose does one-shot, throwaway filtering and then hands off to a long container run; the
+    // Compose does one-shot, throwaway filtering and then hands off to container execution; the
     // on-disk sled cache would only take a lock we would have to release again, so skip it.
     if !is_compose {
         cache_stack =
@@ -335,7 +346,9 @@ fn run_repo(cmd: &RepoCommand, distributed_cache: bool) -> anyhow::Result<()> {
         RepoCommand::Remote(args) => handle_remote(args, &transaction),
         RepoCommand::Filter(args) => handle_filter(args, &transaction),
         RepoCommand::Link(args) => josh_cli::commands::link::handle_link(args, &transaction),
-        RepoCommand::Compose(args) => josh_cli::commands::run::handle_compose(args, &transaction),
+        RepoCommand::Compose(args) => {
+            josh_cli::commands::compose::handle_compose(args, &transaction)
+        }
         RepoCommand::Cache(args) => josh_cli::commands::cache::handle_cache(args, &transaction),
         RepoCommand::Forge(args) => josh_cli::commands::forge_cmd::handle_forge(args, &transaction),
     }?;

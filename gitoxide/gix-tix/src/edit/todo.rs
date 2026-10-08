@@ -1,9 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
-use anyhow::{Context, Result};
 use gix::{
-    ObjectId,
+    ObjectId, Result,
     bstr::{BString, ByteSlice},
+    error::{OptionExt, ResultExt, bail, message},
     prelude::ObjectIdExt,
 };
 use ratatui::text::Line;
@@ -17,19 +17,23 @@ const HELP: &str = r#"
 
 - Read the editable plan from bottom to top. Each fork separator is the base of the stack above it. Blank lines are ignored.
 - `pick <id>` keeps a commit. Delete its line to drop it, or move the line to reorder it. Each listed commit may be picked only once.
+- `merge <id> <side-parent>...` keeps an ordinary merge. The command below supplies its first parent; the remaining IDs preserve the other parent slots in order. Side parents may refer to commits in any fork section, which must remain picked or folded, or to commits outside this todo. Keep the original number of parent slots. Merge commands use commit hashes only; text outside their backticks is display-only.
+- AutoMerge picks rebuild from their named inputs' final reference positions, including inputs in other fork sections. Conflicting inputs remain parents but their trees are muted. Delete the AutoMerge pick to drop it; its generated tree and title cannot be squashed or edited directly.
 - `squash <id>` folds a commit into the following command below it in the same fork. Its full message is retained with a source heading, and additional authors become `Co-authored-by` trailers.
+- `fixup <id>` folds the change while discarding its message and author attribution. `fixup -C <id>` replaces the combined message with the source message, omitting an `amend!` marker paragraph and retaining the original author's identity.
+- Initial todos automatically group `fixup!`, `squash!`, and `amend!` commits with matching editable first-parent ancestors. Targets match an exact subject, then a commit name, then a subject prefix; the oldest matching ancestor wins. Unmatched markers remain picks. Saving the generated grouping unchanged applies it; changing commands to `pick` overrides it. Continuations and edited todos are never grouped again.
 - A centered `fork <id>` separator starts the stack above it at an existing commit or a commit picked below it. The selected hidden boundary is labelled `(base)` with its title; a newer hidden tip used by rebase-update is `(updated-base)`, and an explicit command-line target is `(onto)`. Other fork separators stay terse. Delete a separator to continue its commits on the stack below; add one to create a fork. A listed commit must be picked below before it can be a fork target.
 - `empty <title>` creates an empty commit with the text after the command as its title.
 - Commands may be plain text or enclosed in backticks. Text after a backticked command and text after a fork ID is display-only context.
-- Prefix `pick`, `squash`, or `empty` with `@` to choose the post-rebase checkout. Reference lines like `(main, topic)` point refs at the following separator or command below them; moving, adding, or removing names moves, creates, or deletes refs, including existing editable refs outside the generated todo. The current attached ref stays attached while it remains at the `@` command. Prefix one editable ref with `@` to attach HEAD to it explicitly; it must point to the `@` command.
-- Saving an unchanged document in the history-view editor is a no-op unless the ancestry ending at `@` has a pending rebase. Explicit `tix rebase apply` and `--edit-and-apply` apply valid unchanged plans. Unchanged picks whose parent stays unchanged retain their IDs; replay starts at the first pending or structurally changed commit. Changed commits through `@` are cherry-picked and re-signed, while descendants and other stacks remain lazily rebased with invalidated signatures until time travel reaches them.
+- Prefix `pick`, `merge`, `squash`, `fixup`, or `empty` with `@` to choose the post-rebase checkout. Reference lines like `(main, topic)` point refs at the following separator or command below them; moving, adding, or removing names moves, creates, or deletes refs, including existing editable refs outside the generated todo. The current attached ref stays attached while it remains at the `@` command. Prefix one editable ref with `@` to attach HEAD to it explicitly; it must point to the `@` command.
+- Saving an unchanged document in the history-view editor applies generated autosquash groups, a changed base, or a pending rebase on the ancestry ending at `@`; otherwise it is a no-op. Explicit `tix rebase apply` and `--edit-and-apply` apply valid unchanged plans. Unchanged picks whose parent stays unchanged retain their IDs; replay starts at the first pending or structurally changed commit. Changed commits through `@` are cherry-picked and re-signed, while descendants and other stacks remain lazily rebased with invalidated signatures until time travel reaches them.
 - Tix pins, stashes, and review refs, tags, remote-tracking refs, and symbolic refs stay unchanged and hidden. A ref checked out by another worktree may be moved but not deleted. New unreferenced leaves are pinned.
-- A todo conflict changes nothing unless explicitly accepted. The TUI offers `<enter>` to materialize it; command-line apply requires `--materialize-conflicts [CONTINUE]` and writes a continuation todo. Resolve the ordinary unmerged index, then apply that todo. Concurrent ref changes still abort the update.
-- Commit states are display-only and editing them has no effect: `🚧` means the commit is a todo, `📝` it has a note, `✔️` its tree passed checks, `↻` a lazy rebase is pending, `◌` an empty signature awaits signing, `◐` a signature is present but unverified, `○` means unsigned, and `🎁` means worktree state is stashed for that commit. Stashes follow rewritten commits automatically; dropping a stashed commit or combining multiple stashes into one result is rejected.
+- A todo conflict changes nothing unless explicitly accepted. The TUI offers `<enter>` to materialize it; command-line apply requires `--materialize-conflicts[=CONTINUE]`. Accepted pauses are saved per worktree for either interface. Stage the resolution, then use `tix rebase continue` or apply an edited continuation. Each later CLI conflict also requires opt-in. `tix rebase status` inspects the pause; `tix rebase stop` keeps the partial result and forgets remaining work. Concurrent ref changes still abort the update.
+- Commit states are display-only and editing them has no effect: `🚧` means the commit is a todo, `📝` it has a note, `✔️` its tree passed checks, `✨` its current patch was refackiewed, `↻` a lazy rebase is pending, `◌` an empty signature awaits signing, `◐` a signature is present but unverified, `○` means unsigned, and `🎁` means worktree state is stashed for that commit. Stashes follow rewritten commits automatically; dropping a stashed commit or combining multiple stashes into one result is rejected.
 -->
 "#;
 
-const STATE_START: &str = "<!-- tix-rebase-state-v2\n";
+const STATE_START: &str = "<!-- tix-rebase-state-v3\n";
 const STATE_END: &str = "-->";
 const STATE_CLOSE: &str = "\n-->";
 
@@ -60,20 +64,47 @@ struct State {
     checkout_allowed: bool,
     head_ref: Option<gix::refs::FullName>,
     edit_refs: bool,
-    expected_refs: Vec<rebase::ExpectedRef>,
+    expected_refs: Vec<rebase::PlanRef>,
     resolved: Option<ObjectId>,
     continuation_sources: Vec<ObjectId>,
+    eager: Vec<ObjectId>,
+    selection: Option<ObjectId>,
+    existing_checkout: Option<ObjectId>,
 }
 
 #[derive(Debug)]
 pub(crate) struct Parsed {
     pub plan: rebase::Plan,
     pub tips: Vec<ObjectId>,
+    pub resolved: Option<ObjectId>,
 }
 
 struct Section {
     parent: ObjectId,
     commits: Vec<ObjectId>,
+}
+
+#[derive(Default)]
+struct Autosquash {
+    groups: HashMap<ObjectId, Vec<rebase::PlanFold>>,
+    targets: HashMap<ObjectId, ObjectId>,
+}
+
+impl Autosquash {
+    fn surviving_parent(&self, mut commit_id: ObjectId, commits: &HashMap<ObjectId, &Commit>) -> ObjectId {
+        while self.targets.contains_key(&commit_id) {
+            commit_id = commits[&commit_id].parents[0];
+        }
+        commit_id
+    }
+
+    fn destination(&self, commit_id: ObjectId, tip: bool, commits: &HashMap<ObjectId, &Commit>) -> ObjectId {
+        if tip {
+            self.surviving_parent(commit_id, commits)
+        } else {
+            self.targets.get(&commit_id).copied().unwrap_or(commit_id)
+        }
+    }
 }
 
 #[tracing::instrument(skip_all, fields(base = %base, commits = commits.len()))]
@@ -87,13 +118,14 @@ pub(crate) fn prepare(
     show_change_ids: bool,
 ) -> Result<Prepared> {
     repo.find_commit(base)
-        .context("could not find the selected rebase base")?;
-    repo.find_commit(onto).context("could not find the rebase target")?;
+        .or_raise(|| message("could not find the selected rebase base"))?;
+    repo.find_commit(onto)
+        .or_raise(|| message("could not find the rebase target"))?;
     let head_state = repo.head()?;
     let head = head_state
         .id()
         .map(gix::Id::detach)
-        .context("rebase todos require a born HEAD")?;
+        .ok_or_raise(|| message("rebase todos require a born HEAD"))?;
     let head_ref = repo
         .workdir()
         .is_some()
@@ -114,52 +146,99 @@ pub(crate) fn prepare(
             tips.remove(parent);
         }
     }
-    let tips = tips.into_iter().collect::<Vec<_>>();
-    let mut cursor = marker_required.then_some(head);
+    let tip_set = tips;
+    let tips = tip_set.iter().copied().collect::<Vec<_>>();
+    let mut checkout_ancestry: Vec<_> = marker_required.then_some(head).into_iter().collect();
+    let mut visited = HashSet::new();
     let mut has_pending = false;
-    while let Some(id) = cursor {
-        let commit = by_id.get(&id).context("the checkout ancestry is incomplete")?;
-        if rebase::is_pending(&repo.find_commit(id)?.decode()?.into_owned()?) {
+    while let Some(id) = checkout_ancestry.pop() {
+        if !visited.insert(id) {
+            continue;
+        }
+        let commit = by_id
+            .get(&id)
+            .ok_or_raise(|| message("the checkout ancestry is incomplete"))?;
+        let decoded = repo.find_commit(id)?.decode()?.into_owned()?;
+        if rebase::is_pending(&decoded) {
             has_pending = true;
             break;
         }
-        cursor = commit
-            .parents
-            .first()
-            .copied()
-            .filter(|parent| scope_set.contains(parent));
+        if super::auto_merge::is_auto_merge(&decoded) {
+            continue;
+        }
+        checkout_ancestry.extend(
+            commit
+                .parents
+                .iter()
+                .copied()
+                .filter(|parent| scope_set.contains(parent)),
+        );
     }
-    let apply_unchanged = base != onto || has_pending;
-
     let mut children = HashMap::<ObjectId, Vec<ObjectId>>::new();
     for commit in commits {
         let parent = commit
             .parents
             .first()
             .copied()
-            .context("an editable commit has no parent")?;
+            .ok_or_raise(|| message("an editable commit has no parent"))?;
         if parent != base && !scope_set.contains(&parent) {
-            anyhow::bail!("an editable commit is not connected to the selected base");
+            bail!("an editable commit is not connected to the selected base");
         }
         children.entry(parent).or_default().push(commit.id);
     }
-    let mut sections = Vec::new();
-    for child in children.get(&base).into_iter().flatten().copied() {
-        let mut section = Section {
-            parent: onto,
-            commits: Vec::new(),
-        };
-        let mut branches = Vec::new();
-        walk(child, &children, &mut section, &mut branches);
-        sections.push(section);
-        sections.extend(branches);
+    let mut sections = sections(base, onto, &children);
+    let order: Vec<_> = sections
+        .iter()
+        .flat_map(|section| section.commits.iter().copied())
+        .collect();
+    let autosquash = autosquash(repo, &order, &by_id)?;
+    let has_autosquash = !autosquash.targets.is_empty();
+    if has_autosquash {
+        children.clear();
+        for commit_id in &order {
+            if autosquash.targets.contains_key(commit_id) {
+                continue;
+            }
+            let parent_commit_id = autosquash.surviving_parent(by_id[commit_id].parents[0], &by_id);
+            children.entry(parent_commit_id).or_default().push(*commit_id);
+        }
+        sections = self::sections(base, onto, &children);
     }
+    let apply_unchanged = base != onto || has_pending || has_autosquash;
+    let checkout_commit_id = autosquash.destination(head, tip_set.contains(&head), &by_id);
     let mut ref_points = scope.clone();
     ref_points.push(onto);
+    if sections.is_empty() {
+        ref_points.push(base);
+    }
     ref_points.extend(sections.iter().map(|section| section.parent));
     ref_points.sort_unstable();
     ref_points.dedup();
-    let expected_refs = rebase::capture_refs(repo, &ref_points, &tips)?;
+    let mut expected_refs = rebase::capture_refs(repo, &ref_points, &tips)?;
+    let mut display_refs = expected_refs.clone();
+    for reference in &mut display_refs {
+        reference.source = autosquash.destination(
+            reference.source,
+            matches!(reference.destination, rebase::RefDestination::Follow { tip: true }),
+            &by_id,
+        );
+    }
+    for reference in &mut expected_refs {
+        if !reference.editable
+            && reference.destination == (rebase::RefDestination::Follow { tip: true })
+            && autosquash.targets.contains_key(&reference.source)
+        {
+            reference.source = autosquash.surviving_parent(reference.source, &by_id);
+            reference.destination = rebase::RefDestination::Follow { tip: false };
+        }
+    }
+    let mut seen_tips = HashSet::new();
+    let tips = if resolved_tips.is_empty() { &tips } else { resolved_tips };
+    let tips = tips
+        .iter()
+        .map(|commit_id| autosquash.destination(*commit_id, tip_set.contains(commit_id), &by_id))
+        .filter(|commit_id| seen_tips.insert(*commit_id))
+        .collect();
 
     let source = short(repo, base, show_change_ids)?;
     let title = if base == onto {
@@ -173,11 +252,7 @@ pub(crate) fn prepare(
     let state = State {
         base,
         onto,
-        tips: if resolved_tips.is_empty() {
-            tips
-        } else {
-            resolved_tips.to_vec()
-        },
+        tips,
         scope: scope.clone(),
         marker_required,
         checkout_allowed: repo.workdir().is_some(),
@@ -186,8 +261,16 @@ pub(crate) fn prepare(
         expected_refs,
         resolved: None,
         continuation_sources: Vec::new(),
+        eager: Vec::new(),
+        selection: None,
+        existing_checkout: None,
     };
-    let mut document = unchanged_notice(base != onto, has_pending).as_bytes().to_vec();
+    let notice = if has_autosquash {
+        "<!-- Rebase help follows. Saving unchanged applies automatically grouped fixups and any pending rebase or base update; empty this file or remove the tix-rebase-state-v3 comment to cancel. -->"
+    } else {
+        unchanged_notice(base != onto, has_pending)
+    };
+    let mut document = notice.as_bytes().to_vec();
     document.push(b'\n');
     document.extend_from_slice(title.as_bytes());
     document.extend_from_slice(b"\n\n");
@@ -203,6 +286,8 @@ pub(crate) fn prepare(
     let mut body = Vec::new();
     let mut enrichments = crate::enrich::open(repo)?;
     let mut tree_enrichments = crate::enrich::open_tree(repo)?;
+    let mut patch_enrichments = crate::enrich::open_patch(repo)?;
+    let mut written_external_refs = HashSet::new();
     for (section_index, section) in sections.iter().enumerate() {
         if section_index > 0 {
             body.push(b'\n');
@@ -214,26 +299,55 @@ pub(crate) fn prepare(
             (section.parent == onto).then_some((anchor_kind, anchor_title.as_str())),
             show_change_ids,
         )?;
-        if !scope_set.contains(&section.parent) {
-            write_refs_at(&mut body, &state.expected_refs, section.parent)?;
+        if !scope_set.contains(&section.parent) && written_external_refs.insert(section.parent) {
+            write_refs_at(&mut body, &display_refs, section.parent)?;
         }
         for id in &section.commits {
             let commit = by_id[id];
-            let verb = if marker_required && *id == head {
-                "@pick"
+            let decoded = repo.find_commit(*id)?.decode()?.into_owned()?;
+            let parents = rebase::replay_parents(&decoded)?.unwrap_or_else(|| decoded.parents.to_vec());
+            let ordinary_merge = parents.len() > 1 && !super::auto_merge::is_auto_merge(&decoded);
+            let marker = if marker_required && *id == checkout_commit_id {
+                "@"
             } else {
-                "pick"
+                ""
             };
-            let states = commit_states(repo, &mut enrichments, &mut tree_enrichments, *id)?;
-            body.extend_from_slice(
-                format!(
-                    "`{verb} {}` {states}{}\n",
-                    short(repo, *id, show_change_ids)?,
-                    commit.info
-                )
-                .as_bytes(),
-            );
-            write_refs_at(&mut body, &state.expected_refs, *id)?;
+            let verb = if ordinary_merge { "merge" } else { "pick" };
+            let mut arguments = short(repo, *id, show_change_ids && !ordinary_merge)?;
+            if ordinary_merge {
+                for parent in parents.iter().skip(1) {
+                    arguments.push(' ');
+                    arguments.push_str(&short(repo, if *parent == base { onto } else { *parent }, false)?);
+                }
+            }
+            let states = commit_states(
+                repo,
+                &mut enrichments,
+                &mut tree_enrichments,
+                &mut patch_enrichments,
+                *id,
+            )?;
+            body.extend_from_slice(format!("`{marker}{verb} {arguments}` {states}{}\n", commit.info).as_bytes());
+            for fold in autosquash.groups.get(id).into_iter().flatten() {
+                let source_commit_id = fold.commit_id;
+                let states = commit_states(
+                    repo,
+                    &mut enrichments,
+                    &mut tree_enrichments,
+                    &mut patch_enrichments,
+                    source_commit_id,
+                )?;
+                body.extend_from_slice(
+                    format!(
+                        "`{} {}` {states}{}\n",
+                        fold_verb(fold.message),
+                        short(repo, source_commit_id, show_change_ids)?,
+                        by_id[&source_commit_id].info,
+                    )
+                    .as_bytes(),
+                );
+            }
+            write_refs_at(&mut body, &display_refs, *id)?;
         }
     }
     if sections.is_empty() {
@@ -244,7 +358,10 @@ pub(crate) fn prepare(
             Some((anchor_kind, anchor_title.as_str())),
             show_change_ids,
         )?;
-        write_refs_at(&mut body, &state.expected_refs, onto)?;
+        write_refs_at(&mut body, &display_refs, onto)?;
+        if base != onto {
+            write_refs_at(&mut body, &display_refs, base)?;
+        }
     }
     write_bottom_up(&mut document, &body)?;
     document.extend_from_slice(HELP.as_bytes());
@@ -265,39 +382,94 @@ pub(crate) fn prepare_continuation(
         rebase::PlanCommit::Resolved(id) => Some(id),
         _ => None,
     });
+    let commit_at = |position: rebase::PlanParent| -> Result<ObjectId> {
+        match position {
+            rebase::PlanParent::Existing(id) => Ok(id),
+            rebase::PlanParent::Step(index) => plan
+                .steps
+                .get(index)
+                .and_then(|step| step.commit.source())
+                .ok_or_raise(|| message("continuation metadata requires a produced commit")),
+        }
+    };
+    let scope: HashSet<_> = plan.scope.iter().copied().collect();
+    let mut continuation_sources: Vec<_> = plan
+        .steps
+        .iter()
+        .flat_map(|step| step.squash.iter().map(|fold| fold.commit_id))
+        .collect();
+    for step in &plan.steps {
+        if let Some(id) = step.commit.source() {
+            let parent = repo.find_commit(id)?.parent_ids().next().map(gix::Id::detach);
+            if parent.is_some_and(|parent| parent != plan.base && !scope.contains(&parent)) {
+                continuation_sources.push(id);
+            }
+        }
+    }
+    continuation_sources.sort_unstable();
+    continuation_sources.dedup();
     let state = State {
         base: plan.base,
         onto: plan.base,
         tips,
         scope: plan.scope.clone(),
-        marker_required: plan.checkout.is_some(),
+        marker_required: plan
+            .checkout
+            .as_ref()
+            .is_some_and(|checkout| matches!(checkout.target, rebase::PlanParent::Step(_))),
         checkout_allowed: repo.workdir().is_some(),
         head_ref: plan.checkout.as_ref().and_then(|checkout| checkout.reference.clone()),
         edit_refs: true,
-        expected_refs: plan.expected_refs.clone(),
+        expected_refs: plan
+            .expected_refs
+            .iter()
+            .cloned()
+            .map(|mut reference| {
+                if let rebase::RefDestination::Existing(id) = reference.destination
+                    && !plan
+                        .steps
+                        .iter()
+                        .any(|step| step.parents.contains(&rebase::PlanParent::Existing(id)))
+                {
+                    reference.editable = false;
+                }
+                reference
+            })
+            .collect(),
         resolved,
-        continuation_sources: plan.steps.iter().flat_map(|step| step.squash.iter().copied()).collect(),
+        continuation_sources,
+        eager: plan
+            .eager
+            .iter()
+            .map(|index| commit_at(rebase::PlanParent::Step(*index)))
+            .collect::<Result<_>>()?,
+        selection: plan.selection.map(commit_at).transpose()?,
+        existing_checkout: plan.checkout.as_ref().and_then(|checkout| match checkout.target {
+            rebase::PlanParent::Existing(id) => Some(id),
+            rebase::PlanParent::Step(_) => None,
+        }),
     };
-    let mut document = b"<!-- Rebase help follows. Saving unchanged continues the materialized rebase; empty this file or remove the tix-rebase-state-v2 comment to cancel. -->\n# Continue materialized rebase\n\n".to_vec();
+    let mut document = b"<!-- Rebase help follows. Saving unchanged continues the materialized rebase; empty this file or remove the tix-rebase-state-v3 comment to cancel. -->\n# Continue materialized rebase\n\n".to_vec();
     let mut body = Vec::new();
     let mut enrichments = crate::enrich::open(repo)?;
     let mut tree_enrichments = crate::enrich::open_tree(repo)?;
+    let mut patch_enrichments = crate::enrich::open_patch(repo)?;
     for (index, step) in plan.steps.iter().enumerate() {
-        let continues = matches!(step.parent, rebase::PlanParent::Step(parent) if parent + 1 == index);
+        let first_parent = *step
+            .parents
+            .first()
+            .ok_or_raise(|| message("a continuation step needs a parent"))?;
+        let continues = matches!(first_parent, rebase::PlanParent::Step(parent) if parent + 1 == index);
         if !continues {
             if index > 0 {
                 body.push(b'\n');
             }
-            let parent = match step.parent {
+            let parent = match first_parent {
                 rebase::PlanParent::Existing(id) => id,
-                rebase::PlanParent::Step(parent) => match plan.steps[parent].commit {
-                    rebase::PlanCommit::Pick(id) | rebase::PlanCommit::Copy(id) | rebase::PlanCommit::Resolved(id) => {
-                        id
-                    }
-                    rebase::PlanCommit::Empty(_) => {
-                        anyhow::bail!("a continuation fork cannot target an unwritten empty commit")
-                    }
-                },
+                rebase::PlanParent::Step(parent) => plan.steps[parent]
+                    .commit
+                    .source()
+                    .ok_or_raise(|| message("a continuation fork cannot target an unwritten empty commit"))?,
             };
             let base_title = (parent == plan.base)
                 .then(|| anchor_title(repo, parent))
@@ -310,8 +482,8 @@ pub(crate) fn prepare_continuation(
                 (parent == plan.base).then_some(("base", base_title.as_str())),
                 show_change_ids,
             )?;
-            if matches!(step.parent, rebase::PlanParent::Existing(_)) {
-                write_plan_refs_at(&mut body, &plan.expected_refs, step.parent)?;
+            if matches!(first_parent, rebase::PlanParent::Existing(_)) {
+                write_plan_refs_at(&mut body, &plan.expected_refs, first_parent)?;
             }
         }
         let marker = if plan
@@ -324,10 +496,16 @@ pub(crate) fn prepare_continuation(
             ""
         };
         match step.commit {
-            rebase::PlanCommit::Pick(id) | rebase::PlanCommit::Copy(id) | rebase::PlanCommit::Resolved(id) => {
-                let value = if matches!(step.commit, rebase::PlanCommit::Resolved(_)) {
+            rebase::PlanCommit::Pick(id)
+            | rebase::PlanCommit::Copy(id)
+            | rebase::PlanCommit::FrozenCopy(id)
+            | rebase::PlanCommit::Resolved(id) => {
+                let decoded = repo.find_commit(id)?.decode()?.into_owned()?;
+                let ordinary_merge = step.parents.len() > 1 && !super::auto_merge::is_auto_merge(&decoded);
+                let verb = if ordinary_merge { "merge" } else { "pick" };
+                let mut value = if matches!(step.commit, rebase::PlanCommit::Resolved(_)) {
                     let hash = ObjectId::null(id.kind()).to_string();
-                    if show_change_ids {
+                    if show_change_ids && !ordinary_merge {
                         format!(
                             "{hash} {}",
                             crate::change_id::for_commit(repo, id)?.to_reverse_hex_with_len(hash.len())
@@ -336,13 +514,25 @@ pub(crate) fn prepare_continuation(
                         hash
                     }
                 } else {
-                    short(repo, id, show_change_ids)?
+                    short(repo, id, show_change_ids && !ordinary_merge)?
                 };
+                if ordinary_merge {
+                    for parent in step.parents.iter().skip(1) {
+                        value.push(' ');
+                        value.push_str(&short(repo, commit_at(*parent)?, false)?);
+                    }
+                }
                 let title = anchor_title(repo, id)?;
                 body.extend_from_slice(
                     format!(
-                        "`{marker}pick {value}` {}{}\n",
-                        commit_states(repo, &mut enrichments, &mut tree_enrichments, id)?,
+                        "`{marker}{verb} {value}` {}{}\n",
+                        commit_states(
+                            repo,
+                            &mut enrichments,
+                            &mut tree_enrichments,
+                            &mut patch_enrichments,
+                            id
+                        )?,
                         title
                     )
                     .as_bytes(),
@@ -352,13 +542,21 @@ pub(crate) fn prepare_continuation(
                 body.extend_from_slice(format!("`{marker}empty {}`\n", title.to_str_lossy()).as_bytes());
             }
         }
-        for id in &step.squash {
-            let title = anchor_title(repo, *id)?;
+        for fold in &step.squash {
+            let id = fold.commit_id;
+            let title = anchor_title(repo, id)?;
             body.extend_from_slice(
                 format!(
-                    "`squash {}` {}{}\n",
-                    short(repo, *id, show_change_ids)?,
-                    commit_states(repo, &mut enrichments, &mut tree_enrichments, *id)?,
+                    "`{} {}` {}{}\n",
+                    fold_verb(fold.message),
+                    short(repo, id, show_change_ids)?,
+                    commit_states(
+                        repo,
+                        &mut enrichments,
+                        &mut tree_enrichments,
+                        &mut patch_enrichments,
+                        id
+                    )?,
                     title
                 )
                 .as_bytes(),
@@ -378,17 +576,25 @@ pub(crate) fn prepare_continuation(
 fn unchanged_notice(base_updated: bool, has_pending: bool) -> &'static str {
     match (base_updated, has_pending) {
         (false, false) => {
-            "<!-- Rebase help follows. Saving unchanged is a no-op; empty this file or remove the tix-rebase-state-v2 comment to cancel. -->"
+            "<!-- Rebase help follows. Saving unchanged is a no-op; empty this file or remove the tix-rebase-state-v3 comment to cancel. -->"
         }
         (false, true) => {
-            "<!-- Rebase help follows. Pending commits on the @ ancestry make saving unchanged apply this todo: that ancestry is replayed now and other forks stay lazy. Empty this file or remove the tix-rebase-state-v2 comment to cancel. -->"
+            "<!-- Rebase help follows. Pending commits on the @ ancestry make saving unchanged apply this todo: that ancestry is replayed now and other forks stay lazy. Empty this file or remove the tix-rebase-state-v3 comment to cancel. -->"
         }
         (true, false) => {
-            "<!-- Rebase help follows. Saving unchanged rebases onto the updated base; empty this file or remove the tix-rebase-state-v2 comment to cancel. -->"
+            "<!-- Rebase help follows. Saving unchanged rebases onto the updated base; empty this file or remove the tix-rebase-state-v3 comment to cancel. -->"
         }
         (true, true) => {
-            "<!-- Rebase help follows. Saving unchanged rebases onto the updated base and applies pending commits on the @ ancestry: that ancestry is replayed now and other forks stay lazy. Empty this file or remove the tix-rebase-state-v2 comment to cancel. -->"
+            "<!-- Rebase help follows. Saving unchanged rebases onto the updated base and applies pending commits on the @ ancestry: that ancestry is replayed now and other forks stay lazy. Empty this file or remove the tix-rebase-state-v3 comment to cancel. -->"
         }
+    }
+}
+
+fn fold_verb(message: rebase::FoldMessage) -> &'static str {
+    match message {
+        rebase::FoldMessage::Append => "squash",
+        rebase::FoldMessage::Discard => "fixup",
+        rebase::FoldMessage::Replace => "fixup -C",
     }
 }
 
@@ -421,8 +627,8 @@ fn write_state(out: &mut Vec<u8>, state: &State) {
             format!(
                 "ref {} {} {} {} {}\n",
                 old,
-                reference.target,
-                reference.follows_tip,
+                reference.source,
+                matches!(reference.destination, rebase::RefDestination::Follow { tip: true }),
                 reference.editable,
                 name.to_str_lossy()
             )
@@ -435,29 +641,38 @@ fn write_state(out: &mut Vec<u8>, state: &State) {
     for id in &state.continuation_sources {
         out.extend_from_slice(format!("continuation-source {id}\n").as_bytes());
     }
+    for id in &state.eager {
+        out.extend_from_slice(format!("eager {id}\n").as_bytes());
+    }
+    if let Some(id) = state.selection {
+        out.extend_from_slice(format!("selection {id}\n").as_bytes());
+    }
+    if let Some(id) = state.existing_checkout {
+        out.extend_from_slice(format!("existing-checkout {id}\n").as_bytes());
+    }
     out.extend_from_slice(STATE_END.as_bytes());
     out.push(b'\n');
 }
 
-fn write_refs_at(out: &mut Vec<u8>, refs: &[rebase::ExpectedRef], target: ObjectId) -> Result<()> {
+fn write_refs_at(out: &mut Vec<u8>, refs: &[rebase::PlanRef], target: ObjectId) -> Result<()> {
     let names = refs
         .iter()
-        .filter(|reference| reference.editable && reference.target == target)
+        .filter(|reference| reference.editable && reference.source == target)
         .map(|reference| &reference.name)
         .collect::<Vec<_>>();
     write_ref_line(out, refs, names)
 }
 
-fn write_plan_refs_at(out: &mut Vec<u8>, refs: &[rebase::ExpectedRef], target: rebase::PlanParent) -> Result<()> {
+fn write_plan_refs_at(out: &mut Vec<u8>, refs: &[rebase::PlanRef], target: rebase::PlanParent) -> Result<()> {
     let names = refs
         .iter()
-        .filter(|reference| reference.placement == Some(target))
+        .filter(|reference| reference.destination.placement() == Some(target))
         .map(|reference| &reference.name)
         .collect::<Vec<_>>();
     write_ref_line(out, refs, names)
 }
 
-fn write_ref_line(out: &mut Vec<u8>, refs: &[rebase::ExpectedRef], mut names: Vec<&gix::refs::FullName>) -> Result<()> {
+fn write_ref_line(out: &mut Vec<u8>, refs: &[rebase::PlanRef], mut names: Vec<&gix::refs::FullName>) -> Result<()> {
     if names.is_empty() {
         return Ok(());
     }
@@ -474,7 +689,7 @@ fn write_ref_line(out: &mut Vec<u8>, refs: &[rebase::ExpectedRef], mut names: Ve
     Ok(())
 }
 
-fn ref_display_name(name: &gix::refs::FullName, refs: &[rebase::ExpectedRef]) -> BString {
+fn ref_display_name(name: &gix::refs::FullName, refs: &[rebase::PlanRef]) -> BString {
     let short = name.shorten();
     if refs
         .iter()
@@ -492,15 +707,10 @@ fn commit_states(
     repo: &gix::Repository,
     enrichments: &mut gix::note::Platform,
     tree_enrichments: &mut gix::note::Platform,
+    patch_enrichments: &mut gix::note::Platform,
     id: ObjectId,
 ) -> Result<String> {
-    let commit = repo
-        .find_commit(id)
-        .context("could not load a commit state for the rebase todo")?
-        .decode()
-        .context("could not decode a commit state for the rebase todo")?
-        .into_owned()
-        .context("could not own a commit state for the rebase todo")?;
+    let commit = repo.find_commit(id)?.decode()?.into_owned()?;
     let pending = commit.extra_headers.iter().any(|(name, _)| name == "tix-rebase-parent");
     let mut empty_signature = false;
     let mut signature = false;
@@ -535,7 +745,19 @@ fn commit_states(
             crate::enrich::TreeEnrichment::default()
         }
     };
-    let marker = crate::enrich::marker(enrichment.todo, enrichment.note.is_some(), tree_enrichment.checks_pass);
+    let patch_enrichment = match crate::enrich::load_patch_for_commit(repo, patch_enrichments, id) {
+        Ok(enrichment) => enrichment,
+        Err(err) => {
+            tracing::warn!(commit_id = %id, error = %err, "ignored malformed tix patch enrichment");
+            crate::enrich::PatchEnrichment::default()
+        }
+    };
+    let marker = crate::enrich::marker(
+        enrichment.todo,
+        enrichment.note.is_some(),
+        tree_enrichment.checks_pass,
+        patch_enrichment.refackiewed,
+    );
     let mut out = Vec::with_capacity(6);
     if !marker.is_empty() {
         out.push(marker);
@@ -559,14 +781,14 @@ fn commit_states(
 }
 
 fn anchor_title(repo: &gix::Repository, id: ObjectId) -> Result<String> {
-    let message = repo
-        .find_commit(id)
-        .context("could not load the rebase anchor")?
-        .message_raw()
-        .context("could not decode the rebase anchor message")?
-        .to_owned();
-    let mut notes = repo.notes().context("could not open Git notes for the rebase anchor")?;
-    let has_notes = !notes.get(id).context("could not load rebase anchor notes")?.is_empty();
+    let message = repo.find_commit(id)?.message_raw()?.to_owned();
+    let mut notes = repo
+        .notes()
+        .or_raise(|| gix::error::message("could not open Git notes for the rebase anchor"))?;
+    let has_notes = !notes
+        .get(id)
+        .or_raise(|| gix::error::message("could not load rebase anchor notes"))?
+        .is_empty();
     let mut out = String::new();
     if crate::history::contains_agent_marker(&message) {
         out.push_str("[A] ");
@@ -579,7 +801,9 @@ fn anchor_title(repo: &gix::Repository, id: ObjectId) -> Result<String> {
             .summary()
             .to_str_lossy(),
     );
-    Ok(out)
+    Ok(gix::quote::for_display(out.as_bytes().as_bstr(), &mut Vec::new())
+        .to_str_lossy()
+        .into_owned())
 }
 
 fn write_fork_heading(
@@ -598,7 +822,7 @@ fn write_fork_heading(
 }
 
 fn write_bottom_up(out: &mut Vec<u8>, body: &[u8]) -> Result<()> {
-    let body = std::str::from_utf8(body).context("generated rebase todo is not UTF-8")?;
+    let body = std::str::from_utf8(body).or_raise(|| message("generated rebase todo is not UTF-8"))?;
     let width = body
         .lines()
         .map(|line| {
@@ -622,6 +846,125 @@ fn write_bottom_up(out: &mut Vec<u8>, body: &[u8]) -> Result<()> {
     Ok(())
 }
 
+fn autosquash(repo: &gix::Repository, order: &[ObjectId], commits: &HashMap<ObjectId, &Commit>) -> Result<Autosquash> {
+    let mut subjects = HashMap::new();
+    for commit_id in order {
+        if commits[commit_id].parents.len() != 1 {
+            continue;
+        }
+        let commit = repo.find_commit(*commit_id)?.decode()?.into_owned()?;
+        if !super::auto_merge::is_auto_merge(&commit) {
+            let (subject, _) = rebase::message_subject_and_body(&commit.message);
+            subjects.insert(
+                *commit_id,
+                gix::objs::commit::MessageRef::from_bytes(subject)
+                    .summary()
+                    .into_owned(),
+            );
+        }
+    }
+    let mut out = Autosquash::default();
+    let mut next = HashMap::new();
+    let mut tail = HashMap::new();
+    let mut messages = HashMap::new();
+    for commit_id in order {
+        let Some((message, target)) = subjects.get(commit_id).and_then(|subject| autosquash_marker(subject)) else {
+            continue;
+        };
+        if target.is_empty() {
+            continue;
+        }
+        // ponytail: scan ancestors per marked commit; index subjects if large fixup-heavy stacks need it.
+        let mut ancestors = Vec::new();
+        let mut parent_commit_id = commits[commit_id].parents.first();
+        while let Some(ancestor) = parent_commit_id.and_then(|commit_id| commits.get(commit_id)) {
+            if subjects.contains_key(&ancestor.id) {
+                ancestors.push(ancestor.id);
+            }
+            parent_commit_id = ancestor.parents.first();
+        }
+        ancestors.reverse();
+        let target_commit_id = ancestors
+            .iter()
+            .copied()
+            .find(|commit_id| subjects[commit_id].as_slice() == target)
+            .or_else(|| {
+                (!target.contains(&b' '))
+                    .then(|| crate::history::resolve_revision(repo, target.as_bstr()).ok())
+                    .flatten()
+                    .map(|(commit_id, _)| commit_id)
+                    .filter(|commit_id| ancestors.contains(commit_id))
+            })
+            .or_else(|| {
+                ancestors
+                    .iter()
+                    .copied()
+                    .find(|commit_id| subjects[commit_id].starts_with(target))
+            });
+        let Some(target_commit_id) = target_commit_id else {
+            continue;
+        };
+        out.targets.insert(
+            *commit_id,
+            out.targets.get(&target_commit_id).copied().unwrap_or(target_commit_id),
+        );
+        messages.insert(*commit_id, message);
+        // Git inserts after this target's previous direct fixup, including when the target was itself folded.
+        let previous_commit_id = tail.insert(target_commit_id, *commit_id).unwrap_or(target_commit_id);
+        if let Some(next_commit_id) = next.insert(previous_commit_id, *commit_id) {
+            next.insert(*commit_id, next_commit_id);
+        }
+    }
+    for commit_id in order.iter().filter(|commit_id| !out.targets.contains_key(*commit_id)) {
+        let mut cursor = next.get(commit_id);
+        let mut group = Vec::new();
+        while let Some(source_commit_id) = cursor {
+            group.push(rebase::PlanFold {
+                commit_id: *source_commit_id,
+                message: messages[source_commit_id],
+            });
+            cursor = next.get(source_commit_id);
+        }
+        if !group.is_empty() {
+            out.groups.insert(*commit_id, group);
+        }
+    }
+    Ok(out)
+}
+
+pub(crate) fn autosquash_marker(mut subject: &[u8]) -> Option<(rebase::FoldMessage, &[u8])> {
+    let mut message = None;
+    loop {
+        let (kind, rest) = if let Some(rest) = subject.strip_prefix(b"fixup! ") {
+            (rebase::FoldMessage::Discard, rest)
+        } else if let Some(rest) = subject.strip_prefix(b"squash! ") {
+            (rebase::FoldMessage::Append, rest)
+        } else if let Some(rest) = subject.strip_prefix(b"amend! ") {
+            (rebase::FoldMessage::Replace, rest)
+        } else {
+            break;
+        };
+        message.get_or_insert(kind);
+        subject = rest.trim_ascii_start();
+    }
+    message.map(|message| (message, subject))
+}
+
+fn sections(base: ObjectId, onto: ObjectId, children: &HashMap<ObjectId, Vec<ObjectId>>) -> Vec<Section> {
+    let mut sections = Vec::new();
+    for child in children.get(&base).into_iter().flatten().copied() {
+        let mut section = Section {
+            parent: onto,
+            commits: Vec::new(),
+        };
+        let mut branches = Vec::new();
+        walk(child, children, &mut section, &mut branches);
+        sections.push(section);
+        sections.extend(branches);
+    }
+    sections
+}
+
 fn walk(id: ObjectId, children: &HashMap<ObjectId, Vec<ObjectId>>, section: &mut Section, sections: &mut Vec<Section>) {
     section.commits.push(id);
     let Some(child_ids) = children.get(&id) else { return };
@@ -642,29 +985,25 @@ fn walk(id: ObjectId, children: &HashMap<ObjectId, Vec<ObjectId>>, section: &mut
 
 fn short(repo: &gix::Repository, id: ObjectId, show_change_id: bool) -> Result<String> {
     if show_change_id {
-        crate::change_id::display_short(repo, id).context("could not format a rebase todo ID")
+        crate::change_id::display_short(repo, id).or_raise(|| message("could not format a rebase todo ID"))
     } else {
-        Ok(id
-            .attach(repo)
-            .shorten()
-            .context("could not shorten a rebase todo ID")?
-            .to_string())
+        Ok(id.attach(repo).shorten()?.to_string())
     }
 }
 
 fn parse_state(repo: &gix::Repository, input: &str) -> Result<Option<State>> {
     let Some(start) = input.find(STATE_START) else {
         if input.contains("<!-- tix-rebase-state-") {
-            anyhow::bail!("the rebase todo uses an unsupported state version");
+            bail!("the rebase todo uses an unsupported state version");
         }
         return Ok(None);
     };
     let body = &input[start + STATE_START.len()..];
     let end = body
         .find(STATE_CLOSE)
-        .context("the rebase state anchor is not closed")?;
+        .ok_or_raise(|| message("the rebase state anchor is not closed"))?;
     if body[end + STATE_CLOSE.len()..].contains(STATE_START) {
-        anyhow::bail!("the rebase todo contains more than one state anchor");
+        bail!("the rebase todo contains more than one state anchor");
     }
     let mut base = None;
     let mut onto = None;
@@ -677,95 +1016,121 @@ fn parse_state(repo: &gix::Repository, input: &str) -> Result<Option<State>> {
     let mut expected_refs = Vec::new();
     let mut resolved = None;
     let mut continuation_sources = Vec::new();
+    let mut eager = Vec::new();
+    let mut selection = None;
+    let mut existing_checkout = None;
     for line in body[..end].lines() {
-        let (key, value) = line.split_once(' ').context("a rebase state line has no value")?;
+        let (key, value) = line
+            .split_once(' ')
+            .ok_or_raise(|| message("a rebase state line has no value"))?;
         match key {
             "base" => {
                 if base.replace(ObjectId::from_hex(value.as_bytes())?).is_some() {
-                    anyhow::bail!("the rebase state has more than one base");
+                    bail!("the rebase state has more than one base");
                 }
             }
             "onto" => {
                 if onto.replace(ObjectId::from_hex(value.as_bytes())?).is_some() {
-                    anyhow::bail!("the rebase state has more than one onto target");
+                    bail!("the rebase state has more than one onto target");
                 }
             }
             "tip" => tips.push(ObjectId::from_hex(value.as_bytes())?),
             "scope" => scope.push(ObjectId::from_hex(value.as_bytes())?),
             "marker-required" => {
-                if marker_required.replace(value.parse()?).is_some() {
-                    anyhow::bail!("the rebase state repeats marker-required");
+                if marker_required.replace(value.parse::<bool>().or_error()?).is_some() {
+                    bail!("the rebase state repeats marker-required");
                 }
             }
             "checkout-allowed" => {
-                if checkout_allowed.replace(value.parse()?).is_some() {
-                    anyhow::bail!("the rebase state repeats checkout-allowed");
+                if checkout_allowed.replace(value.parse::<bool>().or_error()?).is_some() {
+                    bail!("the rebase state repeats checkout-allowed");
                 }
             }
             "head-ref" => {
                 let encoded = value.as_bytes().as_bstr();
                 let (name, consumed) = gix::quote::ansi_c::undo(encoded)
-                    .map_err(gix::Exn::into_error)
-                    .context("could not unquote the recorded HEAD ref")?;
+                    .or_raise(|| message("could not unquote the recorded HEAD ref"))?;
                 if !encoded[consumed..].trim().is_empty() {
-                    anyhow::bail!("the recorded HEAD ref has trailing data");
+                    bail!("the recorded HEAD ref has trailing data");
                 }
-                let name = gix::refs::FullName::try_from(name.as_ref()).context("the recorded HEAD ref is invalid")?;
+                let name = gix::refs::FullName::try_from(name.as_ref())
+                    .or_raise(|| message("the recorded HEAD ref is invalid"))?;
                 if head_ref.replace(name).is_some() {
-                    anyhow::bail!("the rebase state repeats its HEAD ref");
+                    bail!("the rebase state repeats its HEAD ref");
                 }
             }
-            "edit-refs" => edit_refs = value.parse()?,
+            "edit-refs" => edit_refs = value.parse::<bool>().or_error()?,
             "ref" => {
-                let (old, value) = value.split_once(' ').context("a captured ref has no target")?;
-                let (target, value) = value.split_once(' ').context("a captured ref has no follow mode")?;
+                let (old, value) = value
+                    .split_once(' ')
+                    .ok_or_raise(|| message("a captured ref has no target"))?;
+                let (target, value) = value
+                    .split_once(' ')
+                    .ok_or_raise(|| message("a captured ref has no follow mode"))?;
                 let old = (old != "-").then(|| ObjectId::from_hex(old.as_bytes())).transpose()?;
                 let target = ObjectId::from_hex(target.as_bytes())?;
-                let (follows_tip, value) = value.split_once(' ').context("a captured ref has no name")?;
-                let follows_tip = follows_tip.parse()?;
+                let (follows_tip, value) = value
+                    .split_once(' ')
+                    .ok_or_raise(|| message("a captured ref has no name"))?;
+                let follows_tip = follows_tip.parse::<bool>().or_error()?;
                 let (editable, name) = value
                     .split_once(' ')
                     .and_then(|(editable, name)| editable.parse::<bool>().ok().map(|editable| (editable, name)))
                     .unwrap_or((false, value));
                 let encoded_name = name.as_bytes().as_bstr();
                 let (name, consumed) = gix::quote::ansi_c::undo(encoded_name)
-                    .map_err(gix::Exn::into_error)
-                    .context("could not unquote a captured ref name")?;
+                    .or_raise(|| message("could not unquote a captured ref name"))?;
                 if !encoded_name[consumed..].trim().is_empty() {
-                    anyhow::bail!("a captured ref name has trailing data");
+                    bail!("a captured ref name has trailing data");
                 }
-                let name = gix::refs::FullName::try_from(name.as_ref()).context("a captured ref name is invalid")?;
-                expected_refs.push(rebase::ExpectedRef {
+                let name = gix::refs::FullName::try_from(name.as_ref())
+                    .or_raise(|| message("a captured ref name is invalid"))?;
+                expected_refs.push(rebase::PlanRef {
                     name,
                     old,
-                    target,
-                    new: old,
-                    follows_tip,
+                    source: target,
+                    destination: rebase::RefDestination::Follow { tip: follows_tip },
                     editable,
-                    placement: None,
                 });
             }
             "resolved" => {
                 if resolved.replace(ObjectId::from_hex(value.as_bytes())?).is_some() {
-                    anyhow::bail!("the rebase state repeats its resolved conflict");
+                    bail!("the rebase state repeats its resolved conflict");
                 }
             }
             "continuation-source" => continuation_sources.push(ObjectId::from_hex(value.as_bytes())?),
-            _ => anyhow::bail!("unsupported rebase state field {key:?}"),
+            "eager" => eager.push(ObjectId::from_hex(value.as_bytes())?),
+            "selection" => {
+                if selection.replace(ObjectId::from_hex(value.as_bytes())?).is_some() {
+                    bail!("the rebase state repeats its result selection");
+                }
+            }
+            "existing-checkout" => {
+                if existing_checkout
+                    .replace(ObjectId::from_hex(value.as_bytes())?)
+                    .is_some()
+                {
+                    bail!("the rebase state repeats its existing checkout");
+                }
+            }
+            _ => bail!("unsupported rebase state field {key:?}"),
         }
     }
     let state = State {
-        base: base.context("the rebase state has no base")?,
-        onto: onto.context("the rebase state has no onto target")?,
+        base: base.ok_or_raise(|| message("the rebase state has no base"))?,
+        onto: onto.ok_or_raise(|| message("the rebase state has no onto target"))?,
         tips,
         scope,
-        marker_required: marker_required.context("the rebase state has no marker requirement")?,
-        checkout_allowed: checkout_allowed.context("the rebase state has no checkout capability")?,
+        marker_required: marker_required.ok_or_raise(|| message("the rebase state has no marker requirement"))?,
+        checkout_allowed: checkout_allowed.ok_or_raise(|| message("the rebase state has no checkout capability"))?,
         head_ref,
         edit_refs,
         expected_refs,
         resolved,
         continuation_sources,
+        eager,
+        selection,
+        existing_checkout,
     };
     validate_state(repo, &state)?;
     Ok(Some(state))
@@ -773,62 +1138,83 @@ fn parse_state(repo: &gix::Repository, input: &str) -> Result<Option<State>> {
 
 fn validate_state(repo: &gix::Repository, state: &State) -> Result<()> {
     repo.find_commit(state.base)
-        .context("could not find the recorded rebase base")?;
+        .or_raise(|| message("could not find the recorded rebase base"))?;
     repo.find_commit(state.onto)
-        .context("could not find the recorded rebase target")?;
+        .or_raise(|| message("could not find the recorded rebase target"))?;
     let scope: HashSet<_> = state.scope.iter().copied().collect();
     let continuation_sources: HashSet<_> = state.continuation_sources.iter().copied().collect();
     if scope.len() != state.scope.len() {
-        anyhow::bail!("the rebase state contains duplicate scope commits");
+        bail!("the rebase state contains duplicate scope commits");
     }
     if state.tips.iter().copied().collect::<HashSet<_>>().len() != state.tips.len() {
-        anyhow::bail!("the rebase state contains duplicate tips");
+        bail!("the rebase state contains duplicate tips");
     }
     let mut refs = HashSet::new();
     for reference in &state.expected_refs {
         if !refs.insert(reference.name.as_bstr()) {
-            anyhow::bail!("the rebase state contains duplicate refs");
+            bail!("the rebase state contains duplicate refs");
         }
-        if !scope.contains(&reference.target) && reference.target != state.base && reference.target != state.onto {
-            anyhow::bail!("a captured ref does not logically point into the rebase scope");
-        }
+        repo.find_commit(reference.source)
+            .or_raise(|| message("could not find a captured reference's source commit"))?;
     }
     if let Some(name) = &state.head_ref
+        && state.existing_checkout.is_none()
         && !state
             .expected_refs
             .iter()
             .any(|reference| reference.editable && reference.name == *name)
     {
-        anyhow::bail!("the recorded HEAD ref is not editable");
+        bail!("the recorded HEAD ref is not editable");
     }
     for tip in &state.tips {
-        repo.find_commit(*tip).context("could not find a recorded rebase tip")?;
+        repo.find_commit(*tip)
+            .or_raise(|| message("could not find a recorded rebase tip"))?;
     }
     for id in &state.scope {
         let commit = repo
             .find_commit(*id)
-            .context("could not find a recorded scope commit")?;
+            .or_raise(|| message("could not find a recorded scope commit"))?;
         let parent = commit
             .parent_ids()
             .next()
             .map(gix::Id::detach)
-            .context("a recorded scope commit has no parent")?;
+            .ok_or_raise(|| message("a recorded scope commit has no parent"))?;
         if parent != state.base && !scope.contains(&parent) && !continuation_sources.contains(id) {
-            anyhow::bail!("a recorded scope commit is disconnected from the rebase base");
+            bail!("a recorded scope commit is disconnected from the rebase base");
         }
     }
     if state.resolved.is_some_and(|id| !scope.contains(&id)) {
-        anyhow::bail!("the resolved conflict is outside the rebase scope");
+        bail!("the resolved conflict is outside the rebase scope");
     }
     if !continuation_sources.is_subset(&scope) {
-        anyhow::bail!("a continuation source is outside the rebase scope");
+        bail!("a continuation source is outside the rebase scope");
+    }
+    let eager: HashSet<_> = state.eager.iter().copied().collect();
+    gix::error::ensure!(
+        eager.len() == state.eager.len(),
+        "the rebase state repeats an eager commit"
+    );
+    gix::error::ensure!(eager.is_subset(&scope), "an eager commit is outside the rebase scope");
+    if let Some(id) = state.selection {
+        repo.find_commit(id)
+            .or_raise(|| message("could not find the recorded result selection"))?;
+    }
+    if let Some(id) = state.existing_checkout {
+        gix::error::ensure!(
+            state.checkout_allowed && !state.marker_required,
+            "an existing checkout conflicts with the rebase checkout state"
+        );
+        repo.find_commit(id)
+            .or_raise(|| message("could not find the recorded existing checkout"))?;
     }
     Ok(())
 }
 
 pub(crate) fn parse(repo: &gix::Repository, edited: &[u8]) -> Result<Option<Parsed>> {
-    repo.head()?.id().context("rebase todos require a born HEAD")?;
-    let input = std::str::from_utf8(edited).context("the rebase todo is not UTF-8")?;
+    repo.head()?
+        .id()
+        .ok_or_raise(|| message("rebase todos require a born HEAD"))?;
+    let input = std::str::from_utf8(edited).or_raise(|| message("the rebase todo is not UTF-8"))?;
     let Some(mut state) = parse_state(repo, input)? else {
         return Ok(None);
     };
@@ -869,21 +1255,21 @@ pub(crate) fn parse(repo: &gix::Repository, edited: &[u8]) -> Result<Option<Pars
                 .trim_matches('─')
                 .trim()
                 .strip_prefix("fork ")
-                .context("a fork separator needs a fork ID")?;
+                .ok_or_raise(|| message("a fork separator needs a fork ID"))?;
             if sections > 0 && !section_has_commit {
-                anyhow::bail!("a fork section contains no commits");
+                bail!("a fork section contains no commits");
             }
             let id = resolve_commit(
                 repo,
                 target
                     .split_whitespace()
                     .next()
-                    .context("a fork heading needs a commit ID")?,
+                    .ok_or_raise(|| message("a fork heading needs a commit ID"))?,
             )?;
             cursor = Some(if let Some(index) = picked.get(&id) {
                 rebase::PlanParent::Step(*index)
             } else if scope.contains(&id) {
-                anyhow::bail!("a fork target must be picked before it is used");
+                bail!("a fork target must be picked before it is used");
             } else {
                 rebase::PlanParent::Existing(id)
             });
@@ -893,18 +1279,18 @@ pub(crate) fn parse(repo: &gix::Repository, edited: &[u8]) -> Result<Option<Pars
             continue;
         }
         if line.starts_with('(') && line.ends_with(')') {
-            let target = cursor.context("a reference line must follow a fork or command")?;
+            let target = cursor.ok_or_raise(|| message("a reference line must follow a fork or command"))?;
             for (marked, value) in parse_ref_line(line)? {
                 let name = resolve_ref_name(repo, &mut state.expected_refs, value.as_bstr())?;
                 if ref_targets.insert(name.clone(), target).is_some() {
-                    anyhow::bail!("a reference is placed more than once");
+                    bail!("a reference is placed more than once");
                 }
                 if marked {
                     if !state.checkout_allowed || repo.workdir().is_none() {
-                        anyhow::bail!("the rebase todo cannot select a checkout without a worktree");
+                        bail!("the rebase todo cannot select a checkout without a worktree");
                     }
                     if explicit_checkout_reference.replace((name, target)).is_some() {
-                        anyhow::bail!("the rebase todo contains more than one @ reference");
+                        bail!("the rebase todo contains more than one @ reference");
                     }
                 }
             }
@@ -915,7 +1301,7 @@ pub(crate) fn parse(repo: &gix::Repository, edited: &[u8]) -> Result<Option<Pars
         let (command, tail) = if let Some(line) = line.strip_prefix('`') {
             let (command, tail) = line
                 .split_once('`')
-                .context("a Markdown todo command has no closing backtick")?;
+                .ok_or_raise(|| message("a Markdown todo command has no closing backtick"))?;
             (command, tail.trim())
         } else {
             (line, "")
@@ -925,56 +1311,88 @@ pub(crate) fn parse(repo: &gix::Repository, edited: &[u8]) -> Result<Option<Pars
         let verb = verb.strip_prefix('@').unwrap_or(verb);
         if marked {
             if std::mem::replace(&mut command_marker, true) {
-                anyhow::bail!("the rebase todo contains more than one @ command");
+                bail!("the rebase todo contains more than one @ command");
             }
             if !state.checkout_allowed || repo.workdir().is_none() {
-                anyhow::bail!("the rebase todo cannot select a checkout without a worktree");
+                bail!("the rebase todo cannot select a checkout without a worktree");
             }
         }
-        if verb == "squash" {
-            let index = section_last_step.context("a squash must follow a command in the same fork")?;
-            let id = resolve_commit(
-                repo,
-                value.split_whitespace().next().context("a squash needs a commit ID")?,
-            )?;
+        if matches!(verb, "squash" | "fixup") {
+            let index = section_last_step.ok_or_raise(|| message("a fold must follow a command in the same fork"))?;
+            let mut arguments = value.split_whitespace();
+            let mut value = arguments.next().ok_or_raise(|| message("a fold needs a commit ID"))?;
+            let message = if verb == "squash" {
+                rebase::FoldMessage::Append
+            } else if value == "-C" {
+                value = arguments.next().ok_or_raise(|| message("fixup -C needs a commit ID"))?;
+                rebase::FoldMessage::Replace
+            } else {
+                rebase::FoldMessage::Discard
+            };
+            let id = resolve_commit(repo, value)?;
             if !scope.contains(&id) {
-                anyhow::bail!("a squash is outside the editable history");
+                bail!("a fold is outside the editable history");
             }
             if picked.insert(id, index).is_some() {
-                anyhow::bail!("a commit is picked more than once");
+                bail!("a commit is picked more than once");
             }
-            steps[index].squash.push(id);
+            steps[index].squash.push(rebase::PlanFold { commit_id: id, message });
             if marked {
                 let target = rebase::PlanParent::Step(index);
                 if checkout_target.is_some_and(|checkout| checkout != target) {
-                    anyhow::bail!("the @ command and @ reference point to different results");
+                    bail!("the @ command and @ reference point to different results");
                 }
                 checkout_target = Some(target);
             }
             section_has_commit = true;
             continue;
         }
-        let parent = cursor.context("the first todo command must follow a fork heading")?;
+        let parent = cursor.ok_or_raise(|| message("the first todo command must follow a fork heading"))?;
+        let mut parents = vec![parent];
         let commit = match verb {
-            "pick" => {
-                let value = value.split_whitespace().next().context("a pick needs a commit ID")?;
+            "pick" | "merge" => {
+                let mut arguments = value.split_whitespace();
+                let value = arguments
+                    .next()
+                    .ok_or_raise(|| message("a pick or merge needs a commit ID"))?;
                 let resolved_id = state.resolved;
                 let full_null = resolved_id.is_some_and(|id| {
                     value.len() == id.kind().len_in_bytes() * 2 && value.bytes().all(|byte| byte == b'0')
                 });
                 let (id, resolved) = if full_null {
                     (
-                        resolved_id.context("a null pick has no materialized conflict state")?,
+                        resolved_id.ok_or_raise(|| message("a null pick has no materialized conflict state"))?,
                         true,
                     )
                 } else {
                     (resolve_commit(repo, value)?, false)
                 };
                 if !scope.contains(&id) {
-                    anyhow::bail!("a pick is outside the editable history");
+                    bail!("a pick is outside the editable history");
                 }
                 if picked.contains_key(&id) {
-                    anyhow::bail!("a commit is picked more than once");
+                    bail!("a commit is picked more than once");
+                }
+                let source = repo.find_commit(id)?.decode()?.into_owned()?;
+                let source_parents = rebase::replay_parents(&source)?.unwrap_or_else(|| source.parents.to_vec());
+                let automatic = super::auto_merge::is_auto_merge(&source);
+                if verb == "merge" {
+                    gix::error::ensure!(
+                        !automatic && source_parents.len() > 1,
+                        "merge requires an ordinary merge commit"
+                    );
+                    for value in arguments {
+                        parents.push(rebase::PlanParent::Existing(resolve_commit(repo, value)?));
+                    }
+                    gix::error::ensure!(
+                        parents.len() == source_parents.len(),
+                        "merge must retain the source commit's number of parent slots"
+                    );
+                } else {
+                    gix::error::ensure!(
+                        automatic || source_parents.len() <= 1,
+                        "an ordinary merge commit requires the merge command"
+                    );
                 }
                 if resolved {
                     rebase::PlanCommit::Resolved(id)
@@ -985,18 +1403,18 @@ pub(crate) fn parse(repo: &gix::Repository, edited: &[u8]) -> Result<Option<Pars
             "empty" => {
                 let title = if value.trim().is_empty() { tail } else { value.trim() };
                 if title.is_empty() {
-                    anyhow::bail!("an empty commit needs a title");
+                    bail!("an empty commit needs a title");
                 }
                 rebase::PlanCommit::Empty(BString::from(title))
             }
-            _ => anyhow::bail!("unsupported rebase todo command {verb:?}"),
+            _ => bail!("unsupported rebase todo command {verb:?}"),
         };
         let index = steps.len();
         if let rebase::PlanCommit::Pick(id) | rebase::PlanCommit::Resolved(id) = commit {
             picked.insert(id, index);
         }
         steps.push(rebase::PlanStep {
-            parent,
+            parents,
             commit,
             squash: Vec::new(),
         });
@@ -1005,46 +1423,73 @@ pub(crate) fn parse(repo: &gix::Repository, edited: &[u8]) -> Result<Option<Pars
         if marked {
             let target = rebase::PlanParent::Step(index);
             if checkout_target.is_some_and(|checkout| checkout != target) {
-                anyhow::bail!("the @ command and @ reference point to different results");
+                bail!("the @ command and @ reference point to different results");
             }
             checkout_target = Some(target);
         }
         section_has_commit = true;
     }
+    // Side parents can name results in later fork sections. Resolve after all picks and folds are known.
+    for step in &mut steps {
+        for parent in step.parents.iter_mut().skip(1) {
+            let rebase::PlanParent::Existing(commit_id) = *parent else {
+                continue;
+            };
+            if scope.contains(&commit_id) {
+                *parent = rebase::PlanParent::Step(
+                    *picked
+                        .get(&commit_id)
+                        .ok_or_raise(|| message("a merge side parent was dropped from the rebase todo"))?,
+                );
+            }
+        }
+    }
     if sections == 0 {
-        anyhow::bail!("the rebase todo has no fork heading");
+        bail!("the rebase todo has no fork heading");
     }
     if sections > 1 && !section_has_commit {
-        anyhow::bail!("the last fork section contains no commits");
+        bail!("the last fork section contains no commits");
     }
     if state.marker_required && checkout_target.is_none() {
-        anyhow::bail!("the current checkout marker must be retained");
+        bail!("the current checkout marker must be retained");
     }
+    checkout_target = checkout_target.or(state.existing_checkout.map(rebase::PlanParent::Existing));
     let checkout_reference = match (checkout_target, explicit_checkout_reference) {
         (Some(target), Some((name, reference_target))) => {
             if target != reference_target {
-                anyhow::bail!("the @ command and @ reference point to different results");
+                bail!("the @ command and @ reference point to different results");
             }
             Some(name)
         }
-        (None, Some(_)) => anyhow::bail!("an @ reference requires an @ command at the same result"),
-        (Some(target), None) => state
-            .head_ref
-            .take()
-            .filter(|name| ref_targets.get(name) == Some(&target)),
+        (None, Some(_)) => bail!("an @ reference requires an @ command at the same result"),
+        (Some(target), None) => state.head_ref.take().filter(|name| {
+            ref_targets.get(name) == Some(&target)
+                || state.existing_checkout.map(rebase::PlanParent::Existing) == Some(target)
+        }),
         (None, None) => None,
     };
     if state.edit_refs {
         for reference in &mut state.expected_refs {
             if reference.editable {
-                reference.new = None;
-                reference.placement = ref_targets.remove(&reference.name);
+                reference.destination = ref_targets
+                    .remove(&reference.name)
+                    .map_or(rebase::RefDestination::Delete, Into::into);
             }
         }
     }
     let checkout = checkout_target.map(|target| rebase::PlanCheckout {
         target,
         reference: checkout_reference,
+    });
+    let mut eager: Vec<_> = state.eager.iter().filter_map(|id| picked.get(id).copied()).collect();
+    eager.sort_unstable();
+    eager.dedup();
+    let selection = state.selection.and_then(|id| {
+        picked
+            .get(&id)
+            .copied()
+            .map(rebase::PlanParent::Step)
+            .or_else(|| (!scope.contains(&id)).then_some(rebase::PlanParent::Existing(id)))
     });
     Ok(Some(Parsed {
         plan: rebase::Plan {
@@ -1053,22 +1498,25 @@ pub(crate) fn parse(repo: &gix::Repository, edited: &[u8]) -> Result<Option<Pars
             steps,
             checkout,
             expected_refs: state.expected_refs,
+            eager,
+            selection,
         },
         tips: state.tips,
+        resolved: state.resolved,
     }))
 }
 
 fn resolve_commit(repo: &gix::Repository, value: &str) -> Result<ObjectId> {
     if value.len() < 4 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        anyhow::bail!("{value:?} is not a commit ID prefix");
+        bail!("{value:?} is not a commit ID prefix");
     }
     let id = repo
         .rev_parse_single(value)
-        .with_context(|| format!("could not resolve commit ID {value:?}"))?;
+        .or_raise(|| message!("could not resolve commit ID {value:?}"))?;
     id.object()
-        .context("could not load a todo object")?
+        .or_raise(|| message("could not load a todo object"))?
         .try_into_commit()
-        .context("a todo ID does not name a commit")?;
+        .or_raise(|| message("a todo ID does not name a commit"))?;
     Ok(id.detach())
 }
 
@@ -1076,7 +1524,7 @@ fn parse_ref_line(line: &str) -> Result<Vec<(bool, BString)>> {
     let body = line
         .strip_prefix('(')
         .and_then(|line| line.strip_suffix(')'))
-        .context("a reference line must be enclosed in parentheses")?;
+        .ok_or_raise(|| message("a reference line must be enclosed in parentheses"))?;
     let mut ranges = Vec::new();
     let mut start = 0;
     let mut quoted = false;
@@ -1097,25 +1545,24 @@ fn parse_ref_line(line: &str) -> Result<Vec<(bool, BString)>> {
         }
     }
     if quoted || escaped {
-        anyhow::bail!("a quoted reference name is not closed");
+        bail!("a quoted reference name is not closed");
     }
     ranges.push(&body[start..]);
     let mut out = Vec::with_capacity(ranges.len());
     for item in ranges {
         let item = item.trim();
         if item.is_empty() {
-            anyhow::bail!("a reference line contains an empty name");
+            bail!("a reference line contains an empty name");
         }
         let (marked, item) = item.strip_prefix('@').map_or((false, item), |item| (true, item));
         let encoded = item.as_bytes().as_bstr();
-        let (name, consumed) = gix::quote::ansi_c::undo(encoded)
-            .map_err(gix::Exn::into_error)
-            .context("could not unquote a reference name")?;
+        let (name, consumed) =
+            gix::quote::ansi_c::undo(encoded).or_raise(|| message("could not unquote a reference name"))?;
         if !encoded[consumed..].trim().is_empty() {
-            anyhow::bail!("a reference name has trailing data");
+            bail!("a reference name has trailing data");
         }
         if name.is_empty() {
-            anyhow::bail!("a reference name is empty");
+            bail!("a reference name is empty");
         }
         out.push((marked, name.into_owned()));
     }
@@ -1124,7 +1571,7 @@ fn parse_ref_line(line: &str) -> Result<Vec<(bool, BString)>> {
 
 fn resolve_ref_name(
     repo: &gix::Repository,
-    refs: &mut Vec<rebase::ExpectedRef>,
+    refs: &mut Vec<rebase::PlanRef>,
     input: &gix::bstr::BStr,
 ) -> Result<gix::refs::FullName> {
     let mut matches = refs
@@ -1133,7 +1580,7 @@ fn resolve_ref_name(
         .map(|reference| reference.name.clone());
     if let Some(name) = matches.next() {
         if matches.next().is_some() {
-            anyhow::bail!("the shortened reference name is ambiguous");
+            bail!("the shortened reference name is ambiguous");
         }
         return Ok(name);
     }
@@ -1144,45 +1591,45 @@ fn resolve_ref_name(
         full.extend_from_slice(input);
         full
     };
-    let name = gix::refs::FullName::try_from(full).context("the todo contains an invalid reference name")?;
+    let name =
+        gix::refs::FullName::try_from(full).or_raise(|| message("the todo contains an invalid reference name"))?;
     if name.as_bstr().starts_with(crate::history::PIN_PREFIX)
         || name.as_bstr().starts_with(crate::history::STASH_PREFIX)
         || name.as_bstr().starts_with(crate::history::REVIEW_PREFIX)
-        || super::undo::is_queue_ref(name.as_bstr())
+        || super::replay_refs::is_ref(name.as_bstr())
+        || crate::edit::is_internal_ref(name.as_bstr())
         || matches!(
             name.category(),
             Some(gix::refs::Category::Tag | gix::refs::Category::RemoteBranch)
         )
     {
-        anyhow::bail!("the todo cannot edit this reference namespace");
+        bail!("the todo cannot edit this reference namespace");
     }
     if refs.iter().any(|reference| reference.name == name) {
-        anyhow::bail!("the todo cannot edit a hidden reference");
+        bail!("the todo cannot edit a hidden reference");
     }
-    let old = repo
-        .try_find_reference(name.as_ref())?
-        .map(|reference| {
-            reference
-                .try_id()
-                .map(gix::Id::detach)
-                .context("an existing symbolic reference outside the editable history cannot be moved")
-        })
-        .transpose()?;
-    refs.push(rebase::ExpectedRef {
+    let old =
+        repo.try_find_reference(name.as_ref())?
+            .map(|reference| {
+                reference.try_id().map(gix::Id::detach).ok_or_raise(|| {
+                    message("an existing symbolic reference outside the editable history cannot be moved")
+                })
+            })
+            .transpose()?;
+    refs.push(rebase::PlanRef {
         name: name.clone(),
         old,
-        target: old.unwrap_or(repo.head_id()?.detach()),
-        new: old,
-        follows_tip: false,
+        source: old.unwrap_or(repo.head_id()?.detach()),
+        destination: rebase::RefDestination::Delete,
         editable: true,
-        placement: None,
     });
     Ok(name)
 }
 
 #[cfg(test)]
 mod tests {
-    use std::process::Command;
+
+    use gix::error::TestResult;
 
     use super::*;
 
@@ -1214,7 +1661,7 @@ mod tests {
             let notice = unchanged_notice(updated, pending);
             assert!(notice.contains(expected), "the notice explains its execution mode");
             assert!(
-                notice.contains("remove the tix-rebase-state-v2 comment to cancel"),
+                notice.contains("remove the tix-rebase-state-v3 comment to cancel"),
                 "every notice explains explicit cancellation"
             );
         }
@@ -1249,12 +1696,14 @@ mod tests {
         onto: ObjectId,
         commits: &[Commit],
         _head: Option<ObjectId>,
-    ) -> Result<Prepared> {
-        prepare(repo, base, onto, commits, &[], OntoKind::UpdatedBase, true)
+    ) -> TestResult<Prepared> {
+        Ok(prepare(repo, base, onto, commits, &[], OntoKind::UpdatedBase, true)?)
     }
 
-    fn parse_plan(repo: &gix::Repository, document: &[u8]) -> Result<rebase::Plan> {
-        Ok(parse(repo, document)?.context("the test todo was cancelled")?.plan)
+    fn parse_plan(repo: &gix::Repository, document: &[u8]) -> TestResult<rebase::Plan> {
+        Ok(parse(repo, document)?
+            .ok_or_raise(|| message("the test todo was cancelled"))?
+            .plan)
     }
 
     fn with_state(prepared: &Prepared, commands: &str) -> Vec<u8> {
@@ -1267,8 +1716,749 @@ mod tests {
         format!("{}\n{bottom_up}", &document[start..end]).into_bytes()
     }
 
+    fn append(repo: &gix::Repository, parent_commit_id: ObjectId, message: impl Into<BString>) -> Result<Commit> {
+        let mut commit = repo.find_commit(parent_commit_id)?.decode()?.into_owned()?;
+        commit.parents = [parent_commit_id].into_iter().collect();
+        commit.message = message.into();
+        commit.extra_headers.clear();
+        Ok(Commit {
+            id: repo.write_object(&commit)?.detach(),
+            parents: vec![parent_commit_id],
+            info: gix::objs::commit::MessageRef::from_bytes(&commit.message)
+                .summary()
+                .to_str_lossy()
+                .into_owned(),
+        })
+    }
+
     #[test]
-    fn markdown_flows_from_tip_to_base_and_uses_repository_abbreviations() -> gix_testtools::Result {
+    fn ordinary_merges_round_trip_ordered_parents_across_fork_sections() -> gix::error::TestResult {
+        let (_fixture, repo) = repo()?;
+        let (base, _middle, tip, mut commits) = commits(&repo)?;
+        let left = append(&repo, base, "left")?;
+        let right = append(&repo, base, "right")?;
+        let mut merge = repo.find_commit(tip)?.decode()?.into_owned()?;
+        merge.parents = [tip, left.id, right.id].into_iter().collect();
+        merge.message = "merge branches".into();
+        let merge_commit_id = repo.write_object(&merge)?.detach();
+        let ordered_parents = merge.parents.to_vec();
+        commits.extend([left, right]);
+        commits.push(Commit {
+            id: merge_commit_id,
+            parents: ordered_parents.clone(),
+            info: "merge branches".into(),
+        });
+        let prepared = prepare_test(&repo, base, base, &commits, Some(tip))?;
+        let document = std::str::from_utf8(&prepared.document)?;
+        assert!(
+            document.contains(&format!("`merge {} ", short(&repo, merge_commit_id, false)?)),
+            "ordinary merges name their side-parent slots explicitly"
+        );
+        let mut plan = parse_plan(&repo, &prepared.document)?;
+        let merge_index = plan
+            .steps
+            .iter()
+            .position(|step| step.commit == rebase::PlanCommit::Pick(merge_commit_id))
+            .expect("the merge is picked");
+        assert!(
+            plan.steps[merge_index]
+                .parents
+                .iter()
+                .any(|parent| { matches!(parent, rebase::PlanParent::Step(index) if *index > merge_index) }),
+            "side parents may be specified in a later fork section"
+        );
+        super::super::auto_merge::order_plan(&repo, &mut plan, &mut Default::default())?;
+        let merge_index = plan
+            .steps
+            .iter()
+            .position(|step| step.commit == rebase::PlanCommit::Pick(merge_commit_id))
+            .expect("ordering retains the merge");
+        let actual: Vec<_> = plan.steps[merge_index]
+            .parents
+            .iter()
+            .map(|parent| match parent {
+                rebase::PlanParent::Existing(commit_id) => *commit_id,
+                rebase::PlanParent::Step(index) => {
+                    assert!(*index < merge_index, "each side is produced before its merge");
+                    match plan.steps[*index].commit {
+                        rebase::PlanCommit::Pick(commit_id) => commit_id,
+                        _ => panic!("the fixture has only picks"),
+                    }
+                }
+            })
+            .collect();
+        assert_eq!(
+            actual, ordered_parents,
+            "topological sorting preserves parent slot order"
+        );
+        let continued = prepare_continuation(&repo, &plan, vec![merge_commit_id], true)?;
+        assert_eq!(
+            parse_plan(&repo, &continued.document)?.steps,
+            plan.steps,
+            "continuations retain all ordered merge parents"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn ordinary_merge_commands_validate_sources_slots_and_cycles() -> gix::error::TestResult {
+        let (_fixture, repo) = repo()?;
+        let (base, middle, tip, mut commits) = commits(&repo)?;
+        let side = append(&repo, base, "side")?;
+        let side_commit_id = side.id;
+        let mut merge = repo.find_commit(tip)?.decode()?.into_owned()?;
+        merge.parents = [tip, side_commit_id].into_iter().collect();
+        merge.message = "merge side".into();
+        let merge_commit_id = repo.write_object(&merge)?.detach();
+        commits.push(side);
+        commits.push(Commit {
+            id: merge_commit_id,
+            parents: merge.parents.to_vec(),
+            info: "merge side".into(),
+        });
+        let prepared = prepare_test(&repo, base, base, &commits, Some(tip))?;
+        let prefix = format!("fork {base}\npick {middle}\n@pick {tip}\n");
+        for (command, expected) in [
+            (format!("pick {merge_commit_id}"), "requires the merge command"),
+            (format!("merge {merge_commit_id}"), "number of parent slots"),
+            (
+                format!("merge {merge_commit_id} {side_commit_id} {base}"),
+                "number of parent slots",
+            ),
+            (
+                format!("merge {merge_commit_id} {side_commit_id}"),
+                "side parent was dropped",
+            ),
+            (format!("merge {side_commit_id} {base}"), "requires an ordinary merge"),
+        ] {
+            let error = parse_plan(&repo, &with_state(&prepared, &format!("{prefix}{command}\n")))
+                .expect_err("invalid merge commands are rejected");
+            assert!(
+                format!("{error:?}").contains(expected),
+                "the rejection identifies the invalid merge"
+            );
+        }
+        let duplicate = with_state(
+            &prepared,
+            &format!("{}@merge {merge_commit_id} {tip}\n", prefix.replace("@pick", "pick")),
+        );
+        let mut plan = parse_plan(&repo, &duplicate)?;
+        super::super::auto_merge::order_plan(&repo, &mut plan, &mut Default::default())?;
+        assert_eq!(
+            plan.steps.last().expect("the merge is last").parents,
+            vec![rebase::PlanParent::Step(1), rebase::PlanParent::Step(1)],
+            "coincident resulting parents retain distinct slots until writing"
+        );
+        assert_eq!(
+            plan.checkout.as_ref().expect("the merge is the checkout").target,
+            rebase::PlanParent::Step(2),
+            "merge commands support the checkout marker"
+        );
+        let cycle = with_state(
+            &prepared,
+            &format!(
+                "{prefix}merge {merge_commit_id} {side_commit_id}\nfork {merge_commit_id}\npick {side_commit_id}\n"
+            ),
+        );
+        let mut plan = parse_plan(&repo, &cycle)?;
+        let error = super::super::auto_merge::order_plan(&repo, &mut plan, &mut Default::default())
+            .expect_err("a cycle through a side parent is rejected");
+        assert!(
+            format!("{error:#}").contains("cycle"),
+            "the dependency cycle is diagnosed"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn an_ordinary_merges_pending_side_makes_unchanged_todos_actionable() -> gix::error::TestResult {
+        let (fixture, repo) = repo()?;
+        let (base, _middle, tip, mut commits) = commits(&repo)?;
+        let mut side = repo.find_commit(base)?.decode()?.into_owned()?;
+        side.parents = [base].into_iter().collect();
+        side.message = "pending side".into();
+        side.extra_headers
+            .push(("tix-rebase-parent".into(), base.to_string().into()));
+        let side_commit_id = repo.write_object(&side)?.detach();
+        let mut merge = repo.find_commit(tip)?.decode()?.into_owned()?;
+        merge.parents = [tip, side_commit_id].into_iter().collect();
+        merge.message = "merge pending side".into();
+        let merge_commit_id = repo.write_object(&merge)?.detach();
+        commits.extend([
+            Commit {
+                id: side_commit_id,
+                parents: vec![base],
+                info: "pending side".into(),
+            },
+            Commit {
+                id: merge_commit_id,
+                parents: merge.parents.to_vec(),
+                info: "merge pending side".into(),
+            },
+        ]);
+        assert!(
+            gix_testtools::git_command(fixture.path())
+                .args(["checkout", "-q", "--detach", &merge_commit_id.to_string()])
+                .status()?
+                .success(),
+            "the ordinary merge is checked out"
+        );
+        let prepared = prepare_test(&repo, base, base, &commits, Some(merge_commit_id))?;
+        assert!(
+            prepared.apply_unchanged,
+            "pending ancestry through any ordinary merge parent requires replay"
+        );
+        assert!(
+            std::str::from_utf8(&prepared.document)?.contains("`@merge "),
+            "the merge is the generated checkout command"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn fixup_commands_and_continuations_preserve_their_message_modes() -> gix::error::TestResult {
+        let (_fixture, repo) = repo()?;
+        let (base, middle, tip, commits) = commits(&repo)?;
+        let prepared = prepare_test(&repo, base, base, &commits, Some(tip))?;
+        for (verb, message) in [
+            ("fixup", rebase::FoldMessage::Discard),
+            ("fixup -C", rebase::FoldMessage::Replace),
+        ] {
+            let edited = with_state(&prepared, &format!("fork {base}\npick {middle}\n@{verb} {tip}\n"));
+            let plan = parse_plan(&repo, &edited)?;
+            assert_eq!(
+                plan.steps[0].squash,
+                [rebase::PlanFold {
+                    commit_id: tip,
+                    message
+                }],
+                "the command selects its message policy"
+            );
+            assert_eq!(
+                plan.checkout.as_ref().map(|checkout| checkout.target),
+                Some(rebase::PlanParent::Step(0)),
+                "a fixup checkout marker selects the combined commit"
+            );
+            let continuation = prepare_continuation(&repo, &plan, vec![tip], true)?;
+            assert_eq!(
+                parse_plan(&repo, &continuation.document)?.steps,
+                plan.steps,
+                "continuations retain the chosen message policy"
+            );
+        }
+        let invalid = with_state(&prepared, &format!("fork {base}\npick {middle}\n@fixup -C\n"));
+        assert!(
+            parse(&repo, &invalid).is_err(),
+            "a replacement fixup requires its source ID"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn autosquash_uses_git_matching_precedence_and_linked_source_order() -> gix::error::TestResult {
+        let (_fixture, repo) = repo()?;
+        let base = repo.head_id()?.detach();
+        let prefix = append(&repo, base, "target extended")?;
+        let target = append(&repo, prefix.id, "target")?;
+        let first = append(&repo, target.id, "squash! target")?;
+        let second = append(&repo, first.id, "fixup! target")?;
+        let nested = append(&repo, second.id, format!("fixup! {}", first.id))?;
+        let replacement = append(&repo, nested.id, format!("amend! {}\n\nreplacement", first.id))?;
+        let target_commit_id = target.id;
+        let expected = [
+            rebase::PlanFold {
+                commit_id: first.id,
+                message: rebase::FoldMessage::Append,
+            },
+            rebase::PlanFold {
+                commit_id: nested.id,
+                message: rebase::FoldMessage::Discard,
+            },
+            rebase::PlanFold {
+                commit_id: replacement.id,
+                message: rebase::FoldMessage::Replace,
+            },
+            rebase::PlanFold {
+                commit_id: second.id,
+                message: rebase::FoldMessage::Discard,
+            },
+        ];
+        let commits = [prefix, target, first, second, nested, replacement];
+        let prepared = prepare_test(&repo, base, base, &commits, None)?;
+        assert!(
+            prepared.apply_unchanged,
+            "accepting generated folds performs the rebase"
+        );
+        let plan = parse_plan(&repo, &prepared.document)?;
+        assert_eq!(
+            plan.steps.len(),
+            2,
+            "an exact subject wins over an older subject prefix"
+        );
+        assert_eq!(plan.steps[1].commit, rebase::PlanCommit::Pick(target_commit_id));
+        assert_eq!(
+            plan.steps[1].squash, expected,
+            "hash targets insert beside their own previous direct fixup"
+        );
+        let edited = String::from_utf8(prepared.document)?
+            .replace("`fixup -C ", "`pick ")
+            .replace("`fixup ", "`pick ")
+            .replace("`squash ", "`pick ");
+        let plan = parse_plan(&repo, edited.as_bytes())?;
+        assert_eq!(
+            plan.steps.len(),
+            commits.len(),
+            "edited picks are never automatically grouped again"
+        );
+        assert!(
+            plan.steps.iter().all(|step| step.squash.is_empty()),
+            "literal commands override generated actions"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn autosquash_matches_only_original_first_parent_ancestors() -> gix::error::TestResult {
+        let (_fixture, repo) = repo()?;
+        let base = repo.head_id()?.detach();
+        let oldest = append(&repo, base, "same")?;
+        let repeated = append(&repo, oldest.id, "same")?;
+        let nested = append(&repo, repeated.id, "fixup! squash! amend! same")?;
+        let by_prefix = append(&repo, nested.id, "fixup! sam")?;
+        repo.reference(
+            "refs/heads/target-alias",
+            repeated.id,
+            gix::refs::transaction::PreviousValue::MustNotExist,
+            "test autosquash ref target",
+        )?;
+        let by_ref = append(&repo, by_prefix.id, "fixup! target-alias")?;
+        let hidden_target = append(&repo, by_ref.id, "fixup! tip")?;
+        let sibling = append(&repo, base, "sibling only")?;
+        let sibling_target = append(&repo, hidden_target.id, "fixup! sibling only")?;
+        let future_target = append(&repo, sibling_target.id, "fixup! future")?;
+        let future = append(&repo, future_target.id, "future")?;
+        let oldest_commit_id = oldest.id;
+        let repeated_commit_id = repeated.id;
+        let nested_commit_id = nested.id;
+        let prefix_commit_id = by_prefix.id;
+        let ref_commit_id = by_ref.id;
+        let unmatched = [hidden_target.id, sibling_target.id, future_target.id];
+        // The sibling is deliberately encountered first, but cannot shadow any first-parent ancestor.
+        let commits = [
+            sibling,
+            oldest,
+            repeated,
+            nested,
+            by_prefix,
+            by_ref,
+            hidden_target,
+            sibling_target,
+            future_target,
+            future,
+        ];
+        let prepared = prepare_test(&repo, base, base, &commits, None)?;
+        let plan = parse_plan(&repo, &prepared.document)?;
+        let oldest = plan
+            .steps
+            .iter()
+            .find(|step| step.commit == rebase::PlanCommit::Pick(oldest_commit_id))
+            .ok_or_raise(|| message("the original target remains"))?;
+        assert_eq!(
+            oldest.squash.iter().map(|fold| fold.commit_id).collect::<Vec<_>>(),
+            [nested_commit_id, prefix_commit_id],
+            "oldest exact and prefix matches win after recursively removing marker prefixes"
+        );
+        assert!(
+            oldest
+                .squash
+                .iter()
+                .all(|fold| fold.message == rebase::FoldMessage::Discard),
+            "the outermost marker determines the action"
+        );
+        let repeated = plan
+            .steps
+            .iter()
+            .find(|step| step.commit == rebase::PlanCommit::Pick(repeated_commit_id))
+            .ok_or_raise(|| message("the ref target remains"))?;
+        assert_eq!(
+            repeated.squash[0].commit_id, ref_commit_id,
+            "a commit name resolves after exact subject lookup"
+        );
+        assert!(
+            unmatched.into_iter().all(|commit_id| plan
+                .steps
+                .iter()
+                .any(|step| step.commit == rebase::PlanCommit::Pick(commit_id))),
+            "hidden, sibling and later targets remain ordinary picks"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn autosquash_inserts_later_direct_fixups_before_earlier_nested_fixups() -> gix::error::TestResult {
+        let (_fixture, repo) = repo()?;
+        let base = repo.head_id()?.detach();
+        let target = append(&repo, base, "target")?;
+        let direct = append(&repo, target.id, "fixup! target")?;
+        let nested = append(&repo, direct.id, format!("fixup! {}", direct.id))?;
+        let later_direct = append(&repo, nested.id, "fixup! target")?;
+        let expected = [direct.id, later_direct.id, nested.id];
+        let prepared = prepare_test(&repo, base, base, &[target, direct, nested, later_direct], None)?;
+        let plan = parse_plan(&repo, &prepared.document)?;
+        assert_eq!(
+            plan.steps[0]
+                .squash
+                .iter()
+                .map(|fold| fold.commit_id)
+                .collect::<Vec<_>>(),
+            expected,
+            "Git inserts after the previous direct child rather than after its nested descendants"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn autosquash_excludes_merge_and_automerge_sources_and_targets() -> gix_testtools::Result {
+        let (_fixture, repo) = repo()?;
+        let base = repo.head_id()?.detach();
+        for automatic in [false, true] {
+            let target = append(&repo, base, "target")?;
+            let mut protected = repo.find_commit(target.id)?.decode()?.into_owned()?;
+            protected.parents = [target.id].into_iter().collect();
+            protected.message = "fixup! target".into();
+            if automatic {
+                // Presence of the header owns the generated title, independently of its input definition.
+                protected.extra_headers.push(("tix-auto-merge".into(), "test".into()));
+            } else {
+                protected.parents.push(base);
+            }
+            let protected = Commit {
+                id: repo.write_object(&protected)?.detach(),
+                parents: protected.parents.to_vec(),
+                info: "generated or merged".into(),
+            };
+            let source = append(&repo, protected.id, format!("fixup! {}", protected.id))?;
+            let commits = [target, protected, source];
+            let order = commits.iter().map(|commit| commit.id).collect::<Vec<_>>();
+            let by_id = commits.iter().map(|commit| (commit.id, commit)).collect();
+            let grouped = autosquash(&repo, &order, &by_id)?;
+            assert!(
+                grouped.targets.is_empty(),
+                "merge and AutoMerge commits remain picks and cannot receive automatic folds"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn autosquash_normalizes_subject_paragraphs_without_lossy_matching() -> gix::error::TestResult {
+        let (_fixture, repo) = repo()?;
+        let base = repo.head_id()?.detach();
+        let target = append(&repo, base, b"\n\nsubject\nwith bytes \xff\n \t\nbody".to_vec())?;
+        let fixup = append(
+            &repo,
+            target.id,
+            b"\n\namend! subject with bytes \xff\n\t\nreplacement".to_vec(),
+        )?;
+        let expected = rebase::PlanFold {
+            commit_id: fixup.id,
+            message: rebase::FoldMessage::Replace,
+        };
+        let prepared = prepare_test(&repo, base, base, &[target, fixup], None)?;
+        let plan = parse_plan(&repo, &prepared.document)?;
+        assert_eq!(
+            plan.steps.len(),
+            1,
+            "leading blank lines and wrapped subjects are normalized"
+        );
+        assert_eq!(
+            plan.steps[0].squash,
+            [expected],
+            "non-UTF-8 subject bytes still identify the target exactly"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn autosquash_preserves_tip_refs_and_attached_or_detached_checkout() -> gix::error::TestResult {
+        for detached in [false, true] {
+            let (fixture, repo) = repo()?;
+            let base = repo.head_id()?.detach();
+            let target = append(&repo, base, "target")?;
+            let middle = append(&repo, target.id, "intermediate")?;
+            let fixup = append(&repo, middle.id, "fixup! target")?;
+            let source_commit_id = fixup.id;
+            let middle_commit_id = middle.id;
+            repo.reference(
+                "refs/heads/main",
+                source_commit_id,
+                gix::refs::transaction::PreviousValue::Any,
+                "test fixup tip",
+            )?;
+            repo.reference(
+                "refs/worktree/tix/pins/autosquash",
+                source_commit_id,
+                gix::refs::transaction::PreviousValue::MustNotExist,
+                "test pinned fixup tip",
+            )?;
+            if detached {
+                assert!(
+                    gix_testtools::git_command(fixture.path())
+                        .args(["checkout", "-q", "--detach", &source_commit_id.to_string()])
+                        .status()?
+                        .success(),
+                    "the fixture detaches at its fixup tip"
+                );
+            }
+            let prepared = prepare_test(&repo, base, base, &[target, middle, fixup], Some(source_commit_id))?;
+            let parsed =
+                parse(&repo, &prepared.document)?.ok_or_raise(|| message("the generated todo is actionable"))?;
+            assert_eq!(
+                parsed.tips,
+                [middle_commit_id],
+                "view tips remain at the surviving stack tip"
+            );
+            let plan = parsed.plan;
+            assert_eq!(
+                plan.checkout.as_ref().map(|checkout| checkout.target),
+                Some(rebase::PlanParent::Step(1)),
+                "a consumed checkout tip stays above intervening commits"
+            );
+            assert_eq!(
+                plan.checkout
+                    .as_ref()
+                    .and_then(|checkout| checkout.reference.as_ref())
+                    .is_none(),
+                detached,
+                "HEAD keeps its original attachment state"
+            );
+            let branch = plan
+                .expected_refs
+                .iter()
+                .find(|reference| reference.name == "refs/heads/main")
+                .ok_or_raise(|| message("the branch is captured"))?;
+            assert_eq!(
+                branch.old,
+                Some(source_commit_id),
+                "the branch compare-and-swap still checks its original target"
+            );
+            assert_eq!(
+                branch.destination,
+                rebase::RefDestination::Step(1),
+                "the branch remains at the surviving stack tip"
+            );
+            let pin = plan
+                .expected_refs
+                .iter()
+                .find(|reference| reference.name == "refs/worktree/tix/pins/autosquash")
+                .ok_or_raise(|| message("the pin is captured"))?;
+            assert_eq!(
+                pin.old,
+                Some(source_commit_id),
+                "hidden refs retain their original compare-and-swap target"
+            );
+            assert_eq!(
+                pin.source, middle_commit_id,
+                "the hidden pin follows the original stack, not a sibling of the folded result"
+            );
+            assert_eq!(pin.destination, rebase::RefDestination::Follow { tip: false });
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn autosquash_reparents_descendant_forks_and_orders_shared_target_sources() -> gix::error::TestResult {
+        let (_fixture, repo) = repo()?;
+        let base = repo.head_id()?.detach();
+        let target = append(&repo, base, "target")?;
+        let middle = append(&repo, target.id, "middle")?;
+        let first_fixup = append(&repo, middle.id, "fixup! target")?;
+        let first_child = append(&repo, first_fixup.id, "first child")?;
+        let second_child = append(&repo, first_fixup.id, "second child")?;
+        let side = append(&repo, target.id, "side")?;
+        let second_fixup = append(&repo, side.id, "squash! target")?;
+        let middle_commit_id = middle.id;
+        let expected_sources = [first_fixup.id, second_fixup.id];
+        let child_ids = [first_child.id, second_child.id];
+        let commits = [
+            target,
+            middle,
+            first_fixup,
+            first_child,
+            second_child,
+            side,
+            second_fixup,
+        ];
+        let prepared = prepare_test(&repo, base, base, &commits, None)?;
+        let plan = parse_plan(&repo, &prepared.document)?;
+        assert_eq!(
+            plan.steps[0]
+                .squash
+                .iter()
+                .map(|fold| fold.commit_id)
+                .collect::<Vec<_>>(),
+            expected_sources,
+            "shared-ancestor fixups retain original generated execution order across forks"
+        );
+        let middle_step = plan
+            .steps
+            .iter()
+            .position(|step| step.commit == rebase::PlanCommit::Pick(middle_commit_id))
+            .ok_or_raise(|| message("the intermediate commit remains"))?;
+        for child_commit_id in child_ids {
+            let child = plan
+                .steps
+                .iter()
+                .find(|step| step.commit == rebase::PlanCommit::Pick(child_commit_id))
+                .ok_or_raise(|| message("the source descendant remains"))?;
+            assert_eq!(
+                child.parents[0],
+                rebase::PlanParent::Step(middle_step),
+                "descendant forks bypass the folded source without losing intermediate commits"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn undo_queue_edits_are_rejected_before_changing_any_references() -> TestResult {
+        use super::super::undo::{self, RefChange, State};
+
+        for queue_ref in [undo::TIP_REF, undo::CURSOR_REF] {
+            let (_fixture, repo) = repo()?;
+            let (base_id, _, tip_id, commits) = commits(&repo)?;
+            let tag: gix::refs::FullName = "refs/tags/kept".try_into()?;
+            repo.reference(
+                tag.clone(),
+                base_id,
+                gix::refs::transaction::PreviousValue::MustNotExist,
+                "create a tag before rebasing",
+            )?;
+            undo::record(
+                &repo,
+                "create a tag",
+                &[RefChange {
+                    name: tag.clone(),
+                    before: State::Missing,
+                    after: State::Object(base_id),
+                }],
+            )?;
+            let queue_id = repo.find_reference(queue_ref)?.id().detach();
+            let position = undo::position(&repo)?;
+            let prepared = prepare_test(&repo, base_id, base_id, &commits, Some(tip_id))?;
+            let document = String::from_utf8(prepared.document)?.replacen(
+                "edit-refs true\n",
+                &format!(
+                    "edit-refs true\nref {base_id} {base_id} false true {tag}\nref {queue_id} {base_id} false true {queue_ref}\n"
+                ),
+                1,
+            );
+            let plan = parse_plan(&repo, document.as_bytes())?;
+            let graph = super::super::loaded_graph(&repo)?;
+            let err = rebase::perform_plan(&repo, &graph, plan)
+                .and_then(rebase::PlanPerform::complete)
+                .err()
+                .expect("the undo queue cannot be part of its own change set");
+            assert!(format!("{err:#}").contains("the undo queue cannot record itself"));
+            assert_eq!(
+                repo.try_find_reference(tag.as_ref())?
+                    .map(|reference| reference.id().detach()),
+                Some(base_id),
+                "a rejected undo change must leave every reference untouched"
+            );
+            assert_eq!(
+                repo.find_reference(queue_ref)?.id(),
+                queue_id,
+                "validation must preserve the existing undo queue"
+            );
+            assert_eq!(undo::position(&repo)?, position, "prior undo history remains usable");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn trusted_state_ref_edits_remain_undoable() -> TestResult {
+        use super::super::undo;
+        use std::fmt::Write as _;
+
+        let (_fixture, repo) = repo()?;
+        let (base_id, _, tip_id, commits) = commits(&repo)?;
+        let refs = ["refs/tags/kept", "refs/remotes/origin/kept"];
+        let existing = "refs/heads/already-there";
+        for name in refs {
+            repo.reference(
+                name,
+                base_id,
+                gix::refs::transaction::PreviousValue::MustNotExist,
+                "create a reference before rebasing",
+            )?;
+        }
+        let prepared = prepare_test(&repo, base_id, base_id, &commits, Some(tip_id))?;
+        repo.reference(
+            existing,
+            tip_id,
+            gix::refs::transaction::PreviousValue::MustNotExist,
+            "create a reference while the document is being edited",
+        )?;
+        let mut state = String::from("edit-refs true\n");
+        for name in refs {
+            writeln!(state, "ref {base_id} {base_id} false true {name}")?;
+        }
+        writeln!(state, "ref - {tip_id} false true {existing}")?;
+        let document = String::from_utf8(prepared.document)?.replacen("edit-refs true\n", &state, 1);
+        let document = format!("(already-there)\n{document}");
+        let plan = parse_plan(&repo, document.as_bytes())?;
+        let graph = super::super::loaded_graph(&repo)?;
+        let outcome = rebase::perform_plan(&repo, &graph, plan)?.complete()?;
+        assert!(
+            outcome
+                .ref_changes
+                .iter()
+                .all(|change| change.name.as_bstr() != existing),
+            "an existing reference at the requested target is a no-op, even when the document expects it missing"
+        );
+        undo::record(&repo, "apply a trusted rebase document", &outcome.ref_changes)?;
+        for name in refs {
+            assert!(
+                repo.try_find_reference(name)?.is_none(),
+                "the document controls its recorded refs"
+            );
+        }
+        undo::plan_undo(&repo)?
+            .expect("the reference changes were recorded")
+            .apply(&repo)?;
+        for name in refs {
+            assert_eq!(
+                repo.find_reference(name)?.id(),
+                base_id,
+                "undo restores each deleted reference"
+            );
+        }
+        assert_eq!(
+            repo.find_reference(existing)?.id(),
+            tip_id,
+            "undo must not delete a reference that the rebase did not create"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn anchor_metadata_quotes_terminal_controls() -> gix_testtools::Result {
+        let (_fixture, repo) = repo()?;
+        let mut commit = repo.find_commit(repo.head_id()?)?.decode()?.into_owned()?;
+        commit.message = b"anchor\x1b]0;spoof\x07".as_slice().into();
+        let commit_id = repo.write_object(&commit)?.detach();
+        let title = anchor_title(&repo, commit_id)?;
+        assert!(
+            !title.chars().any(char::is_control),
+            "todo anchors must not emit terminal controls: {title:?}"
+        );
+        assert!(title.contains("\\x1b"), "the escaped anchor title remains readable");
+        Ok(())
+    }
+
+    #[test]
+    fn markdown_flows_from_tip_to_base_and_uses_repository_abbreviations() -> TestResult {
         let (_fixture, repo) = repo()?;
         let (base, middle, tip, commits) = commits(&repo)?;
         repo.reference(
@@ -1356,8 +2546,11 @@ mod tests {
     }
 
     #[test]
-    fn enrichment_markers_precede_commit_states_in_initial_and_continuation_todos() -> gix_testtools::Result {
+    fn enrichment_markers_precede_commit_states_in_initial_and_continuation_todos() -> TestResult {
         let (_fixture, repo) = repo()?;
+        let original = repo.rev_parse_single("HEAD~1")?.detach();
+        let graph = super::super::loaded_graph(&repo)?;
+        super::super::enrich::refackiewed(&repo, Some(&graph), original, Some(true), |_| {})?;
         let (base, middle, tip, commits) = commits(&repo)?;
         crate::enrich::ensure_todo(&repo, middle, true)?;
         crate::enrich::set_note(&repo, middle, Some(b"follow up"))?;
@@ -1367,11 +2560,11 @@ mod tests {
         let prepared = prepare_test(&repo, base, base, &commits, Some(tip))?;
         let document = String::from_utf8(prepared.document)?;
         assert!(
-            document.contains(&format!("`pick {id}` 🚧📝✔️ ○ 2000-01-02")),
-            "commit and tree enrichments precede the unsigned signature state"
+            document.contains(&format!("`pick {id}` 🚧📝✔️✨ ○ 2000-01-02")),
+            "commit, tree, and current patch enrichments precede the unsigned signature state"
         );
         assert!(
-            document.contains("`🚧` means the commit is a todo, `📝` it has a note, `✔️` its tree passed checks"),
+            document.contains("`🚧` means the commit is a todo, `📝` it has a note, `✔️` its tree passed checks, `✨` its current patch was refackiewed"),
             "the embedded legend explains enrichment states"
         );
 
@@ -1384,10 +2577,12 @@ mod tests {
         let prepared = prepare_continuation(
             &repo,
             &rebase::Plan {
+                eager: Vec::new(),
+                selection: None,
                 base,
                 scope: vec![middle],
                 steps: vec![rebase::PlanStep {
-                    parent: rebase::PlanParent::Existing(base),
+                    parents: vec![rebase::PlanParent::Existing(base)],
                     commit: rebase::PlanCommit::Pick(middle),
                     squash: Vec::new(),
                 }],
@@ -1399,15 +2594,77 @@ mod tests {
         )?;
         let document = String::from_utf8(prepared.document)?;
         assert!(
-            document.contains(&format!("`pick {id}` 🚧📝✔️ ○ 🎁 middle")),
+            document.contains(&format!("`pick {id}` 🚧📝✔️✨ ○ 🎁 middle")),
             "continuation todos retain enrichment ordering before stash state"
         );
+
+        for header_state in ["missing", "stale"] {
+            let mut variant = repo.find_commit(middle)?.decode()?.into_owned()?;
+            let parent = if header_state == "missing" {
+                variant
+                    .extra_headers
+                    .retain(|(name, _)| name != crate::patch_id::HEADER);
+                base
+            } else {
+                variant.parents = [tip].into_iter().collect();
+                tip
+            };
+            let variant_id = repo.write_object(&variant)?.detach();
+            let id = crate::change_id::display_short(&repo, variant_id)?;
+            let initial = prepare_test(
+                &repo,
+                parent,
+                parent,
+                &[Commit {
+                    id: variant_id,
+                    parents: vec![parent],
+                    info: "middle".into(),
+                }],
+                Some(variant_id),
+            )?;
+            let continuation = prepare_continuation(
+                &repo,
+                &rebase::Plan {
+                    eager: Vec::new(),
+                    selection: None,
+                    base: parent,
+                    scope: vec![variant_id],
+                    steps: vec![rebase::PlanStep {
+                        parents: vec![rebase::PlanParent::Existing(parent)],
+                        commit: rebase::PlanCommit::Pick(variant_id),
+                        squash: Vec::new(),
+                    }],
+                    checkout: None,
+                    expected_refs: Vec::new(),
+                },
+                vec![variant_id],
+                true,
+            )?;
+            for (kind, document) in [("initial", initial.document), ("continuation", continuation.document)] {
+                let document = String::from_utf8(document)?;
+                let line = document
+                    .lines()
+                    .find(|line| line.contains(&format!("`pick {id}`")))
+                    .expect("the patch variant remains in the todo");
+                assert!(
+                    line.contains("🚧📝✔️"),
+                    "{kind} todos retain other enrichments with a {header_state} patch header: {line:?}"
+                );
+                assert!(
+                    !line.contains('✨'),
+                    "{kind} todos suppress a {header_state} patch approval: {line:?}"
+                );
+            }
+        }
         Ok(())
     }
 
     #[test]
-    fn malformed_enrichments_do_not_prevent_todo_generation() -> gix_testtools::Result {
+    fn malformed_enrichments_do_not_prevent_todo_generation() -> TestResult {
         let (_fixture, repo) = repo()?;
+        let original = repo.rev_parse_single("HEAD~1")?.detach();
+        let graph = super::super::loaded_graph(&repo)?;
+        super::super::enrich::refackiewed(&repo, Some(&graph), original, Some(true), |_| {})?;
         let (base, middle, tip, commits) = commits(&repo)?;
         let change_id = crate::change_id::for_commit(&repo, middle)?;
         let reference: gix::refs::FullName = crate::enrich::REF_NAME.try_into()?;
@@ -1416,6 +2673,9 @@ mod tests {
         let tree_id = crate::enrich::tree_id(&repo, middle)?;
         let reference: gix::refs::FullName = crate::enrich::TREE_REF_NAME.try_into()?;
         repo.notes()?.replace_at_ref(reference.as_ref(), tree_id, b"[tree")?;
+        let reference: gix::refs::FullName = crate::enrich::PATCH_REF_NAME.try_into()?;
+        repo.notes()?
+            .replace_at_ref(reference.as_ref(), ObjectId::from(change_id), b"[patch")?;
 
         let prepared = prepare_test(&repo, base, base, &commits, Some(tip))?;
         let document = String::from_utf8(prepared.document)?;
@@ -1424,7 +2684,7 @@ mod tests {
             .find(|line| line.contains("2000-01-02 author middle"))
             .expect("the malformed enrichment commit remains in the todo");
         assert!(line.contains(" ○ "), "ordinary commit states remain visible");
-        for marker in ["🚧", "📝", "✔️"] {
+        for marker in ["🚧", "📝", "✔️", "✨"] {
             assert!(!line.contains(marker), "malformed enrichments are ignored");
         }
         Ok(())
@@ -1446,17 +2706,18 @@ mod tests {
             checkout_allowed: true,
             head_ref: Some(name.clone()),
             edit_refs: true,
-            expected_refs: vec![rebase::ExpectedRef {
+            expected_refs: vec![rebase::PlanRef {
                 name: name.clone(),
                 old: Some(middle),
-                target: middle,
-                new: Some(middle),
-                follows_tip: true,
+                source: middle,
+                destination: rebase::RefDestination::Follow { tip: true },
                 editable: true,
-                placement: None,
             }],
             resolved: None,
             continuation_sources: Vec::new(),
+            eager: Vec::new(),
+            selection: None,
+            existing_checkout: None,
         };
         let mut document = Vec::new();
         write_state(&mut document, &state);
@@ -1465,14 +2726,19 @@ mod tests {
             document.contains(r#""refs/heads/\377""#),
             "non-UTF-8 names use Git quoting"
         );
-        let parsed = parse_state(&repo, &document)?.context("state is present")?;
+        let parsed = parse_state(&repo, &document)?.ok_or_raise(|| message("state is present"))?;
         assert_eq!(parsed.expected_refs[0].name, name, "quoted names round-trip losslessly");
-        let old = document.replacen("tix-rebase-state-v2", "tix-rebase-state-v1", 1);
-        let err = match parse_state(&repo, &old) {
-            Ok(_) => panic!("v1 order would be ambiguous under v2 semantics"),
-            Err(err) => err,
-        };
-        assert!(format!("{err:#}").contains("unsupported state version"));
+        for version in ["v1", "v2"] {
+            let old = document.replacen("tix-rebase-state-v3", &format!("tix-rebase-state-{version}"), 1);
+            let err = match parse_state(&repo, &old) {
+                Ok(_) => panic!("old todos cannot retain ordered merge parents"),
+                Err(err) => err,
+            };
+            assert!(
+                format!("{err:#}").contains("unsupported state version"),
+                "old todo versions are rejected explicitly"
+            );
+        }
         assert_eq!(
             parsed.head_ref,
             Some(name),
@@ -1482,23 +2748,21 @@ mod tests {
         assert!(parse(&repo, b"")?.is_none(), "empty input cancels");
         assert!(parse(&repo, b"pick deadbeef")?.is_none(), "removing the anchor cancels");
         assert!(
-            parse(&repo, b"<!-- tix-rebase-state-v2\n-->").is_err(),
+            parse(&repo, b"<!-- tix-rebase-state-v3\n-->").is_err(),
             "an unsupported present anchor is rejected"
         );
         Ok(())
     }
 
     #[test]
-    fn an_unchanged_todo_replays_pending_commits_with_normal_plan_semantics() -> gix_testtools::Result {
+    fn an_unchanged_todo_replays_pending_commits_with_normal_plan_semantics() -> TestResult {
         let (fixture, repo) = repo()?;
         let (base, middle, old_tip, _) = commits(&repo)?;
         let graph = super::super::loaded_graph(&repo)?;
         let mut commit = repo.find_commit(middle)?.decode()?.into_owned()?;
         commit.tree = repo.find_commit(base)?.tree_id()?.detach();
         assert!(
-            Command::new("git")
-                .arg("-C")
-                .arg(fixture.path())
+            gix_testtools::git_command(fixture.path())
                 .args(["checkout", "-q", "--detach", &base.to_string()])
                 .status()?
                 .success(),
@@ -1515,11 +2779,11 @@ mod tests {
         let marked = marked_outcome
             .selected
             .expect("the pending replacement selects its rewritten commit");
-        let tip = marked_outcome.map(old_tip).context("the pending tip is retained")?;
+        let tip = marked_outcome
+            .map(old_tip)
+            .ok_or_raise(|| message("the pending tip is retained"))?;
         assert!(
-            Command::new("git")
-                .arg("-C")
-                .arg(fixture.path())
+            gix_testtools::git_command(fixture.path())
                 .args(["checkout", "-q", "main"])
                 .status()?
                 .success(),
@@ -1557,9 +2821,7 @@ mod tests {
             assert!(!rebase::has_marker(&commit), "the eager @ ancestry is replayed");
             current = commit.parents.first().copied();
         }
-        let files = Command::new("git")
-            .arg("-C")
-            .arg(fixture.path())
+        let files = gix_testtools::git_command(fixture.path())
             .args(["ls-tree", "-r", "--name-only", "HEAD"])
             .output()?;
         assert!(files.status.success());
@@ -1568,7 +2830,7 @@ mod tests {
     }
 
     #[test]
-    fn pending_commits_outside_the_checkout_ancestry_do_not_apply_an_unchanged_todo() -> gix_testtools::Result {
+    fn pending_commits_outside_the_checkout_ancestry_do_not_apply_an_unchanged_todo() -> TestResult {
         let (_fixture, repo) = repo()?;
         let (base, middle, tip, mut commits) = commits(&repo)?;
         let mut sibling = repo.find_commit(tip)?.decode()?.into_owned()?;
@@ -1594,17 +2856,14 @@ mod tests {
             "the first line identifies an unchanged todo as a no-op"
         );
         assert!(
-            prepared
-                .document
-                .windows("↻".len())
-                .any(|window| window == "↻".as_bytes()),
+            prepared.document.contains_str("↻"),
             "the pending sibling remains visible in the todo"
         );
         Ok(())
     }
 
     #[test]
-    fn descendant_forks_stay_terse() -> gix_testtools::Result {
+    fn descendant_forks_stay_terse() -> TestResult {
         let (_fixture, repo) = repo()?;
         let (base, middle, tip, mut commits) = commits(&repo)?;
         let mut sibling = repo.find_commit(tip)?.decode()?.into_owned()?;
@@ -1636,7 +2895,72 @@ mod tests {
     }
 
     #[test]
-    fn update_todo_roots_the_stack_at_the_hidden_tip_and_labels_only_that_heading() -> gix_testtools::Result {
+    fn shared_updated_base_refs_are_written_once_during_review() -> gix::error::TestResult {
+        let (fixture, repo) = repo()?;
+        let (_old_base, base, reviewed, _) = commits(&repo)?;
+        assert!(
+            gix_testtools::git_command(fixture.path())
+                .args(["switch", "-q", "-c", "topic"])
+                .status()?
+                .success(),
+            "the review return branch is prepared"
+        );
+        let graph = super::super::loaded_graph(&repo)?;
+        drop(repo);
+        let started = super::super::review::start(fixture.path(), false, &graph, reviewed, base)?;
+        assert!(started.checkout_error.is_none(), "the review checkout succeeds");
+
+        let repo = crate::test_repository::open_with(
+            fixture.path(),
+            ["core.abbrev=7", "user.name=todo author", "user.email=todo@example.com"],
+        )?;
+        let mut updated = repo.find_commit(base)?.decode()?.into_owned()?;
+        updated.parents = [base].into_iter().collect();
+        updated.message = "updated base".into();
+        let updated = repo.write_object(&updated)?.detach();
+        repo.reference(
+            "refs/heads/main",
+            updated,
+            gix::refs::transaction::PreviousValue::ExistingMustMatch(gix::refs::Target::Object(reviewed)),
+            "advance the hidden base",
+        )?;
+
+        let prepared = prepare_test(
+            &repo,
+            base,
+            updated,
+            &[
+                Commit {
+                    id: started.commit,
+                    parents: vec![base],
+                    info: "review".into(),
+                },
+                Commit {
+                    id: reviewed,
+                    parents: vec![base],
+                    info: "reviewed".into(),
+                },
+            ],
+            Some(started.commit),
+        )?;
+        let document = String::from_utf8(prepared.document.clone())?;
+        assert_eq!(
+            document.lines().filter(|line| *line == "(main)").count(),
+            1,
+            "a mutable ref at a shared fork target is emitted once"
+        );
+        let plan = parse_plan(&repo, &prepared.document)?;
+        assert!(
+            plan.expected_refs.iter().any(|reference| {
+                reference.name == started.reference && !reference.editable && reference.source == reviewed
+            }),
+            "the active review remains part of the rebase transaction"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn update_todo_roots_the_stack_at_the_hidden_tip_and_labels_only_that_heading() -> TestResult {
         let (_fixture, repo) = repo()?;
         let (base, middle, tip, commits) = commits(&repo)?;
         let mut commit = repo.find_commit(base)?.decode()?.into_owned()?;
@@ -1665,20 +2989,20 @@ mod tests {
         );
         assert!(
             document.contains(&format!(
-                "fork {} (updated-base) [A] [N] updated * _ [hidden] <base> `raw` \\ base",
+                r#"fork {} (updated-base) "[A] [N] updated * _ [hidden] <base> `raw` \\ base""#,
                 crate::change_id::display_short(&repo, onto)?
             )),
-            "the unfamiliar fork target carries its raw UI title"
+            "the unfamiliar fork target carries its safely quoted title"
         );
         assert_eq!(
-            document.matches("updated * _ [hidden] <base> `raw` \\ base").count(),
+            document.matches(r"updated * _ [hidden] <base> `raw` \\ base").count(),
             1,
             "only the new update target is labelled"
         );
 
         let plan = parse_plan(&repo, document.as_bytes())?;
         assert_eq!(plan.base, onto);
-        assert_eq!(plan.steps[0].parent, rebase::PlanParent::Existing(onto));
+        assert_eq!(plan.steps[0].parents[0], rebase::PlanParent::Existing(onto));
         let graph = super::super::loaded_graph(&repo)?;
         let outcome = rebase::perform_plan(&repo, &graph, plan)?.complete()?;
         let rewritten_middle = outcome.map(middle).expect("the middle commit is retained");
@@ -1694,7 +3018,50 @@ mod tests {
     }
 
     #[test]
-    fn parses_reordering_forks_empty_commits_and_a_moved_checkout() -> gix_testtools::Result {
+    fn update_todo_moves_a_branch_with_no_commits_to_the_new_base() -> TestResult {
+        let (fixture, repo) = repo()?;
+        let (base, onto, _tip, _commits) = commits(&repo)?;
+        assert!(
+            gix_testtools::git_command(fixture.path())
+                .args(["switch", "-q", "-c", "empty", &base.to_string()])
+                .status()?
+                .success(),
+            "the fixture starts a branch without commits above its base"
+        );
+
+        let prepared = prepare_test(&repo, base, onto, &[], Some(base))?;
+        assert!(
+            prepared.apply_unchanged,
+            "moving an empty stack's base makes the unchanged todo actionable"
+        );
+        let document = String::from_utf8(prepared.document)?;
+        assert!(
+            document.lines().any(|line| line == "(empty)"),
+            "the branch at the old base moves with the generated todo"
+        );
+        let plan = parse_plan(&repo, document.as_bytes())?;
+        assert!(plan.steps.is_empty(), "updating an empty stack creates no commits");
+        assert_eq!(
+            plan.expected_refs
+                .iter()
+                .find(|reference| reference.name == "refs/heads/empty")
+                .and_then(|reference| reference.destination.placement()),
+            Some(rebase::PlanParent::Existing(onto)),
+            "the current branch is placed at the updated base"
+        );
+
+        let graph = super::super::loaded_graph(&repo)?;
+        rebase::perform_plan(&repo, &graph, plan)?.complete()?;
+        assert_eq!(
+            repo.head_id()?.detach(),
+            onto,
+            "the checked-out branch advances to the updated base"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn parses_reordering_forks_empty_commits_and_a_moved_checkout() -> TestResult {
         let (_fixture, repo) = repo()?;
         let (base, middle, tip, commits) = commits(&repo)?;
         let prepared = prepare_test(&repo, base, base, &commits, Some(tip))?;
@@ -1724,13 +3091,13 @@ mod tests {
             plan.checkout.as_ref().map(|checkout| checkout.target),
             Some(rebase::PlanParent::Step(2))
         );
-        assert_eq!(plan.steps[2].parent, rebase::PlanParent::Step(0));
+        assert_eq!(plan.steps[2].parents[0], rebase::PlanParent::Step(0));
         assert!(matches!(&plan.steps[1].commit, rebase::PlanCommit::Empty(title) if title == b"a new checkpoint"));
         Ok(())
     }
 
     #[test]
-    fn squash_above_a_command_folds_into_it_and_may_carry_checkout() -> gix_testtools::Result {
+    fn squash_above_a_command_folds_into_it_and_may_carry_checkout() -> TestResult {
         let (_fixture, repo) = repo()?;
         let (base, middle, tip, commits) = commits(&repo)?;
         let prepared = prepare_test(&repo, base, base, &commits, Some(tip))?;
@@ -1746,14 +3113,14 @@ mod tests {
         );
         let plan = parse_plan(&repo, &edited)?;
         assert_eq!(plan.steps.len(), 2, "squash does not produce another commit");
-        assert_eq!(plan.steps[0].squash, [tip]);
+        assert_eq!(plan.steps[0].squash, [tip.into()]);
         assert_eq!(
             plan.checkout.as_ref().map(|checkout| checkout.target),
             Some(rebase::PlanParent::Step(0)),
             "the squash marker selects the folded result"
         );
         assert_eq!(
-            plan.steps[1].parent,
+            plan.steps[1].parents[0],
             rebase::PlanParent::Step(0),
             "the squashed ID resolves to the folded result as a fork target"
         );
@@ -1773,32 +3140,159 @@ mod tests {
     }
 
     #[test]
-    fn continuation_todos_round_trip_the_resolved_index_and_remaining_squashes() -> gix_testtools::Result {
+    fn continuation_metadata_tracks_edited_commits_and_preserves_an_external_checkout() -> gix::error::TestResult {
+        let (_fixture, repo) = repo()?;
+        let (base, middle, tip, _) = commits(&repo)?;
+        let external = append(&repo, base, "unaffected checkout")?.id;
+        let branch: gix::refs::FullName = "refs/heads/unaffected".try_into()?;
+        repo.reference(
+            branch.clone(),
+            external,
+            gix::refs::transaction::PreviousValue::MustNotExist,
+            "retain checkout",
+        )?;
+        let plan = rebase::Plan {
+            base,
+            scope: vec![middle, tip],
+            steps: vec![
+                rebase::PlanStep {
+                    parents: vec![rebase::PlanParent::Existing(base)],
+                    commit: rebase::PlanCommit::Resolved(middle),
+                    squash: Vec::new(),
+                },
+                rebase::PlanStep {
+                    parents: vec![rebase::PlanParent::Step(0)],
+                    commit: rebase::PlanCommit::Pick(tip),
+                    squash: Vec::new(),
+                },
+            ],
+            checkout: Some(rebase::PlanCheckout {
+                target: rebase::PlanParent::Existing(external),
+                reference: Some(branch.clone()),
+            }),
+            expected_refs: vec![rebase::PlanRef {
+                name: branch.clone(),
+                old: Some(external),
+                source: external,
+                destination: rebase::RefDestination::Existing(external),
+                editable: true,
+            }],
+            eager: vec![1],
+            selection: Some(rebase::PlanParent::Step(0)),
+        };
+        let prepared = prepare_continuation(&repo, &plan, Vec::new(), false)?;
+        let parsed = parse_plan(&repo, &prepared.document)?;
+        assert_eq!(
+            parsed.eager,
+            [1],
+            "the pending child remains eager independently of checkout"
+        );
+        assert_eq!(parsed.selection, Some(rebase::PlanParent::Step(0)));
+        assert_eq!(
+            parsed.checkout.as_ref().map(|checkout| checkout.target),
+            Some(rebase::PlanParent::Existing(external))
+        );
+        assert_eq!(
+            parsed
+                .checkout
+                .as_ref()
+                .and_then(|checkout| checkout.reference.as_ref()),
+            Some(&branch),
+            "an unaffected checkout retains its branch without an @ command"
+        );
+        assert!(
+            !parsed.expected_refs[0].editable,
+            "an undisplayed external ref cannot be deleted by omission"
+        );
+
+        let null = ObjectId::null(repo.object_hash());
+        let reordered = with_state(&prepared, &format!("fork {base}\npick {tip}\npick {null}\n"));
+        let parsed = parse_plan(&repo, &reordered)?;
+        assert_eq!(parsed.eager, [0], "replay follows the child's ID after reordering");
+        assert_eq!(
+            parsed.selection,
+            Some(rebase::PlanParent::Step(1)),
+            "selection follows the produced root after reordering"
+        );
+        let dropped_eager = with_state(&prepared, &format!("fork {base}\npick {null}\n"));
+        assert!(
+            parse_plan(&repo, &dropped_eager)?.eager.is_empty(),
+            "dropping the eager commit drops its replay requirement"
+        );
+        let dropped_selection = with_state(&prepared, &format!("fork {base}\npick {tip}\n"));
+        let parsed = parse_plan(&repo, &dropped_selection)?;
+        assert_eq!(
+            parsed.selection, None,
+            "dropping the selected commit falls back to the checkout"
+        );
+        assert_eq!(
+            parsed.checkout.as_ref().map(|checkout| checkout.target),
+            Some(rebase::PlanParent::Existing(external))
+        );
+
+        let continued = prepare_continuation(
+            &repo,
+            &rebase::Plan {
+                base: middle,
+                scope: vec![tip],
+                steps: vec![rebase::PlanStep {
+                    parents: vec![rebase::PlanParent::Existing(middle)],
+                    commit: rebase::PlanCommit::Resolved(tip),
+                    squash: Vec::new(),
+                }],
+                eager: vec![0],
+                selection: Some(rebase::PlanParent::Existing(middle)),
+                checkout: plan.checkout,
+                expected_refs: Vec::new(),
+            },
+            Vec::new(),
+            false,
+        )?;
+        let parsed = parse_plan(&repo, &continued.document)?;
+        assert_eq!(
+            parsed.selection,
+            Some(rebase::PlanParent::Existing(middle)),
+            "a completed selected root survives a later conflict outside its remaining scope"
+        );
+        assert_eq!(parsed.eager, [0]);
+        assert_eq!(
+            parsed
+                .checkout
+                .as_ref()
+                .and_then(|checkout| checkout.reference.as_ref()),
+            Some(&branch),
+            "the original checkout survives another continuation without a captured ref"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn continuation_todos_round_trip_the_resolved_index_and_remaining_squashes() -> TestResult {
         let (_fixture, repo) = repo()?;
         let (base, middle, tip, _) = commits(&repo)?;
         let branch: gix::refs::FullName = "refs/heads/continued".try_into()?;
         let prepared = prepare_continuation(
             &repo,
             &rebase::Plan {
+                eager: Vec::new(),
+                selection: None,
                 base,
                 scope: vec![middle, tip],
                 steps: vec![rebase::PlanStep {
-                    parent: rebase::PlanParent::Existing(base),
+                    parents: vec![rebase::PlanParent::Existing(base)],
                     commit: rebase::PlanCommit::Resolved(middle),
-                    squash: vec![tip],
+                    squash: vec![tip.into()],
                 }],
                 checkout: Some(rebase::PlanCheckout {
                     target: rebase::PlanParent::Step(0),
                     reference: Some(branch.clone()),
                 }),
-                expected_refs: vec![rebase::ExpectedRef {
+                expected_refs: vec![rebase::PlanRef {
                     name: branch.clone(),
                     old: None,
-                    target: middle,
-                    new: Some(middle),
-                    follows_tip: false,
+                    source: middle,
+                    destination: rebase::RefDestination::Step(0),
                     editable: true,
-                    placement: Some(rebase::PlanParent::Step(0)),
                 }],
             },
             vec![middle],
@@ -1823,7 +3317,7 @@ mod tests {
         );
         let plan = parse_plan(&repo, &prepared.document)?;
         assert!(matches!(plan.steps[0].commit, rebase::PlanCommit::Resolved(id) if id == middle));
-        assert_eq!(plan.steps[0].squash, [tip]);
+        assert_eq!(plan.steps[0].squash, [tip.into()]);
         assert_eq!(
             plan.checkout.as_ref().and_then(|checkout| checkout.reference.as_ref()),
             Some(&branch),
@@ -1832,14 +3326,14 @@ mod tests {
         assert!(
             plan.expected_refs.iter().any(|reference| reference.name == branch
                 && reference.old.is_none()
-                && reference.placement == Some(rebase::PlanParent::Step(0))),
+                && reference.destination == rebase::RefDestination::Step(0)),
             "a pending branch creation retains its nonexistence check and placement"
         );
         Ok(())
     }
 
     #[test]
-    fn unchanged_checkout_marker_cannot_be_removed() -> gix_testtools::Result {
+    fn unchanged_checkout_marker_cannot_be_removed() -> TestResult {
         let (_fixture, repo) = repo()?;
         let (base, _middle, tip, commits) = commits(&repo)?;
         let prepared = prepare_test(&repo, base, base, &commits, Some(tip))?;
@@ -1852,7 +3346,7 @@ mod tests {
     }
 
     #[test]
-    fn reference_lines_move_create_delete_and_detach_head() -> gix_testtools::Result {
+    fn reference_lines_move_create_delete_and_detach_head() -> TestResult {
         let (fixture, _) = repo()?;
         crate::test_repository::disable_autocrlf(fixture.path())?;
         let repo = crate::test_repository::open_with(
@@ -1914,12 +3408,13 @@ mod tests {
         );
         let graph = super::super::loaded_graph(&repo)?;
         let outcome = rebase::perform_plan(&repo, &graph, plan)?.complete()?;
-        super::super::time_travel::checkout_plan(repo.git_dir(), false, &outcome, &[], false)?;
 
         assert!(repo.head()?.referent_name().is_none(), "HEAD is detached");
         assert_eq!(
             repo.find_reference("refs/heads/new-1")?.id(),
-            outcome.map(middle).context("the middle commit is retained")?,
+            outcome
+                .map(middle)
+                .ok_or_raise(|| message("the middle commit is retained"))?,
             "the new branch line points at the following command below it"
         );
         assert!(
@@ -1936,7 +3431,7 @@ mod tests {
     }
 
     #[test]
-    fn reference_lines_import_out_of_scope_refs_and_may_attach_head() -> gix_testtools::Result {
+    fn reference_lines_import_out_of_scope_refs_and_may_attach_head() -> TestResult {
         let (fixture, repo) = repo()?;
         let (base, middle, tip, commits) = commits(&repo)?;
         for name in ["refs/heads/outside", "refs/patches/attach"] {
@@ -1960,12 +3455,15 @@ mod tests {
         let plan = parse_plan(&repo, &edited)?;
         let graph = super::super::loaded_graph(&repo)?;
         let outcome = rebase::perform_plan(&repo, &graph, plan)?.complete()?;
-        let selected = outcome.selected.context("the todo retains its checkout")?;
-        super::super::time_travel::checkout_plan(repo.git_dir(), false, &outcome, &[], false)?;
+        let selected = outcome
+            .selected
+            .ok_or_raise(|| message("the todo retains its checkout"))?;
 
         assert_eq!(
             repo.find_reference("refs/heads/outside")?.id(),
-            outcome.map(middle).context("the middle commit is retained")?,
+            outcome
+                .map(middle)
+                .ok_or_raise(|| message("the middle commit is retained"))?,
             "an unmarked out-of-scope ref moves like a generated ref"
         );
         assert_eq!(
@@ -1992,13 +3490,11 @@ mod tests {
     }
 
     #[test]
-    fn rewritten_detached_head_is_not_pinned_before_checkout() -> gix_testtools::Result {
+    fn rewritten_detached_head_is_not_pinned_before_checkout() -> TestResult {
         let (fixture, repo) = repo()?;
         let (base, _middle, tip, commits) = commits(&repo)?;
         assert!(
-            Command::new("git")
-                .arg("-C")
-                .arg(fixture.path())
+            gix_testtools::git_command(fixture.path())
                 .args(["checkout", "--quiet", "--detach", &tip.to_string()])
                 .status()?
                 .success(),
@@ -2016,10 +3512,10 @@ mod tests {
         let plan = parse_plan(&repo, &edited)?;
         let graph = super::super::loaded_graph(&repo)?;
         let outcome = rebase::perform_plan(&repo, &graph, plan)?.complete()?;
-        let selected = outcome.selected.context("the rewritten todo retains @")?;
+        let selected = outcome
+            .selected
+            .ok_or_raise(|| message("the rewritten todo retains @"))?;
         assert_ne!(selected, tip, "dropping the middle commit rewrites the checked-out tip");
-
-        super::super::time_travel::checkout_plan(repo.git_dir(), false, &outcome, &[], false)?;
 
         assert_eq!(repo.head_id()?, selected, "HEAD reaches the rewritten successor");
         assert!(
@@ -2030,7 +3526,7 @@ mod tests {
     }
 
     #[test]
-    fn deleting_the_current_branch_is_deferred_until_head_detaches() -> gix_testtools::Result {
+    fn deleting_the_current_branch_is_deferred_until_head_detaches() -> TestResult {
         let (_fixture, repo) = repo()?;
         let (base, _middle, tip, commits) = commits(&repo)?;
         let prepared = prepare_test(&repo, base, base, &commits, Some(tip))?;
@@ -2041,28 +3537,29 @@ mod tests {
         let plan = parse_plan(&repo, &edited)?;
         let graph = super::super::loaded_graph(&repo)?;
         let outcome = rebase::perform_plan(&repo, &graph, plan)?.complete()?;
-        assert!(
-            repo.try_find_reference("refs/heads/main")?.is_some(),
-            "the checked-out branch remains until checkout succeeds"
-        );
-        super::super::time_travel::checkout_plan(repo.git_dir(), false, &outcome, &[], false)?;
         assert!(repo.head()?.referent_name().is_none(), "HEAD is detached");
         assert!(
             repo.try_find_reference("refs/heads/main")?.is_none(),
             "the departed current branch is deleted"
         );
+        assert!(
+            outcome.ref_changes.iter().any(|change| {
+                change.name.as_bstr() == b"refs/heads/main"
+                    && change.before == super::super::undo::State::Object(tip)
+                    && change.after == super::super::undo::State::Missing
+            }),
+            "undo includes the deletion performed after checkout"
+        );
         Ok(())
     }
 
     #[test]
-    fn todos_reject_an_unborn_head() -> gix_testtools::Result {
+    fn todos_reject_an_unborn_head() -> TestResult {
         let (fixture, repo) = repo()?;
         let (base, _middle, _tip, commits) = commits(&repo)?;
         let prepared = prepare_test(&repo, base, base, &commits, None)?;
         assert!(
-            Command::new("git")
-                .arg("-C")
-                .arg(fixture.path())
+            gix_testtools::git_command(fixture.path())
                 .args(["symbolic-ref", "HEAD", "refs/heads/unborn"])
                 .status()?
                 .success(),

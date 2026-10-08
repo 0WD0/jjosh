@@ -1,14 +1,18 @@
 mod mark_path {
+    use crate::TestResult;
     use gix_tempfile::{AutoRemove, ContainingDirectory};
 
     #[test]
-    fn it_persists_markers_along_with_newly_created_directories() -> crate::Result {
+    fn it_persists_markers_along_with_newly_created_directories() -> TestResult {
         let dir = tempfile::tempdir()?;
         let target = dir.path().join("a").join("b").join("file.tmp");
         let new_filename = target.parent().unwrap().join("file.ext");
         let handle = gix_tempfile::mark_at(
             &target,
-            ContainingDirectory::CreateAllRaceProof(Default::default()),
+            ContainingDirectory::CreateAllRaceProof {
+                retries: Default::default(),
+                shared_repository_permissions: 0,
+            },
             AutoRemove::TempfileAndEmptyParentDirectoriesUntil {
                 boundary_directory: dir.path().into(),
             },
@@ -18,6 +22,10 @@ mod mark_path {
         let err = handle
             .persist(&new_filename)
             .expect_err("cannot persist onto directory");
+        assert!(
+            std::error::Error::source(&err).is_some_and(<dyn std::error::Error>::is::<std::io::Error>),
+            "the persistence error exposes its I/O cause for classification"
+        );
         let handle = err.handle;
         std::fs::remove_dir(&new_filename)?;
 
@@ -31,13 +39,16 @@ mod mark_path {
     }
 
     #[test]
-    fn it_can_create_the_containing_directory_and_remove_it_on_drop() -> crate::Result {
+    fn it_can_create_the_containing_directory_and_remove_it_on_drop() -> TestResult {
         let dir = tempfile::tempdir()?;
         let first_dir = "dir";
         let filename = dir.path().join(first_dir).join("subdir").join("file.tmp");
         let tempfile = gix_tempfile::mark_at(
             &filename,
-            ContainingDirectory::CreateAllRaceProof(Default::default()),
+            ContainingDirectory::CreateAllRaceProof {
+                retries: Default::default(),
+                shared_repository_permissions: 0,
+            },
             AutoRemove::TempfileAndEmptyParentDirectoriesUntil {
                 boundary_directory: dir.path().into(),
             },
@@ -56,16 +67,20 @@ mod mark_path {
     }
 }
 mod at_path {
+    use crate::TestResult;
     use gix_tempfile::{AutoRemove, ContainingDirectory};
 
     #[test]
-    fn reduce_resource_usage_by_converting_files_to_markers_and_persist_them() -> crate::Result {
+    fn reduce_resource_usage_by_converting_files_to_markers_and_persist_them() -> TestResult {
         let dir = tempfile::tempdir()?;
         let target = dir.path().join("a").join("file.tmp");
         let new_filename = target.parent().unwrap().join("file.ext");
         let mut file = gix_tempfile::writable_at(
             &target,
-            ContainingDirectory::CreateAllRaceProof(Default::default()),
+            ContainingDirectory::CreateAllRaceProof {
+                retries: Default::default(),
+                shared_repository_permissions: 0,
+            },
             AutoRemove::TempfileAndEmptyParentDirectoriesUntil {
                 boundary_directory: dir.path().into(),
             },
@@ -88,7 +103,7 @@ mod at_path {
     use std::io::{ErrorKind, Write};
 
     #[test]
-    fn it_persists_tempfiles_along_with_newly_created_directories() -> crate::Result {
+    fn it_persists_tempfiles_along_with_newly_created_directories() -> TestResult {
         let dir = tempfile::tempdir()?;
         let target = dir.path().join("a").join("b").join("file.tmp");
         let new_filename = target.parent().unwrap().join("file.ext");
@@ -98,7 +113,10 @@ mod at_path {
         );
         let handle = gix_tempfile::writable_at(
             &target,
-            ContainingDirectory::CreateAllRaceProof(Default::default()),
+            ContainingDirectory::CreateAllRaceProof {
+                retries: Default::default(),
+                shared_repository_permissions: 0,
+            },
             AutoRemove::TempfileAndEmptyParentDirectoriesUntil {
                 boundary_directory: dir.path().into(),
             },
@@ -107,6 +125,10 @@ mod at_path {
         let err = handle
             .persist(&new_filename)
             .expect_err("cannot persist onto directory");
+        assert!(
+            std::error::Error::source(&err).is_some_and(<dyn std::error::Error>::is::<std::io::Error>),
+            "the persistence error exposes its I/O cause for classification"
+        );
         let handle = err.handle;
         std::fs::remove_dir(&new_filename)?;
 
@@ -128,7 +150,7 @@ mod at_path {
 
     #[test]
     #[cfg(windows)]
-    fn persistence_replaces_readonly_files_and_retains_the_tempfiles_permissions() -> crate::Result {
+    fn persistence_replaces_readonly_files_and_retains_the_tempfiles_permissions() -> TestResult {
         let dir = tempfile::tempdir()?;
         let tempfile_path = dir.path().join("file.lock");
         let destination = dir.path().join("file");
@@ -147,23 +169,23 @@ mod at_path {
 
         drop(handle.persist(&destination)?);
         assert_eq!(std::fs::read(&destination)?, b"new", "the destination was replaced");
-        let mut permissions = std::fs::metadata(&destination)?.permissions();
-        let is_readonly = permissions.readonly();
-        #[expect(clippy::permissions_set_readonly_false, reason = "this test only runs on Windows")]
-        permissions.set_readonly(false);
-        std::fs::set_permissions(&destination, permissions)?;
+        let is_readonly = std::fs::metadata(&destination)?.permissions().readonly();
+        gix_fs::clear_readonly_attribute(&destination)?;
         assert!(is_readonly, "the persisted tempfile retained its read-only permission");
         Ok(())
     }
 
     #[test]
-    fn it_can_create_the_containing_directory_and_remove_it_on_drop() -> crate::Result {
+    fn it_can_create_the_containing_directory_and_remove_it_on_drop() -> TestResult {
         let dir = tempfile::tempdir()?;
         let first_dir = "dir";
         let filename = dir.path().join(first_dir).join("subdir").join("file.tmp");
         let tempfile = gix_tempfile::writable_at(
             &filename,
-            ContainingDirectory::CreateAllRaceProof(Default::default()),
+            ContainingDirectory::CreateAllRaceProof {
+                retries: Default::default(),
+                shared_repository_permissions: 0,
+            },
             AutoRemove::TempfileAndEmptyParentDirectoriesUntil {
                 boundary_directory: dir.path().into(),
             },
@@ -183,13 +205,23 @@ mod at_path {
     }
 
     #[test]
-    fn it_names_files_correctly_and_similarly_named_tempfiles_cannot_be_created() -> crate::Result {
+    fn it_names_files_correctly_and_similarly_named_tempfiles_cannot_be_created() -> TestResult {
         let dir = tempfile::tempdir()?;
         let filename = dir.path().join("something-specific.ext");
         let tempfile = gix_tempfile::writable_at(&filename, ContainingDirectory::Exists, AutoRemove::Tempfile)?;
         let res = gix_tempfile::writable_at(&filename, ContainingDirectory::Exists, AutoRemove::Tempfile);
+        let failure = res.expect_err("the operation must fail");
+        insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&failure, &[(&filename.to_string_lossy(), "<root>/something-specific.ext")]), "only one tempfile can be created at a time, they are exclusive", @r#"
+        Custom {
+            kind: AlreadyExists,
+            error: PathError {
+                path: "<root>/something-specific.ext",
+                err: AlreadyExists,
+            },
+        }
+        "#);
         assert!(
-            matches!(res, Err(err) if err.kind() == ErrorKind::AlreadyExists),
+            matches!(failure, err if err.kind() == ErrorKind::AlreadyExists),
             "only one tempfile can be created at a time, they are exclusive"
         );
         assert!(filename.is_file(), "specified file should exist precisely");
@@ -201,6 +233,7 @@ mod at_path {
 }
 
 mod new {
+    use crate::TestResult;
     use std::{
         io::{ErrorKind, Write},
         path::Path,
@@ -213,7 +246,7 @@ mod new {
     }
 
     #[test]
-    fn it_can_be_kept() -> crate::Result {
+    fn it_can_be_kept() -> TestResult {
         let dir = tempfile::tempdir()?;
         drop(
             gix_tempfile::new(dir.path(), ContainingDirectory::Exists, AutoRemove::Tempfile)?
@@ -226,7 +259,7 @@ mod new {
     }
 
     #[test]
-    fn it_is_removed_if_it_goes_out_of_scope() -> crate::Result {
+    fn it_is_removed_if_it_goes_out_of_scope() -> TestResult {
         let dir = tempfile::tempdir()?;
         {
             let _keep = gix_tempfile::new(dir.path(), ContainingDirectory::Exists, AutoRemove::Tempfile)?;
@@ -237,14 +270,17 @@ mod new {
     }
 
     #[test]
-    fn it_can_create_the_containing_directory_and_remove_it_when_dropped() -> crate::Result {
+    fn it_can_create_the_containing_directory_and_remove_it_when_dropped() -> TestResult {
         let dir = tempfile::tempdir()?;
         let containing_dir = dir.path().join("dir");
         assert!(!containing_dir.exists());
         {
             let mut writable = gix_tempfile::new(
                 &containing_dir,
-                ContainingDirectory::CreateAllRaceProof(Default::default()),
+                ContainingDirectory::CreateAllRaceProof {
+                    retries: Default::default(),
+                    shared_repository_permissions: 0,
+                },
                 AutoRemove::TempfileAndEmptyParentDirectoriesUntil {
                     boundary_directory: dir.path().into(),
                 },
@@ -255,17 +291,16 @@ mod new {
                 "a temp file was created, as well as the directory"
             );
             writable.with_mut(|tf| tf.write_all(b"hello world"))??;
-            assert_eq!(
-                writable
-                    .with_mut(|_tf| Err::<(), std::io::Error>(ErrorKind::Other.into()))?
-                    .unwrap_err()
-                    .kind(),
-                ErrorKind::Other,
-                "errors are propagated"
-            );
-            writable
-                .with_mut(|tf| assert!(tf.path().is_file()))
-                .expect("after seeing an error before the file still exists");
+            let err = writable
+                .with_mut(|_tf| Err::<(), std::io::Error>(ErrorKind::Other.into()))?
+                .expect_err("the write closure failed");
+            insta::assert_debug_snapshot!(err, "temporary-file access propagates the write closure's error", @"
+            Kind(
+                Other,
+            )
+            ");
+            assert_eq!(err.kind(), ErrorKind::Other, "errors are propagated");
+            writable.with_mut(|tf| assert!(tf.path().is_file()))?;
         }
         assert!(!containing_dir.is_dir(), "the now empty directory was deleted as well");
         assert!(dir.path().is_dir(), "it won't touch the containing directory");

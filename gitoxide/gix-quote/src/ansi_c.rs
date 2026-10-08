@@ -1,13 +1,8 @@
-///
-pub mod undo {
-    /// The error returned by [`ansi_c`](crate::ansi_c::undo()).
-    pub type Error = gix_error::Exn<gix_error::ValidationError>;
-}
-
+use gix_error::Result;
 use std::{borrow::Cow, io::Read};
 
 use bstr::{BStr, BString, ByteSlice};
-use gix_error::{ErrorExt, OptionExt, ResultExt, ValidationError};
+use gix_error::{OptionExt, ResultExt, bail, validation};
 
 /// Quote `input` using Git's C-style quotation rules.
 ///
@@ -55,29 +50,29 @@ pub fn quote(input: &BStr) -> Cow<'_, BStr> {
 /// The amount of consumed bytes allow to pass strings that start with a quote, and skip all quoted text for additional processing
 ///
 /// A quote that is never closed is an error.
+/// Errors include the original or remaining `input` bytes as [metadata](gix_error::Error::metadata()).
 /// See [the tests][tests] for quotation examples.
 ///
 /// [tests]: https://github.com/GitoxideLabs/gitoxide/blob/64872690e60efdd9267d517f4d9971eecd3b875c/gix-quote/tests/quote.rs#L57-L74
-pub fn undo(input: &BStr) -> Result<(Cow<'_, BStr>, usize), undo::Error> {
+pub fn undo(input: &BStr) -> Result<(Cow<'_, BStr>, usize)> {
     if !input.starts_with(b"\"") {
         return Ok((input.into(), input.len()));
     }
     if input.len() < 2 {
-        return Err(ValidationError::new_with_input("Input must be surrounded by double quotes", input).raise());
+        bail!(validation("Input must be surrounded by double quotes").with_input(input));
     }
     let original = input.as_bstr();
     let mut input = &input[1..];
     let mut consumed = 1;
     let mut out = BString::default();
-    fn consume_one_past(input: &mut &BStr, position: usize) -> Result<u8, undo::Error> {
-        use gix_error::{OptionExt, ValidationError};
+    fn consume_one_past(input: &mut &BStr, position: usize) -> Result<u8> {
         *input = input
             .get(position + 1..)
-            .ok_or_raise(|| ValidationError::new_with_input("Unexpected end of input", *input))?
+            .ok_or_raise(|| validation("Unexpected end of input").with_input(*input))?
             .as_bstr();
         let next = *input
             .first()
-            .ok_or_raise(|| ValidationError::new_with_input("Unexpected end of input", *input))?;
+            .ok_or_raise(|| validation("Unexpected end of input").with_input(*input))?;
         *input = input.get(1..).unwrap_or_default().as_bstr();
         Ok(next)
     }
@@ -106,26 +101,19 @@ pub fn undo(input: &BStr) -> Result<(Cow<'_, BStr>, usize), undo::Error> {
                                 input
                                     .get(..2)
                                     .ok_or_raise(|| {
-                                        ValidationError::new_with_input(
-                                            "Unexpected end of input when fetching two more octal bytes",
-                                            input,
-                                        )
+                                        validation("Unexpected end of input when fetching two more octal bytes")
+                                            .with_input(input)
                                     })?
                                     .read_exact(&mut buf[1..])
                                     .expect("impossible to fail as numbers match");
-                                let byte = gix_utils::btoi::to_unsigned_with_radix(&buf, 8).or_raise(|| {
-                                    ValidationError::new_with_input("Invalid octal escape value", original)
-                                })?;
+                                let byte = gix_utils::btoi::to_unsigned_with_radix(&buf, 8)
+                                    .or_raise(|| validation("Invalid octal escape value").with_input(original))?;
                                 out.push(byte);
                                 input = &input[2..];
                                 consumed += 2;
                             }
                             _ => {
-                                return Err(ValidationError::new_with_input(
-                                    format!("Invalid escaped value {next}"),
-                                    original,
-                                )
-                                .raise());
+                                bail!(validation(format!("Invalid escaped value {next}")).with_input(original));
                             }
                         }
                     }
@@ -133,9 +121,7 @@ pub fn undo(input: &BStr) -> Result<(Cow<'_, BStr>, usize), undo::Error> {
                 }
             }
             None => {
-                return Err(
-                    ValidationError::new_with_input("Missing closing quote in quoted string", original).raise(),
-                );
+                bail!(validation("Missing closing quote in quoted string").with_input(original));
             }
         }
     }

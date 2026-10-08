@@ -63,5 +63,21 @@ pub struct Stack {
 
 pub(crate) type PathIdMapping = (BString, gix_hash::ObjectId);
 
+mod lock;
+pub use lock::set_lock;
+
+/// Add linked worktrees by preparing their administrative files.
+#[cfg(feature = "add")]
+pub mod add;
+
+/// Remove linked worktrees and their administrative files.
+#[cfg(feature = "remove")]
+pub mod remove;
+#[cfg(feature = "remove")]
+pub use remove::_impl::remove;
+
+/// Read sparse-checkout patterns and apply them to a full index.
+pub mod sparse;
+
 ///
 pub mod stack;

@@ -1,10 +1,12 @@
 mod interpolate {
+    use gix_error::Result;
     use std::path::{Path, PathBuf};
 
+    use bstr::BString;
     use gix_config_value::path;
 
     #[test]
-    fn backslash_is_not_special_and_they_are_not_escaping_anything() -> crate::Result {
+    fn backslash_is_not_special_and_they_are_not_escaping_anything() -> gix_testtools::TestResult {
         for path in [r"C:\foo\bar", "/foo/bar"] {
             let actual = gix_config_value::Path::from(path).interpolate(Default::default())?;
             assert_eq!(actual, Path::new(path));
@@ -14,68 +16,69 @@ mod interpolate {
 
     #[test]
     fn empty_path_is_error() {
-        assert!(matches!(
-            interpolate_without_context(""),
-            Err(path::interpolate::Error::Missing { what: "path" })
-        ));
+        let err = interpolate_without_context("").expect_err("empty paths are invalid");
+        insta::assert_debug_snapshot!(err, "empty path is error", @"path is missing");
+        assert!(err.is_not_found());
     }
 
     #[test]
-    fn prefix_substitutes_git_install_dir() {
+    fn prefix_substitutes_git_install_dir() -> gix_testtools::TestResult {
         for git_install_dir in &["/tmp/git", r"C:\git"] {
             for (val, expected) in &[("%(prefix)/foo/bar", "foo/bar"), (r"%(prefix)/foo\bar", r"foo\bar")] {
                 let expected =
                     std::path::PathBuf::from(format!("{}{}{}", git_install_dir, std::path::MAIN_SEPARATOR, expected));
                 assert_eq!(
-                    gix_config_value::Path::from(*val)
-                        .interpolate(path::interpolate::Context {
-                            git_install_dir: Path::new(git_install_dir).into(),
-                            ..Default::default()
-                        })
-                        .unwrap(),
+                    gix_config_value::Path::from(*val).interpolate(path::interpolate::Context {
+                        git_install_dir: Path::new(git_install_dir).into(),
+                        ..Default::default()
+                    })?,
                     expected,
                     "prefix interpolation keeps separators as they are"
                 );
             }
         }
-    }
-
-    #[test]
-    fn prefix_substitution_skipped_with_dot_slash() {
-        let path = "./%(prefix)/foo/bar";
-        let git_install_dir = "/tmp/git";
-        assert_eq!(
-            gix_config_value::Path::from(path)
-                .interpolate(path::interpolate::Context {
-                    git_install_dir: Path::new(git_install_dir).into(),
-                    ..Default::default()
-                })
-                .unwrap(),
-            Path::new(path)
-        );
-    }
-
-    #[test]
-    fn tilde_alone_substitutes_current_user() -> crate::Result {
-        let home = std::env::current_dir()?;
-        assert_eq!(
-            gix_config_value::Path::from("~")
-                .interpolate(path::interpolate::Context {
-                    home_dir: Some(&home),
-                    ..Default::default()
-                })
-                .unwrap(),
-            home
-        );
-        assert!(matches!(
-            interpolate_without_context("~"),
-            Err(path::interpolate::Error::Missing { what: "home dir" })
-        ));
         Ok(())
     }
 
     #[test]
-    fn tilde_slash_substitutes_current_user() -> crate::Result {
+    fn prefix_substitution_skipped_with_dot_slash() -> gix_testtools::TestResult {
+        let path = "./%(prefix)/foo/bar";
+        let git_install_dir = "/tmp/git";
+        assert_eq!(
+            gix_config_value::Path::from(path).interpolate(path::interpolate::Context {
+                git_install_dir: Path::new(git_install_dir).into(),
+                ..Default::default()
+            })?,
+            Path::new(path)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn tilde_alone_substitutes_current_user() -> gix_testtools::TestResult {
+        let home = std::env::current_dir().expect("current directory is available");
+        assert_eq!(
+            gix_config_value::Path::from("~").interpolate(path::interpolate::Context {
+                home_dir: Some(&home),
+                ..Default::default()
+            })?,
+            home
+        );
+        let err = interpolate_without_context("~").expect_err("tilde expansion needs the current user's home");
+        insta::assert_debug_snapshot!(err.classify()
+                .find(|classification| classification.class() == gix_error::Class::NotFound)
+                .expect("missing home directories are classified as not found")
+                .error(), "tilde expansion reports the missing home directory", @r#"
+        Message {
+            message: "home dir is missing",
+            class: NotFound,
+        }
+        "#);
+        Ok(())
+    }
+
+    #[test]
+    fn tilde_slash_substitutes_current_user() -> gix_testtools::TestResult {
         let home = std::env::current_dir()?;
         for suffix in ["", "user/bar", r"user\bar", "/user/bar"] {
             let actual = gix_config_value::Path::from(format!("~/{suffix}").as_str()).interpolate(
@@ -95,8 +98,9 @@ mod interpolate {
     }
 
     #[test]
-    fn tilde_with_given_user() -> crate::Result {
-        let home = std::env::current_dir()?;
+    fn tilde_with_given_user() -> gix_testtools::TestResult {
+        let mut error_snapshots = Vec::new();
+        let home = std::env::current_dir().expect("current directory is available");
 
         for path_suffix in &["foo/bar", r"foo\bar", ""] {
             let path = format!("~user/{path_suffix}");
@@ -114,20 +118,39 @@ mod interpolate {
             home.join("user"),
             "~user without trailing slash is expanded like git does"
         );
-        assert!(matches!(
-            interpolate_without_context("~nonexistent"),
-            Err(path::interpolate::Error::Missing { what: "pwd user info" })
-        ));
-        assert!(matches!(
-            interpolate_without_context("~nonexistent/foo"),
-            Err(path::interpolate::Error::Missing { what: "pwd user info" })
-        ));
+        for path in ["~nonexistent", "~nonexistent/foo"] {
+            let err = interpolate_without_context(path).expect_err("the named user does not exist");
+            error_snapshots.push(gix_testtools::redact_debug_snapshot(&(err), &[]));
+            assert!(err.is_not_found(), "named-user expansion classifies missing users");
+        }
+        insta::assert_debug_snapshot!(error_snapshots, "tilde with given user", @"
+        [
+            pwd user info is missing,
+            pwd user info is missing,
+        ]
+        ");
         Ok(())
     }
 
-    fn interpolate_without_context(
-        path: impl AsRef<str>,
-    ) -> Result<PathBuf, gix_config_value::path::interpolate::Error> {
+    #[test]
+    fn malformed_usernames_are_validation_errors_with_the_utf8_cause() {
+        let err = gix_config_value::Path::from(BString::from(vec![b'~', 0xff, b'/', b'x']))
+            .interpolate(path::interpolate::Context {
+                home_for_user: Some(home_for_user),
+                ..Default::default()
+            })
+            .expect_err("the username is not UTF-8");
+        insta::assert_debug_snapshot!(err, "malformed usernames are validation errors with the utf8 cause", @r#"
+        Ill-formed UTF-8 in username, input="\xff"
+
+        Caused by:
+            0: invalid utf-8 sequence of 1 bytes from index 0
+        "#);
+        assert!(err.is_validation());
+        assert!(err.downcast_any_ref::<std::str::Utf8Error>().is_some());
+    }
+
+    fn interpolate_without_context(path: impl AsRef<str>) -> Result<PathBuf> {
         gix_config_value::Path::from(path.as_ref()).interpolate(path::interpolate::Context {
             home_for_user: Some(home_for_user),
             ..Default::default()
@@ -138,7 +161,10 @@ mod interpolate {
         if name == "nonexistent" {
             return None;
         }
-        std::env::current_dir().unwrap().join(name).into()
+        std::env::current_dir()
+            .expect("current directory is available")
+            .join(name)
+            .into()
     }
 }
 

@@ -12,15 +12,17 @@ mod shallow {
 
 #[cfg(any(feature = "blocking-network-client", feature = "async-network-client-async-std"))]
 mod blocking_and_async_io {
+    use gix_testtools::{Result, TestResult};
     use std::sync::atomic::AtomicBool;
 
     use gix::{
         config::tree::Protocol,
         remote::{Direction::Fetch, fetch, fetch::Status},
     };
-    use gix_features::progress;
+
     use gix_protocol::bisync;
     use gix_testtools::tempfile::TempDir;
+    use gix_utils::progress;
 
     use crate::{
         remote,
@@ -81,10 +83,9 @@ mod blocking_and_async_io {
         dir.join(name)
     }
 
-    #[expect(clippy::result_large_err)]
     pub(crate) fn try_repo_rw(
         name: &str,
-    ) -> Result<(gix::Repository, gix_testtools::tempfile::TempDir), gix::open::Error> {
+    ) -> std::result::Result<(gix::Repository, gix_testtools::tempfile::TempDir), gix_error::Error> {
         try_repo_rw_args(name, Vec::<String>::new(), Mode::FastClone)
     }
 
@@ -93,12 +94,11 @@ mod blocking_and_async_io {
         CloneWithShallowSupport,
     }
 
-    #[expect(clippy::result_large_err)]
     pub(crate) fn try_repo_rw_args<S: Into<String>>(
         name: &str,
         args: impl IntoIterator<Item = S>,
         mode: Mode,
-    ) -> Result<(gix::Repository, gix_testtools::tempfile::TempDir), gix::open::Error> {
+    ) -> std::result::Result<(gix::Repository, gix_testtools::tempfile::TempDir), gix_error::Error> {
         let dir = gix_testtools::scripted_fixture_writable_with_args_single_archive(
             "make_fetch_repos.sh",
             [{
@@ -121,7 +121,7 @@ mod blocking_and_async_io {
         try_repo_rw(name).unwrap()
     }
 
-    fn commit_empty(repo: &gix::Repository, message: &str) -> crate::Result<gix::ObjectId> {
+    fn commit_empty(repo: &gix::Repository, message: &str) -> Result<gix::ObjectId> {
         Ok(repo
             .commit(
                 "HEAD",
@@ -132,7 +132,7 @@ mod blocking_and_async_io {
             .detach())
     }
 
-    fn init_repo(path: &std::path::Path) -> crate::Result<gix::Repository> {
+    fn init_repo(path: &std::path::Path) -> Result<gix::Repository> {
         Ok(gix::ThreadSafeRepository::init_opts(
             path,
             gix::create::Kind::WithWorktree,
@@ -142,7 +142,7 @@ mod blocking_and_async_io {
         .to_thread_local())
     }
 
-    fn shallow_ids(repo: &gix::Repository, expected: &'static str) -> crate::Result<Vec<gix::ObjectId>> {
+    fn shallow_ids(repo: &gix::Repository, expected: &'static str) -> Result<Vec<gix::ObjectId>> {
         let commits = repo.shallow_commits()?.expect(expected);
         Ok(std::iter::once(commits.head)
             .chain(commits.tail.iter().copied())
@@ -151,16 +151,16 @@ mod blocking_and_async_io {
 
     #[test]
     #[cfg(feature = "blocking-network-client")]
-    fn fetch_more_packs_than_can_be_handled() -> gix_testtools::Result {
+    fn fetch_more_packs_than_can_be_handled() -> TestResult {
         // Isolated repository options don't sanitize the ambient Git config inherited by local `upload-pack`.
         // Use a child to keep clone/fetch I/O parallel without changing the parent environment.
         if gix_testtools::run_in_isolated_process()? {
             return Ok(());
         }
-        use gix::{config::tree::User, interrupt::IS_INTERRUPTED};
+        use gix::{config::tree::User, error::MetadataValue, interrupt::IS_INTERRUPTED};
         use gix_odb::store::init::Slots;
         use gix_testtools::tempfile;
-        fn create_empty_commit(repo: &gix::Repository) -> anyhow::Result<()> {
+        fn create_empty_commit(repo: &gix::Repository) -> TestResult {
             let name = repo.head_name()?.expect("no detached head");
             repo.commit(
                 name.as_bstr(),
@@ -218,12 +218,27 @@ mod blocking_and_async_io {
             let (local_repo, _) = gix::clone::PrepareFetch::new(
                 remote_repo.path(),
                 local_dir.path(),
-                gix::create::Kind::Bare,
+                gix::create::Kind::WithWorktree,
                 Default::default(),
                 gix::open::Options::isolated().object_store_slots(Slots::Given(max_packs)),
             )?
             .fetch_only(gix::progress::Discard, &IS_INTERRUPTED)?;
 
+            let remote_head_name = "refs/remotes/origin/HEAD";
+            let default_branch = remote_repo.head_name()?.expect("the remote has a branch");
+            assert_eq!(
+                local_repo.find_remote("origin")?.default_branch()?,
+                Some(default_branch),
+                "the clone records the default branch without contacting the remote again"
+            );
+            assert!(
+                local_repo
+                    .find_reference(remote_head_name)?
+                    .target()
+                    .try_name()
+                    .is_some(),
+                "remote HEAD tracks the default symbolically so it follows subsequent fetches"
+            );
             let remote = local_repo
                 .branch_remote(
                     local_repo.head_ref()?.expect("branch available").name().shorten(),
@@ -244,11 +259,23 @@ mod blocking_and_async_io {
                     .prepare_fetch(gix::progress::Discard, Default::default())?
                     .receive(gix::progress::Discard, &IS_INTERRUPTED)
                 {
-                    Ok(out) => check_fetch_output(&local_repo, out, expected_object_count)?,
+                    Ok(out) => {
+                        check_fetch_output(&local_repo, out, expected_object_count)?;
+                        assert_eq!(
+                            local_repo.find_reference(remote_head_name)?.peel_to_id()?,
+                            remote_repo.head_id()?,
+                            "remote HEAD follows the default tracking branch after fetching its new tip"
+                        );
+                    }
                     Err(err) => {
-                        assert!(
-                            err.to_string()
-                                .starts_with("The slotmap turned out to be too small with ")
+                        let context = err.metadata().next().expect("index capacity details");
+                        assert_eq!(
+                            (&context["current"], &context["needed"]),
+                            (
+                                &MetadataValue::from(max_packs),
+                                &MetadataValue::from(round_to_create_pack + 1 - usize::from(max_packs))
+                            ),
+                            "each fetch adds one pack beyond the configured capacity"
                         );
                         // But opening a new repo will always be able to read all objects
                         // as it dynamically sizes the otherwise static slotmap.
@@ -266,8 +293,9 @@ mod blocking_and_async_io {
 
     #[test]
     #[cfg(feature = "blocking-network-client")]
-    #[expect(clippy::result_large_err)]
-    fn collate_fetch_error() -> Result<(), gix::env::collate::fetch::Error<std::io::Error>> {
+    fn collate_fetch_error() -> std::result::Result<(), gix_error::Error> {
+        use gix::error::ResultExt;
+
         let (repo, _tmp) = try_repo_rw("two-origins")?;
         let remote = repo
             .head()?
@@ -281,11 +309,7 @@ mod blocking_and_async_io {
             .receive(gix::progress::Discard, &AtomicBool::default())?;
 
         assert!(
-            repo.path()
-                .join("HEAD")
-                .metadata()
-                .map_err(gix::env::collate::fetch::Error::Other)?
-                .is_file(),
+            repo.path().join("HEAD").metadata().or_error()?.is_file(),
             "just to show off the 'Other' error type"
         );
         Ok(())
@@ -293,7 +317,9 @@ mod blocking_and_async_io {
 
     #[test]
     #[cfg(feature = "blocking-network-client")]
-    fn fetch_with_alternates_adds_tips_from_alternates() -> crate::Result<()> {
+    fn fetch_with_alternates_adds_tips_from_alternates() -> TestResult {
+        use gix::error::ResultExt;
+
         // Isolated repository options don't sanitize the ambient Git config inherited by local `upload-pack`.
         // Use a child to keep this clone parallel with other tests without changing the parent environment.
         if gix_testtools::run_in_isolated_process()? {
@@ -317,7 +343,8 @@ mod blocking_and_async_io {
                         gix::path::realpath(remote_repo.objects.store_ref().path())?.display()
                     )
                     .as_bytes(),
-                )?;
+                )
+                .or_erased()?;
                 Ok(r)
             }
         })
@@ -347,7 +374,7 @@ mod blocking_and_async_io {
     #[bisync::bisync]
     #[cfg_attr(feature = "blocking-network-client", test)]
     #[cfg_attr(feature = "async-network-client-async-std", async_std::test)]
-    async fn local_transport_fetches_head_against_remote_refs() -> crate::Result {
+    async fn local_transport_fetches_head_against_remote_refs() -> TestResult {
         // Blocking local transport spawns `upload-pack`, which inherits ambient Git configuration.
         // Isolate it in a child to keep fetch I/O parallel without changing the parent environment.
         #[cfg(feature = "blocking-network-client")]
@@ -405,7 +432,7 @@ mod blocking_and_async_io {
     #[bisync::bisync]
     #[cfg_attr(feature = "blocking-network-client", test)]
     #[cfg_attr(feature = "async-network-client-async-std", async_std::test)]
-    async fn fetch_ignores_dangling_symbolic_refs_during_negotiation() -> crate::Result {
+    async fn fetch_ignores_dangling_symbolic_refs_during_negotiation() -> TestResult {
         // Blocking local transport spawns `upload-pack`, which inherits ambient Git configuration.
         // Isolate it in a child to keep fetch I/O parallel without changing the parent environment.
         #[cfg(feature = "blocking-network-client")]
@@ -453,7 +480,7 @@ mod blocking_and_async_io {
     #[bisync::bisync]
     #[cfg_attr(feature = "blocking-network-client", test)]
     #[cfg_attr(feature = "async-network-client-async-std", async_std::test)]
-    async fn fetch_with_multi_round_negotiation() -> crate::Result {
+    async fn fetch_with_multi_round_negotiation() -> TestResult {
         // Blocking local clone/fetch spawns `upload-pack`, which inherits ambient Git configuration.
         // Use a child to keep negotiation I/O parallel without changing the parent environment.
         #[cfg(feature = "blocking-network-client")]
@@ -472,7 +499,7 @@ mod blocking_and_async_io {
                     let client_repo = remote::repo("multi_round/client");
                     let daemon = spawn_git_daemon_if_async(client_repo.workdir().expect("non-bare"))?;
                     let tmp = TempDir::new()?;
-                    let repo = gix::prepare_clone_bare(
+                    let repo = gix::prepare_clone(
                         daemon.as_ref().map_or_else(
                             || client_repo.git_dir().to_owned(),
                             |d| std::path::PathBuf::from(format!("{}/", d.url)),
@@ -482,6 +509,20 @@ mod blocking_and_async_io {
                     .fetch_only(gix::progress::Discard, &std::sync::atomic::AtomicBool::default())
                     .await?
                     .0;
+                    let remote_head = repo.find_reference("refs/remotes/origin/HEAD")?;
+                    assert_eq!(
+                        remote_head.target().try_name().map(gix::refs::FullNameRef::as_bstr),
+                        Some(gix::bstr::BStr::new("refs/remotes/origin/b8")),
+                        "cloning records the advertised default as a symbolic tracking reference"
+                    );
+                    assert_eq!(
+                        repo.find_remote("origin")?
+                            .default_branch()?
+                            .as_ref()
+                            .map(gix::refs::FullName::as_bstr),
+                        Some(gix::bstr::BStr::new("refs/heads/b8")),
+                        "the default branch is available offline in blocking and async clones"
+                    );
                     (repo, tmp)
                 };
 
@@ -539,7 +580,7 @@ mod blocking_and_async_io {
     #[bisync::bisync]
     #[cfg_attr(feature = "blocking-network-client", test)]
     #[cfg_attr(feature = "async-network-client-async-std", async_std::test)]
-    async fn fetch_shallow_deepen_zero_does_not_fail() -> crate::Result {
+    async fn fetch_shallow_deepen_zero_does_not_fail() -> TestResult {
         // Even without deepening, blocking local transport spawns `upload-pack` with ambient Git config.
         // Isolate it in a child to keep fetch I/O parallel without changing the parent environment.
         #[cfg(feature = "blocking-network-client")]
@@ -583,7 +624,7 @@ mod blocking_and_async_io {
     #[bisync::bisync]
     #[cfg_attr(feature = "blocking-network-client", test)]
     #[cfg_attr(feature = "async-network-client-async-std", async_std::test)]
-    async fn fetch_shallow_deepen_not_possible() -> crate::Result {
+    async fn fetch_shallow_deepen_not_possible() -> TestResult {
         // Blocking local transport spawns `upload-pack`, which inherits ambient Git configuration.
         // Isolate it in a child to keep shallow-fetch I/O parallel without changing the parent environment.
         #[cfg(feature = "blocking-network-client")]
@@ -644,7 +685,7 @@ mod blocking_and_async_io {
     #[bisync::bisync]
     #[cfg_attr(feature = "blocking-network-client", test)]
     #[cfg_attr(feature = "async-network-client-async-std", async_std::test)]
-    async fn fetch_empty_pack() -> crate::Result {
+    async fn fetch_empty_pack() -> TestResult {
         // Even without receiving a pack, blocking local transport spawns `upload-pack` with ambient Git config.
         // Isolate it in a child to keep fetch I/O parallel without changing the parent environment.
         #[cfg(feature = "blocking-network-client")]
@@ -730,7 +771,7 @@ mod blocking_and_async_io {
     #[bisync::bisync]
     #[cfg_attr(feature = "blocking-network-client", test)]
     #[cfg_attr(feature = "async-network-client-async-std", async_std::test)]
-    async fn fetch_pack_without_local_destination() -> crate::Result {
+    async fn fetch_pack_without_local_destination() -> TestResult {
         // Blocking local transport spawns `upload-pack`, which inherits ambient Git configuration.
         // Isolate it in a child to keep fetch I/O parallel without changing the parent environment.
         #[cfg(feature = "blocking-network-client")]
@@ -805,7 +846,7 @@ mod blocking_and_async_io {
     #[bisync::bisync]
     #[cfg_attr(feature = "blocking-network-client", test)]
     #[cfg_attr(feature = "async-network-client-async-std", async_std::test)]
-    async fn fetching_a_missing_explicit_ref_fails_even_if_ls_refs_returns_nothing() -> crate::Result {
+    async fn fetching_a_missing_explicit_ref_fails_even_if_ls_refs_returns_nothing() -> TestResult {
         // Blocking local ref discovery spawns `upload-pack` with ambient Git config, even for a missing ref.
         // Isolate it in a child to keep Git I/O parallel without changing the parent environment.
         #[cfg(feature = "blocking-network-client")]
@@ -834,17 +875,14 @@ mod blocking_and_async_io {
             .await
             .unwrap_err();
 
-        assert_eq!(
-            err.to_string(),
-            "None of the refspec(s) refs/heads/does-not-exist matched any of the 0 refs on the remote"
-        );
+        insta::assert_debug_snapshot!(err, "fetching a missing explicit ref fails even if ls refs returns nothing", @"None of the refspec(s) refs/heads/does-not-exist matched any of the 0 refs on the remote");
         Ok(())
     }
 
     #[bisync::bisync]
     #[cfg_attr(feature = "blocking-network-client", test)]
     #[cfg_attr(feature = "async-network-client-async-std", async_std::test)]
-    async fn fetch_pack() -> crate::Result {
+    async fn fetch_pack() -> TestResult {
         // Blocking local transport spawns `upload-pack`, which inherits ambient Git configuration.
         // Isolate it in a child to keep fetch I/O parallel without changing the parent environment.
         #[cfg(feature = "blocking-network-client")]

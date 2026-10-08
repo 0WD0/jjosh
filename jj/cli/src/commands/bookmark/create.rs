@@ -82,7 +82,7 @@ pub async fn cmd_bookmark_create(
             )));
         }
     }
-    if target_commit.is_discardable(repo).await? {
+    if target_commit.is_discardable(repo.index()).await? {
         writeln!(ui.warning_default(), "Target revision is empty.")?;
     }
 

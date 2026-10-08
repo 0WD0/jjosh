@@ -3,11 +3,11 @@ use std::{
     path::PathBuf,
 };
 
-use anyhow::{Context, Result, bail, ensure};
 use gix::{
-    ObjectId,
+    Error, ObjectId, Result,
     bstr::{BStr, BString, ByteSlice},
     config::File,
+    error::{ErrorExt, OptionExt, ResultExt, bail, message},
     refs::{
         FullName, FullNameRef, Target,
         transaction::{Change, LogChange, PreviousValue, RefEdit, RefLog},
@@ -35,20 +35,26 @@ pub(crate) struct RefChange {
 }
 
 impl RefChange {
-    pub(crate) fn from_edit(edit: &RefEdit) -> Result<Self> {
+    pub(crate) fn from_edit(edit: &RefEdit) -> Result<Option<Self>> {
         let (before, after) = match &edit.change {
-            Change::Update { expected, new, .. } => (state_from_expected(expected)?, state_from_target(new)),
-            Change::Delete { expected, .. } => (state_from_expected(expected)?, State::Missing),
+            Change::Update { expected, new, log } if log.mode == RefLog::AndReference => {
+                (state_from_expected(expected)?, state_from_target(new))
+            }
+            Change::Delete {
+                expected,
+                log: RefLog::AndReference,
+            } => (state_from_expected(expected)?, State::Missing),
             Change::Verify { expected } => {
                 let state = state_from_expected(expected)?;
                 (state.clone(), state)
             }
+            _ => return Ok(None),
         };
-        Ok(RefChange {
+        Ok(Some(RefChange {
             name: edit.name.clone(),
             before,
             after,
-        })
+        }))
     }
 
     fn reversed(&self) -> Self {
@@ -65,6 +71,14 @@ pub(crate) struct Position {
     pub title: String,
     pub undo: usize,
     pub redo: usize,
+}
+
+#[derive(Debug, Default, Eq, PartialEq)]
+pub(crate) struct History {
+    /// Recorded operation titles, oldest first, excluding the sentinel.
+    pub titles: Vec<String>,
+    /// Number of operations currently applied, regardless of whether replay is available.
+    pub applied: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -84,47 +98,63 @@ impl Plan {
     }
 
     pub(crate) fn apply_with_worktrees(self, repo: &gix::Repository) -> Result<()> {
-        let transitions = worktree_transitions(repo, &self.changes)?;
-        for transition in &transitions {
-            super::forget::preflight_tree_transition(
-                &transition.repo,
-                &transition.workdir,
-                transition.old,
-                transition.new,
-            )
-            .context("local changes prevent undo/redo; stash them manually and retry")?;
-        }
-        for (applied, transition) in transitions.iter().enumerate() {
-            if let Err(err) = super::forget::apply_tree_transition(&transition.workdir, transition.old, transition.new)
-            {
-                return Err(rollback_transitions(
-                    &transitions[..=applied],
-                    err.context("could not align a worktree with the undo queue"),
-                ));
-            }
-        }
-        if let Err(err) = repo.edit_references(self.edits) {
-            return Err(rollback_transitions(
-                &transitions,
-                anyhow::Error::new(err).context("could not atomically move references and the undo cursor"),
-            ));
-        }
-        Ok(())
+        super::rebase::session::ensure_idle(repo)?;
+        let index = repo
+            .index_or_empty()
+            .or_raise(|| message("could not inspect the index before undo/redo"))?;
+        gix::error::ensure!(
+            index
+                .entries()
+                .iter()
+                .all(|entry| entry.stage() == gix::index::entry::Stage::Unconflicted),
+            "cannot undo/redo with unresolved index conflicts"
+        );
+        apply_with_worktrees(repo, &self.changes, self.edits, None)
     }
 }
 
+fn apply_with_worktrees(
+    repo: &gix::Repository,
+    changes: &[RefChange],
+    edits: Vec<RefEdit>,
+    restore_current_tree: Option<ObjectId>,
+) -> Result<()> {
+    let transitions = worktree_transitions(repo, changes, restore_current_tree)?;
+    for transition in &transitions {
+        super::delete::preflight_tree_transition(&transition.repo, &transition.workdir, transition.old, transition.new)
+            .or_raise(|| message("local changes prevent undo/redo; stash them manually and retry"))?;
+    }
+    for (applied, transition) in transitions.iter().enumerate() {
+        if let Err(err) = super::delete::apply_tree_transition(&transition.workdir, transition.old, transition.new) {
+            return Err(rollback_transitions(
+                &transitions[..=applied],
+                err.and_raise(message("could not align a worktree with the undo queue")),
+            ));
+        }
+    }
+    if let Err(err) = repo.edit_references(edits) {
+        return Err(rollback_transitions(
+            &transitions,
+            err.and_raise(message("could not atomically move references and the undo cursor")),
+        ));
+    }
+    Ok(())
+}
 pub(crate) fn is_queue_ref(name: &BStr) -> bool {
     name.as_bytes() == TIP_REF.as_bytes() || name.as_bytes() == CURSOR_REF.as_bytes()
 }
 
-pub(crate) fn ref_chain_reaches_queue(repo: &gix::Repository, name: &FullNameRef) -> Result<bool> {
+pub(crate) fn ref_chain_reaches_internal(repo: &gix::Repository, name: &FullNameRef) -> Result<bool> {
     let mut name = name.to_owned();
     let mut seen = HashSet::new();
     loop {
-        if is_queue_ref(name.as_bstr()) {
+        if super::is_internal_ref(name.as_bstr()) {
             return Ok(true);
         }
-        ensure!(seen.insert(name.clone()), "a symbolic reference chain contains a cycle");
+        gix::error::ensure!(
+            seen.insert(name.clone()),
+            message("a symbolic reference chain contains a cycle")
+        );
         let Some(reference) = repo.try_find_reference(name.as_ref())? else {
             return Ok(false);
         };
@@ -136,13 +166,19 @@ pub(crate) fn ref_chain_reaches_queue(repo: &gix::Repository, name: &FullNameRef
     }
 }
 
-pub(crate) fn is_queue_commit(repo: &gix::Repository, needle: ObjectId) -> Result<bool> {
+pub(crate) fn is_internal_commit(repo: &gix::Repository, needle: ObjectId) -> Result<bool> {
+    if super::rebase::session::is_commit(repo, needle)? {
+        return Ok(true);
+    }
     let Some(mut id) = read_queue_ref(repo, TIP_REF)?.or(read_queue_ref(repo, CURSOR_REF)?) else {
         return Ok(false);
     };
     let mut seen = HashSet::new();
     loop {
-        ensure!(seen.insert(id), "the undo queue first-parent chain contains a cycle");
+        gix::error::ensure!(
+            seen.insert(id),
+            message("the undo queue first-parent chain contains a cycle")
+        );
         let Ok(stored) = parse_commit(repo, id) else {
             return Ok(false);
         };
@@ -156,16 +192,13 @@ pub(crate) fn is_queue_commit(repo: &gix::Repository, needle: ObjectId) -> Resul
     }
 }
 
-pub(crate) fn review_blocks_undo(repo: &gix::Repository) -> Result<bool> {
-    let references = repo.references().context("could not open review references")?;
-    for reference in references
-        .prefixed(crate::history::REVIEW_PREFIX.as_bstr())
-        .context("could not iterate review references")?
-    {
+fn has_active_review(repo: &gix::Repository) -> Result<bool> {
+    let references = repo.references()?;
+    for reference in references.prefixed(crate::history::REVIEW_PREFIX.as_bstr())? {
         let reference = match reference {
             Ok(reference) => reference,
-            Err(err) if crate::history::is_missing_ref(&*err) => continue,
-            Err(err) => return Err(anyhow::anyhow!("could not read review reference: {err}")),
+            Err(err) if crate::history::is_missing_ref(&err) => continue,
+            Err(err) => return Err(message!("could not read review reference: {err}").raise()),
         };
         if crate::history::review_number(reference.name().as_bstr()).is_some() {
             return Ok(true);
@@ -174,12 +207,29 @@ pub(crate) fn review_blocks_undo(repo: &gix::Repository) -> Result<bool> {
     Ok(false)
 }
 
+fn ends_review(changes: &[RefChange]) -> bool {
+    // Completion starts from a clean checkout and records the review resource's
+    // deletion with all checkout changes. That boundary is reversible on either side.
+    changes.iter().any(|change| {
+        crate::history::review_number(change.name.as_bstr()).is_some()
+            && change.before != State::Missing
+            && change.after == State::Missing
+    })
+}
+
 pub(crate) fn clear(repo: &gix::Repository) -> Result<()> {
+    super::rebase::session::ensure_idle(repo)?;
+    repo.edit_references(clear_edits(repo)?)
+        .or_raise(|| message("could not clear undo history"))
+        .map(|_| ())
+}
+
+fn clear_edits(repo: &gix::Repository) -> Result<Vec<RefEdit>> {
     let mut edits = Vec::new();
     for name in [TIP_REF, CURSOR_REF] {
         let Some(reference) = repo
             .try_find_reference(name)
-            .with_context(|| format!("could not read {name}"))?
+            .or_raise(|| message!("could not read {name}"))?
         else {
             continue;
         };
@@ -188,12 +238,7 @@ pub(crate) fn clear(repo: &gix::Repository) -> Result<()> {
             PreviousValue::MustExistAndMatch(reference.target().into_owned()),
         ));
     }
-    if edits.is_empty() {
-        return Ok(());
-    }
-    repo.edit_references(edits)
-        .context("could not clear undo history")
-        .map(|_| ())
+    Ok(edits)
 }
 
 pub(crate) fn apply_reversed_changes(repo: &gix::Repository, changes: &[RefChange]) -> Result<()> {
@@ -207,8 +252,22 @@ pub(crate) fn apply_reversed_changes(repo: &gix::Repository, changes: &[RefChang
         .map(|change| checked_edit(&change))
         .collect::<Result<Vec<_>>>()?;
     repo.edit_references(edits)
-        .context("could not roll back provisional reference changes")
+        .or_raise(|| message("could not roll back provisional reference changes"))
         .map(|_| ())
+}
+
+/// Roll back a completed publication together with every checkout it affected.
+pub(crate) fn rollback_with_worktrees(
+    repo: &gix::Repository,
+    changes: &[RefChange],
+    restore_current_tree: Option<ObjectId>,
+) -> Result<()> {
+    let changes: Vec<_> = normalize_changes(changes.iter().cloned())?
+        .into_iter()
+        .map(|change| change.reversed())
+        .collect();
+    let edits = changes.iter().map(checked_edit).collect::<Result<Vec<_>>>()?;
+    apply_with_worktrees(repo, &changes, edits, restore_current_tree)
 }
 
 pub(crate) fn state(repo: &gix::Repository, name: &FullNameRef) -> Result<State> {
@@ -226,7 +285,7 @@ pub(crate) fn changes_from_edits(edits: impl IntoIterator<Item = RefEdit>) -> Re
     normalize_changes(
         edits
             .into_iter()
-            .map(|edit| RefChange::from_edit(&edit))
+            .filter_map(|edit| RefChange::from_edit(&edit).transpose())
             .collect::<Result<Vec<_>>>()?,
     )
 }
@@ -235,14 +294,27 @@ pub(crate) fn changes_from_edits(edits: impl IntoIterator<Item = RefEdit>) -> Re
 ///
 /// Returns `None` when all supplied changes cancel each other out.
 pub(crate) fn record(repo: &gix::Repository, title: &str, changes: &[RefChange]) -> Result<Option<ObjectId>> {
-    validate_title(title)?;
-    if review_blocks_undo(repo)? {
-        clear(repo)?;
-        return Ok(None);
+    let (entry, edits) = prepare_record(repo, title, changes)?;
+    if !edits.is_empty() {
+        repo.edit_references(edits)
+            .or_raise(|| message("could not publish the undo entry"))?;
     }
+    Ok(entry)
+}
+
+/// Prepare the queue update so an operation can publish its lifecycle change in the same transaction.
+pub(super) fn prepare_record(
+    repo: &gix::Repository,
+    title: &str,
+    changes: &[RefChange],
+) -> Result<(Option<ObjectId>, Vec<RefEdit>)> {
+    validate_title(title)?;
     let changes = normalize_changes(changes.iter().cloned())?;
     if changes.is_empty() {
-        return Ok(None);
+        return Ok((None, Vec::new()));
+    }
+    if !ends_review(&changes) && has_active_review(repo)? {
+        return Ok((None, clear_edits(repo)?));
     }
 
     let queue = load(repo)?;
@@ -258,30 +330,51 @@ pub(crate) fn record(repo: &gix::Repository, title: &str, changes: &[RefChange])
     let parents = retention_parents(repo, predecessor, &changes)?;
     let entry = write_commit(repo, title, &config, &parents)?;
 
-    repo.edit_references([
-        queue_update(TIP_REF, old_tip, entry)?,
-        queue_update(CURSOR_REF, old_cursor, entry)?,
-    ])
-    .context("could not publish the undo entry")?;
-    Ok(Some(entry))
+    Ok((
+        Some(entry),
+        vec![
+            queue_update(TIP_REF, old_tip, entry)?,
+            queue_update(CURSOR_REF, old_cursor, entry)?,
+        ],
+    ))
+}
+
+pub(crate) fn history(repo: &gix::Repository) -> Result<History> {
+    let Some(queue) = load(repo)? else {
+        return Ok(History::default());
+    };
+    Ok(History {
+        titles: queue.entries.into_iter().map(|entry| entry.title).collect(),
+        applied: queue.cursor_index,
+    })
 }
 
 pub(crate) fn position(repo: &gix::Repository) -> Result<Position> {
-    if review_blocks_undo(repo)? {
+    let Some(queue) = load(repo)? else {
+        return Ok(empty_position());
+    };
+    let adjacent = [
+        queue
+            .cursor_index
+            .checked_sub(1)
+            .and_then(|index| queue.entries.get(index)),
+        queue.entries.get(queue.cursor_index),
+    ];
+    if !adjacent.into_iter().flatten().any(|entry| ends_review(&entry.changes)) && has_active_review(repo)? {
         return Ok(empty_position());
     }
-    Ok(load(repo)?.map_or_else(empty_position, |queue| queue.position(queue.cursor_index)))
+    Ok(queue.position(queue.cursor_index))
 }
 
 pub(crate) fn plan_undo(repo: &gix::Repository) -> Result<Option<Plan>> {
-    if review_blocks_undo(repo)? {
-        return Ok(None);
-    }
     let Some(queue) = load(repo)? else { return Ok(None) };
     if queue.cursor_index == 0 {
         return Ok(None);
     }
     let entry = &queue.entries[queue.cursor_index - 1];
+    if !ends_review(&entry.changes) && has_active_review(repo)? {
+        return Ok(None);
+    }
     let changes: Vec<_> = entry.changes.iter().map(RefChange::reversed).collect();
     let cursor = if queue.cursor_index == 1 {
         queue.sentinel
@@ -298,13 +391,13 @@ pub(crate) fn plan_undo(repo: &gix::Repository) -> Result<Option<Plan>> {
 }
 
 pub(crate) fn plan_redo(repo: &gix::Repository) -> Result<Option<Plan>> {
-    if review_blocks_undo(repo)? {
-        return Ok(None);
-    }
     let Some(queue) = load(repo)? else { return Ok(None) };
     let Some(entry) = queue.entries.get(queue.cursor_index) else {
         return Ok(None);
     };
+    if !ends_review(&entry.changes) && has_active_review(repo)? {
+        return Ok(None);
+    }
     Ok(Some(make_plan(
         &queue,
         entry.title.clone(),
@@ -339,16 +432,16 @@ fn empty_position() -> Position {
     }
 }
 
-fn normalize_changes(changes: impl IntoIterator<Item = RefChange>) -> Result<Vec<RefChange>> {
+pub(super) fn normalize_changes(changes: impl IntoIterator<Item = RefChange>) -> Result<Vec<RefChange>> {
     let mut by_name = BTreeMap::<FullName, RefChange>::new();
     for change in changes {
-        ensure!(
+        gix::error::ensure!(
             !is_queue_ref(change.name.as_bstr()),
-            "the undo queue cannot record itself"
+            message("the undo queue cannot record itself")
         );
         match by_name.get_mut(&change.name) {
             Some(existing) => {
-                ensure!(
+                gix::error::ensure!(
                     existing.after == change.before,
                     "successive changes to {} are not continuous",
                     change.name
@@ -397,19 +490,25 @@ struct WorktreeTransition {
     new: ObjectId,
 }
 
-fn worktree_transitions(repo: &gix::Repository, changes: &[RefChange]) -> Result<Vec<WorktreeTransition>> {
-    let current_git_dir = gix::path::realpath(repo.git_dir())
-        .map_err(gix::Exn::into_error)
-        .context("could not resolve the current Git directory")?;
+fn worktree_transitions(
+    repo: &gix::Repository,
+    changes: &[RefChange],
+    restore_current_tree: Option<ObjectId>,
+) -> Result<Vec<WorktreeTransition>> {
+    let current_git_dir =
+        gix::path::realpath(repo.git_dir()).or_raise(|| message("could not resolve the current Git directory"))?;
     let mut repos = vec![
         repo.main_repo()
-            .context("could not open the main worktree repository")?,
+            .or_raise(|| message("could not open the main worktree repository"))?,
     ];
-    for proxy in repo.worktrees().context("could not enumerate linked worktrees")? {
+    for proxy in repo
+        .worktrees()
+        .or_raise(|| message("could not enumerate linked worktrees"))?
+    {
         repos.push(
             proxy
                 .into_repo_with_possibly_inaccessible_worktree()
-                .context("could not inspect a linked worktree")?,
+                .or_raise(|| message("could not inspect a linked worktree"))?,
         );
     }
 
@@ -419,31 +518,37 @@ fn worktree_transitions(repo: &gix::Repository, changes: &[RefChange]) -> Result
         if !seen.insert(worktree_repo.git_dir().to_owned()) {
             continue;
         }
-        let head = worktree_repo.head().context("could not inspect a worktree HEAD")?;
+        let head = worktree_repo
+            .head()
+            .or_raise(|| message("could not inspect a worktree HEAD"))?;
         let old_id = head.id().map(gix::Id::detach);
         let raw_head = worktree_repo
             .find_reference("HEAD")
-            .context("could not read a worktree HEAD reference")?;
+            .or_raise(|| message("could not read a worktree HEAD reference"))?;
         let raw_head = state_from_target_ref(raw_head.target());
         let current = gix::path::realpath(worktree_repo.git_dir())
-            .map_err(gix::Exn::into_error)
-            .context("could not resolve an affected worktree Git directory")?
+            .or_raise(|| message("could not resolve an affected worktree Git directory"))?
             == current_git_dir;
         let projected_head = projected_ref_state(&worktree_repo, b"HEAD".as_bstr(), &raw_head, changes, current)?;
-        ensure!(
+        gix::error::ensure!(
             projected_head != State::Missing,
-            "undo/redo cannot delete a worktree HEAD"
+            message("undo/redo cannot delete a worktree HEAD")
         );
         let new_id = resolve_state(&worktree_repo, &projected_head, changes, current, &mut HashSet::new())?;
-        let old = tree_id(&worktree_repo, old_id).context("could not inspect the current worktree tree")?;
-        let new = tree_id(&worktree_repo, new_id).context("could not inspect the destination worktree tree")?;
+        let old =
+            tree_id(&worktree_repo, old_id).or_raise(|| message("could not inspect the current worktree tree"))?;
+        let new = if current && let Some(tree_id) = restore_current_tree {
+            tree_id
+        } else {
+            tree_id(&worktree_repo, new_id).or_raise(|| message("could not inspect the destination worktree tree"))?
+        };
         if old == new || (worktree_repo.workdir().is_none() && worktree_repo.is_bare()) {
             continue;
         }
         let workdir = worktree_repo
             .workdir()
             .filter(|path| path.is_dir())
-            .context("an affected worktree is inaccessible")?
+            .ok_or_raise(|| message("an affected worktree is inaccessible"))?
             .to_owned();
         out.push(WorktreeTransition {
             repo: worktree_repo,
@@ -470,7 +575,7 @@ fn projected_ref_state(
     if name == b"HEAD" {
         return Ok(fallback.clone());
     }
-    let name = FullName::try_from(name).context("a projected worktree reference name is invalid")?;
+    let name = FullName::try_from(name).or_raise(|| message("a projected worktree reference name is invalid"))?;
     state(repo, name.as_ref())
 }
 
@@ -485,9 +590,9 @@ fn resolve_state(
         State::Missing => Ok(None),
         State::Object(id) => Ok(Some(*id)),
         State::Symbolic(name) => {
-            ensure!(
+            gix::error::ensure!(
                 seen.insert(name.clone()),
-                "a projected worktree reference contains a symbolic cycle"
+                message("a projected worktree reference contains a symbolic cycle")
             );
             let next = projected_ref_state(repo, name.as_bstr(), &State::Missing, changes, include_head)?;
             resolve_state(repo, &next, changes, include_head, seen)
@@ -499,25 +604,25 @@ fn tree_id(repo: &gix::Repository, commit: Option<ObjectId>) -> Result<ObjectId>
     commit.map_or_else(
         || Ok(ObjectId::empty_tree(repo.object_hash())),
         |commit| {
-            repo.find_commit(commit)
-                .context("a worktree HEAD target is not a commit")?
-                .tree_id()
-                .context("could not decode a worktree HEAD commit")
-                .map(gix::Id::detach)
+            Ok(repo
+                .find_commit(commit)
+                .or_raise(|| message("a worktree HEAD target is not a commit"))?
+                .tree_id()?
+                .detach())
         },
     )
 }
 
-fn rollback_transitions(transitions: &[WorktreeTransition], mut cause: anyhow::Error) -> anyhow::Error {
+fn rollback_transitions(transitions: &[WorktreeTransition], mut cause: Error) -> Error {
     for transition in transitions.iter().rev() {
-        if let Err(err) = super::forget::apply_tree_transition(&transition.workdir, transition.new, transition.old) {
-            cause = cause.context(format!("worktree rollback failed: {err:#}"));
+        if let Err(err) = super::delete::apply_tree_transition(&transition.workdir, transition.new, transition.old) {
+            cause = cause.and_raise(message!("worktree rollback failed: {err:#}"));
         }
     }
     cause
 }
 
-fn checked_edit(change: &RefChange) -> Result<RefEdit> {
+pub(super) fn checked_edit(change: &RefChange) -> Result<RefEdit> {
     let expected = match &change.before {
         State::Missing => PreviousValue::MustNotExist,
         State::Object(id) => PreviousValue::MustExistAndMatch(Target::Object(*id)),
@@ -525,9 +630,9 @@ fn checked_edit(change: &RefChange) -> Result<RefEdit> {
     };
     let tx_change = match &change.after {
         State::Missing => {
-            ensure!(
+            gix::error::ensure!(
                 change.before != State::Missing,
-                "cannot delete an already-missing reference"
+                message("cannot delete an already-missing reference")
             );
             Change::Delete {
                 expected,
@@ -550,7 +655,7 @@ fn checked_edit(change: &RefChange) -> Result<RefEdit> {
 
 fn queue_update(name: &str, old: Option<ObjectId>, new: ObjectId) -> Result<RefEdit> {
     Ok(RefEdit::update_with_log(
-        name.try_into().context("the undo queue reference name is invalid")?,
+        gix::refs::FullName::try_from(name).or_raise(|| message("the undo queue reference name is invalid"))?,
         new,
         old.map_or(PreviousValue::MustNotExist, |id| {
             PreviousValue::MustExistAndMatch(Target::Object(id))
@@ -567,27 +672,18 @@ fn log_change() -> LogChange {
     }
 }
 
-fn serialize_config(changes: &[RefChange]) -> Result<File> {
+pub(super) fn serialize_config(changes: &[RefChange]) -> Result<File> {
     let mut config = File::default();
-    config
-        .new_section("undo", None)?
-        .set("version", VERSION)
-        .context("could not serialize the undo version")?;
+    config.new_section("undo", None)?.set("version", VERSION)?;
     for change in changes {
-        let mut section = config
-            .new_section("ref", change.name.as_bstr())
-            .context("could not serialize an undo reference")?;
-        section
-            .set("before", encode_state(&change.before))
-            .context("could not serialize an undo before-state")?;
-        section
-            .set("after", encode_state(&change.after))
-            .context("could not serialize an undo after-state")?;
+        let mut section = config.new_section("ref", change.name.as_bstr())?;
+        section.set("before", encode_state(&change.before))?;
+        section.set("after", encode_state(&change.after))?;
     }
     Ok(config)
 }
 
-fn encode_state(state: &State) -> BString {
+pub(super) fn encode_state(state: &State) -> BString {
     match state {
         State::Missing => "missing".into(),
         State::Object(id) => format!("object:{id}").into(),
@@ -599,46 +695,53 @@ fn encode_state(state: &State) -> BString {
     }
 }
 
-fn parse_config(repo: &gix::Repository, body: &BStr) -> Result<Vec<RefChange>> {
-    let config = File::try_from(body).context("could not parse undo metadata as Git config")?;
+pub(super) fn parse_config(repo: &gix::Repository, body: &BStr) -> Result<Vec<RefChange>> {
+    let config = File::try_from(body).or_raise(|| message("could not parse undo metadata as Git config"))?;
     let mut sections = config.sections();
-    let undo = sections.next().context("undo metadata has no version section")?;
-    ensure!(
+    let undo = sections
+        .next()
+        .ok_or_raise(|| message("undo metadata has no version section"))?;
+    gix::error::ensure!(
         undo.header().name() == b"undo" && undo.header().subsection_name().is_none(),
-        "undo metadata must start with [undo]"
+        message("undo metadata must start with [undo]")
     );
     ensure_exact_keys(&undo, &["version"])?;
-    ensure!(
+    gix::error::ensure!(
         undo.value("version").as_ref().map(|value| value.as_slice()) == Some(VERSION.as_bytes()),
-        "unsupported undo metadata version"
+        message("unsupported undo metadata version")
     );
 
     let mut changes = Vec::new();
     let mut previous_name: Option<FullName> = None;
     for section in sections {
-        ensure!(
+        gix::error::ensure!(
             section.header().name() == b"ref",
-            "undo metadata contains an unknown section"
+            message("undo metadata contains an unknown section")
         );
         let subsection = section
             .header()
             .subsection_name()
-            .context("an undo ref section has no reference name")?;
-        let name = FullName::try_from(subsection).context("an undo entry contains an invalid reference name")?;
-        ensure!(!is_queue_ref(name.as_bstr()), "the undo queue records itself");
+            .ok_or_raise(|| message("an undo ref section has no reference name"))?;
+        let name =
+            FullName::try_from(subsection).or_raise(|| message("an undo entry contains an invalid reference name"))?;
+        gix::error::ensure!(!is_queue_ref(name.as_bstr()), message("the undo queue records itself"));
         if let Some(previous) = &previous_name {
-            ensure!(
+            gix::error::ensure!(
                 previous < &name,
-                "undo reference sections are duplicated or out of order"
+                message("undo reference sections are duplicated or out of order")
             );
         }
         previous_name = Some(name.clone());
         ensure_exact_keys(&section, &["before", "after"])?;
-        let before = section.value("before").context("an undo ref has no before-state")?;
+        let before = section
+            .value("before")
+            .ok_or_raise(|| message("an undo ref has no before-state"))?;
         let before = parse_state(repo, before.as_bstr())?;
-        let after = section.value("after").context("an undo ref has no after-state")?;
+        let after = section
+            .value("after")
+            .ok_or_raise(|| message("an undo ref has no after-state"))?;
         let after = parse_state(repo, after.as_bstr())?;
-        ensure!(before != after, "an undo ref does not change");
+        gix::error::ensure!(before != after, message("an undo ref does not change"));
         changes.push(RefChange { name, before, after });
     }
     Ok(changes)
@@ -646,43 +749,47 @@ fn parse_config(repo: &gix::Repository, body: &BStr) -> Result<Vec<RefChange>> {
 
 fn ensure_exact_keys(section: &gix::config::file::SectionRef<'_>, expected: &[&str]) -> Result<()> {
     let actual: Vec<_> = section.value_names().collect();
-    ensure!(
+    gix::error::ensure!(
         actual == expected,
-        "undo metadata has missing, repeated, or unknown keys"
+        message("undo metadata has missing, repeated, or unknown keys")
     );
     Ok(())
 }
 
-fn parse_state(repo: &gix::Repository, value: &BStr) -> Result<State> {
+pub(super) fn parse_state(repo: &gix::Repository, value: &BStr) -> Result<State> {
     if value == b"missing" {
         return Ok(State::Missing);
     }
     if let Some(hex) = value.strip_prefix(b"object:") {
-        let id = ObjectId::from_hex(hex).context("an undo object ID is invalid")?;
-        ensure!(
+        let id = ObjectId::from_hex(hex).or_raise(|| message("an undo object ID is invalid"))?;
+        gix::error::ensure!(
             id.kind() == repo.object_hash(),
-            "an undo object ID uses the wrong hash kind"
+            message("an undo object ID uses the wrong hash kind")
         );
         return Ok(State::Object(id));
     }
     if let Some(name) = value.strip_prefix(b"symbolic:") {
         return FullName::try_from(name.as_bstr())
             .map(State::Symbolic)
-            .context("an undo symbolic target is invalid");
+            .or_raise(|| message("an undo symbolic target is invalid"));
     }
     bail!("an undo reference state has an unknown encoding")
 }
 
 fn validate_title(title: &str) -> Result<()> {
-    ensure!(!title.is_empty(), "an undo operation title cannot be empty");
-    ensure!(
+    gix::error::ensure!(!title.is_empty(), message("an undo operation title cannot be empty"));
+    gix::error::ensure!(
         !title.as_bytes().iter().any(|byte| matches!(byte, b'\n' | b'\r')),
-        "an undo operation title must be one line"
+        message("an undo operation title must be one line")
     );
     Ok(())
 }
 
-fn retention_parents(repo: &gix::Repository, predecessor: ObjectId, changes: &[RefChange]) -> Result<Vec<ObjectId>> {
+pub(super) fn retention_parents(
+    repo: &gix::Repository,
+    predecessor: ObjectId,
+    changes: &[RefChange],
+) -> Result<Vec<ObjectId>> {
     let mut parents = vec![predecessor];
     let mut seen = HashSet::from([predecessor]);
     for id in changes
@@ -698,7 +805,7 @@ fn retention_parents(repo: &gix::Repository, predecessor: ObjectId, changes: &[R
         }
         if repo
             .find_header(id)
-            .with_context(|| format!("could not inspect retained undo object {id}"))?
+            .or_raise(|| message!("could not inspect retained undo object {id}"))?
             .kind()
             == gix::object::Kind::Commit
         {
@@ -709,16 +816,18 @@ fn retention_parents(repo: &gix::Repository, predecessor: ObjectId, changes: &[R
     Ok(parents)
 }
 
-fn write_commit(repo: &gix::Repository, title: &str, config: &File, parents: &[ObjectId]) -> Result<ObjectId> {
+pub(super) fn write_commit(
+    repo: &gix::Repository,
+    title: &str,
+    config: &File,
+    parents: &[ObjectId],
+) -> Result<ObjectId> {
     validate_title(title)?;
-    let tree = repo
-        .write_object(gix::objs::Tree::empty())
-        .context("could not write the undo queue's empty tree")?
-        .detach();
+    let tree = repo.write_object(gix::objs::Tree::empty())?.detach();
     let committer = repo
         .committer()
-        .context("no Git committer is configured")?
-        .context("could not resolve the Git committer")?
+        .ok_or_raise(|| message("no Git committer is configured"))?
+        .or_raise(|| message("could not resolve the Git committer"))?
         .to_owned()?;
     let mut message = BString::from(title);
     message.extend_from_slice(b"\n\n");
@@ -733,7 +842,7 @@ fn write_commit(repo: &gix::Repository, title: &str, config: &File, parents: &[O
         extra_headers: Vec::new(),
     };
     repo.write_object(&commit)
-        .context("could not write an undo queue commit")
+        .or_raise(|| gix::error::message("could not write an undo queue commit"))
         .map(gix::Id::detach)
 }
 
@@ -780,7 +889,10 @@ fn load(repo: &gix::Repository) -> Result<Option<Queue>> {
     let mut entries = Vec::new();
     let sentinel;
     loop {
-        ensure!(seen.insert(id), "the undo queue first-parent chain contains a cycle");
+        gix::error::ensure!(
+            seen.insert(id),
+            message("the undo queue first-parent chain contains a cycle")
+        );
         let stored = parse_commit(repo, id)?;
         match stored.parent {
             Some(parent) => {
@@ -805,7 +917,7 @@ fn load(repo: &gix::Repository) -> Result<Option<Queue>> {
             .iter()
             .position(|entry| entry.id == cursor)
             .map(|index| index + 1)
-            .context("the undo cursor is not on the tip's first-parent chain")?
+            .ok_or_raise(|| message("the undo cursor is not on the tip's first-parent chain"))?
     };
     Ok(Some(Queue {
         tip,
@@ -819,7 +931,7 @@ fn load(repo: &gix::Repository) -> Result<Option<Queue>> {
 fn read_queue_ref(repo: &gix::Repository, name: &str) -> Result<Option<ObjectId>> {
     let Some(reference) = repo
         .try_find_reference(name)
-        .with_context(|| format!("could not read {name}"))?
+        .or_raise(|| message!("could not read {name}"))?
     else {
         return Ok(None);
     };
@@ -836,38 +948,43 @@ struct ParsedCommit {
 }
 
 fn parse_commit(repo: &gix::Repository, id: ObjectId) -> Result<ParsedCommit> {
-    let commit = repo
-        .find_commit(id)
-        .with_context(|| format!("could not find undo queue commit {id}"))?
-        .decode()
-        .context("could not decode an undo queue commit")?
-        .into_owned()
-        .context("could not own an undo queue commit")?;
-    ensure!(
+    let commit = repo.find_commit(id)?.decode()?.into_owned()?;
+    gix::error::ensure!(
         commit.tree == ObjectId::empty_tree(repo.object_hash()),
-        "an undo queue commit does not use the empty tree"
+        message("an undo queue commit does not use the empty tree")
     );
     let message = gix::objs::commit::MessageRef::from_bytes(&commit.message);
     let title = message
         .title
         .to_str()
-        .context("an undo operation title is not UTF-8")?
+        .or_raise(|| gix::error::message("an undo operation title is not UTF-8"))?
         .to_owned();
     validate_title(&title)?;
-    let body = message.body.context("an undo queue commit has no metadata body")?;
+    let body = message
+        .body
+        .ok_or_raise(|| gix::error::message("an undo queue commit has no metadata body"))?;
     let changes = parse_config(repo, body)?;
     let parent = commit.parents.first().copied();
     match parent {
         None => {
-            ensure!(title == START_TITLE, "the undo sentinel has the wrong title");
-            ensure!(changes.is_empty(), "the undo sentinel contains reference changes");
+            gix::error::ensure!(
+                title == START_TITLE,
+                gix::error::message("the undo sentinel has the wrong title")
+            );
+            gix::error::ensure!(
+                changes.is_empty(),
+                gix::error::message("the undo sentinel contains reference changes")
+            );
         }
         Some(parent) => {
-            ensure!(!changes.is_empty(), "an undo operation contains no reference changes");
+            gix::error::ensure!(
+                !changes.is_empty(),
+                gix::error::message("an undo operation contains no reference changes")
+            );
             let expected = retention_parents(repo, parent, &changes)?;
-            ensure!(
+            gix::error::ensure!(
                 commit.parents.as_slice() == expected,
-                "an undo commit has invalid retention parents"
+                gix::error::message("an undo commit has invalid retention parents")
             );
         }
     }
@@ -876,6 +993,8 @@ fn parse_commit(repo: &gix::Repository, id: ObjectId) -> Result<ParsedCommit> {
 
 #[cfg(test)]
 mod tests {
+    use gix::error::TestResult;
+
     use super::*;
 
     fn repo() -> gix_testtools::Result<(gix_testtools::tempfile::TempDir, gix::Repository)> {
@@ -888,11 +1007,9 @@ mod tests {
         Ok(value.try_into()?)
     }
 
-    fn set(repo: &gix::Repository, name: FullName, before: State, after: State) -> Result<()> {
-        checked_edit(&RefChange { name, before, after }).and_then(|edit| {
-            repo.edit_references([edit])?;
-            Ok(())
-        })
+    fn set(repo: &gix::Repository, name: FullName, before: State, after: State) -> TestResult {
+        repo.edit_references([checked_edit(&RefChange { name, before, after })?])?;
+        Ok(())
     }
 
     fn child(repo: &gix::Repository, parent: ObjectId, title: &str) -> gix_testtools::Result<ObjectId> {
@@ -940,8 +1057,9 @@ mod tests {
     }
 
     #[test]
-    fn undo_and_redo_apply_checked_ref_and_cursor_edits() -> gix_testtools::Result {
+    fn undo_and_redo_apply_checked_ref_and_cursor_edits() -> TestResult {
         let (_fixture, repo) = repo()?;
+        assert_eq!(history(&repo)?, History::default(), "a missing queue has no operations");
         let branch = name("refs/heads/undo-test")?;
         let head = repo.head_id()?.detach();
         set(&repo, branch.clone(), State::Missing, State::Object(head))?;
@@ -974,17 +1092,26 @@ mod tests {
             "undo deletes the created branch"
         );
         assert_eq!(position(&repo)?.redo, 1, "the operation can be redone");
+        assert_eq!(
+            history(&repo)?,
+            History {
+                titles: vec!["create branch".into()],
+                applied: 0,
+            },
+            "the sentinel is represented by the applied count, not an operation"
+        );
 
         let redo = plan_redo(&repo)?.expect("one operation can be redone");
         assert_eq!(redo.position.title, "create branch");
         redo.apply(&repo)?;
         assert_eq!(repo.find_reference(branch.as_ref())?.id(), head);
         assert!(plan_redo(&repo)?.is_none(), "the tip has no redo operation");
+        assert_eq!(history(&repo)?.applied, 1, "redo advances the history cursor");
         Ok(())
     }
 
     #[test]
-    fn recording_behind_tip_truncates_redo_and_merges_changes() -> gix_testtools::Result {
+    fn recording_behind_tip_truncates_redo_and_merges_changes() -> TestResult {
         let (_fixture, repo) = repo()?;
         let branch = name("refs/heads/undo-test")?;
         let first = repo.head_id()?.detach();
@@ -1011,7 +1138,23 @@ mod tests {
                 after: State::Object(discarded),
             }],
         )?;
+        assert_eq!(
+            history(&repo)?,
+            History {
+                titles: vec!["first".into(), "discarded".into()],
+                applied: 2,
+            },
+            "recorded history is ordered oldest first"
+        );
         plan_undo(&repo)?.expect("second entry exists").apply(&repo)?;
+        assert_eq!(
+            history(&repo)?,
+            History {
+                titles: vec!["first".into(), "discarded".into()],
+                applied: 1,
+            },
+            "undo keeps the redo tail visible behind the cursor"
+        );
 
         set(&repo, branch.clone(), State::Object(first), State::Object(replacement))?;
         record(
@@ -1033,11 +1176,82 @@ mod tests {
         let at_tip = position(&repo)?;
         assert_eq!((at_tip.title.as_str(), at_tip.undo, at_tip.redo), ("replacement", 2, 0));
         assert!(plan_redo(&repo)?.is_none(), "the old redo tail is no longer reachable");
+        assert_eq!(
+            history(&repo)?,
+            History {
+                titles: vec!["first".into(), "replacement".into()],
+                applied: 2,
+            },
+            "recording behind the tip replaces the discarded redo tail"
+        );
         Ok(())
     }
 
     #[test]
-    fn divergent_refs_fail_without_moving_the_cursor() -> gix_testtools::Result {
+    fn ref_only_undo_rejects_unmerged_index_but_preserves_staged_resolution() -> gix::error::TestResult {
+        let (fixture, _) = super::super::head::tests::merge_conflict_fixture()?;
+        let repo = crate::test_repository::open(fixture.path())?;
+        let head_commit_id = repo.head_id()?.detach();
+        let branch = name("refs/heads/undo-test")?;
+        set(&repo, branch.clone(), State::Missing, State::Object(head_commit_id))?;
+        record(
+            &repo,
+            "create branch during conflict",
+            &[RefChange {
+                name: branch.clone(),
+                before: State::Missing,
+                after: State::Object(head_commit_id),
+            }],
+        )?;
+        let before = gix_testtools::repository::snapshot(fixture.path())?;
+        let err = plan_undo(&repo)?
+            .expect("an unmerged index does not prevent planning")
+            .apply(&repo)
+            .expect_err("even reference-only undo must reject an unmerged index");
+        assert!(
+            err.to_string().contains("unresolved index conflicts"),
+            "the diagnostic identifies the blocking index state: {err:#}"
+        );
+        assert_eq!(
+            gix_testtools::repository::snapshot(fixture.path())?,
+            before,
+            "rejecting undo preserves references, cursor, index, and worktree"
+        );
+
+        std::fs::write(fixture.path().join("file"), "tip\n")?;
+        let status = gix_testtools::git_command(fixture.path())
+            .args(["add", "file"])
+            .status()?;
+        assert!(status.success(), "the resolution is staged");
+        let commit = repo.find_commit(head_commit_id)?.decode()?.into_owned()?;
+        assert!(
+            super::super::rebase::has_merge_replay(&commit) && crate::patch_id::is_unavailable(&commit),
+            "staging does not finalize the conflicted commit"
+        );
+        let staged = gix_testtools::repository::snapshot(fixture.path())?;
+        plan_undo(&repo)?
+            .expect("the branch creation can be undone")
+            .apply(&repo)?;
+        assert!(
+            repo.try_find_reference(branch.as_ref())?.is_none(),
+            "undo removes the branch after staging the resolution"
+        );
+        assert_eq!(position(&repo)?.redo, 1, "undo advances the cursor");
+        plan_redo(&repo)?
+            .expect("the branch creation can be redone")
+            .apply(&repo)?;
+        assert_eq!(repo.find_reference(branch.as_ref())?.id(), head_commit_id);
+        assert_eq!(position(&repo)?.undo, 1, "redo restores the cursor");
+        assert_eq!(
+            gix_testtools::repository::snapshot(fixture.path())?,
+            staged,
+            "the conflict marker permits undo/redo without changing the staged resolution"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn divergent_refs_fail_without_moving_the_cursor() -> TestResult {
         let (_fixture, repo) = repo()?;
         let branch = name("refs/heads/undo-test")?;
         let expected = repo.head_id()?.detach();
@@ -1060,7 +1274,7 @@ mod tests {
     }
 
     #[test]
-    fn recording_accepts_a_ref_that_the_operation_deleted() -> gix_testtools::Result {
+    fn recording_accepts_a_ref_that_the_operation_deleted() -> TestResult {
         let (_fixture, repo) = repo()?;
         let branch = name("refs/heads/undo-test")?;
         let head = repo.head_id()?.detach();
@@ -1087,7 +1301,7 @@ mod tests {
     }
 
     #[test]
-    fn an_active_review_blocks_and_discards_ref_only_undo_history() -> gix_testtools::Result {
+    fn an_active_review_blocks_and_discards_ref_only_undo_history() -> TestResult {
         let (_fixture, repo) = repo()?;
         let head = repo.head_id()?.detach();
         let before_review = name("refs/heads/before-review")?;
@@ -1105,7 +1319,7 @@ mod tests {
         let review = name("refs/worktree/tix/review/1")?;
         set(&repo, review, State::Missing, State::Object(head))?;
         assert!(
-            review_blocks_undo(&repo)?,
+            has_active_review(&repo)?,
             "a valid review reference blocks the ref-only queue"
         );
         assert!(
@@ -1116,6 +1330,14 @@ mod tests {
             position(&repo)?,
             empty_position(),
             "the blocked queue is not presented as available"
+        );
+        assert_eq!(
+            history(&repo)?,
+            History {
+                titles: vec!["before review".into()],
+                applied: 1,
+            },
+            "recorded history remains inspectable while a review blocks replay"
         );
 
         let during_review = name("refs/heads/during-review")?;
@@ -1140,6 +1362,11 @@ mod tests {
         assert!(
             repo.try_find_reference(CURSOR_REF)?.is_none(),
             "the old queue cursor is discarded atomically"
+        );
+        assert_eq!(
+            history(&repo)?,
+            History::default(),
+            "clearing the queue removes its history"
         );
         Ok(())
     }
@@ -1206,9 +1433,7 @@ mod tests {
         let fixture = gix_testtools::scripted_fixture_writable("forget_commit.sh")?;
         crate::test_repository::disable_autocrlf(fixture.path())?;
         let linked = fixture.path().join("linked");
-        let status = std::process::Command::new("git")
-            .arg("-C")
-            .arg(fixture.path())
+        let status = gix_testtools::git_command(fixture.path())
             .args(["worktree", "add", "-q", "-b", "linked"])
             .arg(&linked)
             .arg("HEAD")
@@ -1229,9 +1454,7 @@ mod tests {
             .expect("the linked worktree HEAD is attached")
             .to_owned();
         let top_state = gix_testtools::repository::snapshot(&linked)?;
-        let status = std::process::Command::new("git")
-            .arg("-C")
-            .arg(&linked)
+        let status = gix_testtools::git_command(&linked)
             .args(["checkout", "-q", "--detach"])
             .arg(parent.to_string())
             .status()?;

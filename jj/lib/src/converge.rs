@@ -120,9 +120,9 @@ pub enum ConvergeError {
 
 /// Evaluates the revset expression and returns those commits that are
 /// divergent, in the sense that the expression matches two or more commits in
-/// the result with the same change-id.
+/// the result with the same change ID.
 ///
-/// The commits are keyed by their change-id.
+/// The commits are keyed by their change ID.
 pub async fn find_divergent_changes(
     repo: &Arc<ReadonlyRepo>,
     revset_expression: Arc<ResolvedRevsetExpression>,
@@ -712,7 +712,7 @@ async fn rebase_tree_onto_solution_parents(
     ));
     // Remove
     terms.push((
-        c.parent_tree_no_resolve(repo.as_ref()).await?,
+        c.parent_tree_no_resolve(repo.index()).await?,
         c.parents_conflict_label().await?,
     ));
     // Add

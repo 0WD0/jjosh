@@ -7,7 +7,50 @@ fn hex_to_id(hex_sha1: &str, hex_sha256: &str) -> gix_hash::ObjectId {
     }
 }
 
+#[test]
+fn impossible_path_allocation_preserves_its_source() {
+    let mut input = Vec::new();
+    input.extend_from_slice(&usize::MAX.to_le_bytes());
+    input.extend_from_slice(&0usize.to_le_bytes());
+    input.extend_from_slice(&[0, 0]);
+    input.extend_from_slice(&[0; 20]);
+
+    let err = gix_worktree_stream::Stream::from_read(std::io::Cursor::new(input))
+        .next_entry()
+        .expect_err("the declared path length cannot be allocated");
+    insta::assert_debug_snapshot!(err, "the allocation failure remains classified", @"
+    Could not read stream entry
+
+    Caused by:
+        0: I/O error (OutOfMemory)
+        1: memory allocation failed because the computed capacity exceeded the collection's maximum
+    ");
+    let io_err = err
+        .downcast_any_ref::<std::io::Error>()
+        .expect("the I/O error is retained");
+    insta::assert_debug_snapshot!(io_err, "impossible path allocation preserves its source", @"
+    Custom {
+        kind: OutOfMemory,
+        error: TryReserveError {
+            kind: CapacityOverflow,
+        },
+    }
+    ");
+    assert_eq!(io_err.kind(), std::io::ErrorKind::OutOfMemory);
+    assert!(
+        io_err
+            .get_ref()
+            .expect("the allocation error is retained")
+            .is::<std::collections::TryReserveError>(),
+        "the allocation error is retained"
+    );
+    assert!(err.is_resource_exhausted(), "the allocation failure remains classified");
+    assert!(!err.is_corrupted());
+    assert!(!err.can_retry());
+}
+
 mod from_tree {
+    use gix_error::Result;
     use std::{
         convert::Infallible,
         io::{Error, Read, Write},
@@ -16,6 +59,7 @@ mod from_tree {
     };
 
     use gix_attributes::glob::pattern::Case;
+    use gix_error::ErrorExt;
     use gix_hash::oid;
     use gix_object::{Data, bstr::ByteSlice, tree::EntryKind};
     use gix_worktree::stack::state::attributes::Source;
@@ -27,12 +71,8 @@ mod from_tree {
     struct FailObjectRetrieval;
 
     impl gix_object::Find for FailObjectRetrieval {
-        fn try_find<'a>(
-            &self,
-            _id: &oid,
-            _buffer: &'a mut Vec<u8>,
-        ) -> Result<Option<Data<'a>>, gix_object::find::Error> {
-            Err(Box::new(Error::other("object retrieval failed")))
+        fn try_find<'a>(&self, _id: &oid, _buffer: &'a mut Vec<u8>) -> Result<Option<Data<'a>>> {
+            Err(Error::other("object retrieval failed").raise())
         }
     }
 
@@ -42,28 +82,37 @@ mod from_tree {
             gix_testtools::object_hash().null(),
             FailObjectRetrieval,
             mutating_pipeline(false),
-            |_, _, _| -> Result<_, Infallible> { unreachable!("must not be called") },
+            |_, _, _| -> std::result::Result<_, Infallible> { unreachable!("must not be called") },
         );
         let err = stream.next_entry().unwrap_err();
-        assert_eq!(err.to_string(), "Could not find a tree to traverse");
+        insta::assert_debug_snapshot!(err, "can receive err if root is not found", @"
+        Could not find a tree to traverse
+
+        Caused by:
+            0: I/O error (Other)
+            1: object retrieval failed
+        ");
     }
 
     #[test]
-    fn can_receive_err_if_attribute_not_found() -> gix_testtools::Result {
+    fn can_receive_err_if_attribute_not_found() -> gix_testtools::TestResult {
         let (_dir, head_tree, odb, _cache) = basic()?;
         let mut stream = gix_worktree_stream::from_tree(head_tree, odb, mutating_pipeline(false), |_, _, _| {
             Err(Error::other("attribute retrieval failed"))
         });
         let err = stream.next_entry().unwrap_err();
-        assert_eq!(
-            err.to_string(),
-            "Could not query attributes for path \".gitattributes\""
-        );
+        insta::assert_debug_snapshot!(err, "can receive err if attribute not found", @r#"
+        Could not query attributes for path ".gitattributes"
+
+        Caused by:
+            0: I/O error (Other)
+            1: attribute retrieval failed
+        "#);
         Ok(())
     }
 
     #[test]
-    fn filter_process_failure_during_shutdown_is_ignored() -> gix_testtools::Result {
+    fn filter_process_failure_during_shutdown_is_ignored() -> gix_testtools::TestResult {
         let (_dir, head_tree, odb, mut cache) = basic()?;
         let mut pipeline = mutating_pipeline(true);
         *pipeline
@@ -79,17 +128,14 @@ mod from_tree {
                     .map(|_| ())
             });
 
-        while let Some(mut entry) = stream
-            .next_entry()
-            .expect("a filter failure after successful conversion is ignored")
-        {
+        while let Some(mut entry) = stream.next_entry()? {
             std::io::copy(&mut entry, &mut std::io::sink())?;
         }
         Ok(())
     }
 
     #[test]
-    fn will_provide_all_information_and_respect_export_ignore() -> gix_testtools::Result {
+    fn will_provide_all_information_and_respect_export_ignore() -> gix_testtools::TestResult {
         let (dir, head_tree, odb, mut cache) = basic()?;
         let mut stream = gix_worktree_stream::from_tree(
             head_tree,
@@ -118,10 +164,10 @@ mod from_tree {
         let mut paths_and_modes = Vec::new();
         let mut stream = gix_worktree_stream::Stream::from_read(tee_read);
 
-        while let Some(mut entry) = stream.next_entry().expect("entry retrieval does not fail") {
+        while let Some(mut entry) = stream.next_entry()? {
             paths_and_modes.push((entry.relative_path().to_owned(), entry.mode.kind(), entry.id));
             let mut buf = Vec::new();
-            entry.read_to_end(&mut buf).expect("stream can always be read");
+            entry.read_to_end(&mut buf)?;
             if !buf.is_empty() && entry.mode.is_blob() {
                 if entry.relative_path().contains_str("extra") {
                     assert!(
@@ -247,10 +293,10 @@ mod from_tree {
             gix_worktree_stream::Stream::from_read(std::io::Cursor::new(copy.lock().as_bytes().to_owned()));
         let mut copied_paths_and_modes = Vec::new();
         let mut buf = Vec::new();
-        while let Some(mut entry) = copied_stream.next_entry().expect("entry retrieval does not fail") {
+        while let Some(mut entry) = copied_stream.next_entry()? {
             copied_paths_and_modes.push((entry.relative_path().to_owned(), entry.mode.kind(), entry.id));
             buf.clear();
-            entry.read_to_end(&mut buf).expect("stream can always be read");
+            entry.read_to_end(&mut buf)?;
         }
         assert_eq!(
             copied_paths_and_modes, paths_and_modes,
@@ -260,7 +306,7 @@ mod from_tree {
     }
 
     #[test]
-    fn can_drop_entry_without_reading_it() -> gix_testtools::Result {
+    fn can_drop_entry_without_reading_it() -> gix_testtools::TestResult {
         let (_dir, head_tree, odb, mut cache) = basic()?;
         let mut stream = gix_worktree_stream::from_tree(
             head_tree,
@@ -274,7 +320,7 @@ mod from_tree {
             },
         );
 
-        drop(stream.next_entry().expect("entry retrieval does not fail"));
+        drop(stream.next_entry()?);
         Ok(())
     }
 
@@ -303,6 +349,7 @@ mod from_tree {
     fn mutating_pipeline(driver: bool) -> gix_filter::Pipeline {
         gix_filter::Pipeline::new(
             Default::default(),
+            gix_testtools::object_hash(),
             gix_filter::pipeline::Options {
                 drivers: if driver { vec![driver_with_process("")] } else { vec![] },
                 eol_config: gix_filter::eol::Configuration {

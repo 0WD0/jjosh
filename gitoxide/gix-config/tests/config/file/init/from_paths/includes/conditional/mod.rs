@@ -1,3 +1,4 @@
+use crate::{Result, TestResult};
 use std::{fs, path::Path, str::FromStr};
 
 use gix_config::{
@@ -14,7 +15,7 @@ mod hasconfig;
 mod onbranch;
 
 #[test]
-fn include_and_includeif_correct_inclusion_order_and_delayed_resolve_include() -> crate::Result {
+fn include_and_includeif_correct_inclusion_order_and_delayed_resolve_include() -> TestResult {
     let dir = tempdir()?;
     let config_path = dir.path().join("root");
     let first_include_path = dir.path().join("first-incl");
@@ -139,7 +140,7 @@ fn options_with_git_dir(git_dir: &Path) -> init::Options<'_> {
     }
 }
 
-fn git_init(dir: impl AsRef<std::path::Path>, bare: bool) -> crate::Result {
+fn git_init(dir: impl AsRef<std::path::Path>, bare: bool) -> Result {
     let dir = dir.as_ref();
     let mut args = vec!["init"];
     if bare {
@@ -148,7 +149,7 @@ fn git_init(dir: impl AsRef<std::path::Path>, bare: bool) -> crate::Result {
     std::fs::create_dir_all(dir)?;
     let output = gix_testtools::git_command(dir).args(args).output()?;
 
-    assert!(output.status.success(), "{output:?}, {dir:?}");
+    assert!(output.status.success(), "{output:?}, {}", dir.display());
     Ok(())
 }
 

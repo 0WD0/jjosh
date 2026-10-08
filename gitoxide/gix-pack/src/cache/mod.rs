@@ -60,20 +60,21 @@ pub mod object;
 /// [`delta::traverse::Options`] configure the traversal.
 ///
 /// ```no_run
+/// use gix_error::Result;
 /// use gix_pack::cache::delta::Tree;
 /// use std::sync::atomic::AtomicBool;
 ///
 /// # fn build_index_less(
 /// #     pack_path: &std::path::Path,
 /// #     offsets: Vec<gix_pack::data::Offset>,
-/// # ) -> Result<(), Box<dyn std::error::Error>> {
+/// # ) -> Result {
 /// // Build the delta tree straight from the pack — no `.idx` required:
 /// let tree = Tree::from_offsets_in_pack(
 ///     pack_path,
 ///     offsets.into_iter(),
 ///     &|offset| *offset,
-///     &|_id| None,                     // self-contained pack: no ref-delta lookups
-///     &mut gix_features::progress::Discard,
+///     &|_id| Ok(None),                 // self-contained pack: no ref-delta lookups
+///     &mut gix_utils::progress::Discard,
 ///     &AtomicBool::default(),
 ///     gix_hash::Kind::default(),
 /// )?;

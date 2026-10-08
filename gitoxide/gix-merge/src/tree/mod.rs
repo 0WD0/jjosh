@@ -1,28 +1,33 @@
 use bstr::BString;
 use gix_diff::{Rewrites, tree_with_rewrites::Change};
+use gix_error::ClassificationMarker;
 
-/// The error returned by [`tree()`](crate::tree()).
-#[derive(Debug, thiserror::Error)]
-#[expect(missing_docs)]
+/// A recoverable failure of [`tree()`](crate::tree()).
+/// Other failures retain their original causes in the returned exception.
+#[derive(Debug)]
+#[non_exhaustive]
 pub enum Error {
-    #[error("Could not find ancestor, our or their tree to get started")]
-    FindTree(#[from] gix_object::find::existing_object::Error),
-    #[error("Could not find ancestor, our or their tree iterator to get started")]
-    FindTreeIter(#[from] gix_object::find::existing_iter::Error),
-    #[error("Failed to diff our side or their side")]
-    DiffTree(#[from] gix_diff::tree_with_rewrites::Error),
-    #[error("Could not apply merge result to base tree")]
-    TreeEdit(#[from] gix_object::tree::editor::Error),
-    #[error("Failed to load resource to prepare for blob merge")]
-    BlobMergeSetResource(#[from] crate::blob::platform::set_resource::Error),
-    #[error(transparent)]
-    BlobMergePrepare(#[from] crate::blob::platform::prepare_merge::Error),
-    #[error(transparent)]
-    BlobMerge(#[from] crate::blob::platform::merge::Error),
-    #[error("Failed to write merged blob content as blob to the object database")]
-    WriteBlobToOdb(Box<dyn std::error::Error + Send + Sync + 'static>),
-    #[error("The merge was performed, but the binary merge result couldn't be selected as it wasn't found")]
-    MergeResourceNotFound,
+    /// The selected binary merge resource is absent, such as the ancestor of an add/add conflict.
+    /// Classified as [`gix_error::Class::NotFound`].
+    MissingBinaryMergeResult,
+}
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MissingBinaryMergeResult => f.write_str(
+                "The merge was performed, but the binary merge result couldn't be selected as it wasn't found",
+            ),
+        }
+    }
+}
+
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::MissingBinaryMergeResult => Some(const { &ClassificationMarker::NOT_FOUND }),
+        }
+    }
 }
 
 /// The outcome produced by [`tree()`](crate::tree()).

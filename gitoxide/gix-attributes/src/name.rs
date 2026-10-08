@@ -1,7 +1,8 @@
 use std::borrow::Borrow;
 
 use bstr::{BStr, ByteSlice};
-use gix_features::threading::OwnShared;
+use gix_error::{OptionExt, Result, validation};
+use gix_parallel::OwnShared;
 
 use crate::{Name, NameRef};
 
@@ -24,9 +25,11 @@ impl AsRef<str> for NameRef<'_> {
 }
 
 impl<'a> TryFrom<&'a BStr> for NameRef<'a> {
-    type Error = Error;
+    type Error = gix_error::Error;
 
-    fn try_from(attr: &'a BStr) -> Result<Self, Self::Error> {
+    /// Invalid names produce a [validation error](gix_error::Error::is_validation()),
+    /// with the original bytes stored as `input` [metadata](gix_error::Error::metadata()).
+    fn try_from(attr: &'a BStr) -> Result<Self> {
         fn attr_valid(attr: &BStr) -> bool {
             if attr.is_empty() || attr.first() == Some(&b'-') {
                 return false;
@@ -38,7 +41,7 @@ impl<'a> TryFrom<&'a BStr> for NameRef<'a> {
 
         attr_valid(attr)
             .then(|| NameRef(attr.to_str().expect("no illformed utf8")))
-            .ok_or_else(|| Error::new_with_input("Attribute has non-ascii characters or starts with '-'", attr))
+            .ok_or_raise(|| validation("Attribute has non-ascii characters or starts with '-'").with_input(attr))
     }
 }
 
@@ -68,7 +71,7 @@ impl Borrow<str> for Name {
 
 #[cfg(feature = "serde")]
 impl serde::Serialize for Name {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
@@ -78,7 +81,7 @@ impl serde::Serialize for Name {
 
 #[cfg(feature = "serde")]
 impl<'de> serde::Deserialize<'de> for Name {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
@@ -92,6 +95,3 @@ impl<'de> serde::Deserialize<'de> for Name {
             .map_err(serde::de::Error::custom)
     }
 }
-
-/// The error returned by [`parse::Iter`][crate::parse::Iter].
-pub type Error = gix_error::ValidationError;

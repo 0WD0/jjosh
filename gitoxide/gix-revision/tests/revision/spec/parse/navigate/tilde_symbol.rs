@@ -4,8 +4,16 @@ use crate::spec::parse::{parse, try_parse};
 
 #[test]
 fn without_anchor_is_invalid() {
-    let err = try_parse("~").unwrap_err().into_inner();
-    assert!(err.message.contains("tilde needs to follow an anchor"));
+    let err = try_parse("~").unwrap_err();
+    let err = err
+        .downcast_any_ref::<gix_error::Message>()
+        .expect("the parser message is retained");
+    insta::assert_debug_snapshot!(err, "without anchor is invalid", @r#"
+    Message {
+        message: "tilde needs to follow an anchor, like @~",
+        class: Validation,
+    }
+    "#);
 }
 
 #[test]

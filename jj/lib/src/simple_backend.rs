@@ -22,6 +22,7 @@ use std::io::Write as _;
 use std::path::Path;
 use std::path::PathBuf;
 use std::pin::Pin;
+use std::time::SystemTime;
 
 use async_trait::async_trait;
 use blake2::Blake2b512;
@@ -74,7 +75,7 @@ fn map_not_found_err(err: std::io::Error, id: &impl ObjectId) -> BackendError {
         BackendError::ObjectNotFound {
             object_type: id.object_type(),
             hash: id.hex(),
-            source: Box::new(err),
+            source: Some(Box::new(err)),
         }
     } else {
         BackendError::ReadObject {
@@ -341,6 +342,10 @@ impl Backend for SimpleBackend {
         _head: &CommitId,
     ) -> BackendResult<BoxStream<'_, BackendResult<CopyRecord>>> {
         Ok(stream::empty().boxed())
+    }
+
+    async fn gc(&self, _heads: &[CommitId], _keep_newer: SystemTime) -> BackendResult<()> {
+        Ok(())
     }
 }
 

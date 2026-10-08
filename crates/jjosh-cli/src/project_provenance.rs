@@ -48,7 +48,7 @@ pub(crate) struct Prepared {
 fn refs(git: &gix::Repository, prefix: &str) -> Result<BTreeMap<String, ObjectId>> {
     let mut result = BTreeMap::new();
     for reference in git.references()?.prefixed(prefix)? {
-        let reference = reference.map_err(anyhow::Error::from_boxed)?;
+        let reference = reference?;
         let name = std::str::from_utf8(reference.name().as_bstr())?.to_owned();
         let gix::refs::TargetRef::Object(id) = reference.target() else {
             bail!("Preserved evidence ref {name} must not be symbolic");
@@ -213,8 +213,8 @@ impl Cache {
             destination.path().join("shallow"),
             gix::lock::acquire::Fail::Immediately,
             None,
+            0,
         )
-        .map_err(|error| error.into_error())
         .context("Locking destination source cache shallow boundaries")?;
         // An initialized cache with no refs or shallow file has no history to
         // conflict with. Never replace a populated cache's boundary policy.

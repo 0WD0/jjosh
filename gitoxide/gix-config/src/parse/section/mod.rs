@@ -21,18 +21,14 @@ pub(crate) struct HeaderData {
 
 mod types {
     use bstr::ByteSlice;
+    use gix_error::{ErrorExt, Result, validation};
 
     macro_rules! generate_case_insensitive {
-        ($name:ident, $module:ident, $err_doc:literal, $validate:ident, $cow_inner_type:ty, $comment:literal) => {
-            ///
-            pub mod $module {
-                /// The error returned when `TryFrom` is invoked to create an instance.
-                #[derive(Debug, thiserror::Error, Copy, Clone)]
-                #[error($err_doc)]
-                pub struct Error;
-            }
-
+        ($name:ident, $err_doc:literal, $validate:ident, $cow_inner_type:ty, $comment:literal) => {
             #[doc = $comment]
+            ///
+            /// Invalid names produce a [validation error](gix_error::Error::is_validation()),
+            /// with the original bytes stored as `input` [metadata](gix_error::Error::metadata()).
             #[derive(Clone, Eq, Debug, Default)]
             pub struct $name(pub(crate) bstr::BString);
 
@@ -82,41 +78,41 @@ mod types {
             }
 
             impl std::convert::TryFrom<&str> for $name {
-                type Error = $module::Error;
+                type Error = gix_error::Error;
 
-                fn try_from(s: &str) -> Result<Self, Self::Error> {
+                fn try_from(s: &str) -> Result<Self> {
                     Self::try_from(bstr::ByteSlice::as_bstr(s.as_bytes()))
                 }
             }
 
             impl std::convert::TryFrom<String> for $name {
-                type Error = $module::Error;
+                type Error = gix_error::Error;
 
-                fn try_from(s: String) -> Result<Self, Self::Error> {
+                fn try_from(s: String) -> Result<Self> {
                     Self::try_from(bstr::BString::from(s))
                 }
             }
 
             impl std::convert::TryFrom<bstr::BString> for $name {
-                type Error = $module::Error;
+                type Error = gix_error::Error;
 
-                fn try_from(s: bstr::BString) -> Result<Self, Self::Error> {
+                fn try_from(s: bstr::BString) -> Result<Self> {
                     if $validate(s.as_slice().as_bstr()) {
                         Ok(Self(s.into()))
                     } else {
-                        Err($module::Error)
+                        Err(validation($err_doc).with_input(s).raise())
                     }
                 }
             }
 
             impl std::convert::TryFrom<&bstr::BStr> for $name {
-                type Error = $module::Error;
+                type Error = gix_error::Error;
 
-                fn try_from(s: &bstr::BStr) -> Result<Self, Self::Error> {
+                fn try_from(s: &bstr::BStr) -> Result<Self> {
                     if $validate(s) {
                         Ok(Self(s.into()))
                     } else {
-                        Err($module::Error)
+                        Err(validation($err_doc).with_input(s).raise())
                     }
                 }
             }
@@ -146,7 +142,6 @@ mod types {
 
     generate_case_insensitive!(
         Name,
-        name,
         "Valid names consist of alphanumeric characters or dashes.",
         is_valid_name,
         bstr::BStr,
@@ -155,15 +150,14 @@ mod types {
 
     generate_case_insensitive!(
         ValueName,
-        value_name,
         "Valid value names consist of alphanumeric characters or dashes, starting with an alphabetic character.",
         is_valid_value_name,
         bstr::BStr,
         "Wrapper struct for value names, like `path` in `include.path`, since keys are case-insensitive."
     );
 }
+pub use types::Name;
 pub(crate) use types::ValueName;
-pub use types::{Name, name, value_name};
 
 #[cfg(test)]
 mod tests {

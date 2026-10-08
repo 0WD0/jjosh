@@ -61,7 +61,7 @@ pub struct AbsorbSource {
 impl AbsorbSource {
     /// Create an absorb source from a single commit.
     pub async fn from_commit(repo: &dyn Repo, commit: Commit) -> BackendResult<Self> {
-        let parent_tree = commit.parent_tree(repo).await?;
+        let parent_tree = commit.parent_tree(repo.index()).await?;
         let source_tree = commit.tree();
         Self::from_tree(commit, source_tree, parent_tree).await
     }
@@ -117,7 +117,7 @@ pub async fn split_hunks_to_trees(
     let right_tree = &source.source_tree;
     // TODO: enable copy tracking if we add support for annotate and merge
     let copy_records = CopyRecords::default();
-    let tree_diff = left_tree.diff_stream_with_copies(right_tree, matcher, &copy_records);
+    let tree_diff = left_tree.diff_with_copies(right_tree, matcher, &copy_records);
     let mut diff_stream = materialized_diff_stream(
         repo.store(),
         tree_diff,
@@ -175,13 +175,13 @@ pub async fn split_hunks_to_trees(
             // the source parent, we can propagate file deletion only if the
             // whole file content is deleted at a single destination commit.
             let new_tree_value = if new_text.is_empty() && deleted {
-                Merge::absent()
+                None
             } else {
                 let id = repo
                     .store()
                     .write_file(left_path, &mut new_text.as_slice())
                     .await?;
-                Merge::normal(TreeValue::File {
+                Some(TreeValue::File {
                     id,
                     executable,
                     copy_id: copy_id.clone(),

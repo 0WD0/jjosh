@@ -1,13 +1,15 @@
+use gix_error::{Result, validation};
 use std::{
     borrow::Cow,
     path::{Path, PathBuf},
 };
 
 use bstr::{BStr, BString, ByteSlice};
+use gix_error::{OptionExt, ResultExt, bail};
 
 use crate::{
     EntryRef, entry,
-    walk::{Action, Context, Delegate, Error, ForDeletionMode, Options, Outcome, classify, readdir},
+    walk::{Action, Context, Delegate, ForDeletionMode, Options, Outcome, classify, readdir},
 };
 
 /// A function to perform a git-style, unsorted, directory walk.
@@ -28,11 +30,8 @@ use crate::{
 ///
 /// ### Performance Notes
 ///
-/// In theory, parallel directory traversal can be significantly faster, and what's possible for our current
-/// `gix_features::fs::WalkDir` implementation is to abstract a `filter_entry()` method so it works both for
-/// the iterator from the `walkdir` crate as well as from `jwalk`. However, doing so as initial version
-/// has the risk of not being significantly harder if not impossible to implement as flow-control is very
-/// limited.
+/// Parallel traversal is abandoned as it's not worth managing a thread-pool over this, also given that
+/// traversal is rare in typical Git usage.
 ///
 /// Thus the decision was made to start out with something akin to the Git implementation, get all tests and
 /// baseline comparison to pass, and see if an iterator with just `filter_entry` would be capable of dealing with
@@ -48,17 +47,16 @@ pub fn walk(
     mut ctx: Context<'_>,
     options: Options<'_>,
     delegate: &mut dyn Delegate,
-) -> Result<(Outcome, PathBuf), Error> {
+) -> Result<(Outcome, PathBuf)> {
     let root = match ctx.explicit_traversal_root {
         Some(root) => root.to_owned(),
-        None => ctx
-            .pathspec
-            .longest_common_directory()
-            .and_then(|candidate| {
-                let candidate = worktree_root.join(candidate);
-                candidate.is_dir().then_some(candidate)
-            })
-            .unwrap_or_else(|| worktree_root.join(ctx.pathspec.prefix_directory())),
+        None => match ctx.pathspec.longest_common_directory()?.and_then(|candidate| {
+            let candidate = worktree_root.join(candidate);
+            candidate.is_dir().then_some(candidate)
+        }) {
+            Some(root) => root,
+            None => worktree_root.join(ctx.pathspec.prefix_directory()?),
+        },
     };
     let _span = gix_trace::coarse!("walk", root = ?root, worktree_root = ?worktree_root, options = ?options);
     let (mut current, worktree_root_relative) = assure_no_symlink_in_root(worktree_root, &root)?;
@@ -88,10 +86,13 @@ pub fn walk(
     );
     if !can_recurse {
         if buf.is_empty() && !root_info.disk_kind.is_some_and(|kind| kind.is_dir()) {
-            return Err(Error::WorktreeRootIsFile { root: root.to_owned() });
+            bail!(
+                "Worktree root at \"{}\" is not a directory".validation(),
+                root.display()
+            );
         }
         if options.precompose_unicode {
-            buf = gix_utils::str::precompose_bstr(buf.into()).into_owned();
+            buf = gix_path::into_bstr(gix_utils::str::precompose_path(gix_path::from_bstr(buf)?))?.into_owned();
         }
         let _ = emit_entry(
             Cow::Borrowed(buf.as_bstr()),
@@ -128,29 +129,29 @@ pub fn walk(
 /// Note that we only check symlinks on the way from `worktree_root` to `root`,
 /// so `worktree_root` may go through a symlink.
 /// Returns `(worktree_root, normalized_worktree_relative_root)`.
-fn assure_no_symlink_in_root<'root>(
-    worktree_root: &Path,
-    root: &'root Path,
-) -> Result<(PathBuf, Cow<'root, Path>), Error> {
+fn assure_no_symlink_in_root<'root>(worktree_root: &Path, root: &'root Path) -> Result<(PathBuf, Cow<'root, Path>)> {
     let mut current = worktree_root.to_owned();
     let worktree_relative = root
         .strip_prefix(worktree_root)
         .expect("BUG: root was created from worktree_root + prefix");
-    let worktree_relative = gix_path::normalize(worktree_relative.into(), Path::new(""))
-        .ok_or(Error::NormalizeRoot { root: root.to_owned() })?;
+    let worktree_relative = gix_path::normalize(worktree_relative.into(), Path::new("")).ok_or_raise(|| {
+        validation(format!(
+            "Traversal root '{}' contains relative path components and could not be normalized",
+            root.display()
+        ))
+    })?;
 
     for (idx, component) in worktree_relative.components().enumerate() {
         current.push(component);
-        let meta = current.symlink_metadata().map_err(|err| Error::SymlinkMetadata {
-            source: err,
-            path: current.to_owned(),
-        })?;
+        let meta = current
+            .symlink_metadata()
+            .or_raise(|| gix_error::message!("Could not obtain symlink metadata on \"{}\"", current.display()))?;
         if meta.is_symlink() {
-            return Err(Error::SymlinkInRoot {
-                root: root.to_owned(),
-                worktree_root: worktree_root.to_owned(),
-                component_index: idx,
-            });
+            bail!(validation(format!(
+                "A symlink was found at component {idx} of traversal root '{}' as seen from worktree root '{}'",
+                root.display(),
+                worktree_root.display()
+            )));
         }
     }
     Ok((current, worktree_relative))

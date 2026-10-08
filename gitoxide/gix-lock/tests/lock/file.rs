@@ -5,12 +5,12 @@ mod close {
     use gix_lock::acquire::Fail;
 
     #[test]
-    fn acquire_close_commit_to_existing_file() -> crate::Result {
+    fn acquire_close_commit_to_existing_file() -> gix_testtools::TestResult {
         let dir = tempfile::tempdir()?;
         let resource = dir.path().join("resource-existing.ext");
         std::fs::write(&resource, b"old state")?;
         let resource_lock = resource.with_extension("ext.lock");
-        let mut file = gix_lock::File::acquire_to_update_resource(&resource, Fail::Immediately, None)?;
+        let mut file = gix_lock::File::acquire_to_update_resource(&resource, Fail::Immediately, None, 0)?;
         assert!(resource_lock.is_file());
         file.with_mut(|out| out.write_all(b"hello world"))?;
         let mark = file.close()?;
@@ -31,11 +31,11 @@ mod commit {
     use gix_lock::acquire::Fail;
 
     #[test]
-    fn failure_to_commit_does_return_a_registered_marker() -> crate::Result {
+    fn failure_to_commit_does_return_a_registered_marker() -> gix_testtools::TestResult {
         let dir = tempfile::tempdir()?;
         let resource = dir.path().join("resource-existing.ext");
         std::fs::create_dir(&resource)?;
-        let mark = gix_lock::Marker::acquire_to_hold_resource(&resource, Fail::Immediately, None)?;
+        let mark = gix_lock::Marker::acquire_to_hold_resource(&resource, Fail::Immediately, None, 0)?;
         let lock_path = mark.lock_path().to_owned();
         assert!(lock_path.is_file(), "the lock is placed");
 
@@ -53,11 +53,11 @@ mod commit {
     }
 
     #[test]
-    fn failure_to_commit_does_return_a_registered_file() -> crate::Result {
+    fn failure_to_commit_does_return_a_registered_file() -> gix_testtools::TestResult {
         let dir = tempfile::tempdir()?;
         let resource = dir.path().join("resource-existing.ext");
         std::fs::create_dir(&resource)?;
-        let file = gix_lock::File::acquire_to_update_resource(&resource, Fail::Immediately, None)?;
+        let file = gix_lock::File::acquire_to_update_resource(&resource, Fail::Immediately, None, 0)?;
         let lock_path = file.lock_path().to_owned();
         assert!(lock_path.is_file(), "the lock is placed");
 
@@ -96,12 +96,12 @@ mod acquire {
     }
 
     #[test]
-    fn lock_create_dir_write_commit() -> crate::Result {
+    fn lock_create_dir_write_commit() -> gix_testtools::TestResult {
         let dir = tempfile::tempdir()?;
         let resource = dir.path().join("a").join("resource-nonexisting");
         let resource_lock = resource.with_extension("lock");
         let mut file =
-            gix_lock::File::acquire_to_update_resource(&resource, fail_immediately(), Some(dir.path().into()))?;
+            gix_lock::File::acquire_to_update_resource(&resource, fail_immediately(), Some(dir.path().into()), 0)?;
         assert_eq!(file.lock_path(), resource_lock);
         assert_eq!(file.resource_path(), resource);
         assert!(resource_lock.is_file());
@@ -127,11 +127,56 @@ mod acquire {
     }
 
     #[test]
-    fn lock_write_drop() -> crate::Result {
+    #[cfg(unix)]
+    fn shared_permissions_reach_directories_created_by_files_and_markers() -> gix_testtools::TestResult {
+        use std::{fs, os::unix::fs::PermissionsExt};
+
+        let dir = tempfile::tempdir()?;
+        fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o700))?;
+        let resource = dir.path().join("one/two/resource");
+        let check_directories = || -> gix_error::TestResult {
+            for path in [dir.path().join("one"), dir.path().join("one/two")] {
+                assert_eq!(
+                    path.metadata()?.permissions().mode() & 0o777,
+                    0o750,
+                    "each new directory receives the explicit sharing policy with search access"
+                );
+            }
+            assert_eq!(
+                dir.path().metadata()?.permissions().mode() & 0o777,
+                0o700,
+                "existing ancestors keep their permissions"
+            );
+            Ok(())
+        };
+        let file =
+            gix_lock::File::acquire_to_update_resource(&resource, fail_immediately(), Some(dir.path().into()), -0o640)?;
+        check_directories()?;
+        assert_eq!(
+            file.lock_path().metadata()?.permissions().mode() & 0o777,
+            0o640,
+            "file locks use the same sharing policy as their directories"
+        );
+        drop(file);
+        assert!(!dir.path().join("one").exists(), "rollback removes the new directories");
+        let marker =
+            gix_lock::Marker::acquire_to_hold_resource(&resource, fail_immediately(), Some(dir.path().into()), -0o640)?;
+        check_directories()?;
+        assert_eq!(
+            marker.lock_path().metadata()?.permissions().mode() & 0o777,
+            0o640,
+            "marker locks use the same sharing policy as their directories"
+        );
+        drop(marker);
+        Ok(())
+    }
+
+    #[test]
+    fn lock_write_drop() -> gix_testtools::TestResult {
         let dir = tempfile::tempdir()?;
         let resource = dir.path().join("resource-nonexisting.ext");
         {
-            let mut file = gix_lock::File::acquire_to_update_resource(&resource, fail_immediately(), None)?;
+            let mut file = gix_lock::File::acquire_to_update_resource(&resource, fail_immediately(), None, 0)?;
             file.with_mut(|out| out.write_all(b"probably we will be interrupted"))?;
         }
         assert!(!resource.is_file(), "the file wasn't created");
@@ -140,7 +185,7 @@ mod acquire {
 
     #[test]
     #[cfg(unix)]
-    fn lock_following_symlinks_writes_their_target() -> crate::Result {
+    fn lock_following_symlinks_writes_their_target() -> gix_testtools::TestResult {
         use std::os::unix::fs::symlink;
 
         let dir = tempfile::tempdir()?;
@@ -151,7 +196,7 @@ mod acquire {
         symlink("intermediate", &resource)?;
 
         let mut file =
-            gix_lock::File::acquire_to_update_resource_following_symlinks(&resource, fail_immediately(), None)?;
+            gix_lock::File::acquire(&resource, fail_immediately(), None, 0, Some(&acquire::resolve_symlink))?;
         assert_eq!(file.resource_path(), target);
         file.write_all(b"new state")?;
         file.commit()?;
@@ -164,35 +209,28 @@ mod acquire {
 
     #[test]
     #[cfg(unix)]
-    fn lock_permissions_can_be_adjusted_after_applying_the_umask() -> crate::Result {
-        use std::{cell::Cell, os::unix::fs::PermissionsExt};
+    fn lock_permissions_can_be_adjusted_after_applying_the_umask() -> gix_testtools::TestResult {
+        use std::os::unix::fs::PermissionsExt;
 
         let dir = tempfile::tempdir()?;
         let resource = dir.path().join("resource");
-        let mode_before_adjustment = Cell::new(0);
-        let adjust_permissions = |mut permissions: std::fs::Permissions| {
-            let mode = permissions.mode();
-            mode_before_adjustment.set(mode);
-            permissions.set_mode(mode | 0o660);
-            permissions
-        };
-        let file = gix_lock::File::acquire(&resource, fail_immediately(), None, None, Some(&adjust_permissions))?;
+        let file = gix_lock::File::acquire(&resource, fail_immediately(), None, -0o640, None)?;
         assert_eq!(
-            file.lock_path().metadata()?.permissions().mode(),
-            mode_before_adjustment.get() | 0o660,
-            "the adjustment sees and changes the mode left by the umask"
+            file.lock_path().metadata()?.permissions().mode() & 0o777,
+            0o640,
+            "the sharing policy replaces the mode left by the umask"
         );
         file.commit()?;
         assert_eq!(
-            resource.metadata()?.permissions().mode(),
-            mode_before_adjustment.get() | 0o660,
+            resource.metadata()?.permissions().mode() & 0o777,
+            0o640,
             "the adjusted mode reaches the resource"
         );
         Ok(())
     }
 
     #[test]
-    fn resource_path_does_not_parse_the_lock_file_name() -> crate::Result {
+    fn resource_path_does_not_parse_the_lock_file_name() -> gix_testtools::TestResult {
         let dir = tempfile::tempdir()?;
         let resource_dir = dir.path().join("resource");
         std::fs::create_dir(&resource_dir)?;
@@ -200,7 +238,7 @@ mod acquire {
         resource.push(std::path::MAIN_SEPARATOR.to_string());
         let resource = std::path::PathBuf::from(resource);
 
-        let file = gix_lock::File::acquire_to_update_resource(&resource, fail_immediately(), None)?;
+        let file = gix_lock::File::acquire_to_update_resource(&resource, fail_immediately(), None, 0)?;
         assert_eq!(file.resource_path(), resource);
         let err = file.commit().expect_err("a file cannot replace a directory");
         assert_eq!(err.instance.resource_path(), resource);
@@ -208,11 +246,18 @@ mod acquire {
     }
 
     #[test]
-    fn lock_non_existing_dir_fails() -> crate::Result {
+    fn lock_non_existing_dir_fails() -> gix_testtools::TestResult {
         let dir = tempfile::tempdir()?;
         let resource = dir.path().join("a").join("resource.ext");
-        let err = gix_lock::File::acquire_to_update_resource(&resource, fail_immediately(), None)
+        let err = gix_lock::File::acquire_to_update_resource(&resource, fail_immediately(), None, 0)
             .expect_err("the containing directory does not exist");
+        insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[(&dir.path().join("a").join("resource.ext.lock").to_string_lossy(), "<root>/a/resource.ext.lock")]), "the original I/O error is retained", @r#"
+        Another IO error occurred while obtaining the lock
+
+        Caused by:
+            0: I/O error (NotFound)
+            1: NotFound at path "<root>/a/resource.ext.lock"
+        "#);
         assert_eq!(
             err.downcast_any_ref::<std::io::Error>().map(std::io::Error::kind),
             Some(ErrorKind::NotFound),

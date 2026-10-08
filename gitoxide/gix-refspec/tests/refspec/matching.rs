@@ -6,6 +6,7 @@ pub mod baseline {
     use std::{borrow::Borrow, collections::HashMap};
 
     use bstr::{BString, ByteSlice, ByteVec};
+    use gix_error::{Error, Result};
     use gix_hash::ObjectId;
     use gix_refspec::{
         MatchGroup,
@@ -36,7 +37,7 @@ pub mod baseline {
 
     static INPUT: LazyLock<Vec<Ref>> = LazyLock::new(|| parse_input().unwrap());
 
-    pub type Baseline = HashMap<Vec<BString>, Result<Vec<Mapping>, BString>>;
+    pub type Baseline = HashMap<Vec<BString>, std::result::Result<Vec<Mapping>, BString>>;
 
     #[derive(Debug)]
     pub struct Mapping {
@@ -76,29 +77,22 @@ pub mod baseline {
                     .collect(),
                 fixes: fixes.into_iter().collect(),
             },
-        );
+        )
+        .expect("refspec mappings agree with Git");
     }
 
     pub fn of_objects_always_matches_if_the_server_has_the_object<'a, 'b>(
         specs: impl IntoIterator<Item = &'a str> + Clone,
     ) {
-        check_fetch_remote(specs, Mode::Normal { validate_err: None });
+        check_fetch_remote(specs, Mode::Normal).expect("refspec mappings agree with Git");
     }
 
     pub fn agrees_with_fetch_specs<'a>(specs: impl IntoIterator<Item = &'a str> + Clone) {
-        check_fetch_remote(specs, Mode::Normal { validate_err: None });
+        check_fetch_remote(specs, Mode::Normal).expect("refspec mappings agree with Git");
     }
 
-    pub fn agrees_with_fetch_specs_validation_error<'a>(
-        specs: impl IntoIterator<Item = &'a str> + Clone,
-        validate_err: impl Into<String>,
-    ) {
-        check_fetch_remote(
-            specs,
-            Mode::Normal {
-                validate_err: Some(validate_err.into()),
-            },
-        );
+    pub fn agrees_with_fetch_specs_validation_error<'a>(specs: impl IntoIterator<Item = &'a str> + Clone) -> Error {
+        check_fetch_remote(specs, Mode::Normal).expect_err("conflicting refspecs fail validation")
     }
 
     /// Here we checked by hand which refs are actually written with a particular refspec
@@ -110,11 +104,11 @@ pub mod baseline {
     }
 
     enum Mode {
-        Normal { validate_err: Option<String> },
+        Normal,
         Custom { expected: Vec<Mapping>, fixes: Vec<Fix> },
     }
 
-    fn check_fetch_remote<'a>(specs: impl IntoIterator<Item = &'a str> + Clone, mode: Mode) {
+    fn check_fetch_remote<'a>(specs: impl IntoIterator<Item = &'a str> + Clone, mode: Mode) -> Result {
         let match_group = MatchGroup::from_fetch_specs(
             specs
                 .clone()
@@ -130,13 +124,19 @@ pub mod baseline {
 
         let actual = match_group.match_lhs(input()).validated();
         let (actual, expected) = match &mode {
-            Mode::Normal { validate_err } => match validate_err {
-                Some(err_message) => {
-                    assert_eq!(actual.unwrap_err().to_string(), *err_message);
-                    return;
+            Mode::Normal => match actual {
+                Err(err) => {
+                    use gix_error::ErrorExt;
+
+                    let err = err.raise();
+                    assert!(err.is_validation(), "custom mapping errors classify as invalid input");
+                    assert!(
+                        err.probable_cause().is::<gix_refspec::match_group::validate::Error>(),
+                        "the mapping error, not its classification marker, is the probable cause"
+                    );
+                    return Err(err);
                 }
-                None => {
-                    let (actual, fixed) = actual.unwrap();
+                Ok((actual, fixed)) => {
                     assert_eq!(
                         fixed,
                         Vec::<gix_refspec::match_group::validate::Fix>::new(),
@@ -173,6 +173,7 @@ pub mod baseline {
                 }
             }
         }
+        Ok(())
     }
 
     fn source_to_bstring(source: &SourceRef) -> BString {

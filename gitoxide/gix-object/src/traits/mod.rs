@@ -1,4 +1,7 @@
+use gix_error::Result;
 use std::io;
+
+use gix_error::ResultExt;
 
 use crate::Kind;
 
@@ -6,13 +9,13 @@ use crate::Kind;
 pub trait Write {
     /// Write objects using the intrinsic kind of [`hash`](gix_hash::Kind) into the database,
     /// returning id to reference it in subsequent reads.
-    fn write(&self, object: &dyn WriteTo) -> Result<gix_hash::ObjectId, crate::write::Error> {
+    fn write(&self, object: &dyn WriteTo) -> Result<gix_hash::ObjectId> {
         let mut buf = Vec::with_capacity(2048);
-        object.write_to(&mut buf)?;
+        object.write_to(&mut buf).or_error()?;
         self.write_stream(object.kind(), buf.len() as u64, &mut buf.as_slice())
     }
     /// As [`write`](Write::write), but takes an [`object` kind](Kind) along with its encoded bytes.
-    fn write_buf(&self, object: crate::Kind, mut from: &[u8]) -> Result<gix_hash::ObjectId, crate::write::Error> {
+    fn write_buf(&self, object: crate::Kind, mut from: &[u8]) -> Result<gix_hash::ObjectId> {
         self.write_stream(object, from.len() as u64, &mut from)
     }
     /// As [`write_buf`](Write::write_buf), but the object `id` has already been computed by the caller.
@@ -24,15 +27,10 @@ pub trait Write {
         object: crate::Kind,
         from: &[u8],
         id: gix_hash::ObjectId,
-    ) -> Result<gix_hash::ObjectId, crate::write::Error>;
+    ) -> Result<gix_hash::ObjectId>;
     /// As [`write`](Write::write), but takes an input stream.
     /// This is commonly used for writing blobs directly without reading them to memory first.
-    fn write_stream(
-        &self,
-        kind: crate::Kind,
-        size: u64,
-        from: &mut dyn io::Read,
-    ) -> Result<gix_hash::ObjectId, crate::write::Error>;
+    fn write_stream(&self, kind: crate::Kind, size: u64, from: &mut dyn io::Read) -> Result<gix_hash::ObjectId>;
     /// As [`write_stream`](Write::write_stream), but the object `id` has already been computed by the caller.
     ///
     /// Implementations may trust the given `id` and avoid computing it again. Callers must make sure `id` matches
@@ -43,7 +41,7 @@ pub trait Write {
         size: u64,
         from: &mut dyn io::Read,
         id: gix_hash::ObjectId,
-    ) -> Result<gix_hash::ObjectId, crate::write::Error>;
+    ) -> Result<gix_hash::ObjectId>;
 }
 
 /// Writing of objects to a `Write` implementation

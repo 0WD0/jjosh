@@ -2,7 +2,7 @@ lints.workspace = true
 
 [package]
 name = "gix-diff"
-version = "0.67.1"
+version = "0.69.0"
 repository = "https://github.com/GitoxideLabs/gitoxide"
 license = "MIT OR Apache-2.0"
 description = "Calculate differences between various git objects"
@@ -46,28 +46,34 @@ required-features = ["blob"]
 path = "./benches/line_count.rs"
 
 [[bench]]
+name = "blob"
+harness = false
+required-features = ["blob"]
+path = "./benches/blob.rs"
+
+[[bench]]
 name = "rewrite-tracker"
 harness = false
 required-features = ["blob"]
 path = "./benches/rewrite_tracker.rs"
 
 [dependencies]
-gix-index = { version = "^0.55.0", path = "../gix-index", optional = true }
-gix-pathspec = { version = "^0.20.0", path = "../gix-pathspec", optional = true }
-gix-attributes = { version = "^0.35.0", path = "../gix-attributes", optional = true }
-gix-hash = { version = "^0.26.1", path = "../gix-hash" }
-gix-object = { version = "^0.64.0", path = "../gix-object" }
-gix-filter = { version = "^0.34.0", path = "../gix-filter", optional = true }
-gix-worktree = { version = "^0.56.0", path = "../gix-worktree", default-features = false, features = ["attributes"], optional = true }
-gix-command = { version = "^0.10.1", path = "../gix-command", optional = true }
-gix-path = { version = "^0.12.6", path = "../gix-path", optional = true }
-gix-fs = { version = "^0.22.1", path = "../gix-fs", optional = true }
-gix-tempfile = { version = "^24.0.0", path = "../gix-tempfile", optional = true }
-gix-trace = { version = "^0.1.21", path = "../gix-trace", optional = true }
-gix-traverse = { version = "^0.61.0", path = "../gix-traverse", optional = true }
-imara-diff = { package = "gix-imara-diff", version = "^0.2.5", optional = true, path = "../gix-imara-diff" }
+gix-index = { version = "^0.57.0", path = "../gix-index", optional = true }
+gix-pathspec = { version = "^0.22.0", path = "../gix-pathspec", optional = true }
+gix-attributes = { version = "^0.37.0", path = "../gix-attributes", optional = true }
+gix-hash = { version = "^0.28.0", path = "../gix-hash" }
+gix-error = { version = "^0.5.1", path = "../gix-error" }
+gix-object = { version = "^0.66.0", path = "../gix-object" }
+gix-filter = { version = "^0.36.0", path = "../gix-filter", optional = true }
+gix-worktree = { version = "^0.58.0", path = "../gix-worktree", default-features = false, features = ["attributes"], optional = true }
+gix-command = { version = "^0.12.0", path = "../gix-command", optional = true }
+gix-path = { version = "^0.14.0", path = "../gix-path", optional = true }
+gix-fs = { version = "^0.24.0", path = "../gix-fs", optional = true }
+gix-tempfile = { version = "^26.0.0", path = "../gix-tempfile", optional = true }
+gix-trace = { version = "^0.3.0", path = "../gix-trace", optional = true }
+gix-traverse = { version = "^0.63.0", path = "../gix-traverse", optional = true }
+imara-diff = { package = "gix-imara-diff", version = "^0.3.1", optional = true, path = "../gix-imara-diff" }
 
-thiserror = "2.0.18"
 serde = { version = "1.0.114", optional = true, default-features = false, features = ["derive"] }
 getrandom = { version = "0.4", optional = true, default-features = false, features = ["wasm_js"] }
 bstr = { version = "1.12.0", default-features = false }

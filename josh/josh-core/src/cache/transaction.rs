@@ -625,17 +625,17 @@ impl Transaction {
     /// revision a user typed is input, not a contract.
     pub fn rev_parse(&self, spec: &str) -> anyhow::Result<Option<gix_hash::ObjectId>> {
         let repo = self.repo();
-        match repo.rev_parse_single(spec) {
-            Ok(id) => Ok(Some(id.into())),
-            Err(gix::revision::spec::parse::single::Error::RangedRev { .. }) => Ok(None),
-            Err(gix::revision::spec::parse::single::Error::Parse(error)) => {
-                let operational_error = error.iter_errors().any(|source| {
-                    matches!(
-                        source.downcast_ref::<gix_object::find::existing::Error>(),
-                        Some(gix_object::find::existing::Error::Find(_))
-                    ) || source.is::<gix_object::decode::Error>()
-                        || source.is::<std::io::Error>()
-                });
+        match repo.rev_parse(spec) {
+            Ok(revision) => Ok(revision.single().map(Into::into)),
+            Err(error) => {
+                // Syntax and missing revisions are user input, but nested storage failures
+                // must survive the parser's outer validation context.
+                let operational_error = error.classify().any(|classification| {
+                    !matches!(
+                        classification.class(),
+                        gix::error::Class::Validation | gix::error::Class::NotFound
+                    )
+                }) || error.iter_errors().any(|source| source.is::<std::io::Error>());
                 if operational_error {
                     Err(error.into())
                 } else {

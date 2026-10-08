@@ -42,6 +42,7 @@ fn lookup_with_ambiguity() {
 /// The fixture is expected to contain at least one ambiguous prefix for each supported object hash.
 fn ambiguous_prefix(file: &gix_pack::multi_index::File) -> gix_hash::Prefix {
     for entry in file.iter() {
+        let entry = entry.expect("fixture contains valid pack and offset references");
         for hex_len in 4..=file.object_hash().len_in_hex() {
             let prefix = gix_hash::Prefix::new(&entry.oid, hex_len).unwrap();
             if matches!(file.lookup_prefix(prefix, None), Some(Err(()))) {
@@ -57,6 +58,7 @@ fn lookup_prefix() {
     let (file, _path) = multi_index(object_hash());
 
     for (idx, entry) in file.iter().enumerate() {
+        let entry = entry.expect("fixture contains valid pack and offset references");
         for mut candidates in [None, Some(0..0)] {
             let hex_len = (idx % file.object_hash().len_in_hex()).max(5);
             let hex_oid = entry.oid.to_hex_with_len(hex_len).to_string();
@@ -88,7 +90,7 @@ fn lookup_missing() {
 }
 
 #[test]
-fn general() {
+fn general() -> gix_testtools::TestResult {
     let object_hash = object_hash();
     let (file, path) = multi_index(object_hash);
 
@@ -159,20 +161,22 @@ fn general() {
         let actual_oid = file.oid_at_index(*idx);
         assert_eq!(actual_oid, *expected_oid);
         assert_eq!(file.lookup(actual_oid), Some(*idx));
-        let (pack_id, pack_offset) = file.pack_id_and_pack_offset_at_index(*idx);
+        let (pack_id, pack_offset) = file.pack_id_and_pack_offset_at_index(*idx)?;
         assert_eq!(pack_id, 0, "we only have one pack here");
         assert_eq!(pack_offset, *expected_pack_offset);
     }
 
     let mut count = 0;
     for (idx, entry) in file.iter().enumerate() {
+        let entry = entry?;
         assert_eq!(entry.oid, file.oid_at_index(idx as u32));
-        let (pack_index, pack_offset) = file.pack_id_and_pack_offset_at_index(idx as u32);
+        let (pack_index, pack_offset) = file.pack_id_and_pack_offset_at_index(idx as u32)?;
         assert_eq!(pack_index, entry.pack_index);
         assert_eq!(pack_offset, entry.pack_offset);
         count += 1;
     }
     assert_eq!(count, file.num_objects());
+    Ok(())
 }
 
 #[test]

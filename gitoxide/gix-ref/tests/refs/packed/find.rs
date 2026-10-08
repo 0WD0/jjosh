@@ -14,11 +14,11 @@ fn a_lock_file_would_not_be_a_valid_partial_name() {
     // doesn't really belong here but want to make sure refname validation works as expected.
     // let err: &gix_ref::PartialNameRef = "heads/hello.lock".try_into().expect_err("this should fail");
     let err = <&gix_ref::PartialNameRef as TryFrom<_>>::try_from("heads/hello.lock").expect_err("this should fail");
-    assert_eq!(err.to_string(), "Reference name cannot end with '.lock'");
+    insta::assert_debug_snapshot!(err, "a lock file would not be a valid partial name", @"LockFileSuffix");
 }
 
 #[test]
-fn capitalized_branch() -> crate::Result {
+fn capitalized_branch() -> gix_testtools::TestResult {
     let store = store_with_packed_refs()?;
     let packed_refs = store.open_packed_buffer()?.expect("packed-refs exist");
 
@@ -31,7 +31,7 @@ fn capitalized_branch() -> crate::Result {
 }
 
 #[test]
-fn all_iterable_refs_can_be_found() -> crate::Result {
+fn all_iterable_refs_can_be_found() -> gix_testtools::TestResult {
     let store = store_with_packed_refs()?;
     let packed_refs = store.open_packed_buffer()?.expect("packed-refs exist");
 
@@ -46,7 +46,7 @@ fn all_iterable_refs_can_be_found() -> crate::Result {
 }
 
 #[test]
-fn binary_search_a_name_past_the_end_of_the_packed_refs_file() -> crate::Result {
+fn binary_search_a_name_past_the_end_of_the_packed_refs_file() -> gix_testtools::TestResult {
     let packed_refs = packed::Buffer::open(
         fixture_path("packed-refs").join("triggers-out-of-bounds"),
         32,
@@ -57,7 +57,7 @@ fn binary_search_a_name_past_the_end_of_the_packed_refs_file() -> crate::Result 
 }
 
 #[test]
-fn find_packed_refs_with_peeled_items_and_full_or_partial_names() -> crate::Result {
+fn find_packed_refs_with_peeled_items_and_full_or_partial_names() -> gix_testtools::TestResult {
     let packed_refs = b"# pack-refs with: peeled fully-peeled sorted
 916840c0e2f67d370291042cb5274a597f4fa9bc refs/tags/TEST-0.0.1
 c4cebba92af964f2d126be90b8a6298c4cf84d45 refs/tags/gix-actor-v0.1.0
@@ -97,7 +97,7 @@ c4cebba92af964f2d126be90b8a6298c4cf84d45 refs/tags/gix-actor-v0.1.0
 }
 
 #[test]
-fn partial_name_to_full_name_conversion_rules_are_applied() -> crate::Result {
+fn partial_name_to_full_name_conversion_rules_are_applied() -> gix_testtools::TestResult {
     let store = store_at("make_packed_refs_for_lookup_rules.sh")?;
     let packed = store.open_packed_buffer()?.expect("packed-refs exists");
 
@@ -155,7 +155,8 @@ fn partial_name_to_full_name_conversion_rules_are_applied() -> crate::Result {
 }
 
 #[test]
-fn invalid_refs_within_a_file_do_not_lead_to_incorrect_results() -> crate::Result {
+fn invalid_refs_within_a_file_do_not_lead_to_incorrect_results() -> gix_testtools::TestResult {
+    let mut error_snapshots = Vec::new();
     let broken_packed_refs = b"# pack-refs with: peeled fully-peeled sorted
 916840c0e2f67d370291042cb5274a597f4fa9bc refs/tags/TEST-0.0.1
 bogus refs/tags/gix-actor-v0.1.0
@@ -176,18 +177,31 @@ bogus refs/tags/gix-actor-v0.1.0
     );
 
     for failing_name in &["refs/tags/TEST-0.0.1", "refs/tags/gix-actor-v0.1.0"] {
+        let err = buf.try_find(*failing_name).expect_err("it should detect an error");
+        error_snapshots.push(gix_testtools::redact_debug_snapshot(&(err), &[]));
+        assert!(err.is_corrupted());
         assert_eq!(
-            buf.try_find(*failing_name)
-                .expect_err("it should detect an err")
-                .to_string(),
-            "The reference could not be parsed"
+            err.metadata().next().expect("failed lookup")["name"],
+            gix_error::MetadataValue::from(failing_name.as_bytes())
         );
     }
+    insta::assert_debug_snapshot!(error_snapshots, "invalid refs within a file do not lead to incorrect results", @r#"
+    [
+        Could not decode packed reference, name="refs/tags/TEST-0.0.1"
+        
+        Caused by:
+            0: Malformed packed reference record,
+        Could not decode packed reference, name="refs/tags/gix-actor-v0.1.0"
+        
+        Caused by:
+            0: Malformed packed reference record,
+    ]
+    "#);
     Ok(())
 }
 
 #[test]
-fn find_speed() -> crate::Result {
+fn find_speed() -> gix_testtools::TestResult {
     let store = store_at("make_repository_with_lots_of_packed_refs.sh")?;
     let packed = store.open_packed_buffer()?.expect("packed-refs present");
     let start = std::time::Instant::now();

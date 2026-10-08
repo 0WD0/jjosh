@@ -78,6 +78,7 @@ fn test_git_clone() {
     let output = clone_dir.run_jj(["git", "fetch"]);
     insta::assert_snapshot!(output, @"
     ------- stderr -------
+    Fetching from Git remotes: origin
     Nothing changed.
     [EOF]
     ");
@@ -197,7 +198,7 @@ fn test_git_clone_bad_source() {
     let output = root_dir.run_jj(["git", "clone", "", "dest"]);
     insta::assert_snapshot!(output, @r#"
     ------- stderr -------
-    Error: local path "" does not specify a path to a repository
+    Error: local path is empty and does not specify a path to a repository, input=""
     [EOF]
     [exit status: 2]
     "#);
@@ -206,7 +207,7 @@ fn test_git_clone_bad_source() {
     let output = root_dir.run_jj(["git", "clone", "https://", "dest"]);
     insta::assert_snapshot!(output, @r#"
     ------- stderr -------
-    Error: URL "https://" can not be parsed as valid URL
+    Error: URL can not be parsed as valid URL, input="https://"
     Caused by: Scheme requires host
     [EOF]
     [exit status: 2]
@@ -344,6 +345,7 @@ fn test_git_clone_colocate() -> TestResult {
     let output = clone_dir.run_jj(["git", "fetch"]);
     insta::assert_snapshot!(output, @"
     ------- stderr -------
+    Fetching from Git remotes: origin
     Nothing changed.
     [EOF]
     ");
@@ -542,6 +544,7 @@ fn test_git_clone_default_bookmarks_and_tags() {
     insta::assert_snapshot!(output, @"
     ------- stderr -------
     Hint: Fetching from the only existing remote: rem3
+    Fetching from Git remotes: rem3
     bookmark: branch1@rem3 [new] untracked
     tag: tag1@rem3 [new] tracked
     [EOF]
@@ -1107,7 +1110,7 @@ fn test_git_clone_malformed() {
     let output = clone_dir.run_jj(["status"]);
     insta::assert_snapshot!(output, @"
     ------- stderr -------
-    Error: The working copy is stale (not updated since operation 68cac63e1c80).
+    Error: The working copy is stale (not updated since operation 936e2f396d92).
     Hint: Run `jj workspace update-stale` to update it.
     See https://docs.jj-vcs.dev/latest/working-copy/#stale-working-copy for more information.
     [EOF]
@@ -1291,6 +1294,7 @@ fn test_git_clone_branch_or_tag() {
     let output = repo_dir.run_jj(["git", "fetch"]);
     insta::assert_snapshot!(output, @"
     ------- stderr -------
+    Fetching from Git remotes: origin
     Nothing changed.
     [EOF]
     ");
@@ -1324,6 +1328,7 @@ fn test_git_clone_branch_or_tag() {
     let output = repo_dir.run_jj(["git", "fetch"]);
     insta::assert_snapshot!(output, @"
     ------- stderr -------
+    Fetching from Git remotes: origin
     Nothing changed.
     [EOF]
     ");
@@ -1376,6 +1381,7 @@ fn test_git_clone_branch_or_tag() {
     let output = repo_dir.run_jj(["git", "fetch"]);
     insta::assert_snapshot!(output, @"
     ------- stderr -------
+    Fetching from Git remotes: origin
     Nothing changed.
     [EOF]
     ");

@@ -1,16 +1,7 @@
 use bstr::BStr;
+use gix_error::Result;
 
 use crate::IsActivePlatform;
-
-/// The error returned by [File::names_and_active_state](crate::File::names_and_active_state()).
-#[derive(Debug, thiserror::Error)]
-#[expect(missing_docs)]
-pub enum Error {
-    #[error(transparent)]
-    NormalizePattern(#[from] gix_pathspec::normalize::Error),
-    #[error(transparent)]
-    ParsePattern(#[from] gix_pathspec::parse::Error),
-}
 
 impl IsActivePlatform {
     /// Returns `true` if the submodule named `name` is active or `false` otherwise.
@@ -33,8 +24,8 @@ impl IsActivePlatform {
             bool,
             &mut gix_pathspec::attributes::search::Outcome,
         ) -> bool,
-    ) -> Result<bool, gix_config::value::Error> {
-        if let Some(val) = config.boolean(&format!("submodule.{name}.active"))? {
+    ) -> Result<bool> {
+        if let Some(val) = config.boolean_by("submodule", Some(name), "active")? {
             return Ok(val);
         }
         if let Some(val) = self.search.as_mut().map(|search| {
@@ -44,6 +35,6 @@ impl IsActivePlatform {
         }) {
             return Ok(val);
         }
-        Ok(config.string(&format!("submodule.{name}.url")).is_some())
+        Ok(config.string_by("submodule", Some(name), "url").is_some())
     }
 }

@@ -1475,7 +1475,7 @@ fn test_run_restore_descendants_preserves_content() {
     index 7898192261..6178079822 100644
     --- a/file
     +++ b/file
-    @@ -1,1 +1,1 @@
+    @@ -1,1 +1,1 @@ b
     -a
     +b
     diff --git a/ran-rlvkpnrzqnoowoytxnquwvuryrwnrmlp.txt b/ran-rlvkpnrzqnoowoytxnquwvuryrwnrmlp.txt
@@ -1494,7 +1494,7 @@ fn test_run_restore_descendants_preserves_content() {
     index 6178079822..f2ad6c76f0 100644
     --- a/file
     +++ b/file
-    @@ -1,1 +1,1 @@
+    @@ -1,1 +1,1 @@ c
     -b
     +c
     diff --git a/ran-zsuskulnrvyrovkzqrwmxqlsskqntxvp.txt b/ran-zsuskulnrvyrovkzqrwmxqlsskqntxvp.txt
@@ -1980,6 +1980,45 @@ fn test_run_on_conflicted_commit() {
     insta::assert_snapshot!(work_dir.run_jj(&["file", "list", "-r", "conflict"]).success().stdout, @"
     file
     touched.txt
+    [EOF]
+    ");
+}
+
+#[test]
+fn test_run_conflict_marker_style() {
+    let mut test_env = TestEnvironment::default();
+    let edit_script = test_env.set_up_fake_editor();
+    test_env.add_config(r#"ui.conflict-marker-style = "git""#);
+    test_env.run_jj_in(".", ["git", "init", "repo"]).success();
+    let work_dir = test_env.work_dir("repo");
+
+    create_commit_with_files(&work_dir, "base", &[], &[("file", "base\n")]);
+    create_commit_with_files(&work_dir, "a", &["base"], &[("file", "a\n")]);
+    create_commit_with_files(&work_dir, "b", &["base"], &[("file", "b\n")]);
+    create_commit_with_files(&work_dir, "conflict", &["a", "b"], &[]);
+
+    fs::write(&edit_script, "dump materialized\0write\nresolved\n").unwrap();
+    work_dir
+        .run_jj(&["run", "-r", "conflict", "--", &fake_editor_path(), "file"])
+        .success();
+    insta::assert_snapshot!(
+        fs::read_to_string(test_env.env_root().join("materialized")).unwrap(), @r#"
+    <<<<<<< zsuskuln 45537d53 "a"
+    a
+    ||||||| rlvkpnrz 1792382a "base"
+    base
+    =======
+    b
+    >>>>>>> royxmykx 89d1b299 "b"
+    "#);
+    insta::assert_snapshot!(work_dir.run_jj(&["resolve", "--list", "-r", "conflict"]), @"
+    ------- stderr -------
+    Error: No conflicts found at this revision
+    [EOF]
+    [exit status: 2]
+    ");
+    insta::assert_snapshot!(work_dir.run_jj(&["file", "show", "-r", "conflict", "file"]), @"
+    resolved
     [EOF]
     ");
 }

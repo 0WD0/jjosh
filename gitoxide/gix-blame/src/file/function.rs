@@ -1,6 +1,8 @@
+use gix_error::Result;
 use std::num::NonZeroU32;
 
 use gix_diff::{blob::TokenSource, tree::Visit};
+use gix_error::{ErrorExt, OptionExt, ResultExt, message};
 use gix_hash::ObjectId;
 use gix_object::{
     FindExt,
@@ -11,7 +13,7 @@ use smallvec::SmallVec;
 
 use super::{Change, UnblamedHunk, process_changes};
 use crate::{
-    BlameEntry, Error, Options, Outcome, Statistics,
+    BlameEntry, Options, Outcome, Statistics,
     types::{BlamePathEntry, Start},
 };
 
@@ -71,7 +73,7 @@ pub fn file(
     resource_cache: &mut gix_diff::blob::Platform,
     file_path: &BStr,
     options: Options,
-) -> Result<Outcome, Error> {
+) -> Result<Outcome> {
     let _span = gix_trace::coarse!("gix_blame::file()", ?file_path, ?start);
 
     let mut stats = Statistics::default();
@@ -566,15 +568,25 @@ fn tree_diff_at_file_path(
     lhs_tree_buf: &mut Vec<u8>,
     rhs_tree_buf: &mut Vec<u8>,
     rewrites: Option<gix_diff::Rewrites>,
-) -> Result<Option<TreeDiffChange>, Error> {
-    let parent_tree_id = find_commit(cache, &odb, &parent_id, commit_buf)?.tree_id()?;
+) -> Result<Option<TreeDiffChange>> {
+    let parent_tree_id = find_commit(cache, &odb, &parent_id, commit_buf)
+        .or_raise(|| message("Could not find existing iterator over a tree"))?
+        .tree_id()
+        .or_raise(|| message("Failure to decode commit during traversal"))?;
 
-    let parent_tree_iter = odb.find_tree_iter(&parent_tree_id, lhs_tree_buf)?;
+    let parent_tree_iter = odb
+        .find_tree_iter(&parent_tree_id, lhs_tree_buf)
+        .or_raise(|| message("Could not find existing iterator over a tree"))?;
     stats.trees_decoded += 1;
 
-    let tree_id = find_commit(cache, &odb, &id, commit_buf)?.tree_id()?;
+    let tree_id = find_commit(cache, &odb, &id, commit_buf)
+        .or_raise(|| message("Could not find existing iterator over a tree"))?
+        .tree_id()
+        .or_raise(|| message("Failure to decode commit during traversal"))?;
 
-    let tree_iter = odb.find_tree_iter(&tree_id, rhs_tree_buf)?;
+    let tree_iter = odb
+        .find_tree_iter(&tree_id, rhs_tree_buf)
+        .or_raise(|| message("Could not find existing iterator over a tree"))?;
     stats.trees_decoded += 1;
 
     let result = tree_diff_without_rewrites_at_file_path(&odb, file_path, stats, state, parent_tree_iter, tree_iter)?;
@@ -613,7 +625,7 @@ fn tree_diff_without_rewrites_at_file_path(
     state: &mut gix_diff::tree::State,
     parent_tree_iter: gix_object::TreeRefIter<'_>,
     tree_iter: gix_object::TreeRefIter<'_>,
-) -> Result<Option<TreeDiffChange>, Error> {
+) -> Result<Option<TreeDiffChange>> {
     struct FindChangeToPath {
         inner: gix_diff::tree::Recorder,
         interesting_path: BString,
@@ -702,7 +714,7 @@ fn tree_diff_without_rewrites_at_file_path(
 
     match result {
         Ok(_) | Err(gix_diff::tree::Error::Cancelled) => Ok(recorder.change.map(Into::into)),
-        Err(error) => Err(Error::DiffTree(error)),
+        Err(error) => Err(error.raise()),
     }
 }
 
@@ -716,7 +728,7 @@ fn tree_diff_with_rewrites_at_file_path(
     parent_tree_iter: gix_object::TreeRefIter<'_>,
     tree_iter: gix_object::TreeRefIter<'_>,
     rewrites: gix_diff::Rewrites,
-) -> Result<Option<TreeDiffChange>, Error> {
+) -> Result<Option<TreeDiffChange>> {
     let mut change: Option<gix_diff::tree_with_rewrites::Change> = None;
 
     let options: gix_diff::tree_with_rewrites::Options = gix_diff::tree_with_rewrites::Options {
@@ -730,7 +742,7 @@ fn tree_diff_with_rewrites_at_file_path(
         resource_cache,
         state,
         &odb,
-        |change_ref| -> Result<_, std::convert::Infallible> {
+        |change_ref| {
             if change_ref.location() == file_path {
                 change = Some(change_ref.into_owned());
                 Ok(std::ops::ControlFlow::Break(()))
@@ -743,10 +755,8 @@ fn tree_diff_with_rewrites_at_file_path(
     stats.trees_diffed_with_rewrites += 1;
 
     match result {
-        Ok(_) | Err(gix_diff::tree_with_rewrites::Error::Diff(gix_diff::tree::Error::Cancelled)) => {
-            Ok(change.map(Into::into))
-        }
-        Err(error) => Err(Error::DiffTreeWithRewrites(error)),
+        Ok(_) | Err(gix_diff::tree::Error::Cancelled) => Ok(change.map(Into::into)),
+        Err(error) => Err(error.raise()),
     }
 }
 
@@ -760,7 +770,7 @@ fn blob_changes(
     previous_file_path: &BStr,
     diff_algorithm: gix_diff::blob::Algorithm,
     stats: &mut Statistics,
-) -> Result<Vec<Change>, Error> {
+) -> Result<Vec<Change>> {
     resource_cache.set_resource(
         previous_oid,
         // TODO(blame): add a test to show of symlink blaming works.
@@ -844,16 +854,23 @@ fn find_path_entry_in_commit(
     buf: &mut Vec<u8>,
     buf2: &mut Vec<u8>,
     stats: &mut Statistics,
-) -> Result<Option<ObjectId>, Error> {
-    let tree_id = find_commit(cache, odb, commit, buf)?.tree_id()?;
-    let tree_iter = odb.find_tree_iter(&tree_id, buf)?;
+) -> Result<Option<ObjectId>> {
+    let tree_id = find_commit(cache, odb, commit, buf)
+        .or_raise(|| message("Could not find existing iterator over a tree"))?
+        .tree_id()
+        .or_raise(|| message("Failure to decode commit during traversal"))?;
+    let tree_iter = odb
+        .find_tree_iter(&tree_id, buf)
+        .or_raise(|| message("Could not find existing iterator over a tree"))?;
     stats.trees_decoded += 1;
 
-    let res = tree_iter.lookup_entry(
-        odb,
-        buf2,
-        file_path.split(|b| *b == b'/').inspect(|_| stats.trees_decoded += 1),
-    )?;
+    let res = tree_iter
+        .lookup_entry(
+            odb,
+            buf2,
+            file_path.split(|b| *b == b'/').inspect(|_| stats.trees_decoded += 1),
+        )
+        .or_raise(|| message("Couldn't find commit or tree in the object database"))?;
     stats.trees_decoded -= 1;
     Ok(res.map(|e| e.oid))
 }
@@ -865,7 +882,7 @@ fn collect_parents(
     odb: &impl gix_object::Find,
     cache: Option<&gix_commitgraph::Graph>,
     buf: &mut Vec<u8>,
-) -> Result<ParentIds, Error> {
+) -> Result<ParentIds> {
     let mut parent_ids: ParentIds = Default::default();
     match commit {
         gix_traverse::commit::Either::CachedCommit(commit) => {
@@ -873,7 +890,9 @@ fn collect_parents(
                 .as_ref()
                 .expect("find returned a cached commit, so we expect cache to be present");
             for parent_pos in commit.iter_parents() {
-                let parent = cache.commit_at(parent_pos?);
+                let parent = cache.commit_at(
+                    parent_pos.or_raise(|| message("Failed to get parent from commitgraph during traversal"))?,
+                );
                 parent_ids.push((parent.id().to_owned(), parent.committer_timestamp() as i64));
             }
         }
@@ -908,7 +927,7 @@ struct InitialState {
     first_suspect: Option<ObjectId>,
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn initial_state(
     odb: &impl gix_object::Find,
     start: Start<'_>,
@@ -918,15 +937,19 @@ fn initial_state(
     buf: &mut Vec<u8>,
     buf2: &mut Vec<u8>,
     stats: &mut Statistics,
-) -> Result<InitialState, Error> {
+) -> Result<InitialState> {
     match start {
         Start::Commit(suspect) => {
             let blamed_file_entry_id = find_path_entry_in_commit(&odb, &suspect, file_path, cache, buf, buf2, stats)?
-                .ok_or_else(|| Error::FileMissing {
-                file_path: file_path.to_owned(),
-                commit_id: suspect,
+                .ok_or_raise(|| {
+                message!("The file to blame at \"{file_path}\" wasn't found in the first commit at {suspect}")
+                    .not_found()
             })?;
-            let blamed_file_blob = odb.find_blob(&blamed_file_entry_id, buf)?.data.to_vec();
+            let blamed_file_blob = odb
+                .find_blob(&blamed_file_entry_id, buf)
+                .or_raise(|| message("Could not find existing blob or commit"))?
+                .data
+                .to_vec();
             let num_lines_in_blamed = tokens_for_diffing(&blamed_file_blob).tokenize().count() as u32;
 
             // Binary or otherwise empty?
@@ -996,7 +1019,11 @@ fn initial_state(
                 });
             };
 
-            let first_suspect_blob = odb.find_blob(&first_suspect_entry_id, buf)?.data.to_vec();
+            let first_suspect_blob = odb
+                .find_blob(&first_suspect_entry_id, buf)
+                .or_raise(|| message("Could not find existing blob or commit"))?
+                .data
+                .to_vec();
 
             let changes = blob_changes_from_data(&first_suspect_blob, &blamed_file_blob, options.diff_algorithm, stats);
             hunks_to_blame = process_changes(hunks_to_blame, changes, null_id, first_suspect);

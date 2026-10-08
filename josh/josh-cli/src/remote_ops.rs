@@ -7,7 +7,6 @@ use crate::porcelain::RefUpdate;
 /// Convert a filesystem remote URL relative to the caller's working directory.
 pub fn to_absolute_remote_url(url: &str) -> anyhow::Result<String> {
     let parsed = gix::url::parse(url)
-        .map_err(|error| error.into_error())
         .context("Invalid Git remote URL")?;
     if parsed.scheme != gix::url::Scheme::File
         || url

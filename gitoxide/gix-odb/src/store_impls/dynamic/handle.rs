@@ -5,8 +5,9 @@ use std::{
     sync::{Arc, atomic::Ordering},
 };
 
-use gix_features::threading::OwnShared;
+use gix_error::Result;
 use gix_hash::oid;
+use gix_parallel::OwnShared;
 
 use crate::store::{RefreshMode, handle, types};
 
@@ -33,19 +34,22 @@ pub(crate) enum IntraPackLookup<'a> {
 }
 
 impl IntraPackLookup<'_> {
-    pub(crate) fn pack_offset_by_id(&self, id: &oid) -> Option<gix_pack::data::Offset> {
-        match self {
+    pub(crate) fn pack_offset_by_id(&self, id: &oid) -> Result<Option<gix_pack::data::Offset>> {
+        Ok(match self {
             IntraPackLookup::Single(index) => index
                 .lookup(id)
                 .map(|entry_index| index.pack_offset_at_index(entry_index)),
             IntraPackLookup::Multi {
                 index,
                 required_pack_index,
-            } => index.lookup(id).and_then(|entry_index| {
-                let (pack_index, pack_offset) = index.pack_id_and_pack_offset_at_index(entry_index);
-                (pack_index == *required_pack_index).then_some(pack_offset)
-            }),
-        }
+            } => match index.lookup(id) {
+                Some(entry_index) => {
+                    let (pack_index, pack_offset) = index.pack_id_and_pack_offset_at_index(entry_index)?;
+                    (pack_index == *required_pack_index).then_some(pack_offset)
+                }
+                None => None,
+            },
+        })
     }
 }
 
@@ -65,6 +69,7 @@ pub struct IndexForObjectInPack {
 pub(crate) mod index_lookup {
     use std::{collections::HashSet, sync::Arc};
 
+    use gix_error::Result;
     use gix_hash::oid;
 
     use crate::store::{handle, handle::IntraPackLookup, types};
@@ -81,20 +86,23 @@ pub(crate) mod index_lookup {
         pub(crate) fn iter(
             &self,
             pack_id: types::PackId,
-        ) -> Option<Box<dyn Iterator<Item = gix_pack::index::Entry> + '_>> {
-            (self.id == pack_id.index).then(|| match &self.file {
-                handle::SingleOrMultiIndex::Single { index, .. } => index.iter(),
-                handle::SingleOrMultiIndex::Multi { index, .. } => {
-                    let pack_index = pack_id.multipack_index.expect(
-                        "BUG: multi-pack index must be set if this is a multi-pack, pack-indices seem unstable",
-                    );
-                    Box::new(index.iter().filter_map(move |e| {
-                        (e.pack_index == pack_index).then_some(gix_pack::index::Entry {
-                            oid: e.oid,
-                            pack_offset: e.pack_offset,
-                            crc32: None,
-                        })
-                    }))
+        ) -> Option<Box<dyn Iterator<Item = Result<gix_pack::index::Entry>> + '_>> {
+            (self.id == pack_id.index).then(|| -> Box<dyn Iterator<Item = Result<gix_pack::index::Entry>> + '_> {
+                match &self.file {
+                    handle::SingleOrMultiIndex::Single { index, .. } => Box::new(index.iter().map(Ok)),
+                    handle::SingleOrMultiIndex::Multi { index, .. } => {
+                        let pack_index = pack_id.multipack_index.expect(
+                            "BUG: multi-pack index must be set if this is a multi-pack, pack-indices seem unstable",
+                        );
+                        Box::new(index.iter().filter_map(move |entry| match entry {
+                            Ok(e) => (e.pack_index == pack_index).then_some(Ok(gix_pack::index::Entry {
+                                oid: e.oid,
+                                pack_offset: e.pack_offset,
+                                crc32: None,
+                            })),
+                            Err(err) => Some(Err(err)),
+                        }))
+                    }
                 }
             })
         }
@@ -162,9 +170,9 @@ pub(crate) mod index_lookup {
         /// Also return the index itself as it's needed to resolve intra-pack ref-delta objects. They are a possibility even though
         /// they won't be used in practice as it's more efficient to store their offsets.
         /// If it is not loaded, ask it to be loaded and put it into the returned mutable option for safe-keeping.
-        pub(crate) fn lookup(&mut self, object_id: &oid) -> Option<Outcome<'_>> {
+        pub(crate) fn lookup(&mut self, object_id: &oid) -> Result<Option<Outcome<'_>>> {
             let id = self.id;
-            match &mut self.file {
+            Ok(match &mut self.file {
                 handle::SingleOrMultiIndex::Single { index, data } => index.lookup(object_id).map(move |idx| Outcome {
                     object_index: handle::IndexForObjectInPack {
                         pack_id: types::PackId {
@@ -176,9 +184,12 @@ pub(crate) mod index_lookup {
                     index_file: IntraPackLookup::Single(index),
                     pack: data,
                 }),
-                handle::SingleOrMultiIndex::Multi { index, data } => index.lookup(object_id).map(move |idx| {
-                    let (pack_index, pack_offset) = index.pack_id_and_pack_offset_at_index(idx);
-                    Outcome {
+                handle::SingleOrMultiIndex::Multi { index, data } => {
+                    let Some(idx) = index.lookup(object_id) else {
+                        return Ok(None);
+                    };
+                    let (pack_index, pack_offset) = index.pack_id_and_pack_offset_at_index(idx)?;
+                    Some(Outcome {
                         object_index: handle::IndexForObjectInPack {
                             pack_id: types::PackId {
                                 index: id,
@@ -191,9 +202,9 @@ pub(crate) mod index_lookup {
                             required_pack_index: pack_index,
                         },
                         pack: &mut data[pack_index as usize],
-                    }
-                }),
-            }
+                    })
+                }
+            })
         }
     }
 }
@@ -236,7 +247,7 @@ impl super::Store {
 
     /// Create a new cache filled with a handle to this store, if this store is supporting shared ownership.
     ///
-    /// Note that the actual type of `OwnShared` depends on the `parallel` feature toggle of the `gix-features` crate.
+    /// Note that the actual type of `OwnShared` depends on the `parallel` feature toggle of the `gix-parallel` crate.
     pub fn to_cache(self: &OwnShared<Self>) -> crate::Cache<super::Handle<OwnShared<super::Store>>> {
         self.to_handle().into()
     }
@@ -285,7 +296,7 @@ impl super::Store {
     /// Transform the only instance into an `Arc<Self>` or panic if this is not the only Rc handle
     /// to the contained store.
     ///
-    /// This is meant to be used when the `gix_features::threading::OwnShared` refers to an `Rc` as it was compiled without the
+    /// This is meant to be used when the `gix_parallel::OwnShared` refers to an `Rc` as it was compiled without the
     /// `parallel` feature toggle.
     pub fn into_shared_arc(self: OwnShared<Self>) -> Arc<Self> {
         match OwnShared::try_unwrap(self) {
@@ -353,7 +364,7 @@ where
 impl TryFrom<&super::Store> for super::Store {
     type Error = std::io::Error;
 
-    fn try_from(s: &super::Store) -> Result<Self, Self::Error> {
+    fn try_from(s: &super::Store) -> std::io::Result<Self> {
         super::Store::at_opts(
             s.path().into(),
             s.object_hash,

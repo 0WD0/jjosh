@@ -13,6 +13,8 @@
 //! Fixture scripts and [`git()`] use `GIT_CONFIG_PARAMETERS` to disable signing and automatic maintenance
 //! and set `init.defaultBranch=main`. A script's own `GIT_CONFIG_COUNT` entries coexist with this configuration,
 //! with isolation taking precedence for shared keys. Explicit `git -c` options can override isolation.
+//! Bash fixtures trace commands to a separate descriptor so redirected stderr baselines remain unchanged.
+//! Bash older than 4.1 reports failed commands instead. Captured diagnostics are printed only on failure.
 //!
 
 //! ## Feature Flags
@@ -51,9 +53,7 @@ pub mod signature;
 pub mod repository;
 
 const ARCHIVE_DIR_NAME: &str = "generated-archives";
-
-/// The error returned by test functions.
-pub use gix_error::TestError as Error;
+const BASH_FIXTURE_PRELUDE: &str = include_str!("scripted_fixture_prelude.sh");
 
 /// A result type to allow using the try operator `?` in unit tests.
 ///
@@ -79,6 +79,32 @@ pub type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error + Sen
 /// The closure can return any value `T`, which will be returned alongside the fixture path.
 /// This is useful for computing values based on the fixture contents.
 pub type PostResult<T = ()> = Result<T>;
+
+/// Rename `from` to `to`, replacing an existing file even if it is read-only.
+///
+/// On Windows, retry a permission-denied rename after clearing the destination's read-only flag.
+/// On other platforms, this is equivalent to [`std::fs::rename()`], which can replace read-only files.
+/// The replacement retains the source's permissions. If the retry fails, the destination's read-only
+/// flag is not restored. Only use this on writable fixtures or during fixture initialization, and drop
+/// any memory mappings before replacing their backing file.
+pub fn rename(from: impl AsRef<Path>, to: impl AsRef<Path>) -> std::io::Result<()> {
+    let (from, to) = (from.as_ref(), to.as_ref());
+    let result = std::fs::rename(from, to);
+    #[cfg(windows)]
+    if result
+        .as_ref()
+        .is_err_and(|err| err.kind() == std::io::ErrorKind::PermissionDenied)
+    {
+        let mut permissions = std::fs::metadata(to)?.permissions();
+        if permissions.readonly() {
+            #[expect(clippy::permissions_set_readonly_false, reason = "this block only runs on Windows")]
+            permissions.set_readonly(false);
+            std::fs::set_permissions(to, permissions)?;
+        }
+        return std::fs::rename(from, to);
+    }
+    result
+}
 
 /// Build `example` from `package` and copy the executable to this test process' temporary target directory.
 ///
@@ -117,7 +143,7 @@ pub fn build_example_for_test(package: &str, example: &str, target_tmpdir: impl 
         }
     }
     panic!(
-        "driver at {} could be copied for stable test execution: {last_err:?}",
+        "driver at \"{}\" could be copied for stable test execution: {last_err:?}",
         shared_path.display()
     );
 }
@@ -726,7 +752,7 @@ fn fixture_base() -> PathBuf {
 pub fn fixture_bytes(path: impl AsRef<Path>) -> Vec<u8> {
     match std::fs::read(fixture_path(path.as_ref())) {
         Ok(res) => res,
-        Err(_) => panic!("File at '{}' not found", path.as_ref().display()),
+        Err(_) => panic!("File at \"{}\" not found", path.as_ref().display()),
     }
 }
 
@@ -753,8 +779,62 @@ pub fn fixture_bytes(path: impl AsRef<Path>) -> Vec<u8> {
 /// or more specific `.gitignore` configurations in lower levels of the work tree.
 ///
 /// The latter is useful if the script's output is platform specific.
+///
+/// ### Bash Symlink Preflight
+///
+/// Scripts with the `.sh` extension run in Bash with an injected `gix_testtools_require_symlinks`
+/// function. Call it before creating fixture contents: it probes a link to an existing file in the
+/// fixture filesystem, records the result, and exits the script successfully if symlink creation is
+/// unavailable. Other setup errors still fail the script. Tests must call [`fixture_has_symlinks()`]
+/// before accessing the resulting fixture, which may be incomplete when the preflight fails.
+///
+/// Ignore archives for these fixtures, as the preflight result is host-dependent. Prefer read-only
+/// fixtures when tests only inspect their contents; record Git baselines in the script instead of
+/// invoking Git again in Rust. Use [`Creation::Execute`] when tests must mutate the fixture:
+/// [`Creation::CopyFromReadOnly`] does not preserve links.
+/// The prelude is injected only into the Bash instance running the script, not into child shells
+/// or non-shell fixture programs.
 pub fn scripted_fixture_read_only(script_name: impl AsRef<Path>) -> Result<PathBuf> {
     scripted_fixture_read_only_with_args(script_name, None::<String>)
+}
+
+/// Return whether a Bash fixture's `gix_testtools_require_symlinks` preflight succeeded.
+///
+/// Pass the fixture root, even if the script changed directories before running the preflight.
+/// An unavailable preflight prints its diagnostic and returns `Ok(false)` so the test can return
+/// early. Missing, malformed, or unreadable results are errors, not reasons to skip a test.
+/// A missing result explains that the Bash script must call `gix_testtools_require_symlinks`.
+/// A successful preflight is not a substitute for asserting that the fixture's actual links exist.
+pub fn fixture_has_symlinks(fixture_root: impl AsRef<Path>) -> std::io::Result<bool> {
+    let marker = fixture_root.as_ref().join("__gix_testtools_symlinks__");
+    let result = std::fs::read_to_string(&marker).map_err(|err| {
+        if err.kind() == std::io::ErrorKind::NotFound {
+            std::io::Error::new(
+                err.kind(),
+                format!(
+                    "Missing symlink preflight result at \"{}\": fixture_has_symlinks() requires the Bash fixture script to call gix_testtools_require_symlinks before creating fixture contents. Pass the fixture root, not a repository subdirectory.",
+                    marker.display()
+                ),
+            )
+        } else {
+            err
+        }
+    })?;
+    if result == "supported\n" {
+        return Ok(true);
+    }
+    if let Some(diagnostic) = result.strip_prefix("unsupported\n") {
+        eprintln!(
+            "Skipping fixture at \"{}\": symlink creation is unavailable: {}",
+            fixture_root.as_ref().display(),
+            diagnostic.trim()
+        );
+        return Ok(false);
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::InvalidData,
+        format!("Invalid symlink preflight result at \"{}\"", marker.display()),
+    ))
 }
 
 /// Like [`scripted_fixture_read_only()`], but uses a matching existing archive even if
@@ -1344,10 +1424,10 @@ pub fn scripted_fixture_writable_with_args_single_archive_with_post_with_git_ver
 /// ### Example
 ///
 /// ```no_run
-/// use gix_testtools::{Result, FixtureState};
+/// use gix_testtools::{TestResult, FixtureState};
 ///
 /// #[test]
-/// fn test_with_rust_fixture() -> Result {
+/// fn test_with_rust_fixture() -> TestResult {
 ///     let (dir, _) = gix_testtools::rust_fixture_read_only("my_fixture", 1, |state| {
 ///         if let FixtureState::Uninitialized(path) = state {
 ///             std::fs::write(path.join("file.txt"), "content")?;
@@ -1378,10 +1458,10 @@ where
 /// ### Example
 ///
 /// ```no_run
-/// use gix_testtools::{Result, Creation, FixtureState};
+/// use gix_testtools::{TestResult, Creation, FixtureState};
 ///
 /// #[test]
-/// fn test_with_writable_rust_fixture() -> Result {
+/// fn test_with_writable_rust_fixture() -> TestResult {
 ///     let (dir, ()) = gix_testtools::rust_fixture_writable("my_fixture", 1, Creation::CopyFromReadOnly, |state| {
 ///         if let FixtureState::Uninitialized(path) = state {
 ///             std::fs::write(path.join("file.txt"), "content")?;
@@ -1499,6 +1579,7 @@ fn marker_if_needed(
                 archive_name,
                 gix_lock::acquire::Fail::AfterDurationWithBackoff(Duration::from_secs(6 * 60)),
                 None,
+                0,
             )
         })
         .transpose()?)
@@ -1548,8 +1629,8 @@ where
         if failure_marker.is_file() {
             std::fs::remove_dir_all(script_result_directory).map_err(|err| {
                 format!(
-                    "Failed to remove '{script_result_directory}', please try to do that by hand. Original error: {err}",
-                    script_result_directory = script_result_directory.display()
+                    "Failed to remove \"{}\", please try to do that by hand. Original error: {err}",
+                    script_result_directory.display()
                 )
             })?;
         }
@@ -1566,10 +1647,8 @@ where
             ) {
                 Ok((archive_id, platform)) => {
                     eprintln!(
-                        "Extracted fixture from archive '{}' ({}, {:?})",
-                        archive_file_path.display(),
-                        archive_id,
-                        platform
+                        "Extracted fixture from archive \"{}\" ({archive_id}, {platform:?})",
+                        archive_file_path.display()
                     );
                     return make_fixture(FixtureState::Fresh(script_result_directory)).map(Some);
                 }
@@ -1581,7 +1660,7 @@ where
                         // mistake for a valid cached fixture.
                         std::fs::remove_dir_all(script_result_directory).map_err(|cleanup_err| {
                             format!(
-                                "Failed to remove incomplete fixture at '{}': {cleanup_err}",
+                                "Failed to remove incomplete fixture at \"{}\": {cleanup_err}",
                                 script_result_directory.display()
                             )
                         })?;
@@ -1593,13 +1672,12 @@ where
                         return Err(err.into());
                     }
                     if !archive_missing {
-                        eprintln!("failed to extract '{}': {}", archive_file_path.display(), err);
+                        eprintln!("failed to extract \"{}\": {err}", archive_file_path.display());
                         std::fs::create_dir_all(script_result_directory)?;
                     } else if !excludes.is_excluded(archive_file_path) {
                         eprintln!(
-                            "Archive at '{}' not found, creating fixture {}",
-                            archive_file_path.display(),
-                            description
+                            "Archive at \"{}\" not found, creating fixture {description}",
+                            archive_file_path.display()
                         );
                     }
                 }
@@ -1646,6 +1724,7 @@ where
     let script_location = script_name.as_ref();
     let fixture_base = fixture_base();
     let script_path = fixture_path(script_location);
+    let is_bash_fixture = script_location.extension().is_some_and(|ext| ext == "sh");
 
     // keep this lock to assure we don't return unfinished directories for threaded callers
     let args: Vec<String> = args.into_iter().map(Into::into).collect();
@@ -1668,13 +1747,18 @@ where
             .or_insert_with(|| {
                 let crc_value = crc::Crc::<u32>::new(&crc::CRC_32_CKSUM);
                 let mut crc_digest = crc_value.digest();
-                crc_digest.update(&std::fs::read(&script_path).unwrap_or_else(|err| {
+                let script = std::fs::read(&script_path).unwrap_or_else(|err| {
                     panic!(
-                        "file {script_path} in CWD '{cwd}' could not be read: {err}",
-                        cwd = env::current_dir().expect("valid cwd").display(),
-                        script_path = script_path.display(),
+                        "file \"{}\" in CWD \"{}\" could not be read: {err}",
+                        script_path.display(),
+                        env::current_dir().expect("valid cwd").display(),
                     )
-                }));
+                });
+                crc_digest.update(&script);
+                // Only fixtures using the preflight need regeneration when its implementation changes.
+                if is_bash_fixture && script.contains_str("gix_testtools_require_symlinks") {
+                    crc_digest.update(BASH_FIXTURE_PRELUDE.as_bytes());
+                }
                 for arg in &args {
                     crc_digest.update(arg.as_bytes());
                 }
@@ -1734,15 +1818,37 @@ where
         force_run,
         archive_policy,
         excludes,
-        &format!("using script '{}'", script_location.display()),
+        &format!("using script \"{}\"", script_location.display()),
         |fixture_state| {
             if let FixtureState::Uninitialized(dir) = fixture_state {
-                let mut cmd = command_with_environment_snapshot(&script_absolute_path);
+                // Bash 3.2 loses BASH_SOURCE after calling functions defined by `-c`. Sourcing a
+                // temporary prelude file preserves script context without exporting functions.
+                let prelude_file = if is_bash_fixture {
+                    let mut file = tempfile::NamedTempFile::new()?;
+                    std::io::Write::write_all(file.as_file_mut(), BASH_FIXTURE_PRELUDE.as_bytes())?;
+                    Some(file)
+                } else {
+                    None
+                };
+                let mut cmd = if let Some(file) = prelude_file.as_ref() {
+                    let mut cmd = command_with_environment_snapshot(bash_program());
+                    let prelude_path = gix_path::from_bstring(
+                        gix_path::to_unix_separators_on_windows(gix_path::into_bstr(file.path())?).into_owned(),
+                    )?;
+                    cmd.arg("-c")
+                        .arg("source \"$1\" || exit; shift; source \"$0\" \"$@\"")
+                        .arg(&script_absolute_path)
+                        .arg(prelude_path);
+                    cmd
+                } else {
+                    command_with_environment_snapshot(&script_absolute_path)
+                };
                 let output = match configure_command(&mut cmd, object_hash, &args, dir).output() {
                     Ok(out) => out,
                     Err(err)
-                        if err.kind() == std::io::ErrorKind::PermissionDenied
-                            || err.raw_os_error() == Some(193) /* windows */ =>
+                        if !is_bash_fixture
+                            && (err.kind() == std::io::ErrorKind::PermissionDenied
+                                || err.raw_os_error() == Some(193)) /* windows */ =>
                     {
                         cmd = command_with_environment_snapshot(bash_program());
                         configure_command(cmd.arg(&script_absolute_path), object_hash, &args, dir).output()?
@@ -1752,7 +1858,7 @@ where
                 if !output.status.success() {
                     eprintln!("stdout: {}", output.stdout.as_bstr());
                     eprintln!("stderr: {}", output.stderr.as_bstr());
-                    return Err(format!("fixture script of {cmd:?} failed").into());
+                    return Err(format!("fixture script of {cmd:?} failed with {}", output.status).into());
                 }
             }
             if let Some(mut f) = post_process_closure {
@@ -1995,6 +2101,112 @@ pub fn normalize_debug_snapshot(value: &dyn std::fmt::Debug) -> (String, Vec<gix
     normalize_hashes(&format!("{value:#?}"))
 }
 
+/// Prepare a pretty-debug diagnostic for an `insta::assert_debug_snapshot!` assertion.
+///
+/// Apply literal `replacements` (and their debug-escaped spellings) in the given order, then normalize
+/// object IDs with [`normalize_hashes()`]. Supply unstable path prefixes or port numbers explicitly,
+/// preserving meaningful path suffixes. Windows paths also match without their verbatim prefix or
+/// with forward slashes. Windows path suffixes use forward slashes; backslashes in
+/// other input remain unchanged. Use complete paths for unquoted paths containing whitespace.
+/// Platform-specific I/O messages and pretty-debug OS errors are replaced by their [`std::io::ErrorKind`].
+/// Integer conversion error messages are normalized across Rust versions.
+///
+/// The returned value owns its text and prints it without adding quotes or escaping newlines.
+pub fn redact_debug_snapshot(
+    value: &dyn std::fmt::Debug,
+    replacements: &[(&str, &str)],
+) -> impl std::fmt::Debug + use<> {
+    struct Diagnostic(String);
+
+    impl std::fmt::Debug for Diagnostic {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str(&self.0)
+        }
+    }
+
+    let mut text = format!("{value:#?}");
+    for (from, to) in replacements {
+        let windows_path = from.contains('\\') || (cfg!(windows) && from.contains('/'));
+        let mut prefixes = vec![(*from).to_owned()];
+        if windows_path {
+            let plain = match from.strip_prefix(r"\\?\") {
+                Some(path) => path
+                    .strip_prefix(r"UNC\")
+                    .map_or_else(|| path.to_owned(), |path| format!(r"\\{path}")),
+                None => (*from).to_owned(),
+            };
+            prefixes.push(plain.replace('\\', "/"));
+            prefixes.push(plain);
+        }
+        prefixes.extend(prefixes.clone().iter().map(|prefix| {
+            let escaped = format!("{prefix:?}");
+            escaped[1..escaped.len() - 1].to_owned()
+        }));
+        prefixes.sort();
+        prefixes.dedup();
+        prefixes.sort_by_key(|prefix| std::cmp::Reverse(prefix.len()));
+        for prefix in &prefixes {
+            if !windows_path {
+                text = text.replace(prefix, to);
+                continue;
+            }
+            let paths: Vec<_> = text
+                .match_indices(prefix.as_str())
+                .map(|(start, _)| {
+                    let suffix_start = start + prefix.len();
+                    let quote = text[..start].chars().next_back().filter(|ch| matches!(ch, '\'' | '"'));
+                    // ponytail: whitespace delimits unquoted paths; supply a complete path if it contains spaces.
+                    let suffix_len = match quote {
+                        Some('"') if text[..start].ends_with(r#"\""#) => text[suffix_start..].find(r#"\""#),
+                        Some('\'') if text[..start].ends_with(r"\'") => text[suffix_start..].find(r"\'"),
+                        Some(quote) => text[suffix_start..].find(quote),
+                        None => text[suffix_start..].find(|ch: char| ch.is_whitespace() || matches!(ch, '\'' | '"')),
+                    }
+                    .unwrap_or(text.len() - suffix_start);
+                    let end = suffix_start + suffix_len;
+                    let suffix = text[suffix_start..end].replace(r"\\", "/").replace('\\', "/");
+                    (start, end, format!("{to}{suffix}"))
+                })
+                .collect();
+            for (start, end, replacement) in paths.into_iter().rev() {
+                text.replace_range(start..end, &replacement);
+            }
+        }
+    }
+    let os_errors: Vec<_> = text
+        .split("(os error ")
+        .skip(1)
+        .filter_map(|tail| tail.split_once(')')?.0.parse::<i32>().ok())
+        .map(std::io::Error::from_raw_os_error)
+        .collect();
+    for err in os_errors {
+        text = text.replace(&err.to_string(), &format!("{:?}", err.kind()));
+    }
+    let os_debug: Vec<_> = text
+        .match_indices("Os {\n")
+        .filter_map(|(start, _)| {
+            let line = text[start + "Os {\n".len()..].lines().next()?;
+            let code = line.trim().strip_prefix("code: ")?.strip_suffix(',')?.parse().ok()?;
+            let err = std::io::Error::from_raw_os_error(code);
+            let indent = " ".repeat((line.len() - line.trim_start().len()).saturating_sub(4));
+            Some((
+                format!("{err:#?}").replace('\n', &format!("\n{indent}")),
+                format!("{:?}", err.kind()),
+            ))
+        })
+        .collect();
+    for (from, to) in os_debug {
+        text = text.replace(&from, &to);
+    }
+    for message in [
+        "number too small to fit in target type",
+        "number too large to fit in target type",
+    ] {
+        text = text.replace(message, "out of range integral type conversion attempted");
+    }
+    Diagnostic(normalize_hashes(&text).0)
+}
+
 /// Normalize 40- and 64-character hexadecimal object IDs in `input`.
 ///
 /// This is like [`normalize_debug_snapshot()`], but operates on already-formatted text.
@@ -2107,8 +2319,13 @@ fn configure_command<'a, I: IntoIterator<Item = S>, S: AsRef<OsStr>>(
 ///
 /// Removes inherited and previously configured `GIT_*` variables, disables external configuration,
 /// and sets deterministic fixture defaults. `current_dir` scopes the replacement XDG configuration
-/// directory. This does not change the command's arguments, working directory, or standard I/O.
+/// directory, which is made absolute so scripts can change directories without relocating it.
+/// This does not change the command's arguments, working directory, or standard I/O.
 /// Add deliberate test-specific environment overrides after calling this function.
+///
+/// # Panics
+///
+/// If `current_dir` cannot be made absolute.
 pub fn configure_git_environment(
     cmd: &mut std::process::Command,
     current_dir: impl AsRef<Path>,
@@ -2134,7 +2351,9 @@ pub fn configure_git_environment(
         .env("MSYS", msys_for_git_bash_on_windows)
         .env(
             "XDG_CONFIG_HOME",
-            current_dir.as_ref().join(".gix-testtools-xdg-config"),
+            std::path::absolute(current_dir)
+                .expect("the test working directory can be made absolute")
+                .join(".gix-testtools-xdg-config"),
         )
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .env("GIT_CONFIG_GLOBAL", NULL_DEVICE)
@@ -2343,7 +2562,7 @@ fn extract_archive(
         let mut input_archive = std::fs::File::open(archive)?;
         if !ignore_archive_override && env::var_os("GIX_TEST_IGNORE_ARCHIVES").is_some() {
             return Err(std::io::Error::other(format!(
-                "Ignoring archive at '{}' as GIX_TEST_IGNORE_ARCHIVES is set.",
+                "Ignoring archive at \"{}\" as GIX_TEST_IGNORE_ARCHIVES is set.",
                 archive.display()
             )));
         }
@@ -2379,14 +2598,11 @@ fn extract_archive(
         })
         .ok_or_else(|| std::io::Error::other("BUG: Could not find meta directory in our own archive"))
         .map_err(|err| {
-            std::io::Error::other(format!(
-                "Could not extract archive at '{archive}': {err}",
-                archive = archive.display()
-            ))
+            std::io::Error::other(format!("Could not extract archive at \"{}\": {err}", archive.display()))
         })?;
     if archive_identity != required_script_identity {
         eprintln!(
-            "Ignoring archive at '{}' as its generating script changed",
+            "Ignoring archive at \"{}\" as its generating script changed",
             archive.display()
         );
         return Err(std::io::ErrorKind::NotFound.into());

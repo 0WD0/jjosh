@@ -16,9 +16,7 @@
 
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::mem;
 use std::slice;
-use std::sync::Arc;
 
 use futures::StreamExt as _;
 use futures::TryStreamExt as _;
@@ -28,7 +26,6 @@ use futures::try_join;
 use indexmap::IndexMap;
 use indexmap::IndexSet;
 use itertools::Itertools as _;
-use tracing::instrument;
 
 use crate::backend::BackendError;
 use crate::backend::BackendResult;
@@ -42,31 +39,20 @@ use crate::index::Index;
 use crate::index::IndexResult;
 use crate::index::ResolvedChangeTargets;
 use crate::iter_util::fallible_any;
-use crate::matchers::FilesMatcher;
 use crate::matchers::Matcher;
 use crate::matchers::Visit;
 use crate::merge::Diff;
 use crate::merge::Merge;
 use crate::merged_tree::MergedTree;
-use crate::merged_tree_builder::MergedTreeBuilder;
 use crate::repo::MutableRepo;
 use crate::repo::Repo;
 use crate::repo_path::RepoPath;
 use crate::revset::RevsetExpression;
 use crate::revset::RevsetStreamExt as _;
-use crate::store::Store;
 
 /// Merges `commits` and tries to resolve any conflicts recursively.
-#[instrument(skip(repo))]
 pub async fn merge_commit_trees(repo: &dyn Repo, commits: &[Commit]) -> BackendResult<MergedTree> {
-    if let [commit] = commits {
-        Ok(commit.tree())
-    } else {
-        merge_commit_trees_no_resolve(repo, commits)
-            .await?
-            .resolve()
-            .await
-    }
+    crate::commit::merge_commit_trees(repo.store(), repo.index(), commits).await
 }
 
 /// Merges `commits` without attempting to resolve file conflicts.
@@ -74,107 +60,7 @@ pub async fn merge_commit_trees_no_resolve(
     repo: &dyn Repo,
     commits: &[Commit],
 ) -> BackendResult<MergedTree> {
-    if let [commit] = commits {
-        Ok(commit.tree())
-    } else {
-        merge_commit_trees_no_resolve_without_repo(repo.store(), repo.index(), commits).await
-    }
-}
-
-/// Merges `commits` without attempting to resolve file conflicts.
-#[instrument(skip(index))]
-pub async fn merge_commit_trees_no_resolve_without_repo(
-    store: &Arc<Store>,
-    index: &dyn Index,
-    commits: &[Commit],
-) -> BackendResult<MergedTree> {
-    let commit_ids = commits
-        .iter()
-        .map(|commit| commit.id().clone())
-        .collect_vec();
-    let commit_id_merge = find_recursive_merge_commits(store, index, commit_ids).await?;
-    let tree_merge: Merge<(MergedTree, String)> = commit_id_merge
-        .try_map_async(async |commit_id| {
-            let commit = store.get_commit_async(commit_id).await?;
-            Ok::<_, BackendError>((commit.tree(), commit.conflict_label()))
-        })
-        .await?;
-    Ok(MergedTree::merge_no_resolve(tree_merge))
-}
-
-/// Find the commits to use as input to the recursive merge algorithm.
-pub async fn find_recursive_merge_commits(
-    store: &Arc<Store>,
-    index: &dyn Index,
-    commit_ids: Vec<CommitId>,
-) -> BackendResult<Merge<CommitId>> {
-    #[derive(Debug)]
-    struct WorkItem {
-        commit_ids: Vec<CommitId>,
-        result: Merge<CommitId>,
-        pos: usize,
-    }
-
-    impl WorkItem {
-        fn new(commit_ids: Vec<CommitId>) -> Self {
-            let result = Merge::resolved(commit_ids[0].clone());
-            Self {
-                commit_ids,
-                result,
-                pos: 1,
-            }
-        }
-
-        fn merge_next(&mut self, ancestor: Merge<CommitId>) {
-            let dummy = Merge::resolved(CommitId::new(vec![]));
-            let result = mem::replace(&mut self.result, dummy);
-            let other = Merge::resolved(self.commit_ids[self.pos].clone());
-            self.result = Merge::from_vec(vec![result, ancestor, other]).flatten();
-            self.pos += 1;
-        }
-    }
-
-    let maybe_resolved = |commit_ids: Vec<CommitId>| match commit_ids.len() {
-        0 => Ok(Merge::resolved(store.root_commit_id().clone())),
-        1 => Ok(Merge::resolved(commit_ids.into_iter().next().unwrap())),
-        _ => Err(commit_ids),
-    };
-
-    // Execute recursion without using the call stack:
-    // ```
-    // let mut result = Merge::resolved(commit_ids[0].clone());
-    // for pos in 1..commit_ids.len() {
-    //     let ancestor_ids = index.common_ancestors(&commit_ids[0..pos], &commit_ids[pos..][..1])?;
-    //     let ancestor = find_recursive_merge_commits(store, index, ancestor_ids)?;
-    //     let other = Merge::resolved(commit_ids[pos].clone());
-    //     result = Merge::from_vec(vec![result, ancestor, other]).flatten();
-    // }
-    // ```
-    let mut stack = Vec::new();
-    match maybe_resolved(commit_ids) {
-        Ok(result) => return Ok(result),
-        Err(commit_ids) => stack.push(WorkItem::new(commit_ids)),
-    }
-    loop {
-        let top = stack.last_mut().unwrap();
-        if top.pos < top.commit_ids.len() {
-            let ancestor_ids = index
-                .common_ancestors(&top.commit_ids[0..top.pos], &top.commit_ids[top.pos..][..1])
-                .await
-                // TODO: indexing error shouldn't be a "BackendError"
-                .map_err(|err| BackendError::Other(err.into()))?;
-            match maybe_resolved(ancestor_ids) {
-                Ok(ancestor) => top.merge_next(ancestor),
-                Err(ancestor_ids) => stack.push(WorkItem::new(ancestor_ids)),
-            }
-        } else {
-            let ancestor = stack.pop().unwrap();
-            let Some(top) = stack.last_mut() else {
-                return Ok(ancestor.result);
-            };
-            top.merge_next(ancestor.result);
-        }
-    }
+    crate::commit::merge_commit_trees_no_resolve(repo.store(), repo.index(), commits).await
 }
 
 /// Restore matching paths from the source into the destination.
@@ -189,30 +75,6 @@ pub async fn restore_tree(
         // Optimization for a common case
         return Ok(source.clone());
     }
-    let mut diff_stream = source.diff_stream(destination, matcher);
-    let mut paths = Vec::new();
-    while let Some(entry) = diff_stream.next().await {
-        // TODO: We should be able to not traverse deeper in the diff if the matcher
-        // matches an entire subtree.
-        paths.push(entry.path);
-    }
-    let matcher = FilesMatcher::new(paths);
-
-    let select_matching =
-        async |tree: &MergedTree, labels: ConflictLabels| -> BackendResult<MergedTree> {
-            let empty_tree_ids = Merge::repeated(
-                tree.store().empty_tree_id().clone(),
-                tree.tree_ids().num_sides(),
-            );
-            let labeled_empty_tree = MergedTree::new(tree.store().clone(), empty_tree_ids, labels);
-            let mut builder = MergedTreeBuilder::new(labeled_empty_tree);
-            for (path, value) in tree.entries_matching(&matcher) {
-                // TODO: if https://github.com/jj-vcs/jj/issues/4152 is implemented, we will need
-                // to expand resolved conflicts into `Merge::repeated(value, num_sides)`.
-                builder.set_or_remove(path, value?);
-            }
-            builder.write_tree().await
-        };
 
     const RESTORE_BASE_LABEL: &str = "base files for restore";
 
@@ -225,6 +87,11 @@ pub async fn restore_tree(
             format!("{RESTORE_BASE_LABEL} (from {label})")
         }
     }));
+    let base_tree = MergedTree::new(
+        destination.store().clone(),
+        destination.tree_ids().clone(),
+        base_labels,
+    );
 
     // Merging the trees this way ensures that when restoring a conflicted file into
     // a conflicted commit, we preserve the labels of both commits even if the
@@ -243,11 +110,11 @@ pub async fn restore_tree(
             format!("{destination_label} (restore destination)"),
         ),
         (
-            select_matching(destination, base_labels).await?,
+            base_tree.filtered(matcher).await?,
             format!("{RESTORE_BASE_LABEL} (from {destination_label})"),
         ),
         (
-            select_matching(source, source.labels().clone()).await?,
+            source.filtered(matcher).await?,
             format!("restored files (from {source_label})"),
         ),
     ]))
@@ -497,7 +364,7 @@ pub async fn rebase_commit_with_options(
 /// Moves changes from `sources` to the `destination` parent, returns new tree.
 // TODO: pass conflict labels as argument to provide more specific information
 pub async fn rebase_to_dest_parent(
-    repo: &dyn Repo,
+    index: &dyn Index,
     sources: &[Commit],
     destination: &Commit,
 ) -> BackendResult<MergedTree> {
@@ -510,7 +377,7 @@ pub async fn rebase_to_dest_parent(
     let diffs: Vec<_> = try_join_all(sources.iter().map(async |source| -> BackendResult<_> {
         Ok(Diff::new(
             (
-                source.parent_tree(repo).await?,
+                source.parent_tree(index).await?,
                 format!(
                     "{} (original parents)",
                     source.parents_conflict_label().await?
@@ -525,7 +392,7 @@ pub async fn rebase_to_dest_parent(
     .await?;
     MergedTree::merge(Merge::from_diffs(
         (
-            destination.parent_tree(repo).await?,
+            destination.parent_tree(index).await?,
             format!(
                 "{} (new parents)",
                 destination.parents_conflict_label().await?
@@ -1560,9 +1427,12 @@ pub async fn find_duplicate_divergent_commits(
                 .store()
                 .get_commit_async(&ancestor_candidate_id)
                 .await?;
-            let new_tree =
-                rebase_to_dest_parent(repo, slice::from_ref(target_commit), &ancestor_candidate)
-                    .await?;
+            let new_tree = rebase_to_dest_parent(
+                repo.index(),
+                slice::from_ref(target_commit),
+                &ancestor_candidate,
+            )
+            .await?;
             // Check whether the rebased commit would have the same tree as the existing
             // commit if they had the same parents. If so, we can skip this rebased commit.
             if new_tree.tree_ids() == ancestor_candidate.tree_ids() {

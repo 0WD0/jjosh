@@ -15,7 +15,6 @@
 use futures::StreamExt as _;
 use itertools::Itertools as _;
 use jj_lib::fileset;
-use jj_lib::fileset::FilePattern;
 use jj_lib::fileset::FilesetAliasesMap;
 use jj_lib::fileset::FilesetDiagnostics;
 use jj_lib::fileset::FilesetExpression;
@@ -255,7 +254,7 @@ fn test_sparse_commit() -> TestResult {
     // tree.
     let modified_tree = test_workspace.snapshot()?;
     let diff: Vec<_> = tree
-        .diff_stream(&modified_tree, &EverythingMatcher)
+        .diff(&modified_tree, &EverythingMatcher)
         .collect()
         .block_on();
     assert_eq!(diff.len(), 1);
@@ -277,7 +276,7 @@ fn test_sparse_commit() -> TestResult {
     // updated in the tree.
     let modified_tree = test_workspace.snapshot()?;
     let diff: Vec<_> = tree
-        .diff_stream(&modified_tree, &EverythingMatcher)
+        .diff(&modified_tree, &EverythingMatcher)
         .collect()
         .block_on();
     assert_eq!(diff.len(), 2);
@@ -324,7 +323,7 @@ fn test_sparse_commit_gitignore() -> TestResult {
     // Create a tree from the working copy. Only dir1/file2 should be updated in the
     // tree because dir1/file1 is ignored.
     let modified_tree = test_workspace.snapshot()?;
-    let entries = modified_tree.entries().collect_vec();
+    let entries = modified_tree.entries().collect::<Vec<_>>().block_on();
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0].0.as_ref(), dir1_file2_path);
     Ok(())
@@ -396,8 +395,11 @@ fn test_sparse_glob_roundtrip_preserves_literal_directory() -> TestResult {
         };
         for kind in ["glob", "prefix-glob", "glob-i", "prefix-glob-i"] {
             for glob in ["*.RS", "**"] {
-                let pattern = FilePattern::from_str_kind(&converter, glob, kind)?;
-                let mut expression = FilesetExpression::pattern(pattern);
+                let mut expression = fileset::parse(
+                    &mut FilesetDiagnostics::new(),
+                    &format!(r#"{kind}:"{glob}""#),
+                    &context,
+                )?;
                 let expected = expression.to_matcher();
                 assert!(expected.matches(repo_path(&format!("{directory}/file.RS"))));
                 for _ in 0..3 {
@@ -725,7 +727,6 @@ fn test_partial_layout_failure_keeps_interruption_guard() -> TestResult {
     use jj_lib::backend::CopyId;
     use jj_lib::backend::FileId;
     use jj_lib::backend::TreeValue;
-    use jj_lib::merge::Merge;
     use jj_lib::merged_tree_builder::MergedTreeBuilder;
 
     let mut test_workspace = TestWorkspace::init();
@@ -734,7 +735,7 @@ fn test_partial_layout_failure_keeps_interruption_guard() -> TestResult {
     let mut builder = MergedTreeBuilder::new(tree);
     builder.set_or_remove(
         repo_path("missing").to_owned(),
-        Merge::normal(TreeValue::File {
+        Some(TreeValue::File {
             id: FileId::new(vec![0xab; 20]),
             executable: false,
             copy_id: CopyId::placeholder(),
@@ -952,7 +953,11 @@ fn test_sparse_commit_gitignore_sparsed_away() -> TestResult {
     // file1 is ignored by the root .gitignore and file2 by dir1/.gitignore, so
     // only file3 should be tracked (in addition to the sparsed-away files.)
     let modified_tree = test_workspace.snapshot()?;
-    let entries = modified_tree.entries().map(|(path, _)| path).collect_vec();
+    let entries = modified_tree
+        .entries()
+        .map(|(path, _)| path)
+        .collect::<Vec<_>>()
+        .block_on();
     assert_eq!(
         entries.iter().map(AsRef::as_ref).collect_vec(),
         vec![
@@ -1018,7 +1023,11 @@ fn test_sparse_commit_gitignore_symlink_not_followed() -> TestResult {
 
     // The symlink contributes no patterns, so the new file is tracked.
     let modified_tree = test_workspace.snapshot()?;
-    let entries = modified_tree.entries().map(|(path, _)| path).collect_vec();
+    let entries = modified_tree
+        .entries()
+        .map(|(path, _)| path)
+        .collect::<Vec<_>>()
+        .block_on();
     assert_eq!(
         entries.iter().map(|path| path.as_ref()).collect_vec(),
         vec![
@@ -1083,7 +1092,7 @@ fn test_mapped_sparse_gitignore_uses_canonical_fallback_and_physical_rules() -> 
         // Unrelated canonical files at physical coordinates must not contribute.
         let snapshot = test_workspace.snapshot()?;
         let added = tree
-            .diff_stream(&snapshot, &EverythingMatcher)
+            .diff(&snapshot, &EverythingMatcher)
             .map(|entry| entry.path)
             .collect::<Vec<_>>()
             .block_on();

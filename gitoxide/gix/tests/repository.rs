@@ -6,8 +6,9 @@ use serial_test::serial;
 
 #[test]
 #[serial]
-fn config_path_uses_repository_options_for_global_sources() -> gix_testtools::Result {
-    use gix::config::{Source, file_mut::Error};
+fn config_path_uses_repository_options_for_global_sources() -> gix_testtools::TestResult {
+    let mut diagnostics = Vec::new();
+    use gix::config::Source;
 
     let fixture = gix::path::realpath(gix_testtools::scripted_fixture_read_only("make_config_repos.sh")?)?;
     let git_dir = fixture.join("bare-repo");
@@ -44,23 +45,61 @@ fn config_path_uses_repository_options_for_global_sources() -> gix_testtools::Re
 
     let repo = gix::open_opts(&git_dir, gix::open::Options::isolated())?;
     for source in [Source::GitInstallation, Source::System, Source::Git, Source::User] {
-        assert!(
-            matches!(repo.config_path(source), Err(Error::SourceUnavailable(actual)) if actual == source),
-            "{source:?} remains unavailable when disabled by the repository's permissions"
-        );
+        diagnostics.push((
+            source,
+            repo.config_path(source)
+                .expect_err("the configuration source is unavailable"),
+        ));
     }
     for source in [Source::Env, Source::Cli, Source::Api, Source::EnvOverride] {
-        assert!(
-            matches!(repo.config_path(source), Err(Error::UnsupportedSource(actual)) if actual == source),
-            "{source:?} has no physical configuration file even with a repository"
-        );
+        diagnostics.push((
+            source,
+            repo.config_path(source)
+                .expect_err("the configuration source is unavailable"),
+        ));
     }
+    insta::assert_debug_snapshot!(diagnostics, "configuration paths distinguish disabled sources from sources without files", @"
+    [
+        (
+            GitInstallation,
+            Configuration source GitInstallation has no available path with these options,
+        ),
+        (
+            System,
+            Configuration source System has no available path with these options,
+        ),
+        (
+            Git,
+            Configuration source Git has no available path with these options,
+        ),
+        (
+            User,
+            Configuration source User has no available path with these options,
+        ),
+        (
+            Env,
+            Configuration source Env requires a repository or has no physical file,
+        ),
+        (
+            Cli,
+            Configuration source Cli requires a repository or has no physical file,
+        ),
+        (
+            Api,
+            Configuration source Api requires a repository or has no physical file,
+        ),
+        (
+            EnvOverride,
+            Configuration source EnvOverride requires a repository or has no physical file,
+        ),
+    ]
+    ");
     Ok(())
 }
 
 #[test]
 #[serial]
-fn config_paths_use_the_opening_cwd() -> gix_testtools::Result {
+fn config_paths_use_the_opening_cwd() -> gix_testtools::TestResult {
     use gix::config::Source;
 
     let fixture = gix::path::realpath(gix_testtools::scripted_fixture_read_only("make_config_repos.sh")?)?;
@@ -98,7 +137,7 @@ fn config_paths_use_the_opening_cwd() -> gix_testtools::Result {
 
 #[test]
 #[serial]
-fn config_file_paths_use_the_cwd_captured_while_opening() -> gix_testtools::Result {
+fn config_file_paths_use_the_cwd_captured_while_opening() -> gix_testtools::TestResult {
     let fixture = gix_testtools::scripted_fixture_writable("make_config_repo.sh")?;
     let elsewhere = gix_testtools::tempfile::tempdir()?;
     let _cwd = gix_testtools::set_current_dir(fixture.path())?;
@@ -125,7 +164,7 @@ fn config_file_paths_use_the_cwd_captured_while_opening() -> gix_testtools::Resu
 #[test]
 #[serial]
 #[cfg(target_os = "macos")]
-fn config_file_paths_follow_a_precomposed_opening_cwd() -> gix_testtools::Result {
+fn config_file_paths_follow_a_precomposed_opening_cwd() -> gix_testtools::TestResult {
     let tmp = gix_testtools::tempfile::tempdir()?;
     let decomposed = tmp.path().join("a\u{308}");
     std::fs::create_dir(&decomposed)?;
@@ -165,7 +204,7 @@ fn config_file_paths_follow_a_precomposed_opening_cwd() -> gix_testtools::Result
 
 #[test]
 #[serial]
-fn relative_paths_use_the_cwd_captured_when_opening() -> gix_testtools::Result {
+fn relative_paths_use_the_cwd_captured_when_opening() -> gix_testtools::TestResult {
     let root = gix::path::realpath(gix_testtools::scripted_fixture_read_only("make_basic_repo.sh")?)?;
     let nested = root.join("some/very");
 
@@ -218,25 +257,28 @@ fn relative_paths_use_the_cwd_captured_when_opening() -> gix_testtools::Result {
 
 #[test]
 #[serial]
-fn paths_cannot_leave_the_repository() -> gix_testtools::Result {
+fn paths_cannot_leave_the_repository() -> gix_testtools::TestResult {
     let root = gix::path::realpath(gix_testtools::scripted_fixture_read_only("make_basic_repo.sh")?)?;
     let nested = root.join("some");
 
     let _cwd = gix_testtools::set_current_dir(&nested)?;
     let repo = gix::discover_opts(".", Default::default(), gix::open::Options::isolated())?;
-    let absolute = gix::path::into_bstr(root.join("some-with-file/very/deeply/nested/subdir/empty-file"));
+    let absolute = gix::path::into_bstr(root.join("some-with-file/very/deeply/nested/subdir/empty-file"))?;
     assert_eq!(
         repo.normalize_path(&absolute)?.as_bstr(),
         "some-with-file/very/deeply/nested/subdir/empty-file",
         "absolute paths inside the worktree become repository-relative"
     );
-    assert!(
-        matches!(
-            repo.normalize_path("../../outside"),
-            Err(gix::repository::normalize_path::Error::OutsideOfRepository { .. })
-        ),
-        "relative paths cannot traverse above the worktree"
-    );
+    let err = repo
+        .normalize_path("../../outside")
+        .expect_err("relative paths cannot traverse above the worktree");
+    assert!(err.is_validation(), "leaving the worktree is a validation error");
+    insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(err.probable_cause(), &[(r"some\../../outside", "some/../../outside")]), "paths cannot leave the repository", @r#"
+    Message {
+        message: "The path \"some/../../outside\" leaves the repository",
+        class: Validation,
+    }
+    "#);
 
     assert_eq!(
         repo.normalize_path("")?.as_bstr(),
@@ -248,32 +290,36 @@ fn paths_cannot_leave_the_repository() -> gix_testtools::Result {
 
 #[test]
 #[serial]
-fn absolute_paths_outside_the_repository_are_rejected() -> gix_testtools::Result {
+fn absolute_paths_outside_the_repository_are_rejected() -> gix_testtools::TestResult {
     let root = gix::path::realpath(gix_testtools::scripted_fixture_read_only("make_basic_repo.sh")?)?;
     let repo = gix::discover_opts(&root, Default::default(), gix::open::Options::isolated())?;
     let outside = root.parent().expect("fixture has a parent").to_owned();
-    let outside_as_bstr = gix::path::into_bstr(outside.clone());
+    let outside_as_bstr = gix::path::into_bstr(outside.clone())?;
 
-    match repo
+    let err = repo
         .normalize_path(&outside_as_bstr)
-        .expect_err("an absolute path outside the repository must fail")
-    {
-        gix::repository::normalize_path::Error::AbsolutePathOutsideOfRepository {
-            path,
-            root: actual_root,
-        } => {
-            assert_eq!(path, outside, "the rejected path is retained");
-            assert_eq!(actual_root, root, "the repository root is retained");
-        }
-        err => panic!("expected an absolute-path-outside error, got {err:?}"),
+        .expect_err("an absolute path outside the repository must fail");
+    assert!(err.is_validation(), "an outside path is a validation error");
+    assert!(
+        err.downcast_any_ref::<std::path::StripPrefixError>().is_some(),
+        "the path comparison failure remains available"
+    );
+    insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&(err.classify()
+            .filter(|classification| classification.class() == gix_error::Class::Validation)
+            .find_map(|classification| classification.error().downcast_ref::<gix_error::Message>())
+            .expect("the path validation diagnostic is preserved")), &[(&root.to_string_lossy(), "<repo>"), (&outside.to_string_lossy(), "<outside>")]), "absolute paths outside the repository are rejected", @r#"
+    Message {
+        message: "The absolute path \"<outside>\" is not inside the repository at \"<repo>\"",
+        class: Validation,
     }
+    "#);
     Ok(())
 }
 
 #[test]
 #[cfg(feature = "status")]
 #[serial]
-fn is_dirty_sees_index_changes_outside_the_current_working_directory() -> gix_testtools::Result {
+fn is_dirty_sees_index_changes_outside_the_current_working_directory() -> gix_testtools::TestResult {
     let root = gix::path::realpath(
         gix_testtools::scripted_fixture_read_only("make_status_repos.sh")?.join("index-changed-outside-subdir"),
     )?;
@@ -290,7 +336,7 @@ fn is_dirty_sees_index_changes_outside_the_current_working_directory() -> gix_te
 #[test]
 #[cfg(feature = "revision")]
 #[serial]
-fn revspec_paths_starting_with_a_dot_are_relative_to_the_current_directory() -> gix_testtools::Result {
+fn revspec_paths_starting_with_a_dot_are_relative_to_the_current_directory() -> gix_testtools::TestResult {
     let root = gix::path::realpath(gix_testtools::scripted_fixture_read_only("make_basic_repo.sh")?)?;
     let nested = root.join("some/very");
 
@@ -339,7 +385,7 @@ fn revspec_paths_starting_with_a_dot_are_relative_to_the_current_directory() -> 
 #[test]
 #[cfg(feature = "revision")]
 #[serial]
-fn revspec_paths_starting_with_a_dot_need_a_worktree_to_stay_within() -> gix_testtools::Result {
+fn revspec_paths_starting_with_a_dot_need_a_worktree_to_stay_within() -> gix_testtools::TestResult {
     let root = gix::path::realpath(gix_testtools::scripted_fixture_read_only("make_basic_repo.sh")?)?;
 
     let _cwd = gix_testtools::set_current_dir(&root)?;
@@ -374,7 +420,7 @@ fn revspec_paths_starting_with_a_dot_need_a_worktree_to_stay_within() -> gix_tes
 
 #[test]
 #[serial]
-fn open_options_preset_system_config_paths_avoid_running_git() -> gix_testtools::Result {
+fn open_options_preset_system_config_paths_avoid_running_git() -> gix_testtools::TestResult {
     let temp = tempfile::tempdir()?;
     let git_dir = temp.path().join("repo.git");
     fs::create_dir_all(git_dir.join("objects"))?;
@@ -443,9 +489,8 @@ fn open_options_preset_system_config_paths_avoid_running_git() -> gix_testtools:
 }
 
 #[cfg(feature = "revision")]
-fn probable_cause(res: Result<gix::Id<'_>, gix::revision::spec::parse::single::Error>) -> String {
-    match res.expect_err("the revspec must not resolve") {
-        gix::revision::spec::parse::single::Error::Parse(err) => err.probable_cause().to_string(),
-        err => panic!("expected a failure while parsing, got {err:?}"),
-    }
+fn probable_cause(res: Result<gix::Id<'_>, gix_error::Error>) -> String {
+    res.expect_err("the revspec must not resolve")
+        .probable_cause()
+        .to_string()
 }

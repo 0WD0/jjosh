@@ -4,10 +4,11 @@ use std::io;
 use crate::transport::client::async_io::ExtendedBufRead;
 #[crate::bisync::only_sync]
 use crate::transport::client::blocking_io::ExtendedBufRead;
-use gix_transport::{Protocol, client::MessageKind};
+use gix_error::{Error, ErrorExt, Result, bail, message};
+use gix_transport::{Protocol, client, client::MessageKind};
 
 use crate::fetch::{
-    Response, response,
+    Response,
     response::{Acknowledgement, ShallowUpdate, WantedRef, shallow_update_from_line},
 };
 
@@ -16,10 +17,10 @@ async fn parse_v2_section<'a, T>(
     line: &mut String,
     reader: &mut impl ExtendedBufRead<'a>,
     res: &mut Vec<T>,
-    parse: impl Fn(&str) -> Result<T, response::Error>,
-) -> Result<bool, response::Error> {
+    parse: impl Fn(&str) -> Result<T>,
+) -> Result<bool> {
     line.clear();
-    while reader.readline_str(line).await? != 0 {
+    while reader.readline_str(line).await.map_err(read_error)? != 0 {
         res.push(parse(line)?);
         line.clear();
     }
@@ -37,8 +38,8 @@ async fn parse_v2_section<'a, T>(
 impl Response {
     /// Parse a response of the given `version` of the protocol from `reader`.
     ///
-    /// `client_expects_pack` is only relevant for V1 stateful connections, and if `false`, causes us to stop parsing when seeing `NAK`,
-    /// and if `true` we will keep parsing until we get a pack as the client already signalled to the server that it's done.
+    /// `client_expects_pack` is only relevant for V1 connections. Set it when the client sent `done` or negotiated `no-done`,
+    /// so that `ready` followed by `NAK` allows us to keep parsing until the pack. Otherwise `NAK` ends the round.
     /// This way of doing things allows us to exploit knowledge about more recent versions of the protocol, which keeps code easier
     /// and more localized without having to support all the cruft that there is.
     ///
@@ -52,7 +53,7 @@ impl Response {
         reader: &mut impl ExtendedBufRead<'a>,
         client_expects_pack: bool,
         wants_to_negotiate: bool,
-    ) -> Result<Response, response::Error> {
+    ) -> Result<Response> {
         match version {
             Protocol::V0 | Protocol::V1 => {
                 let mut line = String::new();
@@ -70,8 +71,8 @@ impl Response {
                         // to deal with this correctly.
                         // For now this is acceptable, as V2 can be used as a workaround, which also is the default.
                         Some(Err(err)) if err.kind() == io::ErrorKind::UnexpectedEof => break 'lines false,
-                        Some(Err(err)) => return Err(err.into()),
-                        Some(Ok(Err(err))) => return Err(err.into()),
+                        Some(Err(err)) => return Err(read_error(err)),
+                        Some(Ok(Err(err))) => return Err(transport_error(err)),
                         None => {
                             // maybe we saw a shallow flush packet, let's reset and retry
                             debug_assert_eq!(
@@ -79,12 +80,12 @@ impl Response {
                                 Some(MessageKind::Flush),
                                 "If this isn't a flush packet, we don't know what's going on"
                             );
-                            reader.readline_str(&mut line).await?;
+                            reader.readline_str(&mut line).await.map_err(read_error)?;
                             reader.reset(Protocol::V1);
                             match reader.peek_data_line().await {
                                 Some(Ok(Ok(line))) => String::from_utf8_lossy(line),
-                                Some(Err(err)) => return Err(err.into()),
-                                Some(Ok(Err(err))) => return Err(err.into()),
+                                Some(Err(err)) => return Err(read_error(err)),
+                                Some(Ok(Err(err))) => return Err(transport_error(err)),
                                 None => break 'lines false, // EOF
                             }
                         }
@@ -94,11 +95,11 @@ impl Response {
                         break 'lines true;
                     }
                     assert_ne!(
-                        reader.readline_str(&mut line).await?,
+                        reader.readline_str(&mut line).await.map_err(read_error)?,
                         0,
                         "consuming a peeked line works"
                     );
-                    // When the server sends ready, we know there is going to be a pack so no need to stop early.
+                    // With no-done negotiated, ready promises a pack even before the client sends done.
                     saw_ready |= matches!(acks.last(), Some(Acknowledgement::Ready));
                     if let Some(Acknowledgement::Nak) = acks.last().filter(|_| !client_expects_pack || !saw_ready) {
                         if !wants_to_negotiate {
@@ -123,8 +124,8 @@ impl Response {
                 let mut wanted_refs = Vec::<WantedRef>::new();
                 let has_pack = 'section: loop {
                     line.clear();
-                    if reader.readline_str(&mut line).await? == 0 {
-                        return Err(response::Error::Io(io::Error::new(
+                    if reader.readline_str(&mut line).await.map_err(read_error)? == 0 {
+                        return Err(read_error(io::Error::new(
                             io::ErrorKind::UnexpectedEof,
                             "Could not read message headline",
                         )));
@@ -150,7 +151,9 @@ impl Response {
                             // what follows is the packfile itself, which can be read with a sideband enabled reader
                             break 'section true;
                         }
-                        _ => return Err(response::Error::UnknownSectionHeader { header: line }),
+                        _ => {
+                            bail!("Unknown or unsupported header: {line:?}".corrupted());
+                        }
                     }
                 };
                 Ok(Response {
@@ -161,5 +164,68 @@ impl Response {
                 })
             }
         }
+    }
+}
+
+fn read_error(err: io::Error) -> Error {
+    let err = if err.kind() == io::ErrorKind::Other {
+        match err.into_inner() {
+            Some(err) => match err.downcast::<gix_transport::packetline::read::Error>() {
+                Ok(err) => {
+                    return (*err).and_raise(message("Failed to read from line reader"));
+                }
+                Err(err) => io::Error::other(err),
+            },
+            None => io::ErrorKind::Other.into(),
+        }
+    } else {
+        err
+    };
+    transport_error(err.into())
+}
+
+fn transport_error(err: client::Error) -> Error {
+    err.and_raise(message("Failed to read from line reader"))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn line_reader_io_preserves_classification() {
+        let err = super::read_error(std::io::ErrorKind::ConnectionAborted.into());
+        insta::assert_debug_snapshot!(err, "connection failures remain retryable while reading packet lines", @"
+        Failed to read from line reader
+
+        Caused by:
+            0: An IO error occurred when talking to the server
+            1: connection aborted
+        ");
+        assert!(
+            err.can_retry_lenient(),
+            "connection failures remain retryable while reading packet lines"
+        );
+        assert!(!err.can_retry(), "connection failures require the lenient policy");
+        assert!(
+            !err.is_retryable(),
+            "wrapping I/O does not add an explicit retry marker"
+        );
+
+        let err = super::read_error(std::io::ErrorKind::OutOfMemory.into());
+        insta::assert_debug_snapshot!(err, "memory exhaustion isn't retryable by the conservative policy", @"
+        Failed to read from line reader
+
+        Caused by:
+            0: An IO error occurred when talking to the server
+            1: out of memory
+        ");
+        assert!(
+            !err.can_retry(),
+            "memory exhaustion isn't retryable by the conservative policy"
+        );
+        assert!(err.can_retry_lenient(), "the lenient policy includes memory exhaustion");
+        assert!(
+            err.is_resource_exhausted(),
+            "the allocation failure remains recognizable"
+        );
     }
 }

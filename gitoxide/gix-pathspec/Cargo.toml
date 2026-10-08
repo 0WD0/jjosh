@@ -2,7 +2,7 @@ lints.workspace = true
 
 [package]
 name = "gix-pathspec"
-version = "0.20.0"
+version = "0.22.0"
 repository = "https://github.com/GitoxideLabs/gitoxide"
 license = "MIT OR Apache-2.0"
 description = "A crate of the gitoxide project dealing magical pathspecs"
@@ -14,20 +14,23 @@ include = ["/src/**/*", "/LICENSE-*", "/README.md"]
 [lib]
 doctest = true
 
-[features]
-## Enable thread-safety.
-parallel = ["gix-attributes/parallel"]
+[[test]]
+name = "threaded"
+path = "tests/threaded.rs"
+required-features = ["gix-parallel/parallel"]
 
 [dependencies]
-gix-glob = { version = "^0.27.1", path = "../gix-glob" }
-gix-path = { version = "^0.12.6", path = "../gix-path" }
-gix-attributes = { version = "^0.35.0", path = "../gix-attributes" }
-gix-config-value = { version = "^0.19.1", path = "../gix-config-value" }
+gix-glob = { version = "^0.29.0", path = "../gix-glob" }
+gix-path = { version = "^0.14.0", path = "../gix-path" }
+gix-attributes = { version = "^0.37.0", path = "../gix-attributes" }
+gix-config-value = { version = "^0.21.0", path = "../gix-config-value" }
+gix-error = { version = "^0.5.1", path = "../gix-error", features = ["bstr"] }
 
 bstr = { version = "1.12.0", default-features = false, features = ["std"] }
 bitflags = "2"
-thiserror = "2.0.18"
 
 [dev-dependencies]
-gix-testtools = { path = "../tests/tools", features = ["sha1"] }
+insta = "1.46.3"
+gix-parallel = { path = "../gix-parallel" }
+gix-testtools = { path = "../tests/tools", default-features = false, features = ["repo-snapshot", "sha1"] }
 serial_test = "3.4.0"

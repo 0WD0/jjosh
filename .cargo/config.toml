@@ -12,7 +12,6 @@ gix-date            = { path = "gitoxide/gix-date" }
 gix-diff            = { path = "gitoxide/gix-diff" }
 gix-discover        = { path = "gitoxide/gix-discover" }
 gix-error           = { path = "gitoxide/gix-error" }
-gix-features        = { path = "gitoxide/gix-features" }
 gix-filter          = { path = "gitoxide/gix-filter" }
 gix-fs              = { path = "gitoxide/gix-fs" }
 gix-glob            = { path = "gitoxide/gix-glob" }
@@ -29,6 +28,7 @@ gix-object          = { path = "gitoxide/gix-object" }
 gix-odb             = { path = "gitoxide/gix-odb" }
 gix-pack            = { path = "gitoxide/gix-pack" }
 gix-packetline      = { path = "gitoxide/gix-packetline" }
+gix-parallel         = { path = "gitoxide/gix-parallel" }
 gix-path            = { path = "gitoxide/gix-path" }
 gix-pathspec        = { path = "gitoxide/gix-pathspec" }
 gix-protocol        = { path = "gitoxide/gix-protocol" }

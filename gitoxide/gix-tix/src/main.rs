@@ -1,11 +1,22 @@
 #![forbid(unsafe_code)]
 
-use anyhow::{Context, Result};
+use gix::Result;
 
 fn main() -> Result<()> {
-    let command = gix_tix::command::parse();
-    let current_dir = std::env::current_dir().context("could not determine current directory")?;
-    let repository = gix::ThreadSafeRepository::discover_with_environment_overrides(current_dir)
-        .context("could not discover repository")?;
-    command.run(repository)
+    gix_tix::command::parse().run()
+}
+
+#[test]
+fn main_errors_include_caller_locations() {
+    use gix::error::{ErrorExt, message};
+
+    let error = message("command failed").raise();
+    assert!(
+        format!("{error:?}").contains(file!()),
+        "standalone binary diagnostics include captured caller locations"
+    );
+    assert!(
+        !format!("{error:#?}").contains(file!()),
+        "alternate formatting still omits caller locations"
+    );
 }

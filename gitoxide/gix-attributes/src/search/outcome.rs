@@ -1,6 +1,6 @@
 use bstr::{BString, ByteSlice};
-use gix_features::threading::OwnShared;
 use gix_glob::Pattern;
+use gix_parallel::OwnShared;
 
 use crate::{
     AssignmentRef, NameRef, StateRef,

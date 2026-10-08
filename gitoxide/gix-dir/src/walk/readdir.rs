@@ -5,6 +5,7 @@ use std::{
 };
 
 use bstr::{BStr, BString, ByteSlice};
+use gix_error::{Result, ResultExt, bail, cancelled, message};
 
 use crate::{
     Entry, EntryRef, entry,
@@ -13,7 +14,7 @@ use crate::{
     walk::{
         Action, CollapsedEntriesEmissionMode, Context, Delegate,
         EmissionMode::CollapseDirectory,
-        Error, ForDeletionMode, Options, Outcome, classify,
+        ForDeletionMode, Options, Outcome, classify,
         function::{can_recurse, emit_entry},
     },
 };
@@ -32,24 +33,20 @@ pub(super) fn recursive(
     delegate: &mut dyn Delegate,
     out: &mut Outcome,
     state: &mut State,
-) -> Result<(Action, bool), Error> {
+) -> Result<(Action, bool)> {
     if ctx.should_interrupt.is_some_and(|flag| flag.load(Ordering::Relaxed)) {
-        return Err(Error::Interrupted);
+        bail!(cancelled("Interrupted"));
     }
     out.read_dir_calls += 1;
-    let entries = gix_fs::read_dir(current, opts.precompose_unicode).map_err(|err| Error::ReadDir {
-        path: current.to_owned(),
-        source: err,
-    })?;
+    let entries = gix_fs::read_dir(current, opts.precompose_unicode)
+        .or_raise(|| message!("Failed to read the directory at \"{}\"", current.display()))?;
 
     let mut num_entries = 0;
     let mark = state.mark(may_collapse);
     let mut prevent_collapse = false;
     for entry in entries {
-        let entry = entry.map_err(|err| Error::DirEntry {
-            parent_directory: current.to_owned(),
-            source: err,
-        })?;
+        let entry =
+            entry.or_raise(|| message!("Could not obtain directory entry in root of '{}'", current.display()))?;
         // Important to count right away, otherwise the directory could be seen as empty even though it's not.
         // That is, this should be independent of the kind.
         num_entries += 1;
@@ -59,11 +56,7 @@ pub(super) fn recursive(
             current_bstr.push(b'/');
         }
         let file_name = entry.file_name();
-        current_bstr.extend_from_slice(
-            gix_path::try_os_str_into_bstr(Cow::Borrowed(file_name.as_ref()))
-                .expect("no illformed UTF-8")
-                .as_ref(),
-        );
+        current_bstr.extend_from_slice(gix_path::try_os_str_into_bstr(Cow::Borrowed(file_name.as_ref()))?.as_ref());
         current.push(file_name);
 
         let mut info = classify::path(

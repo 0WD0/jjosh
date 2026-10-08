@@ -102,15 +102,13 @@ pub(crate) fn remote_endpoint(
         .url(direction)
         .context("Remote has no selected endpoint")?
         .clone();
-    url.canonicalize(repo.workdir().unwrap_or_else(|| repo.common_dir()))
-        .map_err(|error| error.into_error())?;
+    url.canonicalize(repo.workdir().unwrap_or_else(|| repo.common_dir()))?;
     let native_workspace = native
         && url.scheme == gix::url::Scheme::File
-        && gix::path::from_bstr(&url.path).join(".jj").is_dir();
+        && gix::path::from_bstr(&url.path)?.join(".jj").is_dir();
     if !native_workspace {
         url = remote.sanitized_url_and_version(direction)?.0;
-        url.canonicalize(repo.workdir().unwrap_or_else(|| repo.common_dir()))
-            .map_err(|error| error.into_error())?;
+        url.canonicalize(repo.workdir().unwrap_or_else(|| repo.common_dir()))?;
     }
     if url.scheme == gix::url::Scheme::File {
         url.serialize_alternative_form = false;

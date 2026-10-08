@@ -4,30 +4,6 @@ use bstr::{BStr, ByteSlice};
 
 use crate::index_as_worktree::{Change, EntryStatus};
 
-/// The error returned by [index_as_worktree_with_renames()`](crate::index_as_worktree_with_renames()).
-#[derive(Debug, thiserror::Error)]
-#[expect(missing_docs)]
-pub enum Error {
-    #[error(transparent)]
-    TrackedFileModifications(#[from] crate::index_as_worktree::Error),
-    #[error(transparent)]
-    DirWalk(gix_dir::walk::Error),
-    #[error(transparent)]
-    SpawnThread(std::io::Error),
-    #[error("Failed to change the context for querying gitattributes to the respective path")]
-    SetAttributeContext(std::io::Error),
-    #[error("Could not open worktree file for reading")]
-    OpenWorktreeFile(std::io::Error),
-    #[error(transparent)]
-    HashFile(std::io::Error),
-    #[error("Could not read worktree link content")]
-    ReadLink(std::io::Error),
-    #[error(transparent)]
-    ConvertToGit(#[from] gix_filter::pipeline::convert::to_git::Error),
-    #[error(transparent)]
-    RewriteTracker(#[from] gix_diff::rewrites::tracker::emit::Error),
-}
-
 /// The way all output should be sorted.
 #[derive(Clone, Copy, Default, Debug, Eq, PartialEq, PartialOrd, Ord, Hash)]
 pub enum Sorting {
@@ -291,8 +267,6 @@ pub struct Options<'a> {
     /// If immediate output of entries in any order is desired, this should be `None`,
     /// along with `rewrites` being `None` as well.
     pub sorting: Option<Sorting>,
-    /// The kind of hash to create when hashing worktree entries.
-    pub object_hash: gix_hash::Kind,
     /// Options to configure how modifications to tracked files should be obtained.
     pub tracked_file_modifications: crate::index_as_worktree::Options,
     /// Use the internal lazy worktree metadata cache.

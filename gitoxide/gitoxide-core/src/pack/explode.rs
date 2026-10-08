@@ -5,11 +5,11 @@ use std::{
     sync::{Arc, atomic::AtomicBool},
 };
 
-use anyhow::{Result, anyhow};
 use gix::{
-    NestedProgress,
+    NestedProgress, Result,
+    error::{ErrorExt, OptionExt, ResultExt, bail, message},
     hash::ObjectId,
-    object, objs, odb,
+    object, odb,
     odb::{loose, pack},
     prelude::Write,
 };
@@ -35,9 +35,9 @@ impl SafetyCheck {
 }
 
 impl std::str::FromStr for SafetyCheck {
-    type Err = String;
+    type Err = gix::Error;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         Ok(match s {
             "skip-file-checksum" => SafetyCheck::SkipFileChecksumVerification,
             "skip-file-and-object-checksum" => SafetyCheck::SkipFileAndObjectChecksumVerification,
@@ -45,7 +45,7 @@ impl std::str::FromStr for SafetyCheck {
                 SafetyCheck::SkipFileAndObjectChecksumVerificationAndNoAbortOnDecodeError
             }
             "all" => SafetyCheck::All,
-            _ => return Err(format!("Unknown value for safety check: '{s}'")),
+            _ => return Err(message!("Unknown value for safety check: '{s}'").validation_error()),
         })
     }
 }
@@ -64,32 +64,6 @@ impl From<SafetyCheck> for pack::index::traverse::SafetyCheck {
     }
 }
 
-#[derive(Debug, thiserror::Error)]
-enum Error {
-    #[error("An IO error occurred while writing an object")]
-    Io(#[from] std::io::Error),
-    #[error("An object could not be written to the database")]
-    OdbWrite(#[from] loose::write::Error),
-    #[error("Failed to write {kind} object {id}")]
-    Write {
-        source: Box<dyn std::error::Error + Send + Sync>,
-        kind: object::Kind,
-        id: ObjectId,
-    },
-    #[error("Object didn't verify after right after writing it")]
-    Verify(#[from] objs::data::verify::Error),
-    #[error("{kind} object wasn't re-encoded without change")]
-    ObjectEncodeMismatch {
-        #[source]
-        source: gix::hash::verify::Error,
-        kind: object::Kind,
-    },
-    #[error("The recently written file for loose object {id} could not be found")]
-    WrittenFileMissing { id: ObjectId },
-    #[error("The recently written file for loose object {id} cold not be read")]
-    WrittenFileCorrupt { source: loose::find::Error, id: ObjectId },
-}
-
 #[expect(
     clippy::large_enum_variant,
     reason = "will be removed once `gix-error` is used consistently"
@@ -101,31 +75,21 @@ enum OutputWriter {
 }
 
 impl gix::objs::Write for OutputWriter {
-    fn write_buf(&self, kind: object::Kind, from: &[u8]) -> Result<ObjectId, gix::objs::write::Error> {
+    fn write_buf(&self, kind: object::Kind, from: &[u8]) -> gix::Result<gix::ObjectId> {
         match self {
             OutputWriter::Loose(db) => db.write_buf(kind, from),
             OutputWriter::Sink(db) => db.write_buf(kind, from),
         }
     }
 
-    fn write_buf_with_known_id(
-        &self,
-        kind: object::Kind,
-        from: &[u8],
-        id: ObjectId,
-    ) -> Result<ObjectId, gix::objs::write::Error> {
+    fn write_buf_with_known_id(&self, kind: object::Kind, from: &[u8], id: ObjectId) -> gix::Result<gix::ObjectId> {
         match self {
             OutputWriter::Loose(db) => db.write_buf_with_known_id(kind, from, id),
             OutputWriter::Sink(db) => db.write_buf_with_known_id(kind, from, id),
         }
     }
 
-    fn write_stream(
-        &self,
-        kind: object::Kind,
-        size: u64,
-        from: &mut dyn Read,
-    ) -> Result<ObjectId, gix::objs::write::Error> {
+    fn write_stream(&self, kind: object::Kind, size: u64, from: &mut dyn Read) -> gix::Result<gix::ObjectId> {
         match self {
             OutputWriter::Loose(db) => db.write_stream(kind, size, from),
             OutputWriter::Sink(db) => db.write_stream(kind, size, from),
@@ -138,7 +102,7 @@ impl gix::objs::Write for OutputWriter {
         size: u64,
         from: &mut dyn Read,
         id: ObjectId,
-    ) -> Result<ObjectId, gix::objs::write::Error> {
+    ) -> gix::Result<gix::ObjectId> {
         match self {
             OutputWriter::Loose(db) => db.write_stream_with_known_id(kind, size, from, id),
             OutputWriter::Sink(db) => db.write_stream_with_known_id(kind, size, from, id),
@@ -181,24 +145,23 @@ pub fn pack_or_pack_index(
         object_hash,
     }: Context,
 ) -> Result<()> {
-    use anyhow::Context;
-
     let path = pack_path.as_ref();
-    let bundle = pack::Bundle::at(path, object_hash).with_context(|| {
-        format!(
-            "Could not find .idx or .pack file from given file at '{}'",
+    let bundle = pack::Bundle::at(path, object_hash).or_raise(|| {
+        message!(
+            "Could not find .idx or .pack file from given file at \"{}\"",
             path.display()
         )
     })?;
 
     if !object_path.as_ref().is_none_or(|p| p.as_ref().is_dir()) {
-        return Err(anyhow!(
-            "The object directory at '{}' is inaccessible",
+        return Err(message!(
+            "The object directory at \"{}\" is inaccessible",
             object_path
                 .expect("path present if no directory on disk")
                 .as_ref()
                 .display()
-        ));
+        )
+        .raise());
     }
 
     let algorithm = object_path.as_ref().map_or_else(
@@ -228,11 +191,14 @@ pub fn pack_or_pack_index(
                     .flatten();
                 let mut read_buf = Vec::new();
                 move |object_kind, buf, index_entry, progress| {
-                    let written_id = out.write_buf(object_kind, buf).map_err(|err| Error::Write {
-                        source: err,
-                        kind: object_kind,
-                        id: index_entry.oid,
-                    })?;
+                    let written_id = out
+                        .write_buf(object_kind, buf)
+                        .or_raise(|| {
+                            message!(
+                                "Failed to write {object_kind} object {}",
+                                index_entry.oid
+                            )
+                        })?;
                     if let Err(err) = written_id.verify(&index_entry.oid) {
                         if let object::Kind::Tree = object_kind {
                             progress.info(format!(
@@ -240,20 +206,23 @@ pub fn pack_or_pack_index(
                                 index_entry.oid, written_id
                             ));
                         } else {
-                            return Err(Error::ObjectEncodeMismatch {
-                                source: err,
-                                kind: object_kind,
-                            });
+                            bail!(err
+                                .and_raise(message!("{object_kind} object wasn't re-encoded without change")));
                         }
                     }
                     if let Some(verifier) = loose_odb.as_ref() {
                         let obj = verifier
                             .try_find(&written_id, &mut read_buf)
-                            .map_err(|err| Error::WrittenFileCorrupt {
-                                source: err,
-                                id: written_id,
+                            .or_raise(|| {
+                                message!(
+                                    "The recently written file for loose object {written_id} could not be read"
+                                )
                             })?
-                            .ok_or(Error::WrittenFileMissing { id: written_id })?;
+                            .ok_or_raise(|| {
+                                gix::error::not_found(format!(
+                                    "The recently written file for loose object {written_id} could not be found"
+                                ))
+                            })?;
                         obj.verify_checksum(&written_id)?;
                     }
                     Ok(())
@@ -267,7 +236,8 @@ pub fn pack_or_pack_index(
                 make_pack_lookup_cache: pack::cache::lru::StaticLinkedList::<64>::default,
             },
         )
-        .with_context(|| "Failed to explode the entire pack - some loose objects may have been created nonetheless")?;
+
+        .or_raise(|| message("Failed to explode the entire pack - some loose objects may have been created nonetheless"))?;
 
     let (index_path, data_path) = (bundle.index.path().to_owned(), bundle.pack.path().to_owned());
     drop(bundle);
@@ -275,15 +245,15 @@ pub fn pack_or_pack_index(
     if delete_pack {
         fs::remove_file(&index_path)
             .and_then(|_| fs::remove_file(&data_path))
-            .with_context(|| {
-                format!(
-                    "Failed to delete pack index file at '{} or data file at '{}'",
+            .or_raise(|| {
+                message!(
+                    "Failed to delete pack index file at \"{}\" or data file at \"{}\"",
                     index_path.display(),
                     data_path.display()
                 )
             })?;
         progress.info(format!(
-            "Removed '{}' and '{}'",
+            "Removed \"{}\" and \"{}\"",
             index_path.display(),
             data_path.display()
         ));

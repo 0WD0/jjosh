@@ -22,6 +22,7 @@ struct Transport<T> {
 
 #[cfg(feature = "blocking-client")]
 mod impls {
+    use gix_error::Result;
     use std::borrow::Cow;
 
     use bstr::BStr;
@@ -36,7 +37,7 @@ mod impls {
     use super::Transport;
 
     impl<T: client::TransportWithoutIO> client::TransportWithoutIO for Transport<T> {
-        fn set_identity(&mut self, identity: client::Account) -> Result<(), Error> {
+        fn set_identity(&mut self, identity: client::Account) -> std::result::Result<(), Error> {
             self.inner.set_identity(identity)
         }
 
@@ -52,10 +53,7 @@ mod impls {
             self.stateful
         }
 
-        fn configure(
-            &mut self,
-            config: &dyn std::any::Any,
-        ) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+        fn configure(&mut self, config: &dyn std::any::Any) -> Result {
             self.inner.configure(config)
         }
     }
@@ -65,7 +63,7 @@ mod impls {
             &mut self,
             service: Service,
             extra_parameters: &'a [(&'a str, Option<&'a str>)],
-        ) -> Result<SetServiceResponse<'_>, Error> {
+        ) -> std::result::Result<SetServiceResponse<'_>, Error> {
             self.inner.handshake(service, extra_parameters)
         }
 
@@ -74,7 +72,7 @@ mod impls {
             write_mode: WriteMode,
             on_into_read: MessageKind,
             trace: bool,
-        ) -> Result<RequestWriter<'_>, Error> {
+        ) -> std::result::Result<RequestWriter<'_>, Error> {
             self.inner.request(write_mode, on_into_read, trace)
         }
     }
@@ -113,10 +111,7 @@ mod impls {
             self.stateful
         }
 
-        fn configure(
-            &mut self,
-            config: &dyn std::any::Any,
-        ) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+        fn configure(&mut self, config: &dyn std::any::Any) -> gix_error::Result {
             self.inner.configure(config)
         }
     }

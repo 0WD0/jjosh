@@ -116,15 +116,6 @@ impl From<RunError> for CommandError {
     }
 }
 
-fn default_tree_state_settings() -> TreeStateSettings {
-    TreeStateSettings {
-        conflict_marker_style: ConflictMarkerStyle::Snapshot,
-        eol_conversion_mode: EolConversionMode::None,
-        exec_change_setting: ExecChangeSetting::Auto,
-        fsmonitor_settings: FsmonitorSettings::None,
-    }
-}
-
 /// A workspace that's ready for a single job to run against.
 ///
 /// Dropping the workspace releases its interprocess lock, freeing the slot for
@@ -185,6 +176,9 @@ struct WorkspacePool {
     clean: bool,
     /// Sparse rules and path mappings used to materialize the command's workspace.
     sparsity: WorkingCopyPatterns,
+    /// Settings used when checking out and snapshotting each slot's working
+    /// copy, such as the conflict marker style.
+    tree_state_settings: TreeStateSettings,
 }
 
 impl WorkspacePool {
@@ -194,6 +188,7 @@ impl WorkspacePool {
         auto_tracking_matcher: Box<dyn Matcher>,
         clean: bool,
         sparsity: WorkingCopyPatterns,
+        conflict_marker_style: ConflictMarkerStyle,
     ) -> Result<Self, RunError> {
         // The parent() call is needed to not write under `.jj/repo/`.
         let base_path = repo_path.parent().unwrap().join("run").join("default");
@@ -204,6 +199,12 @@ impl WorkspacePool {
             auto_tracking_matcher,
             clean,
             sparsity,
+            tree_state_settings: TreeStateSettings {
+                conflict_marker_style,
+                eol_conversion_mode: EolConversionMode::None,
+                exec_change_setting: ExecChangeSetting::Auto,
+                fsmonitor_settings: FsmonitorSettings::None,
+            },
         })
     }
 
@@ -230,7 +231,7 @@ impl WorkspacePool {
         let tree_state_path = state_dir.join("tree_state");
 
         let is_reused_workspace = tree_state_path.exists();
-        let settings = default_tree_state_settings();
+        let settings = &self.tree_state_settings;
         let mut tree_state = if !self.clean && is_reused_workspace {
             // Load the persisted tree state so `check_out` below can diff
             // against it, only touching files that changed and removing files
@@ -244,7 +245,7 @@ impl WorkspacePool {
                 commit.store().clone(),
                 working_copy_dir.clone(),
                 state_dir.clone(),
-                &settings,
+                settings,
             )?;
             fs::remove_file(&tree_state_path)?;
             ts
@@ -274,7 +275,7 @@ impl WorkspacePool {
                 commit.store().clone(),
                 working_copy_dir.clone(),
                 state_dir,
-                &settings,
+                settings,
             )
         };
 
@@ -312,7 +313,7 @@ impl WorkspacePool {
                 })?;
             let post_snapshot_tree = tree_state.current_tree().clone();
             let original_tree = commit.tree();
-            let mut diff = original_tree.diff_stream(&post_snapshot_tree, &EverythingMatcher);
+            let mut diff = original_tree.diff(&post_snapshot_tree, &EverythingMatcher);
             let mut added_paths = Vec::new();
             while let Some(entry) = diff.next().await {
                 let values = entry.values?;
@@ -335,12 +336,13 @@ impl WorkspacePool {
                 }
             }
             if !added_paths.is_empty() {
-                tree_state.check_out(&original_tree).map_err(|source| {
-                    RunError::FailedCheckout {
+                tree_state
+                    .check_out(&original_tree)
+                    .await
+                    .map_err(|source| RunError::FailedCheckout {
                         commit_id: commit.id().clone(),
                         source,
-                    }
-                })?;
+                    })?;
             }
         }
 
@@ -813,7 +815,8 @@ pub async fn cmd_run(
     };
 
     let store = workspace_command.repo().store().clone();
-    let auto_tracking_matcher = workspace_command.auto_tracking_matcher(ui)?;
+    let auto_tracking_matcher = workspace_command.env().auto_tracking_matcher(ui)?;
+    let conflict_marker_style = workspace_command.env().conflict_marker_style();
 
     let sparsity = match args.sparse_patterns {
         SparseInheritance::Full => WorkingCopyPatterns::all(),
@@ -837,6 +840,7 @@ pub async fn cmd_run(
         auto_tracking_matcher,
         args.clean,
         sparsity,
+        conflict_marker_style,
     )?);
 
     let spec = Arc::new(CommandSpec {

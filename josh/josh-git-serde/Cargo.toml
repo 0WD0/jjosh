@@ -17,4 +17,5 @@ serde.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+gix-error.workspace = true
 josh-gix-ext.workspace = true

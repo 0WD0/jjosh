@@ -1,4 +1,4 @@
-use gix_features::threading::OwnShared;
+use gix_parallel::OwnShared;
 
 use crate::{
     bstr::{BStr, BString, ByteVec},

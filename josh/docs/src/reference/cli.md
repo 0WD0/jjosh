@@ -9,6 +9,46 @@ It provides projection-aware equivalents of the common git operations.
 cargo install josh-cli --locked --git https://github.com/josh-project/josh.git
 ```
 
+## Shell completion
+
+`josh` and `josh-filter` provide dynamic completion for commands, options, filter
+expressions, repository paths, and Git refs. Register both binaries in the shell's
+startup file.
+
+For Zsh:
+
+```zsh
+source <(COMPLETE=zsh josh)
+source <(COMPLETE=zsh josh-filter)
+```
+
+Zsh treats `!` as history expansion. When entering a Starlark filter prefix
+manually, escape it as `:\!`; completion preserves the escape while matching
+repository `.star` files.
+
+For Bash, use the same commands with `bash` in place of `zsh`. For Fish:
+
+```fish
+COMPLETE=fish josh | source
+COMPLETE=fish josh-filter | source
+```
+
+For Elvish:
+
+```elvish
+eval (E:COMPLETE=elvish josh | slurp)
+eval (E:COMPLETE=elvish josh-filter | slurp)
+```
+
+For PowerShell:
+
+```powershell
+$env:COMPLETE = "powershell"; josh | Out-String | Invoke-Expression; Remove-Item Env:\COMPLETE
+$env:COMPLETE = "powershell"; josh-filter | Out-String | Invoke-Expression; Remove-Item Env:\COMPLETE
+```
+
+Repository-aware completion reads local refs and trees. It does not contact remotes.
+
 ---
 
 ## josh clone
@@ -299,57 +339,74 @@ josh cache fetch
 
 ---
 
-## josh compose run
+## josh compose
 
 > **Experimental:** requires `JOSH_EXPERIMENTAL_FEATURES=1`.
 
-Run a workspace in an isolated, automatically-cached container. See
-[josh compose run](../contributing/josh-run.md) for full documentation.
+Compose prepares filtered workspaces in isolated containers. See
+[josh compose](../contributing/josh-compose.md) for workspace definitions and cache behavior.
 
+### josh compose run
+
+Run the selected graph, reusing successful configured results. A command after `--` always executes
+in the selected workspace without replacing its configured result or output artifact.
+
+```text
+josh compose run [OPTIONS] [FILTER] [-- COMMAND...]
 ```
-josh compose run [OPTIONS] [REFERENCE] [FILTER]
+
+### josh compose shell
+
+Prepare the selected workspace and open an interactive `/bin/sh`. A command after `--` replaces the
+shell. Interactive execution uses scratch output and does not update the configured result.
+
+```text
+josh compose shell [OPTIONS] [FILTER] [-- COMMAND...]
 ```
 
-| Argument | Description |
-|----------|-------------|
-| `[REFERENCE]` | Git ref to build from: `.` (working tree), `+` (index), `HEAD`, or any ref (default: `.`) |
-| `[FILTER]` | Filter selecting the workspace to run (default: `:+compose`, reads `compose.josh` in the repo root) |
+`-r REVISION`/`--revision REVISION` selects the Git input and defaults to `.` (the working tree);
+`+` selects the index. `FILTER` defaults to `:+compose`.
 
-**Options:**
+Common options:
 
 | Flag | Description |
 |------|-------------|
-| `--clean` | Remove cached images and output volumes |
-| `--clean-all` | Remove cached images, output volumes, and persistent cache volumes |
-
-**Examples:**
+| `--backend BACKEND` | Select `podman` or `docker` |
+| `-r, --revision REVISION` | Select the Git input; defaults to `.` |
+| `--arg NAME=VALUE` | Bind a named revision argument; repeatable |
 
 ```shell
-# Run the default workspace defined in compose.josh
+# Run the default workspace defined by compose.josh
 josh compose run
 
-# Run the test workspace against the working tree
-josh compose run . :+ws/test
+# Execute a side-effecting command without replacing the configured result
+josh compose run :+ws/action -- ./perform-action
 
-# Run using only staged changes
-josh compose run + :+ws/test
+# Inspect the prepared environment interactively
+josh compose shell :+ws/build-rust
 ```
 
-## josh compose graph
+### josh compose clean
 
-> **Experimental:** requires `JOSH_EXPERIMENTAL_FEATURES=1`.
+Remove cached output artifacts, images, and result metadata. `--all` also removes persistent cache
+volumes.
 
-Print the complete workspace plan as D2 source. The command does not run containers or render the
-diagram.
-
-```
-josh compose graph [REFERENCE] [FILTER]
+```text
+josh compose clean [--all] [--backend BACKEND]
 ```
 
-`REFERENCE` and `FILTER` have the same meaning and defaults as `josh compose run`.
+### josh compose graph
+
+Print the complete workspace plan as D2 source without executing containers.
+
+```text
+josh compose graph [OPTIONS] [FILTER]
+```
+
+`--revision` and `FILTER` have the same meaning and defaults as the execution commands.
 
 ```shell
-josh compose graph HEAD :+ws/test > graph.d2
+josh compose graph -r HEAD :+ws/test > graph.d2
 ```
 
 ---

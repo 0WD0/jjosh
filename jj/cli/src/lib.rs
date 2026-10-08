@@ -15,6 +15,7 @@
 #![deny(unused_must_use)]
 
 pub mod cleanup_guard;
+pub mod cli_args;
 pub mod cli_util;
 pub mod command_error;
 pub mod commands;
@@ -38,7 +39,6 @@ mod progress;
 pub mod revset_util;
 mod source_symbol;
 pub mod template_builder;
-pub mod template_parser;
 pub mod templater;
 pub mod text_util;
 pub mod time_util;

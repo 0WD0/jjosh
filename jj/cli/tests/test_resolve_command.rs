@@ -21,6 +21,7 @@ use crate::common::CommandOutput;
 use crate::common::TestEnvironment;
 use crate::common::TestWorkDir;
 use crate::common::create_commit_with_files;
+use crate::common::fake_editor_path;
 
 #[must_use]
 fn get_log_output(work_dir: &TestWorkDir) -> CommandOutput {
@@ -87,7 +88,7 @@ fn test_resolution() -> TestResult {
     index 0000000000..88425ec521 100644
     --- a/file
     +++ b/file
-    @@ -1,8 +1,1 @@
+    @@ -1,8 +1,1 @@ resolution
     -<<<<<<< conflict 1 of 1
     -%%%%%%% diff from: rlvkpnrz 1792382a "base"
     -\\\\\\\        to: zsuskuln 45537d53 "a"
@@ -128,7 +129,7 @@ fn test_resolution() -> TestResult {
     index 0000000000..88425ec521 100644
     --- a/file
     +++ b/file
-    @@ -1,8 +1,1 @@
+    @@ -1,8 +1,1 @@ resolution
     -<<<<<<< conflict 1 of 1
     -%%%%%%% diff from: rlvkpnrz 1792382a "base"
     -\\\\\\\        to: zsuskuln 45537d53 "a"
@@ -177,7 +178,7 @@ fn test_resolution() -> TestResult {
     index 0000000000..88425ec521 100644
     --- a/file
     +++ b/file
-    @@ -1,8 +1,1 @@
+    @@ -1,8 +1,1 @@ resolution
     -<<<<<<< conflict 1 of 1
     -%%%%%%% diff from: rlvkpnrz 1792382a "base"
     -\\\\\\\        to: zsuskuln 45537d53 "a"
@@ -250,7 +251,7 @@ fn test_resolution() -> TestResult {
     diff --git a/file b/file
     --- a/file
     +++ b/file
-    @@ -1,8 +1,8 @@
+    @@ -1,8 +1,8 @@ conflict
      <<<<<<< conflict 1 of 1
      %%%%%%% diff from: rlvkpnrz 1792382a "base"
      \\\\\\\        to: zsuskuln 45537d53 "a"
@@ -309,7 +310,7 @@ fn test_resolution() -> TestResult {
     index 0000000000..0610716cc1 100644
     --- a/file
     +++ b/file
-    @@ -1,8 +1,7 @@
+    @@ -1,8 +1,7 @@ conflict
     -<<<<<<< conflict 1 of 1
     -%%%%%%% diff from: rlvkpnrz 1792382a "base"
     -\\\\\\\        to: zsuskuln 45537d53 "a"
@@ -393,7 +394,7 @@ fn test_resolution() -> TestResult {
     diff --git a/file b/file
     --- a/file
     +++ b/file
-    @@ -1,8 +1,8 @@
+    @@ -1,8 +1,8 @@ conflict
      <<<<<<< conflict 1 of 1
      %%%%%%% diff from: rlvkpnrz 1792382a "base"
      \\\\\\\        to: zsuskuln 45537d53 "a"
@@ -464,7 +465,7 @@ fn test_resolution() -> TestResult {
     diff --git a/file b/file
     --- a/file
     +++ b/file
-    @@ -1,8 +1,8 @@
+    @@ -1,8 +1,8 @@ conflict
      <<<<<<< conflict 1 of 1
      %%%%%%% diff from: rlvkpnrz 1792382a "base"
      \\\\\\\        to: zsuskuln 45537d53 "a"
@@ -749,7 +750,7 @@ fn test_too_many_parents() -> TestResult {
     Hint: Using default editor ':builtin'; run `jj config set --user ui.merge-editor :builtin` to disable this message.
     Error: Failed to resolve conflicts
     Caused by: The conflict at "file" has 3 sides. At most 2 sides are supported.
-    Hint: Edit the conflict markers manually to resolve this.
+    Hint: Edit the conflict markers to resolve this, e.g. with `jj resolve --tool :editor`.
     [EOF]
     [exit status: 1]
     "#);
@@ -1108,7 +1109,7 @@ fn test_resolve_conflicts_with_executable() -> TestResult {
     index 0000000000..95cc18629d 100755
     --- a/file1
     +++ b/file1
-    @@ -1,8 +1,1 @@
+    @@ -1,8 +1,1 @@ resolution1
     -<<<<<<< conflict 1 of 1
     -%%%%%%% diff from: rlvkpnrz b90abfa7 "base"
     -\\\\\\\        to: mzvwutvl 86f7f0e3 "a"
@@ -1153,7 +1154,7 @@ fn test_resolve_conflicts_with_executable() -> TestResult {
     index 0000000000..775f078581 100755
     --- a/file2
     +++ b/file2
-    @@ -1,8 +1,1 @@
+    @@ -1,8 +1,1 @@ resolution2
     -<<<<<<< conflict 1 of 1
     -%%%%%%% diff from: rlvkpnrz b90abfa7 "base"
     -\\\\\\\        to: mzvwutvl 86f7f0e3 "a"
@@ -1186,7 +1187,7 @@ fn test_resolve_conflicts_with_executable() -> TestResult {
     index 0000000000..da0f8ed91a 100755
     --- a/file1
     +++ b/file1
-    @@ -1,8 +1,1 @@
+    @@ -1,8 +1,1 @@ a1
     -<<<<<<< conflict 1 of 1
     -%%%%%%% diff from: rlvkpnrz b90abfa7 "base"
     -\\\\\\\        to: mzvwutvl 86f7f0e3 "a"
@@ -1200,7 +1201,7 @@ fn test_resolve_conflicts_with_executable() -> TestResult {
     index 0000000000..c1827f07e1 100755
     --- a/file2
     +++ b/file2
-    @@ -1,8 +1,1 @@
+    @@ -1,8 +1,1 @@ a2
     -<<<<<<< conflict 1 of 1
     -%%%%%%% diff from: rlvkpnrz b90abfa7 "base"
     -\\\\\\\        to: mzvwutvl 86f7f0e3 "a"
@@ -1229,7 +1230,7 @@ fn test_resolve_conflicts_with_executable() -> TestResult {
     index 0000000000..c9c6af7f78 100755
     --- a/file1
     +++ b/file1
-    @@ -1,8 +1,1 @@
+    @@ -1,8 +1,1 @@ b1
     -<<<<<<< conflict 1 of 1
     -%%%%%%% diff from: rlvkpnrz b90abfa7 "base"
     -\\\\\\\        to: mzvwutvl 86f7f0e3 "a"
@@ -1242,7 +1243,7 @@ fn test_resolve_conflicts_with_executable() -> TestResult {
     index 0000000000..e6bfff5c1d 100755
     --- a/file2
     +++ b/file2
-    @@ -1,8 +1,1 @@
+    @@ -1,8 +1,1 @@ b2
     -<<<<<<< conflict 1 of 1
     -%%%%%%% diff from: rlvkpnrz b90abfa7 "base"
     -\\\\\\\        to: mzvwutvl 86f7f0e3 "a"
@@ -1334,7 +1335,7 @@ fn test_resolve_change_delete_executable() -> TestResult {
     │ │  index e69de29bb2..e6bfff5c1d
     │ │  --- a/file2
     │ │  +++ b/file2
-    │ │  @@ -0,0 +1,1 @@
+    │ │  @@ -0,0 +1,1 @@ b2
     │ │  +b2
     │ │  diff --git a/file3 b/file3
     │ │  new file mode 100755
@@ -1346,7 +1347,7 @@ fn test_resolve_change_delete_executable() -> TestResult {
     │ │  index e69de29bb2..90a5159bf0 100755
     │ │  --- a/file5
     │ │  +++ b/file5
-    │ │  @@ -0,0 +1,1 @@
+    │ │  @@ -0,0 +1,1 @@ b5
     │ │  +b5
     ○ │  mzvwutvl test.user@example.com 2001-02-03 08:05:13 a e2d3924b
     ├─╯  a
@@ -1363,7 +1364,7 @@ fn test_resolve_change_delete_executable() -> TestResult {
     │    index e69de29bb2..88ba23dca8 100644
     │    --- a/file4
     │    +++ b/file4
-    │    @@ -0,0 +1,1 @@
+    │    @@ -0,0 +1,1 @@ a4
     │    +a4
     │    diff --git a/file5 b/file5
     │    deleted file mode 100755
@@ -1543,7 +1544,7 @@ fn test_pass_path_argument() -> TestResult {
     index 0000000000..88425ec521 100644
     --- a/file
     +++ b/file
-    @@ -1,8 +1,1 @@
+    @@ -1,8 +1,1 @@ resolution
     -<<<<<<< conflict 1 of 1
     -+++++++ zsuskuln 45537d53 "a"
     -a
@@ -1648,7 +1649,7 @@ fn test_resolve_long_conflict_markers() -> TestResult {
     diff --git a/file b/file
     --- a/file
     +++ b/file
-    @@ -1,8 +1,8 @@
+    @@ -1,8 +1,8 @@ A
     -<<<<<<<<<<< conflict 1 of 1
     -+++++++++++ zsuskuln 10d994ef "a"
     -<<<<<<< a
@@ -1929,7 +1930,7 @@ fn test_multiple_conflicts() -> TestResult {
     index 0000000000..a9fcc7d486 100644
     --- a/another_file
     +++ b/another_file
-    @@ -1,8 +1,1 @@
+    @@ -1,8 +1,1 @@ resolution another_file
     -<<<<<<< conflict 1 of 1
     -%%%%%%% diff from: rlvkpnrz fa081b8c "base"
     -\\\\\\\        to: zsuskuln 2c821f70 "a"
@@ -1972,7 +1973,7 @@ fn test_multiple_conflicts() -> TestResult {
     index 0000000000..7903e1c1c7 100644
     --- a/another_file
     +++ b/another_file
-    @@ -1,8 +1,1 @@
+    @@ -1,8 +1,1 @@ first resolution for auto-chosen file
     -<<<<<<< conflict 1 of 1
     -%%%%%%% diff from: rlvkpnrz fa081b8c "base"
     -\\\\\\\        to: zsuskuln 2c821f70 "a"
@@ -1986,7 +1987,7 @@ fn test_multiple_conflicts() -> TestResult {
     index 0000000000..f8c72adf17 100644
     --- a/this_file_has_a_very_long_name_to_test_padding
     +++ b/this_file_has_a_very_long_name_to_test_padding
-    @@ -1,8 +1,1 @@
+    @@ -1,8 +1,1 @@ second resolution for auto-chosen file
     -<<<<<<< conflict 1 of 1
     -%%%%%%% diff from: rlvkpnrz fa081b8c "base"
     -\\\\\\\        to: zsuskuln 2c821f70 "a"
@@ -2108,7 +2109,7 @@ fn test_multiple_conflicts_with_error() -> TestResult {
     index 0000000000..95cc18629d 100644
     --- a/file1
     +++ b/file1
-    @@ -1,8 +1,1 @@
+    @@ -1,8 +1,1 @@ resolution1
     -<<<<<<< conflict 1 of 1
     -%%%%%%% diff from: rlvkpnrz 6591ac1d "base"
     -\\\\\\\        to: zsuskuln 6c31698c "a"
@@ -2160,7 +2161,7 @@ fn test_multiple_conflicts_with_error() -> TestResult {
     index 0000000000..95cc18629d 100644
     --- a/file1
     +++ b/file1
-    @@ -1,8 +1,1 @@
+    @@ -1,8 +1,1 @@ resolution1
     -<<<<<<< conflict 1 of 1
     -%%%%%%% diff from: rlvkpnrz 6591ac1d "base"
     -\\\\\\\        to: zsuskuln 6c31698c "a"
@@ -2311,6 +2312,250 @@ fn test_resolve_with_contents_of_side() -> TestResult {
     Error: No conflicts found at this revision
     [EOF]
     [exit status: 2]
+    ");
+    Ok(())
+}
+
+#[test]
+fn test_resolve_with_text_editor() -> TestResult {
+    let mut test_env = TestEnvironment::default();
+    let editor_script = test_env.set_up_fake_editor();
+    // Set up editor with explicit "$path" and "$line" arguments
+    test_env.add_config(format!(
+        "ui.editor = {}\n",
+        toml_edit::Value::from_iter([&fake_editor_path(), "$path", "$line"])
+    ));
+    test_env.run_jj_in(".", ["git", "init", "repo"]).success();
+    let work_dir = test_env.work_dir("repo");
+
+    // The first line looks like a conflict marker, so longer markers are used
+    create_commit_with_files(&work_dir, "base", &[], &[("file", "<<<<<<< line1\nbase\n")]);
+    create_commit_with_files(&work_dir, "a", &["base"], &[("file", "<<<<<<< line1\na\n")]);
+    create_commit_with_files(&work_dir, "b", &["base"], &[("file", "<<<<<<< line1\nb\n")]);
+    create_commit_with_files(&work_dir, "conflict", &["a", "b"], &[]);
+    insta::assert_snapshot!(work_dir.run_jj(["resolve", "--list"]), @"
+    file    2-sided conflict
+    [EOF]
+    ");
+    let setup_opid = work_dir.current_operation_id();
+
+    // The editor is given the file with conflict markers and opened at the
+    // first conflict. Resolve the conflict by replacing the content.
+    std::fs::write(
+        &editor_script,
+        [
+            "expect-arg 0\n2",
+            "dump editor0",
+            "write\n<<<<<<< line1\nresolution\n",
+        ]
+        .join("\0"),
+    )?;
+    let output = work_dir.run_jj(["resolve", "--tool", ":editor"]);
+    insta::assert_snapshot!(output, @"
+    ------- stderr -------
+    Resolving conflicts in: file
+    Working copy  (@) now at: vruxwmqv 6f2a42aa conflict | conflict
+    Parent commit (@-)      : zsuskuln a1a1229d a | a
+    Parent commit (@-)      : royxmykx b7f33c96 b | b
+    Added 0 files, modified 1 files, removed 0 files
+    [EOF]
+    ");
+    insta::assert_snapshot!(
+        std::fs::read_to_string(test_env.env_root().join("editor0"))?, @r#"
+    <<<<<<< line1
+    <<<<<<<<<<< conflict 1 of 1
+    %%%%%%%%%%% diff from: rlvkpnrz c54fc200 "base"
+    \\\\\\\\\\\        to: zsuskuln a1a1229d "a"
+    -base
+    +a
+    +++++++++++ royxmykx b7f33c96 "b"
+    b
+    >>>>>>>>>>> conflict 1 of 1 ends
+    "#);
+    insta::assert_snapshot!(work_dir.read_file("file"), @"
+    <<<<<<< line1
+    resolution
+    ");
+    insta::assert_snapshot!(work_dir.run_jj(["resolve", "--list"]), @"
+    ------- stderr -------
+    Error: No conflicts found at this revision
+    [EOF]
+    [exit status: 2]
+    ");
+
+    // Leaving the file unchanged cancels the resolution
+    work_dir.run_jj(["op", "restore", &setup_opid]).success();
+    std::fs::write(&editor_script, "")?;
+    let output = work_dir.run_jj(["resolve", "--tool", ":editor"]);
+    insta::assert_snapshot!(output, @"
+    ------- stderr -------
+    Resolving conflicts in: file
+    Error: Failed to resolve conflicts
+    Caused by: The output file is either unchanged or empty after the editor quit (run with --debug to see the exact invocation).
+    [EOF]
+    [exit status: 1]
+    ");
+
+    // Leaving conflict markers in the file keeps the conflict, with the edited
+    // contents. The tool can also be set as the default merge editor.
+    std::fs::write(
+        &editor_script,
+        indoc! {r#"
+            write
+            <<<<<<< line1
+            <<<<<<<<<<<
+            %%%%%%%%%%%
+            -base
+            +a2
+            +++++++++++
+            b2
+            >>>>>>>>>>>
+        "#},
+    )?;
+    let output = work_dir.run_jj(["resolve", "--config=ui.merge-editor=:editor"]);
+    insta::assert_snapshot!(output, @"
+    ------- stderr -------
+    Resolving conflicts in: file
+    Working copy  (@) now at: vruxwmqv d90cdf4a conflict | (conflict) conflict
+    Parent commit (@-)      : zsuskuln a1a1229d a | a
+    Parent commit (@-)      : royxmykx b7f33c96 b | b
+    Added 0 files, modified 1 files, removed 0 files
+    Warning: There are unresolved conflicts at these paths:
+    file    2-sided conflict
+    New conflicts appeared in 1 commits:
+      vruxwmqv d90cdf4a conflict | (conflict) conflict
+    Hint: To resolve the conflicts, start by creating a commit on top of
+    the conflicted commit:
+      jj new vruxwmqv
+    Then use `jj resolve`, or edit the conflict markers in the file directly.
+    Once the conflicts are resolved, you can inspect the result with `jj diff`.
+    Then run `jj squash` to move the resolution into the conflicted commit.
+    [EOF]
+    ");
+    insta::assert_snapshot!(work_dir.read_file("file"), @r#"
+    <<<<<<< line1
+    <<<<<<<<<<< conflict 1 of 1
+    %%%%%%%%%%% diff from: rlvkpnrz c54fc200 "base"
+    \\\\\\\\\\\        to: zsuskuln a1a1229d "a"
+    -base
+    +a2
+    +++++++++++ royxmykx b7f33c96 "b"
+    b2
+    >>>>>>>>>>> conflict 1 of 1 ends
+    "#);
+    Ok(())
+}
+
+#[test]
+fn test_resolve_many_sided_with_text_editor() -> TestResult {
+    let mut test_env = TestEnvironment::default();
+    let editor_script = test_env.set_up_fake_editor();
+    test_env.run_jj_in(".", ["git", "init", "repo"]).success();
+    let work_dir = test_env.work_dir("repo");
+
+    create_commit_with_files(&work_dir, "base", &[], &[("file", "base\n")]);
+    create_commit_with_files(&work_dir, "a", &["base"], &[("file", "a\n")]);
+    create_commit_with_files(&work_dir, "b", &["base"], &[("file", "b\n")]);
+    create_commit_with_files(&work_dir, "c", &["base"], &[("file", "c\n")]);
+    create_commit_with_files(&work_dir, "conflict", &["a", "b", "c"], &[]);
+    create_commit_with_files(&work_dir, "tip", &["conflict"], &[]);
+    insta::assert_snapshot!(work_dir.run_jj(["resolve", "--list", "-r", "conflict"]), @"
+    file    3-sided conflict
+    [EOF]
+    ");
+    let setup_opid = work_dir.current_operation_id();
+
+    // Conflicts with more than two sides can be partially resolved by editing
+    // the markers, also in a commit other than the working-copy commit.
+    std::fs::write(
+        &editor_script,
+        [
+            "dump editor0",
+            indoc! {r#"
+                write
+                <<<<<<<
+                %%%%%%%
+                -base
+                +a
+                %%%%%%%
+                -base
+                +b
+                +++++++
+                c2
+                >>>>>>>
+            "#},
+        ]
+        .join("\0"),
+    )?;
+    let output = work_dir.run_jj(["resolve", "-r", "conflict", "--tool", ":editor"]);
+    insta::assert_snapshot!(output, @"
+    ------- stderr -------
+    Resolving conflicts in: file
+    Rebased 1 descendant commits.
+    Working copy  (@) now at: kmkuslsw 611c2561 tip | (conflict) (empty) tip
+    Parent commit (@-)      : znkkpsqq d135e4a5 conflict | (conflict) conflict
+    Added 0 files, modified 1 files, removed 0 files
+    Warning: There are unresolved conflicts at these paths:
+    file    3-sided conflict
+    New conflicts appeared in 1 commits:
+      znkkpsqq d135e4a5 conflict | (conflict) conflict
+    Hint: To resolve the conflicts, start by creating a commit on top of
+    the conflicted commit:
+      jj new znkkpsqq
+    Then use `jj resolve`, or edit the conflict markers in the file directly.
+    Once the conflicts are resolved, you can inspect the result with `jj diff`.
+    Then run `jj squash` to move the resolution into the conflicted commit.
+    Warning: After this operation, some files at this revision still have conflicts:
+    file    3-sided conflict
+    [EOF]
+    ");
+    insta::assert_snapshot!(
+        std::fs::read_to_string(test_env.env_root().join("editor0"))?, @r#"
+    <<<<<<< conflict 1 of 1
+    %%%%%%% diff from: rlvkpnrz 1792382a "base"
+    \\\\\\\        to: zsuskuln 45537d53 "a"
+    -base
+    +a
+    %%%%%%% diff from: rlvkpnrz 1792382a "base"
+    \\\\\\\        to: royxmykx 89d1b299 "b"
+    -base
+    +b
+    +++++++ vruxwmqv a87962b8 "c"
+    c
+    >>>>>>> conflict 1 of 1 ends
+    "#);
+    insta::assert_snapshot!(work_dir.run_jj(["file", "show", "-r", "conflict", "file"]), @r#"
+    <<<<<<< conflict 1 of 1
+    %%%%%%% diff from: rlvkpnrz 1792382a "base"
+    \\\\\\\        to: zsuskuln 45537d53 "a"
+    -base
+    +a
+    %%%%%%% diff from: rlvkpnrz 1792382a "base"
+    \\\\\\\        to: royxmykx 89d1b299 "b"
+    -base
+    +b
+    +++++++ vruxwmqv a87962b8 "c"
+    c2
+    >>>>>>> conflict 1 of 1 ends
+    [EOF]
+    "#);
+
+    // Or fully resolved
+    work_dir.run_jj(["op", "restore", &setup_opid]).success();
+    std::fs::write(&editor_script, "write\nresolution\n")?;
+    let output = work_dir.run_jj(["resolve", "-r", "conflict", "--tool", ":editor"]);
+    insta::assert_snapshot!(output, @"
+    ------- stderr -------
+    Resolving conflicts in: file
+    Rebased 1 descendant commits.
+    Working copy  (@) now at: kmkuslsw 972b86b4 tip | (empty) tip
+    Parent commit (@-)      : znkkpsqq 52a3f5a8 conflict | conflict
+    Added 0 files, modified 1 files, removed 0 files
+    [EOF]
+    ");
+    insta::assert_snapshot!(work_dir.run_jj(["file", "show", "-r", "conflict", "file"]), @"
+    resolution
+    [EOF]
     ");
     Ok(())
 }

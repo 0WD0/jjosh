@@ -14,6 +14,8 @@
 
 mod annotate;
 mod chmod;
+mod delete;
+mod edit;
 mod list;
 mod search;
 mod show;
@@ -29,6 +31,8 @@ use crate::ui::Ui;
 pub enum FileCommand {
     Annotate(annotate::FileAnnotateArgs),
     Chmod(chmod::FileChmodArgs),
+    Delete(delete::FileDeleteArgs),
+    Edit(edit::FileEditArgs),
     List(list::FileListArgs),
     Search(search::FileSearchArgs),
     Show(show::FileShowArgs),
@@ -44,6 +48,8 @@ pub async fn cmd_file(
     match subcommand {
         FileCommand::Annotate(args) => annotate::cmd_file_annotate(ui, command, args).await,
         FileCommand::Chmod(args) => chmod::cmd_file_chmod(ui, command, args).await,
+        FileCommand::Delete(args) => delete::cmd_file_delete(ui, command, args).await,
+        FileCommand::Edit(args) => edit::cmd_file_edit(ui, command, args).await,
         FileCommand::List(args) => list::cmd_file_list(ui, command, args).await,
         FileCommand::Search(args) => search::cmd_file_search(ui, command, args).await,
         FileCommand::Show(args) => show::cmd_file_show(ui, command, args).await,

@@ -1,3 +1,4 @@
+use gix_error::Result;
 use std::{collections::HashMap, ops::Range};
 
 use bstr::{BStr, BString, ByteSlice, ByteVec};
@@ -38,11 +39,7 @@ impl SectionMut<'_> {
     /// Rename this section to `name` and the optional `subsection_name`.
     ///
     /// Section names are not unique, and renaming into an existing section name is permitted.
-    pub fn rename(
-        &mut self,
-        name: impl AsRef<str>,
-        subsection_name: impl IntoBStringOpt,
-    ) -> Result<&mut Self, parse::section::header::Error> {
+    pub fn rename(&mut self, name: impl AsRef<str>, subsection_name: impl IntoBStringOpt) -> Result<&mut Self> {
         let header = parse::section::HeaderData::new_in(name, subsection_name.into_bstring_opt(), self.backing)?;
         self.set_header(header);
         Ok(self)
@@ -50,11 +47,7 @@ impl SectionMut<'_> {
 
     /// Adds an entry to the end of this section name `value_name` and `value`. If `value` is `None`, no equal sign will be written leaving
     /// just the key. This is useful for boolean values which are true if merely the key exists.
-    pub fn push(
-        &mut self,
-        value_name: impl AsRef<str>,
-        value: impl AsBStrOpt,
-    ) -> Result<&mut Self, file::section::value::Error> {
+    pub fn push(&mut self, value_name: impl AsRef<str>, value: impl AsBStrOpt) -> Result<&mut Self> {
         let value_name = ValueName::try_from(value_name.as_ref())?;
         self.push_with_comment_inner(value_name, value.as_bstr_opt(), None)?;
         Ok(self)
@@ -69,7 +62,7 @@ impl SectionMut<'_> {
         value_name: impl AsRef<str>,
         value: impl AsBStrOpt,
         comment: impl crate::AsBStr,
-    ) -> Result<&mut Self, file::section::value::Error> {
+    ) -> Result<&mut Self> {
         let value_name = ValueName::try_from(value_name.as_ref())?;
         self.push_with_comment_inner(value_name, value.as_bstr_opt(), Some(comment.as_bstr()))?;
         Ok(self)
@@ -80,7 +73,7 @@ impl SectionMut<'_> {
         value_name: ValueName,
         value: Option<&BStr>,
         comment: Option<&BStr>,
-    ) -> Result<(), parse::span::Error> {
+    ) -> Result {
         let mut events = Vec::new();
         if let Some(ws) = &self.whitespace.pre_key {
             events.push(Event::Whitespace(Span::append(self.backing, ws)?));
@@ -169,20 +162,12 @@ impl SectionMut<'_> {
     /// Sets the last key value pair if it exists, or adds the new value.
     /// Returns the previous value if it replaced a value, or None if it adds
     /// the value.
-    pub fn set(
-        &mut self,
-        value_name: impl AsRef<str>,
-        value: impl crate::AsBStr,
-    ) -> Result<Option<BString>, file::section::value::Error> {
+    pub fn set(&mut self, value_name: impl AsRef<str>, value: impl crate::AsBStr) -> Result<Option<BString>> {
         let value_name = ValueName::try_from(value_name.as_ref())?;
-        self.set_inner(value_name, value.as_bstr()).map_err(Into::into)
+        self.set_inner(value_name, value.as_bstr())
     }
 
-    pub(crate) fn set_inner(
-        &mut self,
-        value_name: ValueName,
-        value: &BStr,
-    ) -> Result<Option<BString>, parse::span::Error> {
+    pub(crate) fn set_inner(&mut self, value_name: ValueName, value: &BStr) -> Result<Option<BString>> {
         match self.section.body.key_and_value_range_by_in(self.backing, &value_name) {
             None => {
                 self.push_with_comment_inner(value_name, Some(value), None)?;
@@ -216,7 +201,7 @@ impl SectionMut<'_> {
 
     /// Adds a new line event. Note that you don't need to call this unless
     /// you've disabled implicit newlines.
-    pub fn push_newline(&mut self) -> Result<&mut Self, parse::span::Error> {
+    pub fn push_newline(&mut self) -> Result<&mut Self> {
         let newline = Span::append(self.backing, &self.newline)?;
         self.section.body.0.push(Event::Newline(newline));
         Ok(self)
@@ -394,7 +379,7 @@ impl<'a> SectionMut<'a> {
         }
     }
 
-    pub(crate) fn get(&self, key: &ValueName, start: Index, end: Index) -> Result<BString, lookup::existing::Error> {
+    pub(crate) fn get(&self, key: &ValueName, start: Index, end: Index) -> Result<BString> {
         let mut expect_value = false;
         let mut concatenated_value = BString::default();
 
@@ -419,7 +404,7 @@ impl<'a> SectionMut<'a> {
             }
         }
 
-        Err(lookup::existing::Error::KeyMissing)
+        Err(lookup::existing::key_missing())
     }
 
     pub(crate) fn delete(&mut self, start: Index, end: Index) {
@@ -454,12 +439,7 @@ impl<'a> SectionMut<'a> {
         }
     }
 
-    pub(crate) fn set_internal(
-        &mut self,
-        index: Index,
-        key: ValueName,
-        value: &BStr,
-    ) -> Result<Size, parse::span::Error> {
+    pub(crate) fn set_internal(&mut self, index: Index, key: ValueName, value: &BStr) -> Result<Size> {
         let mut size = 0;
         let value = Span::append(self.backing, &escape_value(value))?;
         let sep_events = self.whitespace.key_value_separators(self.backing)?;

@@ -15,7 +15,7 @@ fn no_change_if_there_are_no_trailing_relative_components() {
 }
 
 #[test]
-fn special_cases_around_cwd() -> crate::Result {
+fn special_cases_around_cwd() -> gix_testtools::TestResult {
     let cwd = std::env::current_dir()?;
     assert_eq!(
         normalize(p("./../../.git/modules/src/llvm-project").into(), &cwd).unwrap(),
@@ -151,7 +151,7 @@ fn trailing_relative_components_are_resolved() {
         assert_eq!(
             normalize(path.into(), cwd).unwrap_or_else(|| panic!("{path:?}")),
             Cow::Borrowed(p(expected)),
-            "'{input}' got an unexpected result"
+            "\"{input}\" got an unexpected result"
         );
     }
 }

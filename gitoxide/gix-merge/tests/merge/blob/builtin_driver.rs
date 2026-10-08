@@ -32,6 +32,7 @@ mod text {
         Resolution, builtin_driver,
         builtin_driver::text::{self, Conflict, ConflictStyle},
     };
+    use gix_testtools::TestResult;
     use pretty_assertions::assert_str_eq;
     use std::num::NonZero;
 
@@ -201,7 +202,7 @@ mod text {
     }
 
     #[test]
-    fn run_baseline() -> crate::Result {
+    fn run_baseline() -> TestResult {
         let root = gix_testtools::scripted_fixture_read_only("text-baseline.sh")?;
         for (baseline, diverging, expected_percentage) in [
             ("baseline.cases", DIVERGING, 10),
@@ -587,7 +588,7 @@ mod text {
 
         fn read_blob(root: &Path, rela_path: &str) -> BString {
             std::fs::read(root.join(rela_path))
-                .unwrap_or_else(|err| panic!("Failed to read '{rela_path}' in '{}': {err}", root.display()))
+                .unwrap_or_else(|err| panic!("Failed to read \"{rela_path}\" in \"{}\": {err}", root.display()))
                 .into()
         }
     }

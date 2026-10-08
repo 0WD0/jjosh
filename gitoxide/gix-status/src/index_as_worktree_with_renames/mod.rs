@@ -1,21 +1,22 @@
 //! Changes between the index and the worktree along with optional rename tracking.
 mod types;
-pub use types::{Context, DirwalkContext, Entry, Error, Options, Outcome, RewriteSource, Sorting, Summary, VisitEntry};
+pub use types::{Context, DirwalkContext, Entry, Options, Outcome, RewriteSource, Sorting, Summary, VisitEntry};
 
 mod recorder;
 pub use recorder::Recorder;
 
 pub(super) mod function {
+    use gix_error::Result;
     use std::{borrow::Cow, path::Path};
 
     use bstr::ByteSlice;
+    use gix_error::{ResultExt, message};
     use gix_worktree::stack::State;
 
     use crate::{
         index_as_worktree::traits::{CompareBlobs, SubmoduleStatus},
         index_as_worktree_with_renames::{
-            Context, Entry, Error, Options, Outcome, RewriteSource, VisitEntry,
-            function::rewrite::ModificationOrDirwalkEntry,
+            Context, Entry, Options, Outcome, RewriteSource, VisitEntry, function::rewrite::ModificationOrDirwalkEntry,
         },
         is_dir_to_mode,
     };
@@ -45,82 +46,97 @@ pub(super) mod function {
     /// * `options`
     ///    - a way to configure both paths of the operation.
     #[expect(clippy::too_many_arguments)]
-    pub fn index_as_worktree_with_renames<'index, T, U, Find, E>(
+    pub fn index_as_worktree_with_renames<'index, T, U, Find>(
         index: &'index gix_index::State,
         worktree: &Path,
         collector: &mut impl VisitEntry<'index, ContentChange = T, SubmoduleStatus = U>,
         compare: impl CompareBlobs<Output = T> + Send + Clone,
-        submodule: impl SubmoduleStatus<Output = U, Error = E> + Send + Clone,
+        submodule: impl SubmoduleStatus<Output = U> + Send + Clone,
         objects: Find,
-        progress: &mut dyn gix_features::progress::Progress,
+        progress: &mut dyn gix_utils::progress::Progress,
         mut ctx: Context<'_>,
         options: Options<'_>,
-    ) -> Result<Outcome, Error>
+    ) -> Result<Outcome>
     where
         T: Send + Clone,
         U: Send + Clone,
-        E: std::error::Error + Send + Sync + 'static,
         Find: gix_object::Find + gix_object::FindHeader + Send + Clone,
     {
         let mut tracked_file_modifications = options.tracked_file_modifications;
         tracked_file_modifications.fscache = options.fscache;
-        gix_features::parallel::threads(|scope| -> Result<Outcome, Error> {
+        let mut excludes = options
+            .dirwalk
+            .and_then(|_| match ctx.resource_cache.attr_stack.state() {
+                State::CreateDirectoryAndAttributesStack { .. } | State::AttributesStack(_) => None,
+                State::AttributesAndIgnoreStack { .. } | State::IgnoreStack(_) => {
+                    Some(ctx.resource_cache.attr_stack.clone())
+                }
+            });
+        if let Some(stack) = excludes.as_mut() {
+            let state = stack.state_mut();
+            if let State::AttributesAndIgnoreStack { ignore, .. } = state {
+                *state = State::IgnoreStack(std::mem::take(ignore));
+            }
+        }
+        // Only the directory walk needs ignores; content filters and pathspecs need attributes.
+        let state = ctx.resource_cache.attr_stack.state_mut();
+        if let State::AttributesAndIgnoreStack { attributes, .. } = state {
+            *state = State::AttributesStack(std::mem::take(attributes));
+        }
+        gix_parallel::threads(|scope| -> Result<Outcome> {
             let (tx, rx) = std::sync::mpsc::channel();
             let walk_outcome = options
                 .dirwalk
                 .map(|options| {
-                    gix_features::parallel::build_thread()
+                    gix_parallel::build_thread()
                         .name("gix_status::dirwalk".into())
-                        .spawn_scoped(scope, {
-                            let tx = tx.clone();
-                            let mut collect = dirwalk::Delegate {
-                                tx,
-                                should_interrupt: ctx.should_interrupt,
-                            };
-                            let dirwalk_ctx = ctx.dirwalk;
-                            let objects = objects.clone();
-                            let mut excludes = match ctx.resource_cache.attr_stack.state() {
-                                State::CreateDirectoryAndAttributesStack { .. } | State::AttributesStack(_) => None,
-                                State::AttributesAndIgnoreStack { .. } | State::IgnoreStack(_) => {
-                                    Some(ctx.resource_cache.attr_stack.clone())
-                                }
-                            };
-                            let mut pathspec_attr_stack = ctx
-                                .pathspec
-                                .patterns()
-                                .any(|p| !p.attributes.is_empty())
-                                .then(|| ctx.resource_cache.attr_stack.clone());
-                            let mut pathspec = ctx.pathspec.clone();
-                            move || -> Result<_, Error> {
-                                gix_dir::walk(
-                                    worktree,
-                                    gix_dir::walk::Context {
-                                        should_interrupt: Some(ctx.should_interrupt),
-                                        git_dir_realpath: dirwalk_ctx.git_dir_realpath,
-                                        current_dir: dirwalk_ctx.current_dir,
-                                        index,
-                                        ignore_case_index_lookup: dirwalk_ctx.ignore_case_index_lookup,
-                                        pathspec: &mut pathspec,
-                                        pathspec_attributes: &mut |relative_path, case, is_dir, out| {
-                                            let stack = pathspec_attr_stack
-                                                .as_mut()
-                                                .expect("can only be called if attributes are used in patterns");
-                                            stack
-                                                .set_case(case)
-                                                .at_entry(relative_path, Some(is_dir_to_mode(is_dir)), &objects)
-                                                .is_ok_and(|platform| platform.matching_attributes(out))
+                        .spawn_scoped(
+                            scope,
+                            gix_trace::in_thread({
+                                let tx = tx.clone();
+                                let mut collect = dirwalk::Delegate {
+                                    tx,
+                                    should_interrupt: ctx.should_interrupt,
+                                };
+                                let dirwalk_ctx = ctx.dirwalk;
+                                let objects = objects.clone();
+                                let mut excludes = excludes;
+                                let mut pathspec_attr_stack = ctx
+                                    .pathspec
+                                    .patterns()
+                                    .any(|p| !p.attributes.is_empty())
+                                    .then(|| ctx.resource_cache.attr_stack.clone());
+                                let mut pathspec = ctx.pathspec.clone();
+                                move || {
+                                    gix_dir::walk(
+                                        worktree,
+                                        gix_dir::walk::Context {
+                                            should_interrupt: Some(ctx.should_interrupt),
+                                            git_dir_realpath: dirwalk_ctx.git_dir_realpath,
+                                            current_dir: dirwalk_ctx.current_dir,
+                                            index,
+                                            ignore_case_index_lookup: dirwalk_ctx.ignore_case_index_lookup,
+                                            pathspec: &mut pathspec,
+                                            pathspec_attributes: &mut |relative_path, case, is_dir, out| {
+                                                let stack = pathspec_attr_stack
+                                                    .as_mut()
+                                                    .expect("can only be called if attributes are used in patterns");
+                                                stack
+                                                    .set_case(case)
+                                                    .at_entry(relative_path, Some(is_dir_to_mode(is_dir)), &objects)
+                                                    .is_ok_and(|platform| platform.matching_attributes(out))
+                                            },
+                                            excludes: excludes.as_mut(),
+                                            objects: &objects,
+                                            explicit_traversal_root: Some(worktree),
                                         },
-                                        excludes: excludes.as_mut(),
-                                        objects: &objects,
-                                        explicit_traversal_root: Some(worktree),
-                                    },
-                                    options,
-                                    &mut collect,
-                                )
-                                .map_err(Error::DirWalk)
-                            }
-                        })
-                        .map_err(Error::SpawnThread)
+                                        options,
+                                        &mut collect,
+                                    )
+                                }
+                            }),
+                        )
+                        .or_raise(|| message("Failed to spawn directory-walk thread"))
                 })
                 .transpose()?;
 
@@ -134,34 +150,36 @@ pub(super) mod function {
                     ctx.resource_cache.attr_stack.clone(),
                 )
             });
-            let tracked_modifications_outcome = gix_features::parallel::build_thread()
+            let tracked_modifications_outcome = gix_parallel::build_thread()
                 .name("gix_status::index_as_worktree".into())
-                .spawn_scoped(scope, {
-                    let mut collect = tracked_modifications::Delegate { tx };
-                    let objects = objects.clone();
-                    let stack = ctx.resource_cache.attr_stack.clone();
-                    let filter = ctx.resource_cache.filter.worktree_filter.clone();
-                    move || -> Result<_, Error> {
-                        crate::index_as_worktree(
-                            index,
-                            worktree,
-                            &mut collect,
-                            compare,
-                            submodule,
-                            objects,
-                            progress,
-                            crate::index_as_worktree::Context {
-                                pathspec: ctx.pathspec,
-                                stack,
-                                filter,
-                                should_interrupt: ctx.should_interrupt,
-                            },
-                            tracked_file_modifications,
-                        )
-                        .map_err(Error::TrackedFileModifications)
-                    }
-                })
-                .map_err(Error::SpawnThread)?;
+                .spawn_scoped(
+                    scope,
+                    gix_trace::in_thread({
+                        let mut collect = tracked_modifications::Delegate { tx };
+                        let objects = objects.clone();
+                        let stack = ctx.resource_cache.attr_stack.clone();
+                        let filter = ctx.resource_cache.filter.worktree_filter.clone();
+                        move || {
+                            crate::index_as_worktree(
+                                index,
+                                worktree,
+                                &mut collect,
+                                compare,
+                                submodule,
+                                objects,
+                                progress,
+                                crate::index_as_worktree::Context {
+                                    pathspec: ctx.pathspec,
+                                    stack,
+                                    filter,
+                                    should_interrupt: ctx.should_interrupt,
+                                },
+                                tracked_file_modifications,
+                            )
+                        }
+                    }),
+                )
+                .or_raise(|| message("Failed to spawn index-worktree status thread"))?;
 
             let tracker = options
                 .rewrites
@@ -182,7 +200,7 @@ pub(super) mod function {
                                 (
                                     ModificationOrDirwalkEntry::DirwalkEntry {
                                         id: rewrite::calculate_worktree_id(
-                                            options.object_hash,
+                                            index.object_hash(),
                                             worktree,
                                             entry.disk_kind,
                                             entry.rela_path.as_bstr(),
@@ -217,75 +235,79 @@ pub(super) mod function {
                         remaining
                     });
 
-                    let outcome = tracker.emit(
-                        |dest, src| {
-                            match src {
-                                None => {
-                                    let entry = rewrite::change_to_entry(dest.change, entries);
-                                    if let Some(v) = entries_for_sorting.as_mut() {
-                                        v.push(entry);
-                                    } else {
-                                        collector.visit_entry(entry);
-                                    }
-                                }
-                                Some(src) => {
-                                    let ModificationOrDirwalkEntry::DirwalkEntry {
-                                        id,
-                                        entry,
-                                        collapsed_directory_status,
-                                    } = dest.change
-                                    else {
-                                        unreachable!("BUG: only possible destinations are dirwalk entries (additions)");
-                                    };
-                                    let source = match src.change {
-                                        ModificationOrDirwalkEntry::Modification(record) => {
-                                            RewriteSource::RewriteFromIndex {
-                                                index_entries: entries,
-                                                source_entry: record.entry,
-                                                source_entry_index: record.entry_index,
-                                                source_rela_path: record.relative_path,
-                                                source_status: record.status.clone(),
-                                            }
+                    let outcome = tracker
+                        .emit(
+                            |dest, src| {
+                                match src {
+                                    None => {
+                                        let entry = rewrite::change_to_entry(dest.change, entries);
+                                        if let Some(v) = entries_for_sorting.as_mut() {
+                                            v.push(entry);
+                                        } else {
+                                            collector.visit_entry(entry);
                                         }
-                                        ModificationOrDirwalkEntry::DirwalkEntry {
+                                    }
+                                    Some(src) => {
+                                        let ModificationOrDirwalkEntry::DirwalkEntry {
                                             id,
                                             entry,
                                             collapsed_directory_status,
-                                        } => RewriteSource::CopyFromDirectoryEntry {
-                                            source_dirwalk_entry: entry.clone(),
-                                            source_dirwalk_entry_collapsed_directory_status:
-                                                *collapsed_directory_status,
-                                            source_dirwalk_entry_id: *id,
-                                        },
-                                    };
+                                        } = dest.change
+                                        else {
+                                            unreachable!(
+                                                "BUG: only possible destinations are dirwalk entries (additions)"
+                                            );
+                                        };
+                                        let source = match src.change {
+                                            ModificationOrDirwalkEntry::Modification(record) => {
+                                                RewriteSource::RewriteFromIndex {
+                                                    index_entries: entries,
+                                                    source_entry: record.entry,
+                                                    source_entry_index: record.entry_index,
+                                                    source_rela_path: record.relative_path,
+                                                    source_status: record.status.clone(),
+                                                }
+                                            }
+                                            ModificationOrDirwalkEntry::DirwalkEntry {
+                                                id,
+                                                entry,
+                                                collapsed_directory_status,
+                                            } => RewriteSource::CopyFromDirectoryEntry {
+                                                source_dirwalk_entry: entry.clone(),
+                                                source_dirwalk_entry_collapsed_directory_status:
+                                                    *collapsed_directory_status,
+                                                source_dirwalk_entry_id: *id,
+                                            },
+                                        };
 
-                                    let entry = Entry::Rewrite {
-                                        source,
-                                        dirwalk_entry: entry,
-                                        dirwalk_entry_collapsed_directory_status: collapsed_directory_status,
-                                        dirwalk_entry_id: id,
-                                        diff: src.diff,
-                                        copy: src.kind == gix_diff::rewrites::tracker::visit::SourceKind::Copy,
-                                    };
-                                    if let Some(v) = entries_for_sorting.as_mut() {
-                                        v.push(entry);
-                                    } else {
-                                        collector.visit_entry(entry);
+                                        let entry = Entry::Rewrite {
+                                            source,
+                                            dirwalk_entry: entry,
+                                            dirwalk_entry_collapsed_directory_status: collapsed_directory_status,
+                                            dirwalk_entry_id: id,
+                                            diff: src.diff,
+                                            copy: src.kind == gix_diff::rewrites::tracker::visit::SourceKind::Copy,
+                                        };
+                                        if let Some(v) = entries_for_sorting.as_mut() {
+                                            v.push(entry);
+                                        } else {
+                                            collector.visit_entry(entry);
+                                        }
                                     }
                                 }
-                            }
-                            std::ops::ControlFlow::Continue(())
-                        },
-                        &mut ctx.resource_cache,
-                        &objects,
-                        |_cb| {
-                            // NOTE: to make this work, we'd want to wait the index modification check to complete.
-                            //       Then it's possible to efficiently emit the tracked files along with what we already sent,
-                            //       i.e. untracked and ignored files.
-                            gix_features::trace::debug!("full-tree copy tracking isn't currently supported");
-                            Ok::<_, std::io::Error>(())
-                        },
-                    )?;
+                                std::ops::ControlFlow::Continue(())
+                            },
+                            &mut ctx.resource_cache,
+                            &objects,
+                            |_cb| {
+                                // NOTE: to make this work, we'd want to wait the index modification check to complete.
+                                //       Then it's possible to efficiently emit the tracked files along with what we already sent,
+                                //       i.e. untracked and ignored files.
+                                gix_trace::debug!("full-tree copy tracking isn't currently supported");
+                                Ok::<_, std::io::Error>(())
+                            },
+                        )
+                        .or_raise(|| message("Could not track worktree rewrites"))?;
 
                     if let Some(mut v) = entries_for_sorting {
                         v.sort_by(|a, b| a.destination_rela_path().cmp(b.destination_rela_path()));
@@ -413,9 +435,11 @@ pub(super) mod function {
     }
 
     mod rewrite {
+        use gix_error::{ErrorExt, Result, ResultExt, message};
+
         use crate::{
             index_as_worktree::{Change, EntryStatus},
-            index_as_worktree_with_renames::{Entry, Error},
+            index_as_worktree_with_renames::Entry,
         };
         use bstr::BStr;
         use gix_diff::{rewrites::tracker::ChangeKind, tree::visit::Relation};
@@ -512,7 +536,7 @@ pub(super) mod function {
             objects: &dyn gix_object::Find,
             buf: &mut Vec<u8>,
             should_interrupt: &std::sync::atomic::AtomicBool,
-        ) -> Result<gix_hash::ObjectId, Error> {
+        ) -> Result<gix_hash::ObjectId> {
             let Some(kind) = disk_kind else {
                 return Ok(object_hash.null());
             };
@@ -523,10 +547,10 @@ pub(super) mod function {
                     return Ok(object_hash.null());
                 }
                 Kind::File => {
-                    let platform = attrs
-                        .at_entry(rela_path, None, objects)
-                        .map_err(Error::SetAttributeContext)?;
-                    let rela_path = gix_path::from_bstr(rela_path);
+                    let platform = attrs.at_entry(rela_path, None, objects).or_raise(|| {
+                        message!("Failed to change the attribute context for worktree path {rela_path:?}")
+                    })?;
+                    let rela_path = gix_path::from_bstr(rela_path)?;
                     let file_path = worktree_root.join(rela_path.as_ref());
                     let file = match std::fs::File::open(&file_path) {
                         Ok(f) => f,
@@ -536,51 +560,65 @@ pub(super) mod function {
                                 ErrorKind::NotFound | ErrorKind::PermissionDenied | ErrorKind::Interrupted
                             ) =>
                         {
-                            gix_features::trace::debug!(
+                            gix_trace::debug!(
                                 ?file_path,
                                 ?err,
                                 "ignoring worktree file as it can't be read for hashing"
                             );
                             return Ok(object_hash.null());
                         }
-                        Err(err) => return Err(Error::OpenWorktreeFile(err)),
+                        Err(err) => {
+                            return Err(err.and_raise(message!(
+                                "Could not open worktree file \"{}\" for reading",
+                                file_path.display()
+                            )));
+                        }
                     };
-                    let out = filter.convert_to_git(
-                        file,
-                        rela_path.as_ref(),
-                        &mut |_path, attrs| {
-                            platform.matching_attributes(attrs);
-                        },
-                        &mut |_buf| Ok(None),
-                    )?;
+                    let out = filter
+                        .convert_to_git(
+                            file,
+                            rela_path.as_ref(),
+                            &mut |_path, attrs| {
+                                platform.matching_attributes(attrs);
+                            },
+                            &mut |_buf| Ok(None),
+                        )
+                        .or_raise(|| message!("Could not convert worktree file {rela_path:?} to Git format"))?;
                     match out {
                         ToGitOutcome::Unchanged(mut file) => gix_object::compute_stream_hash(
                             object_hash,
                             gix_object::Kind::Blob,
                             &mut file,
-                            file_path.metadata().map_err(Error::OpenWorktreeFile)?.len(),
-                            &mut gix_features::progress::Discard,
+                            file_path
+                                .metadata()
+                                .or_raise(|| {
+                                    message!("Could not read metadata for worktree file \"{}\"", file_path.display())
+                                })?
+                                .len(),
+                            &mut gix_utils::progress::Discard,
                             should_interrupt,
                         )
-                        .map_err(|err| Error::HashFile(std::io::Error::other(err.into_error())))?,
+                        .or_raise(|| message!("Could not hash worktree file \"{}\"", file_path.display()))?,
                         ToGitOutcome::Buffer(buf) => gix_object::compute_hash(object_hash, gix_object::Kind::Blob, buf)
-                            .map_err(gix_hash::io::from_hasher)
-                            .map_err(|err| Error::HashFile(std::io::Error::other(err.into_error())))?,
+                            .or_raise(|| message!("Could not hash worktree file \"{}\"", file_path.display()))?,
                         ToGitOutcome::Process(mut stream) => {
                             buf.clear();
-                            stream.read_to_end(buf).map_err(Error::HashFile)?;
+                            stream.read_to_end(buf).or_raise(|| {
+                                message!("Could not read filtered worktree file \"{}\"", file_path.display())
+                            })?;
                             gix_object::compute_hash(object_hash, gix_object::Kind::Blob, buf)
-                                .map_err(gix_hash::io::from_hasher)
-                                .map_err(|err| Error::HashFile(std::io::Error::other(err.into_error())))?
+                                .or_raise(|| message!("Could not hash worktree file \"{}\"", file_path.display()))?
                         }
                     }
                 }
                 Kind::Symlink => {
-                    let path = worktree_root.join(gix_path::from_bstr(rela_path));
-                    let target = gix_path::into_bstr(std::fs::read_link(path).map_err(Error::ReadLink)?);
+                    let path = worktree_root.join(gix_path::from_bstr(rela_path)?);
+                    let target = gix_path::into_bstr(
+                        std::fs::read_link(&path)
+                            .or_raise(|| message!("Could not read worktree link \"{}\"", path.display()))?,
+                    )?;
                     gix_object::compute_hash(object_hash, gix_object::Kind::Blob, &target)
-                        .map_err(gix_hash::io::from_hasher)
-                        .map_err(|err| Error::HashFile(std::io::Error::other(err.into_error())))?
+                        .or_raise(|| message!("Could not hash worktree link \"{}\"", path.display()))?
                 }
                 Kind::Directory | Kind::Repository => object_hash.null(),
             })

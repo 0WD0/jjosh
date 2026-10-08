@@ -1,6 +1,6 @@
 use percent_encoding::percent_decode_str;
 
-use gix_error::{ErrorExt, Exn, OptionExt, ResultExt, ValidationError};
+use gix_error::{ErrorExt, Message, OptionExt, Result, ResultExt, bail, ensure, validation};
 
 /// A minimal URL parser that extracts only what we need for git URLs.
 /// This is a replacement for the `url` crate dependency.
@@ -16,20 +16,20 @@ pub(crate) struct ParsedUrl {
     pub path_with_percent_escapes: Option<String>,
 }
 
-fn relative_url_without_base() -> ValidationError {
-    ValidationError::new("relative URL without a base")
+fn relative_url_without_base() -> Message {
+    validation("relative URL without a base")
 }
 
-fn invalid_port() -> ValidationError {
-    ValidationError::new("invalid port number - must be between 1-65535")
+fn invalid_port() -> Message {
+    validation("invalid port number - must be between 1-65535")
 }
 
-fn invalid_domain_character() -> ValidationError {
-    ValidationError::new("invalid domain character")
+fn invalid_domain_character() -> Message {
+    validation("invalid domain character")
 }
 
-fn scheme_requires_host() -> ValidationError {
-    ValidationError::new("Scheme requires host")
+fn scheme_requires_host() -> Message {
+    validation("Scheme requires host")
 }
 
 /// Check if a character is valid in a URL scheme.
@@ -55,7 +55,7 @@ fn has_valid_percent_encoding(input: &str) -> bool {
 
 /// Decode a percent-encoded string, returning an error if the result is not valid UTF-8.
 /// Returns the original string if it contains no percent-encoding.
-fn percent_decode(s: &str) -> Result<String, Exn<ValidationError>> {
+fn percent_decode(s: &str) -> Result<String> {
     percent_decode_str(s)
         .decode_utf8()
         .map(std::borrow::Cow::into_owned)
@@ -63,7 +63,7 @@ fn percent_decode(s: &str) -> Result<String, Exn<ValidationError>> {
 }
 
 /// Decode percent-encoded path bytes and retain the original spelling if it contains escapes.
-fn percent_decode_path(s: &str) -> Result<(String, Option<String>), Exn<ValidationError>> {
+fn percent_decode_path(s: &str) -> Result<(String, Option<String>)> {
     percent_decode(s).map(|path| (path, s.contains('%').then(|| s.to_owned())))
 }
 
@@ -107,29 +107,27 @@ fn normalize_ipv6_literal(host: &str) -> Option<String> {
 impl ParsedUrl {
     /// Parse a URL string into its components.
     /// Expected format: scheme://[user[:password]@]host[:port]/path
-    pub(crate) fn parse(input: &str) -> Result<Self, Exn<ValidationError>> {
+    pub(crate) fn parse(input: &str) -> Result<Self> {
         // Validate that the entire URL doesn't contain any whitespace (per RFC 3986)
         if input.chars().any(char::is_whitespace) || !has_valid_percent_encoding(input) {
-            return Err(invalid_domain_character().raise());
+            bail!(invalid_domain_character());
         }
 
         // Find scheme by looking for first ':'
         let first_colon = input.find(':').ok_or_raise(relative_url_without_base)?;
         let scheme_str = &input[..first_colon];
         let Some(after_scheme) = input[first_colon..].strip_prefix("://") else {
-            return Err(relative_url_without_base().raise());
+            bail!(relative_url_without_base());
         };
 
         // Check for relative URL (scheme without proper authority)
-        if scheme_str.is_empty() {
-            return Err(relative_url_without_base().raise());
-        }
+        ensure!(!scheme_str.is_empty(), relative_url_without_base());
 
         // Validate scheme characters (check original before lowercase conversion)
         if !scheme_str.as_bytes().first().is_some_and(u8::is_ascii_alphabetic)
             || !scheme_str.chars().all(is_valid_scheme_char)
         {
-            return Err(relative_url_without_base().raise());
+            bail!(relative_url_without_base());
         }
 
         // Git treats query and fragment delimiters as authority text outside HTTP URLs.
@@ -140,9 +138,7 @@ impl ParsedUrl {
         }
         .unwrap_or(after_scheme.len());
         let authority = &after_scheme[..path_start];
-        if authority.contains('\\') {
-            return Err(invalid_domain_character().raise());
-        }
+        ensure!(!authority.contains('\\'), invalid_domain_character());
         let (path, path_with_percent_escapes) = if path_start < after_scheme.len() {
             percent_decode_path(&after_scheme[path_start..])?
         } else {
@@ -171,9 +167,7 @@ impl ParsedUrl {
 
             let (h, p) = Self::parse_host_port(host_port, allow_unbracketed_ipv6, strict_authority)?;
             // If we have user info, we must have a host
-            if h.is_none() {
-                return Err(invalid_domain_character().raise());
-            }
+            ensure!(h.is_some(), invalid_domain_character());
             (user, pass, h, p)
         } else {
             // No user info
@@ -183,9 +177,7 @@ impl ParsedUrl {
 
         // Standard schemes (http, https, git, ssh) require a host
         let requires_host = matches!(scheme_str, "http" | "https" | "git" | "ssh" | "ftp" | "ftps");
-        if requires_host && host.is_none() {
-            return Err(scheme_requires_host().raise());
-        }
+        ensure!(!requires_host || host.is_some(), scheme_requires_host());
 
         Ok(ParsedUrl {
             scheme: scheme_str.into(),
@@ -203,7 +195,7 @@ impl ParsedUrl {
         host_port: &str,
         allow_unbracketed_ipv6: bool,
         strict_authority: bool,
-    ) -> Result<(Option<String>, Option<u16>), Exn<ValidationError>> {
+    ) -> Result<(Option<String>, Option<u16>)> {
         if host_port.is_empty() {
             return Ok((None, None));
         }
@@ -216,7 +208,7 @@ impl ParsedUrl {
                     Some(host) if !strict_authority => percent_decode(&host)?,
                     Some(host) => host,
                     None if !strict_authority => percent_decode(inner)?,
-                    None => return Err(invalid_domain_character().raise()),
+                    None => bail!(invalid_domain_character()),
                 };
                 let remaining = &host_port[bracket_end + 1..];
 
@@ -227,19 +219,15 @@ impl ParsedUrl {
                         // Empty port like "[::1]:" - preserve the trailing colon for Git compatibility
                         return Ok((Some(format!("[{host}]:")), None));
                     }
-                    if !port_str.bytes().all(|b| b.is_ascii_digit()) {
-                        return Err(invalid_port().raise());
-                    }
+                    ensure!(port_str.bytes().all(|b| b.is_ascii_digit()), invalid_port());
                     let port = port_str.parse::<u16>().or_raise(invalid_port)?;
-                    if port == 0 && strict_authority {
-                        return Err(invalid_port().raise());
-                    }
+                    ensure!(port != 0 || !strict_authority, invalid_port());
                     return Ok((Some(format!("[{host}]")), Some(port)));
                 } else {
-                    return Err(invalid_domain_character().raise());
+                    bail!(invalid_domain_character());
                 }
             } else {
-                return Err(invalid_domain_character().raise());
+                bail!(invalid_domain_character());
             }
         }
 
@@ -271,18 +259,14 @@ impl ParsedUrl {
                 host.push(':');
                 return Ok((Some(host), None));
             }
-            if !after_last_colon.chars().all(|c| c.is_ascii_digit()) {
-                return Err(invalid_port().raise());
-            }
+            ensure!(after_last_colon.chars().all(|c| c.is_ascii_digit()), invalid_port());
             let host = if strict_authority {
                 Self::normalize_http_hostname(before_last_colon)?
             } else {
                 Self::normalize_git_hostname(before_last_colon)?
             };
             let port = after_last_colon.parse::<u16>().or_raise(invalid_port)?;
-            if port == 0 && strict_authority {
-                return Err(invalid_port().raise());
-            }
+            ensure!(port != 0 || !strict_authority, invalid_port());
             return Ok((Some(host), Some(port)));
         }
 
@@ -302,7 +286,7 @@ impl ParsedUrl {
 
     /// Validate a hostname and normalize DNS-like ASCII hostnames to lowercase.
     /// Hostnames containing other permitted URL characters retain their original case.
-    fn normalize_http_hostname(host: &str) -> Result<String, Exn<ValidationError>> {
+    fn normalize_http_hostname(host: &str) -> Result<String> {
         if !host.bytes().all(|c| {
             c.is_ascii_alphanumeric()
                 || matches!(
@@ -324,7 +308,7 @@ impl ParsedUrl {
                         | b'%'
                 )
         }) {
-            return Err(invalid_domain_character().raise());
+            bail!(invalid_domain_character());
         }
         Ok(if Self::is_normalizable_hostname(host) {
             host.to_ascii_lowercase()
@@ -337,7 +321,7 @@ impl ParsedUrl {
     ///
     /// This is separate from [`Self::normalize_http_hostname`] because Git passes the decoded host to transports, whereas
     /// HTTP and HTTPS retain escaped host spelling and apply stricter hostname validation.
-    fn normalize_git_hostname(host: &str) -> Result<String, Exn<ValidationError>> {
+    fn normalize_git_hostname(host: &str) -> Result<String> {
         let host = percent_decode(host)?;
         Ok(if Self::is_normalizable_hostname(&host) {
             host.to_ascii_lowercase()
@@ -374,6 +358,12 @@ mod tests {
     #[test]
     fn invalid_port_keeps_parse_error() {
         let err = ParsedUrl::parse("http://example.com:65536/path").expect_err("port is out of range");
+        insta::assert_debug_snapshot!(err, "the port parser cause remains in the error chain", @"
+        invalid port number - must be between 1-65535
+
+        Caused by:
+            0: number too large to fit in target type
+        ");
         assert!(
             err.downcast_any_ref::<std::num::ParseIntError>().is_some(),
             "the port parser cause remains in the error chain"
@@ -417,13 +407,13 @@ mod tests {
     }
 
     #[test]
-    fn git_schemes_allow_unbracketed_ipv6() {
+    fn git_schemes_allow_unbracketed_ipv6() -> gix_testtools::TestResult {
         for scheme in ["git", "ssh", "git+ssh", "ssh+git"] {
-            let url = ParsedUrl::parse(&format!("{scheme}://user@::1/repo"))
-                .expect("Git schemes allow unbracketed IPv6 hosts");
+            let url = ParsedUrl::parse(&format!("{scheme}://user@::1/repo"))?;
             assert_eq!(url.host.as_deref(), Some("::1"), "the IPv6 address is the host");
             assert_eq!(url.path, "/repo", "the path remains separate from the IPv6 host");
         }
+        Ok(())
     }
 
     #[test]

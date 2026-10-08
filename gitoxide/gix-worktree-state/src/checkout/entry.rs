@@ -1,10 +1,10 @@
 use std::{
-    borrow::Cow,
     io::Write,
     path::{Path, PathBuf},
 };
 
 use bstr::BStr;
+use gix_error::{Result, ResultExt, message, validation};
 use gix_filter::{
     driver::apply::MaybeDelayed,
     pipeline::convert::{ToWorktreeOutcome, to_worktree},
@@ -43,6 +43,8 @@ pub enum Outcome<'a> {
     },
     /// The will be ready later.
     Delayed(DelayedFilteredStream<'a>),
+    /// A Windows symlink whose target type is not known yet.
+    DelayedSymlink { entry: &'a mut Entry, entry_path: &'a BStr },
 }
 
 impl Outcome<'_> {
@@ -50,11 +52,13 @@ impl Outcome<'_> {
     pub fn as_bytes(&self) -> Option<usize> {
         match self {
             Outcome::Written { bytes } => Some(*bytes),
-            Outcome::Delayed { .. } => None,
+            Outcome::Delayed { .. } | Outcome::DelayedSymlink { .. } => None,
         }
     }
 }
 
+/// Check out an entry, retaining invalid path or symlink target bytes as `input`
+/// [metadata](gix_error::Error::metadata()) if UTF-8 conversion fails.
 #[cfg_attr(not(unix), allow(unused_variables))]
 pub fn checkout<'entry, Find>(
     entry: &'entry mut Entry,
@@ -74,26 +78,28 @@ pub fn checkout<'entry, Find>(
         destination_is_initially_empty,
         overwrite_existing,
         filter_process_delay,
+        delay_symlinks,
         ..
     }: crate::checkout::chunk::Options,
-) -> Result<Outcome<'entry>, crate::checkout::Error>
+) -> Result<Outcome<'entry>>
 where
     Find: gix_object::Find,
 {
-    let dest_relative = gix_path::try_from_bstr(entry_path).map_err(|_| crate::checkout::Error::IllformedUtf8 {
-        path: entry_path.to_owned(),
-    })?;
-    let path_cache = path_cache.at_path(dest_relative.as_ref(), Some(entry.mode), &*objects)?;
+    let dest_relative = gix_path::from_bstr(entry_path)
+        .or_raise(|| validation("Could not convert path to UTF8").with_input(entry_path))?;
+    let path_cache = path_cache
+        .at_path(dest_relative.as_ref(), Some(entry.mode), &*objects)
+        .or_error()?;
     let dest = path_cache.path();
 
     let object_size = match entry.mode {
         gix_index::entry::Mode::FILE | gix_index::entry::Mode::FILE_EXECUTABLE => {
-            let obj = (*objects)
-                .find_blob(&entry.id, buf)
-                .map_err(|err| crate::checkout::Error::Find {
-                    err,
-                    path: dest.to_path_buf(),
-                })?;
+            let obj = (*objects).find_blob(&entry.id, buf).or_raise(|| {
+                message!(
+                    "object for checkout at {} could not be retrieved from object database",
+                    dest.display()
+                )
+            })?;
 
             let filtered = filters.convert_to_worktree(
                 obj.data,
@@ -114,8 +120,9 @@ where
                         overwrite_existing,
                         executable_bit,
                         entry.mode,
-                    )?;
-                    file.write_all(buf)?;
+                    )
+                    .or_error()?;
+                    file.write_all(buf).or_error()?;
                     (buf.len(), file, flag)
                 }
                 ToWorktreeOutcome::Process(MaybeDelayed::Immediate(mut filtered)) => {
@@ -125,8 +132,9 @@ where
                         overwrite_existing,
                         executable_bit,
                         entry.mode,
-                    )?;
-                    let num_bytes = std::io::copy(&mut filtered, &mut file)? as usize;
+                    )
+                    .or_error()?;
+                    let num_bytes = std::io::copy(&mut filtered, &mut file).or_error()? as usize;
                     (num_bytes, file, flag)
                 }
                 ToWorktreeOutcome::Process(MaybeDelayed::Delayed(key)) => {
@@ -145,47 +153,61 @@ where
             num_bytes
         }
         gix_index::entry::Mode::SYMLINK => {
-            let obj = (*objects)
-                .find_blob(&entry.id, buf)
-                .map_err(|err| crate::checkout::Error::Find {
-                    err,
-                    path: dest.to_path_buf(),
-                })?;
+            let obj = (*objects).find_blob(&entry.id, buf).or_raise(|| {
+                message!(
+                    "object for checkout at {} could not be retrieved from object database",
+                    dest.display()
+                )
+            })?;
             if symlink {
-                #[cfg_attr(not(windows), allow(unused_mut))]
-                let mut symlink_destination = Cow::Borrowed(
-                    gix_path::try_from_byte_slice(obj.data)
-                        .map_err(|_| crate::checkout::Error::IllformedUtf8 { path: obj.data.into() })?,
-                );
-                #[cfg(windows)]
-                {
-                    symlink_destination = gix_path::to_native_path_on_windows(gix_path::into_bstr(symlink_destination))
-                }
+                let symlink_destination = gix_path::to_native_path_on_windows(BStr::new(obj.data))
+                    .or_raise(|| validation("Could not convert path to UTF8").with_input(obj.data))?;
 
-                try_op_or_unlink(dest, overwrite_existing, |p| {
-                    gix_fs::symlink::create(symlink_destination.as_ref(), p)
-                })?;
+                // Creating a symlink never follows the destination. Try first so a deferred
+                // replacement leaves any existing entry intact until creation is ready.
+                let create = |p: &Path| gix_fs::symlink::create(symlink_destination.as_ref(), p);
+                let created = if delay_symlinks {
+                    gix_fs::symlink::create_or_delay(symlink_destination.as_ref(), dest)
+                } else {
+                    create(dest).map(|()| true)
+                }
+                .or_else(|err| {
+                    if overwrite_existing && gix_fs::symlink::is_collision_error(&err) {
+                        try_op_or_unlink(dest, true, create).map(|()| true)
+                    } else {
+                        Err(err)
+                    }
+                })
+                .or_error()?;
+                if !created {
+                    return Ok(Outcome::DelayedSymlink { entry, entry_path });
+                }
             } else {
-                let mut file = try_op_or_unlink(dest, overwrite_existing, |p| {
-                    open_options(destination_is_initially_empty, overwrite_existing).open(p)
-                })?;
-                file.write_all(obj.data)?;
-                file.close()?;
+                let (mut file, _) = open_file(
+                    dest,
+                    destination_is_initially_empty,
+                    overwrite_existing,
+                    false,
+                    entry.mode,
+                )
+                .or_error()?;
+                file.write_all(obj.data).or_error()?;
+                file.close().or_error()?;
             }
 
-            entry.stat = Stat::from_fs(&gix_index::fs::Metadata::from_path_no_follow(dest)?)?;
+            entry.stat = Stat::from_fs(&gix_index::fs::Metadata::from_path_no_follow(dest).or_error()?).or_error()?;
             obj.data.len()
         }
         gix_index::entry::Mode::DIR => {
-            gix_features::trace::warn!(
-                "Skipped sparse directory at '{entry_path}' ({id}) as it cannot yet be handled",
+            gix_trace::warn!(
+                "Skipped sparse directory at \"{entry_path}\" ({id}) as it cannot yet be handled",
                 id = entry.id
             );
             0
         }
         gix_index::entry::Mode::COMMIT => {
-            gix_features::trace::warn!(
-                "Skipped submodule at '{entry_path}' ({id}) as it cannot yet be handled",
+            gix_trace::warn!(
+                "Skipped submodule at \"{entry_path}\" ({id}) as it cannot yet be handled",
                 id = entry.id
             );
             0
@@ -197,7 +219,7 @@ where
 
 /// Note that this works only because we assume to not race ourselves when symlinks are involved, and we do this by
 /// delaying symlink creation to the end and will always do that sequentially.
-/// It's still possible to fall for a race if other actors create symlinks in our path, but that's nothing to defend against.
+/// Other actors replacing leading path components with symlinks can still race these operations.
 ///
 /// Without overwrite permission, the worktree stack delegate rejects terminal symlinks for incremental checkout,
 /// while checkout into an empty destination uses exclusive creation.
@@ -245,12 +267,13 @@ fn try_unlink_path_recursively(path: &Path, path_meta: &std::fs::Metadata) -> st
 }
 
 fn open_options(destination_is_initially_empty: bool, overwrite_existing: bool) -> std::fs::OpenOptions {
-    let mut options = gix_features::fs::open_options_no_follow();
+    let mut options = gix_fs::open_options_no_follow();
     options
         .create_new(destination_is_initially_empty && !overwrite_existing)
         .create(!destination_is_initially_empty || overwrite_existing)
         .write(true)
-        .truncate(true);
+        // Windows returns a reparse point handle, so open_file() must validate it before truncation.
+        .truncate(!cfg!(windows));
     options
 }
 
@@ -281,7 +304,20 @@ pub(crate) fn open_file(
     //  not supported on windows
     #[cfg(windows)]
     let executable_bit_change = ExecutableBitChange::NoChange;
-    try_op_or_unlink(path, overwrite_existing, |p| options.open(p)).map(|f| (f, executable_bit_change))
+    try_op_or_unlink(path, overwrite_existing, |p| {
+        let file = options.open(p)?;
+        #[cfg(windows)]
+        if !destination_is_initially_empty || overwrite_existing {
+            // Exclusive creation cannot open an existing symlink and needs no truncation.
+            // Nonexclusive opens must reject the handle before changing its contents.
+            if file.metadata()?.file_type().is_symlink() {
+                return Err(std::io::ErrorKind::AlreadyExists.into());
+            }
+            file.set_len(0)?;
+        }
+        Ok(file)
+    })
+    .map(|f| (f, executable_bit_change))
 }
 
 /// Close `file` and store its stats in `entry`, possibly adjusting whether `file` is executable.
@@ -292,27 +328,27 @@ pub(crate) fn finalize_entry(
     file: std::fs::File,
     desired_bytes: u64,
     #[cfg_attr(windows, allow(unused_variables))] executable_bit_change: ExecutableBitChange,
-) -> Result<(), crate::checkout::Error> {
+) -> Result {
     // For possibly existing, overwritten files, we must change the file mode explicitly to match the index.
     #[cfg(unix)]
     match executable_bit_change {
         ExecutableBitChange::NoChange => {}
-        ExecutableBitChange::Set => adjust_executable_bits(&file, true)?,
-        ExecutableBitChange::Remove => adjust_executable_bits(&file, false)?,
+        ExecutableBitChange::Set => adjust_executable_bits(&file, true).or_error()?,
+        ExecutableBitChange::Remove => adjust_executable_bits(&file, false).or_error()?,
     }
 
-    let md = &gix_index::fs::Metadata::from_file(&file)?;
+    let md = &gix_index::fs::Metadata::from_file(&file).or_error()?;
     // A last sanity check: if the file wasn't truncated upon opening, which is good in case something
     // goes wrong during writing, not everything is lost, then after writing the file is smaller than it was
     // before, it needs truncation. We do that here.
     let needs_truncation = md.len() > desired_bytes;
     if needs_truncation {
-        file.set_len(desired_bytes)?;
+        file.set_len(desired_bytes).or_error()?;
     }
     // NOTE: we don't call `file.sync_all()` here knowing that some filesystems don't handle this well.
     //       revisit this once there is a bug to fix.
-    entry.stat = Stat::from_fs(md)?;
-    file.close()?;
+    entry.stat = Stat::from_fs(md).or_error()?;
+    file.close().or_error()?;
     Ok(())
 }
 
@@ -320,7 +356,7 @@ pub(crate) fn finalize_entry(
 ///
 /// See `adjust_mode_executable_bits` for the exact details of how the mode is transformed.
 #[cfg(unix)]
-fn adjust_executable_bits(file: &std::fs::File, executable: bool) -> Result<(), std::io::Error> {
+fn adjust_executable_bits(file: &std::fs::File, executable: bool) -> std::io::Result<()> {
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
     let old_mode = file.metadata()?.mode();
     let new_mode = adjust_mode_executable_bits(old_mode, executable);
@@ -360,7 +396,7 @@ pub(crate) enum ExecutableBitChange {
 mod tests {
     #[test]
     #[cfg(windows)]
-    fn forced_operations_never_receive_terminal_symlinks() -> gix_testtools::Result {
+    fn forced_operations_never_receive_terminal_symlinks() -> gix_testtools::TestResult {
         let dir = gix_testtools::tempfile::tempdir()?;
         let target = dir.path().join("target");
         let link = dir.path().join("link");
@@ -372,7 +408,11 @@ mod tests {
                     !meta.file_type().is_symlink(),
                     "the operation must not receive a symlink"
                 ),
-                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                    insta::allow_duplicates! {
+                        insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[]), "forced checkout removes the terminal symlink before invoking the operation", @"NotFound");
+                    }
+                }
                 Err(err) => return Err(err),
             }
             Ok(())
@@ -382,6 +422,140 @@ mod tests {
             b"untouched",
             "the symlink target must stay unchanged"
         );
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(any(windows, unix))]
+    fn nonexclusive_open_defers_truncation_until_handle_validation() -> gix_testtools::TestResult {
+        use std::io::Write;
+
+        #[cfg(target_os = "macos")]
+        assert_eq!(
+            super::super::Options::new(gix_filter::Pipeline::new(
+                Default::default(),
+                gix_testtools::object_hash(),
+                Default::default(),
+            ))
+            .thread_limit(),
+            Some(gix_parallel::num_threads(None).min(4)),
+            "automatic macOS checkout uses at most four workers"
+        );
+
+        let dir = gix_testtools::tempfile::tempdir()?;
+        let path = dir.path().join("file");
+        let original_contents = b"longer original contents";
+        for (destination_is_initially_empty, overwrite_existing) in [(false, false), (false, true), (true, true)] {
+            std::fs::write(&path, original_contents)?;
+            let file = super::open_options(destination_is_initially_empty, overwrite_existing).open(&path)?;
+            assert_eq!(
+                file.metadata()?.len(),
+                if cfg!(windows) {
+                    original_contents.len() as u64
+                } else {
+                    0
+                },
+                "Windows defers truncation until handle validation; Unix truncates during the no-follow open"
+            );
+            drop(file);
+            std::fs::write(&path, original_contents)?;
+
+            let (mut file, _) = super::open_file(
+                &path,
+                destination_is_initially_empty,
+                overwrite_existing,
+                false,
+                gix_index::entry::Mode::FILE,
+            )?;
+            assert_eq!(file.metadata()?.len(), 0, "validated regular files must be truncated");
+            file.write_all(b"new")?;
+            drop(file);
+            assert_eq!(std::fs::read(&path)?, b"new", "old trailing contents must not survive");
+        }
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(any(windows, unix))]
+    fn terminal_symlinks_created_after_precheck_are_rejected_or_replaced() -> gix_testtools::TestResult {
+        use std::{
+            io::Write,
+            sync::atomic::{AtomicUsize, Ordering},
+        };
+
+        let dir = gix_testtools::tempfile::tempdir()?;
+        if !gix_fs::Capabilities::probe_dir(dir.path()).symlink {
+            return Ok(());
+        }
+        for overwrite_existing in [false, true] {
+            for target_exists in [false, true] {
+                let case = gix_testtools::tempfile::tempdir_in(dir.path())?;
+                let target = case.path().join("target");
+                let link = case.path().join("link");
+                if target_exists {
+                    std::fs::write(&target, b"untouched")?;
+                }
+                let attempts = AtomicUsize::new(0);
+                let result = super::try_op_or_unlink(&link, overwrite_existing, |path| {
+                    // Insert the link just before opening, after Windows' forced-checkout precheck.
+                    // Unix has no precheck: O_NOFOLLOW must reject the link during the open itself.
+                    if attempts.fetch_add(1, Ordering::Relaxed) == 0 {
+                        gix_fs::symlink::create(&target, path)?;
+                    }
+                    super::open_file(path, false, false, false, gix_index::entry::Mode::FILE).map(|(file, _)| file)
+                });
+
+                if overwrite_existing {
+                    let mut file = result?;
+                    assert!(
+                        file.metadata()?.is_file(),
+                        "the retried open must return a regular file"
+                    );
+                    file.write_all(b"replacement")?;
+                    drop(file);
+                    assert_eq!(
+                        attempts.load(Ordering::Relaxed),
+                        2,
+                        "the collision must trigger one retry"
+                    );
+                    assert!(
+                        link.symlink_metadata()?.is_file(),
+                        "forced checkout must replace the link"
+                    );
+                    assert_eq!(std::fs::read(&link)?, b"replacement", "only the replacement is written");
+                } else {
+                    let err = result.expect_err("a terminal symlink must be rejected before truncation or writing");
+                    assert!(
+                        gix_fs::symlink::is_collision_error(&err),
+                        "Unix no-follow errors and Windows rejected handles must be recognized as collisions: {err}"
+                    );
+                    #[cfg(windows)]
+                    assert_eq!(err.kind(), std::io::ErrorKind::AlreadyExists, "symlinks are collisions");
+                    assert_eq!(
+                        attempts.load(Ordering::Relaxed),
+                        1,
+                        "non-forced checkout must not retry"
+                    );
+                    assert_eq!(
+                        std::fs::read_link(&link)?,
+                        target,
+                        "the rejected link must remain unchanged"
+                    );
+                }
+                if target_exists {
+                    assert_eq!(
+                        std::fs::read(&target)?,
+                        b"untouched",
+                        "the target must not be truncated or written"
+                    );
+                } else {
+                    assert!(
+                        !target.try_exists()?,
+                        "opening a dangling link must not create its target"
+                    );
+                }
+            }
+        }
         Ok(())
     }
 

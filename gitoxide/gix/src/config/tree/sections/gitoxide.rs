@@ -87,6 +87,7 @@ impl Section for Gitoxide {
 
 mod subsections {
     use crate::{
+        Result,
         bstr::ByteSlice,
         config::{
             Tree,
@@ -105,13 +106,12 @@ mod subsections {
 
     impl RefsNamespace {
         /// Derive the negotiation algorithm identified by `name`, case-sensitively.
-        pub fn try_into_refs_namespace(
-            &'static self,
-            name: impl gix_utils::AsBStr,
-        ) -> Result<gix_ref::Namespace, crate::config::refs_namespace::Error> {
+        pub fn try_into_refs_namespace(&'static self, name: impl gix_utils::AsBStr) -> Result<gix_ref::Namespace> {
+            use gix_error::ResultExt;
+
             let name = name.as_bstr();
             gix_ref::namespace::expand(name.as_bstr())
-                .map_err(|err| crate::config::key::Error::from_value(self, name.into()).with_source(err))
+                .or_raise(|| crate::config::key::error_with_value(self, "Invalid reference namespace", name))
         }
     }
 
@@ -144,12 +144,14 @@ mod subsections {
         /// The `gitoxide.core.indexFile` key, which selects an alternate index file.
         ///
         /// `GIT_INDEX_FILE` is mapped to this key when environment overrides are enabled and takes precedence over
-        /// configured values. An empty value is invalid.
+        /// configured values. Relative configured paths use the private Git directory; relative `GIT_INDEX_FILE`
+        /// values use the current directory captured when opening. The selected path is always made absolute,
+        /// without canonicalization or requiring the file to exist. An empty value is invalid.
         pub const INDEX_FILE: IndexFile =
             keys::Any::new_with_validate("indexFile", &Gitoxide::CORE, super::validate::NonEmptyPath)
             .with_environment_override("GIT_INDEX_FILE")
             .with_deviation(
-                "relative file paths are resolved against the current working directory captured when the repository was opened, whereas Git retains them and thus resolves them against the process's current directory on each use.",
+                "Git has no configuration key for an alternate index. Relative configured paths use the private Git directory. Relative GIT_INDEX_FILE values are anchored to the current directory captured when opening, whereas Git keeps them relative to the process's current directory on each use.",
             );
 
         /// The `gitoxide.core.filterProcessDelay` key (default `true`).
@@ -614,15 +616,14 @@ mod subsections {
 pub use subsections::{Allow, Author, Commit, Committer, Core, Credentials, Http, Https, Objects, Pathspec, Ssh, User};
 
 pub mod validate {
-    use gix_error::ValidationError;
-    use std::error::Error;
+    use gix_error::bail;
 
-    use crate::{bstr::BStr, config::tree::keys::Validate};
+    use crate::{Result, bstr::BStr, config::tree::keys::Validate};
 
     #[derive(Clone, Copy)]
     pub struct RefsNamespace;
     impl Validate for RefsNamespace {
-        fn validate(&self, value: &BStr) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
+        fn validate(&self, value: &BStr) -> Result {
             super::Core::REFS_NAMESPACE.try_into_refs_namespace(value)?;
             Ok(())
         }
@@ -631,9 +632,9 @@ pub mod validate {
     #[derive(Clone, Copy)]
     pub struct NonEmptyPath;
     impl Validate for NonEmptyPath {
-        fn validate(&self, value: &BStr) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
+        fn validate(&self, value: &BStr) -> Result {
             if value.is_empty() {
-                return Err(ValidationError::new("index file path must not be empty").into());
+                bail!(gix_error::validation("index file path must not be empty"));
             }
             Ok(())
         }

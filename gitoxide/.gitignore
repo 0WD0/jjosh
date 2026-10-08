@@ -12,6 +12,10 @@ $/tests/fixtures/repos/
 $/tests/fixtures/commit-graphs/
 
 **/generated-do-not-edit/
+# Make storing archives the exception, rather than the rule, in the interest of repo-size
+# Windows in particularl benefits from this due to slow script execution, but let's deal with
+# it once it's needed.
+**/generated-archives/
 
 # Cargo lock files of fuzz targets - let's have the latest versions of everything under test
 **/fuzz/Cargo.lock
@@ -21,3 +25,8 @@ $**/fuzz/Cargo.lock
 
 # Instead of adding more environment-specific ignores here, like for the IDE in use, prefer Git's user-global
 # `core.excludesFile` mechanism, see https://git-scm.com/docs/git-config#Documentation/git-config.txt-coreexcludesFile.
+
+# Share Zed tasks even when editor files are ignored globally; keep other Zed settings local.
+!/.zed/
+/.zed/*
+!/.zed/tasks.json

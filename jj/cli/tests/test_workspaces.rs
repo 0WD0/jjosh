@@ -1739,20 +1739,101 @@ fn test_workspaces_remove_snapshots_before_removal() {
     let secondary_dir = test_env.work_dir("secondary");
     secondary_dir.write_file("unsnapshotted.txt", "important data");
 
+    let output = main_dir.run_jj([
+        "workspace",
+        "remove",
+        "secondary",
+        "--config=snapshot.max-new-file-size=10",
+    ]);
+    insta::assert_snapshot!(output.normalize_backslash(), @"
+    ------- stderr -------
+    Warning: Refused to snapshot some files:
+      ../secondary/unsnapshotted.txt: 14.0B (14 bytes); the maximum size allowed is 10.0B (10 bytes)
+    Hint: This is to prevent large files from being added by accident. To fix this:
+      * Add the file(s) to `.gitignore`
+      * Run `jj config set --repo snapshot.max-new-file-size 14`
+        This will increase the maximum file size allowed for new files, in this repository only.
+      * Run `jj --config snapshot.max-new-file-size=14 status`
+        This will increase the maximum file size allowed for new files, for this command only.
+    Error: Cannot remove workspace 'secondary' with unsnapshotted changes
+    [EOF]
+    [exit status: 1]
+    ");
+
+    assert!(test_env.env_root().join("secondary").exists());
+
     let output = main_dir.run_jj(["workspace", "remove", "secondary"]);
     insta::assert_snapshot!(output.normalize_backslash(), @r#"
     ------- stderr -------
+    Snapshot commit created for workspace 'secondary': ff0805347b96
     Removed workspace directory "$TEST_ENV/secondary".
     [EOF]
     "#);
 
     assert!(!test_env.env_root().join("secondary").exists());
 
-    let output = main_dir.run_jj(["log", "-r", r#"files("unsnapshotted.txt")"#, "--summary"]);
+    let output = main_dir.run_jj(["log", "--summary"]);
     insta::assert_snapshot!(output, @"
-    ○  pmmvwywv test.user@example.com 2001-02-03 08:05:10 e7db06a0
-    │  (no description set)
-    ~  A unsnapshotted.txt
+    @  rlvkpnrz test.user@example.com 2001-02-03 08:05:08 504e3d8c
+    │  (empty) (no description set)
+    │ ○  mzvwutvl test.user@example.com 2001-02-03 08:05:11 ff080534
+    │ │  SNAPSHOT OF REMOVED WORKSPACE `secondary`
+    │ │  A unsnapshotted.txt
+    │ ○  pmmvwywv test.user@example.com 2001-02-03 08:05:09 058f604d
+    ├─╯  (empty) (no description set)
+    ○  qpvuntsm test.user@example.com 2001-02-03 08:05:08 7b22a8cb
+    │  initial
+    │  A file
+    ◆  zzzzzzzz root() 00000000
+    [EOF]
+    ");
+}
+
+#[test]
+fn test_workspaces_remove_snapshots_stale_before_removal() {
+    let test_env = TestEnvironment::default();
+    test_env.run_jj_in(".", ["git", "init", "main"]).success();
+    let main_dir = test_env.work_dir("main");
+
+    main_dir.write_file("file", "contents");
+    main_dir.run_jj(["commit", "-minitial"]).success();
+
+    main_dir
+        .run_jj(["workspace", "add", "../secondary"])
+        .success();
+
+    let secondary_dir = test_env.work_dir("secondary");
+    secondary_dir.write_file("unsnapshotted.txt", "important data");
+
+    main_dir
+        .run_jj(["describe", "-rsecondary@", "-mstale"])
+        .success();
+
+    let output = main_dir.run_jj(["workspace", "remove", "secondary"]);
+    insta::assert_snapshot!(output.normalize_backslash(), @r#"
+    ------- stderr -------
+    Snapshot commit created for workspace 'secondary': ff0805347b96
+    Removed workspace directory "$TEST_ENV/secondary".
+    [EOF]
+    "#);
+
+    assert!(!test_env.env_root().join("secondary").exists());
+
+    let output = main_dir.run_jj(["log", "--summary"]);
+    insta::assert_snapshot!(output, @"
+    @  rlvkpnrz test.user@example.com 2001-02-03 08:05:08 504e3d8c
+    │  (empty) (no description set)
+    │ ○  mzvwutvl test.user@example.com 2001-02-03 08:05:11 ff080534
+    │ │  SNAPSHOT OF REMOVED WORKSPACE `secondary`
+    │ │  A unsnapshotted.txt
+    │ ○  pmmvwywv/1 test.user@example.com 2001-02-03 08:05:09 058f604d (divergent)
+    ├─╯  (empty) (no description set)
+    │ ○  pmmvwywv/0 test.user@example.com 2001-02-03 08:05:10 8cee6445 (divergent)
+    ├─╯  (empty) stale
+    ○  qpvuntsm test.user@example.com 2001-02-03 08:05:08 7b22a8cb
+    │  initial
+    │  A file
+    ◆  zzzzzzzz root() 00000000
     [EOF]
     ");
 }
@@ -2010,22 +2091,22 @@ fn test_list_workspaces_template_root_unavailable() {
     let output = main_dir.run_jj(["workspace", "list", "-T", template]);
     insta::assert_snapshot!(output.normalize_backslash(), @"
     default: $TEST_ENV/main
-    second: 
+    second: $TEST_ENV/secondary
     [EOF]
     ");
 
     let template = r#"name ++ ": " ++ if(root, root.relative()) ++ "\n""#;
     let output = main_dir.run_jj(["workspace", "list", "-T", template]);
-    insta::assert_snapshot!(output, @"
+    insta::assert_snapshot!(output.normalize_backslash(), @"
     default: .
-    second: 
+    second: ../secondary
     [EOF]
     ");
 
     let output = main_dir.run_jj(["workspace", "list"]);
-    insta::assert_snapshot!(output, @"
+    insta::assert_snapshot!(output.normalize_backslash(), @"
     default: . qpvuntsm e8849ae1 (empty) (no description set)
-    second: uuqppmxq 94f41578 (empty) (no description set)
+    second: ../secondary uuqppmxq 94f41578 (empty) (no description set)
     [EOF]
     ");
 }
@@ -2138,10 +2219,11 @@ fn test_workspaces_root_unavailable() -> TestResult {
 
     let output = main_dir.run_jj(["workspace", "root", "--name", "secondary"]);
     insta::assert_snapshot!(output.normalize_backslash().strip_stderr_last_line(), @"
-    ------- stderr -------
-    Error: Cannot resolve absolute workspace path: $TEST_ENV/main/.jj/repo/../../../secondary
+    $TEST_ENV/secondary
     [EOF]
-    [exit status: 1]
+    ------- stderr -------
+    Warning: Cannot access workspace path: $TEST_ENV/secondary
+    [EOF]
     ");
     Ok(())
 }
@@ -2668,7 +2750,7 @@ fn git_worktree_ids(repo: &gix::Repository) -> Vec<String> {
         .worktrees()
         .unwrap()
         .iter()
-        .map(|proxy| proxy.id().to_string())
+        .map(|proxy| proxy.id().unwrap().to_string())
         .collect::<Vec<_>>();
     ids.sort();
     ids

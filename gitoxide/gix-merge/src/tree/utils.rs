@@ -5,10 +5,12 @@
 //!
 //! Once such a case becomes a bug and is reproduced in testing, the debug-assertion will kick in and hopefully
 //! contribute to finding a fix faster.
+use gix_error::Result;
 use std::collections::HashMap;
 
 use bstr::{BStr, BString, ByteSlice, ByteVec};
 use gix_diff::tree_with_rewrites::{Change, ChangeRef};
+use gix_error::{OptionExt, ResultExt, message};
 use gix_hash::ObjectId;
 use gix_object::{
     tree,
@@ -18,7 +20,7 @@ use gix_object::{
 use crate::{
     blob::{ResourceKind, builtin_driver::binary::Pick},
     tree::{
-        Conflict, ConflictIndexEntry, ConflictIndexEntryPathHint, ConflictMapping, Error, Options, Resolution,
+        Conflict, ConflictIndexEntry, ConflictIndexEntryPathHint, ConflictMapping, Options, Resolution,
         ResolutionFailure,
     },
 };
@@ -76,7 +78,7 @@ pub fn unique_path_in_tree(
     editor: &tree::Editor<'_>,
     tree: &TreeNodes,
     side_name: &BStr,
-) -> Result<BString, Error> {
+) -> Result<BString> {
     let mut qualifier = BString::from("~");
     qualifier.extend(
         side_name
@@ -119,21 +121,18 @@ pub fn unique_path_in_tree(
 
 /// Perform a merge between two blobs and return the result of its object id.
 #[expect(clippy::too_many_arguments)]
-pub fn perform_blob_merge<E>(
+pub fn perform_blob_merge(
     mut labels: crate::blob::builtin_driver::text::Labels<'_>,
     objects: &impl gix_object::FindObjectOrHeader,
     blob_merge: &mut crate::blob::Platform,
     buf: &mut Vec<u8>,
-    write_blob_to_odb: &mut impl FnMut(&[u8]) -> Result<ObjectId, E>,
+    write_blob_to_odb: &mut impl FnMut(&[u8]) -> Result<ObjectId>,
     (our_location, our_id, our_mode): (&BString, ObjectId, EntryMode),
     (their_location, their_id, their_mode): (&BString, ObjectId, EntryMode),
     (previous_location, previous_id, previous_mode): (&BString, ObjectId, EntryMode),
     (extra_markers, outer_side): (u8, ConflictMapping),
     options: &Options,
-) -> Result<(ObjectId, crate::blob::Resolution), Error>
-where
-    E: Into<Box<dyn std::error::Error + Send + Sync + 'static>>,
-{
+) -> Result<(ObjectId, crate::blob::Resolution)> {
     if our_id == their_id {
         // This can happen if the merge modes are different.
         debug_assert_ne!(
@@ -211,8 +210,8 @@ where
 
     let merged_blob_id = prep
         .id_by_pick(pick, buf, write_blob_to_odb)
-        .map_err(|err| Error::WriteBlobToOdb(err.into()))?
-        .ok_or(Error::MergeResourceNotFound)?;
+        .or_raise(|| message("Failed to write merged blob content as blob to the object database"))?
+        .ok_or_raise(|| crate::tree::Error::MissingBinaryMergeResult)?;
     Ok((merged_blob_id, resolution))
 }
 
@@ -375,11 +374,7 @@ pub fn track(change: ChangeRef<'_>, changes: &mut ChangeList) {
 }
 
 /// Unconditionally apply `change` to `editor`.
-pub fn apply_change(
-    editor: &mut tree::Editor<'_>,
-    change: &Change,
-    alternative_location: Option<&BString>,
-) -> Result<(), tree::editor::Error> {
+pub fn apply_change(editor: &mut tree::Editor<'_>, change: &Change, alternative_location: Option<&BString>) -> Result {
     use to_components_bstring_ref as to_components;
     if change.entry_mode().is_tree() {
         return Ok(());
@@ -399,7 +394,7 @@ pub fn apply_change(
             ..
         } => (location, entry_mode, id),
         Change::Deletion { location, .. } => {
-            editor.remove(to_components(alternative_location.unwrap_or(location)))?;
+            editor.remove_if_leaf(to_components(alternative_location.unwrap_or(location)))?;
             return Ok(());
         }
         Change::Rewrite {
@@ -411,7 +406,7 @@ pub fn apply_change(
             ..
         } => {
             if !*copy {
-                editor.remove(to_components(source_location))?;
+                editor.remove_if_leaf(to_components(source_location))?;
             }
             (location, entry_mode, id)
         }
@@ -710,7 +705,7 @@ impl Conflict {
     }
 
     fn maybe_resolved(
-        resolution: Result<Resolution, ResolutionFailure>,
+        resolution: std::result::Result<Resolution, ResolutionFailure>,
         (ours, theirs, map, outer_map): (&Change, &Change, ConflictMapping, ConflictMapping),
         entries: [Option<ConflictIndexEntry>; 3],
     ) -> Self {
@@ -751,6 +746,7 @@ impl Conflict {
 #[cfg(test)]
 mod tree_nodes_tests {
     use super::*;
+    use gix_error::Result;
 
     #[test]
     fn removing_an_absent_nested_change_does_not_remove_a_matching_root_suffix() {
@@ -852,7 +848,7 @@ mod tree_nodes_tests {
     }
 
     #[test]
-    fn unique_path_qualifies_a_non_tree_parent_instead_of_looping_over_child_names() -> Result<(), Error> {
+    fn unique_path_qualifies_a_non_tree_parent_instead_of_looping_over_child_names() -> Result {
         let mut tree = TreeNodes::new();
         tree.track_change(
             &Change::Addition {

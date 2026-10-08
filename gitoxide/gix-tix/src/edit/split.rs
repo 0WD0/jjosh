@@ -1,5 +1,7 @@
-use anyhow::{Context, Result};
-use gix::ObjectId;
+use gix::{
+    ObjectId, Result,
+    error::{OptionExt, ResultExt, bail, message},
+};
 
 use super::{create, rebase};
 use crate::{ChangeGroup, ChangeKind, load_worktree_changes_without_lines};
@@ -17,44 +19,37 @@ pub(crate) struct Prepared {
 pub(crate) fn prepare(mut repo: gix::Repository, todo: bool) -> Result<Prepared> {
     let target = repo
         .head_id()
-        .context("splitting requires an existing HEAD commit")?
+        .or_raise(|| message("splitting requires an existing HEAD commit"))?
         .detach();
-    let changes = load_worktree_changes_without_lines(&repo)?;
+    let changes = load_worktree_changes_without_lines(&repo, gix::status::UntrackedFiles::Files)?;
     if changes.paths.iter().any(|change| change.kind == ChangeKind::Unmerged) {
-        anyhow::bail!("cannot split with unresolved conflicts");
+        bail!("cannot split with unresolved conflicts");
     }
     if !changes.paths.iter().any(|change| change.group == ChangeGroup::Staged)
         || !changes.paths.iter().any(|change| change.group == ChangeGroup::Unstaged)
     {
-        anyhow::bail!("splitting requires both staged and worktree changes");
+        bail!("splitting requires both staged and worktree changes");
     }
 
-    let mut source = repo
-        .find_commit(target)
-        .context("could not find HEAD commit")?
-        .decode()
-        .context("could not decode HEAD commit")?
-        .into_owned()
-        .context("could not own HEAD commit")?;
+    let mut source = repo.find_commit(target)?.decode()?.into_owned()?;
+    super::auto_merge::ensure_editable(&source)?;
     let mut create = create::prepare_from(repo.clone(), Some(target), create::Source::Default, None, todo)?;
     repo.objects.set_object_memory(std::mem::take(&mut create.objects));
 
     let head_tree = source.tree;
     let index_tree = create.tree;
-    let index = repo
-        .find_tree(index_tree)
-        .context("could not load the prepared index tree")?;
+    let index = repo.find_tree(index_tree)?;
     let worktree_tree = create::worktree_tree_with_changes(&repo, &index, &changes)?;
     drop(index);
     let source_tree = rebase::cherry_pick_tree(&repo, index_tree, head_tree, worktree_tree)
-        .context("worktree changes conflict with the source commit")?;
+        .or_raise(|| message("worktree changes conflict with the source commit"))?;
     let tree = rebase::cherry_pick_tree(&repo, head_tree, source_tree, index_tree)
-        .context("staged changes conflict with the rewritten source commit")?;
+        .or_raise(|| message("staged changes conflict with the rewritten source commit"))?;
     source.tree = source_tree;
     create.objects = repo
         .objects
         .take_object_memory()
-        .context("candidate object memory was unavailable")?;
+        .ok_or_raise(|| message("candidate object memory was unavailable"))?;
 
     Ok(Prepared {
         editor: create.editor.take(),
@@ -76,7 +71,7 @@ pub(crate) fn apply(
 ) -> Result<ObjectId> {
     apply_reporting(repo, graph, prepared, edited, |_| {})?
         .selected
-        .context("splitting HEAD did not produce a selection")
+        .ok_or_raise(|| message("splitting HEAD did not produce a selection"))
 }
 
 pub(crate) fn apply_reporting(
@@ -102,16 +97,19 @@ pub(crate) fn apply_reporting(
         },
         rebase::Signature::InvalidateExisting,
         rebase::Tree::LeaveAsIsAndMark,
+        None,
         report,
     )?
     .complete()?;
-    let id = outcome.selected.context("splitting HEAD did not produce a selection")?;
+    let id = outcome
+        .selected
+        .ok_or_raise(|| message("splitting HEAD did not produce a selection"))?;
     drop(repo);
     let repo = crate::open_repository(&repository_path, bare, false)?;
     let name: gix::refs::FullName = crate::enrich::REF_NAME.try_into().expect("valid enrich ref");
     let before = super::undo::state(&repo, name.as_ref())?;
     crate::enrich::apply_headers(&repo, id, &enrichment)
-        .context("the commit was split, but its enrichment could not be saved")?;
+        .or_raise(|| message("the commit was split, but its enrichment could not be saved"))?;
     let after = super::undo::state(&repo, name.as_ref())?;
     if before != after {
         outcome.ref_changes.push(super::undo::RefChange { name, before, after });
@@ -121,7 +119,7 @@ pub(crate) fn apply_reporting(
 
 #[cfg(test)]
 mod tests {
-    use std::{path::Path, process::Command};
+    use std::path::Path;
 
     use gix::bstr::ByteSlice;
 
@@ -135,7 +133,7 @@ mod tests {
     }
 
     fn git(path: &Path, args: &[&str]) -> gix_testtools::Result<Vec<u8>> {
-        let output = Command::new("git").arg("-C").arg(path).args(args).output()?;
+        let output = gix_testtools::git_command(path).args(args).output()?;
         if !output.status.success() {
             return Err(format!("git {} failed: {}", args.join(" "), output.stderr.to_str_lossy()).into());
         }
@@ -145,6 +143,8 @@ mod tests {
     #[test]
     fn splits_staged_and_worktree_changes_without_touching_files_during_preparation() -> gix_testtools::Result {
         let fixture = gix_testtools::scripted_fixture_writable("split_commit.sh")?;
+        std::fs::create_dir_all(fixture.path().join("untracked-dir/nested"))?;
+        std::fs::write(fixture.path().join("untracked-dir/nested/file"), "nested untracked\n")?;
         let repository = open(fixture.path())?;
         let old = repository.head_id()?.detach();
         let old_parent = repository.find_commit(old)?.parent_ids().next().map(gix::Id::detach);
@@ -163,17 +163,11 @@ mod tests {
             "split editors contain only the configured author"
         );
         assert!(
-            prepared
-                .document
-                .windows(b"staged".len())
-                .any(|window| window == b"staged"),
+            prepared.document.contains_str(b"staged"),
             "the upper commit editor describes staged paths"
         );
         assert!(
-            !prepared
-                .document
-                .windows(b"unstaged |".len())
-                .any(|window| window == b"unstaged |"),
+            !prepared.document.contains_str(b"unstaged |"),
             "the upper commit editor excludes worktree-only paths"
         );
         assert_eq!(
@@ -232,6 +226,14 @@ mod tests {
         assert_eq!(
             git(fixture.path(), &["show", &format!("{source}:untracked")])?,
             b"untracked\n"
+        );
+        assert_eq!(
+            git(
+                fixture.path(),
+                &["show", &format!("{source}:untracked-dir/nested/file")]
+            )?,
+            b"nested untracked\n",
+            "split includes the files inside collapsed untracked directories"
         );
         assert_eq!(git(fixture.path(), &["show", &format!("{upper}:staged")])?, b"staged\n");
         assert_eq!(repository.find_commit(source)?.message_raw()?, b"base\n".as_bstr());

@@ -1,3 +1,4 @@
+use gix_error::Result;
 use std::{
     any::Any,
     borrow::Cow,
@@ -17,7 +18,7 @@ pub trait TransportWithoutIO {
     /// of the identity in order to mark it as invalid. Otherwise the user might have difficulty updating obsolete
     /// credentials.
     /// Please note that most transport layers are unauthenticated and thus return [an error][Error::AuthenticationUnsupported] here.
-    fn set_identity(&mut self, _identity: gix_sec::identity::Account) -> Result<(), Error> {
+    fn set_identity(&mut self, _identity: gix_sec::identity::Account) -> std::result::Result<(), Error> {
         Err(Error::AuthenticationUnsupported)
     }
 
@@ -48,12 +49,12 @@ pub trait TransportWithoutIO {
     /// Pass `config` can be cast and interpreted by the implementation, as documented separately.
     ///
     /// The caller must know how that `config` data looks like for the intended implementation.
-    fn configure(&mut self, config: &dyn Any) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>>;
+    fn configure(&mut self, config: &dyn Any) -> Result;
 }
 
 // Would be nice if the box implementation could auto-forward to all implemented traits.
 impl<T: TransportWithoutIO + ?Sized> TransportWithoutIO for Box<T> {
-    fn set_identity(&mut self, identity: gix_sec::identity::Account) -> Result<(), Error> {
+    fn set_identity(&mut self, identity: gix_sec::identity::Account) -> std::result::Result<(), Error> {
         self.deref_mut().set_identity(identity)
     }
 
@@ -69,13 +70,13 @@ impl<T: TransportWithoutIO + ?Sized> TransportWithoutIO for Box<T> {
         self.deref().connection_persists_across_multiple_requests()
     }
 
-    fn configure(&mut self, config: &dyn Any) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+    fn configure(&mut self, config: &dyn Any) -> Result {
         self.deref_mut().configure(config)
     }
 }
 
 impl<T: TransportWithoutIO + ?Sized> TransportWithoutIO for &mut T {
-    fn set_identity(&mut self, identity: gix_sec::identity::Account) -> Result<(), Error> {
+    fn set_identity(&mut self, identity: gix_sec::identity::Account) -> std::result::Result<(), Error> {
         self.deref_mut().set_identity(identity)
     }
 
@@ -91,7 +92,7 @@ impl<T: TransportWithoutIO + ?Sized> TransportWithoutIO for &mut T {
         self.deref().connection_persists_across_multiple_requests()
     }
 
-    fn configure(&mut self, config: &dyn Any) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+    fn configure(&mut self, config: &dyn Any) -> Result {
         self.deref_mut().configure(config)
     }
 }

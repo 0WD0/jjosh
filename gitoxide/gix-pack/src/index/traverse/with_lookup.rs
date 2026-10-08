@@ -1,12 +1,11 @@
+use gix_error::Result;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use gix_features::{
-    parallel::{self, in_parallel_if},
-    progress::{self, Count, DynNestedProgress, Progress},
-    threading::{Mutable, OwnShared, lock},
-};
+use gix_parallel::{self as parallel, in_parallel_if};
+use gix_parallel::{Mutable, OwnShared, lock};
+use gix_utils::progress::{self, Count, DynNestedProgress, Progress};
 
-use super::{Error, Reducer};
+use super::Reducer;
 use crate::{
     data, exact_vec, index,
     index::{traverse::Outcome, util},
@@ -48,7 +47,7 @@ pub enum ProgressId {
     DecodedObjects,
 }
 
-impl From<ProgressId> for gix_features::progress::Id {
+impl From<ProgressId> for gix_utils::progress::Id {
     fn from(v: ProgressId) -> Self {
         match v {
             ProgressId::HashPackDataBytes => *b"PTHP",
@@ -68,7 +67,7 @@ where
     /// waste while decoding objects.
     ///
     /// For more details, see the documentation on the [`traverse()`][index::File::traverse()] method.
-    pub fn traverse_with_lookup<C, Processor, E, F, D>(
+    pub fn traverse_with_lookup<C, Processor, F, D>(
         &self,
         mut processor: Processor,
         pack: &data::File<D>,
@@ -79,22 +78,21 @@ where
             check,
             make_pack_lookup_cache,
         }: Options<F>,
-    ) -> Result<Outcome, Error<E>>
+    ) -> Result<Outcome>
     where
         C: crate::cache::DecodeEntry,
-        E: std::error::Error + Send + Sync + 'static,
-        Processor: FnMut(gix_object::Kind, &[u8], &index::Entry, &dyn Progress) -> Result<(), E> + Send + Clone,
+        Processor: FnMut(gix_object::Kind, &[u8], &index::Entry, &dyn Progress) -> Result + Send + Clone,
         F: Fn() -> C + Send + Clone,
         D: crate::FileData + Send + Sync,
     {
         let (verify_result, traversal_result) = parallel::join(
             {
                 let mut pack_progress = progress.add_child_with_id(
-                    format!("Hash of pack '{}'", crate::source_name(pack.path())),
+                    format!("Hash of pack \"{}\"", crate::source_name(pack.path())),
                     ProgressId::HashPackDataBytes.into(),
                 );
                 let mut index_progress = progress.add_child_with_id(
-                    format!("Hash of index '{}'", crate::source_name(&self.path)),
+                    format!("Hash of index \"{}\"", crate::source_name(&self.path)),
                     ProgressId::HashPackIndexBytes.into(),
                 );
                 move || {
@@ -132,7 +130,7 @@ where
                             Vec::with_capacity(2048), // decode buffer
                             gix_zlib::Inflate::default(),
                             lock(&reduce_progress)
-                                .add_child_with_id(format!("thread {index}"), gix_features::progress::UNKNOWN), // per thread progress
+                                .add_child_with_id(format!("thread {index}"), gix_utils::progress::UNKNOWN), // per thread progress
                         )
                     }
                 };
@@ -144,10 +142,10 @@ where
                     state_per_thread,
                     move |entries: &[index::Entry],
                           (cache, buf, inflate, progress)|
-                          -> Result<Vec<data::decode::entry::Outcome>, Error<_>> {
+                          -> Result<Vec<data::decode::entry::Outcome>> {
                         progress.init(
                             Some(entries.len()),
-                            gix_features::progress::count_with_decimals("objects", 2),
+                            gix_utils::progress::count_with_decimals("objects", 2),
                         );
                         let mut stats = exact_vec(entries.len());
                         progress.set(0);
@@ -163,13 +161,7 @@ where
                                 &mut processor,
                             );
                             progress.inc();
-                            let stat = match result {
-                                Err(err @ Error::PackDecode { .. }) if !check.fatal_decode_error() => {
-                                    progress.info(format!("Ignoring decode error: {err}"));
-                                    continue;
-                                }
-                                res => res,
-                            }?;
+                            let Some(stat) = result? else { continue };
                             stats.push(stat);
                             if should_interrupt.load(Ordering::Relaxed) {
                                 break;
@@ -177,7 +169,7 @@ where
                         }
                         Ok(stats)
                     },
-                    Reducer::from_progress(reduce_progress, pack.data_len(), check, should_interrupt),
+                    Reducer::from_progress(reduce_progress, pack.data_len(), should_interrupt),
                 )
             },
         );

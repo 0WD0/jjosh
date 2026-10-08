@@ -15,16 +15,15 @@ pub type Variant = keys::Any<validate::Variant>;
 
 #[cfg(feature = "blocking-network-client")]
 mod variant {
-    use crate::{bstr::ByteSlice, config, config::tree::ssh::Variant};
+    use gix_error::bail;
+
+    use crate::{Result, bstr::ByteSlice, config, config::tree::ssh::Variant};
 
     impl Variant {
         pub fn try_into_variant(
             &'static self,
             value: impl gix_utils::AsBStr,
-        ) -> Result<
-            Option<gix_protocol::transport::client::blocking_io::ssh::ProgramKind>,
-            config::key::GenericErrorWithValue,
-        > {
+        ) -> Result<Option<gix_protocol::transport::client::blocking_io::ssh::ProgramKind>> {
             use gix_protocol::transport::client::blocking_io::ssh::ProgramKind;
 
             let value = value.as_bstr();
@@ -35,7 +34,13 @@ mod variant {
                 b"putty" => ProgramKind::Putty,
                 b"tortoiseplink" => ProgramKind::TortoisePlink,
                 b"simple" => ProgramKind::Simple,
-                _ => return Err(config::key::GenericErrorWithValue::from_value(self, value.into())),
+                _ => {
+                    bail!(config::key::error_with_value(
+                        self,
+                        "Invalid configuration value",
+                        value,
+                    ));
+                }
             }))
         }
     }
@@ -52,11 +57,11 @@ impl Section for Ssh {
 }
 
 mod validate {
-    use crate::{bstr::BStr, config::tree::keys};
+    use crate::{Result, bstr::BStr, config::tree::keys};
 
     pub struct Variant;
     impl keys::Validate for Variant {
-        fn validate(&self, _value: &BStr) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+        fn validate(&self, _value: &BStr) -> Result {
             #[cfg(feature = "blocking-network-client")]
             super::Ssh::VARIANT.try_into_variant(_value)?;
             Ok(())

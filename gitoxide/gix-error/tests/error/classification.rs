@@ -1,7 +1,237 @@
 use gix_error::{
-    Class, CorruptionError, Error, ErrorExt, ResourceExhaustionError, ResourceExhaustionKind, RetryableError,
-    ValidationError, can_retry, can_retry_lenient, message,
+    Class, ClassificationMarker, Error, ErrorExt, Message, ResourceExhaustionKind, classify, corruption, message,
+    not_found, resource_exhaustion, tag, unauthenticated, validation,
 };
+
+#[test]
+fn dominant_class_respects_precedence_independently_of_traversal_order() {
+    let classes = [
+        Class::Cancelled,
+        Class::Corruption,
+        Class::ResourceExhaustion(ResourceExhaustionKind::AllocationLimit),
+        Class::ResourceExhaustion(ResourceExhaustionKind::AllocationFailure),
+        Class::Validation,
+        Class::Unsupported,
+        Class::Unauthenticated,
+        Class::PermissionDenied,
+        Class::Conflict,
+        Class::NotFound,
+        Class::Retryable,
+    ];
+    for (index, &dominant) in classes.iter().enumerate() {
+        for &other in &classes[index..] {
+            for causes in [[dominant, other], [other, dominant]] {
+                let exception = message("aggregate")
+                    .raise_all(causes.map(|class| message("cause").with_class(class).raise_typed().erased()));
+                assert_eq!(
+                    exception.dominant_class(),
+                    Some(dominant),
+                    "typed exceptions select the highest-precedence class from {causes:?}"
+                );
+                assert_eq!(
+                    exception.classify().dominant_class(),
+                    Some(dominant),
+                    "iterator inspection agrees with typed exception inspection"
+                );
+                let error = exception.into_error();
+                assert_eq!(
+                    error.dominant_class(),
+                    Some(dominant),
+                    "conversion preserves precedence"
+                );
+                let io = std::io::Error::other(error);
+                assert_eq!(
+                    classify(&io).dominant_class(),
+                    Some(dominant),
+                    "borrowed inspection traverses native sources and nested error trees"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn dominant_class_handles_unclassified_and_single_causes() {
+    let exception = message("unknown").raise_typed();
+    assert_eq!(
+        exception.dominant_class(),
+        None,
+        "an unclassified exception has no dominant class"
+    );
+    assert_eq!(
+        exception.into_error().dominant_class(),
+        None,
+        "an unclassified error has no dominant class"
+    );
+    let io = std::io::Error::from(std::io::ErrorKind::TimedOut);
+    assert_eq!(
+        classify(&io).dominant_class(),
+        None,
+        "inferred retryability alone does not establish a semantic class"
+    );
+    let io = std::io::Error::from(std::io::ErrorKind::NotFound);
+    assert_eq!(
+        classify(&io).dominant_class(),
+        Some(Class::NotFound),
+        "a single native classification is dominant"
+    );
+}
+
+#[test]
+fn dominant_class_inspects_only_remaining_classifications() {
+    let exception = gix_error::cancelled("stop")
+        .raise_typed()
+        .chain(gix_error::retryable("temporary"));
+    let mut classes = exception.classify();
+    assert_eq!(
+        classes.next().expect("the outer error is classified").class(),
+        Class::Cancelled,
+        "classification traversal still starts with the outer error"
+    );
+    assert_eq!(
+        classes.dominant_class(),
+        Some(Class::Retryable),
+        "consumed higher-precedence classes do not affect the remaining result"
+    );
+    let mut classes = exception.classify();
+    assert_eq!(classes.by_ref().count(), 2, "both classifications are consumed");
+    assert_eq!(
+        classes.dominant_class(),
+        None,
+        "an exhausted classification iterator has no dominant class"
+    );
+}
+
+#[test]
+fn constant_marker_subjects_survive_nested_contexts_aggregates_and_conversion() {
+    #[derive(Debug)]
+    struct Missing(u8);
+
+    impl std::fmt::Display for Missing {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "missing resource {}", self.0)
+        }
+    }
+
+    impl std::error::Error for Missing {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            Some(const { &ClassificationMarker::NOT_FOUND })
+        }
+    }
+
+    let missing = Missing(1);
+    assert!(
+        std::ptr::eq(
+            classify(&missing)
+                .next()
+                .expect("the constant source classifies its owner")
+                .error()
+                .downcast_ref::<Missing>()
+                .expect("the subject retains its concrete type"),
+            &missing,
+        ),
+        "borrowed inspection identifies the exact owner of the constant marker"
+    );
+
+    let err = message("outer context")
+        .raise_typed()
+        .chain(missing.raise_typed().into_error())
+        .chain(tag(Missing(2), Class::Validation));
+    let subjects = |classes: gix_error::types::Classifications<'_>| {
+        classes
+            .map(|item| {
+                (
+                    item.class(),
+                    item.error().downcast_ref::<Missing>().expect("a typed subject").0,
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    let expected = [(Class::Validation, 2), (Class::NotFound, 1), (Class::NotFound, 2)];
+    assert_eq!(
+        subjects(err.classify()),
+        expected,
+        "native owners are tracked per branch, even when their constant sources have the same address"
+    );
+    let err = err.into_error();
+    assert_eq!(
+        subjects(err.classify()),
+        expected,
+        "conversion preserves classification order, duplicates, and typed subjects"
+    );
+    assert_eq!(
+        subjects(classify(&err)),
+        expected,
+        "borrowed inspection expands the converted representation"
+    );
+
+    let standalone = ClassificationMarker::NOT_FOUND
+        .raise_typed()
+        .chain(ClassificationMarker::VALIDATION);
+    assert!(
+        standalone
+            .classify()
+            .all(|item| item.error().is::<ClassificationMarker>()),
+        "markers without a native owner or wrapped error retain their fallback"
+    );
+    assert!(
+        standalone
+            .into_error()
+            .classify()
+            .all(|item| item.error().is::<ClassificationMarker>()),
+        "conversion preserves standalone markers' fallback"
+    );
+}
+
+#[test]
+fn a_tag_can_be_matched_without_traversing_its_subjects_sources() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    #[derive(Debug)]
+    struct Counted(Arc<AtomicUsize>);
+
+    impl std::fmt::Display for Counted {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("counted source")
+        }
+    }
+
+    impl std::error::Error for Counted {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            self.0.fetch_add(1, Ordering::Relaxed);
+            Some(const { &ClassificationMarker::NOT_FOUND })
+        }
+    }
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let marker = tag(Counted(Arc::clone(&calls)), Class::Retryable);
+    assert!(
+        classify(&marker).is_retryable(),
+        "borrowed classification finds the tag"
+    );
+    let err = marker.raise_typed();
+    assert!(err.is_retryable(), "exception classification finds the tag");
+    assert_eq!(
+        calls.load(Ordering::Relaxed),
+        0,
+        "matching the tag needs no source traversal"
+    );
+    let err = err.into_error();
+    calls.store(0, Ordering::Relaxed);
+    let classification = err.classify().next().expect("the tag is first");
+    assert!(
+        classification.error().is::<Counted>(),
+        "the tag exposes its concrete subject"
+    );
+    assert_eq!(
+        calls.load(Ordering::Relaxed),
+        0,
+        "converted inspection stops at the matching tag"
+    );
+}
 
 #[test]
 fn classifications_preserve_order_duplicates_and_sources() {
@@ -11,14 +241,30 @@ fn classifications_preserve_order_duplicates_and_sources() {
             .expect_err("the maximum capacity cannot be reserved")
     }
     let err = Error::from(
-        RetryableError::new(allocation_failure()).and_raise(CorruptionError::new("corrupt input caused allocation")),
+        ClassificationMarker::with_source(Class::Retryable, allocation_failure())
+            .and_raise_typed(corruption("corrupt input caused allocation")),
     );
+    if cfg!(all(feature = "auto-chain-error", not(feature = "tree-error"))) {
+        insta::assert_debug_snapshot!(err, "classification retains each independent cause", @"
+        corrupt input caused allocation
+
+        Caused by:
+            0: memory allocation failed because the computed capacity exceeded the collection's maximum
+        ");
+    } else {
+        insta::assert_debug_snapshot!(err, "classification retains each independent cause", @"
+        corrupt input caused allocation
+
+        Caused by:
+            0: memory allocation failed because the computed capacity exceeded the collection's maximum
+        ");
+    }
     let classifications = err.classify().collect::<Vec<_>>();
 
     assert_eq!(
         classifications
             .iter()
-            .map(gix_error::Classification::class)
+            .map(gix_error::types::Classification::class)
             .collect::<Vec<_>>(),
         [
             Class::Corruption,
@@ -27,15 +273,29 @@ fn classifications_preserve_order_duplicates_and_sources() {
         ],
         "classification follows the error graph without merging independent meanings"
     );
-    assert!(classifications[0].error().is::<CorruptionError>());
-    assert!(classifications[1].error().is::<RetryableError>());
+    assert!(classifications[0].error().is::<Message>());
+    assert!(
+        classifications[1].error().is::<std::collections::TryReserveError>(),
+        "the added classification identifies the wrapped allocation error"
+    );
     assert!(classifications[2].error().is::<std::collections::TryReserveError>());
 
-    let duplicate = Error::from(
-        ValidationError::new("first")
-            .raise()
-            .chain(ValidationError::new("second")),
-    );
+    let duplicate = Error::from(validation("first").raise_typed().chain(validation("second")));
+    if cfg!(all(feature = "auto-chain-error", not(feature = "tree-error"))) {
+        insta::assert_debug_snapshot!(duplicate, "separate invalid inputs retain separate diagnostics", @"
+        first
+
+        Caused by:
+            0: second
+        ");
+    } else {
+        insta::assert_debug_snapshot!(duplicate, "separate invalid inputs retain separate diagnostics", @"
+        first
+
+        Caused by:
+            0: second
+        ");
+    }
     assert_eq!(
         duplicate.classify().map(|item| item.class()).collect::<Vec<_>>(),
         [Class::Validation, Class::Validation],
@@ -45,30 +305,63 @@ fn classifications_preserve_order_duplicates_and_sources() {
 
 #[test]
 fn io_errors_are_normalized_without_losing_their_origin() {
+    let mut diagnostics = Vec::new();
     let cases = [
-        (std::io::ErrorKind::NotFound, Class::NotFound),
+        (std::io::ErrorKind::NotFound, Some(Class::NotFound)),
         (
             std::io::ErrorKind::OutOfMemory,
-            Class::ResourceExhaustion(ResourceExhaustionKind::AllocationFailure),
+            Some(Class::ResourceExhaustion(ResourceExhaustionKind::AllocationFailure)),
         ),
-        (
-            std::io::ErrorKind::PermissionDenied,
-            Class::Io(std::io::ErrorKind::PermissionDenied),
-        ),
+        (std::io::ErrorKind::PermissionDenied, Some(Class::PermissionDenied)),
     ];
 
     for (io_kind, expected_class) in cases {
         let err = Error::from_error(std::io::Error::from(io_kind));
-        let classification = err.classify().next().expect("all I/O errors are classified");
-        assert_eq!(classification.class(), expected_class);
-        assert_eq!(classification.io_kind(), Some(io_kind));
-        assert!(classification.error().is::<std::io::Error>());
+        diagnostics.push(gix_testtools::redact_debug_snapshot(&err, &[]));
+        let classification = err.classify().next();
+        assert_eq!(
+            classification.map(|item| item.class()),
+            expected_class,
+            "only semantic I/O kinds are classified"
+        );
+        if let Some(classification) = classification {
+            assert_eq!(classification.io_kind(), Some(io_kind));
+            assert!(classification.error().is::<std::io::Error>());
+        }
+        assert_eq!(
+            err.downcast_any_ref::<std::io::Error>()
+                .expect("the I/O error is retained")
+                .kind(),
+            io_kind
+        );
     }
+    #[cfg(all(feature = "auto-chain-error", not(feature = "tree-error")))]
+    insta::assert_debug_snapshot!(diagnostics, "io errors are normalized without losing their origin", @"
+    [
+        entity not found,
+        out of memory,
+        permission denied,
+    ]
+    ");
+    #[cfg(any(feature = "tree-error", not(feature = "auto-chain-error")))]
+    insta::assert_debug_snapshot!(diagnostics, "io errors are normalized without losing their origin", @r#"
+    [
+        Kind(
+            NotFound,
+        ),
+        Kind(
+            OutOfMemory,
+        ),
+        Kind(
+            PermissionDenied,
+        ),
+    ]
+    "#);
 }
 
 #[test]
 fn allocation_limits_are_resources_only() {
-    let err = Error::from_error(ResourceExhaustionError::new(
+    let err = Error::from_error(resource_exhaustion(
         ResourceExhaustionKind::AllocationLimit,
         "configured allocation limit exceeded",
     ));
@@ -77,33 +370,67 @@ fn allocation_limits_are_resources_only() {
         err.classify().map(|item| item.class()).collect::<Vec<_>>(),
         [Class::ResourceExhaustion(ResourceExhaustionKind::AllocationLimit)]
     );
+    #[cfg(all(feature = "auto-chain-error", not(feature = "tree-error")))]
+    insta::assert_debug_snapshot!(err, "allocation limits are resources only", @"configured allocation limit exceeded");
+    #[cfg(any(feature = "tree-error", not(feature = "auto-chain-error")))]
+    insta::assert_debug_snapshot!(err, "allocation limits are resources only", @r#"
+    Message {
+        message: "configured allocation limit exceeded",
+        class: ResourceExhaustion(AllocationLimit),
+    }
+    "#);
     assert!(!err.is_corrupted());
     assert!(!err.can_retry());
 }
 
 #[test]
-fn global_retry_policy_is_conservative() {
+fn borrowed_retry_policy_is_conservative() {
+    let mut inline_error_diagnostics = Vec::new();
     for kind in [std::io::ErrorKind::Interrupted, std::io::ErrorKind::TimedOut] {
-        assert!(
-            can_retry(&std::io::Error::from(kind)),
-            "{kind:?} can be retried globally"
-        );
+        let err = std::io::Error::from(kind);
+        inline_error_diagnostics.push(gix_testtools::redact_debug_snapshot(&err, &[]));
+        assert!(classify(&err).can_retry(), "{kind:?} can be retried conservatively");
     }
     for kind in [
         std::io::ErrorKind::OutOfMemory,
         std::io::ErrorKind::ConnectionReset,
         std::io::ErrorKind::UnexpectedEof,
     ] {
-        assert!(
-            !can_retry(&std::io::Error::from(kind)),
-            "{kind:?} needs explicit retry policy"
-        );
+        let err = std::io::Error::from(kind);
+        inline_error_diagnostics.push(gix_testtools::redact_debug_snapshot(&err, &[]));
+        assert!(!classify(&err).can_retry(), "{kind:?} needs explicit retry policy");
     }
-    assert!(can_retry(&RetryableError::new(message("try again"))));
+    let err = ClassificationMarker::with_source(Class::Retryable, message("try again"));
+    insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[]), "borrowed retry policy is conservative", @r#"
+    Message {
+        message: "try again",
+    }
+    "#);
+    assert!(classify(&err).can_retry());
+    insta::assert_debug_snapshot!(inline_error_diagnostics, "borrowed retry policy is conservative", @"
+    [
+        Kind(
+            Interrupted,
+        ),
+        Kind(
+            TimedOut,
+        ),
+        Kind(
+            OutOfMemory,
+        ),
+        Kind(
+            ConnectionReset,
+        ),
+        Kind(
+            UnexpectedEof,
+        ),
+    ]
+    ");
 }
 
 #[test]
 fn lenient_retry_policy_preserves_the_previous_io_kinds() {
+    let mut inline_error_diagnostics = Vec::new();
     for kind in [
         std::io::ErrorKind::Interrupted,
         std::io::ErrorKind::UnexpectedEof,
@@ -115,56 +442,134 @@ fn lenient_retry_policy_preserves_the_previous_io_kinds() {
         std::io::ErrorKind::ConnectionReset,
         std::io::ErrorKind::ConnectionRefused,
     ] {
+        let err = std::io::Error::from(kind);
+        inline_error_diagnostics.push(gix_testtools::redact_debug_snapshot(&err, &[]));
         assert!(
-            can_retry_lenient(&std::io::Error::from(kind)),
+            classify(&err).can_retry_lenient(),
             "{kind:?} is retryable under the lenient policy"
         );
     }
 
+    let err = Error::from_error(std::io::Error::from(std::io::ErrorKind::PermissionDenied));
+    #[cfg(all(feature = "auto-chain-error", not(feature = "tree-error")))]
+    insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[]), "the lenient policy still rejects permanent I/O errors", @"permission denied");
+    #[cfg(any(feature = "tree-error", not(feature = "auto-chain-error")))]
+    insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[]), "the lenient policy still rejects permanent I/O errors", @r#"
+    Kind(
+        PermissionDenied,
+    )
+    "#);
     assert!(
-        !Error::from_error(std::io::Error::from(std::io::ErrorKind::PermissionDenied)).can_retry_lenient(),
+        !err.can_retry_lenient(),
         "the lenient policy still rejects permanent I/O errors"
     );
+    let err = Error::from_error(ClassificationMarker::with_source(
+        Class::Retryable,
+        message("try again"),
+    ));
+    #[cfg(all(feature = "auto-chain-error", not(feature = "tree-error")))]
+    insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[]), "the lenient policy includes explicitly retryable errors", @"try again");
+    #[cfg(any(feature = "tree-error", not(feature = "auto-chain-error")))]
+    insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[]), "the lenient policy includes explicitly retryable errors", @r#"
+    Message {
+        message: "try again",
+    }
+    "#);
     assert!(
-        Error::from_error(RetryableError::new(message("try again"))).can_retry_lenient(),
+        err.can_retry_lenient(),
         "the lenient policy includes explicitly retryable errors"
     );
     let allocation_failure = Vec::<u8>::new()
         .try_reserve(usize::MAX)
         .expect_err("the maximum capacity cannot be reserved");
+    let err = Error::from_error(allocation_failure);
+    #[cfg(all(feature = "auto-chain-error", not(feature = "tree-error")))]
+    insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[]), "only I/O OutOfMemory errors are covered by the historical policy", @"memory allocation failed because the computed capacity exceeded the collection's maximum");
+    #[cfg(any(feature = "tree-error", not(feature = "auto-chain-error")))]
+    insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[]), "only I/O OutOfMemory errors are covered by the historical policy", @r#"
+    TryReserveError {
+        kind: CapacityOverflow,
+    }
+    "#);
     assert!(
-        !Error::from_error(allocation_failure).can_retry_lenient(),
+        !err.can_retry_lenient(),
         "only I/O OutOfMemory errors are covered by the historical policy"
     );
+    insta::assert_debug_snapshot!(inline_error_diagnostics, "lenient retry policy preserves the previous io kinds", @"
+    [
+        Kind(
+            Interrupted,
+        ),
+        Kind(
+            UnexpectedEof,
+        ),
+        Kind(
+            OutOfMemory,
+        ),
+        Kind(
+            TimedOut,
+        ),
+        Kind(
+            BrokenPipe,
+        ),
+        Kind(
+            AddrInUse,
+        ),
+        Kind(
+            ConnectionAborted,
+        ),
+        Kind(
+            ConnectionReset,
+        ),
+        Kind(
+            ConnectionRefused,
+        ),
+    ]
+    ");
 }
 
 #[test]
 fn unknown_errors_are_omitted() {
-    assert_eq!(Error::from_error(message("unknown")).classify().count(), 0);
+    let err = Error::from_error(message("unknown"));
+    #[cfg(all(feature = "auto-chain-error", not(feature = "tree-error")))]
+    insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[]), "unknown errors are omitted", @"unknown");
+    #[cfg(any(feature = "tree-error", not(feature = "auto-chain-error")))]
+    insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[]), "unknown errors are omitted", @r#"
+    Message {
+        message: "unknown",
+    }
+    "#);
+    assert_eq!(err.classify().count(), 0);
 }
 
 #[test]
 fn explicit_retryability_is_distinct_from_io_retry_policy() {
-    let explicit = RetryableError::new(message("try again")).raise();
+    let mut diagnostics = Vec::new();
+    let explicit = ClassificationMarker::with_source(Class::Retryable, message("try again")).raise_typed();
+    insta::assert_debug_snapshot!(explicit, "typed exceptions expose their retry marker", @"try again");
     assert!(explicit.is_retryable(), "typed exceptions expose their retry marker");
 
     let nested = Error::from(
         message("nested operation")
-            .raise()
+            .raise_typed()
             .chain(message("unrelated cause"))
-            .chain(RetryableError::new(message("try again"))),
+            .chain(ClassificationMarker::with_source(
+                Class::Retryable,
+                message("try again"),
+            )),
     );
     for err in [
         explicit.erased(),
         crate::ErrorWithSource("outer operation", nested).raise_erased(),
         message("outer operation")
-            .raise()
+            .raise_typed()
             .chain(crate::ErrorWithSource(
                 "native source",
-                RetryableError::new(message("try again")),
+                ClassificationMarker::with_source(Class::Retryable, message("try again")),
             ))
             .erased(),
     ] {
+        diagnostics.push(gix_testtools::redact_debug_snapshot(&err, &[]));
         assert!(
             err.is_retryable(),
             "markers survive erasure, branches, and native sources"
@@ -176,19 +581,90 @@ fn explicit_retryability_is_distinct_from_io_retry_policy() {
     }
 
     for kind in [std::io::ErrorKind::Interrupted, std::io::ErrorKind::TimedOut] {
-        let err = std::io::Error::from(kind).and_raise(message("I/O failed"));
+        let err = std::io::Error::from(kind).and_raise_typed(message("I/O failed"));
+        diagnostics.push(gix_testtools::redact_debug_snapshot(&err, &[]));
         assert!(!err.is_retryable(), "{kind:?} has no explicit retry marker");
         let err = err.into_error();
+        diagnostics.push(gix_testtools::redact_debug_snapshot(&err, &[]));
         assert!(!err.is_retryable(), "conversion must not add a retry marker");
         assert!(err.can_retry(), "the retry policy still accepts {kind:?}");
     }
-    let unknown = message("retryable in name only").raise();
+    let unknown = message("retryable in name only").raise_typed();
+    insta::assert_debug_snapshot!(unknown, "messages do not establish a classification", @"retryable in name only");
     assert!(!unknown.is_retryable(), "messages do not establish a classification");
     assert!(!unknown.into_error().is_retryable());
+    if cfg!(all(feature = "auto-chain-error", not(feature = "tree-error"))) {
+        insta::assert_snapshot!(trimmed_debug(&diagnostics), "explicit retryability is distinct from io retry policy", @"
+        [
+            try again,
+            outer operation
+
+            Caused by:
+                0: nested operation
+                ├─0: unrelated cause
+                └─1: try again,
+            outer operation
+
+            Caused by:
+                0: native source
+                1: try again,
+            I/O failed
+
+            Caused by:
+                0: operation interrupted,
+            I/O failed
+
+            Caused by:
+                0: operation interrupted,
+            I/O failed
+
+            Caused by:
+                0: timed out,
+            I/O failed
+
+            Caused by:
+                0: timed out,
+        ]
+        ");
+    } else {
+        insta::assert_debug_snapshot!(diagnostics, "explicit retryability is distinct from io retry policy", @"
+        [
+            try again,
+            outer operation
+            
+            Caused by:
+                0: nested operation
+                ├─0: unrelated cause
+                └─1: try again,
+            outer operation
+            
+            Caused by:
+                0: native source
+                1: try again,
+            I/O failed
+            
+            Caused by:
+                0: operation interrupted,
+            I/O failed
+            
+            Caused by:
+                0: operation interrupted,
+            I/O failed
+            
+            Caused by:
+                0: timed out,
+            I/O failed
+            
+            Caused by:
+                0: timed out,
+        ]
+        ");
+    }
 }
 
 #[test]
 fn resource_exhaustion_predicates_normalize_allocation_failures() {
+    let mut diagnostics = Vec::new();
     let allocation = Vec::<u8>::new()
         .try_reserve(usize::MAX)
         .expect_err("the maximum capacity cannot be reserved");
@@ -197,13 +673,14 @@ fn resource_exhaustion_predicates_normalize_allocation_failures() {
         std::io::Error::from(std::io::ErrorKind::OutOfMemory),
     ));
     for cause in [
-        ResourceExhaustionError::new(ResourceExhaustionKind::AllocationLimit, "limit exceeded").raise_erased(),
-        ResourceExhaustionError::new(ResourceExhaustionKind::AllocationFailure, "allocation failed").raise_erased(),
+        resource_exhaustion(ResourceExhaustionKind::AllocationLimit, "limit exceeded").raise_erased(),
+        resource_exhaustion(ResourceExhaustionKind::AllocationFailure, "allocation failed").raise_erased(),
         allocation.raise_erased(),
         std::io::Error::from(std::io::ErrorKind::OutOfMemory).raise_erased(),
         nested.raise_erased(),
     ] {
         let err = cause.raise(message("operation failed"));
+        diagnostics.push(gix_testtools::redact_debug_snapshot(&err, &[]));
         assert!(
             err.is_resource_exhausted(),
             "all known allocation failures are classified"
@@ -215,8 +692,8 @@ fn resource_exhaustion_predicates_normalize_allocation_failures() {
     }
 
     for err in [
-        ValidationError::new("invalid input").raise_erased(),
-        CorruptionError::new("invalid data").raise_erased(),
+        validation("invalid input").raise_erased(),
+        corruption("invalid data").raise_erased(),
         std::io::Error::from(std::io::ErrorKind::PermissionDenied).raise_erased(),
         message("allocation failed in name only").raise_erased(),
     ] {
@@ -226,19 +703,53 @@ fn resource_exhaustion_predicates_normalize_allocation_failures() {
         );
         assert!(!err.into_error().is_resource_exhausted());
     }
+    insta::assert_debug_snapshot!(diagnostics, "resource exhaustion predicates normalize allocation failures", @"
+    [
+        operation failed
+        
+        Caused by:
+            0: limit exceeded,
+        operation failed
+        
+        Caused by:
+            0: allocation failed,
+        operation failed
+        
+        Caused by:
+            0: memory allocation failed because the computed capacity exceeded the collection's maximum,
+        operation failed
+        
+        Caused by:
+            0: out of memory,
+        operation failed
+        
+        Caused by:
+            0: native allocation failure
+            1: out of memory,
+    ]
+    ");
 }
 
 #[test]
 fn exceptions_expose_ordered_classifications_without_conversion() {
     let nested = Error::from(
-        ValidationError::new("nested input")
-            .raise()
+        validation("nested input")
+            .raise_typed()
             .chain(std::io::Error::from(std::io::ErrorKind::OutOfMemory)),
     );
     let err = crate::ErrorWithSource("root", std::io::Error::from(std::io::ErrorKind::NotFound))
-        .raise()
+        .raise_typed()
         .chain(nested)
-        .chain(ValidationError::new("sibling input"));
+        .chain(validation("sibling input"));
+    insta::assert_debug_snapshot!(err, "native sources and nested errors retain their diagnostics", @"
+    root
+
+    Caused by:
+        ├─0: entity not found
+        ├─1: nested input
+        │ └─ out of memory
+        └─2: sibling input
+    ");
     let expected = [
         Class::NotFound,
         Class::Validation,
@@ -249,7 +760,7 @@ fn exceptions_expose_ordered_classifications_without_conversion() {
     assert_eq!(
         classifications
             .iter()
-            .map(gix_error::Classification::class)
+            .map(gix_error::types::Classification::class)
             .collect::<Vec<_>>(),
         expected,
         "native sources and nested errors share breadth-first ordering without deduplicating classes"
@@ -264,24 +775,16 @@ fn exceptions_expose_ordered_classifications_without_conversion() {
         Some(std::io::ErrorKind::OutOfMemory),
         "normalizing a nested I/O error to resource exhaustion retains its original I/O kind"
     );
-    assert_eq!(
-        classifications[1]
+    insta::assert_debug_snapshot!(format_args!("{}", classifications[1]
             .error()
-            .downcast_ref::<ValidationError>()
+            .downcast_ref::<Message>()
             .expect("retain the sibling type")
-            .to_string(),
-        "sibling input",
-        "breadth-first classification visits the direct sibling before the nested validation error"
-    );
-    assert_eq!(
-        classifications[2]
+            ), "breadth-first classification visits the direct sibling before the nested validation error", @"sibling input");
+    insta::assert_debug_snapshot!(format_args!("{}", classifications[2]
             .error()
-            .downcast_ref::<ValidationError>()
+            .downcast_ref::<Message>()
             .expect("retain the nested type")
-            .to_string(),
-        "nested input",
-        "nested error boundaries preserve the original validation error and its message"
-    );
+            ), "nested error boundaries preserve the original validation error and its message", @"nested input");
 
     let err = err.erased();
     assert_eq!(
@@ -294,8 +797,10 @@ fn exceptions_expose_ordered_classifications_without_conversion() {
         expected,
         "conversion to Error preserves classification order and duplicate classes"
     );
+    let err = message("unclassified").raise_typed();
+    insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[]), "unrecognized errors are omitted from classifications", @"unclassified");
     assert_eq!(
-        message("unclassified").raise().classify().count(),
+        err.classify().count(),
         0,
         "unrecognized errors are omitted from classifications"
     );
@@ -303,6 +808,7 @@ fn exceptions_expose_ordered_classifications_without_conversion() {
 
 #[test]
 fn exceptions_expose_retry_policies_without_conversion() {
+    let mut diagnostics = Vec::new();
     use std::io::ErrorKind::*;
 
     for (kind, conservative, lenient) in [
@@ -320,6 +826,7 @@ fn exceptions_expose_retry_policies_without_conversion() {
     ] {
         let err =
             crate::ErrorWithSource("native wrapper", Error::from_error(std::io::Error::from(kind))).raise_erased();
+        diagnostics.push(gix_testtools::redact_debug_snapshot(&err, &[]));
         assert_eq!(err.can_retry(), conservative, "the conservative policy for {kind:?}");
         assert_eq!(err.can_retry_lenient(), lenient, "the lenient policy for {kind:?}");
         assert!(
@@ -327,6 +834,7 @@ fn exceptions_expose_retry_policies_without_conversion() {
             "I/O policy must not create an explicit retry marker"
         );
         let err = err.into_error();
+        diagnostics.push(gix_testtools::redact_debug_snapshot(&err, &[]));
         assert_eq!(
             err.can_retry(),
             conservative,
@@ -340,8 +848,17 @@ fn exceptions_expose_retry_policies_without_conversion() {
     }
 
     let explicit = Error::from_error(message("context"))
-        .raise()
-        .chain(Error::from_error(RetryableError::new(message("try again"))));
+        .raise_typed()
+        .chain(Error::from_error(ClassificationMarker::with_source(
+            Class::Retryable,
+            message("try again"),
+        )));
+    insta::assert_debug_snapshot!(explicit, "both policies accept explicit markers", @"
+    context
+
+    Caused by:
+        0: try again
+    ");
     assert!(
         explicit.can_retry() && explicit.can_retry_lenient(),
         "both policies accept explicit markers"
@@ -349,11 +866,1060 @@ fn exceptions_expose_retry_policies_without_conversion() {
     let allocation = Vec::<u8>::new()
         .try_reserve(usize::MAX)
         .expect_err("the maximum capacity cannot be reserved")
-        .raise();
+        .raise_typed();
+    insta::assert_debug_snapshot!(allocation, "allocation failures outside I/O retain their non-retryable classification", @"memory allocation failed because the computed capacity exceeded the collection's maximum");
     assert!(
         !allocation.can_retry() && !allocation.can_retry_lenient(),
         "allocation failures outside I/O retain their non-retryable classification"
     );
-    let unknown = message("unknown").raise();
+    let unknown = message("unknown").raise_typed();
+    insta::assert_debug_snapshot!(unknown, "exceptions expose retry policies without conversion", @"unknown");
     assert!(!unknown.can_retry() && !unknown.can_retry_lenient());
+    if cfg!(all(feature = "auto-chain-error", not(feature = "tree-error"))) {
+        insta::assert_snapshot!(trimmed_debug(&diagnostics), "exceptions expose retry policies without conversion", @"
+        [
+            native wrapper
+
+            Caused by:
+                0: operation interrupted,
+            native wrapper
+
+            Caused by:
+                0: operation interrupted,
+            native wrapper
+
+            Caused by:
+                0: timed out,
+            native wrapper
+
+            Caused by:
+                0: timed out,
+            native wrapper
+
+            Caused by:
+                0: unexpected end of file,
+            native wrapper
+
+            Caused by:
+                0: unexpected end of file,
+            native wrapper
+
+            Caused by:
+                0: out of memory,
+            native wrapper
+
+            Caused by:
+                0: out of memory,
+            native wrapper
+
+            Caused by:
+                0: broken pipe,
+            native wrapper
+
+            Caused by:
+                0: broken pipe,
+            native wrapper
+
+            Caused by:
+                0: address in use,
+            native wrapper
+
+            Caused by:
+                0: address in use,
+            native wrapper
+
+            Caused by:
+                0: connection aborted,
+            native wrapper
+
+            Caused by:
+                0: connection aborted,
+            native wrapper
+
+            Caused by:
+                0: connection reset,
+            native wrapper
+
+            Caused by:
+                0: connection reset,
+            native wrapper
+
+            Caused by:
+                0: connection refused,
+            native wrapper
+
+            Caused by:
+                0: connection refused,
+            native wrapper
+
+            Caused by:
+                0: permission denied,
+            native wrapper
+
+            Caused by:
+                0: permission denied,
+            native wrapper
+
+            Caused by:
+                0: entity not found,
+            native wrapper
+
+            Caused by:
+                0: entity not found,
+        ]
+        ");
+    } else {
+        insta::assert_debug_snapshot!(diagnostics, "exceptions expose retry policies without conversion", @"
+        [
+            native wrapper
+            
+            Caused by:
+                0: operation interrupted,
+            native wrapper
+            
+            Caused by:
+                0: operation interrupted,
+            native wrapper
+            
+            Caused by:
+                0: timed out,
+            native wrapper
+            
+            Caused by:
+                0: timed out,
+            native wrapper
+            
+            Caused by:
+                0: unexpected end of file,
+            native wrapper
+            
+            Caused by:
+                0: unexpected end of file,
+            native wrapper
+            
+            Caused by:
+                0: out of memory,
+            native wrapper
+            
+            Caused by:
+                0: out of memory,
+            native wrapper
+            
+            Caused by:
+                0: broken pipe,
+            native wrapper
+            
+            Caused by:
+                0: broken pipe,
+            native wrapper
+            
+            Caused by:
+                0: address in use,
+            native wrapper
+            
+            Caused by:
+                0: address in use,
+            native wrapper
+            
+            Caused by:
+                0: connection aborted,
+            native wrapper
+            
+            Caused by:
+                0: connection aborted,
+            native wrapper
+            
+            Caused by:
+                0: connection reset,
+            native wrapper
+            
+            Caused by:
+                0: connection reset,
+            native wrapper
+            
+            Caused by:
+                0: connection refused,
+            native wrapper
+            
+            Caused by:
+                0: connection refused,
+            native wrapper
+            
+            Caused by:
+                0: permission denied,
+            native wrapper
+            
+            Caused by:
+                0: permission denied,
+            native wrapper
+            
+            Caused by:
+                0: entity not found,
+            native wrapper
+            
+            Caused by:
+                0: entity not found,
+        ]
+        ");
+    }
+}
+
+#[test]
+fn custom_io_payloads_retain_all_classifications() {
+    let mut diagnostics = Vec::new();
+    let cases: [(Box<dyn std::error::Error + Send + Sync>, Class); 5] = [
+        (Box::new(not_found("missing object")), Class::NotFound),
+        (Box::new(validation("invalid input")), Class::Validation),
+        (Box::new(corruption("malformed data")), Class::Corruption),
+        (
+            Box::new(ClassificationMarker::with_source(
+                Class::Retryable,
+                message("try again"),
+            )),
+            Class::Retryable,
+        ),
+        (
+            Box::new(resource_exhaustion(
+                ResourceExhaustionKind::AllocationLimit,
+                "limit exceeded",
+            )),
+            Class::ResourceExhaustion(ResourceExhaustionKind::AllocationLimit),
+        ),
+    ];
+    for (payload, class) in cases {
+        let err = crate::ErrorWithSource("custom backend failed", std::io::Error::other(payload));
+        diagnostics.push(gix_testtools::redact_debug_snapshot(&err, &[]));
+        assert_eq!(classify(&err).is_not_found(), class == Class::NotFound);
+        assert_eq!(classify(&err).is_validation(), class == Class::Validation);
+        assert_eq!(classify(&err).is_corrupted(), class == Class::Corruption);
+        assert_eq!(classify(&err).is_retryable(), class == Class::Retryable);
+        assert_eq!(
+            classify(&err).is_resource_exhausted(),
+            matches!(class, Class::ResourceExhaustion(_)),
+            "all borrowed predicates reach custom errors through their sources"
+        );
+        assert_eq!(
+            classify(&err).can_retry(),
+            class == Class::Retryable,
+            "borrowed retry inspection reaches the I/O payload"
+        );
+        assert_eq!(
+            classify(&err).can_retry_lenient(),
+            class == Class::Retryable,
+            "both retry policies reach the I/O payload"
+        );
+        let err = err.raise_typed();
+        assert_eq!(
+            err.classify().map(|item| item.class()).collect::<Vec<_>>(),
+            [class],
+            "an unclassified I/O wrapper preserves its payload's classification"
+        );
+        let err = err.into_error();
+        diagnostics.push(gix_testtools::redact_debug_snapshot(&err, &[]));
+        assert_eq!(err.is_not_found(), class == Class::NotFound);
+        assert_eq!(err.is_validation(), class == Class::Validation);
+        assert_eq!(err.is_corrupted(), class == Class::Corruption);
+        assert_eq!(err.is_retryable(), class == Class::Retryable);
+        assert_eq!(err.can_retry(), class == Class::Retryable);
+        assert_eq!(err.can_retry_lenient(), class == Class::Retryable);
+        assert_eq!(
+            err.is_resource_exhausted(),
+            matches!(class, Class::ResourceExhaustion(_))
+        );
+    }
+    if cfg!(all(feature = "auto-chain-error", not(feature = "tree-error"))) {
+        insta::assert_snapshot!(trimmed_debug(&diagnostics), "custom io payloads retain all classifications", @r#"
+        [
+            ErrorWithSource(
+                "custom backend failed",
+                Custom {
+                    kind: Other,
+                    error: Message {
+                        message: "missing object",
+                        class: NotFound,
+                    },
+                },
+            ),
+            custom backend failed
+
+            Caused by:
+                0: I/O error (Other)
+                1: missing object,
+            ErrorWithSource(
+                "custom backend failed",
+                Custom {
+                    kind: Other,
+                    error: Message {
+                        message: "invalid input",
+                        class: Validation,
+                    },
+                },
+            ),
+            custom backend failed
+
+            Caused by:
+                0: I/O error (Other)
+                1: invalid input,
+            ErrorWithSource(
+                "custom backend failed",
+                Custom {
+                    kind: Other,
+                    error: Message {
+                        message: "malformed data",
+                        class: Corruption,
+                    },
+                },
+            ),
+            custom backend failed
+
+            Caused by:
+                0: I/O error (Other)
+                1: malformed data,
+            ErrorWithSource(
+                "custom backend failed",
+                Custom {
+                    kind: Other,
+                    error: Message {
+                        message: "try again",
+                    },
+                },
+            ),
+            custom backend failed
+
+            Caused by:
+                0: I/O error (Other)
+                1: try again,
+            ErrorWithSource(
+                "custom backend failed",
+                Custom {
+                    kind: Other,
+                    error: Message {
+                        message: "limit exceeded",
+                        class: ResourceExhaustion(AllocationLimit),
+                    },
+                },
+            ),
+            custom backend failed
+
+            Caused by:
+                0: I/O error (Other)
+                1: limit exceeded,
+        ]
+        "#);
+    } else {
+        insta::assert_debug_snapshot!(diagnostics, "custom io payloads retain all classifications", @r#"
+        [
+            ErrorWithSource(
+                "custom backend failed",
+                Custom {
+                    kind: Other,
+                    error: Message {
+                        message: "missing object",
+                        class: NotFound,
+                    },
+                },
+            ),
+            custom backend failed
+            
+            Caused by:
+                0: I/O error (Other)
+                1: missing object,
+            ErrorWithSource(
+                "custom backend failed",
+                Custom {
+                    kind: Other,
+                    error: Message {
+                        message: "invalid input",
+                        class: Validation,
+                    },
+                },
+            ),
+            custom backend failed
+            
+            Caused by:
+                0: I/O error (Other)
+                1: invalid input,
+            ErrorWithSource(
+                "custom backend failed",
+                Custom {
+                    kind: Other,
+                    error: Message {
+                        message: "malformed data",
+                        class: Corruption,
+                    },
+                },
+            ),
+            custom backend failed
+            
+            Caused by:
+                0: I/O error (Other)
+                1: malformed data,
+            ErrorWithSource(
+                "custom backend failed",
+                Custom {
+                    kind: Other,
+                    error: Message {
+                        message: "try again",
+                    },
+                },
+            ),
+            custom backend failed
+            
+            Caused by:
+                0: I/O error (Other)
+                1: try again,
+            ErrorWithSource(
+                "custom backend failed",
+                Custom {
+                    kind: Other,
+                    error: Message {
+                        message: "limit exceeded",
+                        class: ResourceExhaustion(AllocationLimit),
+                    },
+                },
+            ),
+            custom backend failed
+            
+            Caused by:
+                0: I/O error (Other)
+                1: limit exceeded,
+        ]
+        "#);
+    }
+}
+
+#[test]
+fn classification_markers_preserve_categories_and_origins() {
+    let mut diagnostics = Vec::new();
+    for class in [
+        Class::Validation,
+        Class::Corruption,
+        Class::NotFound,
+        Class::Retryable,
+        Class::ResourceExhaustion(ResourceExhaustionKind::AllocationLimit),
+        Class::ResourceExhaustion(ResourceExhaustionKind::AllocationFailure),
+    ] {
+        let marker = ClassificationMarker::with_class(class);
+        let err = crate::ErrorWithSource("specific diagnostic", marker);
+        let classification = classify(&err).next().expect("the source supplies a classification");
+        assert_eq!(
+            classification.class(),
+            class,
+            "the marker supplies its explicit category"
+        );
+        assert_eq!(
+            classification.io_kind(),
+            None,
+            "a classification marker does not invent an I/O origin"
+        );
+        assert!(
+            std::ptr::eq(
+                classification
+                    .error()
+                    .downcast_ref::<crate::ErrorWithSource<ClassificationMarker>>()
+                    .expect("the marker classifies its owning error"),
+                &err,
+            ),
+            "classification identifies the error exposing the marker as its source"
+        );
+
+        let err = err.and_raise_typed(message("outer context")).erased();
+        diagnostics.push(gix_testtools::redact_debug_snapshot(&err, &[]));
+        assert_eq!(
+            err.is_validation(),
+            class == Class::Validation,
+            "validation survives erasure"
+        );
+        assert_eq!(
+            err.is_corrupted(),
+            class == Class::Corruption,
+            "corruption survives erasure"
+        );
+        assert_eq!(err.is_not_found(), class == Class::NotFound, "absence survives erasure");
+        assert_eq!(
+            err.is_retryable(),
+            class == Class::Retryable,
+            "retry markers remain explicit"
+        );
+        assert_eq!(
+            err.is_resource_exhausted(),
+            matches!(class, Class::ResourceExhaustion(_)),
+            "resource classifications preserve their kinds"
+        );
+        assert_eq!(
+            err.can_retry(),
+            class == Class::Retryable,
+            "retry policies recognize the marker's classification"
+        );
+        for err in [
+            err.into_error(),
+            std::io::Error::other(ClassificationMarker::with_class(class))
+                .raise_typed()
+                .into_error(),
+        ] {
+            assert!(
+                err.downcast_any_ref::<ClassificationMarker>().is_none(),
+                "public downcasts omit markers in converted errors and I/O payloads"
+            );
+            assert_eq!(
+                err.classify().last().expect("the marker is classified").class(),
+                class,
+                "conversion and I/O wrapping preserve classification"
+            );
+        }
+    }
+    insta::assert_debug_snapshot!(diagnostics, "classification markers preserve categories and origins", @"
+    [
+        outer context
+        
+        Caused by:
+            0: specific diagnostic,
+        outer context
+        
+        Caused by:
+            0: specific diagnostic,
+        outer context
+        
+        Caused by:
+            0: specific diagnostic,
+        outer context
+        
+        Caused by:
+            0: specific diagnostic,
+        outer context
+        
+        Caused by:
+            0: specific diagnostic,
+        outer context
+        
+        Caused by:
+            0: specific diagnostic,
+    ]
+    ");
+}
+
+#[test]
+fn markers_remain_transparent_alongside_classified_errors() {
+    let marker = ClassificationMarker::VALIDATION;
+    assert!(
+        std::error::Error::source(&marker).is_none(),
+        "class-only markers do not fabricate further causes"
+    );
+    let err = crate::ErrorWithSource("specific diagnostic", marker)
+        .and_raise_typed(validation("context with input").with_input(b"bad".as_slice()));
+    let classifications = err.classify().collect::<Vec<_>>();
+    assert_eq!(
+        classifications.len(),
+        2,
+        "real errors and markers are classified independently"
+    );
+    assert!(
+        classifications[0].error().is::<Message>(),
+        "the real error retains its type"
+    );
+    assert!(
+        classifications[1]
+            .error()
+            .is::<crate::ErrorWithSource<ClassificationMarker>>(),
+        "the marker identifies its owning error"
+    );
+    assert_eq!(
+        classifications
+            .iter()
+            .map(gix_error::types::Classification::class)
+            .collect::<Vec<_>>(),
+        [Class::Validation, Class::Validation],
+        "classifications remain ordered and are not deduplicated"
+    );
+    insta::assert_debug_snapshot!(err, "markers supply classifications without becoming diagnostic errors", @r#"
+    context with input, input="bad"
+
+    Caused by:
+        0: specific diagnostic
+    "#);
+    assert!(
+        err.downcast_any_ref::<ClassificationMarker>().is_none(),
+        "markers supply classifications without becoming diagnostic errors"
+    );
+    assert!(
+        err.probable_cause()
+            .is::<crate::ErrorWithSource<ClassificationMarker>>(),
+        "the marker never replaces its typed diagnostic owner"
+    );
+    let err = err.into_error();
+    assert!(
+        err.downcast_any_ref::<ClassificationMarker>().is_none(),
+        "conversion preserves marker transparency"
+    );
+    assert!(
+        err.downcast_any_ref::<Message>().is_some(),
+        "conversion preserves genuine classified errors for downcasting"
+    );
+    assert!(
+        err.probable_cause()
+            .is::<crate::ErrorWithSource<ClassificationMarker>>(),
+        "conversion preserves the typed cause rather than its marker"
+    );
+    insta::assert_debug_snapshot!(err.iter_errors().map(ToString::to_string).collect::<Vec<_>>(), "only real diagnostics remain visible in diagnostic iteration", @r#"
+    [
+        "context with input, input=\"bad\"",
+        "specific diagnostic",
+    ]
+    "#);
+    #[cfg(any(feature = "tree-error", not(feature = "auto-chain-error")))]
+    insta::assert_debug_snapshot!(err, @r#"
+    context with input, input="bad"
+
+    Caused by:
+        0: specific diagnostic
+    "#);
+    #[cfg(all(feature = "auto-chain-error", not(feature = "tree-error")))]
+    insta::assert_debug_snapshot!(err, "chain Debug retains the classified message's concrete type", @r#"
+    context with input, input="bad"
+
+    Caused by:
+        0: specific diagnostic
+    "#);
+}
+
+#[test]
+fn source_markers_hide_the_wrapper_but_preserve_the_original_error() {
+    let source = std::io::Error::from(std::io::ErrorKind::NotFound);
+    let err = ClassificationMarker::with_source(Class::Retryable, source).raise_typed();
+    let expected_classes = [Class::Retryable, Class::NotFound];
+    assert_eq!(
+        err.classify().map(|item| item.class()).collect::<Vec<_>>(),
+        expected_classes,
+        "a source-bearing marker adds a classification without replacing its source's classification"
+    );
+    insta::assert_debug_snapshot!(err, "source-bearing markers are hidden from public downcasts", @"entity not found");
+    assert!(
+        err.downcast_any_ref::<ClassificationMarker>().is_none(),
+        "source-bearing markers are hidden from public downcasts"
+    );
+    assert!(
+        err.downcast_any_ref::<std::io::Error>().is_some(),
+        "the original source remains available for downcasting"
+    );
+    insta::assert_debug_snapshot!(err.iter_errors().map(ToString::to_string).collect::<Vec<_>>(), "only the original error is yielded", @r#"
+    [
+        "entity not found",
+    ]
+    "#);
+    let err = err.into_error();
+    assert!(
+        err.downcast_any_ref::<ClassificationMarker>().is_none(),
+        "conversion retains the wrapper's transparency"
+    );
+    assert!(
+        err.downcast_any_ref::<std::io::Error>().is_some(),
+        "conversion preserves the original source type"
+    );
+    let classifications = err.classify().collect::<Vec<_>>();
+    assert_eq!(
+        classifications
+            .iter()
+            .map(gix_error::types::Classification::class)
+            .collect::<Vec<_>>(),
+        expected_classes,
+        "conversion preserves both classifications"
+    );
+    assert!(
+        classifications[0].error().is::<std::io::Error>(),
+        "the added classification identifies the wrapped I/O error"
+    );
+    assert_eq!(
+        classifications[0].io_kind(),
+        Some(std::io::ErrorKind::NotFound),
+        "the added classification preserves the wrapped error's I/O origin"
+    );
+    assert_eq!(
+        classifications[1].io_kind(),
+        Some(std::io::ErrorKind::NotFound),
+        "the source retains its real I/O origin"
+    );
+    #[cfg(any(feature = "tree-error", not(feature = "auto-chain-error")))]
+    insta::assert_debug_snapshot!(err, @"entity not found");
+    #[cfg(all(feature = "auto-chain-error", not(feature = "tree-error")))]
+    insta::assert_debug_snapshot!(err, "chain Debug exposes the source without its marker", @"entity not found");
+}
+
+#[test]
+fn io_payloads_retain_custom_errors_and_nested_branches() {
+    let mut diagnostics = Vec::new();
+    for custom_wrapper in [false, true] {
+        let nested = message("nested operation failed")
+            .raise_typed()
+            .chain(validation("invalid input"))
+            .chain(ClassificationMarker::with_source(
+                Class::Retryable,
+                message("try again"),
+            ))
+            .into_error();
+        let payload: Box<dyn std::error::Error + Send + Sync> = if custom_wrapper {
+            Box::new(crate::ErrorWithSource("custom payload", nested))
+        } else {
+            Box::new(nested)
+        };
+        let io = std::io::Error::other(payload);
+        diagnostics.push(gix_testtools::redact_debug_snapshot(&io, &[]));
+        assert!(
+            classify(&io).can_retry(),
+            "borrowed inspection reaches every branch in an I/O payload"
+        );
+        assert!(classify(&io).is_validation());
+        let err = Error::from_error(io);
+        diagnostics.push(gix_testtools::redact_debug_snapshot(&err, &[]));
+        assert!(err.can_retry(), "conversion retains retryable branches");
+        assert!(err.is_validation(), "conversion retains other classifications too");
+        if custom_wrapper {
+            assert!(
+                err.downcast_any_ref::<crate::ErrorWithSource<Error>>().is_some(),
+                "the custom payload remains available for downcasting"
+            );
+        }
+    }
+    if cfg!(all(feature = "auto-chain-error", not(feature = "tree-error"))) {
+        insta::assert_snapshot!(trimmed_debug(&diagnostics), "io payloads retain custom errors and nested branches", @r#"
+        [
+            Custom {
+                kind: Other,
+                error: nested operation failed
+
+                Caused by:
+                    0: invalid input
+                    1: try again,
+            },
+            I/O error (Other)
+
+            Caused by:
+                0: nested operation failed
+                1: invalid input
+                2: try again,
+            Custom {
+                kind: Other,
+                error: ErrorWithSource(
+                    "custom payload",
+                    nested operation failed
+
+                    Caused by:
+                        0: invalid input
+                        1: try again,
+                ),
+            },
+            I/O error (Other)
+
+            Caused by:
+                0: custom payload
+                1: nested operation failed
+                2: invalid input
+                3: try again,
+        ]
+        "#);
+    } else {
+        insta::assert_debug_snapshot!(diagnostics, "io payloads retain custom errors and nested branches", @r#"
+        [
+            Custom {
+                kind: Other,
+                error: nested operation failed
+                
+                Caused by:
+                    ├─0: invalid input
+                    └─1: try again,
+            },
+            Custom {
+                kind: Other,
+                error: nested operation failed
+                
+                Caused by:
+                    ├─0: invalid input
+                    └─1: try again,
+            },
+            Custom {
+                kind: Other,
+                error: ErrorWithSource(
+                    "custom payload",
+                    nested operation failed
+                    
+                    Caused by:
+                        ├─0: invalid input
+                        └─1: try again,
+                ),
+            },
+            Custom {
+                kind: Other,
+                error: ErrorWithSource(
+                    "custom payload",
+                    nested operation failed
+                    
+                    Caused by:
+                        ├─0: invalid input
+                        └─1: try again,
+                ),
+            },
+        ]
+        "#);
+    }
+}
+
+#[test]
+fn retry_policies_inspect_remaining_unclassified_io_errors() {
+    use std::io::ErrorKind;
+
+    for (kind, conservative, lenient) in [
+        (ErrorKind::Interrupted, true, true),
+        (ErrorKind::TimedOut, true, true),
+        (ErrorKind::BrokenPipe, false, true),
+        (ErrorKind::Other, false, false),
+    ] {
+        let error = std::io::Error::other(
+            ClassificationMarker::with_source(Class::Validation, std::io::Error::from(kind))
+                .raise_typed()
+                .into_error(),
+        );
+        assert_eq!(
+            classify(&error).map(|item| item.class()).collect::<Vec<_>>(),
+            [Class::Validation],
+            "I/O wrappers and unclassified kinds add no semantic classification"
+        );
+        assert!(
+            !classify(&error).is_retryable(),
+            "I/O retry policy does not imply an explicit retry marker"
+        );
+        let remaining = || {
+            let mut classifications = classify(&error);
+            let first = classifications.next().expect("the nested marker is classified");
+            assert_eq!(
+                first.class(),
+                Class::Validation,
+                "the marker supplies the semantic class"
+            );
+            assert_eq!(first.io_kind(), Some(kind), "the marker retains its actual I/O subject");
+            classifications
+        };
+        assert_eq!(
+            remaining().can_retry(),
+            conservative,
+            "strict retry inspects remaining unclassified {kind:?}"
+        );
+        assert_eq!(
+            remaining().can_retry_lenient(),
+            lenient,
+            "lenient retry inspects remaining unclassified {kind:?}"
+        );
+        let mut exhausted = remaining();
+        assert!(
+            exhausted.next().is_none(),
+            "the remaining I/O error has no semantic class"
+        );
+        assert!(
+            !exhausted.can_retry(),
+            "consumed I/O errors do not influence subsequent strict retry checks"
+        );
+        let mut exhausted = remaining();
+        assert!(
+            exhausted.next().is_none(),
+            "the remaining I/O error has no semantic class"
+        );
+        assert!(
+            !exhausted.can_retry_lenient(),
+            "consumed I/O errors do not influence subsequent lenient retry checks"
+        );
+    }
+    let message = validation("timed out").with("io_kind", "TimedOut");
+    assert!(
+        !classify(&message).can_retry() && !classify(&message).can_retry_lenient(),
+        "diagnostic text and metadata do not substitute for an I/O error"
+    );
+}
+
+// Pretty Debug indents blank lines in nested reports; keep that whitespace out of snapshots.
+fn trimmed_debug(value: &impl std::fmt::Debug) -> String {
+    format!("{value:#?}")
+        .lines()
+        .map(str::trim_end)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[test]
+fn recovery_classes_have_consistent_constructors_builders_markers_and_predicates() {
+    type Builder = fn(Message) -> Message;
+    type Raise = fn(Message) -> Error;
+    type Predicate = fn(&Error) -> bool;
+    let cases: [(Class, Message, Builder, Raise, ClassificationMarker, Predicate); 5] = [
+        (
+            Class::Cancelled,
+            gix_error::cancelled("stop"),
+            Message::cancelled,
+            Message::cancelled_error,
+            ClassificationMarker::CANCELLED,
+            Error::is_cancelled,
+        ),
+        (
+            Class::PermissionDenied,
+            gix_error::permission_denied("forbidden"),
+            Message::permission_denied,
+            Message::permission_denied_error,
+            ClassificationMarker::PERMISSION_DENIED,
+            Error::is_permission_denied,
+        ),
+        (
+            Class::Unauthenticated,
+            unauthenticated("credentials"),
+            Message::unauthenticated,
+            Message::unauthenticated_error,
+            ClassificationMarker::UNAUTHENTICATED,
+            Error::is_unauthenticated,
+        ),
+        (
+            Class::Conflict,
+            gix_error::conflict("refresh"),
+            Message::conflict,
+            Message::conflict_error,
+            ClassificationMarker::CONFLICT,
+            Error::is_conflict,
+        ),
+        (
+            Class::Unsupported,
+            gix_error::unsupported("switch"),
+            Message::unsupported,
+            Message::unsupported_error,
+            ClassificationMarker::UNSUPPORTED,
+            Error::is_unsupported,
+        ),
+    ];
+    for (class, constructor, builder, raise, marker, predicate) in cases {
+        assert_eq!(
+            constructor.class,
+            Some(class),
+            "constructor supplies its recovery class"
+        );
+        assert_eq!(marker.class(), class, "constant marker agrees with constructor");
+        let message = builder(validation("original").with_input(42_u64));
+        assert_eq!(message.class, Some(class), "builder replaces the previous class");
+        assert_eq!(message.message, "original", "builder retains the diagnostic");
+        assert_eq!(message.values.len(), 1, "builder retains metadata");
+        let exception = message.raise_typed();
+        assert!(exception.classify().has(class), "typed exceptions expose the class");
+        let error = exception.into_error();
+        assert!(predicate(&error), "conversion retains the recovery class");
+        assert!(
+            predicate(&raise(Message::new("raised"))),
+            "raising builder supplies its class"
+        );
+        let tagged = tag(std::io::Error::from(std::io::ErrorKind::Other), class).raise();
+        assert!(predicate(&tagged), "markers preserve the class of concrete errors");
+        assert!(
+            tagged.probable_cause().is::<std::io::Error>(),
+            "marker preserves concrete recovery payload"
+        );
+    }
+}
+
+#[test]
+fn cancellation_vetoes_retryable_siblings_and_native_sources() {
+    for kind in [
+        std::io::ErrorKind::Interrupted,
+        std::io::ErrorKind::TimedOut,
+        std::io::ErrorKind::BrokenPipe,
+    ] {
+        for cancelled_first in [false, true] {
+            let cancelled = tag(std::io::Error::from(kind), Class::Cancelled).raise_typed().erased();
+            let retryable = gix_error::retryable("temporary").raise_typed().erased();
+            let children = if cancelled_first {
+                [cancelled, retryable]
+            } else {
+                [retryable, cancelled]
+            };
+            let exception = message("aggregate").raise_all(children);
+            assert!(
+                exception.is_cancelled() && exception.is_retryable(),
+                "both causes remain observable"
+            );
+            assert!(
+                !exception.can_retry() && !exception.can_retry_lenient(),
+                "cancellation overrides either retry policy"
+            );
+            let error = exception.into_error();
+            assert!(
+                !error.can_retry() && !error.can_retry_lenient(),
+                "conversion retains cancellation veto"
+            );
+            let io = std::io::Error::new(kind, error);
+            assert!(
+                !classify(&io).can_retry() && !classify(&io).can_retry_lenient(),
+                "I/O wrappers retain cancellation veto"
+            );
+        }
+    }
+}
+
+#[test]
+fn native_recovery_classes_preserve_io_origin_and_authentication_remedy() {
+    for (kind, class) in [
+        (std::io::ErrorKind::PermissionDenied, Class::PermissionDenied),
+        (std::io::ErrorKind::Unsupported, Class::Unsupported),
+    ] {
+        let io = std::io::Error::from(kind);
+        let classification = classify(&io).next().expect("native recovery class");
+        assert_eq!(classification.class(), class, "native kind selects recovery");
+        assert_eq!(
+            classification.io_kind(),
+            Some(kind),
+            "native origin survives classification"
+        );
+    }
+    let io = std::io::Error::new(
+        std::io::ErrorKind::PermissionDenied,
+        unauthenticated("credentials rejected").raise(),
+    );
+    assert_eq!(
+        classify(&io).map(|item| item.class()).collect::<Vec<_>>(),
+        [Class::Unauthenticated],
+        "an explicit authentication challenge takes precedence over the legacy permission I/O kind"
+    );
+    assert_eq!(
+        io.kind(),
+        std::io::ErrorKind::PermissionDenied,
+        "classification does not alter native compatibility"
+    );
+}
+
+#[test]
+fn nested_permission_fallbacks_do_not_recursively_classify_payloads() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    #[derive(Debug)]
+    struct Counted(Arc<AtomicUsize>);
+    impl std::fmt::Display for Counted {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("permission source")
+        }
+    }
+    impl std::error::Error for Counted {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            self.0.fetch_add(1, Ordering::Relaxed);
+            None
+        }
+    }
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut io = std::io::Error::new(std::io::ErrorKind::PermissionDenied, Counted(Arc::clone(&calls)));
+    let depth = 64;
+    for _ in 1..depth {
+        io = std::io::Error::new(std::io::ErrorKind::PermissionDenied, io);
+    }
+    assert_eq!(
+        classify(&io)
+            .filter(|item| item.class() == Class::PermissionDenied)
+            .count(),
+        depth,
+        "each native permission failure remains classified"
+    );
+    assert!(
+        calls.load(Ordering::Relaxed) <= depth * 2 + 1,
+        "lookahead scans metadata iteratively rather than recursively reclassifying permission payloads"
+    );
 }

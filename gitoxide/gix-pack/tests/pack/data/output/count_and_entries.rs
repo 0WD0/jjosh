@@ -1,14 +1,10 @@
+use crate::Result;
 use std::sync::atomic::AtomicBool;
 
-use gix_features::{
-    parallel::{InOrderIter, reduce::Finalize},
-    progress,
-};
 use gix_odb::{pack, pack::FindExt};
-use gix_pack::data::{
-    output,
-    output::{count, entry},
-};
+use gix_pack::data::{output, output::count};
+use gix_parallel::{Finalize, InOrderIter};
+use gix_utils::progress;
 
 use crate::{
     data::output::{DbKind, db},
@@ -16,7 +12,8 @@ use crate::{
 };
 
 #[test]
-fn invalid_ofs_delta_base_distance_is_an_error() -> crate::Result {
+fn invalid_ofs_delta_base_distance_is_an_error() -> gix_testtools::TestResult {
+    let mut error_snapshots = Vec::new();
     let first_entry_offset = gix_pack::data::header::SIZE as gix_pack::data::Offset;
     for base_distance in [first_entry_offset, u64::MAX] {
         let mut data = Vec::new();
@@ -38,25 +35,100 @@ fn invalid_ofs_delta_base_distance_is_an_error() -> crate::Result {
             &count,
             &[],
             0,
-            None::<fn(u32, u64) -> Option<gix_hash::ObjectId>>,
+            None::<fn(u32, u64) -> gix_error::Result<Option<gix_hash::ObjectId>>>,
             gix_pack::data::Version::V2,
         );
 
-        assert!(
-            matches!(
-                result,
-                Some(Err(entry::Error::EntryType(
-                    gix_pack::data::entry::decode::Error::Corrupt { .. }
-                )))
-            ),
-            "an invalid packed delta is reported as corrupt"
-        );
+        let err = result
+            .and_then(std::result::Result::err)
+            .expect("an invalid OFS_DELTA base distance must fail");
+        error_snapshots.push(gix_testtools::redact_debug_snapshot(&(err), &[]));
+        assert!(err.is_corrupted(), "an invalid packed delta is reported as corrupt");
     }
+    insta::assert_debug_snapshot!(error_snapshots, "invalid ofs delta base distance is an error", @"
+    [
+        an ofs-delta base distance pointing before pack start,
+        an ofs-delta base distance pointing before pack start,
+    ]
+    ");
     Ok(())
 }
 
 #[test]
-fn traversals() -> crate::Result {
+fn thin_pack_base_lookup_distinguishes_errors_from_absence() -> gix_testtools::TestResult {
+    use gix_error::ErrorExt;
+
+    let mut data = Vec::new();
+    gix_pack::data::entry::Header::OfsDelta { base_distance: 4 }.write_to(0, &mut data)?;
+    let base_offset = gix_pack::data::header::SIZE as u64;
+    let count = output::Count::from_data(
+        object_hash().null(),
+        Some(gix_pack::data::entry::Location {
+            pack_id: 0,
+            pack_offset: base_offset + 4,
+            entry_size: data.len(),
+        }),
+    );
+    let entry = gix_pack::find::Entry {
+        data,
+        version: gix_pack::data::Version::V2,
+    };
+    assert!(
+        output::Entry::from_pack_entry(
+            entry.clone(),
+            &count,
+            &[],
+            0,
+            Some(|_, _| Ok(None)),
+            gix_pack::data::Version::V2,
+        )
+        .is_none(),
+        "an absent base can trigger recompression instead of reusing the delta"
+    );
+    let err = output::Entry::from_pack_entry(
+        entry.clone(),
+        &count,
+        &[],
+        0,
+        Some(|_, _| Err(gix_error::corruption("invalid base reference").raise())),
+        gix_pack::data::Version::V2,
+    )
+    .expect("a failed lookup must not request recompression")
+    .expect_err("corrupt base references must remain errors");
+    assert!(
+        err.is_corrupted(),
+        "the callback's corruption classification is preserved"
+    );
+    assert_eq!(
+        err.to_string(),
+        "invalid base reference",
+        "the original diagnostic is preserved"
+    );
+
+    let base_id = object_hash().empty_blob();
+    let reused = output::Entry::from_pack_entry(
+        entry,
+        &count,
+        &[],
+        0,
+        Some(|pack_id, offset| {
+            assert_eq!(pack_id, 0, "the callback receives the delta's pack");
+            assert_eq!(offset, base_offset, "the callback receives the validated base offset");
+            Ok(Some(base_id))
+        }),
+        gix_pack::data::Version::V2,
+    )
+    .expect("a found base permits delta reuse")?;
+    assert_eq!(
+        reused.kind,
+        output::entry::Kind::DeltaOid { id: base_id },
+        "a found base becomes a ref-delta"
+    );
+    Ok(())
+}
+
+#[test]
+fn traversals() -> gix_testtools::TestResult {
     #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
     struct Count {
         trees: usize,
@@ -318,7 +390,7 @@ fn traversals() -> crate::Result {
                 "ad454f92f046c2873aebac2686d30d5b100ee10fae1a28e2994df52a0c097cae",
             );
             let mut commits = gix_traverse::commit::Simple::new(Some(head), db.clone())
-                .map(Result::unwrap)
+                .map(std::result::Result::unwrap)
                 .map(|c| c.id)
                 .collect::<Vec<_>>();
             if let Some(take) = take {
@@ -373,9 +445,9 @@ fn traversals() -> crate::Result {
                     allow_thin_pack,
                     ..Default::default()
                 },
-            );
+            )?;
             let entries: Vec<_> = InOrderIter::from(entries_iter.by_ref())
-                .collect::<Result<Vec<_>, _>>()?
+                .collect::<std::result::Result<Vec<_>, _>>()?
                 .into_iter()
                 .flatten()
                 .collect();
@@ -408,7 +480,7 @@ fn traversals() -> crate::Result {
 }
 
 #[test]
-fn tree_additions_from_each_merge_parent_are_kept() -> crate::Result {
+fn tree_additions_from_each_merge_parent_are_kept() -> gix_testtools::TestResult {
     use gix_object::Write;
 
     let object_hash = object_hash();
@@ -440,7 +512,7 @@ fn tree_additions_from_each_merge_parent_are_kept() -> crate::Result {
         .take_object_memory()
         .expect("in-memory object storage is still enabled");
     let db = gix_pack::testing::Memory::new(objects.drain());
-    let mut input = std::iter::once(Ok::<_, Box<dyn std::error::Error + Send + Sync>>(merge_commit_id));
+    let mut input = std::iter::once(Ok::<_, gix_error::Error>(merge_commit_id));
 
     let (counts, stats) = output::count::objects_unthreaded(
         &db,
@@ -486,7 +558,8 @@ fn tree_additions_from_each_merge_parent_are_kept() -> crate::Result {
 /// level 1 being much weaker than it used to be, entries have to be compressed with the
 /// configured level, defaulting to what `git` uses.
 #[test]
-fn entry_sizes_depend_on_compression_level() -> crate::Result {
+fn entry_sizes_depend_on_compression_level() -> gix_testtools::TestResult {
+    use gix_error::Result;
     use gix_object::WriteTo;
     let (tree_id, buf) = {
         // Deterministic pseudo-random bytes (xorshift64*), so tree content is stable across runs.
@@ -529,7 +602,7 @@ fn entry_sizes_depend_on_compression_level() -> crate::Result {
         (tree_id, buf)
     };
 
-    let entry_size = |compression| -> Result<usize, output::entry::Error> {
+    let entry_size = |compression| -> Result<usize> {
         Ok(output::Entry::from_data(
             &output::Count::from_data(tree_id, None),
             &gix_object::Data::new(&buf, gix_object::Kind::Tree, gix_hash::Kind::Sha1),
@@ -557,19 +630,14 @@ fn entry_sizes_depend_on_compression_level() -> crate::Result {
 #[test]
 #[cfg(all(not(feature = "wasm"), feature = "streaming-input"))]
 fn empty_pack_is_allowed() {
-    assert_eq!(
-        write_and_verify(
+    insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&(write_and_verify(
             db(DbKind::DeterministicGeneratedContent, object_hash()).unwrap(),
             vec![],
             object_hash(),
             hex_to_id("029d08823bd8a8eab510ad6ac75c823cfd3ed31e"),
             None,
         )
-        .unwrap_err()
-        .to_string(),
-        "pack data directory should be set",
-        "empty packs are not actually written as they would be useless"
-    );
+        .expect_err("empty packs are not actually written as they would be useless")), &[]), "empty packs are not actually written as they would be useless", @r#""pack data directory should be set""#);
 }
 
 fn write_and_verify(
@@ -578,7 +646,7 @@ fn write_and_verify(
     object_hash: gix_hash::Kind,
     _expected_pack_hash: gix_hash::ObjectId,
     _expected_thin_pack_hash: Option<gix_hash::ObjectId>,
-) -> crate::Result {
+) -> Result {
     let tmp_dir = gix_testtools::tempfile::TempDir::new()?;
     let pack_file_path = tmp_dir.path().join("new.pack");
     let mut pack_file = std::fs::OpenOptions::new()
@@ -588,7 +656,7 @@ fn write_and_verify(
     let (num_written_bytes, pack_hash) = {
         let num_entries = entries.len();
         let mut pack_writer = output::bytes::FromEntriesIter::new(
-            std::iter::once(Ok::<_, entry::iter_from_counts::Error>(entries)),
+            std::iter::once(Ok::<_, gix_error::Error>(entries)),
             &mut pack_file,
             num_entries as u32,
             pack::data::Version::V2,

@@ -327,7 +327,7 @@ fn test_diff_basic() {
     index 257cc5642c..0000000000
     --- a/file1
     +++ /dev/null
-    @@ -1,1 +0,0 @@
+    @@ -1,1 +0,0 @@ foo
     -foo
     [EOF]
     ");
@@ -1069,28 +1069,28 @@ fn test_diff_relative_paths() {
     index 54b060eee9..1fe912cdd8 100644
     --- a/dir1/file2
     +++ b/dir1/file2
-    @@ -1,1 +1,1 @@
+    @@ -1,1 +1,1 @@ bar2
     -foo2
     +bar2
     diff --git a/dir1/subdir1/file3 b/dir1/subdir1/file3
     index c1ec6c6f12..f3c8b75ec6 100644
     --- a/dir1/subdir1/file3
     +++ b/dir1/subdir1/file3
-    @@ -1,1 +1,1 @@
+    @@ -1,1 +1,1 @@ bar3
     -foo3
     +bar3
     diff --git a/dir2/file4 b/dir2/file4
     index a0016dbc4c..17375f7a12 100644
     --- a/dir2/file4
     +++ b/dir2/file4
-    @@ -1,1 +1,1 @@
+    @@ -1,1 +1,1 @@ bar4
     -foo4
     +bar4
     diff --git a/file1 b/file1
     index 1715acd6a5..05c4fe6772 100644
     --- a/file1
     +++ b/file1
-    @@ -1,1 +1,1 @@
+    @@ -1,1 +1,1 @@ bar1
     -foo1
     +bar1
     [EOF]
@@ -1166,19 +1166,19 @@ fn test_diff_hunks() {
     index e69de29bb2..257cc5642c 100644
     --- a/file1
     +++ b/file1
-    @@ -0,0 +1,1 @@
+    @@ -0,0 +1,1 @@ foo
     +foo
     diff --git a/file2 b/file2
     index 257cc5642c..e69de29bb2 100644
     --- a/file2
     +++ b/file2
-    @@ -1,1 +0,0 @@
+    @@ -1,1 +0,0 @@ foo
     -foo
     diff --git a/file3 b/file3
     index 221a95a095..a543ef3892 100644
     --- a/file3
     +++ b/file3
-    @@ -1,2 +1,3 @@
+    @@ -1,2 +1,3 @@ foo
      foo
     -baz qux blah blah
     +bar
@@ -1192,19 +1192,19 @@ fn test_diff_hunks() {
     [1m<<diff git file_header::index e69de29bb2..257cc5642c 100644>>[0m
     [1m<<diff git file_header::--- a/file1>>[0m
     [1m<<diff git file_header::+++ b/file1>>[0m
-    [38;5;6m<<diff git hunk_header::@@ -0,0 +1,1 @@>>[39m
+    [38;5;6m<<diff git hunk_header::@@ -0,0 +1,1 @@ foo>>[39m
     [38;5;2m<<diff git added::+>>[4m<<diff git added token::foo>>[24m[39m
     [1m<<diff git file_header::diff --git a/file2 b/file2>>[0m
     [1m<<diff git file_header::index 257cc5642c..e69de29bb2 100644>>[0m
     [1m<<diff git file_header::--- a/file2>>[0m
     [1m<<diff git file_header::+++ b/file2>>[0m
-    [38;5;6m<<diff git hunk_header::@@ -1,1 +0,0 @@>>[39m
+    [38;5;6m<<diff git hunk_header::@@ -1,1 +0,0 @@ foo>>[39m
     [38;5;1m<<diff git removed::->>[4m<<diff git removed token::foo>>[24m[39m
     [1m<<diff git file_header::diff --git a/file3 b/file3>>[0m
     [1m<<diff git file_header::index 221a95a095..a543ef3892 100644>>[0m
     [1m<<diff git file_header::--- a/file3>>[0m
     [1m<<diff git file_header::+++ b/file3>>[0m
-    [38;5;6m<<diff git hunk_header::@@ -1,2 +1,3 @@>>[39m
+    [38;5;6m<<diff git hunk_header::@@ -1,2 +1,3 @@ foo>>[39m
     <<diff git context:: foo>>
     [38;5;1m<<diff git removed::-baz >>[4m<<diff git removed token::qux>>[24m<<diff git removed:: blah blah>>[39m
     [38;5;2m<<diff git added::+>>[4m<<diff git added token::bar>>[24m[39m
@@ -1880,7 +1880,7 @@ fn test_diff_missing_newline() {
     index 1910281566..a907ec3f43 100644
     --- a/file1
     +++ b/file1
-    @@ -1,1 +1,2 @@
+    @@ -1,1 +1,2 @@ foo
     -foo
     \ No newline at end of file
     +foo
@@ -1890,7 +1890,7 @@ fn test_diff_missing_newline() {
     index a907ec3f43..1910281566 100644
     --- a/file2
     +++ b/file2
-    @@ -1,2 +1,1 @@
+    @@ -1,2 +1,1 @@ foo
     -foo
     -bar
     \ No newline at end of file
@@ -2159,7 +2159,7 @@ fn test_diff_ignore_whitespace() {
     index f532aa68ad..033c4a6168 100644
     --- a/file1
     +++ b/file1
-    @@ -1,4 +1,6 @@
+    @@ -1,4 +1,6 @@ baz {  }
     +{
          foo {
              bar;
@@ -2174,7 +2174,7 @@ fn test_diff_ignore_whitespace() {
     index f532aa68ad..033c4a6168 100644
     --- a/file1
     +++ b/file1
-    @@ -1,4 +1,6 @@
+    @@ -1,4 +1,6 @@ baz {  }
     -foo {
     +{
     +    foo {
@@ -2420,7 +2420,7 @@ context = 0
             5: e
     === Must show 0 context
     Modified regular file file1:
-        ...
+        ...    b
        3    3: cC
         ...
     [EOF]
@@ -2465,7 +2465,7 @@ context = 0
     index 0000000000..0fec236860
     --- /dev/null
     +++ b/file1
-    @@ -0,0 +1,5 @@
+    @@ -0,0 +1,5 @@ a
     +a
     +b
     +c
@@ -2477,7 +2477,7 @@ context = 0
     index 0fec236860..b7615dae52 100644
     --- a/file1
     +++ b/file1
-    @@ -3,1 +3,1 @@
+    @@ -3,1 +3,1 @@ C
     -c
     +C
     [EOF]
@@ -2535,7 +2535,7 @@ fn test_diff_skipped_context_nondefault() {
     Modified regular file file1:
        1     : a
             1: A
-        ...
+        ...    c
        4     : d
             4: D
     === Don't skip 1 line
@@ -2562,7 +2562,7 @@ fn test_diff_skipped_context_nondefault() {
         ...
     === 1 line at end
     Modified regular file file1:
-        ...
+        ...    b
        3     : c
             3: C
        4    4: d
@@ -2642,7 +2642,7 @@ fn test_diff_leading_trailing_context() {
     index 1bf57dee4a..69b3e1865c 100644
     --- a/file1
     +++ b/file1
-    @@ -1,12 +1,12 @@
+    @@ -1,12 +1,12 @@ R
      1
      2
      3
@@ -2667,7 +2667,7 @@ fn test_diff_leading_trailing_context() {
     index 1bf57dee4a..69b3e1865c 100644
     --- a/file1
     +++ b/file1
-    @@ -3,8 +3,8 @@
+    @@ -3,8 +3,8 @@ R
      3
      4
      5
@@ -2688,7 +2688,7 @@ fn test_diff_leading_trailing_context() {
     index 1bf57dee4a..69b3e1865c 100644
     --- a/file1
     +++ b/file1
-    @@ -4,6 +4,6 @@
+    @@ -4,6 +4,6 @@ R
      4
      5
     -L
@@ -2827,7 +2827,7 @@ fn test_diff_conflict_sides_differ() {
     index 94c99a3280..0000000000 100644
     --- a/file
     +++ b/file
-    @@ -2,3 +2,12 @@
+    @@ -2,3 +2,12 @@ line 2
      line 2
     -line 3
     +<<<<<<< conflict 1 of 1
@@ -2861,24 +2861,24 @@ fn test_diff_conflict_sides_differ() {
     [2m[38;5;1m   5[0m [2m[38;5;2m  14[0m: line 5
     [EOF]
     "#);
-    insta::assert_snapshot!(diff_color_words_conflict_pair("base", "left1+right1"), @"
+    insta::assert_snapshot!(diff_color_words_conflict_pair("base", "left1+right1"), @r#"
     [38;5;3mCreated conflict in file:[39m
     [2m[38;5;1m   1[0m [2m[38;5;2m   1[0m: line 1
     [2m[38;5;1m   2[0m [2m[38;5;2m   2[0m: line 2
     [38;5;6m<<<<<<< Created conflict[39m
-    [38;5;6m+++++++ left side #1 to right side #1[39m
+    [38;5;6m+++++++ left to right side #1 (zsuskuln 713a980c "left1")[39m
     [38;5;1m   3[39m [38;5;2m   3[39m: [4m[38;5;1mline[38;5;2mleft[24m[39m [4m[38;5;2m3.1[24m[39m
          [38;5;2m   4[39m: [4m[38;5;2mleft 3.2[24m[39m
     [38;5;1m   3[39m [38;5;2m   5[39m: [4m[38;5;2mleft 3.[24m[39m3
-    [38;5;6m------- left side #1 to right base #1[39m
+    [38;5;6m------- left to right base #1 (rlvkpnrz aa7e33ed "base")[39m
     [2m[38;5;2m   3[0m [2m[38;5;1m   3[0m: line 3
-    [38;5;6m+++++++ left side #1 to right side #2[39m
+    [38;5;6m+++++++ left to right side #2 (vruxwmqv 3fe2e860 "right1")[39m
     [38;5;1m   3[39m [38;5;2m   3[39m: [4m[38;5;1mline[38;5;2mright[24m[39m 3[4m[38;5;2m.1[24m[39m
     [38;5;6m>>>>>>> Conflict ends[39m
     [2m[38;5;1m   4[0m [2m[38;5;2m   6[0m: line 4
     [2m[38;5;1m   5[0m [2m[38;5;2m   7[0m: line 5
     [EOF]
-    ");
+    "#);
 
     // Diff from conflict to resolved
     insta::assert_snapshot!(diff_git_materialized("left1+right1", "base"), @r#"
@@ -2886,7 +2886,7 @@ fn test_diff_conflict_sides_differ() {
     index 0000000000..94c99a3280 100644
     --- a/file
     +++ b/file
-    @@ -2,12 +2,3 @@
+    @@ -2,12 +2,3 @@ line 2
      line 2
     -<<<<<<< conflict 1 of 1
     -+++++++ zsuskuln 713a980c "left1"
@@ -2920,31 +2920,31 @@ fn test_diff_conflict_sides_differ() {
     [2m[38;5;1m  14[0m [2m[38;5;2m   5[0m: line 5
     [EOF]
     "#);
-    insta::assert_snapshot!(diff_color_words_conflict_pair("left1+right1", "base"), @"
+    insta::assert_snapshot!(diff_color_words_conflict_pair("left1+right1", "base"), @r#"
     [38;5;3mResolved conflict in file:[39m
     [2m[38;5;1m   1[0m [2m[38;5;2m   1[0m: line 1
     [2m[38;5;1m   2[0m [2m[38;5;2m   2[0m: line 2
     [38;5;6m<<<<<<< Resolved conflict[39m
-    [38;5;6m+++++++ left side #1 to right side #1[39m
+    [38;5;6m+++++++ left side #1 (zsuskuln 713a980c "left1") to right[39m
     [38;5;1m   3[39m [38;5;2m   3[39m: [4m[38;5;1mleft[38;5;2mline[24m[39m [4m[38;5;1m3.1[24m[39m
     [38;5;1m   4[39m     : [4m[38;5;1mleft 3.2[24m[39m
     [38;5;1m   5[39m [38;5;2m   3[39m: [4m[38;5;1mleft 3.[24m[39m3
-    [38;5;6m------- left base #1 to right side #1[39m
+    [38;5;6m------- left base #1 (rlvkpnrz aa7e33ed "base") to right[39m
     [2m[38;5;2m   3[0m [2m[38;5;1m   3[0m: line 3
-    [38;5;6m+++++++ left side #2 to right side #1[39m
+    [38;5;6m+++++++ left side #2 (vruxwmqv 3fe2e860 "right1") to right[39m
     [38;5;1m   3[39m [38;5;2m   3[39m: [4m[38;5;1mright[38;5;2mline[24m[39m 3[4m[38;5;1m.1[24m[39m
     [38;5;6m>>>>>>> Conflict ends[39m
     [2m[38;5;1m   6[0m [2m[38;5;2m   4[0m: line 4
     [2m[38;5;1m   7[0m [2m[38;5;2m   5[0m: line 5
     [EOF]
-    ");
+    "#);
 
     // Diff between conflicts
     insta::assert_snapshot!(diff_git_materialized("left1+right1", "left2+right2"), @r#"
     diff --git a/file b/file
     --- a/file
     +++ b/file
-    @@ -1,5 +1,5 @@
+    @@ -1,5 +1,5 @@ left 1.1
     -line 1
     +left 1.1
      line 2
@@ -2952,14 +2952,14 @@ fn test_diff_conflict_sides_differ() {
     -+++++++ zsuskuln 713a980c "left1"
     ++++++++ royxmykx b50b218b "left2"
      left 3.1
-    @@ -7,4 +7,5 @@
+    @@ -7,4 +7,5 @@ left 3.3
      left 3.3
     +left 3.4
      %%%%%%% diff from: rlvkpnrz aa7e33ed "base"
     -\\\\\\\        to: vruxwmqv 3fe2e860 "right1"
     +\\\\\\\        to: znkkpsqq e57450eb "right2"
      -line 3
-    @@ -13,2 +14,1 @@
+    @@ -13,2 +14,1 @@ line 4
      line 4
     -line 5
     [EOF]
@@ -2984,24 +2984,24 @@ fn test_diff_conflict_sides_differ() {
     [38;5;1m  14[39m     : [4m[38;5;1mline 5[24m[39m
     [EOF]
     "#);
-    insta::assert_snapshot!(diff_color_words_conflict_pair("left1+right1", "left2+right2"), @"
+    insta::assert_snapshot!(diff_color_words_conflict_pair("left1+right1", "left2+right2"), @r#"
     [38;5;3mModified conflict in file:[39m
     [38;5;1m   1[39m [38;5;2m   1[39m: [4m[38;5;1mline[38;5;2mleft[24m[39m [4m[38;5;2m1.[24m[39m1
     [2m[38;5;1m   2[0m [2m[38;5;2m   2[0m: line 2
     [38;5;6m<<<<<<< Modified conflict[39m
-    [38;5;6m+++++++ left side #1 to right side #1[39m
+    [38;5;6m+++++++ left side #1 (zsuskuln 713a980c "left1") to right side #1 (royxmykx b50b218b "left2")[39m
         ...
     [2m[38;5;1m   5[0m [2m[38;5;2m   5[0m: left 3.3
          [38;5;2m   6[39m: [4m[38;5;2mleft 3.4[24m[39m
-    [38;5;6m------- left base #1 to right base #1[39m
+    [38;5;6m------- left base #1 (rlvkpnrz aa7e33ed "base") to right base #1 (rlvkpnrz aa7e33ed "base")[39m
     [2m[38;5;2m   3[0m [2m[38;5;1m   3[0m: line 3
-    [38;5;6m+++++++ left side #2 to right side #2[39m
+    [38;5;6m+++++++ left side #2 (vruxwmqv 3fe2e860 "right1") to right side #2 (znkkpsqq e57450eb "right2")[39m
     [2m[38;5;1m   3[0m [2m[38;5;2m   3[0m: right 3.1
     [38;5;6m>>>>>>> Conflict ends[39m
     [2m[38;5;1m   6[0m [2m[38;5;2m   7[0m: line 4
     [38;5;1m   7[39m     : [4m[38;5;1mline 5[24m[39m
     [EOF]
-    ");
+    "#);
 }
 
 #[test]
@@ -3127,14 +3127,14 @@ fn test_diff_conflict_bases_differ() {
     diff --git a/file b/file
     --- a/file
     +++ b/file
-    @@ -1,5 +1,4 @@
+    @@ -1,5 +1,4 @@ line 2
     -line 1
      line 2
      <<<<<<< conflict 1 of 1
     -+++++++ zsuskuln 9e995075 "left1"
     ++++++++ znkkpsqq 218094ec "left2"
      left 3.1
-    @@ -7,5 +6,6 @@
+    @@ -7,5 +6,6 @@ left 3.3
      left 3.3
     -%%%%%%% diff from: rlvkpnrz 44cfbde6 "base1"
     -\\\\\\\        to: royxmykx 3087be1f "right1"
@@ -3167,22 +3167,22 @@ fn test_diff_conflict_bases_differ() {
         ...
     [EOF]
     "#);
-    insta::assert_snapshot!(diff_color_words_conflict_pair("left1+right1", "left2+right2"), @"
+    insta::assert_snapshot!(diff_color_words_conflict_pair("left1+right1", "left2+right2"), @r#"
     [38;5;3mModified conflict in file:[39m
     [38;5;1m   1[39m     : [4m[38;5;1mline 1[24m[39m
     [2m[38;5;1m   2[0m [2m[38;5;2m   1[0m: line 2
     [38;5;6m<<<<<<< Modified conflict[39m
-    [38;5;6m+++++++ left side #1 to right side #1[39m
+    [38;5;6m+++++++ left side #1 (zsuskuln 9e995075 "left1") to right side #1 (znkkpsqq 218094ec "left2")[39m
         ...
-    [38;5;6m------- left base #1 to right base #1[39m
+    [38;5;6m------- left base #1 (rlvkpnrz 44cfbde6 "base1") to right base #1 (vruxwmqv 3c4d67e6 "base2")[39m
     [38;5;2m   3[39m [38;5;1m   2[39m: line 3[4m[38;5;1m.1[24m[39m
     [38;5;2m   3[39m [38;5;1m   3[39m: [4m[38;5;1mline 3.2[24m[39m
-    [38;5;6m+++++++ left side #2 to right side #2[39m
+    [38;5;6m+++++++ left side #2 (royxmykx 3087be1f "right1") to right side #2 (kmkuslsw 656695c3 "right2")[39m
     [2m[38;5;1m   3[0m [2m[38;5;2m   2[0m: right 3.1
     [38;5;6m>>>>>>> Conflict ends[39m
     [2m[38;5;1m   6[0m [2m[38;5;2m   5[0m: line 4
     [EOF]
-    ");
+    "#);
 }
 
 #[test]
@@ -3306,7 +3306,7 @@ fn test_diff_conflict_three_sides() {
     diff --git a/file b/file
     --- a/file
     +++ b/file
-    @@ -13,2 +13,6 @@
+    @@ -13,2 +13,6 @@ line 4 b.2
      line 4 b.2
     +%%%%%%% diff from: rlvkpnrz 07965fa1 "base1"
     +\\\\\\\        to: znkkpsqq f73063c9 "side3"
@@ -3327,21 +3327,21 @@ fn test_diff_conflict_three_sides() {
     [2m[38;5;1m  15[0m [2m[38;5;2m  19[0m: line 5
     [EOF]
     "#);
-    insta::assert_snapshot!(diff_color_words_conflict_pair("side1+side2", "side1+side2+side3"), @"
+    insta::assert_snapshot!(diff_color_words_conflict_pair("side1+side2", "side1+side2+side3"), @r#"
     [38;5;3mModified conflict in file:[39m
     [2m[38;5;1m   1[0m [2m[38;5;2m   1[0m: line 1
     [38;5;6m<<<<<<< Modified conflict[39m
-    [38;5;6m+++++++ left side #1 to right side #1[39m
+    [38;5;6m+++++++ left side #1 (royxmykx 3a079496 "side1") to right side #1 (royxmykx 3a079496 "side1")[39m
         ...
-    [38;5;6m------- left base #1 to right base #1[39m
+    [38;5;6m------- left base #1 (zsuskuln 75289ea3 "base2") to right base #1 (zsuskuln 75289ea3 "base2")[39m
         ...
-    [38;5;6m+++++++ left side #2 to right side #2[39m
+    [38;5;6m+++++++ left side #2 (vruxwmqv bc176227 "side2") to right side #2 (vruxwmqv bc176227 "side2")[39m
         ...
-    [38;5;6m------- left side #1 to right base #2[39m
+    [38;5;6m------- left side #1 (royxmykx 3a079496 "side1") to right base #2 (rlvkpnrz 07965fa1 "base1")[39m
     [38;5;2m   2[39m [38;5;1m   2[39m: line 2 [4m[38;5;2ma.1[24m[39m
     [38;5;2m   3[39m     : [4m[38;5;2mline 3 a.2[24m[39m
     [38;5;2m   4[39m [38;5;1m   2[39m: [4m[38;5;2mline 4 [24m[39mbase
-    [38;5;6m+++++++ left side #1 to right side #3[39m
+    [38;5;6m+++++++ left side #1 (royxmykx 3a079496 "side1") to right side #3 (znkkpsqq f73063c9 "side3")[39m
     [38;5;1m   2[39m [38;5;2m   2[39m: line 2 [4m[38;5;1ma.1[24m[39m
     [38;5;1m   3[39m     : [4m[38;5;1mline 3 a.2[24m[39m
     [38;5;1m   4[39m [38;5;2m   2[39m: [4m[38;5;1mline 4 [24m[39mbase
@@ -3349,7 +3349,7 @@ fn test_diff_conflict_three_sides() {
     [38;5;6m>>>>>>> Conflict ends[39m
     [2m[38;5;1m   5[0m [2m[38;5;2m   5[0m: line 5
     [EOF]
-    ");
+    "#);
 }
 
 #[test]

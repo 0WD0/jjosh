@@ -96,7 +96,8 @@ impl PartialNameRef {
 impl PartialNameRef {
     /// Convert this name into the relative path possibly identifying the reference location.
     /// Note that it may be only a partial path though.
-    pub fn to_partial_path(&self) -> &Path {
+    /// Return an error if the name cannot be represented as a native path.
+    pub fn to_partial_path(&self) -> gix_error::Result<&Path> {
         gix_path::from_byte_slice(self.0.as_bstr())
     }
 
@@ -132,10 +133,12 @@ impl<'a> From<&'a FullNameRef> for &'a PartialNameRef {
 }
 
 impl<'a> convert::TryFrom<&'a OsStr> for &'a PartialNameRef {
-    type Error = Error;
+    type Error = gix_error::Exn<Error>;
 
     fn try_from(v: &'a OsStr) -> Result<Self, Self::Error> {
-        let v = gix_path::os_str_into_bstr(v).map_err(|_| Error::InvalidByte {
+        use gix_error::ResultExt;
+
+        let v = gix_path::os_str_into_bstr(v).or_raise_typed(|| Error::InvalidByte {
             byte: "<unknown encoding>".into(),
         })?;
         Ok(PartialNameRef::new_unchecked(gix_validate::reference::name_partial(

@@ -16,6 +16,9 @@ use std::io;
 use std::io::Write as _;
 
 use clap_complete::ArgValueCompleter;
+use futures::StreamExt as _;
+use futures::TryStreamExt as _;
+use jj_lib::backend::BackendResult;
 use jj_lib::conflicts::MaterializedTreeValue;
 use jj_lib::conflicts::materialize_tree_value;
 use jj_lib::repo::Repo as _;
@@ -36,9 +39,6 @@ use crate::ui::Ui;
 ///
 /// Prints each line that matches the specified pattern, prefixed by the file
 /// path. Use `--name-only` to print only the file paths.
-///
-/// This is an early version of the command. It does not search files
-/// concurrently.
 #[derive(clap::Args, Clone, Debug)]
 pub(crate) struct FileSearchArgs {
     /// The revision to search files in
@@ -99,11 +99,19 @@ pub(crate) async fn cmd_file_search(
     }
     .map_err(cli_error)?;
     let pattern_matcher = pattern.to_matcher();
-    // TODO: Read files concurrently (depending on backend)
-    for (path, value) in tree.entries_matching(file_matcher.as_ref()) {
-        let value = value?;
-        let materialized =
-            materialize_tree_value(store.as_ref(), &path, value, tree.labels()).await?;
+    let mut entries = tree
+        .entries_matching(file_matcher.as_ref())
+        .map(async |(path, value)| -> BackendResult<_> {
+            let mut materialized =
+                materialize_tree_value(store.as_ref(), &path, value?, tree.labels()).await?;
+            let content = match &mut materialized {
+                MaterializedTreeValue::File(file_value) => Some(file_value.read_all(&path).await?),
+                _ => None,
+            };
+            Ok((path, materialized, content))
+        })
+        .buffered(store.concurrency());
+    while let Some((path, materialized, content)) = entries.try_next().await? {
         match materialized {
             MaterializedTreeValue::Absent => panic!("Entry for absent path in file listing"),
             MaterializedTreeValue::AccessDenied(error) => {
@@ -113,8 +121,8 @@ pub(crate) async fn cmd_file_search(
                     "Skipping '{ui_path}' due to permission error: {error}"
                 )?;
             }
-            MaterializedTreeValue::File(mut materialized_file_value) => {
-                let content = materialized_file_value.read_all(&path).await?;
+            MaterializedTreeValue::File(_) => {
+                let content = content.expect("file content should have been read");
                 // TODO: Make output templated
                 let ui_path = workspace_command.format_file_path(&path);
                 if args.name_only {

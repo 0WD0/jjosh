@@ -1,3 +1,4 @@
+use crate::TestResult;
 use std::{
     cell::RefCell,
     collections::HashSet,
@@ -29,36 +30,179 @@ type Remote = http::curl::Curl;
 #[cfg(all(feature = "http-client-reqwest", not(feature = "http-client-curl")))]
 type Remote = http::reqwest::Remote;
 
+#[test]
+fn next_request_rejects_an_unread_response_body() -> gix_testtools::TestResult {
+    use gix_transport::client::{MessageKind, WriteMode};
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+    let url = format!("http://{}/repo", listener.local_addr()?);
+    let server = std::thread::spawn(move || -> std::io::Result<()> {
+        let mut response = b"0008NAK\n".to_vec();
+        // More than one copy buffer keeps the worker blocked after the protocol stops at NAK.
+        response.resize(32 * 1024, b'x');
+        for (content_type, body) in [
+            ("advertisement", b"000eversion 2\n000cls-refs\n000afetch\n0000".to_vec()),
+            ("result", response),
+        ] {
+            let (stream, _) = listener.accept()?;
+            stream.set_read_timeout(Some(std::time::Duration::from_secs(5)))?;
+            let mut reader = std::io::BufReader::new(stream);
+            read_request_lines(&mut reader);
+            if content_type == "result" {
+                let mut request = [0; 4];
+                reader.read_exact(&mut request)?;
+                assert_eq!(&request, b"0000", "the request contains only a flush packet");
+            }
+            write!(
+                reader.get_mut(),
+                "HTTP/1.1 200 OK\r\n\
+                 Content-Type: application/x-git-upload-pack-{content_type}\r\n\
+                 Content-Length: {}\r\n\
+                 Connection: close\r\n\
+                 \r\n",
+                body.len()
+            )?;
+            reader.get_mut().write_all(&body)?;
+        }
+        Ok(())
+    });
+
+    let mut client = http::connect::<Remote>(url.as_str().try_into()?, Protocol::V2, false);
+    client.handshake(Service::UploadPack, &[])?;
+    let mut response = client
+        .request(WriteMode::OneLfTerminatedLinePerWriteCall, MessageKind::Flush, false)?
+        .into_read()?;
+    let mut line = String::new();
+    response.read_line(&mut line)?;
+    assert_eq!(line, "NAK\n", "the protocol stops before the remaining response body");
+    drop(response);
+    server.join().expect("HTTP server thread completed")?;
+
+    let (send, receive) = std::sync::mpsc::channel();
+    let request = std::thread::spawn(move || {
+        let result = client
+            .request(WriteMode::OneLfTerminatedLinePerWriteCall, MessageKind::Flush, false)
+            .map(|_| ())
+            .map_err(|err| format!("{err:?}"));
+        send.send(result).expect("the test is waiting for the request result");
+    });
+    let error = receive
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .expect("an unread response must cause an error instead of a deadlock")
+        .expect_err("the next request must reject the unread response");
+    request.join().expect("request thread completed");
+    assert!(
+        error.contains("previous HTTP response body was not fully consumed"),
+        "the error explains why the next request cannot start: {error}"
+    );
+    Ok(())
+}
+
 fn assert_error_status(
     status: usize,
     kind: std::io::ErrorKind,
-) -> Result<(mock::Server, http::Transport<Remote>), crate::Error> {
+) -> std::result::Result<(mock::Server, http::Transport<Remote>, impl std::fmt::Debug), crate::Error> {
     let (server, mut client) =
         mock::serve_and_connect(&format!("http-{status}.response"), "path/not-important", Protocol::V1)?;
     let error = client
         .handshake(Service::UploadPack, &[])
         .err()
         .expect("non-200 status causes error");
-    let error = error
+    let io_error = error
         .source()
         .unwrap_or_else(|| panic!("no source() in: {error:?} "))
         .downcast_ref::<std::io::Error>()
         .expect("io error as source");
-    assert_eq!(error.kind(), kind);
-    let expected = format!("Received HTTP status {status}");
-    assert_eq!(error.to_string().get(..expected.len()), Some(expected).as_deref());
+    assert_eq!(io_error.kind(), kind);
+    let diagnostic = gix_testtools::redact_debug_snapshot(
+        &gix_error::TestError::from(error),
+        &[(&server.addr.to_string(), "127.0.0.1:<port>")],
+    );
     drop(server.received());
-    Ok((server, client))
+    Ok((server, client, diagnostic))
 }
 
 #[test]
-fn http_status_500_is_communicated_via_special_io_error() -> crate::Result {
-    assert_error_status(500, std::io::ErrorKind::ConnectionAborted)?;
+fn http_statuses_distinguish_authentication_authorization_and_capabilities() -> gix_testtools::TestResult {
+    use gix_error::Class;
+    for (status, expected) in [
+        (401, Some(Class::Unauthenticated)),
+        (403, Some(Class::PermissionDenied)),
+        (409, Some(Class::Conflict)),
+        (501, Some(Class::Unsupported)),
+        (400, None),
+    ] {
+        let server = mock::Server::new(
+            format!("HTTP/1.1 {status} Response\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").into_bytes(),
+        );
+        let mut transport = http::connect::<Remote>(
+            format!("http://{}/repo", server.addr).as_str().try_into()?,
+            Protocol::V1,
+            false,
+        );
+        let err = transport
+            .handshake(Service::UploadPack, &[])
+            .err()
+            .expect("the HTTP response reports failure");
+        let err = gix_error::Error::from(err);
+        let classes = err.classify().map(|class| class.class()).collect::<Vec<_>>();
+        if status == 401 {
+            assert_eq!(
+                classes,
+                [Class::Unauthenticated],
+                "the authentication challenge suppresses the legacy I/O permission classification"
+            );
+            assert!(err.is_unauthenticated(), "401 requests credentials");
+        } else {
+            assert_eq!(
+                classes,
+                expected.into_iter().collect::<Vec<_>>(),
+                "HTTP status {status} must expose only its known recovery classification"
+            );
+        }
+        if status == 501 {
+            assert!(
+                !err.can_retry_lenient(),
+                "unsupported operations must not be retried as server outages"
+            );
+        }
+        if status == 403 {
+            assert!(
+                !err.is_unauthenticated(),
+                "forbidden responses do not request fresh credentials"
+            );
+        }
+        drop(server.received());
+    }
     Ok(())
 }
 
 #[test]
-fn http_identity_is_picked_up_from_url() -> crate::Result {
+fn http_status_500_is_communicated_via_special_io_error() -> TestResult {
+    let (_, _, err) = assert_error_status(500, std::io::ErrorKind::ConnectionAborted)?;
+    if cfg!(feature = "http-client-curl") {
+        insta::assert_debug_snapshot!(err, "HTTP server errors report the status and retain the retryable I/O kind", @"
+        An IO error occurred when talking to the server
+
+        Caused by:
+            0: I/O error (ConnectionAborted)
+            1: Received HTTP status 500
+        ");
+    } else {
+        insta::assert_debug_snapshot!(err, "HTTP server errors report the status and retain the retryable I/O kind", @"
+        An IO error occurred when talking to the server
+
+        Caused by:
+            0: I/O error (ConnectionAborted)
+            1: Received HTTP status 500
+            2: HTTP status server error (500 Internal Server Error) for url (http://127.0.0.1:<port>/path/not-important/info/refs?service=git-upload-pack)
+        ");
+    }
+    Ok(())
+}
+
+#[test]
+fn http_identity_is_picked_up_from_url() -> TestResult {
     let transport = gix_transport::client::blocking_io::http::connect::<Remote>(
         "https://user:pass@example.com/repo".try_into()?,
         Protocol::V2,
@@ -85,7 +229,7 @@ fn http_will_use_pipelining() {
     fn headers(rdr: &mut dyn BufRead) -> HashSet<String> {
         let valid = ["GET", "Authorization", "Accept"];
         rdr.lines()
-            .map(Result::unwrap)
+            .map(std::result::Result::unwrap)
             .take_while(|s| s.len() > 2)
             .map(|s| s.trim().to_string())
             .filter(|s| valid.iter().any(|prefix| s.starts_with(*prefix)))
@@ -153,7 +297,18 @@ fn http_will_use_pipelining() {
     );
     match client.handshake(gix_transport::Service::UploadPack, &[]) {
         Ok(_) => unreachable!("expecting permission denied to be detected"),
-        Err(gix_transport::client::Error::Io(err)) if err.kind() == std::io::ErrorKind::PermissionDenied => {}
+        Err(gix_transport::client::Error::Io(err)) if err.kind() == std::io::ErrorKind::PermissionDenied => {
+            insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[(&addr.to_string(), "127.0.0.1:<port>")]), "HTTP authentication failures retain their status before and after setting credentials", @r#"
+            Custom {
+                kind: PermissionDenied,
+                error: AuthenticationRequired {
+                    www_authenticate: [
+                        "Basic realm=\"wheee\"",
+                    ],
+                },
+            }
+            "#);
+        }
         Err(err) => unreachable!("{err:?}"),
     }
     client
@@ -165,22 +320,41 @@ fn http_will_use_pipelining() {
         .unwrap();
     match client.handshake(gix_transport::Service::UploadPack, &[]) {
         Ok(_) => unreachable!("expecting permission denied to be detected"),
-        Err(gix_transport::client::Error::Io(err)) if err.kind() == std::io::ErrorKind::PermissionDenied => {}
+        Err(gix_transport::client::Error::Io(err)) if err.kind() == std::io::ErrorKind::PermissionDenied => {
+            insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[(&addr.to_string(), "127.0.0.1:<port>")]), "HTTP authentication failures retain their status before and after setting credentials", @r#"
+            Custom {
+                kind: PermissionDenied,
+                error: AuthenticationRequired {
+                    www_authenticate: [
+                        "Basic realm=\"testenv\"",
+                    ],
+                },
+            }
+            "#);
+        }
         Err(err) => unreachable!("{err:?}"),
     }
     thread.join().unwrap();
 }
 
 #[test]
-fn http_authentication_error_can_be_differentiated_and_identity_is_transmitted() -> crate::Result {
-    let (server, mut client) = assert_error_status(401, std::io::ErrorKind::PermissionDenied)?;
+fn http_authentication_error_can_be_differentiated_and_identity_is_transmitted() -> TestResult {
+    let (server, mut client, err) = assert_error_status(401, std::io::ErrorKind::PermissionDenied)?;
+    insta::assert_debug_snapshot!(err, "HTTP authentication failures retain the status and permission-denied cause", @"
+    An IO error occurred when talking to the server
+
+    Caused by:
+        0: I/O error (PermissionDenied)
+        1: Received HTTP status 401
+    ");
     server.next_read_and_respond_with(fixture_bytes("v1/http-handshake.response"));
     client.set_identity(gix_sec::identity::Account {
         username: "user".into(),
         password: "password".into(),
         oauth_refresh_token: None,
     })?;
-    client.handshake(Service::UploadPack, &[])?;
+    let SetServiceResponse { refs, .. } = client.handshake(Service::UploadPack, &[])?;
+    io::copy(&mut refs.expect("refs in protocol V1"), &mut io::sink())?;
 
     assert_eq!(
         server
@@ -245,7 +419,8 @@ Authorization: Basic dXNlcjpwYXNzd29yZA==
 }
 
 #[test]
-fn authentication_challenges_are_preserved_per_response() -> crate::Result {
+fn authentication_challenges_are_preserved_per_response() -> TestResult {
+    let mut error_snapshots = Vec::new();
     let server = mock::Server::new(
         b"HTTP/1.1 401 Unauthorized\r\n\
           WWW-Authenticate: Basic realm=\"GitHub\" domain_hint=\"example\"\r\n\
@@ -269,6 +444,7 @@ fn authentication_challenges_are_preserved_per_response() -> crate::Result {
         let client::Error::Io(error) = error else {
             panic!("expected an I/O authentication error, got {error:?}");
         };
+        error_snapshots.push(gix_testtools::redact_debug_snapshot(&(error), &[]));
         assert_eq!(
             error.kind(),
             io::ErrorKind::PermissionDenied,
@@ -289,6 +465,25 @@ fn authentication_challenges_are_preserved_per_response() -> crate::Result {
             );
         }
     }
+    insta::assert_debug_snapshot!(error_snapshots, "authentication challenges are preserved per response", @r#"
+    [
+        Custom {
+            kind: PermissionDenied,
+            error: AuthenticationRequired {
+                www_authenticate: [
+                    "Basic realm=\"GitHub\" domain_hint=\"example\"",
+                    "Bearer realm=\"example\"",
+                ],
+            },
+        },
+        Custom {
+            kind: PermissionDenied,
+            error: AuthenticationRequired {
+                www_authenticate: [],
+            },
+        },
+    ]
+    "#);
     Ok(())
 }
 
@@ -328,7 +523,7 @@ fn authentication_challenges_are_preserved_per_response() -> crate::Result {
 /// `Authorization: Basic dmljdGltLXVzZXI6c3VwZXItc2VjcmV0LXRva2Vu`, leaking them to the attacker.
 /// ```
 #[test]
-fn redirected_post_does_not_forward_basic_auth_to_the_new_host() -> crate::Result {
+fn redirected_post_does_not_forward_basic_auth_to_the_new_host() -> TestResult {
     fn has_authorization(lines: &[String]) -> bool {
         lines
             .iter()
@@ -430,19 +625,12 @@ fn redirected_post_does_not_forward_basic_auth_to_the_new_host() -> crate::Resul
         oauth_refresh_token: None,
     })?;
 
-    client
-        .handshake(Service::UploadPack, &[])
-        .map(drop)
-        .expect("redirected handshake should succeed");
+    let SetServiceResponse { refs, .. } = client.handshake(Service::UploadPack, &[])?;
+    io::copy(&mut refs.expect("refs in protocol V1"), &mut io::sink())?;
     let url_after_handshake = client.to_url().as_ref().to_owned();
-    let mut request = client
-        .request(client::WriteMode::Binary, client::MessageKind::Flush, false)
-        .expect("follow-up POST request can be created after redirected handshake");
-    request.write_all(b"0000").expect("flush packet can be written");
-    request
-        .into_read()
-        .map(drop)
-        .expect("follow-up POST response can be read");
+    let mut request = client.request(client::WriteMode::Binary, client::MessageKind::Flush, false)?;
+    request.write_all(b"0000")?;
+    request.into_read().map(drop)?;
 
     let original_get = redirect.join().expect("thread");
     let (redirected_get, redirected_post) = redirected.join().expect("thread");
@@ -479,7 +667,7 @@ fn redirected_post_does_not_forward_basic_auth_to_the_new_host() -> crate::Resul
 }
 
 #[test]
-fn redirected_unauthorized_handshake_updates_url_before_returning() -> crate::Result {
+fn redirected_unauthorized_handshake_updates_url_before_returning() -> TestResult {
     let redirected_listener = std::net::TcpListener::bind("127.0.0.1:0")?;
     let redirected_addr = redirected_listener.local_addr()?;
     let redirected_port = redirected_addr.port();
@@ -538,6 +726,16 @@ fn redirected_unauthorized_handshake_updates_url_before_returning() -> crate::Re
         .unwrap_or_else(|| panic!("no source() in: {error:?} "))
         .downcast_ref::<std::io::Error>()
         .expect("io error as source");
+    insta::assert_debug_snapshot!(error, "redirected unauthorized handshake updates url before returning", @r#"
+    Custom {
+        kind: PermissionDenied,
+        error: AuthenticationRequired {
+            www_authenticate: [
+                "Basic realm=\"redirected\"",
+            ],
+        },
+    }
+    "#);
     assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
     assert_eq!(
         error
@@ -568,7 +766,7 @@ fn redirected_unauthorized_handshake_updates_url_before_returning() -> crate::Re
 }
 
 #[test]
-fn relative_redirected_handshake_updates_url_before_returning() -> crate::Result {
+fn relative_redirected_handshake_updates_url_before_returning() -> TestResult {
     let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
     let addr = listener.local_addr()?;
     let port = addr.port();
@@ -627,7 +825,7 @@ fn relative_redirected_handshake_updates_url_before_returning() -> crate::Result
 }
 
 #[test]
-fn chained_relative_redirected_unauthorized_handshake_updates_url_from_previous_hop() -> crate::Result {
+fn chained_relative_redirected_unauthorized_handshake_updates_url_from_previous_hop() -> TestResult {
     let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
     let addr = listener.local_addr()?;
     let port = addr.port();
@@ -697,6 +895,14 @@ fn chained_relative_redirected_unauthorized_handshake_updates_url_from_previous_
         .unwrap_or_else(|| panic!("no source() in: {error:?} "))
         .downcast_ref::<std::io::Error>()
         .expect("io error as source");
+    insta::assert_debug_snapshot!(error, "chained relative redirected unauthorized handshake updates url from previous hop", @"
+    Custom {
+        kind: PermissionDenied,
+        error: AuthenticationRequired {
+            www_authenticate: [],
+        },
+    }
+    ");
     assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
 
     let (initial_get, second_get, final_get) = server.join().expect("thread");
@@ -727,7 +933,7 @@ fn chained_relative_redirected_unauthorized_handshake_updates_url_from_previous_
 }
 
 #[test]
-fn redirects_are_not_followed_with_configured_extra_headers() -> crate::Result {
+fn redirects_are_not_followed_with_configured_extra_headers() -> TestResult {
     let redirected_listener = std::net::TcpListener::bind("127.0.0.1:0")?;
     let redirected_addr = redirected_listener.local_addr()?;
     let redirect_listener = std::net::TcpListener::bind("127.0.0.1:0")?;
@@ -770,15 +976,30 @@ fn redirects_are_not_followed_with_configured_extra_headers() -> crate::Result {
     let original_get = redirect.join().expect("thread");
     let redirected_was_contacted = redirected.join().expect("thread");
 
-    match result {
-        Ok(_) => unreachable!("redirects with configured extra headers should fail"),
-        Err(err) => {
-            let err = format!("{err:?}");
-            assert!(
-                err.contains("refusing to follow redirect after request headers were configured"),
-                "error should indicate that it failed due to redirection, got {err}"
-            );
-        }
+    let err = result.err().expect("the redirect must be rejected");
+    if cfg!(feature = "http-client-curl") {
+        insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&gix_error::TestError::from(err), &[
+            (&redirect_addr.to_string(), "127.0.0.1:<original-port>"),
+            (&redirected_addr.to_string(), "127.0.0.1:<redirect-port>"),
+        ]), "redirects are rejected after private request headers have been configured", @"
+        An IO error occurred when talking to the server
+
+        Caused by:
+            0: I/O error (Other)
+            1: refusing to follow redirect after request headers were configured
+        ");
+    } else {
+        insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&gix_error::TestError::from(err), &[
+            (&redirect_addr.to_string(), "127.0.0.1:<original-port>"),
+            (&redirected_addr.to_string(), "127.0.0.1:<redirect-port>"),
+        ]), "redirects are rejected after private request headers have been configured", @"
+        An IO error occurred when talking to the server
+
+        Caused by:
+            0: I/O error (Other)
+            1: error following redirect for url (http://127.0.0.1:<original-port>/repo/info/refs?service=git-upload-pack)
+            2: refusing to follow redirect after request headers were configured
+        ");
     }
     assert!(
         original_get
@@ -794,13 +1015,31 @@ fn redirects_are_not_followed_with_configured_extra_headers() -> crate::Result {
 }
 
 #[test]
-fn http_error_results_in_observable_error() -> crate::Result {
-    assert_error_status(404, std::io::ErrorKind::Other)?;
+fn http_error_results_in_observable_error() -> TestResult {
+    let (_, _, err) = assert_error_status(404, std::io::ErrorKind::Other)?;
+    if cfg!(feature = "http-client-curl") {
+        insta::assert_debug_snapshot!(err, "HTTP not-found responses retain their status diagnostic", @"
+        An IO error occurred when talking to the server
+
+        Caused by:
+            0: I/O error (Other)
+            1: Received HTTP status 404
+        ");
+    } else {
+        insta::assert_debug_snapshot!(err, "HTTP not-found responses retain their status diagnostic", @"
+        An IO error occurred when talking to the server
+
+        Caused by:
+            0: I/O error (Other)
+            1: Received HTTP status 404
+            2: HTTP status client error (404 Not Found) for url (http://127.0.0.1:<port>/path/not-important/info/refs?service=git-upload-pack)
+        ");
+    }
     Ok(())
 }
 
 #[test]
-fn handshake_v1() -> crate::Result {
+fn handshake_v1() -> TestResult {
     let (server, mut c) = mock::serve_and_connect(
         "v1/http-handshake.response",
         "path/not/important/due/to/mock",
@@ -851,7 +1090,7 @@ fn handshake_v1() -> crate::Result {
     let refs = refs
         .expect("v1 protocol provides refs")
         .lines()
-        .map_while(Result::ok)
+        .map_while(std::result::Result::ok)
         .collect::<Vec<_>>();
     assert_eq!(
         refs,
@@ -935,7 +1174,7 @@ User-Agent: git/oxide-{}
 }
 
 #[test]
-fn clone_v1() -> crate::Result {
+fn clone_v1() -> TestResult {
     let (server, mut c) = mock::serve_and_connect(
         "v1/http-handshake.response",
         "path/not/important/due/to/mock",
@@ -1016,12 +1255,12 @@ Accept: application/x-git-upload-pack-result
 }
 
 #[test]
-fn handshake_and_lsrefs_and_fetch_v2() -> crate::Result {
+fn handshake_and_lsrefs_and_fetch_v2() -> TestResult {
     handshake_and_lsrefs_and_fetch_v2_impl("v2/http-handshake.response")
 }
 
 #[test]
-fn handshake_and_lsrefs_and_fetch_v2_googlesource() -> crate::Result {
+fn handshake_and_lsrefs_and_fetch_v2_googlesource() -> TestResult {
     let (_server, mut c) = mock::serve_and_connect(
         "v2/http-no-newlines-handshake.response",
         "path/not/important/due/to/mock",
@@ -1080,12 +1319,12 @@ fn handshake_and_lsrefs_and_fetch_v2_googlesource() -> crate::Result {
 }
 
 #[test]
-fn handshake_and_lsrefs_and_fetch_v2_service_announced() -> crate::Result {
+fn handshake_and_lsrefs_and_fetch_v2_service_announced() -> TestResult {
     handshake_and_lsrefs_and_fetch_v2_impl("v2/http-handshake-service-announced.response")
 }
 
 #[test]
-fn handshake_v2_surfaces_sha256_object_format() -> crate::Result {
+fn handshake_v2_surfaces_sha256_object_format() -> TestResult {
     let (_server, mut c) = mock::serve_and_connect(
         "v2/http-handshake-sha256.response",
         "path/not/important/due/to/mock",
@@ -1121,7 +1360,7 @@ fn handshake_v2_surfaces_sha256_object_format() -> crate::Result {
     Ok(())
 }
 
-fn handshake_and_lsrefs_and_fetch_v2_impl(handshake_fixture: &str) -> crate::Result {
+fn handshake_and_lsrefs_and_fetch_v2_impl(handshake_fixture: &str) -> TestResult {
     let (server, mut c) = mock::serve_and_connect(handshake_fixture, "path/not/important/due/to/mock", Protocol::V2)?;
     assert!(
         !c.connection_persists_across_multiple_requests(),
@@ -1193,7 +1432,7 @@ Git-Protocol: version=2:value-only:key=value
         false,
     )?;
     assert_eq!(
-        res.lines().collect::<Result<Vec<_>, _>>()?,
+        res.lines().collect::<std::result::Result<Vec<_>, _>>()?,
         vec![
             "808e50d724f604f69ab93c6da2919c014667bedb HEAD symref-target:refs/heads/master",
             "808e50d724f604f69ab93c6da2919c014667bedb refs/heads/master"
@@ -1287,7 +1526,7 @@ Content-Length: 22
 }
 
 #[test]
-fn check_content_type_is_case_insensitive() -> crate::Result {
+fn check_content_type_is_case_insensitive() -> TestResult {
     let (_server, mut client) = mock::serve_and_connect(
         "v2/http-handshake-lowercase-headers.response",
         "path/not/important/due/to/mock",

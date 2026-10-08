@@ -1,14 +1,14 @@
 use crate::ErrorWithSource;
 #[cfg(any(feature = "tree-error", not(feature = "auto-chain-error")))]
 use crate::{debug_string, fixup_paths, new_tree_error};
-use gix_error::{CorruptionError, Error, ErrorExt, Message, NotFoundError, RetryableError, ValidationError, message};
+use gix_error::{Class, ClassificationMarker, Error, ErrorExt, Message, corruption, message, not_found, validation};
 #[cfg(any(feature = "tree-error", not(feature = "auto-chain-error")))]
 use std::error::Error as _;
 
 #[cfg(any(feature = "tree-error", not(feature = "auto-chain-error")))]
 #[test]
 fn from_exn_error() {
-    let err = Error::from(message("one").raise());
+    let err = Error::from(message("one").raise_typed());
     assert_eq!(err, "one");
     insta::assert_compact_debug_snapshot!(
         &err,
@@ -26,57 +26,37 @@ fn from_exn_error_tree() {
     assert_eq!(err, "topmost");
     insta::assert_compact_debug_snapshot!(&err, "compact Debug renders the complete tree with caller locations", @"
     topmost, at gix-error/tests/error/error.rs:25
-    |
-    └─ E6, at gix-error/tests/error/main.rs:26
-        |
-        └─ E5, at gix-error/tests/error/main.rs:18
-        |   |
-        |   └─ E3, at gix-error/tests/error/main.rs:10
-        |   |   |
-        |   |   └─ E1, at gix-error/tests/error/main.rs:9
-        |   |
-        |   └─ E10, at gix-error/tests/error/main.rs:13
-        |   |   |
-        |   |   └─ E9, at gix-error/tests/error/main.rs:12
-        |   |
-        |   └─ E12, at gix-error/tests/error/main.rs:16
-        |       |
-        |       └─ E11, at gix-error/tests/error/main.rs:15
-        |
-        └─ E4, at gix-error/tests/error/main.rs:21
-        |   |
-        |   └─ E2, at gix-error/tests/error/main.rs:20
-        |
-        └─ E8, at gix-error/tests/error/main.rs:24
-            |
-            └─ E7, at gix-error/tests/error/main.rs:23
+
+    Caused by:
+        0: E6, at gix-error/tests/error/main.rs:26
+        ├─0: E5, at gix-error/tests/error/main.rs:18
+        │ ├─0: E3, at gix-error/tests/error/main.rs:10
+        │ │ └─ E1, at gix-error/tests/error/main.rs:9
+        │ ├─1: E10, at gix-error/tests/error/main.rs:13
+        │ │ └─ E9, at gix-error/tests/error/main.rs:12
+        │ └─2: E12, at gix-error/tests/error/main.rs:16
+        │   └─ E11, at gix-error/tests/error/main.rs:15
+        ├─1: E4, at gix-error/tests/error/main.rs:21
+        │ └─ E2, at gix-error/tests/error/main.rs:20
+        └─2: E8, at gix-error/tests/error/main.rs:24
+          └─ E7, at gix-error/tests/error/main.rs:23
     ");
-    insta::assert_debug_snapshot!(err, "pretty Debug renders the complete tree without caller locations", @r"
+    insta::assert_debug_snapshot!(err, "pretty Debug renders the complete tree without caller locations", @"
     topmost
-    |
-    └─ E6
-        |
-        └─ E5
-        |   |
-        |   └─ E3
-        |   |   |
-        |   |   └─ E1
-        |   |
-        |   └─ E10
-        |   |   |
-        |   |   └─ E9
-        |   |
-        |   └─ E12
-        |       |
-        |       └─ E11
-        |
-        └─ E4
-        |   |
-        |   └─ E2
-        |
-        └─ E8
-            |
-            └─ E7
+
+    Caused by:
+        0: E6
+        ├─0: E5
+        │ ├─0: E3
+        │ │ └─ E1
+        │ ├─1: E10
+        │ │ └─ E9
+        │ └─2: E12
+        │   └─ E11
+        ├─1: E4
+        │ └─ E2
+        └─2: E8
+          └─ E7
     ");
     insta::assert_debug_snapshot!(
         err.iter_errors().map(ToString::to_string).collect::<Vec<_>>(),
@@ -138,16 +118,14 @@ fn from_exn_error_tree() {
         file!(),
         "errors with locations expose their caller location"
     );
-    assert_eq!(
-        err.source().map(debug_string).as_deref(),
-        Some(r#"Message("E6")"#),
-        "The source is the first child"
-    );
-    assert_eq!(
-        err.probable_cause().to_string(),
-        "E6",
-        "we get the top-most error that has most causes"
-    );
+    insta::assert_debug_snapshot!(err.source(), "The source is the first child", @r#"
+    Some(
+        Message {
+            message: "E6",
+        },
+    )
+    "#);
+    insta::assert_debug_snapshot!(format_args!("{}", err.probable_cause()), "the first causal branch selects its aggregate", @"E6");
 }
 
 #[cfg(any(feature = "tree-error", not(feature = "auto-chain-error")))]
@@ -155,14 +133,14 @@ fn from_exn_error_tree() {
 fn from_any_error() {
     let err = Error::from_error(message("one"));
     assert_eq!(err, "one");
-    assert_eq!(debug_string(&err), r#"Message("one")"#);
+    insta::assert_compact_debug_snapshot!(&err, "wrapping a native error preserves its diagnostic", @r#"Message { message: "one" }"#);
     insta::assert_debug_snapshot!(err, @r#"
-    Message(
-        "one",
-    )
+    Message {
+        message: "one",
+    }
     "#);
     assert_eq!(err.source().map(debug_string), None);
-    assert_eq!(err.probable_cause().to_string(), "one");
+    insta::assert_debug_snapshot!(format_args!("{}", err.probable_cause()), "wrapping a native error preserves its diagnostic", @"one");
 }
 
 #[cfg(any(feature = "tree-error", not(feature = "auto-chain-error")))]
@@ -170,20 +148,22 @@ fn from_any_error() {
 fn from_any_error_with_source() {
     let err = Error::from_error(ErrorWithSource("main", message("one")));
     assert_eq!(err, "main", "display is the error itself");
-    assert_eq!(debug_string(&err), r#"ErrorWithSource("main", Message("one"))"#);
+    insta::assert_compact_debug_snapshot!(&err, "native errors preserve their own Debug representation", @r#"ErrorWithSource("main", Message { message: "one" })"#);
     insta::assert_debug_snapshot!(err, @r#"
     ErrorWithSource(
         "main",
-        Message(
-            "one",
-        ),
+        Message {
+            message: "one",
+        },
     )
     "#);
-    assert_eq!(
-        err.source().map(debug_string).as_deref(),
-        Some(r#"Message("one")"#),
-        "The source is provided by the wrapped error"
-    );
+    insta::assert_debug_snapshot!(err.source(), "The source is provided by the wrapped error", @r#"
+    Some(
+        Message {
+            message: "one",
+        },
+    )
+    "#);
 }
 
 #[test]
@@ -206,6 +186,26 @@ fn native_sources_retain_types_without_claiming_frame_locations() {
         errors[2].is::<Message>(),
         "the native source leaf retains its concrete type"
     );
+    #[cfg(all(feature = "auto-chain-error", not(feature = "tree-error")))]
+    insta::assert_debug_snapshot!(err, "downcast_any_ref() searches native sources as well as stored frames", @"
+    top
+
+    Caused by:
+        0: middle
+        1: bottom
+    ");
+    #[cfg(any(feature = "tree-error", not(feature = "auto-chain-error")))]
+    insta::assert_debug_snapshot!(err, "downcast_any_ref() searches native sources as well as stored frames", @r#"
+    ErrorWithSource(
+        "top",
+        ErrorWithSource(
+            "middle",
+            Message {
+                message: "bottom",
+            },
+        ),
+    )
+    "#);
     assert!(
         err.downcast_any_ref::<Middle>().is_some(),
         "downcast_any_ref() searches native sources as well as stored frames"
@@ -233,20 +233,18 @@ fn native_sources_retain_types_without_claiming_frame_locations() {
 
     let err = Error::from(
         ErrorWithSource("root", ErrorWithSource("root source", message("root source leaf")))
-            .raise()
+            .raise_typed()
             .chain(ErrorWithSource("explicit child", message("child source"))),
     );
-    assert_eq!(
-        err.iter_errors().map(ToString::to_string).collect::<Vec<_>>(),
-        [
-            "root",
-            "root source",
-            "explicit child",
-            "root source leaf",
-            "child source",
-        ],
-        "native sources and explicit frames share one logical breadth-first order"
-    );
+    insta::assert_debug_snapshot!(err.iter_errors().map(ToString::to_string).collect::<Vec<_>>(), "native sources and explicit frames share one logical breadth-first order", @r#"
+    [
+        "root",
+        "root source",
+        "explicit child",
+        "root source leaf",
+        "child source",
+    ]
+    "#);
     assert_eq!(
         err.iter_errors_with_locations()
             .map(|source| source.location().is_some())
@@ -258,24 +256,23 @@ fn native_sources_retain_types_without_claiming_frame_locations() {
 
 #[test]
 fn nested_errors_are_expanded_in_breadth_first_order() {
-    let nested = Error::from(message("nested root").raise().chain(message("nested child")));
+    let nested = Error::from(message("nested root").raise_typed().chain(message("nested child")));
     let err = Error::from(
         message("outer root")
-            .raise()
+            .raise_typed()
             .chain(nested)
             .chain(message("outer sibling")),
     );
 
     #[cfg(any(feature = "tree-error", not(feature = "auto-chain-error")))]
-    insta::assert_debug_snapshot!(err, @r#"
+    insta::assert_debug_snapshot!(err, @"
     outer root
-    |
-    └─ nested root
-    |   |
-    |   └─ nested child
-    |
-    └─ outer sibling
-    "#);
+
+    Caused by:
+        ├─0: nested root
+        │ └─ nested child
+        └─1: outer sibling
+    ");
 
     fn name(error: &(dyn std::error::Error + 'static)) -> String {
         if let Some(error) = error.downcast_ref::<Error>() {
@@ -285,18 +282,16 @@ fn nested_errors_are_expanded_in_breadth_first_order() {
         }
     }
 
-    let expected = [
+    let expected = err.iter_errors().map(name).collect::<Vec<_>>();
+    insta::assert_debug_snapshot!(expected, "a nested Error's root is queued behind the remaining errors at its wrapper's depth", @r#"
+    [
         "outer root",
-        r#"Message("nested root")"#,
+        "Message { message: \"nested root\" }",
         "outer sibling",
         "nested root",
         "nested child",
-    ];
-    assert_eq!(
-        err.iter_errors().map(name).collect::<Vec<_>>(),
-        expected,
-        "a nested Error's root is queued behind the remaining errors at its wrapper's depth"
-    );
+    ]
+    "#);
     assert_eq!(
         err.iter_errors_with_locations()
             .map(|source| name(source.error()))
@@ -310,151 +305,378 @@ fn nested_errors_are_expanded_in_breadth_first_order() {
 fn classification_survives_raising_a_converted_error() {
     let converted = Error::from_error(ErrorWithSource(
         "object lookup failed",
-        ValidationError::new("invalid object header"),
+        validation("invalid object header"),
     ));
-    let err = converted.and_raise(message("revision parsing failed"));
+    let err = converted.and_raise_typed(message("revision parsing failed"));
 
+    insta::assert_debug_snapshot!(err, "exceptions inspect validation causes within nested errors", @"
+    revision parsing failed
+
+    Caused by:
+        0: object lookup failed
+        1: invalid object header
+    ");
     assert!(
         err.is_validation(),
         "exceptions inspect validation causes within nested errors"
     );
-    assert!(Error::from(err).is_validation());
-    assert!(ValidationError::new("invalid").raise().is_validation());
+    let err = Error::from(err);
+    if cfg!(all(feature = "auto-chain-error", not(feature = "tree-error"))) {
+        insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[]), "classification survives raising a converted error", @"
+        revision parsing failed
+
+        Caused by:
+            0: object lookup failed
+            1: invalid object header
+        ");
+    } else {
+        insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[]), "classification survives raising a converted error", @"
+        revision parsing failed
+
+        Caused by:
+            0: object lookup failed
+            1: invalid object header
+        ");
+    }
+    assert!(err.is_validation());
+    let err = validation("invalid").raise_typed();
+    insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[]), "classification survives raising a converted error", @"invalid");
+    assert!(err.is_validation());
+    let err = std::io::Error::from(std::io::ErrorKind::InvalidInput).raise_typed();
+    insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[]), "an I/O kind does not establish an explicit validation classification", @"invalid input parameter");
     assert!(
-        !std::io::Error::from(std::io::ErrorKind::InvalidInput)
-            .raise()
-            .is_validation(),
+        !err.is_validation(),
         "an I/O kind does not establish an explicit validation classification"
     );
-    assert!(!message("validation failed").raise().is_validation());
+    let err = message("validation failed").raise_typed();
+    insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[]), "classification survives raising a converted error", @"validation failed");
+    assert!(!err.is_validation());
 }
 
 #[test]
 fn raising_a_converted_error_preserves_stored_types() {
-    let converted =
-        Error::from(ValidationError::new("invalid object header").and_raise(message("object lookup failed")));
+    let converted = Error::from(validation("invalid object header").and_raise_typed(message("object lookup failed")));
     let converted = Error::from_error(converted);
-    let err = Error::from(converted.and_raise(message("revision parsing failed")));
+    let err = Error::from(converted.and_raise_typed(message("revision parsing failed")));
 
     assert!(
-        err.iter_errors().any(<dyn std::error::Error>::is::<ValidationError>),
+        err.iter_errors().any(<dyn std::error::Error>::is::<Message>),
         "the nested Error retains its typed frames"
     );
     assert!(
         err.iter_errors_with_locations()
-            .any(|source| source.error().is::<ValidationError>()),
+            .any(|source| source.error().is::<Message>()),
         "iter_errors_with_locations() recursively exposes typed errors from nested Error values"
     );
+    if cfg!(all(feature = "auto-chain-error", not(feature = "tree-error"))) {
+        insta::assert_debug_snapshot!(err, "probable_cause() returns the stored error, not a string-backed copy", @"
+        revision parsing failed
+
+        Caused by:
+            0: object lookup failed
+            1: invalid object header
+        ");
+    } else {
+        insta::assert_debug_snapshot!(err, "probable_cause() returns the stored error, not a string-backed copy", @"
+        revision parsing failed
+
+        Caused by:
+            0: object lookup failed
+            1: invalid object header
+        ");
+    }
     assert!(
-        err.probable_cause().is::<ValidationError>(),
+        err.probable_cause().is::<Message>(),
         "probable_cause() returns the stored error, not a string-backed copy"
     );
 }
 
 #[test]
 fn validation_error_displays_input_with_debug_formatting() {
-    let err = ValidationError::new_with_input("invalid input", "hello\n ");
-    assert_eq!(
-        err.to_string(),
-        "invalid input: \"hello\\n \"",
-        "it won't hide whitespace and other special characters"
-    );
-    assert!(Error::from_error(err).is_validation());
-    assert!(Error::from_error(ErrorWithSource("validation failed", ValidationError::new("invalid"))).is_validation());
+    let err = validation("invalid input").with_input(b"hello\n ".as_slice());
+    insta::assert_debug_snapshot!(format_args!("{}", err), "it won't hide whitespace and other special characters", @r#"invalid input, input="hello\n ""#);
+    let err = Error::from_error(err);
+    #[cfg(all(feature = "auto-chain-error", not(feature = "tree-error")))]
+    insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[]), "validation error displays input with debug formatting", @r#"invalid input, input="hello\n ""#);
+    #[cfg(any(feature = "tree-error", not(feature = "auto-chain-error")))]
+    insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[]), "validation error displays input with debug formatting", @r#"
+    Message {
+        message: "invalid input",
+        class: Validation,
+        values: {input: Bytes("hello\n ")},
+    }
+    "#);
+    assert!(err.is_validation());
+    let err = Error::from_error(ErrorWithSource("validation failed", validation("invalid")));
+    #[cfg(all(feature = "auto-chain-error", not(feature = "tree-error")))]
+    insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[]), "validation error displays input with debug formatting", @"
+    validation failed
+
+    Caused by:
+        0: invalid
+    ");
+    #[cfg(any(feature = "tree-error", not(feature = "auto-chain-error")))]
+    insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[]), "validation error displays input with debug formatting", @r#"
+    ErrorWithSource(
+        "validation failed",
+        Message {
+            message: "invalid",
+            class: Validation,
+        },
+    )
+    "#);
+    assert!(err.is_validation());
 }
 
 #[test]
 fn retryability_is_discovered_in_the_error_chain() {
-    let retryable =
-        std::io::Error::new(std::io::ErrorKind::TimedOut, "too slow").and_raise(message("network operation failed"));
-    assert!(Error::from(retryable).can_retry());
+    let retryable = std::io::Error::new(std::io::ErrorKind::TimedOut, "too slow")
+        .and_raise_typed(message("network operation failed"));
+    let err = Error::from(retryable);
+    if cfg!(all(feature = "auto-chain-error", not(feature = "tree-error"))) {
+        insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[]), "retryability is discovered in the error chain", @"
+        network operation failed
+
+        Caused by:
+            0: I/O error (TimedOut)
+            1: too slow
+        ");
+    } else {
+        insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[]), "retryability is discovered in the error chain", @"
+        network operation failed
+
+        Caused by:
+            0: I/O error (TimedOut)
+            1: too slow
+        ");
+    }
+    assert!(err.can_retry());
 
     let permanent = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "denied")
-        .and_raise(message("network operation failed"));
-    assert!(!Error::from(permanent).can_retry());
+        .and_raise_typed(message("network operation failed"));
+    let err = Error::from(permanent);
+    if cfg!(all(feature = "auto-chain-error", not(feature = "tree-error"))) {
+        insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[]), "retryability is discovered in the error chain", @"
+        network operation failed
 
-    let dependency_specific =
-        RetryableError::new(message("HTTP/2 stream failed")).and_raise(message("network operation failed"));
-    assert!(Error::from(dependency_specific).can_retry());
+        Caused by:
+            0: I/O error (PermissionDenied)
+            1: denied
+        ");
+    } else {
+        insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[]), "retryability is discovered in the error chain", @"
+        network operation failed
+
+        Caused by:
+            0: I/O error (PermissionDenied)
+            1: denied
+        ");
+    }
+    assert!(!err.can_retry());
+
+    let dependency_specific = ClassificationMarker::with_source(Class::Retryable, message("HTTP/2 stream failed"))
+        .and_raise_typed(message("network operation failed"));
+    let err = Error::from(dependency_specific);
+    if cfg!(all(feature = "auto-chain-error", not(feature = "tree-error"))) {
+        insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[]), "retryability is discovered in the error chain", @"
+        network operation failed
+
+        Caused by:
+            0: HTTP/2 stream failed
+        ");
+    } else {
+        insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[]), "retryability is discovered in the error chain", @"
+        network operation failed
+
+        Caused by:
+            0: HTTP/2 stream failed
+        ");
+    }
+    assert!(err.can_retry());
 }
 
 #[test]
 fn corruption_is_discovered_in_the_error_chain() {
-    let corrupt = CorruptionError::new("checksum mismatch").and_raise(message("failed to open object database"));
-    assert!(corrupt.is_corrupted(), "exceptions recognize corruption below context");
-    assert!(Error::from(corrupt).is_corrupted());
+    let corrupt = corruption("checksum mismatch").and_raise_typed(message("failed to open object database"));
+    insta::assert_debug_snapshot!(corrupt, "exceptions recognize corruption below context", @"
+    failed to open object database
 
-    let nested =
-        Error::from_error(ErrorWithSource("invalid stream", CorruptionError::new("bad checksum"))).raise_erased();
+    Caused by:
+        0: checksum mismatch
+    ");
+    assert!(corrupt.is_corrupted(), "exceptions recognize corruption below context");
+    let err = Error::from(corrupt);
+    if cfg!(all(feature = "auto-chain-error", not(feature = "tree-error"))) {
+        insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[]), "corruption is discovered in the error chain", @"
+        failed to open object database
+
+        Caused by:
+            0: checksum mismatch
+        ");
+    } else {
+        insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[]), "corruption is discovered in the error chain", @"
+        failed to open object database
+
+        Caused by:
+            0: checksum mismatch
+        ");
+    }
+    assert!(err.is_corrupted());
+
+    let nested = Error::from_error(ErrorWithSource("invalid stream", corruption("bad checksum"))).raise_erased();
+    insta::assert_debug_snapshot!(nested, "erased exceptions inspect native sources in nested errors", @"
+    invalid stream
+
+    Caused by:
+        0: bad checksum
+    ");
     assert!(
         nested.is_corrupted(),
         "erased exceptions inspect native sources in nested errors"
     );
+    let err = std::io::Error::from(std::io::ErrorKind::InvalidData).raise_typed();
+    insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[]), "an I/O kind does not establish an explicit corruption classification", @"invalid data");
     assert!(
-        !std::io::Error::from(std::io::ErrorKind::InvalidData)
-            .raise()
-            .is_corrupted(),
+        !err.is_corrupted(),
         "an I/O kind does not establish an explicit corruption classification"
     );
-    let unknown = message("repository was not found").raise();
+    let unknown = message("repository was not found").raise_typed();
+    insta::assert_debug_snapshot!(unknown, "messages do not establish a classification", @"repository was not found");
     assert!(!unknown.is_corrupted(), "messages do not establish a classification");
-    assert!(!Error::from(unknown).is_corrupted());
+    let err = Error::from(unknown);
+    insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[]), "corruption is discovered in the error chain", @"repository was not found");
+    assert!(!err.is_corrupted());
 }
 
 #[test]
 fn from_boxed_does_not_repeat_the_wrapped_error_as_its_source() {
     let err = Error::from_boxed(Box::new(message("boxed error")));
 
-    assert_eq!(
-        format!("{err:#}"),
-        "boxed error",
-        "location-free formatting displays the boxed error as the root"
-    );
+    insta::assert_debug_snapshot!(format_args!("{err:#}"), "location-free formatting displays the boxed error as the root", @"boxed error");
     assert!(
         std::error::Error::source(&err).is_none(),
         "a boxed leaf error must not also appear as its own source"
     );
-    assert_eq!(
-        err.iter_errors().map(ToString::to_string).collect::<Vec<_>>(),
-        ["boxed error"],
-        "error iteration must yield the boxed error only once"
-    );
+    insta::assert_debug_snapshot!(err.iter_errors().map(ToString::to_string).collect::<Vec<_>>(), "error iteration must yield the boxed error only once", @r#"
+    [
+        "boxed error",
+    ]
+    "#);
 }
 
 #[test]
 fn not_found_is_discovered_in_well_known_errors() {
-    let classified = NotFoundError::new("reference does not exist").and_raise(message("failed to resolve HEAD"));
+    let classified = not_found("reference does not exist").and_raise_typed(message("failed to resolve HEAD"));
+    insta::assert_debug_snapshot!(classified, "exceptions recognize missing-resource markers", @"
+    failed to resolve HEAD
+
+    Caused by:
+        0: reference does not exist
+    ");
     assert!(
         classified.is_not_found(),
         "exceptions recognize missing-resource markers"
     );
-    assert!(Error::from(classified).is_not_found());
+    let err = Error::from(classified);
+    if cfg!(all(feature = "auto-chain-error", not(feature = "tree-error"))) {
+        insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[]), "not found is discovered in well known errors", @"
+        failed to resolve HEAD
+
+        Caused by:
+            0: reference does not exist
+        ");
+    } else {
+        insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[]), "not found is discovered in well known errors", @"
+        failed to resolve HEAD
+
+        Caused by:
+            0: reference does not exist
+        ");
+    }
+    assert!(err.is_not_found());
 
     let io = std::io::Error::new(std::io::ErrorKind::NotFound, "missing index")
-        .and_raise(message("failed to open repository"));
+        .and_raise_typed(message("failed to open repository"));
+    insta::assert_debug_snapshot!(io, "exceptions normalize I/O not-found errors", @"
+    failed to open repository
+
+    Caused by:
+        0: I/O error (NotFound)
+        1: missing index
+    ");
     assert!(io.is_not_found(), "exceptions normalize I/O not-found errors");
-    assert!(Error::from(io).is_not_found());
+    let err = Error::from(io);
+    if cfg!(all(feature = "auto-chain-error", not(feature = "tree-error"))) {
+        insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[]), "not found is discovered in well known errors", @"
+        failed to open repository
+
+        Caused by:
+            0: I/O error (NotFound)
+            1: missing index
+        ");
+    } else {
+        insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[]), "not found is discovered in well known errors", @"
+        failed to open repository
+
+        Caused by:
+            0: I/O error (NotFound)
+            1: missing index
+        ");
+    }
+    assert!(err.is_not_found());
 
     let boxed = Box::new(std::io::Error::new(std::io::ErrorKind::NotFound, "missing object"));
-    assert!(Error::from_boxed(boxed).is_not_found());
+    let err = Error::from_boxed(boxed);
+    #[cfg(all(feature = "auto-chain-error", not(feature = "tree-error")))]
+    insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[]), "not found is discovered in well known errors", @"
+    I/O error (NotFound)
+
+    Caused by:
+        0: missing object
+    ");
+    #[cfg(any(feature = "tree-error", not(feature = "auto-chain-error")))]
+    insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[]), "not found is discovered in well known errors", @r#"
+    Custom {
+        kind: NotFound,
+        error: "missing object",
+    }
+    "#);
+    assert!(err.is_not_found());
 
     let invalid = ErrorWithSource("invalid config", std::io::Error::from(std::io::ErrorKind::NotFound))
-        .and_raise(ValidationError::new("invalid worktree"))
+        .and_raise_typed(validation("invalid worktree"))
         .erased();
+    insta::assert_debug_snapshot!(invalid, "a validation boundary does not hide its missing-resource source", @"
+    invalid worktree
+
+    Caused by:
+        0: invalid config
+        1: entity not found
+    ");
     assert!(
         invalid.is_not_found(),
         "a validation boundary does not hide its missing-resource source"
     );
-    let denied = std::io::Error::from(std::io::ErrorKind::PermissionDenied).raise();
+    let denied = std::io::Error::from(std::io::ErrorKind::PermissionDenied).raise_typed();
+    insta::assert_debug_snapshot!(denied, "other I/O kinds are not missing resources", @"permission denied");
     assert!(!denied.is_not_found(), "other I/O kinds are not missing resources");
-    let unknown = message("permission denied").raise();
+    let unknown = message("permission denied").raise_typed();
+    insta::assert_debug_snapshot!(unknown, "messages do not establish a classification", @"permission denied");
     assert!(!unknown.is_not_found(), "messages do not establish a classification");
-    assert!(!Error::from(unknown).is_not_found());
+    let err = Error::from(unknown);
+    insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&err, &[]), "not found is discovered in well known errors", @"permission denied");
+    assert!(!err.is_not_found());
 }
 
 #[test]
 fn equality_with_strings_uses_the_root_errors_display() {
-    let exn = message("cause").raise().raise(message("failure"));
+    let exn = message("cause").raise_typed().raise(message("failure"));
+    insta::assert_debug_snapshot!(exn, "string equality uses the root while diagnostics retain its cause", @"
+    failure
+
+    Caused by:
+        0: cause
+    ");
     assert_eq!(exn, "failure");
     assert_eq!(exn, String::from("failure"));
     assert_eq!(&exn, "failure");
@@ -466,7 +688,49 @@ fn equality_with_strings_uses_the_root_errors_display() {
     assert_eq!(error, String::from("failure"));
     assert_ne!(error, "other");
 
-    let nested = Error::from(message("nested cause").raise().raise(message("nested root"))).raise_erased();
+    let nested = Error::from(message("nested cause").raise_typed().raise(message("nested root"))).raise_erased();
+    insta::assert_debug_snapshot!(nested, "nested error boundaries retain their context and cause", @"
+    nested root
+
+    Caused by:
+        0: nested cause
+    ");
     assert_eq!(nested, "nested root", "nested error boundaries are transparent");
     assert_eq!(Error::from(nested), "nested root");
+}
+
+#[test]
+fn public_error_reports_preserve_context_and_native_causes() {
+    let payload = message("leaf cause")
+        .raise_typed()
+        .chain(message("sibling cause"))
+        .into_error();
+    let error = std::io::Error::new(std::io::ErrorKind::InvalidData, payload).and_raise(message("outer context"));
+
+    for report in [format!("{error:?}"), format!("{error:#?}"), format!("{error:#}")] {
+        for diagnostic in [
+            "outer context",
+            "I/O error (InvalidData)",
+            "leaf cause",
+            "sibling cause",
+        ] {
+            assert_eq!(
+                report.matches(diagnostic).count(),
+                1,
+                "the context and each native cause appear once, including through nested error boundaries: {report}"
+            );
+        }
+    }
+    assert!(
+        format!("{error:?}").contains(file!()),
+        "Debug reports include captured caller locations for main() errors"
+    );
+    assert!(
+        !format!("{error:#?}").contains(file!()) && !format!("{error:#}").contains(file!()),
+        "alternate reports omit caller locations"
+    );
+    assert!(
+        !error.to_string().contains("leaf cause"),
+        "normal Display continues to show only the root diagnostic"
+    );
 }

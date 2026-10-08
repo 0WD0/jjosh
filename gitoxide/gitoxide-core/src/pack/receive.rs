@@ -9,7 +9,12 @@ use crate::{OutputFormat, net, pack::receive::protocol::fetch::negotiate};
 use gix::protocol::transport::client::async_io::connect;
 #[cfg(feature = "blocking-client")]
 use gix::protocol::transport::client::blocking_io::connect;
-use gix::{DynNestedProgress, config::tree::Key, protocol::bisync, remote::fetch::Error};
+use gix::{
+    DynNestedProgress, Result,
+    config::tree::Key,
+    error::{ResultExt, bail, message},
+    protocol::bisync,
+};
 pub use gix::{
     NestedProgress, Progress,
     hash::ObjectId,
@@ -42,7 +47,7 @@ pub async fn receive<P, W>(
     mut wanted_refs: Vec<BString>,
     mut progress: P,
     ctx: Context<W>,
-) -> anyhow::Result<()>
+) -> Result<()>
 where
     W: std::io::Write,
     P: NestedProgress + 'static,
@@ -80,7 +85,7 @@ where
         .map(|ref_name| {
             gix::refspec::parse(ref_name.as_bstr(), gix::refspec::parse::Operation::Fetch).map(|r| r.to_owned())
         })
-        .collect::<Result<_, _>>()?;
+        .collect::<std::result::Result<_, _>>()?;
     let user_agent = ("agent", Some(agent.clone()));
 
     let context = gix::protocol::fetch::refmap::init::Context {
@@ -99,11 +104,16 @@ where
     let refmap = fetch_refmap.fetch_blocking(&mut progress, &mut transport.inner, trace_packetlines)?;
 
     if refmap.is_missing_required_mapping() {
-        return Err(Error::NoMapping {
-            refspecs: refmap.refspecs.clone(),
-            num_remote_refs: refmap.remote_refs.len(),
-        }
-        .into());
+        bail!(gix::error::not_found(format!(
+            "None of the refspec(s) {} matched any of the {} refs on the remote",
+            refmap
+                .refspecs
+                .iter()
+                .map(|spec| spec.to_ref().instruction().to_bstring().to_string())
+                .collect::<Vec<_>>()
+                .join(", "),
+            refmap.remote_refs.len()
+        )));
     }
 
     let mut negotiate = Negotiate { refmap: &refmap };
@@ -122,6 +132,7 @@ where
                 ctx.object_hash,
                 ctx.format,
             )
+            .or_raise(|| message("Failed to receive the pack"))
             .map(|_| true)
         },
         progress,
@@ -148,7 +159,7 @@ struct Negotiate<'a> {
 }
 
 impl gix::protocol::fetch::Negotiate for Negotiate<'_> {
-    fn mark_complete_and_common_ref(&mut self) -> Result<negotiate::Action, negotiate::Error> {
+    fn mark_complete_and_common_ref(&mut self) -> gix::Result<negotiate::Action> {
         Ok(negotiate::Action::MustNegotiate {
             remote_ref_target_known: vec![], /* we don't really negotiate */
         })
@@ -168,7 +179,7 @@ impl gix::protocol::fetch::Negotiate for Negotiate<'_> {
         _state: &mut negotiate::one_round::State,
         _arguments: &mut Arguments,
         _previous_response: Option<&Response>,
-    ) -> Result<(negotiate::Round, bool), negotiate::Error> {
+    ) -> gix::Result<(negotiate::Round, bool)> {
         Ok((
             negotiate::Round {
                 haves_sent: 0,
@@ -244,7 +255,8 @@ fn write_raw_refs(refs: &[Ref], directory: PathBuf) -> std::io::Result<()> {
     let assure_dir_exists = |path: &BString| {
         gix::validate::reference::name(path.as_bstr())
             .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?;
-        let path = directory.join(gix::path::from_byte_slice(path));
+        let path = directory
+            .join(gix::path::from_byte_slice(path).map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?);
         std::fs::create_dir_all(path.parent().expect("multi-component path")).map(|_| path)
     };
     for r in refs {

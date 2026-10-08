@@ -1,7 +1,8 @@
 //! Compression state and a [`std::io::Write`] adapter for producing zlib streams.
 
 use crate::{Compression, Status};
-use gix_error::{CorruptionError, ErrorExt, ResourceExhaustionError, ResourceExhaustionKind, message};
+use gix_error::{ErrorExt, ResourceExhaustionKind, message};
+use gix_error::{Result, resource_exhaustion};
 use zlib_rs::DeflateError;
 
 const BUF_SIZE: usize = 4096 * 8;
@@ -58,7 +59,7 @@ impl Compress {
     }
 
     /// Compress `input` and write compressed bytes to `output`, with `flush` controlling additional characteristics.
-    pub fn compress(&mut self, input: &[u8], output: &mut [u8], flush: FlushCompress) -> Result<Status, CompressError> {
+    pub fn compress(&mut self, input: &[u8], output: &mut [u8], flush: FlushCompress) -> Result<Status> {
         let flush = match flush {
             FlushCompress::None => zlib_rs::DeflateFlush::NoFlush,
             FlushCompress::Partial => zlib_rs::DeflateFlush::PartialFlush,
@@ -68,10 +69,9 @@ impl Compress {
         };
         let status = self.0.compress(input, output, flush).map_err(|err| match err {
             DeflateError::StreamError => message("stream error").raise_erased(),
-            DeflateError::DataError => CorruptionError::new("The input is not a valid deflate stream.").raise_erased(),
+            DeflateError::DataError => gix_error::corruption("The input is not a valid deflate stream.").raise_erased(),
             DeflateError::MemError => {
-                ResourceExhaustionError::new(ResourceExhaustionKind::AllocationFailure, "Not enough memory")
-                    .raise_erased()
+                resource_exhaustion(ResourceExhaustionKind::AllocationFailure, "Not enough memory").raise_erased()
             }
         })?;
         match status {
@@ -81,9 +81,6 @@ impl Compress {
         }
     }
 }
-
-/// The error produced by [`Compress::compress()`].
-pub type CompressError = gix_error::Exn;
 
 /// Values which indicate the form of flushing to be used when compressing
 /// in-memory data.
@@ -174,7 +171,7 @@ mod impls {
                 let status = self
                     .compressor
                     .compress(buf, &mut self.buf, flush)
-                    .map_err(|err| io::Error::other(err.into_error()))?;
+                    .map_err(io::Error::other)?;
 
                 let written = self.compressor.total_out() - last_total_out;
                 if written > 0 {

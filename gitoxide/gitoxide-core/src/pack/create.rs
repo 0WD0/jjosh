@@ -1,9 +1,16 @@
 use std::{ffi::OsStr, io, path::Path, str::FromStr, time::Instant};
 
-use anyhow::anyhow;
 use gix::{
-    Count, NestedProgress, Progress, hash, hash::ObjectId, interrupt, objs::bstr::ByteVec, odb::pack,
-    parallel::InOrderIter, prelude::Finalize, progress, traverse,
+    Count, NestedProgress, Progress, Result,
+    error::{ResultExt, message},
+    hash,
+    hash::ObjectId,
+    interrupt,
+    objs::bstr::ByteVec,
+    odb::pack,
+    parallel::InOrderIter,
+    prelude::Finalize,
+    progress, traverse,
 };
 
 use crate::OutputFormat;
@@ -25,16 +32,16 @@ impl ObjectExpansion {
 }
 
 impl FromStr for ObjectExpansion {
-    type Err = String;
+    type Err = gix::Error;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         use ObjectExpansion::*;
         let slc = s.to_ascii_lowercase();
         Ok(match slc.as_str() {
             "none" => None,
             "tree-traversal" => TreeTraversal,
             "tree-diff" => TreeDiff,
-            _ => return Err("invalid value".into()),
+            _ => return Err(message("invalid value").validation_error()),
         })
     }
 }
@@ -100,20 +107,20 @@ pub fn create<W, P>(
         object_cache_size_in_bytes,
         mut out,
     }: Context<W>,
-) -> anyhow::Result<()>
+) -> Result<()>
 where
     W: std::io::Write,
     P: NestedProgress,
     P::SubProgress: 'static,
 {
-    type ObjectIdIter = dyn Iterator<Item = Result<ObjectId, Box<dyn std::error::Error + Send + Sync>>> + Send;
+    type ObjectIdIter = dyn Iterator<Item = Result<ObjectId>> + Send;
 
     let repo = gix::discover(repository_path)?;
     let pack_compression = repo.pack_compression()?;
     let repo = repo.into_sync();
     progress.init(Some(2), progress::steps());
     let tips = tips.into_iter();
-    let make_cancellation_err = || anyhow!("Cancelled by user");
+    let make_cancellation_err = || message("Cancelled by user").cancelled_error();
     let (mut handle, mut input): (_, Box<ObjectIdIter>) = match input {
         None => {
             let mut progress = progress.add_child("traversing");
@@ -124,16 +131,15 @@ where
                     move |tip| {
                         ObjectId::from_hex(&Vec::from_os_str_lossy(tip.as_ref())).or_else(|_| {
                             easy.find_reference(tip.as_ref())
-                                .map_err(anyhow::Error::from)
-                                .and_then(|r| r.into_fully_peeled_id().map(gix::Id::detach).map_err(Into::into))
+                                .and_then(|r| r.into_fully_peeled_id().map(gix::Id::detach))
                         })
                     }
                 })
-                .collect::<Result<Vec<_>, _>>()?;
+                .collect::<std::result::Result<Vec<_>, _>>()?;
             let handle = repo.objects.into_shared_arc().to_cache_arc();
             let iter = Box::new(
                 traverse::commit::Simple::new(tips, handle.clone())
-                    .map(|res| res.map_err(|err| Box::new(err) as Box<_>).map(|c| c.id))
+                    .map(|res| res.map(|c| c.id))
                     .inspect(move |_| progress.inc()),
             );
             (handle, iter)
@@ -148,9 +154,8 @@ where
                     input
                         .lines()
                         .map(|hex_id| {
-                            hex_id
-                                .map_err(|err| Box::new(err) as Box<_>)
-                                .and_then(|hex_id| ObjectId::from_hex(hex_id.as_bytes()).map_err(Into::into))
+                            let hex_id = hex_id.or_error()?;
+                            ObjectId::from_hex(hex_id.as_bytes())
                         })
                         .inspect(move |_| progress.inc()),
                 ),
@@ -237,7 +242,7 @@ where
                 version: Default::default(),
                 compression: pack_compression,
             },
-        ))
+        )?)
     };
 
     let mut entries_progress = progress.add_child("consuming");
@@ -250,7 +255,7 @@ where
     let mut sink_store: std::io::Sink;
     let (mut pack_file, output_directory): (&mut dyn std::io::Write, Option<_>) = match output_directory {
         Some(dir) => {
-            named_tempfile_store = Some(tempfile::NamedTempFile::new_in(dir.as_ref())?);
+            named_tempfile_store = Some(tempfile::NamedTempFile::new_in(dir.as_ref()).or_error()?);
             (named_tempfile_store.as_mut().expect("packfile just set"), Some(dir))
         }
         None => {
@@ -283,9 +288,9 @@ where
         .expect("iteration is done");
     let pack_name = format!("{hash}.pack");
     if let (Some(pack_file), Some(dir)) = (named_tempfile_store.take(), output_directory) {
-        pack_file.persist(dir.as_ref().join(pack_name))?;
+        pack_file.persist(dir.as_ref().join(pack_name)).or_error()?;
     } else {
-        writeln!(out, "{pack_name}")?;
+        writeln!(out, "{pack_name}").or_error()?;
     }
     stats.entries = in_order_entries.inner.finalize()?;
 
@@ -299,11 +304,11 @@ where
     Ok(())
 }
 
-fn print(stats: Statistics, format: OutputFormat, out: impl std::io::Write) -> anyhow::Result<()> {
+fn print(stats: Statistics, format: OutputFormat, out: impl std::io::Write) -> Result<()> {
     match format {
-        OutputFormat::Human => human_output(stats, out).map_err(Into::into),
+        OutputFormat::Human => human_output(stats, out).or_error(),
         #[cfg(feature = "serde")]
-        OutputFormat::Json => serde_json::to_writer_pretty(out, &stats).map_err(Into::into),
+        OutputFormat::Json => serde_json::to_writer_pretty(out, &stats).or_error(),
     }
 }
 
@@ -357,17 +362,4 @@ fn human_output(
 struct Statistics {
     counts: pack::data::output::count::objects::Outcome,
     entries: pack::data::output::entry::iter_from_counts::Outcome,
-}
-
-pub mod input_iteration {
-    use gix::{hash, traverse};
-    #[derive(Debug, thiserror::Error)]
-    pub enum Error {
-        #[error("input objects couldn't be iterated completely")]
-        Iteration(#[from] traverse::commit::simple::Error),
-        #[error("An error occurred while reading hashes from standard input")]
-        InputLinesIo(#[from] std::io::Error),
-        #[error("Could not decode hex hash provided on standard input")]
-        HashDecode(#[from] hash::decode::Error),
-    }
 }

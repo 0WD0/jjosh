@@ -1,15 +1,15 @@
+use gix_testtools::TestResult;
 use std::{ffi::OsStr, path::PathBuf};
 
 use bstr::ByteSlice;
-use gix_features::fs::walkdir::Parallelism;
 
 #[test]
-fn common_values_and_names_by_path() -> crate::Result {
+fn common_values_and_names_by_path() -> TestResult {
     let modules = module_files()
         .map(|(path, stripped)| {
             gix_submodule::File::from_bytes(&std::fs::read(path).unwrap(), stripped, &Default::default())
         })
-        .collect::<Result<Vec<_>, _>>()?;
+        .collect::<std::result::Result<Vec<_>, _>>()?;
 
     assert_eq!(
         modules
@@ -61,7 +61,7 @@ fn common_values_and_names_by_path() -> crate::Result {
 
 fn module_files() -> impl Iterator<Item = (PathBuf, PathBuf)> {
     let dir = gix_testtools::scripted_fixture_read_only("basic.sh").expect("valid fixture");
-    gix_features::fs::walkdir_sorted_new(&dir, Parallelism::Serial, usize::MAX, false)
+    gix_fs::walkdir_sorted_new(&dir, usize::MAX, false)
         .follow_links(false)
         .into_iter()
         .filter_map(move |entry| {

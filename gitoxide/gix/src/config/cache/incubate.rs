@@ -1,9 +1,13 @@
-#![allow(clippy::result_large_err)]
+use super::util;
 
-use super::{Error, util};
-use crate::config::{
-    cache::util::{ApplyLeniency, ApplyLeniencyDefaultValue},
-    tree::{Core, Extensions, gitoxide},
+use crate::error::{ErrorExt, bail, message, validation};
+use crate::{
+    Result,
+    config::{
+        cache::util::{ApplyLeniency, ApplyLeniencyDefaultValue},
+        tree::{Core, Extensions, gitoxide},
+    },
+    repository::FormatVersion,
 };
 
 /// A utility to deal with the cyclic dependency between the ref store and the configuration. The ref-store needs the
@@ -28,7 +32,8 @@ impl StageOne {
         git_dir_trust: gix_sec::Trust,
         lossy: bool,
         lenient: bool,
-    ) -> Result<Self, Error> {
+        mut filter_config_section: fn(&gix_config::file::Metadata) -> bool,
+    ) -> Result<Self> {
         let mut buf = Vec::with_capacity(512);
         let mut config = load_config(
             common_dir.join("config"),
@@ -41,16 +46,27 @@ impl StageOne {
 
         let is_bare = util::config_bool_opt(&config, &Core::BARE, "core.bare", lenient)?;
         let repo_format_version = Core::REPOSITORY_FORMAT_VERSION
-            .try_into_usize(config.integer("core.repositoryFormatVersion"))?
+            .try_into_repository_format_version(config.integer(Core::REPOSITORY_FORMAT_VERSION))?
             .unwrap_or_default();
         let object_hash = match (repo_format_version, config.string(Extensions::OBJECT_FORMAT)) {
             // objectFormat is a repository format version 1 extension.
-            (1, Some(format)) => Extensions::OBJECT_FORMAT.try_into_object_format(format)?,
-            (0, Some(_)) => return Err(Error::ObjectFormatRequiresV1),
-            (0 | 1, None) => legacy_object_hash()?,
-            (version, _) => return Err(Error::UnsupportedRepositoryFormatVersion { version }),
+            (FormatVersion::V1, Some(format)) => Extensions::OBJECT_FORMAT.try_into_object_format(format)?,
+            (FormatVersion::V0, Some(_)) => {
+                bail!(validation(
+                    "extensions.objectFormat is a v1-only extension, but the repository format version is 0; set core.repositoryFormatVersion=1 to use it, or remove extensions.objectFormat to fall back to the default Sha1 format (if supported by this build)"
+                ));
+            }
+            (FormatVersion::V0 | FormatVersion::V1, None) => legacy_object_hash()?,
         };
 
+        // Relative links are resolved by discovery regardless of this compatibility marker.
+        let relative_worktrees =
+            Extensions::RELATIVE_WORKTREES.enrich_error(config.boolean(Extensions::RELATIVE_WORKTREES))?;
+        if repo_format_version == FormatVersion::V0 && relative_worktrees.is_some() {
+            bail!(validation(
+                "extensions.relativeWorktrees requires core.repositoryFormatVersion=1",
+            ));
+        }
         let extension_worktree = util::config_bool(
             &config,
             &Extensions::WORKTREE_CONFIG,
@@ -71,13 +87,12 @@ impl StageOne {
         }
         let precompose_unicode = Core::PRECOMPOSE_UNICODE
             .enrich_error(config.boolean(Core::PRECOMPOSE_UNICODE))
-            .with_leniency(lenient)
-            .map_err(Error::ConfigBoolean)?
+            .with_leniency(lenient)?
             .unwrap_or_default();
 
         const IS_WINDOWS: bool = cfg!(windows);
         let protect_windows = gitoxide::Core::PROTECT_WINDOWS
-            .enrich_error(config.boolean(gitoxide::Core::PROTECT_WINDOWS))
+            .enrich_error(config.boolean_filter(gitoxide::Core::PROTECT_WINDOWS, &mut filter_config_section))
             .with_lenient_default_value(lenient, Some(IS_WINDOWS))?
             .unwrap_or(IS_WINDOWS);
 
@@ -100,14 +115,14 @@ impl StageOne {
 /// Git interprets a missing objectFormat as the original Sha1 layout, so we return
 /// gix_hash::Kind::Sha1 whenever this build can handle it.
 /// In Sha256-only builds we cannot open such a repository, so return an error instead.
-fn legacy_object_hash() -> Result<gix_hash::Kind, Error> {
+fn legacy_object_hash() -> Result<gix_hash::Kind> {
     #[cfg(feature = "sha1")]
     {
         Ok(gix_hash::Kind::Sha1)
     }
     #[cfg(not(feature = "sha1"))]
     {
-        Err(Error::UnsupportedObjectFormat { name: "sha1".into() })
+        Err(message("Cannot handle objects formatted as \"sha1\"").unsupported_error())
     }
 }
 
@@ -118,7 +133,7 @@ fn load_config(
     git_dir_trust: gix_sec::Trust,
     lossy: bool,
     lenient: bool,
-) -> Result<gix_config::File, Error> {
+) -> Result<gix_config::File> {
     let metadata = gix_config::file::Metadata::from(source)
         .at(&config_path)
         .with(git_dir_trust);
@@ -126,10 +141,10 @@ fn load_config(
         Ok(f) => f,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(gix_config::File::new(metadata)),
         Err(err) => {
-            let err = Error::Io {
-                source: err,
-                path: config_path,
-            };
+            let err = err.and_raise(message!(
+                "Could not read configuration file at \"{}\"",
+                config_path.display()
+            ));
             if lenient {
                 gix_trace::warn!("ignoring: {err:#?}");
                 return Ok(gix_config::File::new(metadata));
@@ -141,10 +156,10 @@ fn load_config(
 
     buf.clear();
     if let Err(err) = std::io::copy(&mut file, buf) {
-        let err = Error::Io {
-            source: err,
-            path: config_path,
-        };
+        let err = err.and_raise(message!(
+            "Could not read configuration file at \"{}\"",
+            config_path.display()
+        ));
         if lenient {
             gix_trace::warn!("ignoring: {err:#?}");
             buf.clear();

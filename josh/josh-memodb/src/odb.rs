@@ -19,7 +19,7 @@ use std::cell::RefCell;
 use std::path::Path;
 use std::sync::Arc;
 
-use gix_features::threading::OwnShared;
+use gix_parallel::OwnShared;
 use gix_hash::ObjectId;
 use gix_object::{Exists, Find, FindHeader, Kind};
 
@@ -192,7 +192,7 @@ impl Odb {
         &self,
         id: &gix_hash::oid,
         buffer: &mut Vec<u8>,
-    ) -> Result<Option<Kind>, gix_object::find::Error> {
+    ) -> gix_error::Result<Option<Kind>> {
         if let Some(data) = self.disk_fast.try_find(id, buffer)? {
             return Ok(Some(data.kind));
         }
@@ -269,7 +269,7 @@ impl gix_object::Find for Odb {
         &self,
         id: &gix_hash::oid,
         buffer: &'b mut Vec<u8>,
-    ) -> Result<Option<gix_object::Data<'b>>, gix_object::find::Error> {
+    ) -> gix_error::Result<Option<gix_object::Data<'b>>> {
         if let Some((kind, data)) = self.mem.get(id) {
             buffer.clear();
             buffer.extend_from_slice(&data);
@@ -302,7 +302,7 @@ impl gix_object::FindHeader for Odb {
     fn try_header(
         &self,
         id: &gix_hash::oid,
-    ) -> Result<Option<gix_object::Header>, gix_object::find::Error> {
+    ) -> gix_error::Result<Option<gix_object::Header>> {
         if let Some((kind, size)) = self.mem.header(id) {
             return Ok(Some(gix_object::Header { kind, size }));
         }
@@ -343,7 +343,7 @@ impl gix_object::Exists for Odb {
 }
 
 impl gix_object::Write for Odb {
-    fn write_buf(&self, object: Kind, from: &[u8]) -> Result<ObjectId, gix_object::write::Error> {
+    fn write_buf(&self, object: Kind, from: &[u8]) -> gix_error::Result<ObjectId> {
         Ok(self.write(object, from))
     }
 
@@ -352,7 +352,7 @@ impl gix_object::Write for Odb {
         object: Kind,
         from: &[u8],
         id: ObjectId,
-    ) -> Result<ObjectId, gix_object::write::Error> {
+    ) -> gix_error::Result<ObjectId> {
         self.write_with_id(id, object, from);
         Ok(id)
     }
@@ -362,9 +362,9 @@ impl gix_object::Write for Odb {
         kind: Kind,
         size: u64,
         from: &mut dyn std::io::Read,
-    ) -> Result<ObjectId, gix_object::write::Error> {
+    ) -> gix_error::Result<ObjectId> {
         let mut data = Vec::with_capacity(size as usize);
-        from.read_to_end(&mut data)?;
+        from.read_to_end(&mut data).map_err(gix_error::Error::from_error)?;
         self.write_buf(kind, &data)
     }
 
@@ -374,9 +374,9 @@ impl gix_object::Write for Odb {
         size: u64,
         from: &mut dyn std::io::Read,
         id: ObjectId,
-    ) -> Result<ObjectId, gix_object::write::Error> {
+    ) -> gix_error::Result<ObjectId> {
         let mut data = Vec::with_capacity(size as usize);
-        from.read_to_end(&mut data)?;
+        from.read_to_end(&mut data).map_err(gix_error::Error::from_error)?;
         self.write_buf_with_known_id(kind, &data, id)
     }
 }

@@ -36,7 +36,9 @@ pub(crate) fn fanout(iter: &mut dyn ExactSizeIterator<Item = u8>) -> [u32; 256] 
 mod function {
     use std::io;
 
-    use gix_features::progress::{self, DynNestedProgress};
+    use gix_error::Result;
+
+    use gix_utils::progress::{self, DynNestedProgress};
 
     use super::{HIGH_BIT, LARGE_OFFSET_THRESHOLD, fanout};
     use crate::index::V2_SIGNATURE;
@@ -74,7 +76,7 @@ mod function {
         kind: crate::index::Version,
         object_hash: gix_hash::Kind,
         progress: &mut dyn DynNestedProgress,
-    ) -> Result<gix_hash::ObjectId, gix_hash::io::Error> {
+    ) -> Result<gix_hash::ObjectId> {
         use io::Write;
         assert_eq!(kind, crate::index::Version::V2, "Can only write V2 packs right now");
         assert!(
@@ -93,7 +95,7 @@ mod function {
 
         progress.init(Some(4), progress::steps());
         let start = std::time::Instant::now();
-        let _info = progress.add_child_with_id("writing fan-out table".into(), gix_features::progress::UNKNOWN);
+        let _info = progress.add_child_with_id("writing fan-out table".into(), gix_utils::progress::UNKNOWN);
         let fan_out = fanout(&mut entries_sorted_by_oid.iter().map(|e| e.data.id.first_byte()));
 
         for value in fan_out.iter() {
@@ -101,21 +103,21 @@ mod function {
         }
 
         progress.inc();
-        let _info = progress.add_child_with_id("writing ids".into(), gix_features::progress::UNKNOWN);
+        let _info = progress.add_child_with_id("writing ids".into(), gix_utils::progress::UNKNOWN);
         for entry in &entries_sorted_by_oid {
             out.write_all(entry.data.id.as_slice())
                 .map_err(gix_hash::io::from_std_io)?;
         }
 
         progress.inc();
-        let _info = progress.add_child_with_id("writing crc32".into(), gix_features::progress::UNKNOWN);
+        let _info = progress.add_child_with_id("writing crc32".into(), gix_utils::progress::UNKNOWN);
         for entry in &entries_sorted_by_oid {
             out.write_all(&entry.data.crc32.to_be_bytes())
                 .map_err(gix_hash::io::from_std_io)?;
         }
 
         progress.inc();
-        let _info = progress.add_child_with_id("writing offsets".into(), gix_features::progress::UNKNOWN);
+        let _info = progress.add_child_with_id("writing offsets".into(), gix_utils::progress::UNKNOWN);
         {
             let mut offsets64 = Vec::<u64>::new();
             for entry in &entries_sorted_by_oid {
@@ -145,7 +147,7 @@ mod function {
             .into_inner()
             .map_err(io::Error::from)
             .map_err(gix_hash::io::from_std_io)?;
-        let index_hash = out.hash.try_finalize().map_err(gix_hash::io::from_hasher)?;
+        let index_hash = out.hash.try_finalize()?;
         out.inner
             .write_all(index_hash.as_slice())
             .map_err(gix_hash::io::from_std_io)?;

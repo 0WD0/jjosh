@@ -33,6 +33,18 @@ use jj_lib::hex_util;
 use jj_lib::op_store::TimestampRange;
 use jj_lib::settings::UserSettings;
 use jj_lib::str_util::StringPattern;
+use jj_lib::template_parser;
+use jj_lib::template_parser::BinaryOp;
+use jj_lib::template_parser::ExpressionKind;
+use jj_lib::template_parser::ExpressionNode;
+use jj_lib::template_parser::FunctionCallNode;
+use jj_lib::template_parser::LambdaNode;
+use jj_lib::template_parser::TemplateAliasesMap;
+use jj_lib::template_parser::TemplateDiagnostics;
+use jj_lib::template_parser::TemplateParseError;
+use jj_lib::template_parser::TemplateParseErrorKind;
+use jj_lib::template_parser::TemplateParseResult;
+use jj_lib::template_parser::UnaryOp;
 use jj_lib::time_util::DatePattern;
 use serde::Deserialize;
 use serde::de::IntoDeserializer as _;
@@ -40,18 +52,6 @@ use serde::de::IntoDeserializer as _;
 use crate::config;
 use crate::formatter::FormatRecorder;
 use crate::formatter::Formatter;
-use crate::template_parser;
-use crate::template_parser::BinaryOp;
-use crate::template_parser::ExpressionKind;
-use crate::template_parser::ExpressionNode;
-use crate::template_parser::FunctionCallNode;
-use crate::template_parser::LambdaNode;
-use crate::template_parser::TemplateAliasesMap;
-use crate::template_parser::TemplateDiagnostics;
-use crate::template_parser::TemplateParseError;
-use crate::template_parser::TemplateParseErrorKind;
-use crate::template_parser::TemplateParseResult;
-use crate::template_parser::UnaryOp;
 use crate::templater::AnyTemplateProperty;
 use crate::templater::BoxedAnyProperty;
 use crate::templater::BoxedSerializeProperty;
@@ -66,12 +66,15 @@ use crate::templater::LabelTemplate;
 use crate::templater::ListMapProperty;
 use crate::templater::ListPropertyTemplate;
 use crate::templater::Literal;
+use crate::templater::NoTemplateBooleanCast;
+use crate::templater::OptionalTemplateValue;
 use crate::templater::PlainTextFormattedProperty;
 use crate::templater::PropertyPlaceholder;
 use crate::templater::RawEscapeSequenceTemplate;
 use crate::templater::ReformatTemplate;
 use crate::templater::RegexCaptures;
 use crate::templater::SeparateTemplate;
+use crate::templater::SerializeMapProperty;
 use crate::templater::SizeHint;
 use crate::templater::Template;
 use crate::templater::TemplateFormatter;
@@ -221,6 +224,15 @@ where
     /// Transforms into a property that will evaluate to an [`Ordering`].
     fn try_into_cmp(self, other: Self) -> Option<BoxedTemplateProperty<'a, Ordering>>;
 }
+
+impl NoTemplateBooleanCast for i64 {}
+impl NoTemplateBooleanCast for ConfigValue {}
+impl NoTemplateBooleanCast for PathBuf {}
+impl NoTemplateBooleanCast for Signature {}
+impl NoTemplateBooleanCast for SizeHint {}
+impl NoTemplateBooleanCast for RegexCaptures {}
+impl NoTemplateBooleanCast for Timestamp {}
+impl NoTemplateBooleanCast for TimestampRange {}
 
 pub enum CoreTemplatePropertyKind<'a> {
     ByteString(BoxedTemplateProperty<'a, BString>),
@@ -1886,16 +1898,12 @@ fn builtin_timestamp_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             let format_property =
                 expect_stringify_expression(language, diagnostics, build_ctx, format_node)?;
             if let Ok(format) = format_property.extract() {
-                let format = template_parser::catch_aliases(
-                    diagnostics,
-                    format_node,
-                    |_diagnostics, node| {
-                        time_util::FormattingItems::parse(&format).ok_or_else(|| {
-                            TemplateParseError::expression("Invalid time format", node.span)
-                        })
-                    },
-                )?
-                .into_owned();
+                template_parser::catch_aliases(diagnostics, format_node, |_diagnostics, node| {
+                    time_util::validate_format(&format).map_err(|err| {
+                        TemplateParseError::expression("Invalid time format", node.span)
+                            .with_source(err)
+                    })
+                })?;
                 let out_property = self_property.and_then(move |timestamp| {
                     Ok(time_util::format_absolute_timestamp_with(
                         &timestamp, &format,
@@ -1905,11 +1913,7 @@ fn builtin_timestamp_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             } else {
                 let out_property =
                     (self_property, format_property).and_then(move |(timestamp, format)| {
-                        let format =
-                            time_util::FormattingItems::parse(&format).ok_or_else(|| {
-                                let message = format!("Invalid time format: {format}");
-                                TemplatePropertyError(message.into())
-                            })?;
+                        time_util::validate_format(&format)?;
                         Ok(time_util::format_absolute_timestamp_with(
                             &timestamp, &format,
                         )?)
@@ -1936,7 +1940,7 @@ fn builtin_timestamp_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             let tz_offset = std::env::var("JJ_TZ_OFFSET_MINS")
                 .ok()
                 .and_then(|tz_string| tz_string.parse::<i32>().ok())
-                .unwrap_or_else(|| chrono::Local::now().offset().local_minus_utc() / 60);
+                .unwrap_or_else(|| jiff::Zoned::now().offset().seconds() / 60);
             let out_property = self_property.map(move |mut timestamp| {
                 timestamp.tz_offset = tz_offset;
                 timestamp
@@ -1948,7 +1952,7 @@ fn builtin_timestamp_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
         "after",
         |_language, diagnostics, _build_ctx, self_property, function| {
             let [date_pattern_node] = function.expect_exact_arguments()?;
-            let now = chrono::Local::now();
+            let now = jiff::Zoned::now();
             let date_pattern = template_parser::catch_aliases(
                 diagnostics,
                 date_pattern_node,
@@ -2052,8 +2056,10 @@ fn builtin_any_list_methods<'a, L: TemplateLanguage<'a> + ?Sized>() -> BuildAnyM
 pub fn builtin_formattable_list_methods<'a, L, O>() -> TemplateBuildMethodFnMap<'a, L, Vec<O>>
 where
     L: TemplateLanguage<'a> + ?Sized,
-    L::Property: WrapTemplateProperty<'a, O> + WrapTemplateProperty<'a, Vec<O>>,
-    O: Template + Clone + 'a,
+    L::Property: WrapTemplateProperty<'a, O>,
+    L::Property: WrapTemplateProperty<'a, Vec<O>>,
+    L::Property: WrapTemplateProperty<'a, O::Optional>,
+    O: OptionalTemplateValue + Template + Clone + 'a,
 {
     let mut map = builtin_unformattable_list_methods::<L, O>();
     map.insert(
@@ -2076,8 +2082,10 @@ where
 pub fn builtin_unformattable_list_methods<'a, L, O>() -> TemplateBuildMethodFnMap<'a, L, Vec<O>>
 where
     L: TemplateLanguage<'a> + ?Sized,
-    L::Property: WrapTemplateProperty<'a, O> + WrapTemplateProperty<'a, Vec<O>>,
-    O: Clone + 'a,
+    L::Property: WrapTemplateProperty<'a, O>,
+    L::Property: WrapTemplateProperty<'a, Vec<O>>,
+    L::Property: WrapTemplateProperty<'a, O::Optional>,
+    O: OptionalTemplateValue + Clone + 'a,
 {
     // Not using maplit::hashmap!{} or custom declarative macro here because
     // code completion inside macro is quite restricted.
@@ -2126,13 +2134,7 @@ where
         "first",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
-            // TODO: Return `Option<T>` instead of erroring out.
-            let out_property = self_property.and_then(|items| {
-                items
-                    .into_iter()
-                    .next()
-                    .ok_or_else(|| TemplatePropertyError("List is empty".into()))
-            });
+            let out_property = self_property.map(|items| O::from_option(items.into_iter().next()));
             Ok(L::Property::wrap_property(out_property.into_dyn()))
         },
     );
@@ -2140,12 +2142,7 @@ where
         "last",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
-            // TODO: Return `Option<T>` instead of erroring out.
-            let out_property = self_property.and_then(|mut items| {
-                items
-                    .pop()
-                    .ok_or_else(|| TemplatePropertyError("List is empty".into()))
-            });
+            let out_property = self_property.map(|mut items| O::from_option(items.pop()));
             Ok(L::Property::wrap_property(out_property.into_dyn()))
         },
     );
@@ -2154,15 +2151,8 @@ where
         |language, diagnostics, build_ctx, self_property, function| {
             let [index_node] = function.expect_exact_arguments()?;
             let index = expect_usize_expression(language, diagnostics, build_ctx, index_node)?;
-            // TODO: Return `Option<T>` instead of erroring out.
-            let out_property = (self_property, index).and_then(|(mut items, index)| {
-                if index < items.len() {
-                    Ok(items.remove(index))
-                } else {
-                    Err(TemplatePropertyError(
-                        format!("Index {index} out of bounds").into(),
-                    ))
-                }
+            let out_property = (self_property, index).map(|(mut items, index)| {
+                O::from_option((index < items.len()).then(|| items.remove(index)))
             });
             Ok(L::Property::wrap_property(out_property.into_dyn()))
         },
@@ -2380,14 +2370,24 @@ fn builtin_functions<'a, L: TemplateLanguage<'a> + ?Sized>() -> TemplateBuildFun
     // code completion inside macro is quite restricted.
     let mut map = TemplateBuildFunctionFnMap::<L>::new();
     map.insert("fill", |language, diagnostics, build_ctx, function| {
-        let [width_node, content_node] = function.expect_exact_arguments()?;
+        let ([width_node, content_node], [break_words_node]) =
+            function.expect_named_arguments(&["", "", "break_words"])?;
         let width = expect_usize_expression(language, diagnostics, build_ctx, width_node)?;
         let content = expect_template_expression(language, diagnostics, build_ctx, content_node)?;
-        let template =
-            ReformatTemplate::new(content, move |formatter, recorded| match width.extract() {
-                Ok(width) => text_util::write_wrapped(formatter.as_mut(), recorded, width),
-                Err(err) => formatter.handle_error(err),
-            });
+        let break_words = break_words_node
+            .map(|node| expect_boolean_expression(language, diagnostics, build_ctx, node))
+            .transpose()?;
+        let template = ReformatTemplate::new(content, move |formatter, recorded| {
+            match (width.extract(), break_words.extract()) {
+                (Ok(width), Ok(break_words)) => text_util::write_wrapped(
+                    formatter.as_mut(),
+                    recorded,
+                    width,
+                    break_words.unwrap_or(false),
+                ),
+                (Err(err), _) | (_, Err(err)) => formatter.handle_error(err),
+            }
+        });
         Ok(L::Property::wrap_template(Box::new(template)))
     });
     map.insert("indent", |language, diagnostics, build_ctx, function| {
@@ -2550,9 +2550,7 @@ fn builtin_functions<'a, L: TemplateLanguage<'a> + ?Sized>() -> TemplateBuildFun
         Ok(L::Property::wrap_property(content))
     });
     map.insert("json", |language, diagnostics, build_ctx, function| {
-        // TODO: Add pretty=true|false? or json(key=value, ..)? The latter might
-        // be implemented as a map constructor/literal if we add support for
-        // heterogeneous list/map types.
+        // TODO: Add pretty=true|false?
         let [value_node] = function.expect_exact_arguments()?;
         let value = expect_serialize_expression(language, diagnostics, build_ctx, value_node)?;
         let out_property = value.and_then(|v| Ok(serde_json::to_string(&v)?));
@@ -2871,6 +2869,10 @@ pub fn build_expression<'a, L: TemplateLanguage<'a> + ?Sized>(
             "Lambda cannot be defined here",
             node.span,
         )),
+        ExpressionKind::Map(_) => Err(TemplateParseError::expression(
+            "Map cannot be defined here",
+            node.span,
+        )),
         ExpressionKind::AliasExpanded(..) => unreachable!(),
     })
 }
@@ -3033,14 +3035,28 @@ pub fn expect_serialize_expression<'a, L: TemplateLanguage<'a> + ?Sized>(
     build_ctx: &BuildContext<L::Property>,
     node: &ExpressionNode,
 ) -> TemplateParseResult<BoxedSerializeProperty<'a>> {
-    expect_expression_of_type(
-        language,
-        diagnostics,
-        build_ctx,
-        node,
-        "Serialize",
-        |expression| expression.try_into_serialize(),
-    )
+    template_parser::catch_aliases(diagnostics, node, |diagnostics, node| match &node.kind {
+        ExpressionKind::Map(entries) => {
+            let entries = entries
+                .iter()
+                .map(|(key_node, value_node)| -> TemplateParseResult<_> {
+                    let key =
+                        expect_serialize_expression(language, diagnostics, build_ctx, key_node)?;
+                    let value =
+                        expect_serialize_expression(language, diagnostics, build_ctx, value_node)?;
+                    Ok((key, value))
+                })
+                .try_collect()?;
+            Ok(SerializeMapProperty::new(entries).into_serialize())
+        }
+        _ => {
+            let expression = build_expression(language, diagnostics, build_ctx, node)?;
+            let actual_type = expression.type_name();
+            expression.try_into_serialize().ok_or_else(|| {
+                TemplateParseError::expected_type("Serialize", actual_type, node.span)
+            })
+        }
+    })
 }
 
 pub fn expect_template_expression<'a, L: TemplateLanguage<'a> + ?Sized>(
@@ -4281,18 +4297,18 @@ mod tests {
 
         // List.first()
         insta::assert_snapshot!(env.render_ok(r#""a\nb\nc".lines().first()"#), @"a");
-        insta::assert_snapshot!(env.render_ok(r#""".lines().first()"#), @"<Error: List is empty>");
+        insta::assert_snapshot!(env.render_ok(r#""".lines().first()"#), @"");
 
         // List.last()
         insta::assert_snapshot!(env.render_ok(r#""a\nb\nc".lines().last()"#), @"c");
-        insta::assert_snapshot!(env.render_ok(r#""".lines().last()"#), @"<Error: List is empty>");
+        insta::assert_snapshot!(env.render_ok(r#""".lines().last()"#), @"");
 
         // List.get(index)
         insta::assert_snapshot!(env.render_ok(r#""a\nb\nc".lines().get(0)"#), @"a");
         insta::assert_snapshot!(env.render_ok(r#""a\nb\nc".lines().get(1)"#), @"b");
         insta::assert_snapshot!(env.render_ok(r#""a\nb\nc".lines().get(2)"#), @"c");
-        insta::assert_snapshot!(env.render_ok(r#""a\nb\nc".lines().get(3)"#), @"<Error: Index 3 out of bounds>");
-        insta::assert_snapshot!(env.render_ok(r#""".lines().get(0)"#), @"<Error: Index 0 out of bounds>");
+        insta::assert_snapshot!(env.render_ok(r#""a\nb\nc".lines().get(3)"#), @"");
+        insta::assert_snapshot!(env.render_ok(r#""".lines().get(0)"#), @"");
 
         // List.reverse()
         insta::assert_snapshot!(env.render_ok(r#""a\nb\nc".lines().reverse().join("|")"#), @"c|b|a");
@@ -4782,6 +4798,7 @@ mod tests {
           |           ^--^
           |
           = Invalid time format
+        strftime formatting failed: expected to find specifier directive after flag `_`, but found end of format string
         "#);
 
         // Dynamic format string
@@ -4790,7 +4807,7 @@ mod tests {
         insta::assert_snapshot!(env.render_ok("t0.format(good_dyn_format)"), @"197001");
         insta::assert_snapshot!(
             env.render_ok("t0.format(bad_dyn_format)"),
-            @"<Error: Invalid time format: %_>");
+            @"<Error: strftime formatting failed: expected to find specifier directive after flag `_`, but found end of format string>");
 
         // Literal alias expansion
         env.add_alias("time_format", r#""%Y-%m-%d""#);
@@ -4809,6 +4826,7 @@ mod tests {
           | ^--^
           |
           = Invalid time format
+        strftime formatting failed: expected to find specifier directive after flag `_`, but found end of format string
         "#);
 
         insta::assert_snapshot!(env.render_ok("t0_plus1.utc()"), @"1970-01-01 00:00:00.000 +00:00");
@@ -4889,10 +4907,10 @@ mod tests {
 
         insta::assert_snapshot!(
             env.render_ok("instant.start().format('%Y%m%d %H:%M:%S %Z')"),
-            @"19700101 00:00:00 +00:00");
+            @"19700101 00:00:00 UTC");
         insta::assert_snapshot!(
             env.render_ok("one_msec.end().format('%Y%m%d %H:%M:%S %Z')"),
-            @"19691231 23:00:00 -01:00");
+            @"19691231 23:00:00 -01");
 
         insta::assert_snapshot!(
             env.render_ok("instant.duration()"), @"less than a microsecond");
@@ -5418,6 +5436,12 @@ mod tests {
                 },
             })
         });
+        env.add_keyword("timestamp_millis", || {
+            literal(Timestamp {
+                timestamp: MillisSinceEpoch(1_234),
+                tz_offset: 90,
+            })
+        });
 
         insta::assert_snapshot!(env.render_ok(r#"json(ascii_bstr)"#), @"[102,111,111]");
         insta::assert_snapshot!(env.render_ok(r#"json('"quoted"')"#), @r#""\"quoted\"""#);
@@ -5433,12 +5457,15 @@ mod tests {
         insta::assert_snapshot!(env.render_ok("json(email)"), @r#""foo@bar""#);
         insta::assert_snapshot!(
             env.render_ok("json(signature)"),
-            @r#"{"name":"Test User","email":"test.user@example.com","timestamp":"1970-01-01T00:00:00Z"}"#);
+            @r#"{"name":"Test User","email":"test.user@example.com","timestamp":"1970-01-01T00:00:00+00:00"}"#);
         insta::assert_snapshot!(env.render_ok("json(size_hint)"), @"[5,null]");
-        insta::assert_snapshot!(env.render_ok("json(timestamp)"), @r#""1970-01-01T00:00:00Z""#);
+        insta::assert_snapshot!(env.render_ok("json(timestamp)"), @r#""1970-01-01T00:00:00+00:00""#);
+        insta::assert_snapshot!(
+            env.render_ok("json(timestamp_millis)"),
+            @r#""1970-01-01T01:30:01.234+01:30""#);
         insta::assert_snapshot!(
             env.render_ok("json(timestamp_range)"),
-            @r#"{"start":"1970-01-01T00:00:00Z","end":"1970-01-01T23:00:00-01:00"}"#);
+            @r#"{"start":"1970-01-01T00:00:00+00:00","end":"1970-01-01T23:00:00-01:00"}"#);
 
         // AnyList is serializable if the inner type is.
         insta::assert_snapshot!(env.render_ok(r#"json(string_list.map(|s| s))"#), @r#"["foo","bar"]"#);
@@ -5465,6 +5492,25 @@ mod tests {
           |      ^--------------^
           |
           = Expected expression of type `Serialize`, but actual type is `Any`
+        ");
+
+        // Map literal
+        insta::assert_snapshot!(env.render_ok("json({})"), @"{}");
+        insta::assert_snapshot!(
+            env.render_ok("json({'a' => 'b', 'c' => {'d' => 'e'}})"),
+            @r#"{"a":"b","c":{"d":"e"}}"#);
+        insta::assert_snapshot!(
+            env.render_ok("json({email => size_hint})"),
+            @r#"{"foo@bar":[5,null]}"#);
+
+        // Template isn't serializable
+        insta::assert_snapshot!(env.parse_err("json({'a' => label('b', 'c')})"), @"
+         --> 1:14
+          |
+        1 | json({'a' => label('b', 'c')})
+          |              ^-------------^
+          |
+          = Expected expression of type `Serialize`, but actual type is `Template`
         ");
     }
 

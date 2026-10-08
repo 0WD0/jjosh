@@ -3,12 +3,97 @@
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres
-to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+and this project adheres to
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
 ### Release highlights
+
+### Breaking changes
+
+* In non-colocated workspaces, `jj git fetch` no longer updates remote-tracking
+  Git refs. Use `jj git export` to export remote bookmarks to Git.
+
+* `Timestamp.format()` now follows [jiff's strftime
+  syntax](https://docs.rs/jiff/latest/jiff/fmt/strtime/index.html) instead of
+  chrono's. Most directives, including the default format, are unchanged, but:
+  * `%v` and `%+` are no longer supported. Use `%e-%b-%Y` and
+    `%Y-%m-%dT%H:%M:%S%.3f%:z` (which always includes milliseconds) instead.
+  * `%c`, `%x`, and `%r` produce different output. For example, `%x` now
+    formats as `2001 M07 8` rather than `07/08/01`.
+  * `%f` now prints only as many digits as needed rather than always 9. Use
+    `%9f` or `%N` for the old behavior. Similarly, `%.f` no longer pads to 3, 6,
+    or 9 digits, so it formats as `.12` rather than `.120`.
+  * `%Z` now prints a time zone abbreviation. Use `%:z` to get an offset.
+  * `%:::z` now includes the minutes of an offset when they are non-zero.
+  * New directives and flags such as `%N`, `%Q`, `%^a`, and `%5Y` are now
+    accepted. `%#z` no longer panics.
+  * `json(timestamp)` now prints a UTC time zone offset as `+00:00` instead of
+    `Z`.
+
+### Deprecations
+
+### New features
+
+* `jj git push` with `git.sign-on-push` enabled now signs commits in a
+  separate transaction before the push, so commits stay signed if the push
+  fails and a new push doesn't have to sign them again.
+
+* Diff hunk headers now include symbol context even for unsupported languages.
+
+* `jj resolve` gained a built-in `:editor` merge tool that opens the conflicted
+  file with conflict markers in your text editor. Unlike the other merge tools,
+  it supports conflicts with more than two sides.
+
+* `Commit.contained_in()` now accepts a `Stringify` instead of a `StringLiteral`.
+  This enables dynamic query building during templating.
+
+* Templates now have a top-level `revset(revset: Stringify) -> List<Commit>`
+  function for evaluating revsets during templating.
+
+* `jj config gc` now also cleans up workspace configs whose paths no longer
+  exist.
+
+### Fixed bugs
+
+* Date patterns such as `after:"2024-03-10 03:30"` are now resolved with the
+  correct UTC offset on days with a daylight savings transition. Previously,
+  the offset from the start of the day was used, so times after were off
+  by an hour. Likely a niche bug fix, but a bug fix nonetheless!
+
+* Shell completion now suggests tag names for `jj tag track`, `jj tag untrack`,
+  `jj tag list`, `jj git fetch --tag`, and `jj git push --tag`.
+
+* `jj git fetch` no longer creates additional refs based on non-standard Git
+  `remote.<name>.fetch` configuration.
+
+* Fixed tag deletion with `jj git fetch --tag=NAME`.
+
+* `jj workspace remove` can now remove stale workspaces.
+  [#10276](https://github.com/jj-vcs/jj/issues/10276)
+
+* Fixed issue with `config-schema.json` where Taplo (TOML parsing library) would
+  flag any `aliases` defined as a table but without an explicit
+  `.enabled = true` as "valid under more than one of the schemas". This affected
+  downstream tools such as editor extensions showing errors in perfectly valid
+  config files.
+
+* Fix a race condition in colocated workspaces where concurrent `jj git fetch`
+  and `jj` commands could import partially fetched refs, causing divergence.
+  [#7349](https://github.com/jj-vcs/jj/issues/7349)
+
+* `jj run` now materializes conflicts using `ui.conflict-marker-style` instead
+  of always using the `snapshot` style.
+  [#10390](https://github.com/jj-vcs/jj/issues/10390)
+
+## [0.46.0] - 2026-10-07
+
+### Release highlights
+
+* Jujutsu can now colocate workspaces besides the default one by creating Git
+  worktrees. Use `jj workspace add --[no-]colocate` and the setting
+  `git.colocate` to control this.
 
 ### Breaking changes
 
@@ -30,16 +115,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   performed in another workspace. Use `--allow-cross-workspace` to undo/redo
   it anyway.
 
-### Deprecations
+* `jj workspace list`/`root` no longer omit unreachable paths. All recorded
+  paths are now shown, with warnings displayed in `jj workspace root`.
+
+* The `List.get()`, `.first()`, and `.last()` template functions now return
+  `Option<T>` instead of throwing an error on out-of-bounds access.
 
 ### New features
-
-* Added the `TreeEntry.normal_value()` template method and the `TreeValue` type
-  to access resolved tree values, formatted as their full object IDs, including
-  Git submodule commit IDs.
-
-* Diff hunk headers now include nearby source symbols for many common
-  programming and markup languages.
 
 * `jj workspace add` supports `--colocate`/`--no-colocate` flags to control
   whether a Git worktree is created alongside the workspace. The default
@@ -47,19 +129,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   config is `true`. `jj workspace forget` removes the corresponding Git
   worktree when one exists.
 
-* `jj workspace remove` removes a workspace and its directory from disk. The
-  working-copy state is snapshotted into a commit before removal.
-
 * `jj git colocation status`/`enable`/`disable` now work on child
   workspaces. `status` correctly reports colocation state and includes
   the workspace name. `enable` creates a Git worktree and `disable`
   removes it, allowing colocation to be toggled after workspace
   creation.
 
-* `fix.tools.<name>.line-range-args` (replaces `line-range-arg`) is an array of
-  string template args to pass to the fix tool. This is more flexible in cases
-  where you need to pass multiple arguments to the tool, such as separate args
-  for the range start and range end.
+* `jj workspace remove` removes a workspace and its directory from disk. The
+  working-copy state is snapshotted into a commit before removal.
+
+* Added commands `jj file edit` and `jj file delete` for editing files in any
+  revision without needing to change the working copy.
 
 * `jj git push` now supports pushing to multiple remotes at the same time.
   This can be configured via `git.push` set to a string pattern
@@ -68,6 +148,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 * The default target revisions for `jj git push` can now be configured via
   `revsets.git-push`.
+
+* Added the `TreeEntry.normal_value()` template method and the `TreeValue` type
+  to access resolved tree values, formatted as their full object IDs, including
+  Git submodule commit IDs.
+
+* Diff hunk headers now include nearby source symbols for many common
+  programming and markup languages.
+
+* `fix.tools.<name>.line-range-args` (replaces `line-range-arg`) is an array of
+  string template args to pass to the fix tool. This is more flexible in cases
+  where you need to pass multiple arguments to the tool, such as separate args
+  for the range start and range end.
 
 * `jj run` now uses the sparse patterns from the workspace it's run from.
   Use the `--sparse-patterns` option to control this behavior (evaluated
@@ -81,6 +173,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 * `ui.editor` now supports `$path` and `$line` substitution variables. Example:
   `ui.editor = ["emacs", "+$line", "$path"]`
+
+* `fill` template function now supports an additional named parameter
+  `break_words`, that allows specifying if the template should break words
+  longer than `width` passed in the input to ensure no words overflow the
+  specified width.
+
+* The `json()` template function now supports map literals: `json({'key' =>
+  value})`
+
+* The hunk headers of `diff.color-words.conflict = "pair"` now include the
+  conflict labels of the compared terms.
 
 ### Fixed bugs
 
@@ -120,6 +223,40 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 * `jj workspace list` templates are now labeled with `workspace name`,
   `workspace root`, etc.
+
+### Contributors
+
+Thanks to the people who made this release happen!
+
+* Aaron Bies (@slerpyyy)
+* Austin Seipp (@thoughtpolice)
+* Bartok9 (@Bartok9)
+* Brice Figureau (@masterzen)
+* Bryan O'Sullivan (@bos)
+* Caleb White (@calebdw)
+* David Rieber (@drieber)
+* Farid Zakaria (@fzakaria)
+* Gabriel Goller (@kaffarell)
+* Gasper Stukelj (@mirkomartn)
+* Jakub Stasiak (@jstasiak)
+* JamBalaya56562 (@JamBalaya56562)
+* Joseph Lou (@josephlou5)
+* Karnajeet Gosavi (@kg290)
+* LOG (@logarithmone1128)
+* Martin von Zweigbergk (@martinvonz)
+* Matt Stark (@matts1)
+* Mustafa Officewala (@genericusername2709)
+* pederbe (@pederbe)
+* Philip Metzger (@PhilipMetzger)
+* Pro (@twistedfall)
+* Remo Senekowitsch (@senekor)
+* Sami Hiltunen (@SamiHiltunen)
+* sofia (@badp)
+* Stephen Jennings (@jennings)
+* Vincent Ging Ho Yim (@cenviity)
+* xtqqczze (@xtqqczze)
+* Yannik Sander (@ysndr)
+* Yuya Nishihara (@yuja)
 
 ## [0.45.1] - 2026-09-03
 
@@ -5682,7 +5819,8 @@ No changes, only trying to get the automated build to work.
 
 Last release before this changelog started.
 
-[unreleased]: https://github.com/jj-vcs/jj/compare/v0.45.1...HEAD
+[unreleased]: https://github.com/jj-vcs/jj/compare/v0.46.0...HEAD
+[0.46.0]: https://github.com/jj-vcs/jj/compare/v0.45.1...v0.46.0
 [0.45.1]: https://github.com/jj-vcs/jj/compare/v0.45.0...v0.45.1
 [0.45.0]: https://github.com/jj-vcs/jj/compare/v0.44.0...v0.45.0
 [0.44.0]: https://github.com/jj-vcs/jj/compare/v0.43.0...v0.44.0

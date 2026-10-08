@@ -90,7 +90,7 @@ impl Store {
             loose_compression,
         }: Options,
     ) -> std::io::Result<Self> {
-        let _span = gix_features::trace::detail!("gix_odb::Store::at()");
+        let _span = gix_trace::detail!("gix_odb::Store::at()");
         let current_dir = current_dir.map_or_else(
             || {
                 // It's only used for real-pathing alternate paths and there it just needs to be consistent (enough).
@@ -100,7 +100,7 @@ impl Store {
         )?;
         if !objects_dir.is_dir() {
             return Err(std::io::Error::other(format!(
-                "'{}' wasn't a directory",
+                "\"{}\" wasn't a directory",
                 objects_dir.display()
             )));
         }
@@ -108,11 +108,11 @@ impl Store {
             Slots::Given(n) => n as usize,
             Slots::AsNeededByDiskState { multiplier, minimum } => {
                 let mut db_paths =
-                    crate::alternate::resolve(objects_dir.clone(), &current_dir).map_err(std::io::Error::other)?;
+                    crate::alternate::resolve(objects_dir.clone(), &current_dir).map_err(super::error_to_io)?;
                 db_paths.insert(0, objects_dir.clone());
                 let num_slots =
                     Store::collect_indices_and_mtime_sorted_by_size(db_paths, None, None, alloc_limit_bytes)
-                        .map_err(std::io::Error::other)?
+                        .map_err(super::error_to_io)?
                         .len();
 
                 let candidate = ((num_slots as f32 * multiplier) as usize).max(minimum);

@@ -1,7 +1,8 @@
+use crate::Result;
 use crate::hex_to_id;
 use crate::util::fixture_odb;
 
-fn odb() -> crate::Result<gix_odb::Handle> {
+fn odb() -> Result<gix_odb::Handle> {
     fixture_odb("make_traversal_repo_for_trees.sh")
 }
 
@@ -14,7 +15,7 @@ mod depthfirst {
     use crate::util::fixture_odb;
 
     #[test]
-    fn full_path_and_filename() -> crate::Result {
+    fn full_path_and_filename() -> gix_testtools::TestResult {
         let db = odb()?;
         let mut state = gix_traverse::tree::depthfirst::State::default();
         let mut buf = state.pop_buf();
@@ -166,7 +167,7 @@ mod depthfirst {
     }
 
     #[test]
-    fn more_difficult_fixture() -> crate::Result {
+    fn more_difficult_fixture() -> gix_testtools::TestResult {
         let db = fixture_odb("make_traversal_repo_for_trees_depthfirst.sh")?;
         let mut state = gix_traverse::tree::depthfirst::State::default();
         let mut buf = state.pop_buf();
@@ -250,7 +251,49 @@ mod breadthfirst {
     use super::*;
 
     #[test]
-    fn full_path() -> crate::Result {
+    fn delegate_cancellation_is_classified() -> gix_testtools::TestResult {
+        struct Cancel;
+        impl tree::Visit for Cancel {
+            fn pop_back_tracked_path_and_set_current(&mut self) {}
+            fn pop_front_tracked_path_and_set_current(&mut self) {}
+            fn push_back_tracked_path_component(&mut self, _component: &gix_object::bstr::BStr) {}
+            fn push_path_component(&mut self, _component: &gix_object::bstr::BStr) {}
+            fn pop_path_component(&mut self) {}
+            fn visit_tree(&mut self, _entry: &gix_object::tree::EntryRef<'_>) -> tree::visit::Action {
+                std::ops::ControlFlow::Break(())
+            }
+            fn visit_nontree(&mut self, _entry: &gix_object::tree::EntryRef<'_>) -> tree::visit::Action {
+                std::ops::ControlFlow::Break(())
+            }
+        }
+
+        let object_hash = gix_testtools::object_hash();
+        let tree_data = [b"40000 entry\0".as_slice(), object_hash.empty_tree().as_bytes()].concat();
+        let blob_data = [b"100644 entry\0".as_slice(), object_hash.empty_blob().as_bytes()].concat();
+        for data in [tree_data, blob_data] {
+            let err = gix_traverse::tree::breadthfirst(
+                gix_object::TreeRefIter::from_bytes(&data, object_hash),
+                tree::breadthfirst::State::default(),
+                gix_object::find::Never,
+                &mut Cancel,
+            )
+            .expect_err("the delegate cancels for both tree and non-tree entries");
+            assert!(err.is_cancelled(), "the delegate requested cancellation");
+            assert!(
+                !err.is_retryable() && !err.can_retry(),
+                "cancellation stops rather than retries"
+            );
+            assert_eq!(
+                err.to_string(),
+                "The delegate cancelled the operation",
+                "classification preserves the diagnostic"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn full_path() -> gix_testtools::TestResult {
         let db = odb()?;
         let mut buf = Vec::new();
         let mut buf2 = Vec::new();
@@ -260,8 +303,7 @@ mod breadthfirst {
         // Full paths - that's the default.
         let mut recorder = tree::Recorder::default();
         gix_traverse::tree::breadthfirst(
-            db.find_tree_iter(&commit.tree_id().expect("a tree is available in a commit"), &mut buf2)?
-                .0,
+            db.find_tree_iter(&commit.tree_id()?, &mut buf2)?.0,
             tree::breadthfirst::State::default(),
             &db,
             &mut recorder,
@@ -338,7 +380,7 @@ mod breadthfirst {
     }
 
     #[test]
-    fn filename_only() -> crate::Result<()> {
+    fn filename_only() -> gix_testtools::TestResult {
         let db = odb()?;
         let mut buf = Vec::new();
         let mut buf2 = Vec::new();
@@ -347,8 +389,7 @@ mod breadthfirst {
             .0;
         let mut recorder = tree::Recorder::default().track_location(Some(Location::FileName));
         gix_traverse::tree::breadthfirst(
-            db.find_tree_iter(&commit.tree_id().expect("a tree is available in a commit"), &mut buf2)?
-                .0,
+            db.find_tree_iter(&commit.tree_id()?, &mut buf2)?.0,
             tree::breadthfirst::State::default(),
             &db,
             &mut recorder,
@@ -365,7 +406,7 @@ mod breadthfirst {
     }
 
     #[test]
-    fn no_location() -> crate::Result<()> {
+    fn no_location() -> gix_testtools::TestResult {
         let db = odb()?;
         let mut buf = Vec::new();
         let mut buf2 = Vec::new();
@@ -374,8 +415,7 @@ mod breadthfirst {
             .0;
         let mut recorder = tree::Recorder::default().track_location(None);
         gix_traverse::tree::breadthfirst(
-            db.find_tree_iter(&commit.tree_id().expect("a tree is available in a commit"), &mut buf2)?
-                .0,
+            db.find_tree_iter(&commit.tree_id()?, &mut buf2)?.0,
             tree::breadthfirst::State::default(),
             &db,
             &mut recorder,

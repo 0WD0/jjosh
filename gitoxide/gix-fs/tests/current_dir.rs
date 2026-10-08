@@ -1,5 +1,5 @@
 #[test]
-fn precompose_unicode() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+fn precompose_unicode() -> gix_testtools::TestResult {
     let tmp = tempfile::TempDir::new()?;
 
     let decomposed = "a\u{308}";

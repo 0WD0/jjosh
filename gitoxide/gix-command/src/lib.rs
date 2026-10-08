@@ -46,7 +46,7 @@ pub mod shebang {
             .map_or(line.len(), |space_idx| slash_idx + space_idx);
         let (interpreter, args) = line.split_at(space_idx);
         Some(Data {
-            interpreter: gix_path::try_from_byte_slice(interpreter.trim()).ok()?.to_owned(),
+            interpreter: gix_path::from_byte_slice(interpreter.trim()).ok()?.to_owned(),
             args: crate::parse::arguments(args.trim().as_bstr()).unwrap_or_default(),
         })
     }
@@ -63,6 +63,10 @@ pub mod shebang {
 
 /// A structure to keep settings to use when invoking a command via [`spawn()`][Prepare::spawn()],
 /// after creating it with [`prepare()`].
+///
+/// Convert it to [`std::process::Command`] with [`TryFrom::try_from()`] to finish preparation
+/// without spawning. Preparation reports an error when shell quoting or namespace conversion
+/// requires an encoding the platform cannot represent.
 pub struct Prepare {
     /// The command to invoke, either directly or with a shell depending on `use_shell`.
     pub command: OsString,
@@ -103,15 +107,18 @@ pub struct Prepare {
 /// Additional information that is relevant to spawned processes, which typically receive
 /// a wealth of contextual information when spawned from `git`.
 ///
+/// Repository paths must be absolute, resolved against the caller's captured working directory.
+/// Consumers may change the child process's working directory, so relative paths are not reliable.
+///
 /// See [the git source code](https://github.com/git/git/blob/cfb8a6e9a93adbe81efca66e6110c9b4d2e57169/git.c#L191)
 /// for details.
 #[derive(Debug, Default, Clone)]
 pub struct Context {
-    /// The `.git` directory that contains the repository.
+    /// The absolute path to the `.git` directory that contains the repository.
     ///
     /// If set, it will be used to set the `GIT_DIR` environment variable.
     pub git_dir: Option<PathBuf>,
-    /// Set the `GIT_WORK_TREE` environment variable with the given path.
+    /// Set the `GIT_WORK_TREE` environment variable with the given absolute path.
     pub worktree_dir: Option<PathBuf>,
     /// If `true`, set `GIT_NO_REPLACE_OBJECTS` to `1`, which turns off object replacements, or `0` otherwise.
     /// If `None`, the variable won't be set.

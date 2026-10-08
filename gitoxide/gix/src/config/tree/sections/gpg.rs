@@ -1,3 +1,4 @@
+use crate::Result;
 use crate::config::{
     self,
     tree::{Key, Section, keys},
@@ -5,7 +6,8 @@ use crate::config::{
 
 impl super::Gpg {
     /// The `gpg.format` key.
-    pub const FORMAT: keys::Any = keys::Any::new("format", &config::Tree::GPG).with_default(b"openpgp");
+    pub const FORMAT: Format =
+        Format::new_with_validate("format", &config::Tree::GPG, validate::Format).with_default(b"openpgp");
     /// The legacy `gpg.program` key used as an OpenPGP program fallback.
     pub const PROGRAM: keys::Program = keys::Program::new_program("program", &config::Tree::GPG).with_default(b"gpg");
     /// The `gpg.minTrustLevel` key.
@@ -20,6 +22,24 @@ impl super::Gpg {
     pub const SSH: Ssh = Ssh;
 }
 
+/// The `gpg.format` key type.
+pub type Format = keys::Any<validate::Format>;
+
+impl Format {
+    /// Parse `value` as a signature format, defaulting to OpenPGP if it is absent.
+    /// Unknown format names are unsupported; malformed names are validation failures.
+    pub fn try_into_signature_format(
+        &'static self,
+        value: Option<&crate::bstr::BStr>,
+    ) -> Result<gix_object::signature::Format> {
+        use gix_error::ResultExt;
+
+        let value = value.unwrap_or_else(|| self.default_value_or_panic());
+        gix_object::signature::Format::parse(value)
+            .or_raise(|| gix_error::message("Could not parse signature format").with("key", self.logical_name()))
+    }
+}
+
 /// The `gpg.minTrustLevel` key type.
 pub type MinTrustLevel = keys::Any<validate::MinTrustLevel>;
 
@@ -29,12 +49,13 @@ impl MinTrustLevel {
     pub fn try_into_trust_level(
         &'static self,
         value: impl gix_utils::AsBStr,
-    ) -> Result<gix_object::signature::verify::TrustLevel, config::key::GenericErrorWithValue> {
+    ) -> Result<gix_object::signature::verify::TrustLevel> {
         use crate::bstr::ByteSlice;
 
         let value = value.as_bstr();
-        gix_object::signature::verify::TrustLevel::from_bytes(value.trim())
-            .ok_or_else(|| config::key::GenericErrorWithValue::from_value(self, value.into()))
+        gix_object::signature::verify::TrustLevel::from_bytes(value.trim()).ok_or_else(|| {
+            config::key::error_with_value(self, "Invalid signature trust level", value).validation_error()
+        })
     }
 }
 
@@ -135,15 +156,26 @@ impl Section for Ssh {
 
 mod validate {
     use crate::{
+        Result,
         bstr::BStr,
         config::tree::{Gpg, keys},
     };
 
     #[derive(Copy, Clone)]
+    pub struct Format;
+
+    impl keys::Validate for Format {
+        fn validate(&self, value: &BStr) -> Result {
+            Gpg::FORMAT.try_into_signature_format(Some(value))?;
+            Ok(())
+        }
+    }
+
+    #[derive(Copy, Clone)]
     pub struct MinTrustLevel;
 
     impl keys::Validate for MinTrustLevel {
-        fn validate(&self, value: &BStr) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+        fn validate(&self, value: &BStr) -> Result {
             #[cfg(feature = "command")]
             {
                 Gpg::MIN_TRUST_LEVEL.try_into_trust_level(value)?;
@@ -151,9 +183,9 @@ mod validate {
             }
             #[cfg(not(feature = "command"))]
             {
-                let err: crate::config::key::GenericErrorWithValue =
-                    crate::config::key::GenericErrorWithValue::from_value(&Gpg::MIN_TRUST_LEVEL, value.into());
-                Err(Box::new(err))
+                let err =
+                    crate::config::key::error_with_value(&Gpg::MIN_TRUST_LEVEL, "Invalid signature trust level", value);
+                Err(err.validation_error())
             }
         }
     }

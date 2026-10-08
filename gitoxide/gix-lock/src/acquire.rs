@@ -4,7 +4,7 @@ use std::{
     time::Duration,
 };
 
-use gix_error::{ErrorExt, ResultExt, RetryableError, message};
+use gix_error::{Class, ClassificationMarker, ErrorExt, Result, message};
 use gix_tempfile::{AutoRemove, ContainingDirectory};
 
 use crate::{DOT_LOCK_SUFFIX, File, Marker, backoff};
@@ -41,24 +41,21 @@ impl From<Duration> for Fail {
     }
 }
 
-/// The error returned when acquiring a [`File`] or [`Marker`].
-pub type Error = gix_error::Exn;
-
 impl File {
     /// Create a writable lock file with failure `mode` whose content will eventually overwrite the given resource `at_path`.
     ///
-    /// If `boundary_directory` is given, non-existing directories will be created automatically and removed in the case of
-    /// a rollback. Otherwise the containing directory is expected to exist, even though the resource doesn't have to.
+    /// If `boundary_directory` is given, missing directories will be created and removed up to that boundary on rollback.
+    /// Otherwise the containing directory is expected to exist, even though the resource doesn't have to.
     ///
     /// If `resolve_resource` is set, it is called before each lock attempt and its returned path becomes both the lock
     /// target and the eventual commit target. With `None`, `at_path` is used unchanged. [`resolve_symlink()`] provides the
     /// resolver used by Git-style callers that must update a symlink's target instead of replacing the link itself.
     ///
-    /// If `adjust_permissions` is set, it receives the newly created lock file's permissions after the process umask was
-    /// applied. The returned permissions are set on the lock file and ultimately reach the committed resource. With
-    /// `None`, no permission metadata is read or rewritten.
+    /// Apply `shared_repository_permissions`, Git's parsed sharing policy, to the lock file and newly created directories
+    /// after the process umask. Pass `0` to keep the umask permissions without reading or rewriting permission metadata.
+    /// See [`gix_fs::adjust_shared_repository_permissions()`] for the encoding.
     ///
-    /// Note that permissions will be set to `0o666`, which usually results in `0o644` after passing a default umask, on Unix systems.
+    /// On Unix, lock files start with `0o666` before the umask and sharing policy are applied.
     ///
     /// ### Warning of potential resource leak
     ///
@@ -69,14 +66,15 @@ impl File {
         at_path: impl AsRef<Path>,
         mode: Fail,
         boundary_directory: Option<PathBuf>,
+        shared_repository_permissions: i32,
         resolve_resource: Option<&dyn Fn(&Path) -> PathBuf>,
-        adjust_permissions: Option<&dyn Fn(std::fs::Permissions) -> std::fs::Permissions>,
-    ) -> Result<File, Error> {
+    ) -> Result<File> {
         let resolve_resource = resolve_resource.unwrap_or(&keep_resource);
         let (resource_path, lock_path, handle) = lock_with_mode(
             at_path.as_ref(),
             mode,
             boundary_directory,
+            shared_repository_permissions,
             resolve_resource,
             &|p, d, c| {
                 if let Some(permissions) = default_permissions() {
@@ -86,44 +84,6 @@ impl File {
                 }
             },
         )?;
-        let mut lock = File {
-            inner: handle,
-            lock_path,
-            resource_path,
-        };
-        if let Some(adjust_permissions) = adjust_permissions {
-            lock.with_mut(|file| {
-                let permissions = adjust_permissions(file.metadata()?.permissions());
-                file.set_permissions(permissions)
-            })
-            .or_erased()?;
-        }
-        Ok(lock)
-    }
-
-    /// Like [`acquire()`](Self::acquire) without resolving the resource or adjusting the post-umask permissions.
-    pub fn acquire_to_update_resource(
-        at_path: impl AsRef<Path>,
-        mode: Fail,
-        boundary_directory: Option<PathBuf>,
-    ) -> Result<File, Error> {
-        Self::acquire(at_path, mode, boundary_directory, None, None)
-    }
-
-    /// Like [`acquire_to_update_resource()`](File::acquire_to_update_resource), but allows to set filesystem permissions using `make_permissions`.
-    pub fn acquire_to_update_resource_with_permissions(
-        at_path: impl AsRef<Path>,
-        mode: Fail,
-        boundary_directory: Option<PathBuf>,
-        make_permissions: impl Fn() -> std::fs::Permissions,
-    ) -> Result<File, Error> {
-        let (resource_path, lock_path, handle) = lock_with_mode(
-            at_path.as_ref(),
-            mode,
-            boundary_directory,
-            &keep_resource,
-            &|p, d, c| gix_tempfile::writable_at_with_permissions(p, d, c, make_permissions()),
-        )?;
         Ok(File {
             inner: handle,
             lock_path,
@@ -131,31 +91,14 @@ impl File {
         })
     }
 
-    /// Like [`acquire_to_update_resource()`](File::acquire_to_update_resource), but follows symlinks at `at_path`
-    /// before creating the lock file, matching Git's default lock-file behavior.
-    pub fn acquire_to_update_resource_following_symlinks(
+    /// Like [`acquire()`](Self::acquire) without resolving the resource.
+    pub fn acquire_to_update_resource(
         at_path: impl AsRef<Path>,
         mode: Fail,
         boundary_directory: Option<PathBuf>,
-    ) -> Result<File, Error> {
-        Self::acquire(at_path, mode, boundary_directory, Some(&resolve_symlink), None)
-    }
-
-    /// Like [`acquire_to_update_resource_following_symlinks()`](File::acquire_to_update_resource_following_symlinks),
-    /// but adjusts the permissions that remain after applying the process umask.
-    pub fn acquire_to_update_resource_following_symlinks_with_permissions(
-        at_path: impl AsRef<Path>,
-        mode: Fail,
-        boundary_directory: Option<PathBuf>,
-        adjust_permissions: impl Fn(std::fs::Permissions) -> std::fs::Permissions,
-    ) -> Result<File, Error> {
-        Self::acquire(
-            at_path,
-            mode,
-            boundary_directory,
-            Some(&resolve_symlink),
-            Some(&adjust_permissions),
-        )
+        shared_repository_permissions: i32,
+    ) -> Result<File> {
+        Self::acquire(at_path, mode, boundary_directory, shared_repository_permissions, None)
     }
 }
 
@@ -163,10 +106,10 @@ impl Marker {
     /// Like [`acquire_to_update_resource()`](File::acquire_to_update_resource()) but _without_ the possibility to make changes
     /// and commit them.
     ///
-    /// If `boundary_directory` is given, non-existing directories will be created automatically and removed in the case of
-    /// a rollback.
+    /// If `boundary_directory` is given, missing directories will be created and removed up to that boundary on rollback.
     ///
-    /// Note that permissions will be set to `0o666`, which usually results in `0o644` after passing a default umask, on Unix systems.
+    /// The sharing policy applies to both the marker and newly created directories; `0` keeps the umask permissions.
+    /// On Unix, marker files start with `0o666` before the umask and sharing policy are applied.
     ///
     /// ### Warning of potential resource leak
     ///
@@ -177,11 +120,13 @@ impl Marker {
         at_path: impl AsRef<Path>,
         mode: Fail,
         boundary_directory: Option<PathBuf>,
-    ) -> Result<Marker, Error> {
+        shared_repository_permissions: i32,
+    ) -> Result<Marker> {
         let (resource_path, lock_path, handle) = lock_with_mode(
             at_path.as_ref(),
             mode,
             boundary_directory,
+            shared_repository_permissions,
             &keep_resource,
             &|p, d, c| {
                 if let Some(permissions) = default_permissions() {
@@ -198,35 +143,16 @@ impl Marker {
             resource_path,
         })
     }
-
-    /// Like [`acquire_to_hold_resource()`](Marker::acquire_to_hold_resource), but allows to set filesystem permissions using `make_permissions`.
-    pub fn acquire_to_hold_resource_with_permissions(
-        at_path: impl AsRef<Path>,
-        mode: Fail,
-        boundary_directory: Option<PathBuf>,
-        make_permissions: impl Fn() -> std::fs::Permissions,
-    ) -> Result<Marker, Error> {
-        let (resource_path, lock_path, handle) = lock_with_mode(
-            at_path.as_ref(),
-            mode,
-            boundary_directory,
-            &keep_resource,
-            &|p, d, c| gix_tempfile::mark_at_with_permissions(p, d, c, make_permissions()),
-        )?;
-        Ok(Marker {
-            created_from_file: false,
-            inner: handle,
-            lock_path,
-            resource_path,
-        })
-    }
 }
 
-fn dir_cleanup(boundary: Option<PathBuf>) -> (ContainingDirectory, AutoRemove) {
+fn dir_cleanup(boundary: Option<PathBuf>, shared_repository_permissions: i32) -> (ContainingDirectory, AutoRemove) {
     match boundary {
         None => (ContainingDirectory::Exists, AutoRemove::Tempfile),
         Some(boundary_directory) => (
-            ContainingDirectory::CreateAllRaceProof(Default::default()),
+            ContainingDirectory::CreateAllRaceProof {
+                retries: Default::default(),
+                shared_repository_permissions,
+            },
             AutoRemove::TempfileAndEmptyParentDirectoriesUntil { boundary_directory },
         ),
     }
@@ -259,19 +185,20 @@ fn lock_with_mode<T>(
     resource: &Path,
     mode: Fail,
     boundary_directory: Option<PathBuf>,
+    shared_repository_permissions: i32,
     resolve_resource: &dyn Fn(&Path) -> PathBuf,
     try_lock: &dyn Fn(&Path, ContainingDirectory, AutoRemove) -> std::io::Result<T>,
-) -> Result<(PathBuf, PathBuf, T), Error> {
+) -> Result<(PathBuf, PathBuf, T)> {
     use std::io::ErrorKind::*;
-    let io_error = |err: std::io::Error| {
-        err.and_raise(message("Another IO error occurred while obtaining the lock"))
-            .erased()
-    };
-    let (directory, cleanup) = dir_cleanup(boundary_directory);
+    let io_error = |err: std::io::Error| err.and_raise(message("Another IO error occurred while obtaining the lock"));
+    let (directory, cleanup) = dir_cleanup(boundary_directory, shared_repository_permissions);
     let try_once = |cleanup| {
         let resource_path = resolve_resource(resource);
         let lock_path = add_lock_suffix(&resource_path);
-        match try_lock(&lock_path, directory, cleanup) {
+        match try_lock(&lock_path, directory, cleanup).and_then(|value| {
+            gix_fs::set_shared_repository_permissions(&lock_path, shared_repository_permissions)?;
+            Ok(value)
+        }) {
             Ok(value) => Ok((resource_path, lock_path, value)),
             Err(err) => Err((err, resource_path)),
         }
@@ -301,13 +228,12 @@ fn lock_with_mode<T>(
         }
     }
     .map_err(|(err, resource_path)| match err.kind() {
-        AlreadyExists => RetryableError::new(err)
+        AlreadyExists => ClassificationMarker::with_source(Class::Retryable, err)
             .and_raise(message!(
-                "The lock for resource '{resource}' could not be obtained {mode} after {attempts} attempt(s). The lockfile at '{resource}{suffix}' might need manual deletion.",
+                "The lock for resource \"{resource}\" could not be obtained {mode} after {attempts} attempt(s). The lockfile at \"{resource}{suffix}\" might need manual deletion.",
                 resource = resource_path.display(),
                 suffix = super::DOT_LOCK_SUFFIX,
-            ))
-            .erased(),
+            )),
         _ => io_error(err),
     })
 }
@@ -354,7 +280,31 @@ mod tests {
     }
 
     #[test]
-    fn resource_is_resolved_on_each_lock_attempt() {
+    fn permission_denied_preserves_the_io_source() {
+        for mode in [Fail::Immediately, Fail::AfterDurationWithBackoff(Duration::ZERO)] {
+            let err = lock_with_mode::<()>(Path::new("resource"), mode, None, 0, &keep_resource, &|_, _, _| {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "access denied",
+                ))
+            })
+            .expect_err("authorization is required to obtain the lock");
+            assert!(err.is_permission_denied(), "authorization failure is classified");
+            assert!(!err.is_retryable(), "authorization is not ordinary lock contention");
+            let source = err
+                .downcast_any_ref::<std::io::Error>()
+                .expect("the original I/O error survives");
+            assert_eq!(
+                source.kind(),
+                std::io::ErrorKind::PermissionDenied,
+                "the I/O kind survives"
+            );
+            assert_eq!(source.to_string(), "access denied", "the I/O diagnostic survives");
+        }
+    }
+
+    #[test]
+    fn resource_is_resolved_on_each_lock_attempt() -> gix_testtools::TestResult {
         let resolutions = std::cell::Cell::new(0);
         let resolve = |_: &Path| {
             let current = resolutions.get();
@@ -365,6 +315,7 @@ mod tests {
             Path::new("link"),
             Fail::AfterDurationWithBackoff(Duration::ZERO),
             None,
+            0,
             &resolve,
             &|path, _, _| {
                 if path == Path::new("first.lock") {
@@ -373,11 +324,11 @@ mod tests {
                     Ok(())
                 }
             },
-        )
-        .expect("the second target can be locked");
+        )?;
 
         assert_eq!(resolutions.get(), 2, "the resource is resolved before every attempt");
         assert_eq!(resource_path, Path::new("second"), "the locked target is retained");
         assert_eq!(lock_path, Path::new("second.lock"), "the lock follows that target");
+        Ok(())
     }
 }

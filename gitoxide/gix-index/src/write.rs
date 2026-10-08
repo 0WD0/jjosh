@@ -1,3 +1,4 @@
+use gix_error::Result;
 use std::io::Write;
 
 use crate::{State, Version, entry, extension, write::util::CountBytes};
@@ -71,8 +72,8 @@ impl State {
             extensions,
             skip_hash: _,
         }: Options,
-    ) -> Result<Version, gix_hash::io::Error> {
-        let _span = gix_features::trace::detail!("gix_index::State::write()");
+    ) -> Result<Version> {
+        let _span = gix_trace::detail!("gix_index::State::write()");
         let version = self.detect_required_version();
 
         let mut write = CountBytes::new(out);
@@ -157,7 +158,7 @@ fn header<T: std::io::Write>(
     out: &mut CountBytes<T>,
     version: Version,
     num_entries: u32,
-) -> Result<u32, std::io::Error> {
+) -> std::result::Result<u32, std::io::Error> {
     let version = match version {
         Version::V2 => 2_u32.to_be_bytes(),
         Version::V3 => 3_u32.to_be_bytes(),
@@ -171,7 +172,11 @@ fn header<T: std::io::Write>(
     Ok(out.count)
 }
 
-fn entries<T: std::io::Write>(out: &mut CountBytes<T>, state: &State, header_size: u32) -> Result<u32, std::io::Error> {
+fn entries<T: std::io::Write>(
+    out: &mut CountBytes<T>,
+    state: &State,
+    header_size: u32,
+) -> std::result::Result<u32, std::io::Error> {
     for entry in state.entries() {
         if entry.flags.contains(entry::Flags::REMOVE) {
             continue;

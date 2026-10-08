@@ -22,7 +22,6 @@ use std::fmt;
 use std::fmt::Display;
 use std::io;
 use std::path::Path;
-use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -46,7 +45,6 @@ use jj_lib::conflicts::ConflictMaterializeOptions;
 use jj_lib::copies::CopiesTreeDiffEntry;
 use jj_lib::copies::CopiesTreeDiffEntryPath;
 use jj_lib::copies::CopyRecords;
-use jj_lib::default_backend_factories::default_workspace_loader_factory;
 use jj_lib::evolution::CommitEvolutionEntry;
 use jj_lib::extensions_map::ExtensionsMap;
 use jj_lib::fileset;
@@ -76,6 +74,8 @@ use jj_lib::revset::Revset;
 use jj_lib::revset::RevsetContainingFn;
 use jj_lib::revset::RevsetDiagnostics;
 use jj_lib::revset::RevsetParseContext;
+use jj_lib::revset::RevsetParseError;
+use jj_lib::revset::RevsetStreamExt as _;
 use jj_lib::revset::UserRevsetExpression;
 use jj_lib::rewrite::rebase_to_dest_parent;
 use jj_lib::settings::UserSettings;
@@ -84,11 +84,16 @@ use jj_lib::signing::SignError;
 use jj_lib::signing::SignResult;
 use jj_lib::signing::Verification;
 use jj_lib::store::Store;
+use jj_lib::template_parser;
+use jj_lib::template_parser::ExpressionNode;
+use jj_lib::template_parser::FunctionCallNode;
+use jj_lib::template_parser::TemplateDiagnostics;
+use jj_lib::template_parser::TemplateParseError;
+use jj_lib::template_parser::TemplateParseResult;
 use jj_lib::trailer;
 use jj_lib::trailer::Trailer;
 use jj_lib::ui_path::RepoPathUiConverter;
 use jj_lib::view::View;
-use jj_lib::workspace_store::WorkspaceStore;
 use once_cell::unsync::OnceCell;
 use pollster::FutureExt as _;
 use serde::Serialize as _;
@@ -104,6 +109,7 @@ use crate::operation_templater::OperationTemplateEnvironment;
 use crate::operation_templater::OperationTemplatePropertyKind;
 use crate::operation_templater::OperationTemplatePropertyVar;
 use crate::revset_util;
+use crate::revset_util::UserRevsetEvaluationError;
 use crate::template_builder;
 use crate::template_builder::BuildContext;
 use crate::template_builder::CoreTemplateBuildFnTable;
@@ -114,17 +120,12 @@ use crate::template_builder::TemplateBuildMethodFnMap;
 use crate::template_builder::TemplateLanguage;
 use crate::template_builder::expect_stringify_expression;
 use crate::template_builder::merge_fn_map;
-use crate::template_parser;
-use crate::template_parser::ExpressionNode;
-use crate::template_parser::FunctionCallNode;
-use crate::template_parser::TemplateDiagnostics;
-use crate::template_parser::TemplateParseError;
-use crate::template_parser::TemplateParseResult;
 use crate::templater;
 use crate::templater::BoxedAnyProperty;
 use crate::templater::BoxedSerializeProperty;
 use crate::templater::BoxedTemplateProperty;
 use crate::templater::Literal;
+use crate::templater::NoTemplateBooleanCast;
 use crate::templater::SizeHint;
 use crate::templater::Template;
 use crate::templater::TemplateFormatter;
@@ -156,7 +157,7 @@ pub struct CommitTemplateLanguage<'repo> {
     immutable_expression: Arc<UserRevsetExpression>,
     conflict_marker_style: ConflictMarkerStyle,
     build_fn_table: CommitTemplateBuildFnTable<'repo>,
-    keyword_cache: CommitKeywordCache<'repo>,
+    keyword_cache: CommitKeywordCache,
     cache_extensions: ExtensionsMap,
 }
 
@@ -344,6 +345,10 @@ impl<'repo> TemplateLanguage<'repo> for CommitTemplateLanguage<'repo> {
                 let build = template_parser::lookup_method(type_name, table, function)?;
                 build(self, diagnostics, build_ctx, property, function)
             }
+            CommitTemplatePropertyKind::TreeDiffEntryOpt(property) => {
+                let inner_property = property.try_unwrap(type_name).into_dyn_wrapped();
+                self.build_method(diagnostics, build_ctx, inner_property, function)
+            }
             CommitTemplatePropertyKind::TreeDiffEntryList(property) => {
                 let table = &self.build_fn_table.tree_diff_entry_list_methods;
                 let build = template_parser::lookup_method(type_name, table, function)?;
@@ -353,6 +358,10 @@ impl<'repo> TemplateLanguage<'repo> for CommitTemplateLanguage<'repo> {
                 let table = &self.build_fn_table.tree_entry_methods;
                 let build = template_parser::lookup_method(type_name, table, function)?;
                 build(self, diagnostics, build_ctx, property, function)
+            }
+            CommitTemplatePropertyKind::TreeEntryOpt(property) => {
+                let inner_property = property.try_unwrap(type_name).into_dyn_wrapped();
+                self.build_method(diagnostics, build_ctx, inner_property, function)
             }
             CommitTemplatePropertyKind::TreeEntryList(property) => {
                 let table = &self.build_fn_table.tree_entry_list_methods;
@@ -381,6 +390,10 @@ impl<'repo> TemplateLanguage<'repo> for CommitTemplateLanguage<'repo> {
                 let build = template_parser::lookup_method(type_name, table, function)?;
                 build(self, diagnostics, build_ctx, property, function)
             }
+            CommitTemplatePropertyKind::DiffStatEntryOpt(property) => {
+                let inner_property = property.try_unwrap(type_name).into_dyn_wrapped();
+                self.build_method(diagnostics, build_ctx, inner_property, function)
+            }
             CommitTemplatePropertyKind::DiffStatEntryList(property) => {
                 let table = &self.build_fn_table.diff_stat_entry_list_methods;
                 let build = template_parser::lookup_method(type_name, table, function)?;
@@ -405,6 +418,10 @@ impl<'repo> TemplateLanguage<'repo> for CommitTemplateLanguage<'repo> {
                 let build = template_parser::lookup_method(type_name, table, function)?;
                 build(self, diagnostics, build_ctx, property, function)
             }
+            CommitTemplatePropertyKind::TrailerOpt(property) => {
+                let inner_property = property.try_unwrap(type_name).into_dyn_wrapped();
+                self.build_method(diagnostics, build_ctx, inner_property, function)
+            }
             CommitTemplatePropertyKind::TrailerList(property) => {
                 let table = &self.build_fn_table.trailer_list_methods;
                 let build = template_parser::lookup_method(type_name, table, function)?;
@@ -425,7 +442,7 @@ impl<'repo> CommitTemplateLanguage<'repo> {
         &self.workspace_name
     }
 
-    pub fn keyword_cache(&self) -> &CommitKeywordCache<'repo> {
+    pub fn keyword_cache(&self) -> &CommitKeywordCache {
         &self.keyword_cache
     }
 
@@ -444,6 +461,24 @@ impl OperationTemplateEnvironment for CommitTemplateLanguage<'_> {
         Some(self.repo.base_repo().op_id())
     }
 }
+
+impl NoTemplateBooleanCast for Commit {}
+impl NoTemplateBooleanCast for CommitEvolutionEntry {}
+impl NoTemplateBooleanCast for Rc<CommitRef> {}
+impl NoTemplateBooleanCast for WorkspaceRef {}
+impl NoTemplateBooleanCast for RefSymbolBuf {}
+impl NoTemplateBooleanCast for RepoPathBuf {}
+impl NoTemplateBooleanCast for ChangeId {}
+impl NoTemplateBooleanCast for CommitId {}
+impl NoTemplateBooleanCast for ShortestIdPrefix {}
+impl NoTemplateBooleanCast for TreeDiff {}
+impl NoTemplateBooleanCast for TreeDiffEntry {}
+impl NoTemplateBooleanCast for TreeEntry {}
+impl NoTemplateBooleanCast for DiffStatsFormatted<'_> {}
+impl NoTemplateBooleanCast for DiffStatEntry {}
+impl NoTemplateBooleanCast for CryptographicSignature {}
+impl NoTemplateBooleanCast for AnnotationLine {}
+impl NoTemplateBooleanCast for Trailer {}
 
 pub enum CommitTemplatePropertyKind<'repo> {
     Core(CoreTemplatePropertyKind<'repo>),
@@ -467,18 +502,22 @@ pub enum CommitTemplatePropertyKind<'repo> {
     ShortestIdPrefix(BoxedTemplateProperty<'repo, ShortestIdPrefix>),
     TreeDiff(BoxedTemplateProperty<'repo, TreeDiff>),
     TreeDiffEntry(BoxedTemplateProperty<'repo, TreeDiffEntry>),
+    TreeDiffEntryOpt(BoxedTemplateProperty<'repo, Option<TreeDiffEntry>>),
     TreeDiffEntryList(BoxedTemplateProperty<'repo, Vec<TreeDiffEntry>>),
     TreeEntry(BoxedTemplateProperty<'repo, TreeEntry>),
+    TreeEntryOpt(BoxedTemplateProperty<'repo, Option<TreeEntry>>),
     TreeEntryList(BoxedTemplateProperty<'repo, Vec<TreeEntry>>),
     TreeValue(BoxedTemplateProperty<'repo, TreeValue>),
     TreeValueOpt(BoxedTemplateProperty<'repo, Option<TreeValue>>),
     DiffStats(BoxedTemplateProperty<'repo, DiffStatsFormatted<'repo>>),
     DiffStatEntry(BoxedTemplateProperty<'repo, DiffStatEntry>),
+    DiffStatEntryOpt(BoxedTemplateProperty<'repo, Option<DiffStatEntry>>),
     DiffStatEntryList(BoxedTemplateProperty<'repo, Vec<DiffStatEntry>>),
     CryptographicSignature(BoxedTemplateProperty<'repo, CryptographicSignature>),
     CryptographicSignatureOpt(BoxedTemplateProperty<'repo, Option<CryptographicSignature>>),
     AnnotationLine(BoxedTemplateProperty<'repo, AnnotationLine>),
     Trailer(BoxedTemplateProperty<'repo, Trailer>),
+    TrailerOpt(BoxedTemplateProperty<'repo, Option<Trailer>>),
     TrailerList(BoxedTemplateProperty<'repo, Vec<Trailer>>),
 }
 
@@ -504,18 +543,22 @@ template_builder::impl_property_wrappers!(<'repo> CommitTemplatePropertyKind<'re
     ShortestIdPrefix(ShortestIdPrefix),
     TreeDiff(TreeDiff),
     TreeDiffEntry(TreeDiffEntry),
+    TreeDiffEntryOpt(Option<TreeDiffEntry>),
     TreeDiffEntryList(Vec<TreeDiffEntry>),
     TreeEntry(TreeEntry),
+    TreeEntryOpt(Option<TreeEntry>),
     TreeEntryList(Vec<TreeEntry>),
     TreeValue(TreeValue),
     TreeValueOpt(Option<TreeValue>),
     DiffStats(DiffStatsFormatted<'repo>),
     DiffStatEntry(DiffStatEntry),
+    DiffStatEntryOpt(Option<DiffStatEntry>),
     DiffStatEntryList(Vec<DiffStatEntry>),
     CryptographicSignature(CryptographicSignature),
     CryptographicSignatureOpt(Option<CryptographicSignature>),
     AnnotationLine(AnnotationLine),
     Trailer(Trailer),
+    TrailerOpt(Option<Trailer>),
     TrailerList(Vec<Trailer>),
 });
 
@@ -555,18 +598,22 @@ impl<'repo> CoreTemplatePropertyVar<'repo> for CommitTemplatePropertyKind<'repo>
             Self::ShortestIdPrefix(_) => "ShortestIdPrefix",
             Self::TreeDiff(_) => "TreeDiff",
             Self::TreeDiffEntry(_) => "TreeDiffEntry",
+            Self::TreeDiffEntryOpt(_) => "Option<TreeDiffEntry>",
             Self::TreeDiffEntryList(_) => "List<TreeDiffEntry>",
             Self::TreeEntry(_) => "TreeEntry",
+            Self::TreeEntryOpt(_) => "Option<TreeEntry>",
             Self::TreeEntryList(_) => "List<TreeEntry>",
             Self::TreeValue(_) => "TreeValue",
             Self::TreeValueOpt(_) => "Option<TreeValue>",
             Self::DiffStats(_) => "DiffStats",
             Self::DiffStatEntry(_) => "DiffStatEntry",
+            Self::DiffStatEntryOpt(_) => "Option<DiffStatEntry>",
             Self::DiffStatEntryList(_) => "List<DiffStatEntry>",
             Self::CryptographicSignature(_) => "CryptographicSignature",
             Self::CryptographicSignatureOpt(_) => "Option<CryptographicSignature>",
             Self::AnnotationLine(_) => "AnnotationLine",
             Self::Trailer(_) => "Trailer",
+            Self::TrailerOpt(_) => "Option<Trailer>",
             Self::TrailerList(_) => "List<Trailer>",
         }
     }
@@ -616,18 +663,22 @@ impl<'repo> CoreTemplatePropertyVar<'repo> for CommitTemplatePropertyKind<'repo>
             // diff.empty() method might be better.
             Self::TreeDiff(_) => Err(self),
             Self::TreeDiffEntry(_) => Err(self),
+            Self::TreeDiffEntryOpt(property) => Ok(option_to_boolean(property)),
             Self::TreeDiffEntryList(property) => Ok(list_to_boolean(property)),
             Self::TreeEntry(_) => Err(self),
+            Self::TreeEntryOpt(property) => Ok(option_to_boolean(property)),
             Self::TreeEntryList(property) => Ok(list_to_boolean(property)),
             Self::TreeValue(_) => Err(self),
             Self::TreeValueOpt(property) => Ok(option_to_boolean(property)),
             Self::DiffStats(_) => Err(self),
             Self::DiffStatEntry(_) => Err(self),
+            Self::DiffStatEntryOpt(property) => Ok(option_to_boolean(property)),
             Self::DiffStatEntryList(property) => Ok(list_to_boolean(property)),
             Self::CryptographicSignature(_) => Err(self),
             Self::CryptographicSignatureOpt(property) => Ok(option_to_boolean(property)),
             Self::AnnotationLine(_) => Err(self),
             Self::Trailer(_) => Err(self),
+            Self::TrailerOpt(property) => Ok(option_to_boolean(property)),
             Self::TrailerList(property) => Ok(list_to_boolean(property)),
         }
     }
@@ -671,18 +722,22 @@ impl<'repo> CoreTemplatePropertyVar<'repo> for CommitTemplatePropertyKind<'repo>
             Self::ShortestIdPrefix(property) => Some(property.into_serialize()),
             Self::TreeDiff(_) => None,
             Self::TreeDiffEntry(_) => None,
+            Self::TreeDiffEntryOpt(_) => None,
             Self::TreeDiffEntryList(_) => None,
             Self::TreeEntry(_) => None,
+            Self::TreeEntryOpt(_) => None,
             Self::TreeEntryList(_) => None,
             Self::TreeValue(_) => None,
             Self::TreeValueOpt(_) => None,
             Self::DiffStats(_) => None,
             Self::DiffStatEntry(_) => None,
+            Self::DiffStatEntryOpt(_) => None,
             Self::DiffStatEntryList(_) => None,
             Self::CryptographicSignature(_) => None,
             Self::CryptographicSignatureOpt(_) => None,
             Self::AnnotationLine(_) => None,
             Self::Trailer(_) => None,
+            Self::TrailerOpt(_) => None,
             Self::TrailerList(_) => None,
         }
     }
@@ -710,18 +765,22 @@ impl<'repo> CoreTemplatePropertyVar<'repo> for CommitTemplatePropertyKind<'repo>
             Self::ShortestIdPrefix(property) => Some(property.into_template()),
             Self::TreeDiff(_) => None,
             Self::TreeDiffEntry(_) => None,
+            Self::TreeDiffEntryOpt(_) => None,
             Self::TreeDiffEntryList(_) => None,
             Self::TreeEntry(_) => None,
+            Self::TreeEntryOpt(_) => None,
             Self::TreeEntryList(_) => None,
             Self::TreeValue(property) => Some(property.into_template()),
             Self::TreeValueOpt(property) => Some(property.into_template()),
             Self::DiffStats(property) => Some(property.into_template()),
             Self::DiffStatEntry(_) => None,
+            Self::DiffStatEntryOpt(_) => None,
             Self::DiffStatEntryList(_) => None,
             Self::CryptographicSignature(_) => None,
             Self::CryptographicSignatureOpt(_) => None,
             Self::AnnotationLine(_) => None,
             Self::Trailer(property) => Some(property.into_template()),
+            Self::TrailerOpt(property) => Some(property.into_template()),
             Self::TrailerList(property) => Some(property.into_template()),
         }
     }
@@ -782,18 +841,22 @@ impl<'repo> CoreTemplatePropertyVar<'repo> for CommitTemplatePropertyKind<'repo>
             (Self::ShortestIdPrefix(_), _) => None,
             (Self::TreeDiff(_), _) => None,
             (Self::TreeDiffEntry(_), _) => None,
+            (Self::TreeDiffEntryOpt(_), _) => None,
             (Self::TreeDiffEntryList(_), _) => None,
             (Self::TreeEntry(_), _) => None,
+            (Self::TreeEntryOpt(_), _) => None,
             (Self::TreeEntryList(_), _) => None,
             (Self::TreeValue(_), _) => None,
             (Self::TreeValueOpt(_), _) => None,
             (Self::DiffStats(_), _) => None,
             (Self::DiffStatEntry(_), _) => None,
+            (Self::DiffStatEntryOpt(_), _) => None,
             (Self::DiffStatEntryList(_), _) => None,
             (Self::CryptographicSignature(_), _) => None,
             (Self::CryptographicSignatureOpt(_), _) => None,
             (Self::AnnotationLine(_), _) => None,
             (Self::Trailer(_), _) => None,
+            (Self::TrailerOpt(_), _) => None,
             (Self::TrailerList(_), _) => None,
         }
     }
@@ -827,18 +890,22 @@ impl<'repo> CoreTemplatePropertyVar<'repo> for CommitTemplatePropertyKind<'repo>
             (Self::ShortestIdPrefix(_), _) => None,
             (Self::TreeDiff(_), _) => None,
             (Self::TreeDiffEntry(_), _) => None,
+            (Self::TreeDiffEntryOpt(_), _) => None,
             (Self::TreeDiffEntryList(_), _) => None,
             (Self::TreeEntry(_), _) => None,
+            (Self::TreeEntryOpt(_), _) => None,
             (Self::TreeEntryList(_), _) => None,
             (Self::TreeValue(_), _) => None,
             (Self::TreeValueOpt(_), _) => None,
             (Self::DiffStats(_), _) => None,
             (Self::DiffStatEntry(_), _) => None,
+            (Self::DiffStatEntryOpt(_), _) => None,
             (Self::DiffStatEntryList(_), _) => None,
             (Self::CryptographicSignature(_), _) => None,
             (Self::CryptographicSignatureOpt(_), _) => None,
             (Self::AnnotationLine(_), _) => None,
             (Self::Trailer(_), _) => None,
+            (Self::TrailerOpt(_), _) => None,
             (Self::TrailerList(_), _) => None,
         }
     }
@@ -1025,15 +1092,15 @@ impl CommitTemplateBuildFnTable<'_> {
 }
 
 #[derive(Default)]
-pub struct CommitKeywordCache<'repo> {
+pub struct CommitKeywordCache {
     // Build index lazily, and Rc to get away from &self lifetime.
     bookmarks_index: OnceCell<Rc<CommitRefsIndex>>,
     tags_index: OnceCell<Rc<CommitRefsIndex>>,
     git_refs_index: OnceCell<Rc<CommitRefsIndex>>,
-    is_immutable_fn: OnceCell<Rc<RevsetContainingFn<'repo>>>,
+    is_immutable_fn: OnceCell<Rc<RevsetContainingFn<'static>>>,
 }
 
-impl<'repo> CommitKeywordCache<'repo> {
+impl CommitKeywordCache {
     pub fn bookmarks_index(&self, repo: &dyn Repo) -> Result<&Rc<CommitRefsIndex>, String> {
         self.bookmarks_index.get_or_try_init(|| {
             build_local_remote_refs_index(repo.view(), repo.view().bookmarks()).map(Rc::new)
@@ -1053,15 +1120,23 @@ impl<'repo> CommitKeywordCache<'repo> {
 
     pub fn is_immutable_fn(
         &self,
-        language: &CommitTemplateLanguage<'repo>,
+        language: &CommitTemplateLanguage,
         span: pest::Span<'_>,
-    ) -> TemplateParseResult<&Rc<RevsetContainingFn<'repo>>> {
+    ) -> TemplateParseResult<&Rc<RevsetContainingFn<'static>>> {
         // Alternatively, a negated (i.e. visible mutable) set could be computed.
         // It's usually smaller than the immutable set. The revset engine can also
         // optimize "::<recent_heads>" query to use bitset-based implementation.
         self.is_immutable_fn.get_or_try_init(|| {
             let expression = &language.immutable_expression;
-            let revset = evaluate_revset_expression(language, span, expression)?;
+            let revset = evaluate_revset_expression(
+                language.repo,
+                &language.revset_parse_context,
+                language.id_prefix_context,
+                expression,
+            )
+            .map_err(|err| {
+                TemplateParseError::expression("Failed to evaluate revset", span).with_source(err)
+            })?;
             Ok(revset.containing_fn().into())
         })
     }
@@ -1071,6 +1146,48 @@ impl<'repo> CommitKeywordCache<'repo> {
 fn builtin_commit_template_functions<'repo>()
 -> TemplateBuildFunctionFnMap<'repo, CommitTemplateLanguage<'repo>> {
     let mut map = TemplateBuildFunctionFnMap::<CommitTemplateLanguage>::new();
+    map.insert("revset", |language, diagnostics, build_ctx, function| {
+        let [revset_node] = function.expect_exact_arguments()?;
+        let revset_property =
+            expect_stringify_expression(language, diagnostics, build_ctx, revset_node)?;
+        if let Ok(query) = revset_property.extract() {
+            let commits: Vec<Commit> =
+                template_parser::catch_aliases(diagnostics, revset_node, |diagnostics, node| {
+                    let revset =
+                        parse_evaluate_static_revset(language, diagnostics, &query, node.span)?;
+                    revset
+                        .stream()
+                        .commits(language.repo.store())
+                        .try_collect()
+                        .block_on()
+                        .map_err(|err| {
+                            TemplateParseError::expression("Failed to evaluate revset", node.span)
+                                .with_source(err)
+                        })
+                })?;
+            Ok(Literal(commits).into_dyn_wrapped())
+        } else {
+            let repo = language.repo;
+            let revset_parse_context = language.revset_parse_context.clone();
+            let id_prefix_context = language.id_prefix_context;
+            let out_property = revset_property.and_then(move |query| {
+                let (expression, _) = parse_revset_expression(&revset_parse_context, &query)?;
+                let revset = evaluate_revset_expression(
+                    repo,
+                    &revset_parse_context,
+                    id_prefix_context,
+                    &expression,
+                )?;
+                let commits: Vec<Commit> = revset
+                    .stream()
+                    .commits(repo.store())
+                    .try_collect()
+                    .block_on()?;
+                Ok(commits)
+            });
+            Ok(out_property.into_dyn_wrapped())
+        }
+    });
     map.insert(
         "git_web_url",
         |language, diagnostics, build_ctx, function| {
@@ -1326,8 +1443,11 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
         |language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
             let repo = language.repo;
-            let out_property =
-                self_property.and_then(|commit| Ok(commit.is_hidden(repo).block_on()?));
+            let out_property = self_property.and_then(|commit| {
+                //  A commit is hidden if its commit id is not in the change id index.
+                let maybe_targets = repo.resolve_change_id(commit.change_id()).block_on()?;
+                Ok(maybe_targets.is_none_or(|targets| !targets.has_visible(commit.id())))
+            });
             Ok(out_property.into_dyn_wrapped())
         },
     );
@@ -1363,19 +1483,40 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
     );
     map.insert(
         "contained_in",
-        |language, diagnostics, _build_ctx, self_property, function| {
+        |language, diagnostics, build_ctx, self_property, function| {
             let [revset_node] = function.expect_exact_arguments()?;
-
-            let is_contained =
-                template_parser::catch_aliases(diagnostics, revset_node, |diagnostics, node| {
-                    let text = template_parser::expect_string_literal(node)?;
-                    let revset = evaluate_user_revset(language, diagnostics, node.span, text)?;
-                    Ok(revset.containing_fn())
-                })?;
-
-            let out_property =
-                self_property.and_then(move |commit| Ok(is_contained(commit.id()).block_on()?));
-            Ok(out_property.into_dyn_wrapped())
+            let revset_property =
+                expect_stringify_expression(language, diagnostics, build_ctx, revset_node)?;
+            if let Ok(query) = revset_property.extract() {
+                let revset = template_parser::catch_aliases(
+                    diagnostics,
+                    revset_node,
+                    |diagnostics, node| {
+                        parse_evaluate_static_revset(language, diagnostics, &query, node.span)
+                    },
+                )?;
+                let is_contained = revset.containing_fn();
+                let out_property =
+                    self_property.and_then(move |commit| Ok(is_contained(commit.id()).block_on()?));
+                Ok(out_property.into_dyn_wrapped())
+            } else {
+                let repo = language.repo;
+                let revset_parse_context = language.revset_parse_context.clone();
+                let id_prefix_context = language.id_prefix_context;
+                let out_property =
+                    (self_property, revset_property).and_then(move |(commit, query)| {
+                        let (expression, _) =
+                            parse_revset_expression(&revset_parse_context, &query)?;
+                        let revset = evaluate_revset_expression(
+                            repo,
+                            &revset_parse_context,
+                            id_prefix_context,
+                            &expression,
+                        )?;
+                        Ok(revset.containing_fn()(commit.id()).block_on()?)
+                    });
+                Ok(out_property.into_dyn_wrapped())
+            }
         },
     );
     map.insert(
@@ -1392,7 +1533,7 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
             function.expect_no_arguments()?;
             let repo = language.repo;
             let out_property =
-                self_property.and_then(|commit| Ok(commit.is_empty(repo).block_on()?));
+                self_property.and_then(|commit| Ok(commit.is_empty(repo.index()).block_on()?));
             Ok(out_property.into_dyn_wrapped())
         },
     );
@@ -1432,7 +1573,8 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
                 let entries: Vec<_> = tree
                     .entries_matching(&*matcher)
                     .map(|(path, value)| value.map(|value| TreeEntry { path, value }))
-                    .try_collect()?;
+                    .try_collect()
+                    .block_on()?;
                 Ok(entries)
             });
             Ok(out_property.into_dyn_wrapped())
@@ -1447,7 +1589,8 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
                 let entries: Vec<_> = tree
                     .conflicts()
                     .map(|(path, value)| value.map(|value| TreeEntry { path, value }))
-                    .try_collect()?;
+                    .try_collect()
+                    .block_on()?;
                 Ok(entries)
             });
             Ok(out_property.into_dyn_wrapped())
@@ -1498,43 +1641,56 @@ fn expect_fileset_literal(
     })
 }
 
-fn evaluate_revset_expression<'repo>(
-    language: &CommitTemplateLanguage<'repo>,
-    span: pest::Span<'_>,
+fn parse_revset_expression(
+    revset_parse_context: &RevsetParseContext,
+    revset_str: &str,
+) -> Result<(Arc<UserRevsetExpression>, RevsetDiagnostics), RevsetParseError> {
+    let mut diagnostics = RevsetDiagnostics::new();
+    let expression = revset::parse(&mut diagnostics, revset_str, revset_parse_context)?;
+    Ok((expression, diagnostics))
+}
+
+fn evaluate_revset_expression(
+    repo: &dyn Repo,
+    revset_parse_context: &RevsetParseContext,
+    id_prefix_context: &IdPrefixContext,
     expression: &UserRevsetExpression,
-) -> Result<Box<dyn Revset + 'repo>, TemplateParseError> {
-    let make_error = || TemplateParseError::expression("Failed to evaluate revset", span);
-    let repo = language.repo;
+) -> Result<Box<dyn Revset>, UserRevsetEvaluationError> {
     let symbol_resolver = revset_util::default_symbol_resolver(
         repo,
-        language.revset_parse_context.extensions.symbol_resolvers(),
-        language.id_prefix_context,
+        revset_parse_context.extensions.symbol_resolvers(),
+        id_prefix_context,
     );
     let revset = expression
         .resolve_user_expression(repo, &symbol_resolver)
-        .map_err(|err| make_error().with_source(err))?
+        .map_err(UserRevsetEvaluationError::Resolution)?
         .evaluate()
-        .map_err(|err| make_error().with_source(err))?;
+        .map_err(UserRevsetEvaluationError::Evaluation)?;
     Ok(revset)
 }
 
-fn evaluate_user_revset<'repo>(
-    language: &CommitTemplateLanguage<'repo>,
+fn parse_evaluate_static_revset(
+    language: &CommitTemplateLanguage,
     diagnostics: &mut TemplateDiagnostics,
+    query: &str,
     span: pest::Span<'_>,
-    revset: &str,
-) -> Result<Box<dyn Revset + 'repo>, TemplateParseError> {
-    let mut inner_diagnostics = RevsetDiagnostics::new();
-    let expression = revset::parse(
-        &mut inner_diagnostics,
-        revset,
-        &language.revset_parse_context,
-    )
-    .map_err(|err| TemplateParseError::expression("In revset expression", span).with_source(err))?;
+) -> Result<Box<dyn Revset>, TemplateParseError> {
+    let (expression, inner_diagnostics) =
+        parse_revset_expression(&language.revset_parse_context, query).map_err(|err| {
+            TemplateParseError::expression("In revset expression", span).with_source(err)
+        })?;
     diagnostics.extend_with(inner_diagnostics, |diag| {
         TemplateParseError::expression("In revset expression", span).with_source(diag)
     });
-    evaluate_revset_expression(language, span, &expression)
+    evaluate_revset_expression(
+        language.repo,
+        &language.revset_parse_context,
+        language.id_prefix_context,
+        &expression,
+    )
+    .map_err(|err| {
+        TemplateParseError::expression("Failed to evaluate revset", span).with_source(err)
+    })
 }
 
 fn builtin_commit_evolution_entry_methods<'repo>()
@@ -1583,7 +1739,7 @@ fn builtin_commit_evolution_entry_methods<'repo>()
             let out_property = self_property.and_then(move |entry| {
                 let predecessors = entry.predecessors().block_on()?;
                 let from_tree =
-                    rebase_to_dest_parent(repo, &predecessors, &entry.commit).block_on()?;
+                    rebase_to_dest_parent(repo.index(), &predecessors, &entry.commit).block_on()?;
                 let to_tree = entry.commit.tree();
                 Ok(TreeDiff {
                     from_tree,
@@ -1768,7 +1924,9 @@ impl CommitRef {
             .get_or_try_init(|| {
                 let self_ids = self.target.present_adds().cloned().collect_vec();
                 let other_ids = tracking.target.present_adds().cloned().collect_vec();
-                Ok(revset::walk_revs(repo, &self_ids, &other_ids)?.count_estimate()?)
+                Ok(revset::walk_revs(repo, &self_ids, &other_ids)?
+                    .count_estimate()
+                    .block_on()?)
             })
             .copied()
     }
@@ -1783,7 +1941,9 @@ impl CommitRef {
             .get_or_try_init(|| {
                 let self_ids = self.target.present_adds().cloned().collect_vec();
                 let other_ids = tracking.target.present_adds().cloned().collect_vec();
-                Ok(revset::walk_revs(repo, &other_ids, &self_ids)?.count_estimate()?)
+                Ok(revset::walk_revs(repo, &other_ids, &self_ids)?
+                    .count_estimate()
+                    .block_on()?)
             })
             .copied()
     }
@@ -1838,27 +1998,6 @@ impl WorkspaceRef {
     pub fn target(&self) -> &Commit {
         &self.target
     }
-
-    /// Returns the root path of the workspace if it is recorded and can be
-    /// resolved.
-    fn root(
-        &self,
-        workspace_store: &dyn WorkspaceStore,
-        path_converter: &RepoPathUiConverter,
-    ) -> Result<Option<PathBuf>, TemplatePropertyError> {
-        let base = path_converter.base();
-        // TODO: Stop reconstructing the workspace loader here
-        let workspace_loader = default_workspace_loader_factory().create(base)?;
-        let repo_path = workspace_loader.repo_path().to_owned();
-        // Workspaces created before jj 0.38.0 may not have a recorded path. List
-        // templates should also keep rendering if a recorded path is stale or
-        // unavailable. Use `jj workspace root --name` for strict path diagnostics.
-        let path = workspace_store
-            .get_workspace_path(self.name())?
-            .map(|workspace_path| repo_path.join(workspace_path))
-            .and_then(|path| dunce::canonicalize(path).ok());
-        Ok(path)
-    }
 }
 
 impl Template for WorkspaceRef {
@@ -1895,10 +2034,15 @@ fn builtin_workspace_ref_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'rep
         "root",
         |language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
-            let path_converter = language.path_converter;
             let workspace_store = language.repo.base_repo().loader().workspace_store();
-            let out_property = self_property
-                .and_then(move |ws_ref| ws_ref.root(workspace_store.as_ref(), path_converter));
+            // Workspaces created before jj 0.38.0 may not have a recorded path. List
+            // templates should also keep rendering if a recorded path is stale or
+            // unavailable. Use `jj workspace root --name` for strict path diagnostics.
+            let out_property = self_property.and_then(|ws_ref| {
+                Ok(workspace_store
+                    .get_workspace_path(&ws_ref.name)?
+                    .and_then(|path| dunce::canonicalize(path).ok()))
+            });
             Ok(out_property.into_dyn_wrapped())
         },
     );
@@ -2413,7 +2557,7 @@ impl TreeDiff {
         commit: &Commit,
         matcher: Rc<dyn Matcher>,
     ) -> BackendResult<Self> {
-        let from_tree = commit.parent_tree(repo).await?;
+        let from_tree = commit.parent_tree(repo.index()).await?;
         let to_tree = commit.tree();
         let copy_record_targets =
             diff_util::get_copy_record_targets(Diff::new(&from_tree, &to_tree), &*matcher).await?;
@@ -2438,7 +2582,7 @@ impl TreeDiff {
 
     fn diff_stream(&self) -> BoxStream<'_, CopiesTreeDiffEntry> {
         self.from_tree
-            .diff_stream_with_copies(&self.to_tree, &*self.matcher, &self.copy_records)
+            .diff_with_copies(&self.to_tree, &*self.matcher, &self.copy_records)
     }
 
     async fn collect_entries(&self) -> BackendResult<Vec<TreeDiffEntry>> {
@@ -3169,7 +3313,9 @@ fn builtin_trailer_list_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo
 #[cfg(test)]
 mod tests {
     use std::path::Component;
+    use std::path::PathBuf;
 
+    use jiff::tz::TimeZone;
     use jj_lib::backend::CopyId;
     use jj_lib::backend::FileId;
     use jj_lib::backend::SymlinkId;
@@ -3180,12 +3326,12 @@ mod tests {
     use jj_lib::revset::RevsetExpression;
     use jj_lib::revset::RevsetExtensions;
     use jj_lib::revset::RevsetWorkspaceContext;
+    use jj_lib::template_parser::TemplateAliasesMap;
     use testutils::TestRepoBackend;
     use testutils::TestWorkspace;
     use testutils::repo_path_buf;
 
     use super::*;
-    use crate::template_parser::TemplateAliasesMap;
     use crate::templater::TemplateRenderer;
     use crate::templater::WrapTemplateProperty;
 
@@ -3250,7 +3396,7 @@ mod tests {
                 aliases_map: &self.revset_aliases_map,
                 local_variables: HashMap::new(),
                 user_email: "test.user@example.com",
-                date_pattern_context: chrono::DateTime::UNIX_EPOCH.fixed_offset().into(),
+                current_time: jiff::Timestamp::UNIX_EPOCH.to_zoned(TimeZone::UTC),
                 default_ignored_remote: None,
                 fileset_aliases_map: &self.fileset_aliases_map,
                 extensions: &self.revset_extensions,

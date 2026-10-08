@@ -1,3 +1,4 @@
+use gix_testtools::{Result, TestResult};
 use std::path::PathBuf;
 
 use gix_discover::repository::Kind;
@@ -12,8 +13,176 @@ fn expected_trust() -> gix_sec::Trust {
 
 mod ceiling_dirs;
 
+fn optional_repository_missing(err: &gix_error::Error) -> bool {
+    use gix_discover::upwards::Error;
+    matches!(
+        err.downcast_any_ref::<Error>(),
+        Some(
+            Error::NoGitRepository { .. }
+                | Error::NoGitRepositoryWithinCeiling { .. }
+                | Error::NoGitRepositoryWithinFs { .. }
+        )
+    )
+}
+
 #[test]
-fn can_override_computed_trust() -> crate::Result {
+fn discovery_error_variants_are_intrinsically_classified() {
+    use gix_discover::upwards::Error;
+    use gix_error::{ErrorExt, message};
+
+    for err in [
+        Error::NoGitRepository { path: "start".into() },
+        Error::NoGitRepositoryWithinCeiling {
+            path: "start".into(),
+            ceiling_height: 1,
+        },
+        Error::NoGitRepositoryWithinFs {
+            path: "start".into(),
+            limit: "limit".into(),
+        },
+        Error::NoTrustedGitRepository {
+            path: "start".into(),
+            candidate: "candidate".into(),
+            required: gix_sec::Trust::Full,
+            trust: gix_sec::Trust::Reduced,
+        },
+    ] {
+        let rejected_trust = matches!(err, Error::NoTrustedGitRepository { .. });
+        let err = err.raise_erased();
+        assert_eq!(
+            err.is_not_found(),
+            !rejected_trust,
+            "only absent repositories are not found"
+        );
+        assert_eq!(
+            err.is_permission_denied(),
+            rejected_trust,
+            "trust rejection requires authorization"
+        );
+
+        let err = err.raise(message("repository discovery failed")).into_error();
+        assert_eq!(
+            err.is_not_found(),
+            !rejected_trust,
+            "classification survives context and conversion"
+        );
+        assert_eq!(
+            err.is_permission_denied(),
+            rejected_trust,
+            "authorization classification survives context"
+        );
+        assert!(
+            err.downcast_any_ref::<Error>().is_some(),
+            "the concrete discovery error remains available for recovery"
+        );
+        assert!(
+            err.classify()
+                .next()
+                .expect("intrinsic classification")
+                .error()
+                .is::<Error>(),
+            "the classification identifies the discovery error rather than its marker"
+        );
+    }
+}
+
+#[test]
+fn optional_repository_recovery_excludes_io_and_untrusted_candidates() -> TestResult {
+    use gix_discover::upwards::{Error, Options, TrustPolicy};
+    use gix_error::ErrorExt;
+
+    let root = gix_testtools::tempfile::tempdir()?;
+    let start = root.path().join("not-a-repository");
+    std::fs::create_dir(&start)?;
+    let options = || Options {
+        current_dir: Some(root.path()),
+        trust: TrustPolicy::Assume(gix_sec::Trust::Reduced),
+        cross_fs: true,
+        ..Default::default()
+    };
+    let err = gix_discover::upwards_opts(&start, options()).expect_err("no repository in temporary ancestry");
+    assert!(
+        optional_repository_missing(&err),
+        "exhausting the search allows the optional-repository fallback"
+    );
+    assert!(
+        err.is_not_found(),
+        "missing repositories retain their broad classification"
+    );
+    assert!(
+        matches!(err.downcast_any_ref::<Error>(), Some(Error::NoGitRepository { path }) if path == &start),
+        "discovery retains the starting path"
+    );
+    assert!(
+        err.classify()
+            .next()
+            .expect("not-found classification")
+            .error()
+            .is::<Error>(),
+        "the classification identifies the discovery error"
+    );
+
+    let err = gix_discover::upwards_opts(&start.join("missing"), options()).expect_err("the input directory is absent");
+    assert!(
+        err.is_not_found(),
+        "missing directories also have the broad NotFound class"
+    );
+    assert!(
+        !optional_repository_missing(&err),
+        "missing-directory I/O is not an optional repository outcome"
+    );
+    assert!(
+        err.downcast_any_ref::<std::io::Error>().is_some(),
+        "the original I/O cause is retained"
+    );
+
+    let err = Error::NoTrustedGitRepository {
+        path: start.clone(),
+        candidate: start.join(".git"),
+        required: gix_sec::Trust::Full,
+        trust: gix_sec::Trust::Reduced,
+    }
+    .raise();
+    assert!(
+        err.is_permission_denied() && !err.is_not_found(),
+        "a present but untrusted repository requires authorization, not an absence fallback"
+    );
+    assert!(
+        !optional_repository_missing(&err),
+        "the fallback must propagate untrusted candidates"
+    );
+    Ok(())
+}
+
+// macOS filesystems require valid UTF-8 names.
+#[cfg(all(unix, not(target_os = "macos")))]
+#[test]
+fn discovery_errors_preserve_non_utf8_paths() -> TestResult {
+    use std::os::unix::ffi::OsStrExt;
+
+    let root = gix_testtools::tempfile::tempdir()?;
+    let start = root.path().join(std::ffi::OsStr::from_bytes(b"directory-\xff"));
+    std::fs::create_dir(&start)?;
+    let err = gix_discover::upwards_opts(
+        &start,
+        gix_discover::upwards::Options {
+            current_dir: Some(root.path()),
+            ceiling_dirs: vec![root.path().to_owned()],
+            trust: gix_discover::upwards::TrustPolicy::Assume(gix_sec::Trust::Reduced),
+            ..Default::default()
+        },
+    )
+    .expect_err("no repository before the ceiling");
+    assert!(
+        matches!(err.downcast_any_ref::<gix_discover::upwards::Error>(),
+            Some(gix_discover::upwards::Error::NoGitRepositoryWithinCeiling { path, ceiling_height: 2 }) if path == &start),
+        "the payload preserves native path bytes and stops after searching the ceiling directory"
+    );
+    Ok(())
+}
+
+#[test]
+fn can_override_computed_trust() -> TestResult {
     let dir = repo_path()?.join("some/very/deeply/nested/subdir");
     let overridden_trust = match expected_trust() {
         gix_sec::Trust::Full => gix_sec::Trust::Reduced,
@@ -37,11 +206,32 @@ fn can_override_computed_trust() -> crate::Result {
         trust, overridden_trust,
         "the caller-provided trust is returned instead of the computed ownership trust"
     );
+    if expected_trust() == gix_sec::Trust::Reduced {
+        let err = gix_discover::upwards_opts(
+            &dir,
+            gix_discover::upwards::Options {
+                trust: gix_discover::upwards::TrustPolicy::Required(gix_sec::Trust::Full),
+                ..Default::default()
+            },
+        )
+        .expect_err("a foreign-owned fixture cannot meet full trust");
+        assert!(
+            matches!(err.downcast_any_ref::<gix_discover::upwards::Error>(),
+                Some(gix_discover::upwards::Error::NoTrustedGitRepository {
+                    path, candidate, required: gix_sec::Trust::Full, trust: gix_sec::Trust::Reduced,
+                }) if path == &dir && candidate.ends_with(".git")),
+            "trust rejection retains the search path, candidate, and both trust levels"
+        );
+        assert!(
+            !optional_repository_missing(&err),
+            "an untrusted repository must be propagated"
+        );
+    }
     Ok(())
 }
 
 #[test]
-fn from_bare_git_dir() -> crate::Result {
+fn from_bare_git_dir() -> TestResult {
     let dir = repo_path()?.join("bare.git");
     let (path, trust) = gix_discover::upwards(&dir)?;
     assert_eq!(path.as_ref(), dir, "the bare .git dir is directly returned");
@@ -51,7 +241,7 @@ fn from_bare_git_dir() -> crate::Result {
 }
 
 #[test]
-fn from_bare_with_index() -> crate::Result {
+fn from_bare_with_index() -> TestResult {
     let dir = repo_path()?.join("bare-with-index.git");
     let (path, trust) = gix_discover::upwards(&dir)?;
     assert_eq!(path.as_ref(), dir, "the bare .git dir is directly returned");
@@ -61,7 +251,7 @@ fn from_bare_with_index() -> crate::Result {
 }
 
 #[test]
-fn from_non_bare_without_index() -> crate::Result {
+fn from_non_bare_without_index() -> TestResult {
     let dir = repo_path()?.join("non-bare-without-index");
     let (path, trust) = gix_discover::upwards(&dir)?;
     assert_eq!(path.as_ref(), dir, "now we refer to a worktree");
@@ -71,7 +261,7 @@ fn from_non_bare_without_index() -> crate::Result {
 }
 
 #[test]
-fn from_non_bare_repo_with_git_extension() -> crate::Result {
+fn from_non_bare_repo_with_git_extension() -> TestResult {
     let dir = repo_path()?.join("repo.git");
     let (path, trust) = gix_discover::upwards(&dir)?;
     assert_eq!(
@@ -85,7 +275,7 @@ fn from_non_bare_repo_with_git_extension() -> crate::Result {
 }
 
 #[test]
-fn from_bare_git_dir_without_config_file() -> crate::Result {
+fn from_bare_git_dir_without_config_file() -> TestResult {
     for name in ["bare-no-config.git", "bare-no-config-after-init.git"] {
         let dir = repo_path()?.join(name);
         let (path, trust) = gix_discover::upwards(&dir)?;
@@ -97,7 +287,7 @@ fn from_bare_git_dir_without_config_file() -> crate::Result {
 }
 
 #[test]
-fn from_inside_bare_git_dir() -> crate::Result {
+fn from_inside_bare_git_dir() -> TestResult {
     let git_dir = repo_path()?.join("bare.git");
     let dir = git_dir.join("objects");
     let (path, trust) = gix_discover::upwards(&dir)?;
@@ -112,7 +302,7 @@ fn from_inside_bare_git_dir() -> crate::Result {
 }
 
 #[test]
-fn from_git_dir() -> crate::Result {
+fn from_git_dir() -> TestResult {
     let dir = repo_path()?.join(".git");
     let (path, trust) = gix_discover::upwards(&dir)?;
     assert_eq!(path.kind(), Kind::WorkTree { linked_git_dir: None });
@@ -126,7 +316,7 @@ fn from_git_dir() -> crate::Result {
 }
 
 #[test]
-fn from_working_dir() -> crate::Result {
+fn from_working_dir() -> TestResult {
     let dir = repo_path()?;
     let (path, trust) = gix_discover::upwards(&dir)?;
     assert_eq!(path.as_ref(), dir, "a working tree dir yields the git dir");
@@ -136,7 +326,7 @@ fn from_working_dir() -> crate::Result {
 }
 
 #[test]
-fn from_working_dir_no_config() -> crate::Result {
+fn from_working_dir_no_config() -> TestResult {
     for name in ["worktree-no-config-after-init", "worktree-no-config"] {
         let dir = repo_path()?.join(name);
         let (path, trust) = gix_discover::upwards(&dir)?;
@@ -148,7 +338,7 @@ fn from_working_dir_no_config() -> crate::Result {
 }
 
 #[test]
-fn from_nested_dir() -> crate::Result {
+fn from_nested_dir() -> TestResult {
     let working_dir = repo_path()?;
     let dir = working_dir.join("some/very/deeply/nested/subdir");
     let (path, trust) = gix_discover::upwards(&dir)?;
@@ -159,7 +349,7 @@ fn from_nested_dir() -> crate::Result {
 }
 
 #[test]
-fn an_invalid_dot_git_directory_does_not_skip_ancestors() -> crate::Result {
+fn an_invalid_dot_git_directory_does_not_skip_ancestors() -> TestResult {
     let repo = gix_path::realpath(repo_path()?)?;
     let start = repo.join("non-repo/.git");
 
@@ -174,7 +364,7 @@ fn an_invalid_dot_git_directory_does_not_skip_ancestors() -> crate::Result {
 
 #[test]
 #[cfg(unix)]
-fn from_symlinked_nested_dir_follows_target_ancestors() -> crate::Result {
+fn from_symlinked_nested_dir_follows_target_ancestors() -> TestResult {
     let root = gix_testtools::scripted_fixture_read_only("make_symlinked_nested_repo.sh")?;
     let link = root.join("lexical-parent/link");
 
@@ -195,7 +385,7 @@ fn from_symlinked_nested_dir_follows_target_ancestors() -> crate::Result {
 
 #[test]
 #[cfg(unix)]
-fn symlink_is_resolved_before_parent_component() -> crate::Result {
+fn symlink_is_resolved_before_parent_component() -> TestResult {
     let root = gix_testtools::scripted_fixture_read_only("make_symlinked_nested_repo.sh")?;
 
     for path in [
@@ -216,7 +406,7 @@ fn symlink_is_resolved_before_parent_component() -> crate::Result {
 
 #[test]
 #[cfg(unix)]
-fn relative_symlinks_use_the_configured_current_dir() -> crate::Result {
+fn relative_symlinks_use_the_configured_current_dir() -> TestResult {
     let root = gix_testtools::scripted_fixture_read_only("make_symlinked_nested_repo.sh")?;
     let root = std::env::current_dir()?.join(root);
 
@@ -245,47 +435,35 @@ fn relative_symlinks_use_the_configured_current_dir() -> crate::Result {
 }
 
 #[test]
-fn from_dir_with_dot_dot() -> crate::Result {
-    // This would be neater if we could just change the actual working directory,
-    // but Rust tests run in parallel by default so we'd interfere with other tests.
-    // Instead ensure it finds the gitoxide repo instead of a test repo if we crawl
-    // up far enough. (This tests that `discover::existing` canonicalizes paths before
-    // exploring ancestors.)
-    let working_dir = repo_path()?;
-    let dir = working_dir.join("some/very/deeply/nested/subdir/../../../../../..");
-    let (path, trust) = gix_discover::upwards(&dir)?;
-    assert_ne!(
-        path.as_ref().canonicalize()?,
-        working_dir.canonicalize()?,
-        "a relative path that climbs above the test repo should yield the parent-gitoxide repo"
-    );
-    // If the parent repo is actually a main worktree, we can make more assertions. If it is not,
-    // it will use an absolute paths and we have to bail.
-    if path.as_ref() == std::path::Path::new("..") {
+fn from_dir_with_dot_dot() -> TestResult {
+    let outer = gix_testtools::scripted_fixture_read_only("make_nested_repos.sh")?;
+    let outer = std::env::current_dir()?.join(outer);
+    let inner = outer.join("inner");
+    let relative = std::path::Path::new("some/very/deeply/nested/subdir/../../../../../..");
+    for (input, expected) in [
+        (relative.to_owned(), PathBuf::from("..")),
+        (inner.join(relative), outer.clone()),
+    ] {
+        let (path, trust) = gix_discover::upwards_opts(
+            &input,
+            gix_discover::upwards::Options {
+                current_dir: Some(&inner),
+                ..Default::default()
+            },
+        )?;
         assert_eq!(path.kind(), Kind::WorkTree { linked_git_dir: None });
         assert_eq!(
             path.as_ref(),
-            std::path::Path::new(".."),
-            "there is only the minimal amount of relative path components to see this worktree"
+            expected,
+            "normalizing dot-dot components discovers the outer repository with minimal path components"
         );
-    } else {
-        assert!(
-            path.as_ref().is_absolute(),
-            "worktree paths are absolute and the parent repo is one"
-        );
-        assert!(matches!(
-            path.kind(),
-            Kind::WorkTree {
-                linked_git_dir: Some(_)
-            }
-        ));
+        assert_eq!(trust, expected_trust(), "the repository has the fixture's ownership");
     }
-    assert_eq!(trust, expected_trust());
     Ok(())
 }
 
 #[test]
-fn from_nested_dir_inside_a_git_dir() -> crate::Result {
+fn from_nested_dir_inside_a_git_dir() -> TestResult {
     let working_dir = repo_path()?;
     let dir = working_dir.join(".git").join("objects");
     let (path, trust) = gix_discover::upwards(&dir)?;
@@ -296,20 +474,20 @@ fn from_nested_dir_inside_a_git_dir() -> crate::Result {
 }
 
 #[test]
-fn from_non_existing_worktree() {
-    let top_level_repo = repo_path().unwrap();
-    let (path, _trust) = gix_discover::upwards(&top_level_repo.join("worktrees/b-private-dir-deleted")).unwrap();
+fn from_non_existing_worktree() -> TestResult {
+    let top_level_repo = repo_path()?;
+    let (path, _trust) = gix_discover::upwards(&top_level_repo.join("worktrees/b-private-dir-deleted"))?;
     assert_eq!(path, gix_discover::repository::Path::WorkTree(top_level_repo.clone()));
 
-    let (path, _trust) =
-        gix_discover::upwards(&top_level_repo.join("worktrees/from-bare/d-private-dir-deleted")).unwrap();
+    let (path, _trust) = gix_discover::upwards(&top_level_repo.join("worktrees/from-bare/d-private-dir-deleted"))?;
     assert_eq!(path, gix_discover::repository::Path::WorkTree(top_level_repo));
+    Ok(())
 }
 
 #[test]
-fn from_existing_worktree_inside_dot_git() {
-    let top_level_repo = repo_path().unwrap();
-    let (path, _trust) = gix_discover::upwards(&top_level_repo.join(".git/worktrees/a")).unwrap();
+fn from_existing_worktree_inside_dot_git() -> TestResult {
+    let top_level_repo = repo_path()?;
+    let (path, _trust) = gix_discover::upwards(&top_level_repo.join(".git/worktrees/a"))?;
     let suffix = std::path::Path::new(top_level_repo.file_name().unwrap())
         .join("worktrees")
         .join("a");
@@ -317,6 +495,7 @@ fn from_existing_worktree_inside_dot_git() {
         matches!(path, gix_discover::repository::Path::LinkedWorkTree { work_dir, .. } if work_dir.ends_with(suffix)),
         "we can handle to start from within a (somewhat partial) worktree git dir"
     );
+    Ok(())
 }
 
 #[test]
@@ -333,7 +512,7 @@ fn from_non_existing_worktree_inside_dot_git() {
 }
 
 #[test]
-fn from_existing_worktree() -> crate::Result {
+fn from_existing_worktree() -> TestResult {
     let top_level_repo = repo_path()?;
     for (discover_path, expected_worktree_path, expected_git_dir) in [
         (top_level_repo.join("worktrees/a"), "worktrees/a", ".git/worktrees/a"),
@@ -349,7 +528,7 @@ fn from_existing_worktree() -> crate::Result {
         assert_eq!(trust, expected_trust());
         let (git_dir, worktree) = path.into_repository_and_work_tree_directories();
         assert_eq!(
-            git_dir.strip_prefix(gix_path::realpath(&top_level_repo).unwrap()),
+            git_dir.strip_prefix(gix_path::realpath(&top_level_repo)?),
             Ok(std::path::Path::new(expected_git_dir)),
             "we don't skip over worktrees and discover their git dir (gitdir is absolute in file)"
         );
@@ -364,7 +543,7 @@ fn from_existing_worktree() -> crate::Result {
 }
 
 #[test]
-fn from_existing_worktree_with_relative_linking_files() -> crate::Result {
+fn from_existing_worktree_with_relative_linking_files() -> TestResult {
     let fixture = gix_testtools::scripted_fixture_read_only_needs_archive("make_worktree_relative_linking.sh")?;
     let main = fixture.join("main");
     let linked = fixture.join("linked");
@@ -401,7 +580,7 @@ fn from_existing_worktree_with_relative_linking_files() -> crate::Result {
 
 #[test]
 #[cfg(unix)]
-fn from_symlinked_worktree_with_relative_linking_files() -> crate::Result {
+fn from_symlinked_worktree_with_relative_linking_files() -> TestResult {
     let fixture = gix_testtools::scripted_fixture_read_only_needs_archive("make_worktree_relative_linking.sh")?;
     let main = fixture.join("actual/main");
     let linked_symlink = fixture.join("linked-symlink");
@@ -425,7 +604,7 @@ fn from_symlinked_worktree_with_relative_linking_files() -> crate::Result {
 
 #[cfg(target_os = "macos")]
 #[test]
-fn cross_fs() -> crate::Result {
+fn cross_fs() -> TestResult {
     use std::process::Command;
 
     use gix_discover::upwards::Options;
@@ -470,10 +649,22 @@ fn cross_fs() -> crate::Result {
 
     let res = gix_discover::upwards(&top_level_repo.path().join("remote"))
         .expect_err("the cross-fs option should prevent us from discovering the repo");
-    assert!(matches!(
-        res,
-        gix_discover::upwards::Error::NoGitRepositoryWithinFs { .. }
-    ));
+    insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&res, &[
+        (&top_level_repo.path().canonicalize()?.to_string_lossy(), "<repository>"),
+        (&top_level_repo.path().to_string_lossy(), "<repository>"),
+    ]), "discovery stops at the filesystem boundary", @"Could not find a git repository in \"<repository>/remote\" or in any of its parents within device limits below \"<repository>\"");
+    assert!(res.is_not_found());
+    assert!(
+        matches!(res.downcast_any_ref::<gix_discover::upwards::Error>(),
+            Some(gix_discover::upwards::Error::NoGitRepositoryWithinFs { path, limit })
+                if path == &top_level_repo.path().join("remote")
+                    && limit == &top_level_repo.path().canonicalize()?),
+        "filesystem limits retain the starting path and the physical stopping directory"
+    );
+    assert!(
+        optional_repository_missing(&res),
+        "a filesystem search limit allows the fallback"
+    );
 
     let (repo_path, _trust) = gix_discover::upwards_opts(
         &top_level_repo.path().join("remote"),
@@ -481,8 +672,7 @@ fn cross_fs() -> crate::Result {
             cross_fs: true,
             ..Default::default()
         },
-    )
-    .expect("the cross-fs option should allow us to discover the repo");
+    )?;
 
     assert_eq!(
         repo_path
@@ -497,9 +687,9 @@ fn cross_fs() -> crate::Result {
 }
 
 #[test]
-fn do_not_shorten_absolute_paths() -> crate::Result {
-    let top_level_repo = repo_path()?.canonicalize().expect("repo path exists");
-    let (repo_path, _trust) = gix_discover::upwards(&top_level_repo).expect("we can discover the repo");
+fn do_not_shorten_absolute_paths() -> TestResult {
+    let top_level_repo = repo_path()?.canonicalize()?;
+    let (repo_path, _trust) = gix_discover::upwards(&top_level_repo)?;
 
     match repo_path {
         gix_discover::repository::Path::WorkTree(work_dir) => {
@@ -513,7 +703,7 @@ fn do_not_shorten_absolute_paths() -> crate::Result {
 
 #[cfg(unix)]
 #[test]
-fn preserves_symlinked_ancestor_of_absolute_paths() -> crate::Result {
+fn preserves_symlinked_ancestor_of_absolute_paths() -> TestResult {
     let root = gix_testtools::scripted_fixture_read_only("make_symlinked_nested_repo.sh")?;
     let root = std::env::current_dir()?.join(root);
     let worktree = root.join("linked-parent/repo");
@@ -548,6 +738,7 @@ fn preserves_symlinked_ancestor_of_absolute_paths() -> crate::Result {
 
 mod dot_git_only {
     use crate::upwards::repo_path;
+    use gix_testtools::TestResult;
 
     fn find_dot_git(base: impl AsRef<std::path::Path>) -> gix_discover::repository::Path {
         gix_discover::upwards_opts(
@@ -571,7 +762,7 @@ mod dot_git_only {
     }
 
     #[test]
-    fn succeeds_in_worktree_dir() -> crate::Result {
+    fn succeeds_in_worktree_dir() -> TestResult {
         let top_level_repo = repo_path()?;
         for base in [
             top_level_repo.join("some/very/deeply/nested/subdir"),
@@ -584,7 +775,7 @@ mod dot_git_only {
     }
 
     #[test]
-    fn succeeds_from_within_dot_git_dir() -> crate::Result {
+    fn succeeds_from_within_dot_git_dir() -> TestResult {
         let top_level_repo = repo_path()?;
         for inside_git_dir in [top_level_repo.join(".git"), top_level_repo.join(".git").join("refs")] {
             let repo_path = find_dot_git(inside_git_dir);
@@ -594,7 +785,7 @@ mod dot_git_only {
     }
 
     #[test]
-    fn bare_repos_are_ignored() -> crate::Result {
+    fn bare_repos_are_ignored() -> TestResult {
         let top_level_repo = repo_path()?;
         for bare_dir in [
             top_level_repo.join("bare.git"),
@@ -608,8 +799,10 @@ mod dot_git_only {
 }
 
 mod submodules {
+    use gix_testtools::TestResult;
+
     #[test]
-    fn by_their_worktree_checkout() -> crate::Result {
+    fn by_their_worktree_checkout() -> TestResult {
         let dir = gix_testtools::scripted_fixture_read_only("make_submodules.sh")?;
         let parent = dir.join("with-submodules");
         let modules = parent.join(".git").join("modules");
@@ -632,7 +825,7 @@ mod submodules {
     }
 
     #[test]
-    fn by_their_module_git_dir() -> crate::Result {
+    fn by_their_module_git_dir() -> TestResult {
         let dir = gix_testtools::scripted_fixture_read_only("make_submodules.sh")?;
         let modules = dir.join("with-submodules").join(".git").join("modules");
         for module in ["m1", "dir/m1"] {
@@ -647,6 +840,6 @@ mod submodules {
     }
 }
 
-pub(crate) fn repo_path() -> crate::Result<PathBuf> {
+pub(crate) fn repo_path() -> Result<PathBuf> {
     gix_testtools::scripted_fixture_read_only("make_basic_repo.sh")
 }

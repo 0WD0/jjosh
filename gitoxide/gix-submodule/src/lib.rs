@@ -2,9 +2,8 @@
 #![deny(missing_docs)]
 #![forbid(unsafe_code)]
 
-use std::collections::BTreeMap;
-
 use bstr::ByteSlice;
+use gix_error::Result;
 
 /// All relevant information about a git module, typically from `.gitmodules` files.
 ///
@@ -39,52 +38,28 @@ impl File {
     /// * `update`
     /// * `branch`
     ///
-    /// These values aren't validated yet, which will happen upon query.
-    pub fn append_submodule_overrides(
-        &mut self,
-        config: &gix_config::File,
-    ) -> Result<&mut Self, gix_config::file::section::value::Error> {
-        let mut values = BTreeMap::<_, Vec<_>>::new();
+    /// These values aren't validated yet, which will happen upon query. The caller must provide
+    /// trusted configuration; each copied value retains its section's origin metadata.
+    pub fn append_submodule_overrides(&mut self, config: &gix_config::File) -> Result<&mut Self> {
+        let mut config_to_append = gix_config::File::new(config.meta_owned());
         for (module_name, section) in config
             .sections_by_name("submodule")
             .into_iter()
             .flatten()
             .filter_map(|s| s.header().subsection_name().map(|n| (n, s)))
         {
-            for field in ["url", "fetchRecurseSubmodules", "ignore", "update", "branch"] {
-                if let Some(value) = section.value(field) {
-                    values.entry((module_name, field)).or_default().push(value);
+            let values = ["url", "fetchRecurseSubmodules", "ignore", "update", "branch"]
+                .map(|field| (field, section.value(field)));
+            if values.iter().all(|(_, value)| value.is_none()) {
+                continue;
+            }
+            config_to_append.set_meta(section.meta().clone());
+            let mut destination = config_to_append.new_section("submodule", module_name)?;
+            for (field, value) in values {
+                if let Some(value) = value {
+                    destination.push(field, Some(value.as_bstr()))?;
                 }
             }
-        }
-
-        let values = {
-            let mut v: Vec<_> = values.into_iter().collect();
-            v.sort_by_key(|a| a.0.0);
-            v
-        };
-
-        let mut config_to_append = gix_config::File::new(config.meta_owned());
-        let mut prev_name = None;
-        for ((module_name, field), values) in values {
-            if prev_name != Some(module_name) {
-                config_to_append
-                    .new_section("submodule", module_name)
-                    .expect("all names come from valid configuration, so remain valid");
-                prev_name = Some(module_name);
-            }
-            config_to_append
-                .section_mut("submodule", Some(module_name))
-                .expect("always set at this point")
-                .push(
-                    field,
-                    Some(
-                        values
-                            .last()
-                            .expect("at least one value or we wouldn't be here")
-                            .as_bstr(),
-                    ),
-                )?;
         }
 
         self.config.append(config_to_append)?;
@@ -94,7 +69,10 @@ impl File {
 
 ///
 pub mod init {
+    use gix_error::{Result, validation};
     use std::path::PathBuf;
+
+    use gix_error::ResultExt;
 
     use crate::File;
 
@@ -105,24 +83,6 @@ pub mod init {
                 .field("config", &format_args!("r#\"{}\"#", self.config))
                 .finish()
         }
-    }
-
-    /// A marker we use when listing names to not pick them up from overridden sections.
-    pub(crate) const META_MARKER: gix_config::Source = gix_config::Source::Api;
-
-    /// Lifecycle
-    /// The error returned when parsing a submodule configuration file.
-    #[derive(Debug, thiserror::Error)]
-    pub enum Error {
-        /// The configuration could not be parsed.
-        #[error(transparent)]
-        Parse(#[from] gix_config::parse::Error),
-        /// Applying configuration overrides exceeded the supported span size.
-        #[error(transparent)]
-        Span(#[from] gix_config::parse::span::Error),
-        /// Applying configuration overrides failed.
-        #[error(transparent)]
-        SectionValue(#[from] gix_config::file::section::value::Error),
     }
 
     impl File {
@@ -138,23 +98,21 @@ pub mod init {
         ///
         /// The information itself should be used with care as it can direct the caller to fetch from remotes. It is, however,
         /// on the caller to assure the input data can be trusted.
-        pub fn from_bytes(
-            bytes: &[u8],
-            path: impl Into<Option<PathBuf>>,
-            config: &gix_config::File,
-        ) -> Result<Self, Error> {
+        pub fn from_bytes(bytes: &[u8], path: impl Into<Option<PathBuf>>, config: &gix_config::File) -> Result<Self> {
             let metadata = {
-                let mut meta = gix_config::file::Metadata::from(META_MARKER);
+                let mut meta = gix_config::file::Metadata::api();
                 meta.path = path.into();
                 meta
             };
             let modules = gix_config::File::from_parse_events_no_includes(
-                gix_config::parse::Events::from_bytes(bytes, None)?,
+                gix_config::parse::Events::from_bytes(bytes, None)
+                    .or_raise(|| validation("Could not parse submodule configuration"))?,
                 metadata,
             );
 
             let mut res = Self { config: modules };
-            res.append_submodule_overrides(config)?;
+            res.append_submodule_overrides(config)
+                .or_raise(|| validation("Could not apply submodule configuration overrides"))?;
             Ok(res)
         }
 

@@ -2,7 +2,7 @@ lints.workspace = true
 
 [package]
 name = "gix-filter"
-version = "0.34.0"
+version = "0.36.0"
 repository = "https://github.com/GitoxideLabs/gitoxide"
 license = "MIT OR Apache-2.0"
 description = "A crate of the gitoxide project implementing git filters"
@@ -29,38 +29,43 @@ test = false
 bench = false
 doc = false
 
+[[test]]
+name = "threaded"
+path = "tests/threaded.rs"
+required-features = ["gix-parallel/parallel"]
+
 [features]
 ## Enable support for the SHA-1 hash by forwarding the feature to dependencies.
 sha1 = ["gix-hash/sha1"]
 ## Enable support for the SHA-256 hash by forwarding the feature to dependencies.
 sha256 = ["gix-hash/sha256"]
-## Enable thread-safety, make data structures `Send`.
-parallel = ["gix-attributes/parallel"]
 ## Internal feature for building binaries referenced by integration tests through CARGO_BIN_EXE_*.
-test-helper = []
+test-helper = ["gix-error/error-print-location"]
 
 [dependencies]
-gix-hash = { version = "^0.26.1", path = "../gix-hash" }
-gix-trace = { version = "^0.1.21", path = "../gix-trace" }
-gix-object = { version = "^0.64.0", path = "../gix-object" }
-gix-command = { version = "^0.10.1", path = "../gix-command" }
-gix-quote = { version = "^0.8.0", path = "../gix-quote" }
-gix-utils = { version = "^0.3.6", path = "../gix-utils" }
-gix-path = { version = "^0.12.6", path = "../gix-path" }
-gix-packetline = { version = "^0.22.0", path = "../gix-packetline", features = ["blocking-io"] }
-gix-attributes = { version = "^0.35.0", path = "../gix-attributes" }
+gix-hash = { version = "^0.28.0", path = "../gix-hash" }
+gix-trace = { version = "^0.3.0", path = "../gix-trace" }
+gix-object = { version = "^0.66.0", path = "../gix-object" }
+gix-command = { version = "^0.12.0", path = "../gix-command" }
+gix-quote = { version = "^0.10.0", path = "../gix-quote" }
+gix-utils = { version = "^0.5.1", path = "../gix-utils" }
+gix-path = { version = "^0.14.0", path = "../gix-path" }
+gix-packetline = { version = "^0.24.0", path = "../gix-packetline", features = ["blocking-io"] }
+gix-attributes = { version = "^0.37.0", path = "../gix-attributes" }
 
 encoding_rs = "0.8.32"
 bstr = { version = "1.12.0", default-features = false, features = ["std"] }
-thiserror = "2.0.18"
+gix-error = { version = "^0.5.1", path = "../gix-error" }
 smallvec = "1.15.1"
 
 
 [dev-dependencies]
+insta = "1.46.3"
 gix-filter = { path = ".", features = ["test-helper"] }
 gix-hash = { path = "../gix-hash", features = ["sha1", "sha256"] }
 gix-quote = { path = "../gix-quote" }
-gix-testtools = { path = "../tests/tools" }
+gix-parallel = { path = "../gix-parallel" }
+gix-testtools = { path = "../tests/tools", default-features = false, features = ["repo-snapshot", "sha1", "sha256"] }
 gix-worktree = { path = "../gix-worktree", default-features = false, features = ["attributes"] }
 
 [package.metadata.docs.rs]

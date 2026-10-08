@@ -1,6 +1,9 @@
+use gix_error::{Result, corruption};
 use std::sync::atomic::AtomicBool;
 
-use gix_features::{parallel, progress::Progress};
+use gix_error::{ErrorExt, ResultExt, bail, message};
+use gix_parallel as parallel;
+use gix_utils::progress::Progress;
 
 use crate::index;
 
@@ -11,9 +14,7 @@ pub mod with_index;
 pub mod with_lookup;
 use reduce::Reducer;
 
-mod error;
-pub use error::Error;
-use gix_features::progress::DynNestedProgress;
+use gix_utils::progress::DynNestedProgress;
 
 mod types;
 pub use types::{Algorithm, ProgressId, SafetyCheck, Statistics};
@@ -63,7 +64,7 @@ where
     /// Iterate through all _decoded objects_ in the given `pack` and handle them with a `Processor`.
     /// The return value is (pack-checksum, [`Outcome`], `progress`), thus the pack traversal will always verify
     /// the whole packs checksum to assure it was correct. In case of bit-rod, the operation will abort early without
-    /// verifying all objects using the [interrupt mechanism][gix_features::interrupt] mechanism.
+    /// verifying all objects using the [interrupt mechanism][gix_utils::interrupt] mechanism.
     ///
     /// # Algorithms
     ///
@@ -80,7 +81,7 @@ where
     ///
     /// Use [`thread_limit`][Options::thread_limit] to further control parallelism and [`check`][SafetyCheck] to define how much the passed
     /// objects shall be verified beforehand.
-    pub fn traverse<C, Processor, E, F, D>(
+    pub fn traverse<C, Processor, F, D>(
         &self,
         pack: &crate::data::File<D>,
         progress: &mut dyn DynNestedProgress,
@@ -93,11 +94,10 @@ where
             alloc_limit_bytes,
             make_pack_lookup_cache,
         }: Options<F>,
-    ) -> Result<Outcome, Error<E>>
+    ) -> Result<Outcome>
     where
         C: crate::cache::DecodeEntry,
-        E: std::error::Error + Send + Sync + 'static,
-        Processor: FnMut(gix_object::Kind, &[u8], &index::Entry, &dyn Progress) -> Result<(), E> + Send + Clone,
+        Processor: FnMut(gix_object::Kind, &[u8], &index::Entry, &dyn Progress) -> Result + Send + Clone,
         F: Fn() -> C + Send + Clone,
         D: crate::FileData + Send + Sync,
     {
@@ -127,35 +127,34 @@ where
         }
     }
 
-    fn possibly_verify<E, D>(
+    fn possibly_verify<D>(
         &self,
         pack: &crate::data::File<D>,
         check: SafetyCheck,
         pack_progress: &mut dyn Progress,
         index_progress: &mut dyn Progress,
         should_interrupt: &AtomicBool,
-    ) -> Result<gix_hash::ObjectId, Error<E>>
+    ) -> Result<gix_hash::ObjectId>
     where
-        E: std::error::Error + Send + Sync + 'static,
         D: crate::FileData + Send + Sync,
     {
         Ok(if check.file_checksum() {
             pack.checksum()
                 .verify(&self.pack_checksum())
-                .map_err(Error::PackMismatch)?;
+                .or_raise(|| corruption("Pack checksum differs from index"))?;
             let (pack_res, id) = parallel::join(
                 move || pack.verify_checksum(pack_progress, should_interrupt),
                 move || self.verify_checksum(index_progress, should_interrupt),
             );
-            pack_res.map_err(Error::PackVerify)?;
-            id.map_err(Error::IndexVerify)?
+            pack_res?;
+            id?
         } else {
             self.index_checksum()
         })
     }
 
     #[expect(clippy::too_many_arguments)]
-    fn decode_and_process_entry<C, E, D>(
+    fn decode_and_process_entry<C, D>(
         &self,
         check: SafetyCheck,
         pack: &crate::data::File<D>,
@@ -164,33 +163,44 @@ where
         inflate: &mut gix_zlib::Inflate,
         progress: &mut dyn Progress,
         index_entry: &index::Entry,
-        processor: &mut impl FnMut(gix_object::Kind, &[u8], &index::Entry, &dyn Progress) -> Result<(), E>,
-    ) -> Result<crate::data::decode::entry::Outcome, Error<E>>
+        processor: &mut impl FnMut(gix_object::Kind, &[u8], &index::Entry, &dyn Progress) -> Result,
+    ) -> Result<Option<crate::data::decode::entry::Outcome>>
     where
         C: crate::cache::DecodeEntry,
-        E: std::error::Error + Send + Sync + 'static,
         D: crate::FileData + Send + Sync,
     {
         let pack_entry = pack.entry(index_entry.pack_offset)?;
         let pack_entry_data_offset = pack_entry.data_offset;
-        let entry_stats = pack
-            .decode_entry(
-                pack_entry,
-                buf,
-                inflate,
-                &|id, _| {
-                    let index = self.lookup(id)?;
-                    pack.entry(self.pack_offset_at_index(index))
-                        .ok()
-                        .map(crate::data::decode::entry::ResolvedBase::InPack)
-                },
-                cache,
-            )
-            .map_err(|e| Error::PackDecode {
-                source: e,
-                id: index_entry.oid,
-                offset: index_entry.pack_offset,
-            })?;
+        let entry_stats = match pack.decode_entry(
+            pack_entry,
+            buf,
+            inflate,
+            &|id, _| {
+                self.lookup(id)
+                    .map(|index| {
+                        pack.entry(self.pack_offset_at_index(index))
+                            .map(crate::data::decode::entry::ResolvedBase::InPack)
+                    })
+                    .transpose()
+            },
+            cache,
+        ) {
+            Ok(stats) => stats,
+            Err(err) if !check.fatal_decode_error() => {
+                progress.info(format!(
+                    "Ignoring decode error for object {} at offset {}: {err}",
+                    index_entry.oid, index_entry.pack_offset
+                ));
+                return Ok(None);
+            }
+            Err(err) => {
+                return Err(err.and_raise(message!(
+                    "Object {} at offset {} could not be decoded",
+                    index_entry.oid,
+                    index_entry.pack_offset
+                )));
+            }
+        };
         let object_kind = entry_stats.kind;
         let header_size = (pack_entry_data_offset - index_entry.pack_offset) as usize;
         let entry_len = header_size + entry_stats.compressed_size;
@@ -204,40 +214,37 @@ where
             progress,
             processor,
         )?;
-        Ok(entry_stats)
+        Ok(Some(entry_stats))
     }
 }
 
-fn process_entry<E>(
+fn process_entry(
     check: SafetyCheck,
     object_kind: gix_object::Kind,
     decompressed: &[u8],
     index_entry: &index::Entry,
     pack_entry_crc32: impl FnOnce() -> u32,
     progress: &dyn Progress,
-    processor: &mut impl FnMut(gix_object::Kind, &[u8], &index::Entry, &dyn Progress) -> Result<(), E>,
-) -> Result<(), Error<E>>
-where
-    E: std::error::Error + Send + Sync + 'static,
-{
+    processor: &mut impl FnMut(gix_object::Kind, &[u8], &index::Entry, &dyn Progress) -> Result,
+) -> Result {
     if check.object_checksum() {
         gix_object::Data::new(decompressed, object_kind, index_entry.oid.kind())
             .verify_checksum(&index_entry.oid)
-            .map_err(|source| Error::PackObjectVerify {
-                offset: index_entry.pack_offset,
-                source,
+            .or_raise(|| {
+                corruption(format!(
+                    "Error verifying object at offset {} against checksum in the index file",
+                    index_entry.pack_offset
+                ))
             })?;
         if let Some(desired_crc32) = index_entry.crc32 {
             let actual_crc32 = pack_entry_crc32();
             if actual_crc32 != desired_crc32 {
-                return Err(Error::Crc32Mismatch {
-                    actual: actual_crc32,
-                    expected: desired_crc32,
-                    offset: index_entry.pack_offset,
-                    kind: object_kind,
-                });
+                bail!(
+                    "The CRC32 of {object_kind} object at offset {} didn't match the checksum in the index file: expected {desired_crc32}, got {actual_crc32}".corrupted(),
+                    index_entry.pack_offset
+                );
             }
         }
     }
-    processor(object_kind, decompressed, index_entry, progress).map_err(Error::Processor)
+    processor(object_kind, decompressed, index_entry, progress)
 }

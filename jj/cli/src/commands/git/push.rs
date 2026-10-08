@@ -164,6 +164,7 @@ pub struct GitPushArgs {
     /// [string pattern syntax]:
     ///     https://docs.jj-vcs.dev/latest/revsets/#string-patterns
     #[arg(long, short, group = "specific")]
+    #[arg(add = ArgValueCandidates::new(complete::local_tags))]
     tag: Vec<String>,
 
     /// Push all bookmarks and tags (including new ones)
@@ -656,13 +657,42 @@ pub async fn cmd_git_push(
             .map(|(remote, ref_updates)| ready_to_push_revset_expression(&tx, remote, ref_updates))
             .collect_vec();
 
-        by_remote = sign_commits_before_push(
+        let (signed_by_remote, num_signed) = sign_commits_before_push(
             ui,
             &mut tx,
             UserRevsetExpression::union_all(&to_push_exprs),
             by_remote,
         )
         .await?;
+        by_remote = signed_by_remote;
+
+        // Signing rewrites the commits that are about to be pushed, so
+        // without a dedicated transaction a failed push (e.g. an ssh
+        // authentication failure) would discard the signatures and signing
+        // would have to be redone on the next attempt.
+        if num_signed > 0 {
+            // Bookmarks created by --change/--named belong to the push
+            // attempt, not to the signing. Move them to the push transaction
+            // so a failed push still rolls them back.
+            let created_bookmark_targets = tx
+                .repo()
+                .view()
+                .local_bookmarks()
+                .filter(|(name, _)| tx.base_repo().view().get_local_bookmark(name).is_absent())
+                .map(|(name, target)| (name.to_owned(), target.clone()))
+                .collect_vec();
+            for (name, _) in &created_bookmark_targets {
+                tx.repo_mut()
+                    .set_local_bookmark_target(name, RefTarget::absent());
+            }
+            // Commit the current transaction as a sign-only transaction,
+            // then open a new transaction for the push itself.
+            tx.finish(ui, "sign commits before push").await?;
+            tx = workspace_command.start_transaction();
+            for (name, target) in created_bookmark_targets {
+                tx.repo_mut().set_local_bookmark_target(&name, target);
+            }
+        }
     }
 
     let git_settings = GitSettings::from_settings(tx.settings())?;
@@ -1205,7 +1235,7 @@ struct CommitsValidator<'repo> {
     repo: &'repo dyn Repo,
     known_heads: Vec<CommitId>,
     immutable_heads: Arc<ResolvedRevsetExpression>,
-    private_commits: Option<(String, Box<RevsetContainingFn<'repo>>)>,
+    private_commits: Option<(String, Box<RevsetContainingFn<'static>>)>,
     validation_session: Option<&'repo dyn GitRemoteSession>,
     allow_empty_description: bool,
     allow_conflicts: bool,
@@ -1346,13 +1376,13 @@ fn ready_to_push_revset_expression(
 /// Warns about commits that need a signature but are immutable.
 ///
 /// Returns the updated list of bookmark names and corresponding
-/// [`BookmarkPushUpdate`]s.
+/// [`BookmarkPushUpdate`]s, and the number of signed commits.
 async fn sign_commits_before_push<'a>(
     ui: &Ui,
     tx: &mut WorkspaceCommandTransaction<'_>,
     commits_to_push: Arc<UserRevsetExpression>,
     by_remote: Vec<(&'a RemoteName, GitPushRefTargets)>,
-) -> Result<Vec<(&'a RemoteName, GitPushRefTargets)>, CommandError> {
+) -> Result<(Vec<(&'a RemoteName, GitPushRefTargets)>, usize), CommandError> {
     let mut sign_settings = tx.settings().sign_settings();
     sign_settings.behavior = SignBehavior::Own;
     // TODO: make filter condition configurable by revset?
@@ -1395,7 +1425,7 @@ async fn sign_commits_before_push<'a>(
         .try_collect()
         .await?;
     if commit_ids.is_empty() {
-        return Ok(by_remote);
+        return Ok((by_remote, 0));
     }
 
     let mut old_to_new_commits_map: HashMap<CommitId, CommitId> = HashMap::new();
@@ -1466,7 +1496,7 @@ async fn sign_commits_before_push<'a>(
         }
     }
 
-    Ok(by_remote)
+    Ok((by_remote, commit_ids.len()))
 }
 
 async fn print_commits_ready_to_push(

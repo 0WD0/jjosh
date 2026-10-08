@@ -4,7 +4,7 @@ use gix_hash::ObjectId;
 pub use gix_object::tree::{EntryKind, EntryMode};
 use gix_object::{FindExt, TreeRefIter, bstr::BStr, tree::next_entry};
 
-use crate::{Id, ObjectDetached, Repository, Tree, object::find};
+use crate::{Id, ObjectDetached, Repository, Result, Tree};
 
 /// All state needed to conveniently edit a tree, using only [update-or-insert](Editor::upsert()) and [removals](Editor::remove()).
 #[derive(Clone)]
@@ -35,7 +35,7 @@ impl<'repo> Tree<'repo> {
     }
 
     /// Parse our tree data and return the parse tree for direct access to its entries.
-    pub fn decode(&self) -> Result<gix_object::TreeRef<'_>, gix_object::decode::Error> {
+    pub fn decode(&self) -> Result<gix_object::TreeRef<'_>> {
         gix_object::TreeRef::from_bytes(&self.data, self.id.kind())
     }
 
@@ -55,7 +55,7 @@ impl<'repo> Tree<'repo> {
     /// ```
     pub fn find_entry(&self, name: impl PartialEq<BStr>) -> Option<EntryRef<'repo, '_>> {
         TreeRefIter::from_bytes(&self.data, self.id.kind())
-            .filter_map(Result::ok)
+            .filter_map(std::result::Result::ok)
             .find(|entry| name.eq(entry.filename))
             .map(|entry| EntryRef {
                 inner: entry,
@@ -72,7 +72,7 @@ impl<'repo> Tree<'repo> {
     /// to reuse a vector and use a binary search instead, which might be able to improve performance over all.
     /// However, a benchmark should be created first to have some data and see which trade-off to choose here.
     ///
-    pub fn lookup_entry<I, P>(&self, path: I) -> Result<Option<Entry<'repo>>, find::existing::Error>
+    pub fn lookup_entry<I, P>(&self, path: I) -> Result<Option<Entry<'repo>>>
     where
         I: IntoIterator<Item = P>,
         P: PartialEq<BStr>,
@@ -108,7 +108,7 @@ impl<'repo> Tree<'repo> {
     /// Searching tree entries is currently done in sequence, which allows to the search to be allocation free.
     /// This is beneficial for most 'common' repositiries, but for other cases an allocation might be preferable
     /// to allow a bisect.
-    pub fn peel_to_entry<I, P>(&mut self, path: I) -> Result<Option<Entry<'repo>>, find::existing::Error>
+    pub fn peel_to_entry<I, P>(&mut self, path: I) -> Result<Option<Entry<'repo>>>
     where
         I: IntoIterator<Item = P>,
         P: PartialEq<BStr>,
@@ -171,10 +171,7 @@ impl<'repo> Tree<'repo> {
     /// assert_eq!(entry.filename(), "c");
     /// # Ok(()) }
     /// ```
-    pub fn lookup_entry_by_path(
-        &self,
-        relative_path: impl AsRef<std::path::Path>,
-    ) -> Result<Option<Entry<'repo>>, find::existing::Error> {
+    pub fn lookup_entry_by_path(&self, relative_path: impl AsRef<std::path::Path>) -> Result<Option<Entry<'repo>>> {
         self.lookup_entry(
             relative_path
                 .as_ref()
@@ -192,7 +189,7 @@ impl<'repo> Tree<'repo> {
     pub fn peel_to_entry_by_path(
         &mut self,
         relative_path: impl AsRef<std::path::Path>,
-    ) -> Result<Option<Entry<'repo>>, find::existing::Error> {
+    ) -> Result<Option<Entry<'repo>>> {
         self.peel_to_entry(
             relative_path
                 .as_ref()
@@ -215,10 +212,11 @@ pub mod traverse;
 ///
 mod iter {
     use super::{EntryRef, Tree};
+    use crate::Result;
 
     impl<'repo> Tree<'repo> {
         /// Return an iterator over tree entries to obtain information about files and directories this tree contains.
-        pub fn iter(&self) -> impl Iterator<Item = Result<EntryRef<'repo, '_>, gix_object::decode::Error>> {
+        pub fn iter(&self) -> impl Iterator<Item = Result<EntryRef<'repo, '_>>> {
             let repo = self.repo;
             gix_object::TreeRefIter::from_bytes(&self.data, self.id.kind())
                 .map(move |e| e.map(|entry| EntryRef { inner: entry, repo }))
@@ -251,12 +249,12 @@ pub struct Entry<'repo> {
 mod entry;
 
 mod _impls {
-    use crate::Tree;
+    use crate::{Error, Result, Tree};
 
     impl TryFrom<Tree<'_>> for gix_object::Tree {
-        type Error = gix_object::decode::Error;
+        type Error = Error;
 
-        fn try_from(t: Tree<'_>) -> Result<Self, Self::Error> {
+        fn try_from(t: Tree<'_>) -> Result<Self> {
             t.decode().map(Into::into)
         }
     }

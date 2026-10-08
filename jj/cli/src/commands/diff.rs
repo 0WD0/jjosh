@@ -92,15 +92,14 @@ pub(crate) struct DiffArgs {
 
     /// Render each file diff entry using the given template
     ///
-    /// All 0-argument methods of the [`TreeDiffEntry` type] are available as
-    /// keywords in the template expression. See [`jj help -k templates`] for
-    /// more information.
+    /// All 0-argument methods of the [`TreeDiffEntry` type][TreeDiffEntry] are
+    /// available as keywords in the template expression. See
+    /// [`jj help -k templates`][templates] for more information.
     ///
-    /// [`TreeDiffEntry` type]:
+    /// [TreeDiffEntry]:
     ///     https://docs.jj-vcs.dev/latest/templates/#treediffentry-type
     ///
-    /// [`jj help -k templates`]:
-    ///     https://docs.jj-vcs.dev/latest/templates/
+    /// [templates]: https://docs.jj-vcs.dev/latest/templates/
     #[arg(
         long,
         short = 'T',
@@ -216,7 +215,7 @@ pub(crate) async fn cmd_diff(
 
     ui.request_pager();
     if let Some(template) = &maybe_template {
-        let tree_diff = from_tree.diff_stream_with_copies(&to_tree, &matcher, &copy_records);
+        let tree_diff = from_tree.diff_with_copies(&to_tree, &matcher, &copy_records);
         show_templated(ui.stdout_formatter().as_mut(), tree_diff, template).await?;
     }
     diff_renderer

@@ -1,3 +1,5 @@
+use crate::TestResult;
+
 fn file(input: &str) -> gix_config::File {
     input.parse().unwrap()
 }
@@ -11,9 +13,7 @@ fn assert_set_value(value: &str) {
     assert_eq!(
         file.raw_value("a.k").unwrap(),
         value,
-        "{:?} didn't have expected value {:?}",
-        file.to_string(),
-        value
+        "{file} didn't have expected value {value}"
     );
 }
 
@@ -51,7 +51,7 @@ fn comment_included() {
 }
 
 #[test]
-fn non_existing_values_cannot_be_set() -> crate::Result {
+fn non_existing_values_cannot_be_set() -> TestResult {
     let mut file = gix_config::File::default();
     file.set_raw_value_by("new", None, "key", "value")?;
     file.set_raw_value_by("new", "subsection", "key", "subsection-value")?;
@@ -66,7 +66,7 @@ fn non_existing_values_cannot_be_set() -> crate::Result {
 }
 
 #[test]
-fn accepts_short_lived_keys() -> crate::Result {
+fn accepts_short_lived_keys() -> TestResult {
     let mut file = gix_config::File::default();
     let key = String::from("new.key");
 
@@ -79,9 +79,8 @@ fn accepts_short_lived_keys() -> crate::Result {
 #[test]
 fn invalid_value_names_fail_without_creating_a_section() {
     let mut file = gix_config::File::default();
-    assert!(matches!(
-        file.set_raw_value_by("new", None, "not.valid", "value"),
-        Err(gix_config::file::set_raw_value::Error::ValueName(_))
-    ));
+    let err = file.set_raw_value_by("new", None, "not.valid", "value").unwrap_err();
+    assert!(err.is_validation());
+    insta::assert_debug_snapshot!(err, "invalid value names fail without creating a section", @r#"Valid value names consist of alphanumeric characters or dashes, starting with an alphabetic character., input="not.valid""#);
     assert_eq!(file.sections().count(), 0, "validation precedes section creation");
 }

@@ -92,23 +92,23 @@ mod message {
         use crate::{Protocol, Service, client::git};
 
         #[test]
-        fn version_1_without_host_and_version() {
+        fn version_1_without_host_and_version() -> gix_testtools::TestResult {
             assert_eq!(
-                git::message::connect(Service::UploadPack, Protocol::V1, b"hello/world", None, &[])
-                    .expect("the request is valid"),
+                git::message::connect(Service::UploadPack, Protocol::V1, b"hello/world", None, &[])?,
                 "git-upload-pack hello/world\0"
             );
+            Ok(())
         }
         #[test]
-        fn version_2_without_host_and_version() {
+        fn version_2_without_host_and_version() -> gix_testtools::TestResult {
             assert_eq!(
-                git::message::connect(Service::UploadPack, Protocol::V2, br"hello\world", None, &[])
-                    .expect("the request is valid"),
+                git::message::connect(Service::UploadPack, Protocol::V2, br"hello\world", None, &[])?,
                 "git-upload-pack hello\\world\0\0version=2\0"
             );
+            Ok(())
         }
         #[test]
-        fn version_2_without_host_and_version_and_extra_parameters() {
+        fn version_2_without_host_and_version_and_extra_parameters() -> gix_testtools::TestResult {
             assert_eq!(
                 git::message::connect(
                     Service::UploadPack,
@@ -116,13 +116,13 @@ mod message {
                     b"/path/project.git",
                     None,
                     &[("key", Some("value")), ("value-only", None)]
-                )
-                .expect("the request is valid"),
+                )?,
                 "git-upload-pack /path/project.git\0\0version=2\0key=value\0value-only\0"
             );
+            Ok(())
         }
         #[test]
-        fn with_host_without_port() {
+        fn with_host_without_port() -> gix_testtools::TestResult {
             assert_eq!(
                 git::message::connect(
                     Service::UploadPack,
@@ -130,13 +130,13 @@ mod message {
                     br"hello\world",
                     Some(&("host".into(), None)),
                     &[]
-                )
-                .expect("the request is valid"),
+                )?,
                 "git-upload-pack hello\\world\0host=host\0"
             );
+            Ok(())
         }
         #[test]
-        fn with_host_without_port_and_extra_parameters() {
+        fn with_host_without_port_and_extra_parameters() -> gix_testtools::TestResult {
             assert_eq!(
                 git::message::connect(
                     Service::UploadPack,
@@ -144,13 +144,13 @@ mod message {
                     br"hello\world",
                     Some(&("host".into(), None)),
                     &[("key", Some("value")), ("value-only", None)]
-                )
-                .expect("the request is valid"),
+                )?,
                 "git-upload-pack hello\\world\0host=host\0\0key=value\0value-only\0"
             );
+            Ok(())
         }
         #[test]
-        fn with_host_with_port() {
+        fn with_host_with_port() -> gix_testtools::TestResult {
             assert_eq!(
                 git::message::connect(
                     Service::UploadPack,
@@ -158,14 +158,14 @@ mod message {
                     br"hello\world",
                     Some(&("host".into(), Some(404))),
                     &[]
-                )
-                .expect("the request is valid"),
+                )?,
                 "git-upload-pack hello\\world\0host=host:404\0"
             );
+            Ok(())
         }
 
         #[test]
-        fn with_strange_host_and_port() {
+        fn with_strange_host_and_port() -> gix_testtools::TestResult {
             assert_eq!(
                 git::message::connect(
                     Service::UploadPack,
@@ -173,15 +173,15 @@ mod message {
                     b"--upload-pack=attack",
                     Some(&("--proxy=other-attack".into(), Some(404))),
                     &[]
-                )
-                .expect("the request is valid"),
+                )?,
                 "git-upload-pack --upload-pack=attack\0host=--proxy=other-attack:404\0",
                 "we explicitly allow possible `-arg` arguments to be passed to the git daemon - the remote must protect against exploitation, we don't want to prevent legitimate cases"
             );
+            Ok(())
         }
 
         #[test]
-        fn carriage_returns_are_allowed_like_in_git() {
+        fn carriage_returns_are_allowed_like_in_git() -> gix_testtools::TestResult {
             assert_eq!(
                 git::message::connect(
                     Service::UploadPack,
@@ -189,10 +189,10 @@ mod message {
                     b"hello\rworld",
                     Some(&("ho\rst".into(), None)),
                     &[]
-                )
-                .expect("carriage returns are allowed like in Git"),
+                )?,
                 "git-upload-pack hello\rworld\0host=ho\rst\0"
             );
+            Ok(())
         }
     }
 }

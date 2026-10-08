@@ -1,4 +1,5 @@
-use std::{any::Any, borrow::Cow, error::Error, io::Write};
+use gix_error::Result;
+use std::{any::Any, borrow::Cow, io::Write};
 
 use bstr::{BStr, BString, ByteVec};
 
@@ -63,7 +64,7 @@ where
         true
     }
 
-    fn configure(&mut self, _config: &dyn Any) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
+    fn configure(&mut self, _config: &dyn Any) -> Result {
         Ok(())
     }
 }
@@ -77,7 +78,7 @@ where
         &mut self,
         service: Service,
         extra_parameters: &'a [(&'a str, Option<&'a str>)],
-    ) -> Result<SetServiceResponse<'_>, client::Error> {
+    ) -> std::result::Result<SetServiceResponse<'_>, client::Error> {
         if self.state.mode == git::ConnectMode::Daemon {
             let mut line_writer = Writer::new(&mut self.writer);
             line_writer.enable_binary_mode();
@@ -108,7 +109,7 @@ where
         write_mode: client::WriteMode,
         on_into_read: client::MessageKind,
         trace: bool,
-    ) -> Result<RequestWriter<'_>, client::Error> {
+    ) -> std::result::Result<RequestWriter<'_>, client::Error> {
         Ok(RequestWriter::new_from_bufread(
             &mut self.writer,
             Box::new(self.line_provider.as_read_without_sidebands()),
@@ -174,36 +175,20 @@ pub mod connect {
     use std::net::{TcpStream, ToSocketAddrs};
 
     use bstr::BString;
+    use gix_error::{Result, ResultExt, message};
 
     use super::Connection;
     use crate::client::git;
 
-    /// The error used in [`connect()`].
-    #[derive(Debug, thiserror::Error)]
-    #[expect(missing_docs)]
-    pub enum Error {
-        #[error("An IO error occurred when connecting to the server")]
-        Io(#[from] std::io::Error),
-        #[error("Could not parse {host:?} as virtual host with format <host>[:port]")]
-        VirtualHostInvalid { host: String },
-    }
-
-    impl crate::IsSpuriousError for Error {
-        fn is_spurious(&self) -> bool {
-            match self {
-                Error::Io(err) => err.is_spurious(),
-                _ => false,
-            }
-        }
-    }
-
-    fn parse_host(input: String) -> Result<(String, Option<u16>), Error> {
+    fn parse_host(input: String) -> Result<(String, Option<u16>)> {
         let mut tokens = input.splitn(2, ':');
         Ok(match (tokens.next(), tokens.next()) {
             (Some(host), None) => (host.to_owned(), None),
             (Some(host), Some(port)) => (
                 host.to_owned(),
-                Some(port.parse().map_err(|_| Error::VirtualHostInvalid { host: input })?),
+                Some(port.parse::<u16>().or_raise(|| {
+                    gix_error::message!("Could not parse {input:?} as virtual host with format <host>[:port]")
+                })?),
             ),
             _ => unreachable!("we expect at least one token, the original string"),
         })
@@ -219,15 +204,19 @@ pub mod connect {
         desired_version: crate::Protocol,
         port: Option<u16>,
         trace: bool,
-    ) -> Result<Connection<TcpStream, TcpStream>, Error> {
+    ) -> Result<Connection<TcpStream, TcpStream>> {
         let read = TcpStream::connect_timeout(
             &(host, port.unwrap_or(9418))
-                .to_socket_addrs()?
+                .to_socket_addrs()
+                .or_raise(|| message("Could not resolve git server"))?
                 .next()
                 .expect("after successful resolution there is an IP address"),
             std::time::Duration::from_secs(5),
-        )?;
-        let write = read.try_clone()?;
+        )
+        .or_raise(|| message("Could not connect to git server"))?;
+        let write = read
+            .try_clone()
+            .or_raise(|| message("Could not clone git server connection"))?;
         let vhost = std::env::var("GIT_OVERRIDE_VIRTUAL_HOST")
             .ok()
             .map(parse_host)

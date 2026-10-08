@@ -62,7 +62,6 @@ use jj_lib::git::GitSubprocessCallback;
 use jj_lib::git::GitSubprocessOptions;
 use jj_lib::git::IgnoredRefspec;
 use jj_lib::git::IgnoredRefspecs;
-use jj_lib::git::expand_fetch_refspecs;
 use jj_lib::git::load_default_fetch_bookmarks;
 use jj_lib::git_backend::GitBackend;
 use jj_lib::hex_util;
@@ -256,18 +255,17 @@ fn fetch_all_with(fetcher: &mut GitFetch, remote: &RemoteName) -> Result<(), Git
         bookmark: StringExpression::all(),
         tag: StringExpression::all(),
     };
-    fetch_with(fetcher, remote, ref_expr)
+    fetch_with(fetcher, remote, &ref_expr)
 }
 
 /// Fetches the specified refs without importing.
 fn fetch_with(
     fetcher: &mut GitFetch,
     remote: &RemoteName,
-    ref_expr: GitFetchRefExpression,
+    ref_expr: &GitFetchRefExpression,
 ) -> Result<(), GitFetchError> {
-    let refspecs = expand_fetch_refspecs(remote, ref_expr).expect("ref patterns should be valid");
     let depth = None;
-    fetcher.fetch(remote, refspecs, &mut NullCallback, depth)
+    fetcher.fetch(remote, ref_expr, &mut NullCallback, depth)
 }
 
 fn push_status_rejected_references(push_stats: GitPushStats) -> Vec<GitRefNameBuf> {
@@ -4509,12 +4507,7 @@ fn test_fetch_initial_commit_head_is_not_set() -> TestResult {
         target: initial_commit_target.clone(),
         state: RemoteRefState::New,
     };
-    assert_eq!(
-        *view.git_refs(),
-        btreemap! {
-            "refs/remotes/origin/main".into() => initial_commit_target.clone(),
-        }
-    );
+    assert!(view.git_refs().is_empty());
     assert_eq!(
         view.bookmarks().collect::<BTreeMap<_, _>>(),
         btreemap! {
@@ -4526,6 +4519,18 @@ fn test_fetch_initial_commit_head_is_not_set() -> TestResult {
             },
         }
     );
+
+    // The fetched refs can be exported.
+    let mut tx = repo.start_transaction();
+    git::export_refs(tx.repo_mut())?;
+    let view = tx.repo().view();
+    assert_eq!(
+        *view.git_refs(),
+        btreemap! {
+            "refs/remotes/origin/main".into() => initial_commit_target.clone(),
+        }
+    );
+
     Ok(())
 }
 
@@ -4604,13 +4609,7 @@ fn test_fetch_success() -> TestResult {
         target: new_commit_target.clone(),
         state: RemoteRefState::Tracked,
     };
-    assert_eq!(
-        *view.git_refs(),
-        btreemap! {
-            "refs/remotes/origin/main".into() => new_commit_target.clone(),
-            // "refs/tags/v1.0" isn't exported yet
-        }
-    );
+    assert!(view.git_refs().is_empty());
     assert_eq!(
         view.bookmarks().collect::<BTreeMap<_, _>>(),
         btreemap! {
@@ -4630,6 +4629,20 @@ fn test_fetch_success() -> TestResult {
         view.all_remote_tags().collect_vec(),
         vec![(remote_symbol("v1.0", "origin"), &new_commit_remote_ref)]
     );
+
+    // The fetched refs can be exported.
+    let mut tx = repo.start_transaction();
+    git::export_refs(tx.repo_mut())?;
+    let view = tx.repo().view();
+    assert_eq!(
+        *view.git_refs(),
+        btreemap! {
+            "refs/heads/main".into() => new_commit_target.clone(),
+            "refs/remotes/origin/main".into() => new_commit_target.clone(),
+            "refs/tags/v1.0".into() => new_commit_target.clone(),
+        }
+    );
+
     Ok(())
 }
 
@@ -4716,7 +4729,7 @@ fn test_fetch_empty_refspecs() -> TestResult {
         bookmark: StringExpression::none(),
         tag: StringExpression::none(),
     };
-    fetch_with(&mut fetcher, "origin".as_ref(), ref_expr)?;
+    fetch_with(&mut fetcher, "origin".as_ref(), &ref_expr)?;
     fetcher.import_refs().block_on()?;
     assert_eq!(
         tx.repo_mut()
@@ -4921,68 +4934,31 @@ fn test_load_default_fetch_bookmarks_invalid_configuration() -> TestResult {
         RemoteNameBuf(
             "first",
         ),
-        RefSpec {
-            kind: "fetch",
-            remote_name: "first",
-            source: Error {
-                key: "remote.<name>.fetch",
-                value: Some(
-                    "+refs/heads/bad*pattern*:refs/remotes/heads/bad*pattern*",
-                ),
-                environment_override: None,
-                source: Some(
-                    PatternUnsupported {
-                        pattern: "refs/heads/bad*pattern*",
-                    },
-                ),
-            },
-        },
+        fetch ref-spec under `remote.first` was invalid, input="first"
+        
+        Caused by:
+            0: Could not parse refspec, input="+refs/heads/bad*pattern*:refs/remotes/heads/bad*pattern*", key="remote.<name>.fetch"
+            1: refspec patterns may only contain a single '*' character, input="refs/heads/bad*pattern*",
     )
     InvalidRemoteConfiguration(
         RemoteNameBuf(
             "second",
         ),
-        RefSpec {
-            kind: "fetch",
-            remote_name: "second",
-            source: Error {
-                key: "remote.<name>.fetch",
-                value: Some(
-                    "+refs/heads/badpattern?:refs/remotes/heads/badpattern?",
-                ),
-                environment_override: None,
-                source: Some(
-                    ReferenceName(
-                        InvalidByte {
-                            byte: "?",
-                        },
-                    ),
-                ),
-            },
-        },
+        fetch ref-spec under `remote.second` was invalid, input="second"
+        
+        Caused by:
+            0: Could not parse refspec, input="+refs/heads/badpattern?:refs/remotes/heads/badpattern?", key="remote.<name>.fetch"
+            1: Reference name contains invalid byte: "?",
     )
     InvalidRemoteConfiguration(
         RemoteNameBuf(
             "third",
         ),
-        RefSpec {
-            kind: "fetch",
-            remote_name: "third",
-            source: Error {
-                key: "remote.<name>.fetch",
-                value: Some(
-                    "+refs/heads/bad[pat]:refs/remotes/heads/bad[pat]",
-                ),
-                environment_override: None,
-                source: Some(
-                    ReferenceName(
-                        InvalidByte {
-                            byte: "[",
-                        },
-                    ),
-                ),
-            },
-        },
+        fetch ref-spec under `remote.third` was invalid, input="third"
+        
+        Caused by:
+            0: Could not parse refspec, input="+refs/heads/bad[pat]:refs/remotes/heads/bad[pat]", key="remote.<name>.fetch"
+            1: Reference name contains invalid byte: "[",
     )
     "#);
     Ok(())
@@ -5017,7 +4993,7 @@ fn test_fetch_multiple_branches() -> TestResult {
         ]),
         tag: StringExpression::none(),
     };
-    fetch_with(&mut fetcher, "origin".as_ref(), ref_expr)?;
+    fetch_with(&mut fetcher, "origin".as_ref(), &ref_expr)?;
     let stats = fetcher.import_refs().block_on()?;
 
     assert_eq!(
@@ -5028,6 +5004,181 @@ fn test_fetch_multiple_branches() -> TestResult {
             .collect_vec(),
         [remote_symbol("main", "origin")]
     );
+    Ok(())
+}
+
+#[test]
+fn test_fetch_prune_deleted_refs_with_explicit_patterns() -> TestResult {
+    let test_data = GitRepoData::create();
+    let subprocess_options = GitSubprocessOptions::from_settings(test_data.repo.settings())?;
+    let import_options = default_import_options();
+    let fetch_import = |mut_repo: &mut MutableRepo| -> TestResult {
+        let mut fetcher = GitFetch::new(mut_repo, subprocess_options.clone(), &import_options)?;
+        let ref_expr = GitFetchRefExpression {
+            bookmark: StringExpression::exact("main"),
+            tag: StringExpression::exact("v1"),
+        };
+        fetch_with(&mut fetcher, "origin".as_ref(), &ref_expr)?;
+        fetcher.import_refs().block_on()?;
+        Ok(())
+    };
+
+    empty_git_commit(&test_data.origin_repo, "refs/heads/main", &[]);
+    empty_git_commit(&test_data.origin_repo, "refs/tags/v1", &[]);
+    // Keep the remote nonempty after deleting refs
+    empty_git_commit(&test_data.origin_repo, "refs/heads/keep", &[]);
+
+    let mut tx = test_data.repo.start_transaction();
+    fetch_import(tx.repo_mut())?;
+
+    assert!(
+        tx.repo()
+            .get_remote_bookmark(remote_symbol("main", "origin"))
+            .is_present()
+    );
+    assert!(
+        tx.repo()
+            .get_remote_tag(remote_symbol("v1", "origin"))
+            .is_present()
+    );
+    assert!(
+        test_data
+            .git_repo
+            .try_find_reference("refs/jj/remote-bookmarks/origin/main")?
+            .is_some(),
+    );
+    assert!(
+        test_data
+            .git_repo
+            .try_find_reference("refs/jj/remote-tags/origin/v1")?
+            .is_some()
+    );
+
+    delete_git_ref(&test_data.origin_repo, "refs/heads/main");
+    delete_git_ref(&test_data.origin_repo, "refs/tags/v1");
+    fetch_import(tx.repo_mut())?;
+
+    // Deleted bookmarks and tags should be pruned
+    assert!(
+        tx.repo()
+            .get_remote_bookmark(remote_symbol("main", "origin"))
+            .is_absent()
+    );
+    assert!(
+        tx.repo()
+            .get_remote_tag(remote_symbol("v1", "origin"))
+            .is_absent()
+    );
+    assert!(
+        test_data
+            .git_repo
+            .try_find_reference("refs/jj/remote-bookmarks/origin/main")?
+            .is_none(),
+    );
+    assert!(
+        test_data
+            .git_repo
+            .try_find_reference("refs/jj/remote-tags/origin/v1")?
+            .is_none()
+    );
+
+    Ok(())
+}
+
+#[test_case("foo/bar", "foo"; "nested to parent")]
+#[test_case("foo", "foo/bar"; "parent to nested")]
+fn test_fetch_prune_renamed_bookmark_with_path_conflict(
+    old_name: &str,
+    new_name: &str,
+) -> TestResult {
+    let test_data = GitRepoData::create();
+    let old_ref = format!("refs/heads/{old_name}");
+    let new_ref = format!("refs/heads/{new_name}");
+    let commit = empty_git_commit(&test_data.origin_repo, &old_ref, &[]);
+
+    let mut tx = test_data.repo.start_transaction();
+    fetch_import_all(tx.repo_mut(), "origin".as_ref());
+    assert!(
+        tx.repo()
+            .get_remote_bookmark(remote_symbol(old_name, "origin"))
+            .is_present()
+    );
+    assert!(
+        test_data
+            .git_repo
+            .try_find_reference(&format!("refs/jj/remote-bookmarks/origin/{old_name}"))?
+            .is_some()
+    );
+
+    // The old and new ref names conflict in Git's loose ref storage.
+    delete_git_ref(&test_data.origin_repo, &old_ref);
+    git_ref(&test_data.origin_repo, &new_ref, commit);
+
+    fetch_import_all(tx.repo_mut(), "origin".as_ref());
+    assert!(
+        tx.repo()
+            .get_remote_bookmark(remote_symbol(old_name, "origin"))
+            .is_absent()
+    );
+    assert!(
+        tx.repo()
+            .get_remote_bookmark(remote_symbol(new_name, "origin"))
+            .is_present()
+    );
+    assert!(
+        test_data
+            .git_repo
+            .try_find_reference(&format!("refs/jj/remote-bookmarks/origin/{new_name}"))?
+            .is_some()
+    );
+
+    Ok(())
+}
+
+#[test_case("foo/bar", "foo"; "nested to parent")]
+#[test_case("foo", "foo/bar"; "parent to nested")]
+fn test_fetch_prune_renamed_tag_with_path_conflict(old_name: &str, new_name: &str) -> TestResult {
+    let test_data = GitRepoData::create();
+    let old_ref = format!("refs/tags/{old_name}");
+    let new_ref = format!("refs/tags/{new_name}");
+    let commit = empty_git_commit(&test_data.origin_repo, &old_ref, &[]);
+
+    let mut tx = test_data.repo.start_transaction();
+    fetch_import_all(tx.repo_mut(), "origin".as_ref());
+    assert!(
+        tx.repo()
+            .get_remote_tag(remote_symbol(old_name, "origin"))
+            .is_present()
+    );
+    assert!(
+        test_data
+            .git_repo
+            .try_find_reference(&format!("refs/jj/remote-tags/origin/{old_name}"))?
+            .is_some()
+    );
+
+    // The old and new ref names conflict in Git's loose ref storage.
+    delete_git_ref(&test_data.origin_repo, &old_ref);
+    git_ref(&test_data.origin_repo, &new_ref, commit);
+
+    fetch_import_all(tx.repo_mut(), "origin".as_ref());
+    assert!(
+        tx.repo()
+            .get_remote_tag(remote_symbol(old_name, "origin"))
+            .is_absent()
+    );
+    assert!(
+        tx.repo()
+            .get_remote_tag(remote_symbol(new_name, "origin"))
+            .is_present()
+    );
+    assert!(
+        test_data
+            .git_repo
+            .try_find_reference(&format!("refs/jj/remote-tags/origin/{new_name}"))?
+            .is_some()
+    );
+
     Ok(())
 }
 
@@ -5153,7 +5304,7 @@ fn test_fetch_with_explicit_tag_patterns() -> TestResult {
             bookmark: StringExpression::all(),
             tag,
         };
-        fetch_with(&mut fetcher, "origin".as_ref(), ref_expr).unwrap();
+        fetch_with(&mut fetcher, "origin".as_ref(), &ref_expr).unwrap();
         fetcher.import_refs().block_on().unwrap()
     };
 
@@ -5235,7 +5386,7 @@ fn test_fetch_export_annotated_tags() -> TestResult {
             bookmark: StringExpression::none(),
             tag: StringExpression::all(),
         };
-        fetch_with(&mut fetcher, "origin".as_ref(), ref_expr).unwrap();
+        fetch_with(&mut fetcher, "origin".as_ref(), &ref_expr).unwrap();
         fetcher.import_refs().block_on().unwrap()
     };
 
@@ -5323,6 +5474,55 @@ fn test_fetch_export_annotated_tags() -> TestResult {
         test_data.git_repo.find_reference("refs/tags/tag3.4")?.id(),
         git_id(&commit4)
     );
+    Ok(())
+}
+
+#[test]
+fn test_fetch_ignores_configured_refspecs() -> TestResult {
+    let test_data = GitRepoData::create();
+
+    let mut remote = test_data.git_repo.find_remote("origin")?;
+    remote.replace_refspecs(
+        [
+            "+refs/heads/*:refs/unusual/bookmarks/*",
+            "+refs/tags/*:refs/unusual/tags/*",
+        ],
+        gix::remote::Direction::Fetch,
+    )?;
+    let mut config = test_data.git_repo.config_snapshot().clone();
+    remote.save_as_to("origin", &mut config)?;
+    git::save_git_config(&config)?;
+
+    empty_git_commit(&test_data.origin_repo, "refs/heads/main", &[]);
+    empty_git_commit(&test_data.origin_repo, "refs/tags/v1", &[]);
+
+    let mut tx = test_data.repo.start_transaction();
+    fetch_import_all(tx.repo_mut(), "origin".as_ref());
+    assert!(
+        tx.repo()
+            .get_remote_bookmark(remote_symbol("main", "origin"))
+            .is_present()
+    );
+    assert!(
+        tx.repo()
+            .get_remote_tag(remote_symbol("v1", "origin"))
+            .is_present()
+    );
+
+    // Extra refs shouldn't be created by the configured refspecs
+    assert!(
+        test_data
+            .git_repo
+            .try_find_reference("refs/unusual/bookmarks/main")?
+            .is_none()
+    );
+    assert!(
+        test_data
+            .git_repo
+            .try_find_reference("refs/unusual/tags/v1")?
+            .is_none(),
+    );
+
     Ok(())
 }
 
@@ -5892,6 +6092,119 @@ fn test_push_bookmarks_unmapped_refs() -> TestResult {
         view.get_remote_bookmark(remote_symbol("bookmark2", "origin")),
         &RemoteRef::absent()
     );
+    Ok(())
+}
+
+#[test]
+fn test_push_bookmarks_unexported_refs() -> TestResult {
+    let test_repo = TestRepo::init_with_backend(TestRepoBackend::Git);
+    let subprocess_options = GitSubprocessOptions::from_settings(test_repo.repo.settings())?;
+    let remote_git_repo = testutils::git::init_bare(test_repo.env.root().join("remote"));
+
+    // Add remote with refspecs that map only specific branch
+    let repo = &test_repo.repo;
+    let git_repo = get_git_repo(repo);
+    let mut remote = git_repo
+        .remote_at(remote_git_repo.path().to_str().unwrap())?
+        .with_refspecs(
+            ["+refs/heads/dummy:refs/remotes/origin/dummy"],
+            gix::remote::Direction::Fetch,
+        )?;
+    let mut config = git_repo.config_snapshot().clone();
+    remote.save_as_to("origin", &mut config).unwrap();
+    git::save_git_config(&config)?;
+    // Reload after Git configuration change
+    let repo = test_repo
+        .env
+        .load_repo_at_head(repo.settings(), test_repo.repo_path());
+    let git_repo = get_git_repo(&repo);
+
+    // Fetch bookmark without exporting to Git
+    let old_oid = empty_git_commit(&remote_git_repo, "refs/heads/feature", &[]);
+    let mut tx = repo.start_transaction();
+    fetch_import_all(tx.repo_mut(), "origin".as_ref());
+    assert!(
+        git_repo
+            .try_find_reference("refs/remotes/origin/feature")?
+            .is_none()
+    );
+
+    // Push bookmark change
+    let old_commit = tx.repo().store().get_commit(&jj_id(old_oid))?;
+    let new_commit = write_random_commit_with_parents(tx.repo_mut(), &[&old_commit]);
+    let targets = GitPushRefTargets {
+        bookmarks: vec![(
+            "feature".into(),
+            Diff::new(Some(old_commit.id().clone()), Some(new_commit.id().clone())),
+        )],
+        tags: vec![],
+    };
+    let stats = git::push_refs(
+        tx.repo_mut(),
+        subprocess_options,
+        "origin".as_ref(),
+        &targets,
+        &mut NullCallback,
+        &GitPushOptions::default(),
+    )?;
+
+    assert_eq!(
+        remote_git_repo.find_reference("refs/heads/feature")?.id(),
+        git_id(&new_commit)
+    );
+    assert!(stats.unexported_bookmarks.is_empty(), "{stats:?}");
+    assert_eq!(
+        tx.repo()
+            .view()
+            .get_remote_bookmark(remote_symbol("feature", "origin"))
+            .target,
+        RefTarget::normal(new_commit.id().clone())
+    );
+
+    Ok(())
+}
+
+#[test_case("foo/bar", "foo"; "nested to parent")]
+#[test_case("foo", "foo/bar"; "parent to nested")]
+fn test_push_bookmarks_renamed_with_path_conflict(old_name: &str, new_name: &str) -> TestResult {
+    let test_data = GitRepoData::create();
+    let subprocess_options = GitSubprocessOptions::from_settings(test_data.repo.settings())?;
+    let import_options = default_import_options();
+    let origin_repo = test_data.origin_repo;
+
+    let commit = empty_git_commit(&origin_repo, &format!("refs/heads/{old_name}"), &[]);
+    let mut tx = test_data.repo.start_transaction();
+    fetch_import_all(tx.repo_mut(), "origin".as_ref());
+
+    // Rename and push the bookmark
+    for (name, update) in [
+        (old_name, Diff::new(Some(jj_id(commit)), None)),
+        (new_name, Diff::new(None, Some(jj_id(commit)))),
+    ] {
+        let targets = GitPushRefTargets {
+            bookmarks: vec![(name.into(), update)],
+            tags: vec![],
+        };
+        let stats = git::push_refs(
+            tx.repo_mut(),
+            subprocess_options.clone(),
+            "origin".as_ref(),
+            &targets,
+            &mut NullCallback,
+            &GitPushOptions::default(),
+        )?;
+        assert!(stats.all_ok(), "{stats:?}");
+    }
+
+    // Fetching only the replacement should work without pruning the old name
+    let ref_expr = GitFetchRefExpression {
+        bookmark: StringExpression::exact(new_name),
+        tag: StringExpression::none(),
+    };
+    let mut fetcher = GitFetch::new(tx.repo_mut(), subprocess_options.clone(), &import_options)?;
+    fetch_with(&mut fetcher, "origin".as_ref(), &ref_expr)?;
+    fetcher.import_refs().block_on()?;
+
     Ok(())
 }
 
@@ -6928,7 +7241,7 @@ fn test_shallow_commits_lack_parents() -> TestResult {
     testutils::git::set_symbolic_reference(&git_repo, "HEAD", "refs/heads/main");
 
     let make_shallow = |repo, mut shallow_commits: Vec<_>| {
-        let shallow_file = get_git_backend(repo).git_repo().shallow_file();
+        let shallow_file = get_git_backend(repo).git_repo().shallow_file().unwrap();
         shallow_commits.sort();
         let mut buf = Vec::<u8>::new();
         for commit in shallow_commits {
@@ -7019,6 +7332,9 @@ fn test_remote_remove_refs() -> TestResult {
     empty_git_commit(&git_repo, "refs/remotes/foo/a", &[]);
     empty_git_commit(&git_repo, "refs/remotes/foo/x/y", &[]);
     let commit_foobar_a = empty_git_commit(&git_repo, "refs/remotes/foobar/a", &[]);
+    empty_git_commit(&git_repo, "refs/jj/remote-bookmarks/foo/x/y", &[]);
+    let commit_bookmark_foobar_a =
+        empty_git_commit(&git_repo, "refs/jj/remote-bookmarks/foobar/a", &[]);
     empty_git_commit(&git_repo, "refs/jj/remote-tags/foo/x/y", &[]);
     let commit_tag_foobar_a = empty_git_commit(&git_repo, "refs/jj/remote-tags/foobar/a", &[]);
 
@@ -7027,7 +7343,7 @@ fn test_remote_remove_refs() -> TestResult {
     let repo = &tx.commit("remove").block_on()?;
 
     let git_repo = get_git_repo(repo);
-    // remote bookmarks
+    // exported remote bookmarks
     assert!(git_repo.try_find_reference("refs/remotes/foo/a")?.is_none());
     assert!(
         git_repo
@@ -7037,6 +7353,19 @@ fn test_remote_remove_refs() -> TestResult {
     assert_eq!(
         git_repo.find_reference("refs/remotes/foobar/a")?.id(),
         commit_foobar_a,
+    );
+
+    // fetched remote bookmarks
+    assert!(
+        git_repo
+            .try_find_reference("refs/jj/remote-bookmarks/foo/x/y")?
+            .is_none()
+    );
+    assert_eq!(
+        git_repo
+            .find_reference("refs/jj/remote-bookmarks/foobar/a")?
+            .id(),
+        commit_bookmark_foobar_a,
     );
 
     // remote tags
@@ -7076,6 +7405,10 @@ fn test_remote_rename_refs() -> TestResult {
     let commit_foo_a = empty_git_commit(&git_repo, "refs/remotes/foo/a", &[]);
     let commit_foo_x_y = empty_git_commit(&git_repo, "refs/remotes/foo/x/y", &[]);
     let commit_foobar_a = empty_git_commit(&git_repo, "refs/remotes/foobar/a", &[]);
+    let commit_bookmark_foo_x_y =
+        empty_git_commit(&git_repo, "refs/jj/remote-bookmarks/foo/x/y", &[]);
+    let commit_bookmark_foobar_a =
+        empty_git_commit(&git_repo, "refs/jj/remote-bookmarks/foobar/a", &[]);
     let commit_tag_foo_x_y = empty_git_commit(&git_repo, "refs/jj/remote-tags/foo/x/y", &[]);
     let commit_tag_foobar_a = empty_git_commit(&git_repo, "refs/jj/remote-tags/foobar/a", &[]);
 
@@ -7104,7 +7437,7 @@ fn test_remote_rename_refs() -> TestResult {
     let repo = &tx.commit("rename").block_on()?;
 
     let git_repo = get_git_repo(repo);
-    // remote bookmarks
+    // exported remote bookmarks
     assert!(git_repo.try_find_reference("refs/remotes/foo/a")?.is_none());
     assert!(
         git_repo
@@ -7122,6 +7455,25 @@ fn test_remote_rename_refs() -> TestResult {
     assert_eq!(
         git_repo.find_reference("refs/remotes/foobar/a")?.id(),
         commit_foobar_a,
+    );
+
+    // fetched remote bookmarks
+    assert!(
+        git_repo
+            .try_find_reference("refs/jj/remote-bookmarks/foo/x/y")?
+            .is_none()
+    );
+    assert_eq!(
+        git_repo
+            .find_reference("refs/jj/remote-bookmarks/bar/x/y")?
+            .id(),
+        commit_bookmark_foo_x_y,
+    );
+    assert_eq!(
+        git_repo
+            .find_reference("refs/jj/remote-bookmarks/foobar/a")?
+            .id(),
+        commit_bookmark_foobar_a,
     );
 
     // remote tags

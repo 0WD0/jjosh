@@ -336,7 +336,7 @@ fn new_diff_platform() -> gix_diff::blob::Platform {
     );
     let filter = gix_diff::blob::Pipeline::new(
         Default::default(),
-        gix_filter::Pipeline::default(),
+        gix_filter::Pipeline::new(Default::default(), gix_hash::Kind::Sha1, Default::default()),
         Vec::new(),
         Default::default(),
     );

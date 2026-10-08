@@ -1,4 +1,5 @@
 use crate::find::Entry;
+use gix_error::Result;
 
 /// An in-memory object database without pack locations.
 #[derive(Clone)]
@@ -29,7 +30,7 @@ impl crate::Find for Memory {
         id: &gix_hash::oid,
         buffer: &'a mut Vec<u8>,
         _pack_cache: &mut dyn crate::cache::DecodeEntry,
-    ) -> Result<Option<(gix_object::Data<'a>, Option<crate::data::entry::Location>)>, gix_object::find::Error> {
+    ) -> Result<Option<(gix_object::Data<'a>, Option<crate::data::entry::Location>)>> {
         Ok(self.objects.get(id).map(|(kind, data)| {
             buffer.clear();
             buffer.extend_from_slice(data);
@@ -37,12 +38,12 @@ impl crate::Find for Memory {
         }))
     }
 
-    fn location_by_oid(&self, _id: &gix_hash::oid, _buf: &mut Vec<u8>) -> Option<crate::data::entry::Location> {
-        None
+    fn location_by_oid(&self, _id: &gix_hash::oid, _buf: &mut Vec<u8>) -> Result<Option<crate::data::entry::Location>> {
+        Ok(None)
     }
 
-    fn pack_offsets_and_oid(&self, _pack_id: u32) -> Option<Vec<(crate::data::Offset, gix_hash::ObjectId)>> {
-        None
+    fn pack_offsets_and_oid(&self, _pack_id: u32) -> Result<Option<Vec<(crate::data::Offset, gix_hash::ObjectId)>>> {
+        Ok(None)
     }
 
     fn entry_by_location(&self, _location: &crate::data::entry::Location) -> Option<Entry> {

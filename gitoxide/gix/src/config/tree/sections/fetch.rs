@@ -38,13 +38,18 @@ pub type NegotiationAlgorithm = keys::Any<validate::NegotiationAlgorithm>;
 pub type RecurseSubmodules = keys::Any<validate::RecurseSubmodules>;
 
 mod algorithm {
+    #[cfg(any(feature = "credentials", feature = "attributes"))]
+    use crate::Result;
+
     #[cfg(feature = "credentials")]
     impl crate::config::tree::sections::fetch::NegotiationAlgorithm {
         /// Derive the negotiation algorithm identified by `name`, case-sensitively.
         pub fn try_into_negotiation_algorithm(
             &'static self,
             name: impl gix_utils::AsBStr,
-        ) -> Result<crate::remote::fetch::negotiate::Algorithm, crate::config::key::GenericErrorWithValue> {
+        ) -> Result<crate::remote::fetch::negotiate::Algorithm> {
+            use gix_error::bail;
+
             use crate::{bstr::ByteSlice, remote::fetch::negotiate::Algorithm};
 
             let name = name.as_bstr();
@@ -53,7 +58,11 @@ mod algorithm {
                 b"consecutive" | b"default" => Algorithm::Consecutive,
                 b"skipping" => Algorithm::Skipping,
                 _ => {
-                    return Err(crate::config::key::GenericErrorWithValue::from_value(self, name.into()));
+                    bail!(crate::config::key::error_with_value(
+                        self,
+                        "Invalid configuration value",
+                        name,
+                    ));
                 }
             })
         }
@@ -61,25 +70,26 @@ mod algorithm {
 
     #[cfg(feature = "attributes")]
     impl crate::config::tree::sections::fetch::RecurseSubmodules {
-        /// Obtain the way submodules should be updated.
+        /// Obtain the way submodules should be updated from a boolean configuration lookup.
         pub fn try_into_recurse_submodules(
             &'static self,
-            value: Result<Option<bool>, gix_config::value::Error>,
-        ) -> Result<Option<gix_submodule::config::FetchRecurse>, crate::config::key::GenericErrorWithValue> {
-            gix_submodule::config::FetchRecurse::new(value)
-                .map_err(|err| crate::config::key::GenericErrorWithValue::from_value(self, err))
+            value: Result<Option<bool>>,
+        ) -> Result<Option<gix_submodule::config::FetchRecurse>> {
+            gix_submodule::config::FetchRecurse::new(value).map_err(|input| {
+                crate::config::key::error_with_value(self, "Invalid configuration value", input).validation_error()
+            })
         }
     }
 }
 
 mod validate {
-    use crate::{bstr::BStr, config::tree::keys};
+    use crate::{Result, bstr::BStr, config::tree::keys};
 
     #[derive(Clone, Copy)]
     pub struct NegotiationAlgorithm;
     impl keys::Validate for NegotiationAlgorithm {
         #[cfg_attr(not(feature = "credentials"), allow(unused_variables))]
-        fn validate(&self, value: &BStr) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+        fn validate(&self, value: &BStr) -> Result {
             #[cfg(feature = "credentials")]
             crate::config::tree::Fetch::NEGOTIATION_ALGORITHM.try_into_negotiation_algorithm(value)?;
             Ok(())
@@ -91,7 +101,7 @@ mod validate {
     pub struct RecurseSubmodules;
     #[cfg(feature = "attributes")]
     impl keys::Validate for RecurseSubmodules {
-        fn validate(&self, value: &BStr) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+        fn validate(&self, value: &BStr) -> Result {
             {
                 let boolean = gix_config::Boolean::try_from(value).map(|b| Some(b.0));
                 crate::config::tree::Fetch::RECURSE_SUBMODULES.try_into_recurse_submodules(boolean)?;

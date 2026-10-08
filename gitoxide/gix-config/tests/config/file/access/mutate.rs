@@ -1,6 +1,8 @@
 mod new_section {
+    use crate::TestResult;
+
     #[test]
-    fn accepts_a_borrowed_subsection_name() -> crate::Result {
+    fn accepts_a_borrowed_subsection_name() -> TestResult {
         let mut file = gix_config::File::default();
         file.new_section("remote", "origin")?;
         file.new_section("branch", "main")?;
@@ -15,14 +17,90 @@ mod new_section {
     }
 
     #[test]
-    fn owned_sections_accept_a_borrowed_subsection_name() -> crate::Result {
+    fn owned_sections_accept_a_borrowed_subsection_name() -> TestResult {
         let section = gix_config::file::Section::new("remote", "origin", gix_config::file::Metadata::default())?;
         assert_eq!(section.to_ref().header().subsection_name(), Some("origin".into()));
         Ok(())
     }
 }
 
+mod new_section_with_meta {
+    use gix_config::{File, Source, file::Metadata};
+    use gix_parallel::OwnShared;
+    use gix_testtools::TestResult;
+
+    #[test]
+    fn metadata_is_specific_to_the_new_section() -> TestResult {
+        let default_meta = Metadata::from(Source::Local).at("repository.config");
+        let mut file = File::new(default_meta.clone());
+        file.new_section("core", None)?;
+        let meta = Metadata {
+            level: 2,
+            ..Metadata::from(Source::User)
+                .at("user.config")
+                .with(gix_sec::Trust::Reduced)
+        };
+        {
+            let mut section = file.new_section_with_meta("remote", "origin", meta.clone())?;
+            assert_eq!(section.meta(), &meta, "the editable section receives explicit metadata");
+            section.push("url", Some("example".into()))?;
+        }
+        file.new_section_with_meta("user", None, OwnShared::new(meta.clone()))?;
+        file.new_section("core", None)?;
+
+        assert_eq!(
+            file.meta(),
+            &default_meta,
+            "explicit metadata does not change the file's origin"
+        );
+        assert_eq!(
+            file.sections().map(|section| section.meta()).collect::<Vec<_>>(),
+            [&default_meta, &meta, &meta, &default_meta],
+            "owned and shared metadata persist without affecting existing or subsequent sections"
+        );
+        assert_eq!(
+            file.section("remote", "origin")?.meta(),
+            &meta,
+            "lookup retains the section's explicit origin"
+        );
+        let nl = if cfg!(windows) { "\r\n" } else { "\n" };
+        assert_eq!(
+            file.to_string(),
+            format!("[core]{nl}[remote \"origin\"]{nl}\turl = example{nl}[user]{nl}[core]{nl}"),
+            "explicit metadata preserves normal section formatting and value insertion"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn invalid_names_leave_the_file_unchanged() -> TestResult {
+        let mut file = File::default();
+        file.new_section("core", None)?;
+        let before = file.to_string();
+        for (name, subsection) in [("invalid.name", None), ("remote", Some("invalid\nsubsection"))] {
+            assert!(
+                file.new_section_with_meta(name, subsection.map(bstr::BString::from), Metadata::from(Source::Local))
+                    .is_err(),
+                "explicit metadata does not bypass section-header validation"
+            );
+            assert_eq!(
+                file.to_string(),
+                before,
+                "invalid headers do not change the file's contents"
+            );
+            assert_eq!(
+                file.meta(),
+                &Metadata::api(),
+                "errors do not change the file's metadata"
+            );
+        }
+        Ok(())
+    }
+}
+
 mod remove_section {
+    use crate::TestResult;
+
     #[test]
     fn removal_of_all_sections_programmatically_with_sections_and_ids_by_name() {
         let mut file = gix_config::File::try_from("[core] \na = b\nb=c\n\n[core \"name\"]\nd = 1\ne = 2").unwrap();
@@ -49,8 +127,8 @@ mod remove_section {
     }
 
     #[test]
-    fn removal_is_complete_and_sections_can_be_read() {
-        let mut file = gix_config::File::try_from("[core] \na = b\nb=c\n\n[core \"name\"]\nd = 1\ne = 2").unwrap();
+    fn removal_is_complete_and_sections_can_be_read() -> gix_testtools::TestResult {
+        let mut file = gix_config::File::try_from("[core] \na = b\nb=c\n\n[core \"name\"]\nd = 1\ne = 2")?;
         assert_eq!(file.sections().count(), 2);
 
         let removed = file.remove_section("core", None).expect("removed correct section");
@@ -65,13 +143,13 @@ mod remove_section {
         assert_eq!(file.sections().count(), 0);
         assert!(file.remove_section("core", "name").is_none());
 
-        file.section_mut_or_create_new("core", None).expect("creation succeeds");
-        file.section_mut_or_create_new("core", "name")
-            .expect("creation succeeds");
+        file.section_mut_or_create_new("core", None)?;
+        file.section_mut_or_create_new("core", "name")?;
+        Ok(())
     }
 
     #[test]
-    fn removing_lookup_buckets_preserves_siblings_and_drops_the_final_name() -> crate::Result {
+    fn removing_lookup_buckets_preserves_siblings_and_drops_the_final_name() -> TestResult {
         let mut file = gix_config::File::try_from(
             "[core] key=plain\n\
              [core \"a\"] key=a\n\
@@ -79,28 +157,23 @@ mod remove_section {
         )?;
 
         file.remove_section("core", None).expect("plain section exists");
-        assert!(
-            matches!(
-                file.section("core", None),
-                Err(gix_config::lookup::existing::Error::SubSectionMissing)
-            ),
-            "the `core` section name still exists through its siblings, but its no-subsection bucket was removed"
-        );
+        let err = file.section("core", None).unwrap_err();
+        assert!(err.is_not_found());
+        insta::assert_debug_snapshot!(err, "the `core` section name still exists through its siblings, but its no-subsection bucket was removed", @"The requested subsection does not exist");
         assert_eq!(file.section("core", "a")?.value("key"), Some("a".into()));
 
         file.remove_section("core", "a").expect("first subsection exists");
         assert_eq!(file.section("core", "b")?.value("key"), Some("b".into()));
 
         file.remove_section("core", "b").expect("final subsection exists");
-        assert!(matches!(
-            file.section("core", "b"),
-            Err(gix_config::lookup::existing::Error::SectionMissing)
-        ));
+        let err = file.section("core", "b").unwrap_err();
+        assert!(err.is_not_found());
+        insta::assert_debug_snapshot!(err, "removing lookup buckets preserves siblings and drops the final name", @"The requested section does not exist");
         Ok(())
     }
 
     #[test]
-    fn removed_sections_can_be_mutated_and_reinserted() -> crate::Result {
+    fn removed_sections_can_be_mutated_and_reinserted() -> TestResult {
         let mut file = gix_config::File::try_from("[core]\na = b\n")?;
         let mut section = file.remove_section("core", None).expect("section is present");
         let removed_id = section.to_ref().id();
@@ -117,8 +190,8 @@ mod remove_section {
 }
 mod remove_section_filter {
     #[test]
-    fn removal_of_section_is_complete() {
-        let mut file = gix_config::File::try_from("[core] \na = b\nb=c\n\n[core \"name\"]\nd = 1\ne = 2").unwrap();
+    fn removal_of_section_is_complete() -> gix_testtools::TestResult {
+        let mut file = gix_config::File::try_from("[core] \na = b\nb=c\n\n[core \"name\"]\nd = 1\ne = 2")?;
         assert_eq!(file.sections().count(), 2);
 
         let removed = file
@@ -138,33 +211,29 @@ mod remove_section_filter {
         );
         assert!(file.remove_section_filter("core", "name", |_| true).is_none());
 
-        file.section_mut_or_create_new("core", None).expect("creation succeeds");
-        file.section_mut_or_create_new("core", "name")
-            .expect("creation succeeds");
+        file.section_mut_or_create_new("core", None)?;
+        file.section_mut_or_create_new("core", "name")?;
+        Ok(())
     }
 }
 
 mod rename_section {
-    use gix_config::{file::rename_section, parse::section};
+    use crate::TestResult;
 
     #[test]
     fn section_renaming_validates_new_name() {
         let mut file = gix_config::File::try_from("[core] a = b").unwrap();
-        assert!(matches!(
-            file.rename_section("core", None, "new_core", None),
-            Err(rename_section::Error::Section(section::header::Error::InvalidName))
-        ));
+        let err = file.rename_section("core", None, "new_core", None).unwrap_err();
+        assert!(err.is_validation());
+        insta::assert_debug_snapshot!(err, "section renaming validates new name", @r#"section names can only be ascii, '-', input="new_core""#);
 
-        assert!(matches!(
-            file.rename_section("core", None, "new-core", "a\nb"),
-            Err(rename_section::Error::Section(
-                section::header::Error::InvalidSubSection
-            ))
-        ));
+        let err = file.rename_section("core", None, "new-core", "a\nb").unwrap_err();
+        assert!(err.is_validation());
+        insta::assert_debug_snapshot!(err, "section renaming validates new name", @r#"sub-section names must not contain newlines or null bytes, input="a\nb""#);
     }
 
     #[test]
-    fn accepts_borrowed_new_subsection_names() -> crate::Result {
+    fn accepts_borrowed_new_subsection_names() -> TestResult {
         let mut file = gix_config::File::try_from("[core] a = b")?;
         file.rename_section("core", None, "remote", "origin")?;
         assert_eq!(
@@ -182,7 +251,7 @@ mod rename_section {
     }
 
     #[test]
-    fn all_matching_sections_are_renamed_and_target_collisions_are_preserved() -> crate::Result {
+    fn all_matching_sections_are_renamed_and_target_collisions_are_preserved() -> TestResult {
         let mut file = gix_config::File::try_from(
             "[branch \"source\"] key = one\n\
              [some \"gar\"] key = unrelated\n\
@@ -206,7 +275,7 @@ mod rename_section {
     }
 
     #[test]
-    fn filter_renames_every_accepted_section() -> crate::Result {
+    fn filter_renames_every_accepted_section() -> TestResult {
         let mut file = gix_config::File::try_from(
             "[branch \"source\"] key = one\n\
              [branch \"source\"] key = two\n\
@@ -238,15 +307,11 @@ mod rename_section {
         "#);
 
         let prev = file.to_string();
-        assert!(
-            matches!(
-                file.rename_section_filter("branch", "source", "branch", "other", |_| false),
-                Err(rename_section::Error::Lookup(
-                    gix_config::lookup::existing::Error::KeyMissing
-                )),
-            ),
-            "matching nothing causes an error"
-        );
+        let err = file
+            .rename_section_filter("branch", "source", "branch", "other", |_| false)
+            .unwrap_err();
+        assert!(err.is_not_found());
+        insta::assert_debug_snapshot!(err, "matching nothing causes an error", @"The key does not exist in the requested section");
         assert_eq!(
             file.to_string(),
             prev,
@@ -256,7 +321,7 @@ mod rename_section {
     }
 
     #[test]
-    fn renaming_to_the_same_identity_updates_all_headers() -> crate::Result {
+    fn renaming_to_the_same_identity_updates_all_headers() -> TestResult {
         let mut file = gix_config::File::try_from(
             "[branch.source] one = 1\n\
              [branch.source] two = 2\n",
@@ -272,23 +337,21 @@ mod rename_section {
     }
 
     #[test]
-    fn an_empty_lookup_bucket_is_reported_as_missing() -> crate::Result {
+    fn an_empty_lookup_bucket_is_reported_as_missing() -> TestResult {
         let mut file = gix_config::File::try_from("[core] key = value\n")?;
         file.remove_section("core", None).expect("section exists");
-        assert!(matches!(
-            file.rename_section("core", None, "other", None),
-            Err(rename_section::Error::Lookup(
-                gix_config::lookup::existing::Error::SectionMissing
-            ))
-        ));
+        let err = file.rename_section("core", None, "other", None).unwrap_err();
+        assert!(err.is_not_found());
+        insta::assert_debug_snapshot!(err, "an empty lookup bucket is reported as missing", @"The requested section does not exist");
         Ok(())
     }
 }
 mod set_meta {
+    use crate::TestResult;
     use gix_config::file;
 
     #[test]
-    fn affects_newly_added_sections() -> crate::Result {
+    fn affects_newly_added_sections() -> TestResult {
         let mut file = gix_config::File::default();
         let expected = &file::Metadata::api();
         assert_eq!(file.meta(), expected);

@@ -1,15 +1,16 @@
+use crate::Result;
 use std::{
     path::{Path, PathBuf},
-    sync::atomic::AtomicBool,
+    sync::atomic::{AtomicBool, Ordering},
 };
 
-use gix_features::progress;
 use gix_testtools::fixture_path;
+use gix_utils::progress;
 
 /// Writes a multi-index from the static SHA-1 pack indices, with pinned SHA-1 expectations.
 /// The SHA-256 counterpart lives in [`from_a_hash_parameterized_pack`] below.
 #[test]
-fn from_paths() -> crate::Result {
+fn from_paths() -> gix_testtools::TestResult {
     let pack_dir = fixture_path("objects/pack");
     let written = write_multi_index_from_pack_dir(&pack_dir, gix_hash::Kind::Sha1)?;
     assert_eq!(written.input_indices.len(), 3);
@@ -38,7 +39,7 @@ fn from_paths() -> crate::Result {
 /// Like [`from_paths`], but sources its input index from the hash-parameterized fixture so the
 /// writer runs under both SHA-1 and SHA-256. The fixture's gc leaves one pack, hence one index.
 #[test]
-fn from_a_hash_parameterized_pack() -> crate::Result {
+fn from_a_hash_parameterized_pack() -> gix_testtools::TestResult {
     let object_hash = crate::object_hash();
     let pack_dir = crate::scripted_fixture_read_only("make_pack_gen_repo_multi_index.sh")?.join(".git/objects/pack");
     let written = write_multi_index_from_pack_dir(&pack_dir, object_hash)?;
@@ -57,6 +58,90 @@ fn from_a_hash_parameterized_pack() -> crate::Result {
     Ok(())
 }
 
+#[test]
+fn interrupted_before_writing() {
+    for index_paths in [Vec::new(), vec![fixture_path(crate::SMALL_PACK_INDEX)]] {
+        let mut out = Vec::new();
+        let err = gix_pack::multi_index::write_from_index_paths(
+            index_paths,
+            &mut out,
+            &mut progress::Discard,
+            &AtomicBool::new(true),
+            gix_pack::multi_index::write::Options {
+                object_hash: gix_hash::Kind::Sha1,
+            },
+        )
+        .err()
+        .expect("interruption stops both entry collection and deduplication");
+
+        assert_cancelled_interruption(&err);
+        assert!(
+            out.is_empty(),
+            "interruption before writing leaves the output untouched"
+        );
+    }
+}
+
+#[test]
+fn interrupted_while_writing_chunks() {
+    struct InterruptOnWrite<'a>(&'a AtomicBool);
+
+    impl std::io::Write for InterruptOnWrite<'_> {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.store(true, Ordering::Relaxed);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    let should_interrupt = AtomicBool::new(false);
+    let err = gix_pack::multi_index::write_from_index_paths(
+        vec![fixture_path(crate::SMALL_PACK_INDEX)],
+        &mut InterruptOnWrite(&should_interrupt),
+        &mut progress::Discard,
+        &should_interrupt,
+        gix_pack::multi_index::write::Options {
+            object_hash: gix_hash::Kind::Sha1,
+        },
+    )
+    .err()
+    .expect("interruption during output stops chunk writing");
+
+    assert_cancelled_interruption(&err);
+}
+
+fn assert_cancelled_interruption(err: &gix_error::Error) {
+    assert!(
+        err.is_cancelled(),
+        "interruption retains its explicit cancellation classification"
+    );
+    assert!(
+        !err.is_retryable() && !err.can_retry(),
+        "cancellation stops rather than retries"
+    );
+    insta::allow_duplicates! {
+        insta::assert_debug_snapshot!(err, "interruption reports one cancellation diagnostic without synthetic causes", @"Interrupted");
+    }
+
+    let mut diagnostics = err.iter_errors();
+    let diagnostic = diagnostics
+        .next()
+        .and_then(|err| err.downcast_ref::<gix_error::Message>())
+        .expect("interruption is a visible Message diagnostic");
+    assert_eq!(
+        diagnostic.class,
+        Some(gix_error::Class::Cancelled),
+        "the diagnostic itself carries the cancellation classification"
+    );
+    assert!(
+        diagnostics.next().is_none(),
+        "a standalone interruption has no extra causes"
+    );
+}
+
 struct WrittenMultiIndex {
     file: gix_pack::multi_index::File,
     dir: gix_testtools::tempfile::TempDir,
@@ -65,7 +150,7 @@ struct WrittenMultiIndex {
 }
 
 impl WrittenMultiIndex {
-    fn verify_integrity_with_referenced_packs(&self) -> crate::Result {
+    fn verify_integrity_with_referenced_packs(&self) -> Result {
         // Place the referenced pack and index next to the multi-index so integrity can resolve them.
         for ro_index in &self.input_indices {
             std::fs::copy(
@@ -100,7 +185,7 @@ impl WrittenMultiIndex {
     }
 }
 
-fn write_multi_index_from_pack_dir(pack_dir: &Path, object_hash: gix_hash::Kind) -> crate::Result<WrittenMultiIndex> {
+fn write_multi_index_from_pack_dir(pack_dir: &Path, object_hash: gix_hash::Kind) -> Result<WrittenMultiIndex> {
     let input_indices = std::fs::read_dir(pack_dir)?
         .filter_map(|r| {
             let idx_path = r.ok()?.path();

@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::{bstr::BString, config};
+use crate::bstr::BString;
 
 /// Permissions associated with various resources of a git repository
 #[derive(Copy, Clone, Ord, PartialOrd, PartialEq, Eq, Debug, Hash)]
@@ -17,9 +17,9 @@ pub struct Permissions {
 ///
 /// ### Replacement Objects for the object database
 ///
-/// The environment variables `GIT_REPLACE_REF_BASE`, `GIT_NO_REPLACE_OBJECTS`, and `GIT_ALLOC_LIMIT` are mapped to
-/// `gitoxide.objects.replaceRefBase`, `gitoxide.objects.noReplace`, and `gitoxide.objects.allocLimit` respectively and then
-/// interpreted exactly as their environment variable counterparts.
+/// The environment variables `GIT_REPLACE_REF_BASE` and `GIT_ALLOC_LIMIT` are mapped to
+/// `gitoxide.objects.replaceRefBase` and `gitoxide.objects.allocLimit` respectively.
+/// The presence of `GIT_NO_REPLACE_OBJECTS` sets `core.useReplaceRefs=false`. Replacements are enabled by default.
 ///
 /// Use [Permissions] to control which environment variables can be read, and config-overrides to control these values programmatically.
 #[derive(Clone)]
@@ -48,27 +48,6 @@ pub struct Options {
     /// Internal to pass an already obtained CWD on to where it may also be used.
     /// This avoids the CWD being queried more than once per repo.
     pub(crate) current_dir: Option<PathBuf>,
-}
-
-/// The error returned by [`crate::open()`].
-#[derive(Debug, thiserror::Error)]
-#[expect(missing_docs)]
-pub enum Error {
-    #[error("Failed to load the git configuration")]
-    Config(#[from] config::Error),
-    #[error("\"{path}\" does not appear to be a git repository")]
-    NotARepository {
-        source: gix_discover::is_git::Error,
-        path: PathBuf,
-    },
-    #[error(transparent)]
-    Io(#[from] std::io::Error),
-    #[error("The git directory at '{}' is considered unsafe as it's not owned by the current user.", .path.display())]
-    UnsafeGitDir { path: PathBuf },
-    #[error(transparent)]
-    EnvironmentAccessDenied(#[from] gix_sec::permission::Error<std::path::PathBuf>),
-    #[error(transparent)]
-    PrefixNotRelative(#[from] gix_path::relative_path::Error),
 }
 
 mod options;

@@ -4,11 +4,12 @@ use std::{
 };
 
 use bstr::{BStr, BString, ByteSlice};
+use gix_error::{Result, ResultExt, message};
 
 use crate::{
     Entry, EntryRef, entry,
     entry::PathspecMatch,
-    walk::{Context, Error, ForDeletionMode, Options},
+    walk::{Context, ForDeletionMode, Options},
 };
 
 /// Classify the `worktree_relative_root` path and return the first `PathKind` that indicates that
@@ -20,7 +21,7 @@ pub fn root(
     worktree_relative_root: &Path,
     options: Options<'_>,
     ctx: &mut Context<'_>,
-) -> Result<(Outcome, bool), Error> {
+) -> Result<(Outcome, bool)> {
     buf.clear();
     let mut last_length = None;
     let mut path_buf = worktree_root.to_owned();
@@ -36,7 +37,7 @@ pub fn root(
             buf.push(b'/');
         }
         path_buf.push(component);
-        buf.extend_from_slice(gix_path::os_str_into_bstr(component.as_os_str()).expect("no illformed UTF8"));
+        buf.extend_from_slice(gix_path::os_str_into_bstr(component.as_os_str())?);
         let file_kind = path_buf.symlink_metadata().ok().map(|m| m.file_type().into());
 
         out = path(
@@ -146,7 +147,7 @@ pub fn path(
         ..
     }: Options<'_>,
     ctx: &mut Context<'_>,
-) -> Result<Outcome, Error> {
+) -> Result<Outcome> {
     let mut out = Outcome {
         status: entry::Status::Pruned,
         property: None,
@@ -176,7 +177,7 @@ pub fn path(
                         )
                         .map(|platform| platform.excluded_kind())
                 })
-                .map_err(Error::ExcludesAccess)?
+                .or_raise(|| message("Failed to update the excludes stack to see if a path is excluded"))?
                 .filter(|_| filename_start_idx > 0)
         {
             out.status = entry::Status::Ignored(excluded);
@@ -237,8 +238,10 @@ pub fn path(
         )
     };
     if let Some(status) = maybe_status {
-        if kind == Some(entry::Kind::Directory) && index_kind == Some(entry::Kind::Repository) {
-            kind = maybe_upgrade_to_repository(kind, false);
+        if kind == Some(entry::Kind::Directory) && index_kind == Some(entry::Kind::Repository) && !recurse_repositories
+        {
+            // A gitlink remains a repository boundary even when its checkout is missing.
+            kind = Some(entry::Kind::Repository);
         }
         return Ok(out.with_status(status).with_kind(kind, index_kind));
     }
@@ -253,7 +256,7 @@ pub fn path(
                 .at_entry(rela_path.as_bstr(), is_dir, ctx.objects)
                 .map(|platform| platform.excluded_kind())
         })
-        .map_err(Error::ExcludesAccess)?
+        .or_raise(|| message("Failed to update the excludes stack to see if a path is excluded"))?
     {
         if emit_ignored.is_some() {
             if matches!(

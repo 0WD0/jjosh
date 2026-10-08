@@ -1,14 +1,14 @@
 #![no_main]
 
-use anyhow::Result;
+use gix_error::{Result, ResultExt};
 use libfuzzer_sys::fuzz_target;
 
 use std::hint::black_box;
 
 use arbitrary::{Arbitrary, Unstructured};
 use gix_attributes::{
-    search::{MetadataCollection, Outcome},
     Search,
+    search::{MetadataCollection, Outcome},
 };
 use gix_glob::pattern::Case;
 
@@ -34,13 +34,15 @@ fn fuzz(Ctx { pattern, case }: Ctx) -> Result<()> {
 
     let mut search = Search::default();
     let mut collection = MetadataCollection::default();
-    search.add_patterns_buffer(
-        format!("{pattern} attr").as_bytes(),
-        Default::default(),
-        None,
-        &mut collection,
-        true,
-    );
+    search
+        .add_patterns_buffer(
+            format!("{pattern} attr").as_bytes(),
+            Default::default(),
+            None,
+            &mut collection,
+            true,
+        )
+        .or_error()?;
     let mut out = Outcome::default();
     out.initialize(&collection);
     _ = black_box(search.pattern_matching_relative_path("relative/path".into(), case, None, &mut out));

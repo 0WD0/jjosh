@@ -6,10 +6,36 @@ fn pack_at(at: &str) -> pack::data::File {
     pack::data::File::at(fixture_path(at).as_path(), gix_hash::Kind::Sha1).expect("valid pack file")
 }
 
+#[test]
+fn unresolved_delta_base_is_not_found() {
+    use gix_error::{ErrorExt, message};
+
+    let base_id = gix_hash::ObjectId::empty_blob(gix_hash::Kind::Sha1);
+    let err = pack::data::decode::DeltaBaseUnresolved(base_id).and_raise(message("Could not decode object"));
+    insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&(err), &[]), "an unresolved delta base is a missing object", @"
+    Could not decode object
+
+    Caused by:
+        0: A delta chain could not be followed as the ref base with id Oid(1) could not be found
+    ");
+    assert!(err.is_not_found(), "an unresolved delta base is a missing object");
+    assert!(
+        err.probable_cause().is::<pack::data::decode::DeltaBaseUnresolved>(),
+        "the missing delta base, not its classification marker or outer context, is the probable cause"
+    );
+    assert_eq!(
+        err.downcast_any_ref::<pack::data::decode::DeltaBaseUnresolved>()
+            .expect("the missing delta base is retained")
+            .0,
+        base_id,
+        "the decode failure retains the missing object ID"
+    );
+}
+
 mod method {
     use std::sync::atomic::AtomicBool;
 
-    use gix_features::progress;
+    use gix_utils::progress;
 
     use crate::{SMALL_PACK, data::file::pack_at, pack_from_memory_at};
 
@@ -20,7 +46,7 @@ mod method {
     }
 
     #[test]
-    fn verify_checksum() -> Result<(), Box<dyn std::error::Error>> {
+    fn verify_checksum() -> gix_testtools::TestResult {
         let p = pack_at(SMALL_PACK);
         assert_eq!(
             p.verify_checksum(&mut progress::Discard, &AtomicBool::new(false))?,
@@ -30,7 +56,25 @@ mod method {
     }
 
     #[test]
-    fn verify_checksum_from_memory() -> Result<(), Box<dyn std::error::Error>> {
+    fn interrupted_checksum_preserves_cancellation_and_io_source() {
+        let p = pack_at(SMALL_PACK);
+        let err = p
+            .verify_checksum(&mut progress::Discard, &AtomicBool::new(true))
+            .expect_err("the interrupt flag cancels hashing the pack");
+        assert!(err.is_cancelled(), "verification preserves the hashing cancellation");
+        assert!(
+            !err.is_retryable(),
+            "verification must not reclassify cancellation as retryable"
+        );
+        assert_eq!(
+            err.downcast_any_ref::<std::io::Error>().map(std::io::Error::kind),
+            Some(std::io::ErrorKind::Interrupted),
+            "the original hashing I/O interruption survives"
+        );
+    }
+
+    #[test]
+    fn verify_checksum_from_memory() -> gix_testtools::TestResult {
         let p = pack_from_memory_at(SMALL_PACK);
         assert_eq!(
             p.verify_checksum(&mut progress::Discard, &AtomicBool::new(false))?,
@@ -52,7 +96,7 @@ mod method {
                 entry.clone(),
                 &mut buf,
                 &mut inflate,
-                &|_, _| None,
+                &|_, _| Ok(None),
                 &mut gix_odb::pack::cache::Never
             )
             .is_ok(),
@@ -62,23 +106,27 @@ mod method {
         buf.clear();
         let pack = pack_at(SMALL_PACK).with_alloc_limit_bytes(Some(0));
         let entry = pack.entry(entry_offset).expect("valid object type");
-        assert!(
-            matches!(
-                pack.decode_entry(
-                    entry,
-                    &mut buf,
-                    &mut inflate,
-                    &|_, _| None,
-                    &mut gix_odb::pack::cache::Never
-                ),
-                Err(gix_odb::pack::data::decode::Error::OutOfMemory)
-            ),
-            "pack-controlled allocations larger than the configured limit are rejected"
+        let err = pack
+            .decode_entry(
+                entry,
+                &mut buf,
+                &mut inflate,
+                &|_, _| Ok(None),
+                &mut gix_odb::pack::cache::Never,
+            )
+            .expect_err("pack-controlled allocations larger than the configured limit are rejected");
+        insta::assert_debug_snapshot!(err, "decode entry respects alloc limit bytes", @"Entry too large to fit in memory");
+        assert_eq!(
+            err.classify().find_map(|classification| match classification.class() {
+                gix_error::Class::ResourceExhaustion(kind) => Some(kind),
+                _ => None,
+            }),
+            Some(gix_error::ResourceExhaustionKind::AllocationLimit)
         );
     }
 
     #[test]
-    fn iter() -> Result<(), Box<dyn std::error::Error>> {
+    fn iter() -> gix_testtools::TestResult {
         let pack = pack_at(SMALL_PACK);
         let it = pack.streaming_iter()?;
         assert_eq!(it.count(), pack.num_objects() as usize);
@@ -89,6 +137,7 @@ mod method {
 /// All hardcoded offsets are obtained via `git pack-verify --verbose  tests/fixtures/packs/pack-a2bf8e71d8c18879e499335762dd95119d93d9f1.idx`
 mod decode_entry {
     use bstr::ByteSlice;
+    use gix_error::Result;
     use gix_pack::{cache, data::decode::entry::ResolvedBase};
 
     use crate::{SMALL_PACK, data::file::pack_at, fixture_path, fixup};
@@ -139,7 +188,7 @@ mod decode_entry {
     }
 
     fn decode_entry_at_offset(offset: u64) -> Vec<u8> {
-        fn resolve_with_panic(_oid: &gix_hash::oid, _out: &mut Vec<u8>) -> Option<ResolvedBase> {
+        fn resolve_with_panic(_oid: &gix_hash::oid, _out: &mut Vec<u8>) -> Result<Option<ResolvedBase>> {
             panic!("should not want to resolve an id here")
         }
 
@@ -160,6 +209,8 @@ mod decode_entry {
 
 /// All hardcoded offsets are obtained via `git pack-verify --verbose  tests/fixtures/packs/pack-a2bf8e71d8c18879e499335762dd95119d93d9f1.idx`
 mod resolve_header {
+    use gix_error::Result;
+
     use crate::{SMALL_PACK, data::file::pack_at};
 
     #[test]
@@ -195,7 +246,7 @@ mod resolve_header {
     }
 
     fn resolve_header_at_offset(offset: u64) -> gix_pack::data::decode::header::Outcome {
-        fn resolve_with_panic(_oid: &gix_hash::oid) -> Option<gix_pack::data::decode::header::ResolvedBase> {
+        fn resolve_with_panic(_oid: &gix_hash::oid) -> Result<Option<gix_pack::data::decode::header::ResolvedBase>> {
             panic!("should not want to resolve an id here")
         }
 
@@ -261,6 +312,19 @@ mod decompress_entry {
             187,
             "the buffer is larger than the alloc limit and that's alright"
         );
+    }
+
+    #[test]
+    fn caller_provided_buffer_must_be_large_enough() {
+        let p = pack_at(SMALL_PACK);
+        let entry = p.entry(1968).expect("valid object type");
+        let mut buf = vec![0; entry.decompressed_size as usize - 1];
+
+        let err = p
+            .decompress_entry(&entry, &mut Default::default(), &mut buf)
+            .expect_err("an undersized caller-provided buffer is invalid input");
+        insta::assert_debug_snapshot!(err, "caller provided buffer must be large enough", @"Output buffer is too small for the decompressed entry");
+        assert!(err.is_validation());
     }
 
     fn decompress_entry_at_offset(offset: u64) -> Vec<u8> {

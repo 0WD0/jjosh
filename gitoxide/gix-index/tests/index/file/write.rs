@@ -1,11 +1,14 @@
 use filetime::FileTime;
 use gix_index::{State, Version, entry, extension, write, write::Options};
+use gix_error::ErrorExt;
+use gix_error::ResultExt;
+use gix_testtools::TestResult;
 
 use crate::Fixture::*;
 
 /// Round-trips should eventually be possible for all files we have, as we write them back exactly as they were read.
 #[test]
-fn roundtrips() -> crate::Result {
+fn roundtrips() -> TestResult {
     let input = [
         (Loose("extended-flags"), only_tree_ext()),
         (Loose("conflicting-file"), only_tree_ext()),
@@ -48,7 +51,7 @@ fn roundtrips() -> crate::Result {
 }
 
 #[test]
-fn skip_hash() -> crate::Result {
+fn skip_hash() -> TestResult {
     let tmp = gix_testtools::tempfile::TempDir::new()?;
     let path = tmp.path().join("index");
     let mut expected = Loose("conflicting-file").open();
@@ -89,7 +92,7 @@ fn skip_hash() -> crate::Result {
 }
 
 #[test]
-fn write_with_inspects_staged_bytes_and_can_reject_commit() -> crate::Result {
+fn write_with_inspects_staged_bytes_and_can_reject_commit() -> TestResult {
     let tmp = gix_testtools::tempfile::TempDir::new()?;
     let path = tmp.path().join("index");
     let lock_path = tmp.path().join("index.lock");
@@ -107,12 +110,13 @@ fn write_with_inspects_staged_bytes_and_can_reject_commit() -> crate::Result {
         .write_with(Options::default(), |lock| {
             assert_eq!(lock.resource_path(), path);
             assert_eq!(lock.lock_path(), lock_path);
-            assert_eq!(std::fs::read(lock.resource_path())?, original_bytes);
+            assert_eq!(std::fs::read(lock.resource_path()).or_error()?, original_bytes);
             assert!(matches!(
                 gix_lock::File::acquire_to_update_resource(
                     lock.resource_path(),
                     gix_lock::acquire::Fail::Immediately,
                     None,
+                    0,
                 ),
                 Err(err) if err.downcast_any_ref::<std::io::Error>()
                     .is_some_and(|source| source.kind() == std::io::ErrorKind::AlreadyExists)
@@ -120,16 +124,14 @@ fn write_with_inspects_staged_bytes_and_can_reject_commit() -> crate::Result {
             let staged = gix_index::File::at(lock.lock_path(), object_hash, false, Default::default())?;
             assert_eq!(staged.version(), Version::V3);
             assert!(staged.entries()[0].flags.contains(entry::Flags::EXTENDED));
-            staged_bytes = std::fs::read(lock.lock_path())?;
+            staged_bytes = std::fs::read(lock.lock_path()).or_error()?;
             assert_ne!(staged_bytes, original_bytes);
-            Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied).into())
+            Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied).raise())
         })
         .expect_err("the callback rejects the commit");
-    let gix_index::file::write::Error::BeforeCommit(source) = err else {
-        panic!("expected the callback error");
-    };
+    let source = err.downcast_any_ref::<std::io::Error>().expect("original callback error");
     assert_eq!(
-        source.downcast_ref::<std::io::Error>().expect("original error").kind(),
+        source.kind(),
         std::io::ErrorKind::PermissionDenied
     );
     assert_eq!(std::fs::read(&path)?, original_bytes);
@@ -140,11 +142,12 @@ fn write_with_inspects_staged_bytes_and_can_reject_commit() -> crate::Result {
         &path,
         gix_lock::acquire::Fail::Immediately,
         None,
+        0,
     )?);
 
     index.write_with(Options::default(), |lock| {
-        assert_eq!(std::fs::read(lock.resource_path())?, original_bytes);
-        assert_eq!(std::fs::read(lock.lock_path())?, staged_bytes);
+        assert_eq!(std::fs::read(lock.resource_path()).or_error()?, original_bytes);
+        assert_eq!(std::fs::read(lock.lock_path()).or_error()?, staged_bytes);
         Ok(())
     })?;
     assert_eq!(std::fs::read(&path)?, staged_bytes);
@@ -158,7 +161,7 @@ fn write_with_inspects_staged_bytes_and_can_reject_commit() -> crate::Result {
 }
 
 #[test]
-fn roundtrips_sparse_index() -> crate::Result {
+fn roundtrips_sparse_index() -> TestResult {
     // NOTE: I initially tried putting these fixtures into the main roundtrip test above,
     // but the call to `compare_raw_bytes` panics. It seems like git is using a different
     // ordering when it comes to writing the tree extension. Need to investigate more, hence
@@ -258,7 +261,7 @@ fn state_comparisons_with_various_extension_configurations() {
 }
 
 #[test]
-fn extended_flags_automatically_upgrade_the_version_to_avoid_data_loss() -> crate::Result {
+fn extended_flags_automatically_upgrade_the_version_to_avoid_data_loss() -> TestResult {
     let mut expected = Generated("v2").open();
     assert_eq!(expected.version(), Version::V2);
     expected.entries_mut()[0].flags.insert(entry::Flags::EXTENDED);
@@ -271,7 +274,7 @@ fn extended_flags_automatically_upgrade_the_version_to_avoid_data_loss() -> crat
 }
 
 #[test]
-fn remove_flag_is_respected() -> crate::Result {
+fn remove_flag_is_respected() -> TestResult {
     let mut index = Generated("v4_more_files_IEOT").open();
     let total_entries = 10;
     assert_eq!(index.entries().len(), total_entries);

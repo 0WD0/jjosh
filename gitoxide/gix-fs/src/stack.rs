@@ -1,86 +1,73 @@
+use gix_error::Result;
 use std::{
     ffi::OsStr,
     path::{Component, Path, PathBuf},
 };
 
 use bstr::{BStr, BString, ByteSlice};
+use gix_error::message;
 
 use crate::Stack;
-
-///
-pub mod to_normal_path_components {
-    /// The error used in [`ToNormalPathComponents::to_normal_path_components()`](super::ToNormalPathComponents::to_normal_path_components()).
-    pub type Error = gix_error::ValidationError;
-}
 
 /// Obtain an iterator over `OsStr`-components which are normal, none-relative and not absolute.
 pub trait ToNormalPathComponents {
     /// Return an iterator over the normal components of a path, without the separator.
-    fn to_normal_path_components(&self) -> impl Iterator<Item = Result<&OsStr, to_normal_path_components::Error>>;
+    fn to_normal_path_components(&self) -> impl Iterator<Item = Result<&OsStr>>;
 }
 
 impl ToNormalPathComponents for &Path {
-    fn to_normal_path_components(&self) -> impl Iterator<Item = Result<&OsStr, to_normal_path_components::Error>> {
-        self.components().map(|c| component_to_os_str(c, self))
+    fn to_normal_path_components(&self) -> impl Iterator<Item = Result<&OsStr>> {
+        self.components().map(|c| component_to_os_str(c, self.display()))
     }
 }
 
 impl ToNormalPathComponents for PathBuf {
-    fn to_normal_path_components(&self) -> impl Iterator<Item = Result<&OsStr, to_normal_path_components::Error>> {
-        self.components().map(|c| component_to_os_str(c, self))
+    fn to_normal_path_components(&self) -> impl Iterator<Item = Result<&OsStr>> {
+        self.components().map(|c| component_to_os_str(c, self.display()))
     }
 }
 
-fn component_to_os_str<'a>(
-    component: Component<'a>,
-    path_with_component: &Path,
-) -> Result<&'a OsStr, to_normal_path_components::Error> {
+fn component_to_os_str(component: Component<'_>, path_with_component: impl std::fmt::Display) -> Result<&OsStr> {
     match component {
         Component::Normal(os_str) => Ok(os_str),
-        _ => Err(to_normal_path_components::Error::new(format!(
-            "Input path \"{}\" contains relative or absolute components",
-            path_with_component.display()
-        ))),
+        _ => Err(
+            message!("Input path \"{path_with_component}\" contains relative or absolute components")
+                .validation_error(),
+        ),
     }
 }
 
 impl ToNormalPathComponents for &BStr {
-    fn to_normal_path_components(&self) -> impl Iterator<Item = Result<&OsStr, to_normal_path_components::Error>> {
+    fn to_normal_path_components(&self) -> impl Iterator<Item = Result<&OsStr>> {
         self.split(|b| *b == b'/')
             .filter_map(|c| bytes_component_to_os_str(c, self))
     }
 }
 
 impl ToNormalPathComponents for &str {
-    fn to_normal_path_components(&self) -> impl Iterator<Item = Result<&OsStr, to_normal_path_components::Error>> {
+    fn to_normal_path_components(&self) -> impl Iterator<Item = Result<&OsStr>> {
         self.split('/')
             .filter_map(|c| bytes_component_to_os_str(c.as_bytes(), (*self).into()))
     }
 }
 
 impl ToNormalPathComponents for &BString {
-    fn to_normal_path_components(&self) -> impl Iterator<Item = Result<&OsStr, to_normal_path_components::Error>> {
+    fn to_normal_path_components(&self) -> impl Iterator<Item = Result<&OsStr>> {
         self.split(|b| *b == b'/')
             .filter_map(|c| bytes_component_to_os_str(c, self.as_bstr()))
     }
 }
 
-fn bytes_component_to_os_str<'a>(
-    component: &'a [u8],
-    path: &BStr,
-) -> Option<Result<&'a OsStr, to_normal_path_components::Error>> {
+fn bytes_component_to_os_str<'a>(component: &'a [u8], path: &BStr) -> Option<Result<&'a OsStr>> {
     if component.is_empty() {
         return None;
     }
-    let component = match gix_path::try_from_byte_slice(component.as_bstr()) {
+    let component = match gix_path::from_byte_slice(component.as_bstr()) {
         Ok(c) => c,
         Err(err) => return Some(Err(err)),
     };
     let component = component.components().next()?;
-    Some(component_to_os_str(
-        component,
-        gix_path::try_from_byte_slice(path.as_ref()).ok()?,
-    ))
+    Some(component_to_os_str(component, path))
 }
 
 /// Access
@@ -171,7 +158,10 @@ impl Stack {
                         break;
                     }
                 }
-                Err(err) => return Err(std::io::Error::other(format!("{err}"))),
+                Err(_) => {
+                    let err = components.next().expect("just peeked").expect_err("peeked an error");
+                    return Err(std::io::Error::other(err));
+                }
             }
         }
 

@@ -5,16 +5,16 @@ mod reflog {
         use crate::file;
 
         #[test]
-        fn iter() -> crate::Result {
+        fn iter() -> gix_testtools::TestResult {
             let store = file::store_with_packed_refs()?;
             let r = store.find("main")?;
             assert_eq!(r.log_iter(&store).all()?.expect("log exists").count(), 1);
-            assert!(r.log_exists(&store), "it exists if its readable");
+            assert!(r.log_exists(&store)?, "it exists if its readable");
             Ok(())
         }
 
         #[test]
-        fn iter_rev() -> crate::Result {
+        fn iter_rev() -> gix_testtools::TestResult {
             let store = file::store_with_packed_refs()?;
             let r = store.find("main")?;
             assert_eq!(r.log_iter(&store).rev()?.expect("log exists").count(), 1);
@@ -26,17 +26,17 @@ mod reflog {
         use crate::file;
 
         #[test]
-        fn iter() -> crate::Result {
+        fn iter() -> gix_testtools::TestResult {
             let store = file::store()?;
             let r = store.find_loose("HEAD")?;
             let mut buf = Vec::new();
             assert_eq!(r.log_iter(&store, &mut buf)?.expect("log exists").count(), 1);
-            assert!(r.log_exists(&store), "it exists if its readable");
+            assert!(r.log_exists(&store)?, "it exists if its readable");
             Ok(())
         }
 
         #[test]
-        fn iter_rev() -> crate::Result {
+        fn iter_rev() -> gix_testtools::TestResult {
             let store = file::store()?;
             let r = store.find_loose("HEAD")?;
             let mut buf = [0u8; 256];
@@ -47,6 +47,7 @@ mod reflog {
 }
 
 mod peel {
+    use gix_error::Message;
     use gix_object::FindExt;
     use gix_ref::{Reference, file::ReferenceExt};
 
@@ -57,12 +58,12 @@ mod peel {
     };
 
     #[test]
-    fn one_level() -> crate::Result {
+    fn one_level() -> gix_testtools::TestResult {
         let store = file::store()?;
         let r = store.find_loose("HEAD")?;
         assert_eq!(r.kind(), gix_ref::Kind::Symbolic, "there is something to peel");
 
-        let nr = Reference::from(r).follow(&store).expect("exists").expect("no failure");
+        let nr = Reference::from(r).follow(&store).expect("exists")?;
         assert!(
             matches!(nr.target.to_ref(), gix_ref::TargetRef::Object(_)),
             "iteration peels a single level"
@@ -77,7 +78,7 @@ mod peel {
     }
 
     #[test]
-    fn peel_with_packed_involvement() -> crate::Result {
+    fn peel_with_packed_involvement() -> gix_testtools::TestResult {
         let store = store_with_packed_refs()?;
         let mut head: Reference = store.find_loose("HEAD")?.into();
         let expected = hex_to_id("134385f6d781b7e97062102c6a483440bfda2a03");
@@ -91,7 +92,7 @@ mod peel {
     }
 
     #[test]
-    fn peel_one_level_with_pack() -> crate::Result {
+    fn peel_one_level_with_pack() -> gix_testtools::TestResult {
         let store = store_with_packed_refs()?;
 
         let mut head = store.find("dt1")?;
@@ -129,7 +130,7 @@ mod peel {
     }
 
     #[test]
-    fn to_id_multi_hop() -> crate::Result {
+    fn to_id_multi_hop() -> gix_testtools::TestResult {
         let store = file::store()?;
         let mut r: Reference = store.find_loose("multi-link")?.into();
         assert_eq!(r.kind(), gix_ref::Kind::Symbolic, "there is something to peel");
@@ -153,7 +154,7 @@ mod peel {
     }
 
     #[test]
-    fn to_id_long_jump() -> crate::Result {
+    fn to_id_long_jump() -> gix_testtools::TestResult {
         for packed in [None, Some("packed")] {
             let store = file::store_at_with_args("make_multi_hop_ref.sh", packed)?;
             let odb = crate::file::odb_at(store.git_dir().join("objects"))?;
@@ -185,23 +186,39 @@ mod peel {
     }
 
     #[test]
-    fn to_id_cycle() -> crate::Result {
+    fn to_id_cycle() -> gix_testtools::TestResult {
         let store = file::store()?;
         let mut r: Reference = store.find_loose("loop-a")?.into();
         assert_eq!(r.kind(), gix_ref::Kind::Symbolic, "there is something to peel");
         assert_eq!(r, "refs/loop-a");
 
-        assert!(matches!(
-            r.peel_to_id(&store, &gix_object::find::Never).unwrap_err(),
-            gix_ref::peel::to_id::Error::FollowToObject(gix_ref::peel::to_object::Error::Cycle { .. })
-        ));
+        let err = r.peel_to_id(&store, &gix_object::find::Never).expect_err("cyclic refs");
+        insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&(err), &[(&(store.git_dir()).to_string_lossy(), "<git-dir>")]), "a symbolic cycle is corruption", @r#"Aborting symbolic reference cycle, path="<git-dir>/refs/loop-a""#);
+        assert!(err.is_corrupted(), "a symbolic cycle is corruption");
+        assert_eq!(err.iter_errors().count(), 1, "a cycle does not need a synthetic cause");
+        let details = err.metadata().next().expect("cycle details");
+        assert_eq!(
+            err.downcast_any_ref::<Message>().expect("cycle diagnostic").class,
+            Some(gix_error::Class::Corruption),
+            "the diagnostic itself classifies the cycle"
+        );
+        assert_eq!(
+            details["path"],
+            gix_error::MetadataValue::from(store.git_dir().join("refs/loop-a")),
+            "the path that closes the cycle remains available"
+        );
+        assert!(
+            err.probable_cause().is::<Message>(),
+            "the cycle diagnostic itself is the probable cause"
+        );
         assert_eq!(r, "refs/loop-a", "the ref is not changed on error");
 
         let mut r: Reference = store.find_loose("loop-a")?.into();
         let err = r
             .follow_to_object_packed(&store, store.cached_packed_buffer()?.as_ref().map(|p| &***p))
-            .unwrap_err();
-        assert!(matches!(err, gix_ref::peel::to_object::Error::Cycle { .. }));
+            .expect_err("the symbolic references form a cycle");
+        insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&(err), &[(&(store.git_dir()).to_string_lossy(), "<git-dir>")]), "following also reports the cycle", @r#"Aborting symbolic reference cycle, path="<git-dir>/refs/loop-a""#);
+        assert!(err.is_corrupted(), "following also reports the cycle");
         Ok(())
     }
 }
@@ -222,16 +239,26 @@ mod parse {
                     )
                     .expect_err("the loose reference content is invalid or unsupported");
                     assert_eq!(
-                        err.to_string(),
-                        $err,
-                        "the error identifies why decoding failed"
+                        err.is_unsupported(),
+                        $input.as_slice() == b"ref: refs/heads/.invalid\n",
+                        "only the reftable placeholder calls for a different storage backend"
+                    );
+                    assert_eq!(
+                        err.metadata().next().expect("decode context")["input"],
+                        gix_error::MetadataValue::from($input.as_slice()),
+                        "the original contents remain available"
+                    );
+                    assert!(
+                        err.iter_errors()
+                            .any(|cause| cause.to_string().contains($err)),
+                        "the error identifies why decoding failed: {err}"
                     );
                 }
             };
         }
 
-        mktest!(hex_id, b"foobar", "\"foobar\" could not be parsed");
-        mktest!(ref_tag, b"reff: hello", "\"reff: hello\" could not be parsed");
+        mktest!(hex_id, b"foobar", "Reference content could not be parsed");
+        mktest!(ref_tag, b"reff: hello", "Reference content could not be parsed");
         mktest!(
             reftable_placeholder,
             b"ref: refs/heads/.invalid\n",
@@ -240,17 +267,17 @@ mod parse {
         mktest!(
             other_invalid_symbolic_target,
             b"ref: refs/heads/.invalid-other\n",
-            "The path \"refs/heads/.invalid-other\" to a symbolic reference within a ref file is invalid"
+            "Invalid symbolic reference target"
         );
         mktest!(
             sha256_sized_id_for_sha1,
             b"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
-            "\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\n\" could not be parsed"
+            "Reference content could not be parsed"
         );
         mktest!(
             trailing_garbage_after_id,
             b"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaextra",
-            "\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaextra\" could not be parsed"
+            "Reference content could not be parsed"
         );
     }
     mod valid {

@@ -28,6 +28,24 @@ fn names_must_not_be_empty_but_may_use_the_builtin_namespace() {
     );
 }
 
+#[test]
+fn conversion_errors_retain_validation_and_input() {
+    for input in [b"".as_slice(), b"-name", b"bad name", "你好".as_bytes(), b"\xff"] {
+        let err: gix_error::Error =
+            NameRef::try_from(bstr::BStr::new(input)).expect_err("invalid attribute names must be rejected");
+        assert!(err.is_validation(), "invalid attribute names are validation errors");
+        assert_eq!(
+            err.metadata().find_map(|metadata| metadata.get("input")),
+            Some(&gix_error::MetadataValue::Bytes(input.into())),
+            "name conversion retains the original invalid bytes"
+        );
+        assert!(
+            err.downcast_any_ref::<gix_error::Message>().is_some(),
+            "the validation message remains available for recovery"
+        );
+    }
+}
+
 #[cfg(feature = "serde")]
 #[test]
 fn deserialize_rejects_empty_names() {

@@ -24,7 +24,7 @@ impl gix_object::Write for Stage {
         kind: gix_object::Kind,
         from: &[u8],
         _id: gix_hash::ObjectId,
-    ) -> Result<gix_hash::ObjectId, gix_object::write::Error> {
+    ) -> gix_error::Result<gix_hash::ObjectId> {
         Ok(self.stage(kind, from.to_vec()))
     }
 
@@ -33,9 +33,9 @@ impl gix_object::Write for Stage {
         kind: gix_object::Kind,
         _size: u64,
         from: &mut dyn std::io::Read,
-    ) -> Result<gix_hash::ObjectId, gix_object::write::Error> {
+    ) -> gix_error::Result<gix_hash::ObjectId> {
         let mut data = Vec::new();
-        from.read_to_end(&mut data)?;
+        from.read_to_end(&mut data).map_err(gix_error::Error::from_error)?;
         Ok(self.stage(kind, data))
     }
 
@@ -45,9 +45,9 @@ impl gix_object::Write for Stage {
         _size: u64,
         from: &mut dyn std::io::Read,
         _id: gix_hash::ObjectId,
-    ) -> Result<gix_hash::ObjectId, gix_object::write::Error> {
+    ) -> gix_error::Result<gix_hash::ObjectId> {
         let mut data = Vec::new();
-        from.read_to_end(&mut data)?;
+        from.read_to_end(&mut data).map_err(gix_error::Error::from_error)?;
         Ok(self.stage(kind, data))
     }
 }

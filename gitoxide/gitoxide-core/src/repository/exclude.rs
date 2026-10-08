@@ -1,7 +1,10 @@
 use std::{borrow::Cow, io};
 
-use anyhow::bail;
-use gix::bstr::{BStr, ByteSlice};
+use gix::{
+    Result,
+    bstr::{BStr, ByteSlice},
+    error::{ResultExt, bail},
+};
 
 use crate::{OutputFormat, is_dir_to_mode, repository::PathsOrPatterns};
 
@@ -29,9 +32,9 @@ pub fn query(
         show_ignore_patterns,
         statistics,
     }: query::Options,
-) -> anyhow::Result<()> {
+) -> Result<()> {
     if format != OutputFormat::Human {
-        bail!("JSON output isn't implemented yet");
+        bail!(gix::error::unsupported("JSON output isn't implemented yet"));
     }
 
     let index = repo.index()?;
@@ -49,7 +52,7 @@ pub fn query(
         PathsOrPatterns::Patterns(paths) => Box::new(paths.into_iter()),
     };
     for path in paths {
-        let mode = gix::path::from_bstr(Cow::Borrowed(path.as_ref()))
+        let mode = gix::path::from_bstr(Cow::Borrowed(path.as_ref()))?
             .metadata()
             .ok()
             .map(|m| is_dir_to_mode(m.is_dir()))
@@ -59,11 +62,11 @@ pub fn query(
         let match_ = entry
             .matching_exclude_pattern()
             .filter(|m| show_ignore_patterns || !m.pattern.is_negative());
-        print_match_unless_tracked(match_, &index, query_path.as_bstr(), path.as_ref(), &mut out)?;
+        print_match_unless_tracked(match_, &index, query_path.as_bstr(), path.as_ref(), &mut out).or_error()?;
     }
 
     if let Some(stats) = statistics.then(|| cache.take_statistics()) {
-        out.flush()?;
+        out.flush().or_error()?;
         writeln!(err, "{stats:#?}").ok();
     }
     Ok(())

@@ -185,13 +185,19 @@ pub fn normalize_repo_path(repo_path: &std::path::Path) -> PathBuf {
     }
 }
 
-pub(crate) fn map_discovery_error(error: gix::discover::Error) -> anyhow::Error {
+pub(crate) fn map_discovery_error(error: gix::Error) -> anyhow::Error {
     // Preserve the long-standing CLI error for "not in a repository"; gix's discovery error
     // embeds the absolute current directory, which makes the message unstable.
-    if error
-        .to_string()
-        .starts_with("Could not find a git repository")
-    {
+    if error.iter_errors().any(|source| {
+        matches!(
+            source.downcast_ref::<gix::discover::upwards::Error>(),
+            Some(
+                gix::discover::upwards::Error::NoGitRepository { .. }
+                    | gix::discover::upwards::Error::NoGitRepositoryWithinCeiling { .. }
+                    | gix::discover::upwards::Error::NoGitRepositoryWithinFs { .. }
+            )
+        )
+    }) {
         anyhow!("could not find repository at '.'; class=Repository (6); code=NotFound (-3)")
     } else {
         anyhow::Error::new(error)
@@ -535,6 +541,33 @@ pub fn read_tree_id(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn discovery_absence_keeps_the_stable_cli_error() {
+        let error = gix::Error::from_error(gix::discover::upwards::Error::NoGitRepository {
+            path: "/not/a/repository".into(),
+        });
+        assert_eq!(
+            super::map_discovery_error(error).to_string(),
+            "could not find repository at '.'; class=Repository (6); code=NotFound (-3)"
+        );
+    }
+
+    #[test]
+    fn discovery_operational_errors_are_preserved() {
+        let error = gix::Error::from_error(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "repository access denied",
+        ));
+        let error = super::map_discovery_error(error);
+        assert!(
+            error
+                .downcast_ref::<gix::Error>()
+                .unwrap()
+                .iter_errors()
+                .any(|source| source.is::<std::io::Error>())
+        );
+    }
+
     fn signature() -> gix_actor::Signature {
         gix_actor::Signature {
             name: "t".into(),

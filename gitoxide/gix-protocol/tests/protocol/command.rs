@@ -121,6 +121,7 @@ mod v2 {
 
         mod validate {
             use bstr::ByteSlice;
+            use gix_error::{Message, classify};
             use gix_protocol::Command;
 
             use super::super::capabilities;
@@ -141,35 +142,87 @@ mod v2 {
 
             #[test]
             fn unknown_argument() {
-                assert_eq!(
-                    Command::LsRefs
-                        .validate_argument_prefixes(
-                            gix_transport::Protocol::V2,
-                            &capabilities("other", "do-not-matter"),
-                            &[b"definitely-nothing-we-know".as_bstr().into()],
-                            &[],
-                        )
-                        .unwrap_err()
-                        .to_string(),
-                    "ls-refs: argument definitely-nothing-we-know is not known or allowed"
-                );
+                let err = Command::LsRefs
+                    .validate_argument_prefixes(
+                        gix_transport::Protocol::V2,
+                        &capabilities("other", "do-not-matter"),
+                        &[b"definitely-nothing-we-know".as_bstr().into()],
+                        &[],
+                    )
+                    .expect_err("the argument is unknown");
+                let err = err
+                    .downcast_any_ref::<Message>()
+                    .expect("the parser message is retained");
+                assert!(classify(err).is_validation(), "unknown arguments are invalid input");
+                insta::assert_debug_snapshot!(err, "unknown argument", @r#"
+                Message {
+                    message: "ls-refs: argument definitely-nothing-we-know is not known or allowed",
+                    class: Validation,
+                }
+                "#);
             }
 
             #[test]
             fn unknown_feature() {
-                assert_eq!(
-                    Command::LsRefs
+                let mut error_snapshots = Vec::new();
+                for version in [
+                    gix_transport::Protocol::V0,
+                    gix_transport::Protocol::V1,
+                    gix_transport::Protocol::V2,
+                ] {
+                    let err = Command::LsRefs
                         .validate_argument_prefixes(
-                            gix_transport::Protocol::V2,
+                            version,
                             &capabilities("other", "do-not-matter"),
                             &[],
                             &[("some-feature-that-does-not-exist", None)],
                         )
-                        .unwrap_err()
-                        .to_string(),
-                    "ls-refs: capability some-feature-that-does-not-exist is not supported"
-                );
+                        .expect_err("the feature is unsupported");
+                    let err = err
+                        .downcast_any_ref::<Message>()
+                        .expect("the parser message is retained");
+                    assert!(
+                        classify(err).is_unsupported(),
+                        "unadvertised capabilities require a different capability or server"
+                    );
+                    error_snapshots.push(gix_testtools::redact_debug_snapshot(&(err), &[]));
+                }
+                insta::assert_debug_snapshot!(error_snapshots, "unknown feature", @r#"
+                [
+                    Message {
+                        message: "ls-refs: capability some-feature-that-does-not-exist is not supported",
+                        class: Unsupported,
+                    },
+                    Message {
+                        message: "ls-refs: capability some-feature-that-does-not-exist is not supported",
+                        class: Unsupported,
+                    },
+                    Message {
+                        message: "ls-refs: capability some-feature-that-does-not-exist is not supported",
+                        class: Unsupported,
+                    },
+                ]
+                "#);
             }
         }
+    }
+}
+
+#[test]
+fn known_but_unadvertised_fetch_capabilities_are_unsupported() {
+    for version in [
+        gix_transport::Protocol::V0,
+        gix_transport::Protocol::V1,
+        gix_transport::Protocol::V2,
+    ] {
+        let server = gix_transport::client::Capabilities::default();
+        let err = gix_protocol::Command::Fetch
+            .validate_argument_prefixes(version, &server, &[], &[("filter", None)])
+            .expect_err("the server does not advertise filtering");
+        assert!(
+            err.is_unsupported(),
+            "missing server support requires a capability fallback"
+        );
+        assert!(!err.is_validation(), "a known capability is not malformed caller input");
     }
 }

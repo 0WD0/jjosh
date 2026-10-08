@@ -2,6 +2,7 @@ use gix_merge::blob::Platform;
 use gix_worktree::stack::state::attributes;
 
 mod merge {
+    use gix_testtools::TestResult;
     use std::{convert::Infallible, path::Path, process::Stdio};
 
     use bstr::{BStr, ByteSlice};
@@ -22,7 +23,7 @@ mod merge {
     };
 
     #[test]
-    fn builtin_text_uses_binary_if_needed() -> crate::Result {
+    fn builtin_text_uses_binary_if_needed() -> TestResult {
         let mut platform = new_platform(None, pipeline::Mode::ToGit);
         platform.set_resource(
             gix_hash::Kind::Sha1.null(),
@@ -72,7 +73,7 @@ mod merge {
     }
 
     #[test]
-    fn same_binaries_do_not_count_as_conflicted() -> crate::Result {
+    fn same_binaries_do_not_count_as_conflicted() -> TestResult {
         let mut platform = new_platform(None, pipeline::Mode::ToGit);
         platform.set_resource(
             gix_hash::Kind::Sha1.null(),
@@ -121,7 +122,7 @@ mod merge {
     }
 
     #[test]
-    fn builtin_with_conflict() -> crate::Result {
+    fn builtin_with_conflict() -> TestResult {
         let mut platform = new_platform(None, pipeline::Mode::ToGit);
         let non_existing_ancestor_id = hex_to_id("ffffffffffffffffffffffffffffffffffffffff");
         platform.set_resource(
@@ -216,7 +217,7 @@ theirs
         );
         assert_eq!(
             platform_ref
-                .id_by_pick(res.0, &buf, |_buf| -> Result<_, Infallible> {
+                .id_by_pick(res.0, &buf, |_buf| -> std::result::Result<_, Infallible> {
                     panic!("no need to write buffer")
                 })
                 .unwrap()
@@ -252,7 +253,7 @@ theirs
 
             assert_eq!(
                 platform_ref
-                    .id_by_pick(res.0, &buf, |_buf| -> Result<_, Infallible> {
+                    .id_by_pick(res.0, &buf, |_buf| -> std::result::Result<_, Infallible> {
                         panic!("no need to write buffer")
                     })
                     .unwrap()
@@ -266,7 +267,53 @@ theirs
     }
 
     #[test]
-    fn with_external() -> crate::Result {
+    fn external_driver_failure_is_unclassified() -> TestResult {
+        for exit_code in [1, 2] {
+            let mut platform = new_platform(
+                [gix_merge::blob::Driver {
+                    name: "b".into(),
+                    command: format!("exit {exit_code};").into(),
+                    ..Default::default()
+                }],
+                pipeline::Mode::ToGit,
+            );
+            let db = object_db();
+            for (content, kind) in [
+                ("base", ResourceKind::CommonAncestorOrBase),
+                ("ours", ResourceKind::CurrentOrOurs),
+                ("theirs", ResourceKind::OtherOrTheirs),
+            ] {
+                let blob_id = insert(&db, content)?;
+                platform.set_resource(blob_id, EntryKind::Blob, "b".into(), kind, &db)?;
+            }
+            let platform_ref = platform.prepare_merge(&db, Default::default())?;
+            let err = platform_ref
+                .merge(&mut Vec::new(), default_labels(), &Default::default())
+                .expect_err("the external driver exits unsuccessfully");
+            assert!(
+                err.classify().next().is_none(),
+                "an external driver conflict or failure does not establish invalid input, corruption, or retryability"
+            );
+            let diagnostic = err
+                .iter_errors()
+                .find_map(|err| err.downcast_ref::<gix_error::Message>())
+                .expect("the external driver failure has a diagnostic message");
+            assert!(
+                diagnostic.message.starts_with("External merge driver failed: ")
+                    && !diagnostic.message.contains("exit status"),
+                "the external driver's failure diagnostic retains the command without repeating its status"
+            );
+            assert_eq!(
+                diagnostic.values.get("exit_code"),
+                Some(&gix_error::MetadataValue::from(exit_code)),
+                "the external driver's exit code is retained in metadata"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn with_external() -> TestResult {
         let mut platform = new_platform(
             [gix_merge::blob::Driver {
                 name: "b".into(),
@@ -366,7 +413,7 @@ theirs
     #[test]
     #[cfg(not(windows))] // assertions aren't handling Windows paths, and there is no need.
     /// This test is a complex behavioural test for an external merge driver similar to `mergiraf`.
-    fn with_external_mergiraf_like_driver_uses_worktree_tempfiles_from_context() -> crate::Result {
+    fn with_external_mergiraf_like_driver_uses_worktree_tempfiles_from_context() -> TestResult {
         let mut platform = new_platform(
             [gix_merge::blob::Driver {
                 name: "b".into(),
@@ -433,9 +480,9 @@ cat "%B" >> "%A""#
             );
         }
 
-        let lines: Vec<_> = lines
-            .map(|line| line.to_str().expect("driver output is valid UTF-8"))
-            .collect();
+        let lines = lines
+            .map(ByteSlice::to_str)
+            .collect::<std::result::Result<Vec<_>, _>>()?;
         assert_eq!(
             lines,
             [
@@ -456,7 +503,7 @@ cat "%B" >> "%A""#
     }
 
     #[test]
-    fn missing_buffers_are_empty_buffers() -> crate::Result {
+    fn missing_buffers_are_empty_buffers() -> TestResult {
         let mut platform = new_platform(None, pipeline::Mode::ToGit);
         platform.set_resource(
             gix_hash::Kind::Sha1.null(),
@@ -520,7 +567,7 @@ cat "%B" >> "%A""#
     }
 
     #[test]
-    fn one_buffer_too_large() -> crate::Result {
+    fn one_buffer_too_large() -> TestResult {
         let mut platform = new_platform(None, pipeline::Mode::ToGit);
         platform.filter.options.large_file_threshold_bytes = 9;
         platform.set_resource(
@@ -569,15 +616,16 @@ cat "%B" >> "%A""#
         let err = platform_ref
             .prepare_external_driver("bogus".into(), Default::default(), Default::default())
             .unwrap_err();
+        insta::assert_debug_snapshot!(err, "however, for external drivers, resources can still be too much to handle, until we learn how to stream them", @"The resource of kind OtherOrTheirs was too large to be processed");
         assert!(
-            matches!(err, platform::prepare_external_driver::Error::ResourceTooLarge { .. }),
+            err.is_validation(),
             "however, for external drivers, resources can still be too much to handle, until we learn how to stream them"
         );
         Ok(())
     }
 
     fn cleaned_driver_lines(buf: &[u8]) -> std::io::Result<impl Iterator<Item = &BStr>> {
-        let current_dir = gix_path::into_bstr(std::env::current_dir()?);
+        let current_dir = gix_path::into_bstr(std::env::current_dir()?).expect("fixture path is representable");
         Ok(buf
             .lines()
             .map(move |line| line.strip_prefix(current_dir.as_bytes()).unwrap_or(line).as_bstr()))
@@ -598,11 +646,12 @@ mod prepare_merge {
         platform::{DriverChoice, resource},
     };
     use gix_object::tree::EntryKind;
+    use gix_testtools::TestResult;
 
     use crate::blob::platform::new_platform;
 
     #[test]
-    fn ancestor_and_current_and_other_do_not_exist() -> crate::Result {
+    fn ancestor_and_current_and_other_do_not_exist() -> TestResult {
         let mut platform = new_platform(None, pipeline::Mode::ToGit);
         platform.set_resource(
             gix_hash::Kind::Sha1.null(),
@@ -627,9 +676,7 @@ mod prepare_merge {
             &gix_object::find::Never,
         )?;
 
-        let state = platform
-            .prepare_merge(&gix_object::find::Never, Default::default())
-            .expect("no validation is done here, let the caller inspect");
+        let state = platform.prepare_merge(&gix_object::find::Never, Default::default())?;
         assert_eq!(state.ancestor.data, resource::Data::Missing);
         assert_eq!(state.current.data, resource::Data::Missing);
         assert_eq!(state.other.data, resource::Data::Missing);
@@ -637,7 +684,7 @@ mod prepare_merge {
     }
 
     #[test]
-    fn driver_selection() -> crate::Result {
+    fn driver_selection() -> TestResult {
         let mut platform = new_platform(
             [
                 gix_merge::blob::Driver {
@@ -813,22 +860,31 @@ mod set_resource {
 
     #[test]
     fn invalid_resource_types() {
+        let mut error_snapshots = Vec::new();
         let mut platform = new_platform(None, pipeline::Mode::ToGit);
-        for (mode, name) in [(EntryKind::Commit, "Commit"), (EntryKind::Tree, "Tree")] {
-            assert_eq!(
-                platform
-                    .set_resource(
-                        gix_hash::Kind::Sha1.null(),
-                        mode,
-                        "a".into(),
-                        ResourceKind::OtherOrTheirs,
-                        &gix_object::find::Never,
-                    )
-                    .unwrap_err()
-                    .to_string(),
-                format!("Can only diff blobs, not {name}")
+        for mode in [EntryKind::Commit, EntryKind::Tree, EntryKind::Link] {
+            let err = platform
+                .set_resource(
+                    gix_hash::Kind::Sha1.null(),
+                    mode,
+                    "a".into(),
+                    ResourceKind::OtherOrTheirs,
+                    &gix_object::find::Never,
+                )
+                .expect_err("only regular blobs and executable blobs are mergeable resources");
+            assert!(
+                err.is_validation(),
+                "unsupported resource modes violate the API contract"
             );
+            error_snapshots.push(gix_testtools::redact_debug_snapshot(&err, &[]));
         }
+        insta::assert_debug_snapshot!(error_snapshots, "invalid resource types", @"
+        [
+            Can only diff blobs, not Commit,
+            Can only diff blobs, not Tree,
+            Can only diff blobs, not Link,
+        ]
+        ");
     }
 }
 
@@ -854,7 +910,7 @@ fn new_platform(
             common_ancestor_root: Some(root.clone()),
             ..Default::default()
         },
-        gix_filter::Pipeline::default(),
+        gix_filter::Pipeline::new(Default::default(), gix_testtools::object_hash(), Default::default()),
         Default::default(),
     );
     Platform::new(

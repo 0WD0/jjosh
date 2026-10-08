@@ -1,8 +1,17 @@
+use gix_error::Result;
 use gix_hash::ObjectId;
 
 use crate::data::{entry::Header, input};
 
-/// An iterator to resolve thin packs on the fly.
+/// An iterator to complete thin packs by inserting externally available base objects on the fly.
+///
+/// Each base found through `lookup` is inserted before its first dependent delta. References to inserted bases
+/// become offset deltas, and subsequent pack offsets and base distances are adjusted accordingly.
+/// Bases not found externally remain ref-deltas for in-pack resolution by
+/// [`crate::index::write_data_iter_to_stream`], which supports forward references and attaches children as bases resolve.
+/// A base found neither externally nor in the pack causes indexing to fail.
+///
+/// Base lookup failures are yielded as errors without ending iteration.
 pub struct LookupRefDeltaObjectsIter<I, Find> {
     /// The inner iterator whose entries we will resolve.
     pub inner: I,
@@ -21,7 +30,7 @@ pub struct LookupRefDeltaObjectsIter<I, Find> {
 
 impl<I, Find> LookupRefDeltaObjectsIter<I, Find>
 where
-    I: Iterator<Item = Result<input::Entry, input::Error>>,
+    I: Iterator<Item = Result<input::Entry>>,
     Find: gix_object::Find,
 {
     /// Create a new instance wrapping `iter` and using `lookup` as function to retrieve objects that will serve as bases
@@ -75,10 +84,10 @@ where
 
 impl<I, Find> Iterator for LookupRefDeltaObjectsIter<I, Find>
 where
-    I: Iterator<Item = Result<input::Entry, input::Error>>,
+    I: Iterator<Item = Result<input::Entry>>,
     Find: gix_object::Find,
 {
-    type Item = Result<input::Entry, input::Error>;
+    type Item = Result<input::Entry>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(delta) = self.next_delta.take() {
@@ -89,8 +98,9 @@ where
                 Header::RefDelta { base_id } => {
                     match self.inserted_entry_length_at_offset.iter().rfind(|e| e.oid == base_id) {
                         None => {
-                            let base_entry = match self.lookup.try_find(&base_id, &mut self.buf).ok()? {
-                                Some(obj) => {
+                            let base_entry = match self.lookup.try_find(&base_id, &mut self.buf) {
+                                Err(err) => return Some(Err(err)),
+                                Ok(Some(obj)) => {
                                     let current_pack_offset = entry.pack_offset;
                                     let mut entry = match input::Entry::from_data_obj(&obj, 0, self.compression) {
                                         Ok(e) => e,
@@ -105,7 +115,7 @@ where
                                     );
                                     entry
                                 }
-                                None => {
+                                Ok(None) => {
                                     entry.pack_offset = self.shifted_pack_offset(entry.pack_offset);
                                     return Some(Ok(entry));
                                 }
@@ -133,10 +143,11 @@ where
                             let Some(base_pack_offset) =
                                 Header::verified_base_pack_offset(entry.pack_offset, base_distance)
                             else {
-                                return Some(Err(input::Error::InvalidBaseDistance {
-                                    pack_offset: entry.pack_offset,
-                                    distance: base_distance,
-                                }));
+                                return Some(Err(gix_error::message!(
+                                    "The OFS_DELTA base distance {base_distance} is invalid for pack offset {}",
+                                    entry.pack_offset
+                                )
+                                .corrupted_error()));
                             };
                             match self
                                 .inserted_entry_length_at_offset

@@ -82,7 +82,6 @@ use crate::file_util::BadPathEncoding;
 use crate::file_util::IoResultExt as _;
 use crate::file_util::PathError;
 use crate::git::GitSettings;
-use crate::index::Index;
 use crate::lock::FileLock;
 use crate::merge::Merge;
 use crate::merge::MergeBuilder;
@@ -110,9 +109,9 @@ pub const CHANGE_ID_COMMIT_HEADER: &str = "change-id";
 #[derive(Debug, Error)]
 pub enum GitBackendInitError {
     #[error("Failed to initialize git repository")]
-    InitRepository(#[source] gix::init::Error),
+    InitRepository(#[source] gix::Error),
     #[error("Failed to open git repository")]
-    OpenRepository(#[source] gix::open::Error),
+    OpenRepository(#[source] gix::Error),
     #[error("Failed to encode git repository path")]
     EncodeRepositoryPath(#[source] BadPathEncoding),
     #[error(transparent)]
@@ -135,7 +134,7 @@ impl From<Box<GitBackendInitError>> for BackendInitError {
 #[derive(Debug, Error)]
 pub enum GitBackendLoadError {
     #[error("Failed to open git repository")]
-    OpenRepository(#[source] gix::open::Error),
+    OpenRepository(#[source] gix::Error),
     #[error("Failed to decode git repository path")]
     DecodeRepositoryPath(#[source] BadPathEncoding),
     #[error(transparent)]
@@ -175,10 +174,7 @@ impl From<GitBackendError> for BackendError {
 #[derive(Debug, Error)]
 pub enum GitRepoAtWorkdirError {
     #[error("No Git repository found at {path}")]
-    NotFound {
-        path: PathBuf,
-        source: gix::discover::is_git::Error,
-    },
+    NotFound { path: PathBuf, source: gix::Error },
     #[error("Unrelated Git repository found at {path}")]
     Unrelated { path: PathBuf },
     #[error("Failed to open Git repository")]
@@ -437,11 +433,13 @@ impl GitBackend {
         // The input path doesn't include ".git".
         let opts = open_repo.open_options().clone().open_path_as_is(false);
         let work_repo = gix::ThreadSafeRepository::open_opts(path, opts)
-            .map_err(|err| match err {
-                gix::open::Error::NotARepository { path, source } => {
+            .map_err(|source| {
+                if source.is_not_found() {
+                    let path = path.to_owned();
                     GitRepoAtWorkdirError::NotFound { path, source }
+                } else {
+                    GitRepoAtWorkdirError::Other(source.into())
                 }
-                err => GitRepoAtWorkdirError::Other(err.into()),
             })?
             .to_thread_local();
         let canonicalize = |path: &Path| {
@@ -584,8 +582,9 @@ impl GitBackend {
         let locked_repo = self.lock_git_repo();
         let git_blob_id = validate_git_object_id(&locked_repo, id)?;
         let mut blob = locked_repo
-            .find_object(git_blob_id)
-            .map_err(|err| map_not_found_err(err, id))?
+            .try_find_object(git_blob_id)
+            .map_err(|err| to_read_object_err(err, id))?
+            .ok_or_else(|| not_found_err(id))?
             .try_into_blob()
             .map_err(|err| to_read_object_err(err, id))?;
         Ok(blob.take_data())
@@ -605,6 +604,7 @@ impl GitBackend {
                 self.git_repo()
                     .command_context()
                     .map_err(|err| BackendError::Other(Box::new(err)))?,
+                self.git_repo().object_hash(),
                 Default::default(),
             ),
             Vec::new(),
@@ -625,12 +625,13 @@ impl GitBackend {
     ) -> BackendResult<gix::Tree<'repo>> {
         let tree = self.read_commit(id).block_on()?.root_tree;
         // TODO(kfm): probably want to do something here if it is a merge
-        let tree_id = tree.first().clone();
-        let gix_id = validate_git_object_id(repo, &tree_id)?;
-        repo.find_object(gix_id)
-            .map_err(|err| map_not_found_err(err, &tree_id))?
+        let tree_id = tree.first();
+        let gix_id = validate_git_object_id(repo, tree_id)?;
+        repo.try_find_object(gix_id)
+            .map_err(|err| to_read_object_err(err, tree_id))?
+            .ok_or_else(|| not_found_err(tree_id))?
             .try_into_tree()
-            .map_err(|err| to_read_object_err(err, &tree_id))
+            .map_err(|err| to_read_object_err(err, tree_id))
     }
 
     // Similar to gix's write_blob, but compute the hash outside our lock to
@@ -647,7 +648,7 @@ impl GitBackend {
         )
         .map_err(|err| BackendError::WriteObject {
             object_type,
-            source: Box::new(err),
+            source: err.into(),
         })?;
 
         let locked_repo = self.lock_git_repo();
@@ -659,7 +660,7 @@ impl GitBackend {
                 .write_buf_with_known_id(gix::objs::Kind::Blob, bytes, oid)
                 .map_err(|err| BackendError::WriteObject {
                     object_type,
-                    source: err,
+                    source: err.into(),
                 })?;
             assert!(oid == write_oid);
         }
@@ -748,7 +749,7 @@ fn commit_from_git_without_root_parent(
     git_object: &gix::Object,
     is_shallow: bool,
 ) -> BackendResult<Commit> {
-    let decode_err = |err: gix::objs::decode::Error| to_read_object_err(err, id);
+    let decode_err = |err: gix::Error| to_read_object_err(err, id);
     let commit = git_object
         .try_to_commit_ref()
         .map_err(|err| to_read_object_err(err, id))?;
@@ -966,11 +967,10 @@ fn to_ref_deletion(git_ref: gix::refs::Reference) -> gix::refs::transaction::Ref
 /// unreachable and non-head refs.
 fn recreate_no_gc_refs(
     git_repo: &gix::Repository,
-    new_heads: impl IntoIterator<Item = CommitId>,
+    new_heads: &HashSet<&CommitId>,
     keep_newer: SystemTime,
 ) -> BackendResult<()> {
     // Calculate diff between existing no-gc refs and new heads.
-    let new_heads: HashSet<CommitId> = new_heads.into_iter().collect();
     let mut no_gc_refs_to_keep_count: usize = 0;
     let mut no_gc_refs_to_delete: Vec<gix::refs::Reference> = Vec::new();
     let git_references = git_repo
@@ -980,7 +980,9 @@ fn recreate_no_gc_refs(
         .prefixed(NO_GC_REF_NAMESPACE)
         .map_err(|err| BackendError::Other(err.into()))?;
     for git_ref in no_gc_refs_iter {
-        let git_ref = git_ref.map_err(BackendError::Other)?.detach();
+        let git_ref = git_ref
+            .map_err(|err| BackendError::Other(err.into()))?
+            .detach();
         let oid = git_ref.target.try_id().ok_or_else(|| {
             let name = git_ref.name.as_bstr();
             BackendError::Other(format!("Symbolic no-gc ref found: {name}").into())
@@ -1000,7 +1002,12 @@ fn recreate_no_gc_refs(
         // will always have a unique name. Doing that with the current
         // ref-per-head strategy would increase the number of the no-gc refs.
         // https://github.com/jj-vcs/jj/pull/2659#issuecomment-1837057782
-        let loose_ref_path = git_repo.path().join(git_ref.name.to_path());
+        let loose_ref_path = git_repo.path().join(
+            git_ref
+                .name
+                .to_path()
+                .map_err(|err| BackendError::Other(err.into()))?,
+        );
         if let Ok(metadata) = loose_ref_path.metadata() {
             let mtime = metadata.modified().expect("unsupported platform?");
             if mtime > keep_newer {
@@ -1023,7 +1030,7 @@ fn recreate_no_gc_refs(
     // It's slow to delete packed refs one by one, so update refs all at once.
     let ref_edits = itertools::chain(
         no_gc_refs_to_delete.into_iter().map(to_ref_deletion),
-        new_heads.iter().map(to_no_gc_ref_update),
+        new_heads.iter().copied().map(to_no_gc_ref_update),
     );
     git_repo
         .edit_references(ref_edits)
@@ -1069,15 +1076,11 @@ fn validate_git_object_id(
     }
 }
 
-fn map_not_found_err(err: gix::object::find::existing::Error, id: &impl ObjectId) -> BackendError {
-    if matches!(err, gix::object::find::existing::Error::NotFound { .. }) {
-        BackendError::ObjectNotFound {
-            object_type: id.object_type(),
-            hash: id.hex(),
-            source: Box::new(err),
-        }
-    } else {
-        to_read_object_err(err, id)
+fn not_found_err(id: &impl ObjectId) -> BackendError {
+    BackendError::ObjectNotFound {
+        object_type: id.object_type(),
+        hash: id.hex(),
+        source: None,
     }
 }
 
@@ -1114,8 +1117,9 @@ fn import_extra_metadata_entries_from_heads(
         .collect_vec();
     while let Some(id) = work_ids.pop() {
         let git_object = git_repo
-            .find_object(validate_git_object_id(git_repo, &id)?)
-            .map_err(|err| map_not_found_err(err, &id))?;
+            .try_find_object(validate_git_object_id(git_repo, &id)?)
+            .map_err(|err| to_read_object_err(err, &id))?
+            .ok_or_else(|| not_found_err(&id))?;
         let is_shallow = shallow_roots.contains(&id);
         // TODO(#1624): Should we read the root tree here and check if it has a
         // `.jjconflict-...` entries? That could happen if the user used `git` to e.g.
@@ -1195,8 +1199,9 @@ impl Backend for GitBackend {
         let locked_repo = self.lock_git_repo();
         let git_blob_id = validate_git_object_id(&locked_repo, id)?;
         let mut blob = locked_repo
-            .find_object(git_blob_id)
-            .map_err(|err| map_not_found_err(err, id))?
+            .try_find_object(git_blob_id)
+            .map_err(|err| to_read_object_err(err, id))?
+            .ok_or_else(|| not_found_err(id))?
             .try_into_blob()
             .map_err(|err| to_read_object_err(err, id))?;
         let target = String::from_utf8(blob.take_data())
@@ -1235,8 +1240,9 @@ impl Backend for GitBackend {
         let locked_repo = self.lock_git_repo();
         let git_tree_id = validate_git_object_id(&locked_repo, id)?;
         let git_tree = locked_repo
-            .find_object(git_tree_id)
-            .map_err(|err| map_not_found_err(err, id))?
+            .try_find_object(git_tree_id)
+            .map_err(|err| to_read_object_err(err, id))?
+            .ok_or_else(|| not_found_err(id))?
             .try_into_tree()
             .map_err(|err| to_read_object_err(err, id))?;
         let mut entries: Vec<_> = git_tree
@@ -1356,8 +1362,9 @@ impl Backend for GitBackend {
             let locked_repo = self.lock_git_repo();
             let git_commit_id = validate_git_object_id(&locked_repo, id)?;
             let git_object = locked_repo
-                .find_object(git_commit_id)
-                .map_err(|err| map_not_found_err(err, id))?;
+                .try_find_object(git_commit_id)
+                .map_err(|err| to_read_object_err(err, id))?
+                .ok_or_else(|| not_found_err(id))?;
             let is_shallow = self.shallow_root_ids(&locked_repo)?.contains(id);
             commit_from_git_without_root_parent(id, &git_object, is_shallow)?
         };
@@ -1467,7 +1474,7 @@ impl Backend for GitBackend {
             .for_each_to_obtain_tree_with_cache(
                 &head_tree,
                 &mut self.new_diff_platform()?,
-                |change| -> BackendResult<_> {
+                |change| {
                     match change_to_copy_record(change) {
                         Ok(None) => {}
                         Ok(Some(change)) => records.push(Ok(change)),
@@ -1478,6 +1485,44 @@ impl Backend for GitBackend {
             )
             .map_err(|err| BackendError::Other(err.into()))?;
         Ok(futures::stream::iter(records).boxed())
+    }
+
+    /// Perform garbage collection.
+    ///
+    /// All commits found in the `index` won't be removed. In addition to that,
+    /// objects created after `keep_newer` will be preserved. This mitigates a
+    /// risk of deleting new commits created concurrently by another process.
+    #[tracing::instrument(skip(self, new_heads))]
+    async fn gc(&self, new_heads: &[CommitId], keep_newer: SystemTime) -> BackendResult<()> {
+        let git_repo = self.lock_git_repo();
+        let new_heads = new_heads
+            .iter()
+            .filter(|id| *id != &self.root_commit_id)
+            .collect();
+        recreate_no_gc_refs(&git_repo, &new_heads, keep_newer)?;
+
+        // GC needs an actual persisted head, not an ephemeral readonly merge.
+        let table = self
+            .extra_metadata_store
+            .get_head()
+            .map_err(GitBackendError::ReadMetadata)?;
+        // TODO: remove unreachable entries from extras table if segment file
+        // mtime <= keep_newer? (it won't be consistent with no-gc refs
+        // preserved by the keep_newer timestamp though)
+        self.extra_metadata_store
+            .gc(&table, keep_newer)
+            .map_err(|err| BackendError::Other(err.into()))?;
+
+        run_git_gc(
+            self.git_executable.as_ref(),
+            self.git_repo_path(),
+            keep_newer,
+        )
+        .map_err(|err| BackendError::Other(err.into()))?;
+        // Since "git gc" will move loose refs into packed refs, in-memory
+        // packed-refs cache should be invalidated without relying on mtime.
+        git_repo.refs.force_refresh_packed_buffer().ok();
+        Ok(())
     }
 }
 
@@ -1653,43 +1698,6 @@ impl GitBackend {
         Ok((id, contents))
     }
 
-    /// Perform garbage collection.
-    ///
-    /// All commits found in the `index` won't be removed. In addition to that,
-    /// objects created after `keep_newer` will be preserved. This mitigates a
-    /// risk of deleting new commits created concurrently by another process.
-    #[tracing::instrument(skip(self, index))]
-    pub fn gc(&self, index: &dyn Index, keep_newer: SystemTime) -> BackendResult<()> {
-        let git_repo = self.lock_git_repo();
-        let new_heads = index
-            .all_heads_for_gc()
-            .map_err(|err| BackendError::Other(err.into()))?
-            .filter(|id| *id != self.root_commit_id);
-        recreate_no_gc_refs(&git_repo, new_heads, keep_newer)?;
-
-        // GC needs an actual persisted head, not an ephemeral readonly merge.
-        let table = self
-            .extra_metadata_store
-            .get_head()
-            .map_err(GitBackendError::ReadMetadata)?;
-        // TODO: remove unreachable entries from extras table if segment file
-        // mtime <= keep_newer? (it won't be consistent with no-gc refs
-        // preserved by the keep_newer timestamp though)
-        self.extra_metadata_store
-            .gc(&table, keep_newer)
-            .map_err(|err| BackendError::Other(err.into()))?;
-
-        run_git_gc(
-            self.git_executable.as_ref(),
-            self.git_repo_path(),
-            keep_newer,
-        )
-        .map_err(|err| BackendError::Other(err.into()))?;
-        // Since "git gc" will move loose refs into packed refs, in-memory
-        // packed-refs cache should be invalidated without relying on mtime.
-        git_repo.refs.force_refresh_packed_buffer().ok();
-        Ok(())
-    }
 }
 
 /// Write a tree conflict as a special tree with `.jjconflict-base-N` and
@@ -2406,7 +2414,7 @@ mod tests {
         let git_commit = git_repo.find_commit(gix::ObjectId::from_bytes_or_panic(
             read_commit_id.as_bytes(),
         ))?;
-        let git_tree = git_repo.find_tree(git_commit.tree_id()?)?;
+        let git_tree = git_repo.find_tree(git_commit.tree_id().unwrap())?;
         let jj_conflict_entries = git_tree
             .iter()
             .map(Result::unwrap)
@@ -2467,7 +2475,7 @@ mod tests {
             read_commit_id.as_bytes(),
         ))?;
         assert_eq!(
-            Merge::resolved(TreeId::from_bytes(git_commit.tree_id()?.as_bytes())),
+            Merge::resolved(TreeId::from_bytes(git_commit.tree_id().unwrap().as_bytes())),
             commit.root_tree
         );
         Ok(())

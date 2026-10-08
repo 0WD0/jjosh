@@ -134,8 +134,7 @@ pub(crate) fn prepare(
     let credentials = repo.configured_credentials_for_current_url();
     if let Some(config) = transport_options {
         transport
-            .configure(&*config)
-            .map_err(anyhow::Error::from_boxed)?;
+            .configure(&*config)?;
     }
     let handshake = protocol::handshake(
         &mut transport,
@@ -380,8 +379,7 @@ fn checked_object<'a>(
     buffer: &'a mut Vec<u8>,
 ) -> Result<gix_object::Data<'a>> {
     let data = objects
-        .try_find(id.as_ref(), buffer)
-        .map_err(anyhow::Error::from_boxed)?
+        .try_find(id.as_ref(), buffer)?
         .with_context(|| format!("missing object {id} while preparing push"))?;
     ensure!(
         gix_object::compute_hash(id.kind(), data.kind, data.data)? == id,
@@ -491,14 +489,14 @@ fn prepare_pack(
     // owned by the destination is included; no thin-pack deltas are generated.
     let entries = visited
         .into_keys()
-        .map(|id| -> io::Result<Vec<gix_pack::data::output::Entry>> {
-            let data = checked_object(objects, id, &mut buffer).map_err(io::Error::other)?;
+        .map(|id| -> gix::Result<Vec<gix_pack::data::output::Entry>> {
+            let data = checked_object(objects, id, &mut buffer)
+                .map_err(|err| gix::Error::from_boxed(err.into()))?;
             let entry = gix_pack::data::output::Entry::from_data(
                 &gix_pack::data::output::Count::from_data(id, None),
                 &data,
                 gix::zlib::Compression::DEFAULT,
-            )
-            .map_err(io::Error::other)?;
+            )?;
             Ok(vec![entry])
         });
     let mut writer = gix_pack::data::output::bytes::FromEntriesIter::new(

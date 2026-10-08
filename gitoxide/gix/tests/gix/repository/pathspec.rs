@@ -1,10 +1,11 @@
 use gix::{bstr::ByteSlice, config::tree::gitoxide};
+use gix_testtools::TestResult;
 use gix_worktree::stack::state::attributes::Source;
 
 use crate::util::named_repo;
 
 #[test]
-fn defaults_are_taken_from_repo_config() -> crate::Result {
+fn defaults_are_taken_from_repo_config() -> TestResult {
     let mut repo = named_repo("make_basic_repo.sh")?;
     repo.config_snapshot_mut()
         .set_value(&gitoxide::Pathspec::ICASE, "true")?;
@@ -17,7 +18,7 @@ fn defaults_are_taken_from_repo_config() -> crate::Result {
             ":!hip",
             gix::path::to_unix_separators_on_windows(gix::path::into_bstr(
                 repo.workdir().expect("present").join("for-normalization"),
-            ))
+            )?)
             .to_str_lossy()
             .as_ref(),
         ],

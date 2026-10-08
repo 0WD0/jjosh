@@ -1,6 +1,9 @@
+use gix_error::{Result, corruption};
+use gix_error::{ResultExt, bail};
+
 use crate::{
     data,
-    data::{File, delta, file::decode::Error},
+    data::{File, delta, file::decode::DeltaBaseUnresolved},
 };
 
 /// A return value of a resolve function, which given an [`ObjectId`][gix_hash::ObjectId] determines where an object can be found.
@@ -43,7 +46,8 @@ where
     /// `inflate` will be used for (partially) decompressing entries, and will be reset before first use, but not after the last use.
     ///
     /// `resolve` is a function to lookup objects with the given [`ObjectId`][gix_hash::ObjectId], in case the full object id
-    /// is used to refer to a base object, instead of an in-pack offset.
+    /// is used to refer to a base object, instead of an in-pack offset. Return `Ok(None)` if the base could not be found;
+    /// lookup errors are propagated unchanged instead of being treated as missing bases.
     ///
     /// For delta entries, this only probes the initial delta header bytes to determine the result
     /// object size. It can reject streams that end or overflow within that probe, but it does not
@@ -54,11 +58,12 @@ where
         &self,
         mut entry: data::Entry,
         inflate: &mut gix_zlib::Inflate,
-        resolve: &dyn Fn(&gix_hash::oid) -> Option<ResolvedBase>,
-    ) -> Result<Outcome, Error> {
+        resolve: &dyn Fn(&gix_hash::oid) -> Result<Option<ResolvedBase>>,
+    ) -> Result<Outcome> {
         use crate::data::entry::Header::*;
         let mut num_deltas = 0;
         let mut first_delta_decompressed_size = None::<u64>;
+        let mut cycle = super::DeltaCycle::new(entry.data_offset);
         loop {
             match entry.header {
                 Tree | Blob | Commit | Tag => {
@@ -73,18 +78,20 @@ where
                     if first_delta_decompressed_size.is_none() {
                         first_delta_decompressed_size = Some(self.decode_delta_object_size(inflate, &entry)?);
                     }
-                    entry = self.entry(entry.checked_base_pack_offset(base_distance).ok_or(
-                        crate::data::entry::decode::Error::Corrupt {
-                            message: "an ofs-delta base distance pointing before pack start",
-                        },
-                    )?)?;
+                    let offset = entry
+                        .checked_base_pack_offset(base_distance)
+                        .ok_or_else(|| {
+                            corruption("Pack entry is truncated: an ofs-delta base distance pointing before pack start")
+                        })
+                        .or_error()?;
+                    entry = self.entry(offset)?;
                 }
                 RefDelta { base_id } => {
                     num_deltas += 1;
                     if first_delta_decompressed_size.is_none() {
                         first_delta_decompressed_size = Some(self.decode_delta_object_size(inflate, &entry)?);
                     }
-                    match resolve(base_id.as_ref()) {
+                    match resolve(base_id.as_ref())? {
                         Some(ResolvedBase::InPack(base_entry)) => entry = base_entry,
                         Some(ResolvedBase::OutOfPack {
                             kind,
@@ -96,10 +103,11 @@ where
                                 num_deltas: origin_num_deltas.unwrap_or_default() + num_deltas,
                             });
                         }
-                        None => return Err(Error::DeltaBaseUnresolved(base_id)),
+                        None => bail!(DeltaBaseUnresolved(base_id)),
                     }
                 }
             }
+            cycle.check(entry.data_offset)?;
         }
     }
 
@@ -113,23 +121,21 @@ where
     /// decompression through `decode_entry()` must still validate that the stream length matches
     /// the pack entry header.
     #[inline]
-    fn decode_delta_object_size(&self, inflate: &mut gix_zlib::Inflate, entry: &data::Entry) -> Result<u64, Error> {
+    fn decode_delta_object_size(&self, inflate: &mut gix_zlib::Inflate, entry: &data::Entry) -> Result<u64> {
         let mut buf = [0_u8; 20];
         let max_size = entry.decompressed_size.min(buf.len() as u64) as usize;
         let (status, _consumed_in, consumed_out) =
             self.decompress_entry_from_data_offset_unchecked(entry.data_offset, inflate, &mut buf[..max_size])?;
         if status == gix_zlib::Status::StreamEnd {
             if consumed_out as u64 != entry.decompressed_size {
-                return Err(data::entry::decode::Error::Corrupt {
-                    message: "pack entry decompressed to fewer bytes than declared in the entry header",
-                }
-                .into());
+                bail!(corruption(
+                    "Pack entry is truncated: pack entry decompressed to fewer bytes than declared in the entry header"
+                ));
             }
         } else if entry.decompressed_size == max_size as u64 {
-            return Err(data::entry::decode::Error::Corrupt {
-                message: "pack entry decompressed to more bytes than declared in the entry header",
-            }
-            .into());
+            bail!(corruption(
+                "Pack entry is truncated: pack entry decompressed to more bytes than declared in the entry header",
+            ));
         }
         let buf = &buf[..consumed_out];
         let (_base_size, offset) = delta::decode_header_size(buf)?;

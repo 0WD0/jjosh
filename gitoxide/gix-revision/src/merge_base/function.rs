@@ -1,17 +1,17 @@
 use std::cmp::Ordering;
 
+use gix_error::{OptionExt, Result, ResultExt, message};
 use gix_hash::ObjectId;
 use gix_revwalk::graph;
 
-use super::{Error, Simple};
 use crate::{Graph, PriorityQueue, merge_base::Flags};
 
 /// Given a commit at `first` id, traverse the commit `graph` and return all possible merge-base between it and `others`,
 /// sorted from best to worst. Returns `None` if there is no merge-base as `first` and `others` don't share history.
 /// If `others` is empty, `Some(first)` is returned.
 ///
-/// Note that this function doesn't do any work if `first` is contained in `others`, which is when `first` will be returned
-/// as only merge-base right away. This is even the case if some commits of `others` are disjoint.
+/// All input commits must exist. After validating them, if `first` is contained in `others`, it is returned as the
+/// only merge-base without traversing their parents. This is even the case if some commits of `others` are disjoint.
 ///
 /// Additionally, this function isn't stable and results may differ dependeing on the order in which `first` and `others` are
 /// provided due to its special rules.
@@ -28,8 +28,9 @@ pub fn merge_base(
     first: ObjectId,
     others: &[ObjectId],
     graph: &mut Graph<'_, '_, graph::Commit<Flags>>,
-) -> Result<Option<nonempty::NonEmpty<ObjectId>>, Error> {
+) -> Result<Option<nonempty::NonEmpty<ObjectId>>> {
     let _span = gix_trace::coarse!("gix_revision::merge_base()", ?first, ?others);
+    insert_input_commits(first, others, graph)?;
     if others.is_empty() || others.contains(&first) {
         return Ok(Some(nonempty::NonEmpty::new(first)));
     }
@@ -41,12 +42,27 @@ pub fn merge_base(
     Ok(nonempty::NonEmpty::from_vec(bases))
 }
 
+/// Validate input tips even when a shortcut or unrelated histories would otherwise stop traversal early.
+pub(super) fn insert_input_commits(
+    first_commit_id: ObjectId,
+    others: &[ObjectId],
+    graph: &mut Graph<'_, '_, graph::Commit<Flags>>,
+) -> Result {
+    for commit_id in std::iter::once(&first_commit_id).chain(others) {
+        graph
+            .get_or_insert_full_commit(*commit_id, |_| {})
+            .or_raise(|| message("could not insert commit into graph"))?
+            .ok_or_raise(|| message!("Commit {commit_id} could not be found for merge-base traversal").not_found())?;
+    }
+    Ok(())
+}
+
 /// Remove all those commits from `commits` if they are in the history of another commit in `commits`.
 /// That way, we return only the topologically most recent commits in `commits`.
 fn remove_redundant(
     commits: &[(ObjectId, GenThenTime)],
     graph: &mut Graph<'_, '_, graph::Commit<Flags>>,
-) -> Result<Vec<ObjectId>, Error> {
+) -> Result<Vec<ObjectId>> {
     if commits.is_empty() {
         return Ok(Vec::new());
     }
@@ -73,7 +89,7 @@ fn remove_redundant(
                         walk_start.push((parent_id, GenThenTime::from(&*parent)));
                     }
                 })
-                .map_err(|_| Simple("could not insert parent commit into graph"))?;
+                .or_raise(|| message("could not insert parent commit into graph"))?;
         }
     }
     walk_start.sort_by_key(|a| a.0);
@@ -126,7 +142,7 @@ fn remove_redundant(
                             stack.push((*parent_id, GenThenTime::from(&*parent)));
                         }
                     })
-                    .map_err(|_| Simple("could not insert parent commit into graph"))?
+                    .or_raise(|| message("could not insert parent commit into graph"))?
                     .is_some()
                 {
                     break;
@@ -207,7 +223,7 @@ fn paint_down_to_common(
     first: ObjectId,
     others: &[ObjectId],
     graph: &mut Graph<'_, '_, graph::Commit<Flags>>,
-) -> Result<Vec<(ObjectId, GenThenTime)>, Error> {
+) -> Result<Vec<(ObjectId, GenThenTime)>> {
     let mut queue = PaintQueue {
         queue: PriorityQueue::new(),
         non_stale: [0; 2],
@@ -216,14 +232,14 @@ fn paint_down_to_common(
         .get_or_insert_full_commit(first, |commit| {
             queue.insert(first, commit, Flags::COMMIT1);
         })
-        .map_err(|_| Simple("could not insert commit into graph"))?;
+        .or_raise(|| message("could not insert commit into graph"))?;
 
     for other in others {
         graph
             .get_or_insert_full_commit(*other, |commit| {
                 queue.insert(*other, commit, Flags::COMMIT2);
             })
-            .map_err(|_| Simple("could not insert commit into graph"))?;
+            .or_raise(|| message("could not insert commit into graph"))?;
     }
 
     let mut out = Vec::new();
@@ -245,7 +261,7 @@ fn paint_down_to_common(
                         queue.insert(parent_id, parent, flags_without_result);
                     }
                 })
-                .map_err(|_| Simple("could not insert parent commit into graph"))?;
+                .or_raise(|| message("could not insert parent commit into graph"))?;
         }
     }
 

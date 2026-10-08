@@ -176,7 +176,7 @@ fn normalize_config_paths(input: &BStr, root: &Path) -> Result<BString> {
                     .get()?
                     .into_iter()
                     .map(|value| normalize_config_path(value.as_bstr(), root))
-                    .collect();
+                    .collect::<Result<_>>()?;
                 for (index, value) in normalized.into_iter().enumerate() {
                     values.set_at(index, value)?;
                 }
@@ -186,8 +186,8 @@ fn normalize_config_paths(input: &BStr, root: &Path) -> Result<BString> {
     Ok(config.into())
 }
 
-fn normalize_config_path(value: &BStr, root: &Path) -> BString {
-    let path = gix_path::from_bstr(value).into_owned();
+fn normalize_config_path(value: &BStr, root: &Path) -> Result<BString> {
+    let path = gix_path::from_bstr(value)?.into_owned();
     let relative = if path.is_absolute() {
         path.strip_prefix(root)
             .map(Path::to_owned)
@@ -203,20 +203,20 @@ fn normalize_config_path(value: &BStr, root: &Path) -> BString {
                 .find_byte(b':')
                 .is_some_and(|colon| !value[..colon].contains(&b'/'))
         {
-            return "<normalized>".into();
+            return Ok("<normalized>".into());
         }
         Some(path)
     };
     let Some(relative) = relative else {
-        return "<normalized>".into();
+        return Ok("<normalized>".into());
     };
     let relative = portable_path(&relative);
     if relative.is_empty() {
-        return "<normalized>".into();
+        return Ok("<normalized>".into());
     }
     let mut out = b"<normalized>/".to_vec();
     out.extend_from_slice(&relative);
-    out.into()
+    Ok(out.into())
 }
 
 fn relative_to_repository_sibling(path: &Path, git_dir: &Path) -> Option<PathBuf> {
@@ -284,7 +284,7 @@ fn normalize_config_paths(input: &BStr, root: &Path) -> Result<BString> {
         };
         if is_location_key(section, key) {
             out.extend_from_slice(&line[..value_start]);
-            out.extend_from_slice(&normalize_config_path(line[value_start..value_end].as_bstr(), root));
+            out.extend_from_slice(&normalize_config_path(line[value_start..value_end].as_bstr(), root)?);
             out.extend_from_slice(&line[value_end..]);
         } else {
             out.extend_from_slice(line);
@@ -698,7 +698,11 @@ fn commit_depth(
 }
 
 fn portable_path(path: &Path) -> Cow<'_, BStr> {
-    gix_path::to_unix_separators_on_windows(gix_path::into_bstr(path))
+    // Snapshot formatting cannot report encoding failures; retain raw Unix bytes and
+    // replace unpaired Windows surrogates only in this human-readable representation.
+    gix_path::to_unix_separators_on_windows(
+        gix_path::into_bstr(path).unwrap_or_else(|_| Cow::Owned(path.to_string_lossy().as_bytes().into())),
+    )
 }
 
 fn worktree(root: Option<&Path>) -> Result<Vec<WorktreeEntry>> {

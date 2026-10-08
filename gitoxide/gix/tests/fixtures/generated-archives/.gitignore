@@ -48,9 +48,27 @@
 # entries containing host-absolute worktree paths; also adds a worktree.
 /make_submodule_with_worktree.tar
 /make_submodule_with_worktree_sha256.tar
+# Linked superprojects and their submodules also embed host-absolute paths.
+/make_linked_superproject_submodules.tar
+/make_linked_superproject_submodules_sha256.tar
 # Both files are 3.2 MB in size for some reason, let's not increase the repo size on each change.
 /make_submodules.tar
 /make_submodules_sha256.tar
+# Generate this small symbolic-reference reflog fixture, including its Git baseline.
+/make_symbolic_ref_reflogs.tar
+/make_symbolic_ref_reflogs_sha256.tar
+# Generate this small tracking-selector fixture, including its Git baseline.
+/make_tracking_branch_revspecs.tar
+/make_tracking_branch_revspecs_sha256.tar
+# Generate this small uninitialized-submodule fixture instead of storing its archives.
+/make_uninitialized_submodule.tar
+/make_uninitialized_submodule_sha256.tar
+# URL baselines embed host-absolute local paths and depend on platform/Git version.
+/make_submodule_urls.tar
+/make_submodule_urls_sha256.tar
+# Generate this small submodule-config fixture instead of storing its archives.
+/make_submodule_config_overrides.tar
+/make_submodule_config_overrides_sha256.tar
 # Uses `mkfifo`, `ln -s`, executable-bit changes, and adds a submodule —
 # none of which round-trip cleanly through a committed tar across platforms.
 /repo_with_untracked_files.tar
@@ -66,3 +84,22 @@
 /make_rev_spec_parse_repos_sha256.tar
 # This shouldn't have a side-effect as it's already sha256, so at least avoid storing it accidentally. 
 /make_sha256_remote_sha256.tar
+# Just avoid putting too much data data into the repo.
+/make_worktree_add_repos_*
+# Symlink preflight depends on the host filesystem and privileges; regenerate
+# locally rather than archiving either links or an unsupported-host marker.
+/make_symlinked_mailmap_repo*.tar*
+# Better not have more binary objects in the repo unless these are needed for performance.
+/make_replacement_refs*.tar*
+# Generate these small, configuration-only remote reverse-mapping fixtures.
+/make_remote_reverse_mapping_repos.tar
+/make_remote_reverse_mapping_repos_sha256.tar
+# Git clone baselines should reflect the installed Git's behavior.
+/make_clone_refs.tar
+/make_clone_refs_sha256.tar
+# Generate this small commit-graph fixture and apply Rust post-processing locally.
+/make_corrupt_commit_graph.tar
+/make_corrupt_commit_graph_sha256.tar
+# Generate these small status fixtures with host-local symlink preflight and index timestamps.
+/make_status_attribute_and_ignore_repos.tar
+/make_status_attribute_and_ignore_repos_sha256.tar

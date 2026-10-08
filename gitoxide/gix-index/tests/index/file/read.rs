@@ -1,5 +1,7 @@
 use std::path::{Path, PathBuf};
 
+use gix_error::Result;
+
 use bstr::ByteSlice;
 use gix_index::{
     Version,
@@ -22,7 +24,7 @@ pub(crate) fn loose_file(name: &str) -> gix_index::File {
     verify(file)
 }
 
-pub(crate) fn try_file(name: &str, needs_archive: bool) -> Result<gix_index::File, gix_index::file::init::Error> {
+pub(crate) fn try_file(name: &str, needs_archive: bool) -> Result<gix_index::File> {
     let path = if needs_archive {
         crate::fixture_index_path_needs_archive(name)
     } else {
@@ -211,7 +213,7 @@ fn v2_with_multiple_entries_without_eoie_ext() {
 fn find_shared_index_for(index: impl AsRef<Path>) -> PathBuf {
     let mut matches = std::fs::read_dir(index.as_ref().parent().unwrap())
         .unwrap()
-        .map(Result::unwrap)
+        .map(|entry| entry.expect("directory entries are readable"))
         .filter(|e: &std::fs::DirEntry| e.file_name().into_string().unwrap().starts_with("sharedindex."));
     let res = matches.next().unwrap();
     assert!(matches.next().is_none(), "found more than one shared indices");
@@ -689,10 +691,13 @@ fn v2_split_index() {
 #[test]
 fn v2_split_index_recursion_is_handled_gracefully() {
     let err = try_file("v2_split_index_recursive", false).expect_err("recursion fails gracefully");
-    assert!(matches!(
-        err,
-        gix_index::file::init::Error::Decode(gix_index::decode::Error::Verify(_))
-    ));
+    insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&(err), &[]), "v2 split index recursion is handled gracefully", @"
+    Shared index checksum mismatch
+
+    Caused by:
+        0: Hash was Oid(1), but should have been Oid(2)
+    ");
+    assert!(err.is_corrupted());
 }
 
 #[test]

@@ -515,7 +515,7 @@ impl gix_object::Find for StagingOdb {
         &self,
         id: &gix_hash::oid,
         buffer: &'b mut Vec<u8>,
-    ) -> Result<Option<gix_object::Data<'b>>, gix_object::find::Error> {
+    ) -> gix_error::Result<Option<gix_object::Data<'b>>> {
         let Some((kind, data)) = self.pending.get(id) else {
             return Ok(None);
         };
@@ -533,7 +533,7 @@ impl gix_object::FindHeader for StagingOdb {
     fn try_header(
         &self,
         id: &gix_hash::oid,
-    ) -> Result<Option<gix_object::Header>, gix_object::find::Error> {
+    ) -> gix_error::Result<Option<gix_object::Header>> {
         Ok(self.pending.get(id).map(|(kind, data)| gix_object::Header {
             kind: *kind,
             size: data.len() as u64,

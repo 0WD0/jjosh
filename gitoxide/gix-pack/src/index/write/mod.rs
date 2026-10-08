@@ -1,6 +1,4 @@
-pub use error::Error;
-
-mod error;
+use gix_error::Result;
 
 pub(crate) struct TreeEntry {
     pub id: gix_hash::ObjectId,
@@ -43,7 +41,7 @@ pub enum ProgressId {
     IndexBytesWritten,
 }
 
-impl From<ProgressId> for gix_features::progress::Id {
+impl From<ProgressId> for gix_utils::progress::Id {
     fn from(v: ProgressId) -> Self {
         match v {
             ProgressId::IndexObjects => *b"IWIO",
@@ -56,13 +54,15 @@ impl From<ProgressId> for gix_features::progress::Id {
 }
 
 pub(super) mod function {
+    use gix_error::{Result, message, validation};
     use std::{io, sync::atomic::AtomicBool};
 
-    use gix_features::progress::{self, Count, Progress, prodash::DynNestedProgress};
+    use gix_error::{OptionExt, ResultExt, bail};
+    use gix_utils::progress::{self, Count, Progress, prodash::DynNestedProgress};
 
     use crate::cache::delta::{Tree, traverse};
 
-    use super::{Error, Outcome, ProgressId, TreeEntry, modify_base};
+    use super::{Outcome, ProgressId, TreeEntry, modify_base};
 
     /// Write information about `entries` as obtained from a pack data file into a pack index file via the `out` stream.
     /// The resolver produced by `make_resolver` must resolve pack entries from the same pack data file that produced the
@@ -99,7 +99,7 @@ pub(super) mod function {
     pub fn write_data_iter_to_stream<F, F2, R>(
         version: crate::index::Version,
         make_resolver: F,
-        entries: &mut dyn Iterator<Item = Result<crate::data::input::Entry, crate::data::input::Error>>,
+        entries: &mut dyn Iterator<Item = Result<crate::data::input::Entry>>,
         thread_limit: Option<usize>,
         root_progress: &mut dyn DynNestedProgress,
         out: &mut dyn io::Write,
@@ -107,14 +107,18 @@ pub(super) mod function {
         object_hash: gix_hash::Kind,
         alloc_limit_bytes: Option<usize>,
         pack_version: crate::data::Version,
-    ) -> Result<Outcome, Error>
+    ) -> Result<Outcome>
     where
         F: FnOnce() -> io::Result<(F2, R)>,
         R: Send + Sync,
         F2: for<'r> Fn(crate::data::EntryRange, &'r R) -> Option<&'r [u8]> + Send + Clone,
     {
         if version != crate::index::Version::default() {
-            return Err(Error::Unsupported(version));
+            bail!(validation(format!(
+                "Indices of type {} cannot be written, only {} are supported",
+                version as usize,
+                crate::index::Version::default() as usize
+            )));
         }
         let mut num_objects: usize = 0;
         let mut last_seen_trailer = None;
@@ -172,13 +176,13 @@ pub(super) mod function {
                     )?;
                 }
                 OfsDelta { base_distance } => {
-                    let base_pack_offset =
-                        crate::data::entry::Header::verified_base_pack_offset(pack_offset, base_distance).ok_or(
-                            Error::IteratorInvariantBaseOffset {
-                                pack_offset,
-                                distance: base_distance,
-                            },
-                        )?;
+                    let base_pack_offset = crate::data::entry::Header::verified_base_pack_offset(
+                        pack_offset,
+                        base_distance,
+                    )
+                    .ok_or_raise(|| {
+                        message!("{pack_offset} is not a valid offset for pack offset {base_distance}").validation()
+                    })?;
                     tree.add_child(
                         base_pack_offset,
                         pack_offset,
@@ -193,9 +197,8 @@ pub(super) mod function {
             num_objects += 1;
             objects_progress.inc();
         }
-        let num_objects: u32 = num_objects
-            .try_into()
-            .map_err(|_| Error::IteratorInvariantTooManyObjects(num_objects))?;
+        let num_objects = u32::try_from(num_objects)
+            .or_raise(|| message!("Only u32::MAX objects can be stored in a pack, found {num_objects}").validation())?;
 
         objects_progress.show_throughput(indexing_start);
         decompressed_progress.show_throughput(indexing_start);
@@ -216,7 +219,7 @@ pub(super) mod function {
                      entry,
                      decompressed: bytes,
                      ..
-                 }| { modify_base(data, entry, bytes, object_hash) },
+                 }| modify_base(data, entry, bytes, object_hash),
                 traverse::Options {
                     object_progress: Box::new(
                         root_progress.add_child_with_id("Resolving".into(), ProgressId::ResolveObjects.into()),
@@ -234,8 +237,7 @@ pub(super) mod function {
             let mut items = roots;
             items.extend(children);
             {
-                let _progress =
-                    root_progress.add_child_with_id("sorting by id".into(), gix_features::progress::UNKNOWN);
+                let _progress = root_progress.add_child_with_id("sorting by id".into(), gix_utils::progress::UNKNOWN);
                 items.sort_by_key(|e| e.data.id);
             }
 
@@ -249,9 +251,13 @@ pub(super) mod function {
                 let header = crate::data::header::encode(pack_version, 0);
                 let mut hasher = gix_hash::hasher(object_hash);
                 hasher.update(&header);
-                hasher.try_finalize().map_err(gix_hash::io::from_hasher)?
+                hasher.try_finalize()?
             }
-            None => return Err(Error::IteratorInvariantTrailer),
+            None => {
+                bail!(validation(
+                    "The iterator failed to set a trailing hash over all prior pack entries in the last provided entry"
+                ));
+            }
         };
         let index_hash = crate::index::encode::write_to(
             out,
@@ -281,7 +287,7 @@ fn modify_base(
     pack_entry: &crate::data::Entry,
     decompressed: &[u8],
     hash: gix_hash::Kind,
-) -> Result<(), gix_hash::hasher::Error> {
+) -> Result {
     let object_kind = pack_entry.header.as_kind().expect("base object as source of iteration");
     let id = gix_object::compute_hash(hash, object_kind, decompressed)?;
     entry.id = id;

@@ -1,25 +1,16 @@
 use bstr::{BStr, BString, ByteSlice};
+use gix_error::{OptionExt, Result, validation};
 
 use crate::parse::{Span, section::HeaderData};
 
-/// The error returned when creating a section header.
-#[derive(Debug, PartialOrd, PartialEq, Eq, thiserror::Error)]
-#[expect(missing_docs)]
-pub enum Error {
-    #[error("section names can only be ascii, '-'")]
-    InvalidName,
-    #[error("sub-section names must not contain newlines or null bytes")]
-    InvalidSubSection,
-    #[error(transparent)]
-    Span(#[from] crate::parse::span::Error),
-}
-
 impl HeaderData {
+    /// Invalid section or subsection name bytes are stored as `input` [metadata](gix_error::Error::metadata())
+    /// on validation errors.
     pub(crate) fn new_in(
         name: impl AsRef<str>,
         subsection: impl Into<Option<BString>>,
         backing: &mut Vec<u8>,
-    ) -> Result<HeaderData, Error> {
+    ) -> Result<HeaderData> {
         let name = validated_name(name.as_ref().as_bytes().as_bstr())?;
         let name = Span::append(backing, &name)?;
         let (separator, subsection_name) = match subsection.into() {
@@ -50,21 +41,21 @@ pub fn is_valid_subsection(name: impl crate::AsBStr) -> bool {
     name.as_bstr().find_byteset(b"\n\0").is_none()
 }
 
-fn validated_subsection(name: &BStr) -> Result<BString, Error> {
+fn validated_subsection(name: &BStr) -> Result<BString> {
     is_valid_subsection(name)
         .then(|| name.into())
-        .ok_or(Error::InvalidSubSection)
+        .ok_or_raise(|| validation("sub-section names must not contain newlines or null bytes").with_input(name))
 }
 
-fn validated_name(name: &BStr) -> Result<BString, Error> {
+fn validated_name(name: &BStr) -> Result<BString> {
     name.iter()
         .all(|b| b.is_ascii_alphanumeric() || *b == b'-')
         .then(|| name.into())
-        .ok_or(Error::InvalidName)
+        .ok_or_raise(|| validation("section names can only be ascii, '-'").with_input(name))
 }
 
 impl HeaderData {
-    pub(crate) fn rebase(&mut self, offset: usize) -> Result<(), crate::parse::span::Error> {
+    pub(crate) fn rebase(&mut self, offset: usize) -> Result {
         self.name.rebase(offset)?;
         if let Some(separator) = &mut self.separator {
             separator.rebase(offset)?;
@@ -75,11 +66,7 @@ impl HeaderData {
         Ok(())
     }
 
-    pub(crate) fn copy_to_backing_in(
-        &self,
-        source: &[u8],
-        target: &mut Vec<u8>,
-    ) -> Result<HeaderData, crate::parse::span::Error> {
+    pub(crate) fn copy_to_backing_in(&self, source: &[u8], target: &mut Vec<u8>) -> Result<HeaderData> {
         Ok(HeaderData {
             name: self.name.copy_to_backing_in(source, target)?,
             separator: self
@@ -128,6 +115,24 @@ pub(crate) fn write_escaped_subsection(name: &BStr, mut out: impl std::io::Write
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn invalid_names_retain_validation_and_input() {
+        for (name, subsection, input) in [
+            ("invalid name", None, b"invalid name".as_slice()),
+            ("remote", Some(b"new\nline".as_slice()), b"new\nline".as_slice()),
+            ("remote", Some(b"nul\0\xff".as_slice()), b"nul\0\xff".as_slice()),
+        ] {
+            let err = HeaderData::new_in(name, subsection.map(BString::from), &mut Vec::new())
+                .expect_err("invalid section or subsection names are rejected");
+            assert!(err.is_validation(), "invalid names remain validation errors");
+            assert_eq!(
+                err.metadata().find_map(|metadata| metadata.get("input")),
+                Some(&gix_error::MetadataValue::Bytes(input.into())),
+                "header validation retains the original invalid bytes"
+            );
+        }
+    }
 
     #[test]
     fn empty_header_names_are_legal() {

@@ -26,19 +26,27 @@ impl Status {
 pub type ShowUntrackedFiles = keys::Any<validate::ShowUntrackedFiles>;
 
 mod show_untracked_files {
-    use crate::{bstr::ByteSlice, config, config::tree::status::ShowUntrackedFiles, status};
+    use gix_error::bail;
+
+    use crate::{Result, bstr::ByteSlice, config, config::tree::status::ShowUntrackedFiles, status};
 
     impl ShowUntrackedFiles {
         pub fn try_into_show_untracked_files(
             &'static self,
             value: impl gix_utils::AsBStr,
-        ) -> Result<status::UntrackedFiles, config::key::GenericErrorWithValue> {
+        ) -> Result<status::UntrackedFiles> {
             let value = value.as_bstr();
             Ok(match value.as_bstr().as_bytes() {
                 b"no" => status::UntrackedFiles::None,
                 b"normal" => status::UntrackedFiles::Collapsed,
                 b"all" => status::UntrackedFiles::Files,
-                _ => return Err(config::key::GenericErrorWithValue::from_value(self, value.into())),
+                _ => {
+                    bail!(config::key::error_with_value(
+                        self,
+                        "Invalid configuration value",
+                        value,
+                    ));
+                }
             })
         }
     }
@@ -55,12 +63,12 @@ impl Section for Status {
 }
 
 mod validate {
-    use crate::{bstr::BStr, config::tree::keys};
+    use crate::{Result, bstr::BStr, config::tree::keys};
 
     #[derive(Clone, Copy)]
     pub struct ShowUntrackedFiles;
     impl keys::Validate for ShowUntrackedFiles {
-        fn validate(&self, value: &BStr) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+        fn validate(&self, value: &BStr) -> Result {
             super::Status::SHOW_UNTRACKED_FILES.try_into_show_untracked_files(value)?;
             Ok(())
         }

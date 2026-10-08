@@ -83,11 +83,11 @@ impl SourceRepo {
             .canonicalize()?;
         let objects_path = main.objects.store_ref().path().canonicalize()?;
         let mut config = b"[include]\n\tpath = ".to_vec();
-        config.extend(quoted_path(&config_path));
+        config.extend(quoted_path(&config_path)?);
         config.extend_from_slice(b"\n[core]\n\trepositoryFormatVersion = 0\n\tbare = true\n\tlogAllRefUpdates = false\n[gitoxide \"core\"]\n\tshallowFile = shallow\n");
         fs::write(initial.git_dir().join("config"), config)?;
         fs::create_dir_all(initial.git_dir().join("objects/info"))?;
-        let mut alternate = quoted_path(&objects_path);
+        let mut alternate = quoted_path(&objects_path)?;
         alternate.push(b'\n');
         fs::write(initial.git_dir().join("objects/info/alternates"), alternate)?;
         drop(initial);
@@ -260,7 +260,7 @@ impl SourceRepo {
         }
         let mut migrated = Vec::new();
         for reference in main.references()?.prefixed(prefix)? {
-            let reference = reference.map_err(anyhow::Error::from_boxed)?;
+            let reference = reference?;
             let name = std::str::from_utf8(reference.name().as_bstr())?.to_owned();
             let gix::refs::TargetRef::Object(id) = reference.target() else {
                 bail!("Source context {name} must not be symbolic");
@@ -741,7 +741,7 @@ impl SourceRepo {
         let mut inverse = BTreeMap::new();
         let mut retained = BTreeSet::new();
         for reference in platform.prefixed(MAP_PREFIX)? {
-            let reference = reference.map_err(anyhow::Error::from_boxed)?;
+            let reference = reference?;
             let name = std::str::from_utf8(reference.name().as_bstr())?;
             let suffix = name
                 .strip_prefix(MAP_PREFIX)
@@ -787,7 +787,7 @@ pub(crate) fn transport_repository(
     }
     let mut alternates = Vec::new();
     for path in paths {
-        alternates.extend(quoted_path(&path));
+        alternates.extend(quoted_path(&path)?);
         alternates.push(b'\n');
     }
     fs::create_dir_all(repository.git_dir().join("objects/info"))?;
@@ -860,8 +860,8 @@ fn strip_rewritten_headers(commit: &mut gix_object::CommitRef<'_>) {
 }
 
 /// Quote both config paths and alternates with Git's C-style path quoting.
-fn quoted_path(path: &Path) -> Vec<u8> {
-    let path = gix::path::into_bstr(path);
+fn quoted_path(path: &Path) -> Result<Vec<u8>> {
+    let path = gix::path::into_bstr(path)?;
     let mut quoted = Vec::with_capacity(path.len() + 2);
     quoted.push(b'"');
     for &byte in path.iter() {
@@ -876,7 +876,7 @@ fn quoted_path(path: &Path) -> Vec<u8> {
         }
     }
     quoted.push(b'"');
-    quoted
+    Ok(quoted)
 }
 
 enum ObjectWork {
@@ -1011,19 +1011,19 @@ mod tests {
         let temporary = tempfile::tempdir()?;
         let main = gix::init_bare(temporary.path().join("main.git"))?;
         let source = SourceRepo::open(&main, "test-source")?;
-        let tree = source.git.write_buf(gix_object::Kind::Tree, b"").map_err(anyhow::Error::from_boxed)?;
+        let tree = source.git.write_buf(gix_object::Kind::Tree, b"")?;
         let parent = source.git.write_buf(gix_object::Kind::Commit,
         format!(
             "tree {tree}\nauthor A <a@example.org> 1 +0000\ncommitter A <a@example.org> 1 \
              +0000\n\nparent\n"
         )
-        .as_bytes(),).map_err(anyhow::Error::from_boxed)?;
+        .as_bytes(),)?;
         let raw = source.git.write_buf(gix_object::Kind::Commit,
         format!(
             "tree {tree}\nparent {parent}\nauthor A <a@example.org> 2 +0000\ncommitter A \
              <a@example.org> 2 +0000\ngpgsig retained signature\n\nraw\n"
         )
-        .as_bytes(),).map_err(anyhow::Error::from_boxed)?;
+        .as_bytes(),)?;
         fs::write(source.path().join("shallow"), format!("{raw}\n"))?;
         let tx = crate::interop::open_josh_transaction(source.path(), false)
             .map_err(|error| anyhow::anyhow!(error.error))?;
@@ -1218,13 +1218,13 @@ mod tests {
             "tree {tree}\nparent {boundary_input}\nauthor A <a@example.org> 3 \
              +0000\ncommitter A <a@example.org> 3 +0000\ngpgsig export signature\n\nchild\n"
         )
-        .as_bytes(),).map_err(anyhow::Error::from_boxed)?;
+        .as_bytes(),)?;
         let tip = source.git.write_buf(gix_object::Kind::Commit,
         format!(
             "tree {tree}\nparent {child}\nauthor A <a@example.org> 4 +0000\ncommitter A \
              <a@example.org> 4 +0000\n\ntip\n"
         )
-        .as_bytes(),).map_err(anyhow::Error::from_boxed)?;
+        .as_bytes(),)?;
         let tx = crate::interop::open_josh_transaction(source.path(), false)
             .map_err(|error| anyhow::anyhow!(error.error))?;
         let publication = source.denormalize(&tx, tip, &Normalized::default())?;

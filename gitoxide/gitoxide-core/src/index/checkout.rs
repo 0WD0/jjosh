@@ -3,8 +3,11 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
-use anyhow::bail;
-use gix::{NestedProgress, Progress, objs::find::Error, worktree::state::checkout};
+use gix::{
+    NestedProgress, Progress, Result,
+    error::{ResultExt, bail},
+    worktree::state::checkout,
+};
 
 use crate::{
     index,
@@ -24,17 +27,17 @@ pub fn checkout_exclusive(
         keep_going,
         thread_limit,
     }: index::checkout_exclusive::Options,
-) -> anyhow::Result<()> {
+) -> Result<()> {
     let repo = repo.map(gix::discover).transpose()?;
 
     let dest_directory = dest_directory.as_ref();
     if dest_directory.exists() {
-        bail!(
-            "Refusing to checkout index into existing directory '{}' - remove it and try again",
+        bail!(gix::error::conflict(format!(
+            "Refusing to checkout index into existing directory \"{}\" - remove it and try again",
             dest_directory.display()
-        )
+        )))
     }
-    std::fs::create_dir_all(dest_directory)?;
+    std::fs::create_dir_all(dest_directory).or_error()?;
 
     let mut index = parse_file(index_path, object_hash)?;
 
@@ -62,11 +65,13 @@ pub fn checkout_exclusive(
         overwrite_existing: false,
         keep_going,
         thread_limit,
-        filters: repo
-            .as_ref()
-            .and_then(|repo| repo.filter_pipeline(None).ok().map(|t| t.0.into_parts().0))
-            .unwrap_or_default(),
-        ..Default::default()
+        ..gix::worktree::state::checkout::Options::new(
+            repo.as_ref()
+                .and_then(|repo| repo.filter_pipeline(None).ok().map(|t| t.0.into_parts().0))
+                .unwrap_or_else(|| {
+                    gix::filter::plumbing::Pipeline::new(Default::default(), index.object_hash(), Default::default())
+                }),
+        )
     };
 
     let mut files = progress.add_child("checkout");
@@ -91,7 +96,7 @@ pub fn checkout_exclusive(
             dest_directory,
             EmptyOrDb {
                 empty_files,
-                db: repo.objects.into_arc()?,
+                db: repo.objects.into_arc().or_error()?,
             },
             &files,
             &bytes,
@@ -182,7 +187,7 @@ impl<Find> gix::objs::Find for EmptyOrDb<Find>
 where
     Find: gix::objs::Find,
 {
-    fn try_find<'a>(&self, id: &gix::oid, buf: &'a mut Vec<u8>) -> Result<Option<gix::objs::Data<'a>>, Error> {
+    fn try_find<'a>(&self, id: &gix::oid, buf: &'a mut Vec<u8>) -> gix::Result<Option<gix::objs::Data<'a>>> {
         if self.empty_files {
             // We always want to query the ODB here…
             let Some(kind) = self.db.try_find(id, buf)?.map(|d| d.kind) else {
@@ -205,7 +210,7 @@ where
 struct Empty;
 
 impl gix::objs::Find for Empty {
-    fn try_find<'a>(&self, id: &gix::oid, buffer: &'a mut Vec<u8>) -> Result<Option<gix::objs::Data<'a>>, Error> {
+    fn try_find<'a>(&self, id: &gix::oid, buffer: &'a mut Vec<u8>) -> gix::Result<Option<gix::objs::Data<'a>>> {
         buffer.clear();
         Ok(Some(gix::objs::Data {
             kind: gix::object::Kind::Blob,

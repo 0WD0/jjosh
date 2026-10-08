@@ -1,11 +1,10 @@
+use gix_error::Result;
 use std::borrow::Cow;
 
+use gix_error::bail;
 use gix_object::FindExt;
 
-use crate::{
-    blob::builtin_driver,
-    commit::{Error, Options},
-};
+use crate::{blob::builtin_driver, commit::Options};
 
 /// Like [`tree()`](crate::tree()), but it takes only two commits, `our_commit` and `their_commit` to automatically
 /// compute the merge-bases among them.
@@ -52,7 +51,7 @@ pub fn commit<'objects>(
     objects: &'objects (impl gix_object::FindObjectOrHeader + gix_object::Write),
     abbreviate_hash: &mut dyn FnMut(&gix_hash::oid) -> String,
     options: Options,
-) -> Result<super::Outcome<'objects>, Error> {
+) -> Result<super::Outcome<'objects>> {
     let merge_bases = gix_revision::merge_base(our_commit, &[their_commit], graph)?;
     let mut virtual_merge_bases = Vec::new();
     let mut state = gix_diff::tree::State::default();
@@ -91,10 +90,7 @@ pub fn commit<'objects>(
             if options.allow_missing_merge_base {
                 (gix_hash::ObjectId::empty_tree(our_commit.kind()), "empty tree".into())
             } else {
-                return Err(Error::NoMergeBase {
-                    our_commit_id: our_commit,
-                    their_commit_id: their_commit,
-                });
+                bail!("No common ancestor between {our_commit} and {their_commit}".validation());
             }
         }
     };

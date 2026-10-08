@@ -102,7 +102,7 @@ fn compare_baseline_with_ours() {
 }
 
 #[test]
-fn compare_whitespace_baseline_with_ours() -> gix_testtools::Result {
+fn compare_whitespace_baseline_with_ours() -> gix_testtools::TestResult {
     let dir = gix_testtools::scripted_fixture_read_only("make_baseline.sh")?;
     for (input_file, case) in [
         ("git-baseline.whitespace-false", Case::Sensitive),

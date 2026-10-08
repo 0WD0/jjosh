@@ -35,7 +35,7 @@ pub(crate) fn write_entry_header_and_path(
     oid: &gix_hash::oid,
     mode: gix_object::tree::EntryMode,
     stream_len: Option<usize>,
-    out: &mut gix_features::io::pipe::Writer,
+    out: &mut gix_utils::io::pipe::Writer,
 ) -> std::io::Result<()> {
     const HEADER_LEN: usize = std::mem::size_of::<usize>() * 2 + 2;
     let mut buf = [0u8; HEADER_LEN + gix_hash::Kind::longest().len_in_bytes()];
@@ -64,7 +64,7 @@ pub(crate) fn write_entry_header_and_path(
 pub(crate) fn write_stream(
     buf: &mut Vec<u8>,
     mut input: impl std::io::Read,
-    out: &mut gix_features::io::pipe::Writer,
+    out: &mut gix_utils::io::pipe::Writer,
 ) -> std::io::Result<()> {
     const BUF_LEN: usize = u16::MAX as usize;
     clear_and_set_len(buf, BUF_LEN)?;
@@ -138,7 +138,8 @@ fn mode_to_byte(m: gix_object::tree::EntryMode) -> u8 {
 
 fn clear_and_set_len(buf: &mut Vec<u8>, len: usize) -> io::Result<()> {
     buf.clear();
-    buf.try_reserve(len).map_err(|_| ErrorKind::OutOfMemory)?;
+    buf.try_reserve(len)
+        .map_err(|err| io::Error::new(ErrorKind::OutOfMemory, err))?;
     buf.resize(len, 0);
     Ok(())
 }

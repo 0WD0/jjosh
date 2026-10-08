@@ -7,8 +7,8 @@ repository = "https://github.com/GitoxideLabs/gitoxide"
 authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
 edition = "2024"
 license = "MIT OR Apache-2.0"
-version = "0.58.0"
-# Rust 1.88 is required by `dua-core` 3.3, used for worktree removal.
+version = "0.60.0"
+# Rust 1.88 is required by `dua-core` 4.0, used for worktree removal.
 rust-version = "1.88"
 default-run = "gix"
 include = ["/src/**/*", "/build.rs", "/LICENSE-*", "/README.md"]
@@ -36,7 +36,7 @@ default = ["max"]
 
 ## Everything, all at once.
 ##
-## As fast as possible, tracing, with TUI progress, progress line rendering with autoconfiguration, all transports based on their most mature implementation (HTTP), all `ein` tools, CLI colors and local-time support, JSON output, regex support for rev-specs.
+## As fast as possible, tracing, progress line rendering with autoconfiguration, all transports based on their most mature implementation (HTTP), all `ein` tools, CLI colors and local-time support, JSON output, regex support for rev-specs.
 ## Can be amended with the `http-client-curl-rustls` feature to avoid `openssl` as backend.
 ##
 ## ### Note
@@ -51,12 +51,12 @@ max = ["hashes", "max-control", "fast", "gitoxide-core-tools-query", "gitoxide-c
 ##
 ## This uses Rust's HTTP implementation.
 ##
-## As fast as possible, with TUI progress, progress line rendering with auto-configuration, all transports available but less mature pure Rust HTTP implementation, all `ein` tools, CLI colors and local-time support, JSON output, regex support for rev-specs.
+## As fast as possible, with progress line rendering and auto-configuration, all transports available but less mature pure Rust HTTP implementation, all `ein` tools, CLI colors and local-time support, JSON output, regex support for rev-specs.
 max-pure = ["hashes", "max-control", "http-client-reqwest", "gitoxide-core-blocking-client"]
 
 ## Like `max`, but with more control for configuration. See the *Package Maintainers* headline for more information.
 ## Needs to chose its own hash(es).
-max-control = ["tracing", "fast", "pretty-cli", "tix", "gitoxide-core-tools", "prodash-render-line", "prodash-render-tui", "prodash/render-line-autoconfigure", "gix/revparse-regex"]
+max-control = ["tracing-cpu-time", "fast", "pretty-cli", "tix", "gitoxide-core-tools", "prodash-render-line", "prodash/render-line-autoconfigure", "gix/revparse-regex"]
 
 ## All the good stuff, with less fanciness for smaller binaries.
 ##
@@ -68,7 +68,7 @@ lean = ["hashes", "fast", "tracing", "pretty-cli", "tix", "http-client-curl-open
 ## This build is essentially limited to local operations without any fanciness. It does not have `gix clone`.
 ##
 ## Optimized for size, no parallelism thus much slower, progress line rendering.
-small = ["hashes", "pretty-cli", "prodash-render-line", "is-terminal"]
+small = ["hashes", "pretty-cli", "prodash-render-line"]
 
 ## Like lean, but uses Rusts async implementations for networking.
 ##
@@ -84,11 +84,12 @@ lean-async = ["hashes", "fast", "tracing", "pretty-cli", "tix", "gitoxide-core-t
 #! ### Package Maintainers
 #! `*-control` features leave it to you to configure C libraries, involving choices for HTTP transport implementation.
 #!
-#! Additional features *can* be provided with `--features` and are handled by the [`gix-features` crate](https://docs.rs/gix-features/latest).
+#! Additional features *can* be provided with `--features` and are handled by the [`gix` crate](https://docs.rs/gix/latest/gix/#feature-flags).
 #! Note that only one HTTP transport can be enabled at a time. See the *Building Blocks for mutually exclusive networking* headline.
 
 #! ### Building Blocks
 #! Typical combinations of features of our dependencies, some of which are referred to in the `gitoxide` crate's code for conditional compilation.
+
 
 ## Provide support for all known hashes. If this isn't enabled, select an individual hash algorithms.
 hashes = ["sha1", "sha256"]
@@ -102,32 +103,32 @@ tix = ["dep:gix-tix"]
 
 ## Makes the crate execute as fast as possible by supporting parallel computation of otherwise long-running functions.
 ## If disabled, the binary will be visibly smaller.
-fast = ["gix/max-performance", "gix/comfort"]
+## Objects are decompressed with `sirocco`, which requires Rust 1.89 or newer.
+fast = ["gix/max-performance", "gix/comfort", "gix/zlib-sirocco"]
 
-## Deprecated: identical to `fast`, as the fastest zlib backend is now the pure-Rust zlib-rs.
+## Deprecated: identical to `fast`, as all zlib backends are now pure Rust.
 fast-safe = ["fast"]
 
 ## Enable tracing in `gitoxide-core`.
-tracing = ["dep:tracing-forest", "dep:tracing-subscriber", "dep:tracing", "gix-features/tracing", "gix-features/tracing-detail"]
+tracing = ["dep:anstream", "dep:tracing", "gitoxide-core/tracing", "gix/tracing-detail"]
 
-## Use `clap` 3.0 to build the prettiest, best documented and most user-friendly CLI at the expense of binary size.
-## Provides a terminal user interface for detailed and exhaustive progress.
-## Provides a line renderer for leaner progress display, without the need for a full-blown TUI.
+## Also measure user and kernel CPU time in trace trees on supported Unix platforms.
+## Sampling adds overhead on span entry and exit.
+tracing-cpu-time = ["tracing", "gitoxide-core/tracing-cpu-time"]
+
+## Use `clap` to build the prettiest, best documented and most user-friendly CLI at the expense of binary size.
 pretty-cli = ["gitoxide-core/serde", "prodash/progress-tree", "prodash/progress-tree-log", "prodash/local-time", "env_logger/humantime", "env_logger/color", "env_logger/auto-color"]
 
 ## The `--verbose` flag will be powered by an interactive progress mechanism that doubles as log as well as interactive progress
 ## that appears after a short duration.
-prodash-render-line-crossterm = ["prodash-render-line", "prodash/render-line-crossterm", "prodash/signal-hook", "is-terminal", "crosstermion"]
-
-## Progress reporting with a TUI, can then be enabled with the `--progress` flag.
-prodash-render-tui = ["prodash/render-tui", "prodash/render-tui-crossterm", "gix/progress-tree", "futures-lite"]
+prodash-render-line-crossterm = ["prodash-render-line", "prodash/render-line-crossterm", "prodash/signal-hook", "crosstermion"]
 
 ## Progress reporting by visually drawing lines into the terminal without switching to an alternate window.
 prodash-render-line = ["prodash/render-line", "prodash-render-line-crossterm", "gix/progress-tree"]
 
 ## Prints statistical information to inform about cache efficiency when those are dropped.
 ## Use this as a way to understand if bigger caches actually produce greater yields.
-cache-efficiency-debug = ["gix-features/cache-efficiency-debug"]
+cache-efficiency-debug = ["gix/cache-efficiency-debug"]
 
 ##  A way to enable most `gitoxide-core` tools found in `ein tools`, namely `organize` and `estimate hours`.
 gitoxide-core-tools = ["gitoxide-core/organize", "gitoxide-core/estimate-hours", "gitoxide-core-tools-archive", "gitoxide-core-tools-clean"]
@@ -152,7 +153,7 @@ gitoxide-core-tools-clean = ["gitoxide-core/clean"]
 #! The backends are mutually exclusive, e.g. choose either `curl` or `request`.
 #!
 ## Use blocking client networking.
-gitoxide-core-blocking-client = ["gitoxide-core/blocking-client"]
+gitoxide-core-blocking-client = ["gitoxide-core/blocking-client", "gix-tix?/blocking-network-client"]
 ## Support synchronous 'http' and 'https' transports (e.g. for clone, fetch and push) using **curl**.
 http-client-curl = ["gix/blocking-http-transport-curl"]
 ## Implies `http-client-curl` and configures `curl` to use the `rust-tls` backend.
@@ -168,24 +169,19 @@ http-client-reqwest = ["gix/blocking-http-transport-reqwest-rust-tls"]
 gitoxide-core-async-client = ["gitoxide-core/async-client", "futures-lite"]
 
 [dependencies]
-anyhow = "1.0.98"
-
-gitoxide-core = { version = "^0.61.1", path = "gitoxide-core" }
-gix-features = { version = "^0.49.1", path = "gix-features" }
-gix = { version = "^0.87.1", path = "gix", default-features = false }
-gix-tix = { version = "^0.3.0", path = "gix-tix", default-features = false, optional = true }
+gitoxide-core = { version = "^0.63.0", path = "gitoxide-core" }
+gix = { version = "^0.89.0", path = "gix", default-features = false, features = ["error-print-location"] }
+gix-tix = { version = "^0.5.0", path = "gix-tix", default-features = false, optional = true }
 
 clap = { version = "4.5.42", features = ["derive", "cargo"] }
 clap_complete = "4.5.55"
-prodash = { version = "31.0.0", optional = true }
-is-terminal = { version = "0.4.0", optional = true }
+prodash = { version = "31.0.1", optional = true }
 env_logger = { version = "0.11.8", default-features = false }
 crosstermion = { version = "0.16.0", optional = true, default-features = false }
 futures-lite = { version = "2.1.0", optional = true }
 
 # for 'tracing'
-tracing-forest = { version = "0.1.5", features = ["serde"], optional = true }
-tracing-subscriber = { version = "0.3.17", optional = true }
+anstream = { version = "1.0.0", optional = true }
 tracing = { version = "0.1.37", optional = true }
 
 # for config-tree
@@ -240,7 +236,7 @@ members = [
     "gix-config",
     "gix-config-value",
     "gix-discover",
-    "gix-features",
+    "gix-parallel",
     "gix-zlib",
     "gix-trace",
     "gix-commitgraph",
@@ -341,6 +337,7 @@ pedantic = { level = "warn", priority = -1 }
 
 #
 # Reviewed and allowed lints
+assert_is_empty = "allow" # Keep emptiness assertions usable without requiring `Debug` and `PartialEq`.
 needless_continue = "allow"
 enum_glob_use = "allow"  # x97
 missing_errors_doc = "allow"  # x1792
@@ -381,7 +378,6 @@ explicit_deref_methods = "allow"  # x22
 inconsistent_struct_constructor = "allow"  # x18
 range_plus_one = "allow"  # x17
 inefficient_to_string = "allow"  # x14
-from_iter_instead_of_collect = "allow"  # x13
 unused_self = "allow"  # x10
 many_single_char_names = "allow"  # x10
 manual_string_new = "allow"  # x10

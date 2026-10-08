@@ -15,8 +15,7 @@
 use std::io::Write as _;
 
 use clap_complete::ArgValueCompleter;
-use itertools::Itertools as _;
-use jj_lib::merge::Merge;
+use futures::StreamExt as _;
 use jj_lib::merged_tree_builder::MergedTreeBuilder;
 use tracing::instrument;
 
@@ -50,7 +49,7 @@ pub(crate) async fn cmd_file_untrack(
     let mut workspace_command = command.workspace_helper(ui).await?;
     let fileset_expression = workspace_command.parse_file_patterns(ui, &args.paths)?;
     let matcher = fileset_expression.to_matcher();
-    let auto_tracking_matcher = workspace_command.auto_tracking_matcher(ui)?;
+    let auto_tracking_matcher = workspace_command.env().auto_tracking_matcher(ui)?;
     let options =
         workspace_command.snapshot_options_with_start_tracking_matcher(&auto_tracking_matcher)?;
 
@@ -62,8 +61,9 @@ pub(crate) async fn cmd_file_untrack(
     // Create a new tree without the unwanted files
     let mut tree_builder = MergedTreeBuilder::new(wc_commit.tree());
     let wc_tree = wc_commit.tree();
-    for (path, _value) in wc_tree.entries_matching(matcher.as_ref()) {
-        tree_builder.set_or_remove(path, Merge::absent());
+    let mut entries = wc_tree.entries_matching(matcher.as_ref());
+    while let Some((path, _value)) = entries.next().await {
+        tree_builder.set_or_remove(path, None);
     }
     let new_tree = tree_builder.write_tree().await?;
     let new_commit = tx
@@ -78,7 +78,10 @@ pub(crate) async fn cmd_file_untrack(
     // untracked because they're not ignored.
     let (new_wc_tree, stats) = locked_ws.locked_wc().snapshot(&options).await?;
     if new_wc_tree.tree_ids() != new_commit.tree_ids() {
-        let added_back = new_wc_tree.entries_matching(matcher.as_ref()).collect_vec();
+        let added_back: Vec<_> = new_wc_tree
+            .entries_matching(matcher.as_ref())
+            .collect()
+            .await;
         if !added_back.is_empty() {
             drop(locked_ws);
             let path = &added_back[0].0;

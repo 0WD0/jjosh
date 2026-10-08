@@ -2,7 +2,7 @@ mod checkout;
 
 use std::path::{Path, PathBuf};
 
-pub type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
+pub use gix_testtools::Result;
 
 pub use gix_testtools::scripted_fixture_read_only;
 

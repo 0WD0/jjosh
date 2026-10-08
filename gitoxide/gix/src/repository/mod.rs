@@ -14,6 +14,77 @@ pub enum Kind {
     LinkedWorkTree,
 }
 
+/// A supported repository format version, as selected by `core.repositoryFormatVersion`.
+///
+/// See [Git's repository format specification](https://git-scm.com/docs/repository-version).
+#[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
+pub enum FormatVersion {
+    /// The original SHA-1 repository format, used when no version is configured.
+    ///
+    /// Objects use SHA-1 identifiers, and references use loose files and `packed-refs`.
+    /// Git honors these historical `extensions.*` keys even in version 0:
+    ///
+    /// - `noop`: changes no behavior; used for compatibility testing.
+    /// - `preciousObjects`: forbids deleting objects, including during pruning and repacking.
+    /// - `partialClone`: names the promisor remote that can supply intentionally omitted objects.
+    /// - `worktreeConfig`: enables per-worktree `config.worktree` files in addition to the shared configuration.
+    ///
+    /// Unknown extension keys are ignored, but known version-1-only extensions such as `objectFormat` and
+    /// `relativeWorktrees` are rejected. Enabling those requires [`V1`][Self::V1].
+    #[default]
+    V0,
+    /// Version 0's base format with explicit extension negotiation.
+    ///
+    /// The version number alone does not change storage or enable features. Git requires readers to understand
+    /// every configured `extensions.*` key and its value before operating on a version-1 repository.
+    /// Examples of version-1-only extensions include:
+    ///
+    /// - `objectFormat`: selects SHA-1 or SHA-256 objects; without it, SHA-1 remains the default.
+    ///   `gix` needs the corresponding `sha1` or `sha256` Cargo feature.
+    /// - `relativeWorktrees`: records that worktrees may use relative links to their administrative Git directories.
+    ///   Creating relative links is controlled separately by `worktree.useRelativePaths`.
+    /// - `refStorage`: selects Git's reference storage backend, including reftable.
+    ///
+    /// The historical version-0 extensions remain valid. Recognizing version 1 does not imply that `gix` supports
+    /// every extension. With no extensions configured, prefer [`V0`][Self::V0] for compatibility with older readers.
+    V1,
+}
+
+impl FormatVersion {
+    /// Validate that upgrading this repository format to version 1 will not activate unsupported extensions.
+    ///
+    /// For version 0, permit only Git's grandfathered `noop`, `preciousObjects`, `partialClone`, and `worktreeConfig`
+    /// extensions, without subsections. Unknown extensions that version 0 ignores become significant in version 1.
+    /// Version 1 needs no upgrade and is accepted without checking its extensions.
+    ///
+    /// This only checks extension names; it neither validates values nor modifies `config`.
+    pub fn validate_upgrade_to_v1(self, config: &gix_config::File) -> crate::Result<()> {
+        use gix_error::bail;
+
+        if self == Self::V1 {
+            return Ok(());
+        }
+        for section in config.sections_by_name("extensions").into_iter().flatten() {
+            for name in section.value_names() {
+                if section.header().subsection_name().is_some()
+                    || !["noop", "preciousobjects", "partialclone", "worktreeconfig"]
+                        .iter()
+                        .any(|known| name.eq_ignore_ascii_case(known))
+                {
+                    let mut error =
+                        gix_error::unsupported("Cannot upgrade repository format with unsupported extension")
+                            .with("extension", name);
+                    if let Some(subsection) = section.header().subsection_name() {
+                        error = error.validation().with("subsection", subsection);
+                    }
+                    bail!(error);
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
 #[cfg(any(feature = "attributes", feature = "excludes"))]
 pub mod attributes;
 ///
@@ -65,34 +136,6 @@ mod thread_safe;
 pub(crate) mod worktree;
 
 ///
-mod new_commit {
-    /// The error returned by [`new_commit(…)`](crate::Repository::new_commit()).
-    #[derive(Debug, thiserror::Error)]
-    pub enum Error {
-        #[error(transparent)]
-        ParseTime(#[from] crate::config::time::Error),
-        #[error("Committer identity is not configured")]
-        CommitterMissing,
-        #[error("Author identity is not configured")]
-        AuthorMissing,
-        #[error(transparent)]
-        NewCommitAs(#[from] crate::repository::new_commit_as::Error),
-    }
-}
-
-///
-mod new_commit_as {
-    /// The error returned by [`new_commit_as(…)`](crate::Repository::new_commit_as()).
-    #[derive(Debug, thiserror::Error)]
-    pub enum Error {
-        #[error(transparent)]
-        WriteObject(#[from] crate::object::write::Error),
-        #[error(transparent)]
-        FindCommit(#[from] crate::object::find::existing::Error),
-    }
-}
-
-///
 #[cfg(feature = "blame")]
 pub mod blame_file {
     /// Options to be passed to [Repository::blame_file()](crate::Repository::blame_file()).
@@ -107,458 +150,4 @@ pub mod blame_file {
         /// Determine if rename tracking should be performed, and how.
         pub rewrites: Option<gix_diff::Rewrites>,
     }
-
-    /// The error returned by [Repository::blame_file()](crate::Repository::blame_file()).
-    #[derive(Debug, thiserror::Error)]
-    #[expect(missing_docs)]
-    pub enum Error {
-        #[error(transparent)]
-        CommitGraphIfEnabled(#[from] super::commit_graph_if_enabled::Error),
-        #[error(transparent)]
-        DiffAlgorithm(#[from] crate::config::diff::algorithm::Error),
-        #[error(transparent)]
-        DiffResourceCache(#[from] super::diff_resource_cache::Error),
-        #[error(transparent)]
-        Blame(#[from] gix_blame::Error),
-    }
-}
-
-///
-#[cfg(feature = "blob-diff")]
-pub mod diff_tree_to_tree {
-    /// The error returned by [Repository::diff_tree_to_tree()](crate::Repository::diff_tree_to_tree()).
-    #[derive(Debug, thiserror::Error)]
-    #[expect(missing_docs)]
-    pub enum Error {
-        #[error(transparent)]
-        DiffOptions(#[from] crate::diff::options::init::Error),
-        #[error(transparent)]
-        CreateResourceCache(#[from] super::diff_resource_cache::Error),
-        #[error(transparent)]
-        TreeDiff(#[from] gix_diff::tree_with_rewrites::Error),
-    }
-}
-
-///
-#[cfg(feature = "merge")]
-pub mod blob_merge_options {
-    /// The error returned by [Repository::blob_merge_options()](crate::Repository::blob_merge_options()).
-    #[derive(Debug, thiserror::Error)]
-    #[expect(missing_docs)]
-    pub enum Error {
-        #[error(transparent)]
-        DiffAlgorithm(#[from] crate::config::diff::algorithm::Error),
-        #[error(transparent)]
-        ConflictStyle(#[from] crate::config::key::GenericErrorWithValue),
-    }
-}
-
-///
-#[cfg(feature = "merge")]
-pub mod merge_resource_cache {
-    /// The error returned by [Repository::merge_resource_cache()](crate::Repository::merge_resource_cache()).
-    #[derive(Debug, thiserror::Error)]
-    #[expect(missing_docs)]
-    pub enum Error {
-        #[error(transparent)]
-        RenormalizeConfig(#[from] crate::config::boolean::Error),
-        #[error(transparent)]
-        PipelineOptions(#[from] crate::config::merge::pipeline_options::Error),
-        #[error(transparent)]
-        Index(#[from] crate::repository::index_or_load_from_head_or_empty::Error),
-        #[error(transparent)]
-        AttributeStack(#[from] crate::config::attribute_stack::Error),
-        #[error(transparent)]
-        CommandContext(#[from] crate::config::command_context::Error),
-        #[error(transparent)]
-        FilterPipeline(#[from] crate::filter::pipeline::options::Error),
-        #[error(transparent)]
-        DriversConfig(#[from] crate::config::merge::drivers::Error),
-    }
-}
-
-///
-#[cfg(feature = "merge")]
-pub mod merge_trees {
-    /// The error returned by [Repository::merge_trees()](crate::Repository::merge_trees()).
-    #[derive(Debug, thiserror::Error)]
-    #[expect(missing_docs)]
-    pub enum Error {
-        #[error(transparent)]
-        MergeResourceCache(#[from] super::merge_resource_cache::Error),
-        #[error(transparent)]
-        DiffResourceCache(#[from] super::diff_resource_cache::Error),
-        #[error(transparent)]
-        TreeMerge(#[from] gix_merge::tree::Error),
-        #[error(transparent)]
-        ValidationOptions(#[from] crate::config::boolean::Error),
-    }
-}
-
-///
-#[cfg(feature = "merge")]
-pub mod merge_commits {
-    /// The error returned by [Repository::merge_commits()](crate::Repository::merge_commits()).
-    #[derive(Debug, thiserror::Error)]
-    #[expect(missing_docs)]
-    pub enum Error {
-        #[error(transparent)]
-        OpenCommitGraph(#[from] super::commit_graph_if_enabled::Error),
-        #[error(transparent)]
-        MergeResourceCache(#[from] super::merge_resource_cache::Error),
-        #[error(transparent)]
-        DiffResourceCache(#[from] super::diff_resource_cache::Error),
-        #[error(transparent)]
-        CommitMerge(#[from] gix_merge::commit::Error),
-        #[error(transparent)]
-        ValidationOptions(#[from] crate::config::boolean::Error),
-    }
-}
-
-///
-#[cfg(feature = "merge")]
-pub mod virtual_merge_base {
-    /// The error returned by [Repository::virtual_merge_base()](crate::Repository::virtual_merge_base()).
-    #[derive(Debug, thiserror::Error)]
-    #[expect(missing_docs)]
-    pub enum Error {
-        #[error(transparent)]
-        OpenCommitGraph(#[from] super::commit_graph_if_enabled::Error),
-        #[error(transparent)]
-        VirtualMergeBase(#[from] super::virtual_merge_base_with_graph::Error),
-    }
-}
-
-///
-#[cfg(feature = "merge")]
-pub mod virtual_merge_base_with_graph {
-    /// The error returned by [Repository::virtual_merge_base_with_graph()](crate::Repository::virtual_merge_base_with_graph()).
-    #[derive(Debug, thiserror::Error)]
-    #[expect(missing_docs)]
-    pub enum Error {
-        #[error("No commit was provided as merge-base")]
-        MissingCommit,
-        #[error(transparent)]
-        MergeResourceCache(#[from] super::merge_resource_cache::Error),
-        #[error(transparent)]
-        DiffResourceCache(#[from] super::diff_resource_cache::Error),
-        #[error(transparent)]
-        CommitMerge(#[from] gix_merge::commit::Error),
-        #[error(transparent)]
-        FindCommit(#[from] crate::object::find::existing::with_conversion::Error),
-        #[error(transparent)]
-        DecodeCommit(#[from] gix_object::decode::Error),
-    }
-}
-
-///
-#[cfg(feature = "revision")]
-pub mod merge_base_octopus_with_graph {
-    /// The error returned by [Repository::merge_base_octopus_with_graph()](crate::Repository::merge_base_octopus_with_graph()).
-    #[derive(Debug, thiserror::Error)]
-    #[expect(missing_docs)]
-    pub enum Error {
-        #[error("No commit was provided")]
-        MissingCommit,
-        #[error("No merge base was found between the given commits")]
-        NoMergeBase,
-        #[error(transparent)]
-        MergeBase(#[from] gix_revision::merge_base::Error),
-    }
-}
-
-///
-#[cfg(feature = "revision")]
-pub mod merge_base_octopus {
-    /// The error returned by [Repository::merge_base_octopus()](crate::Repository::merge_base_octopus()).
-    #[derive(Debug, thiserror::Error)]
-    #[expect(missing_docs)]
-    pub enum Error {
-        #[error(transparent)]
-        OpenCache(#[from] crate::repository::commit_graph_if_enabled::Error),
-        #[error(transparent)]
-        MergeBaseOctopus(#[from] super::merge_base_octopus_with_graph::Error),
-    }
-}
-
-///
-#[cfg(feature = "revision")]
-pub mod merge_bases_many {
-    /// The error returned by [Repository::merge_bases_many()](crate::Repository::merge_bases_many()).
-    #[derive(Debug, thiserror::Error)]
-    #[expect(missing_docs)]
-    pub enum Error {
-        #[error(transparent)]
-        OpenCache(#[from] crate::repository::commit_graph_if_enabled::Error),
-        #[error(transparent)]
-        MergeBase(#[from] gix_revision::merge_base::Error),
-    }
-}
-
-///
-#[cfg(feature = "merge")]
-pub mod tree_merge_options {
-    /// The error returned by [Repository::tree_merge_options()](crate::Repository::tree_merge_options()).
-    #[derive(Debug, thiserror::Error)]
-    #[expect(missing_docs)]
-    pub enum Error {
-        #[error(transparent)]
-        BlobMergeOptions(#[from] super::blob_merge_options::Error),
-        #[error(transparent)]
-        RewritesConfig(#[from] crate::diff::new_rewrites::Error),
-        #[error(transparent)]
-        CommandContext(#[from] crate::config::command_context::Error),
-    }
-}
-
-///
-#[cfg(feature = "blob-diff")]
-pub mod diff_resource_cache {
-    /// The error returned by [Repository::diff_resource_cache()](crate::Repository::diff_resource_cache()).
-    #[derive(Debug, thiserror::Error)]
-    #[expect(missing_docs)]
-    pub enum Error {
-        #[error("Could not obtain resource cache for diffing")]
-        ResourceCache(#[from] crate::diff::resource_cache::Error),
-        #[error(transparent)]
-        Index(#[from] crate::repository::index_or_load_from_head_or_empty::Error),
-        #[error(transparent)]
-        AttributeStack(#[from] crate::config::attribute_stack::Error),
-    }
-}
-
-///
-pub mod edit_tree {
-    /// The error returned by [Repository::edit_tree()](crate::Repository::edit_tree).
-    #[derive(Debug, thiserror::Error)]
-    #[expect(missing_docs)]
-    pub enum Error {
-        #[error(transparent)]
-        FindTree(#[from] crate::object::find::existing::with_conversion::Error),
-        #[error(transparent)]
-        InitEditor(#[from] crate::object::tree::editor::init::Error),
-    }
-}
-
-///
-#[cfg(feature = "revision")]
-pub mod merge_base {
-    /// The error returned by [Repository::merge_base()](crate::Repository::merge_base()).
-    #[derive(Debug, thiserror::Error)]
-    #[expect(missing_docs)]
-    pub enum Error {
-        #[error(transparent)]
-        OpenCache(#[from] crate::repository::commit_graph_if_enabled::Error),
-        #[error(transparent)]
-        FindMergeBase(#[from] gix_revision::merge_base::Error),
-        #[error("Could not find a merge-base between commits {first} and {second}")]
-        NotFound {
-            first: gix_hash::ObjectId,
-            second: gix_hash::ObjectId,
-        },
-    }
-}
-
-///
-#[cfg(feature = "revision")]
-pub mod merge_base_with_graph {
-    /// The error returned by [Repository::merge_base_with_cache()](crate::Repository::merge_base_with_graph()).
-    #[derive(Debug, thiserror::Error)]
-    #[expect(missing_docs)]
-    pub enum Error {
-        #[error(transparent)]
-        FindMergeBase(#[from] gix_revision::merge_base::Error),
-        #[error("Could not find a merge-base between commits {first} and {second}")]
-        NotFound {
-            first: gix_hash::ObjectId,
-            second: gix_hash::ObjectId,
-        },
-    }
-}
-
-///
-pub mod commit_graph_if_enabled {
-    /// The error returned by [Repository::commit_graph_if_enabled()](crate::Repository::commit_graph_if_enabled()).
-    #[derive(Debug, thiserror::Error)]
-    #[expect(missing_docs)]
-    pub enum Error {
-        #[error(transparent)]
-        ConfigBoolean(#[from] crate::config::boolean::Error),
-        #[error(transparent)]
-        OpenCommitGraph(#[from] crate::Error),
-    }
-}
-
-///
-#[cfg(feature = "index")]
-pub mod index_from_tree {
-    /// The error returned by [Repository::index_from_tree()](crate::Repository::index_from_tree).
-    #[derive(Debug, thiserror::Error)]
-    #[expect(missing_docs)]
-    pub enum Error {
-        #[error("Could not create index from tree at {id}")]
-        IndexFromTree {
-            id: gix_hash::ObjectId,
-            source: gix_index::init::from_tree::Error,
-        },
-        #[error("Couldn't obtain configuration for core.protect*")]
-        BooleanConfig(#[from] crate::config::boolean::Error),
-    }
-}
-
-///
-pub mod branch_remote_ref_name {
-    /// The error returned by [Repository::branch_remote_ref_name()](crate::Repository::branch_remote_ref_name()).
-    #[derive(Debug, thiserror::Error)]
-    #[expect(missing_docs)]
-    pub enum Error {
-        #[error("The configured name of the remote ref to merge wasn't valid")]
-        ValidateFetchRemoteRefName(#[from] gix_validate::reference::name::Error),
-        #[error(transparent)]
-        PushDefault(#[from] crate::config::key::GenericErrorWithValue),
-        #[error(transparent)]
-        FindPushRemote(#[from] crate::remote::find::existing::Error),
-    }
-}
-
-///
-pub mod branch_remote_tracking_ref_name {
-    /// The error returned by [Repository::branch_remote_tracking_ref_name()](crate::Repository::branch_remote_tracking_ref_name()).
-    #[derive(Debug, thiserror::Error)]
-    #[expect(missing_docs)]
-    pub enum Error {
-        #[error("The name of the tracking reference was invalid")]
-        ValidateTrackingRef(#[from] gix_validate::reference::name::Error),
-        #[error("Could not get the remote reference to translate into the local tracking branch")]
-        RemoteRef(#[from] super::branch_remote_ref_name::Error),
-        #[error("Couldn't find remote to obtain fetch-specs for mapping to the tracking reference")]
-        FindRemote(#[from] crate::remote::find::existing::Error),
-    }
-}
-
-///
-pub mod upstream_branch_and_remote_name_for_tracking_branch {
-    /// The error returned by [Repository::upstream_branch_and_remote_name_for_tracking_branch()](crate::Repository::upstream_branch_and_remote_for_tracking_branch()).
-    #[derive(Debug, thiserror::Error)]
-    #[expect(missing_docs)]
-    pub enum Error {
-        #[error("The input branch '{}' needs to be a remote tracking branch", full_name.as_bstr())]
-        BranchCategory { full_name: gix_ref::FullName },
-        #[error(transparent)]
-        FindRemote(#[from] crate::remote::find::existing::Error),
-        #[error("Found ambiguous remotes without 1:1 mapping or more than one match: {}", remotes.iter()
-                                                                            .map(|r| r.as_bstr().to_string())
-                                                                            .collect::<Vec<_>>().join(", "))]
-        AmbiguousRemotes { remotes: Vec<crate::remote::Name<'static>> },
-        #[error(transparent)]
-        ValidateUpstreamBranch(#[from] gix_ref::name::Error),
-    }
-}
-
-///
-pub mod normalize_path {
-    /// The error returned by [Repository::normalize_path()](crate::Repository::normalize_path()).
-    #[derive(Debug, thiserror::Error)]
-    #[expect(missing_docs)]
-    pub enum Error {
-        #[error(transparent)]
-        Realpath(#[from] gix_path::realpath::Error),
-        #[error("The path '{}' leaves the repository", path.display())]
-        OutsideOfRepository { path: std::path::PathBuf },
-        #[error(
-            "The absolute path '{}' is not inside the repository at '{}'",
-            path.display(),
-            root.display()
-        )]
-        AbsolutePathOutsideOfRepository {
-            path: std::path::PathBuf,
-            root: std::path::PathBuf,
-        },
-    }
-}
-
-///
-#[cfg(feature = "attributes")]
-pub mod pathspec_defaults_ignore_case {
-    /// The error returned by [Repository::pathspec_defaults_ignore_case()](crate::Repository::pathspec_defaults_inherit_ignore_case()).
-    #[derive(Debug, thiserror::Error)]
-    #[expect(missing_docs)]
-    pub enum Error {
-        #[error("Filesystem configuration could not be obtained to learn about case sensitivity")]
-        FilesystemConfig(#[from] crate::config::boolean::Error),
-        #[error(transparent)]
-        Defaults(#[from] gix_pathspec::defaults::from_environment::Error),
-    }
-}
-
-///
-#[cfg(feature = "index")]
-pub mod index_or_load_from_head {
-    /// The error returned by [`Repository::index_or_load_from_head()`](crate::Repository::index_or_load_from_head()).
-    #[derive(thiserror::Error, Debug)]
-    #[expect(missing_docs)]
-    pub enum Error {
-        #[error(transparent)]
-        HeadCommit(#[from] crate::reference::head_commit::Error),
-        #[error(transparent)]
-        TreeId(#[from] gix_object::decode::Error),
-        #[error(transparent)]
-        TraverseTree(#[from] crate::repository::index_from_tree::Error),
-        #[error(transparent)]
-        OpenIndex(#[from] crate::worktree::open_index::Error),
-    }
-}
-
-///
-#[cfg(feature = "index")]
-pub mod index_or_load_from_head_or_empty {
-    /// The error returned by [`Repository::index_or_load_from_head_or_empty()`](crate::Repository::index_or_load_from_head_or_empty()).
-    #[derive(thiserror::Error, Debug)]
-    #[expect(missing_docs)]
-    pub enum Error {
-        #[error(transparent)]
-        ReadHead(#[from] crate::reference::find::existing::Error),
-        #[error(transparent)]
-        FindCommit(#[from] crate::object::find::existing::Error),
-        #[error(transparent)]
-        PeelToTree(#[from] crate::object::peel::to_kind::Error),
-        #[error(transparent)]
-        TreeId(#[from] gix_object::decode::Error),
-        #[error(transparent)]
-        TraverseTree(#[from] crate::repository::index_from_tree::Error),
-        #[error(transparent)]
-        OpenIndex(#[from] crate::worktree::open_index::Error),
-    }
-}
-
-///
-#[cfg(feature = "worktree-stream")]
-pub mod worktree_stream {
-    /// The error returned by [`Repository::worktree_stream()`](crate::Repository::worktree_stream()).
-    #[derive(Debug, thiserror::Error)]
-    #[expect(missing_docs)]
-    pub enum Error {
-        #[error(transparent)]
-        FindTree(#[from] crate::object::find::existing::Error),
-        #[error(transparent)]
-        OpenTree(#[from] crate::repository::index_from_tree::Error),
-        #[error(transparent)]
-        AttributesCache(#[from] crate::config::attribute_stack::Error),
-        #[error(transparent)]
-        FilterPipeline(#[from] crate::filter::pipeline::options::Error),
-        #[error(transparent)]
-        CommandContext(#[from] crate::config::command_context::Error),
-        #[error("Needed {id} to be a tree to turn into a workspace stream, got {actual}")]
-        NotATree {
-            id: gix_hash::ObjectId,
-            actual: gix_object::Kind,
-        },
-    }
-}
-
-///
-#[cfg(feature = "worktree-archive")]
-pub mod worktree_archive {
-    /// The error returned by [`Repository::worktree_archive()`](crate::Repository::worktree_archive()).
-    pub type Error = gix_error::Error;
 }

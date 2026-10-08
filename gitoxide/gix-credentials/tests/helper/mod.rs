@@ -19,7 +19,43 @@ mod invoke_outcome_to_helper_result {
             action,
         )
         .unwrap_err();
-        assert!(matches!(err, protocol::Error::IdentityMissing { .. }));
+        insta::assert_debug_snapshot!(err, "missing username or password causes failure with get action", @"Could not obtain identity for context: url=does/not/matter");
+        assert!(
+            err.is_unauthenticated(),
+            "missing credentials require obtaining an identity"
+        );
+    }
+
+    #[test]
+    fn invalid_context_still_reports_missing_identity() {
+        let mut error_snapshots = Vec::new();
+        for value in ["invalid\nvalue", "invalid\0value", "invalid\rvalue"] {
+            for context in [
+                protocol::Context::from_url(value, Default::default()),
+                protocol::Context {
+                    path: Some(value.into()),
+                    ..Default::default()
+                },
+            ] {
+                let err = helper_outcome_to_result(None, helper::Action::Get(context))
+                    .expect_err("Missing credentials must return an error even when the context is invalid");
+                error_snapshots.push(gix_testtools::redact_debug_snapshot(&(err), &[]));
+                assert!(
+                    err.is_unauthenticated(),
+                    "Invalid context must not replace the missing-credentials classification"
+                );
+            }
+        }
+        insta::assert_debug_snapshot!(error_snapshots, "invalid context still reports missing identity", @"
+        [
+            Could not obtain identity for context: ,
+            Could not obtain identity for context: ,
+            Could not obtain identity for context: ,
+            Could not obtain identity for context: ,
+            Could not obtain identity for context: ,
+            Could not obtain identity for context: ,
+        ]
+        ");
     }
 
     #[test]
@@ -36,7 +72,22 @@ mod invoke_outcome_to_helper_result {
             action,
         )
         .unwrap_err();
-        assert!(matches!(err, protocol::Error::Quit));
+        insta::assert_debug_snapshot!(err, "quit message in context causes special error ignoring missing identity", @"The handler asked to stop trying to obtain credentials");
+        assert!(err.is_cancelled(), "helper quit requests stop the credential cascade");
+        assert!(!err.is_retryable(), "cancellation must not invite a retry");
+        assert!(!err.can_retry(), "cancellation vetoes conservative retries");
+        assert!(!err.can_retry_lenient(), "cancellation vetoes lenient retries");
+        assert!(
+            !err.is_unauthenticated(),
+            "quit takes precedence over missing credentials"
+        );
+        use gix_error::ErrorExt;
+        let err = err.and_raise(gix_error::retryable("outer context would otherwise permit retrying"));
+        assert!(!err.can_retry(), "nested cancellation vetoes an outer retry marker");
+        assert!(
+            !err.can_retry_lenient(),
+            "nested cancellation vetoes an outer lenient retry marker"
+        );
     }
 }
 
@@ -47,7 +98,7 @@ use std::{borrow::Cow, path::Path};
 
 pub fn script_helper(name: &str) -> Program {
     fn to_arg<'a>(path: impl Into<Cow<'a, Path>>) -> BString {
-        let utf8_encoded = gix_path::into_bstr(path);
+        let utf8_encoded = gix_path::into_bstr(path).expect("fixture path is representable");
         let slash_separated = gix_path::to_unix_separators_on_windows(utf8_encoded);
         gix_quote::single(slash_separated.as_ref())
     }

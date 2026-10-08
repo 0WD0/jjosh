@@ -1,3 +1,5 @@
+use crate::TestResult;
+
 fn file(input: &str) -> gix_config::File {
     input.parse().unwrap()
 }
@@ -11,9 +13,7 @@ fn assert_set_value(value: &str) {
     assert_eq!(
         file.raw_value("a.k").unwrap(),
         value,
-        "{:?} didn't have expected value {:?}",
-        file.to_string(),
-        value
+        "{file} didn't have expected value {value}"
     );
 }
 
@@ -23,14 +23,10 @@ fn single_line() {
 }
 
 #[test]
-fn global_property_uses_empty_section_name() -> crate::Result {
+fn global_property_uses_empty_section_name() -> TestResult {
     let mut file = file("a=b\n[core]\na=c");
     let err = file.set_existing_raw_value_by("", None, "a", "d").unwrap_err();
-    assert_eq!(
-        err.to_string(),
-        "The requested section does not exist",
-        "cannot set global values"
-    );
+    insta::assert_debug_snapshot!(err, "cannot set global values", @"The requested section does not exist");
     Ok(())
 }
 

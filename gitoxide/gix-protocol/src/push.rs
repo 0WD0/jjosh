@@ -62,35 +62,66 @@ pub struct Outcome {
 }
 
 /// A preflight failure, or a failure recorded in a possibly mutating [`Outcome`].
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 #[expect(missing_docs)]
 pub enum Error {
-    #[error("Receive-pack requires protocol V0 or V1")]
     UnsupportedProtocol,
-    #[error("Receive-pack did not advertise required capability {0}")]
     MissingCapability(&'static str),
-    #[error("Invalid fully qualified push ref {0:?}")]
     InvalidRef(BString),
-    #[error("Duplicate push ref {0:?}")]
     DuplicateRef(BString),
-    #[error("Push object IDs do not match the advertised object format")]
     ObjectFormat,
-    #[error("Both old and new values are null for {0:?}")]
     EmptyUpdate(BString),
-    #[error("A pack writer is required when any new value is non-null")]
     MissingPack,
-    #[error("A push option contains NUL or LF")]
     InvalidPushOption,
-    #[error("A receive-pack command or push option exceeds the packet-line size limit")]
     PacketTooLarge,
-    #[error(transparent)]
-    Transport(#[from] client::Error),
-    #[error("Receive-pack I/O failed")]
-    Io(#[from] io::Error),
-    #[error("Malformed receive-pack report: {0}")]
+    Transport(client::Error),
+    Io(io::Error),
     MalformedStatus(&'static str),
-    #[error("Receive-pack report ended before a terminating flush and all required statuses")]
     IncompleteStatus,
+}
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnsupportedProtocol => f.write_str("Receive-pack requires protocol V0 or V1"),
+            Self::MissingCapability(name) => write!(f, "Receive-pack did not advertise required capability {name}"),
+            Self::InvalidRef(name) => write!(f, "Invalid fully qualified push ref {name:?}"),
+            Self::DuplicateRef(name) => write!(f, "Duplicate push ref {name:?}"),
+            Self::ObjectFormat => f.write_str("Push object IDs do not match the advertised object format"),
+            Self::EmptyUpdate(name) => write!(f, "Both old and new values are null for {name:?}"),
+            Self::MissingPack => f.write_str("A pack writer is required when any new value is non-null"),
+            Self::InvalidPushOption => f.write_str("A push option contains NUL or LF"),
+            Self::PacketTooLarge => f.write_str("A receive-pack command or push option exceeds the packet-line size limit"),
+            Self::Transport(err) => std::fmt::Display::fmt(err, f),
+            Self::Io(_) => f.write_str("Receive-pack I/O failed"),
+            Self::MalformedStatus(reason) => write!(f, "Malformed receive-pack report: {reason}"),
+            Self::IncompleteStatus => {
+                f.write_str("Receive-pack report ended before a terminating flush and all required statuses")
+            }
+        }
+    }
+}
+
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Transport(err) => std::error::Error::source(err),
+            Self::Io(err) => Some(err),
+            _ => None,
+        }
+    }
+}
+
+impl From<client::Error> for Error {
+    fn from(err: client::Error) -> Self {
+        Self::Transport(err)
+    }
+}
+
+impl From<io::Error> for Error {
+    fn from(err: io::Error) -> Self {
+        Self::Io(err)
+    }
 }
 
 /// Validate a planned push without opening a mutation request.

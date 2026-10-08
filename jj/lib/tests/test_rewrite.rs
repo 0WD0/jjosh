@@ -18,6 +18,7 @@ use std::slice;
 use itertools::Itertools as _;
 use jj_lib::backend::ChangeId;
 use jj_lib::commit::Commit;
+use jj_lib::commit::find_recursive_merge_commits;
 use jj_lib::matchers::EverythingMatcher;
 use jj_lib::matchers::FilesMatcher;
 use jj_lib::merge::Merge;
@@ -40,7 +41,6 @@ use jj_lib::rewrite::RebaseOptions;
 use jj_lib::rewrite::RebasedCommit;
 use jj_lib::rewrite::RewriteRefsOptions;
 use jj_lib::rewrite::find_duplicate_divergent_commits;
-use jj_lib::rewrite::find_recursive_merge_commits;
 use jj_lib::rewrite::merge_commit_trees;
 use jj_lib::rewrite::merge_commit_trees_no_resolve;
 use jj_lib::rewrite::rebase_commit_with_options;
@@ -470,7 +470,7 @@ fn test_restore_tree_with_conflicts() -> TestResult {
         (right_side2.clone(), "right side 2".into()),
         (
             expected_base,
-            "base files for restore (from right side)".into(),
+            "base files for restore (from right side 1)".into(),
         ),
         (expected_left_side1, "left side 1".into()),
         (expected_left_base1, "left base 1".into()),

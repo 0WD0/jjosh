@@ -1,9 +1,9 @@
 use std::path::Path;
 
-use gix_testtools::Result;
+use gix_testtools::TestResult;
 
 #[test]
-fn extract_interpreter() -> gix_testtools::Result {
+fn extract_interpreter() -> TestResult {
     let root = gix_testtools::scripted_fixture_read_only("win_path_lookup.sh")?;
     assert_eq!(
         gix_command::extract_interpreter(&root.join("b").join("exe")),

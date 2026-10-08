@@ -6,7 +6,7 @@ use std::{
     },
 };
 
-use gix::bstr::BStr;
+use gix::{Result, bstr::BStr};
 
 use crate::hours::{
     CommitIdx, FileStats, LineStats, WorkByEmail, WorkByPerson,
@@ -78,7 +78,7 @@ type CommitChangeLineCounters = (Arc<AtomicUsize>, Arc<AtomicUsize>, Arc<AtomicU
 
 type SpawnResultWithReturnChannelAndWorkers<'scope> = (
     crossbeam_channel::Sender<Vec<(CommitIdx, Option<gix::hash::ObjectId>, gix::hash::ObjectId)>>,
-    Vec<std::thread::ScopedJoinHandle<'scope, anyhow::Result<Vec<(CommitIdx, FileStats, LineStats)>>>>,
+    Vec<std::thread::ScopedJoinHandle<'scope, Result<Vec<(CommitIdx, FileStats, LineStats)>>>>,
 );
 
 pub fn spawn_tree_delta_threads<'scope>(
@@ -91,17 +91,17 @@ pub fn spawn_tree_delta_threads<'scope>(
     let (tx, rx) = crossbeam_channel::unbounded::<Vec<(CommitIdx, Option<gix::hash::ObjectId>, gix::hash::ObjectId)>>();
     let stat_workers = (0..threads)
         .map(|_| {
-            scope.spawn({
+            scope.spawn(gix::trace::in_thread({
                 let stats_counters = stat_counters.clone();
                 let mut repo = repo.clone();
                 repo.object_cache_size_if_unset((850 * 1024 * 1024) / threads);
                 let rx = rx.clone();
-                move || -> Result<_, anyhow::Error> {
+                move || -> Result<_> {
                     let mut out = Vec::new();
                     let (commits, changes, lines_count) = stats_counters;
                     let mut cache = line_stats
-                        .then(|| -> anyhow::Result<_> {
-                            Ok(repo.diff_resource_cache(gix::diff::blob::pipeline::Mode::ToGit, Default::default())?)
+                        .then(|| -> Result<_> {
+                            repo.diff_resource_cache(gix::diff::blob::pipeline::Mode::ToGit, Default::default())
                         })
                         .transpose()?;
                     for chunk in rx {
@@ -168,11 +168,9 @@ pub fn spawn_tree_delta_threads<'scope>(
                                             (true, true) => {
                                                 files.modified += 1;
                                                 if let Some(cache) = cache.as_mut() {
-                                                    let mut diff = change.diff(cache).map_err(std::io::Error::other)?;
+                                                    let mut diff = change.diff(cache)?;
                                                     let mut nl = 0;
-                                                    if let Some(counts) =
-                                                        diff.line_counts().map_err(std::io::Error::other)?
-                                                    {
+                                                    if let Some(counts) = diff.line_counts()? {
                                                         nl += counts.insertions as usize + counts.removals as usize;
                                                         lines.added += counts.insertions as usize;
                                                         lines.removed += counts.removals as usize;
@@ -182,14 +180,14 @@ pub fn spawn_tree_delta_threads<'scope>(
                                             }
                                         },
                                     }
-                                    Ok::<_, std::io::Error>(std::ops::ControlFlow::Continue(()))
+                                    Ok(std::ops::ControlFlow::Continue(()))
                                 })?;
                             out.push((commit_idx, files, lines));
                         }
                     }
                     Ok(out)
                 }
-            })
+            }))
         })
         .collect::<Vec<_>>();
     (tx, stat_workers)

@@ -47,6 +47,7 @@ use either::Either;
 use futures::AsyncRead;
 use futures::AsyncReadExt as _;
 use futures::StreamExt as _;
+use futures::TryStreamExt as _;
 use futures::io::AllowStdIo;
 use itertools::EitherOrBoth;
 use itertools::Itertools as _;
@@ -1664,7 +1665,7 @@ impl TreeState {
         let mut tree_builder = MergedTreeBuilder::new(self.tree.clone());
         trace_span!("process tree entries").in_scope(|| {
             for (path, tree_values) in &tree_entries_rx {
-                tree_builder.set_or_remove(path, tree_values);
+                tree_builder.set_or_remove_merge(path, tree_values).unwrap();
             }
         });
         let deleted_files = trace_span!("process deleted tree entries").in_scope(|| {
@@ -1674,7 +1675,7 @@ impl TreeState {
                 tree_builder.set_or_remove(
                     self.canonical_path(file, sparse_matcher.as_ref())
                         .into_owned(),
-                    Merge::absent(),
+                    None,
                 );
             }
             deleted_files
@@ -1700,7 +1701,7 @@ impl TreeState {
             let tree_paths: HashSet<_> = self
                 .tree
                 .entries_matching(sparse_matcher.as_ref())
-                .filter_map(|(path, result)| result.is_ok().then_some(path))
+                .filter_map(async |(path, result)| result.is_ok().then_some(path))
                 .map(|path| {
                     self.sparse_patterns
                         .repo_to_wc_with_matcher(&path, sparse_matcher.as_ref())
@@ -1709,7 +1710,8 @@ impl TreeState {
                         .as_repo_path()
                         .to_owned()
                 })
-                .collect();
+                .collect()
+                .await;
             let file_states = self.file_states.all();
             let state_paths: HashSet<_> = file_states.paths().map(|path| path.to_owned()).collect();
             assert_eq!(state_paths, tree_paths);
@@ -2627,16 +2629,19 @@ impl TreeState {
             .map_err(|err| checkout_error_for_mtime_out_of_range(err, disk_path))
     }
 
-    pub fn check_out(&mut self, new_tree: &MergedTree) -> Result<CheckoutStats, CheckoutError> {
+    pub async fn check_out(
+        &mut self,
+        new_tree: &MergedTree,
+    ) -> Result<CheckoutStats, CheckoutError> {
         let old_tree = self.tree.clone();
         let stats = self
             .update(&old_tree, new_tree, self.sparse_matcher().as_ref(), None)
-            .block_on()?;
+            .await?;
         self.tree = new_tree.clone();
         Ok(stats)
     }
 
-    pub fn set_sparse_patterns(
+    pub async fn set_sparse_patterns(
         &mut self,
         sparse_patterns: WorkingCopyPatterns,
     ) -> Result<CheckoutStats, CheckoutError> {
@@ -2663,7 +2668,11 @@ impl TreeState {
         let inventory = |tree: &MergedTree, patterns: &WorkingCopyPatterns| {
             let mut paths = HashMap::new();
             let matcher = patterns.to_matcher();
-            for (source, value) in tree.entries_matching(matcher.as_ref()) {
+            let entries = tree
+                .entries_matching(matcher.as_ref())
+                .collect::<Vec<_>>()
+                .block_on();
+            for (source, value) in entries {
                 value?;
                 let destination = patterns
                     .repo_to_wc_with_matcher(&source, matcher.as_ref())
@@ -3085,7 +3094,7 @@ impl TreeState {
         };
 
         let mut diff_stream = old_tree
-            .diff_stream_for_file_system(new_tree, matcher)
+            .diff_for_file_system(new_tree, matcher)
             .map(async |TreeDiffEntry { path, values }| match values {
                 Ok(diff) => {
                     let result =
@@ -3101,18 +3110,19 @@ impl TreeState {
         // labels did, we still need to re-materialize it in the working copy. We don't
         // need to do this if the conflicts have different numbers of sides though since
         // these conflicts are considered different, so they will be materialized by
-        // `MergedTree::diff_stream_for_file_system` already.
+        // `MergedTree::diff_for_file_system` already.
         let mut conflicts_to_rematerialize: HashMap<RepoPathBuf, MergedTreeValue> =
             if old_tree.tree_ids().num_sides() == new_tree.tree_ids().num_sides()
                 && old_tree.labels() != new_tree.labels()
             {
-                // TODO: it might be better to use an async stream here and merge it with the
-                // other diff stream, but it could be difficult since the diff stream is not
-                // sorted in the same order as the conflicts iterator.
+                // TODO: it might be better to merge this stream with the other diff stream,
+                // but it could be difficult since the diff stream is not sorted in the same
+                // order as the conflicts stream.
                 new_tree
                     .conflicts_matching(matcher)
                     .map(|(path, value)| value.map(|value| (path, value)))
-                    .try_collect()?
+                    .try_collect()
+                    .await?
             } else {
                 HashMap::new()
             };
@@ -3145,9 +3155,7 @@ impl TreeState {
         let matcher = self.sparse_matcher();
         let mut changed_file_states = Vec::new();
         let mut deleted_files = HashSet::new();
-        let mut diff_stream = self
-            .tree
-            .diff_stream_for_file_system(new_tree, matcher.as_ref());
+        let mut diff_stream = self.tree.diff_for_file_system(new_tree, matcher.as_ref());
         while let Some(TreeDiffEntry { path, values }) = diff_stream.next().await {
             let path = if self.sparse_patterns.is_identity() {
                 path
@@ -3596,7 +3604,7 @@ impl LockedWorkingCopy for LockedLocalWorkingCopy {
         let new_tree = commit.tree();
         let tree_state = self.wc.tree_state_mut()?;
         if tree_state.tree.tree_ids_and_labels() != new_tree.tree_ids_and_labels() {
-            let stats = tree_state.check_out(&new_tree)?;
+            let stats = tree_state.check_out(&new_tree).await?;
             self.tree_state_dirty = true;
             Ok(stats)
         } else {
@@ -3761,7 +3769,7 @@ impl LockedLocalWorkingCopy {
                 .wc
                 .tree_state_mut()?
                 .apply_layout_transition(new_tree, patterns, transition)?,
-            None => self.wc.tree_state_mut()?.check_out(new_tree)?,
+            None => self.wc.tree_state_mut()?.check_out(new_tree).block_on()?,
         };
         self.sparse_update_completed = true;
         self.tree_state_dirty = true;

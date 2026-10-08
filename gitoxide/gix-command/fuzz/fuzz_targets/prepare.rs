@@ -12,7 +12,7 @@ fn inspect_prepare(command: &str) {
         gix_command::prepare(command).with_shell(),
         gix_command::prepare(command).with_shell().with_quoted_command(),
     ] {
-        let command = std::process::Command::from(prep);
+        let command = std::process::Command::try_from(prep);
         _ = black_box(format!("{command:?}"));
     }
 }

@@ -74,6 +74,8 @@ pub(crate) mod root {
         pub const USER: sections::User = sections::User;
         /// The `url` section.
         pub const URL: sections::Url = sections::Url;
+        /// The `worktree` section.
+        pub const WORKTREE: sections::Worktree = sections::Worktree;
 
         /// List all available sections.
         pub fn sections(&self) -> &[&dyn Section] {
@@ -108,6 +110,7 @@ pub(crate) mod root {
                 &Self::STATUS,
                 &Self::USER,
                 &Self::URL,
+                &Self::WORKTREE,
             ]
         }
     }
@@ -116,8 +119,8 @@ pub(crate) mod root {
 mod sections;
 pub use sections::{
     Author, Branch, Checkout, Clone, Commit, Committer, Core, Credential, Extensions, Fetch, Gitoxide, Gpg, Http,
-    Index, Init, Mailmap, Merge, Notes, Pack, Protocol, Push, Remote, Safe, Ssh, Url, User, branch, checkout, commit,
-    core, credential, extensions, fetch, gitoxide, gpg, http, index, notes, protocol, push, remote, ssh,
+    Index, Init, Mailmap, Merge, Notes, Pack, Protocol, Push, Remote, Safe, Ssh, Url, User, Worktree, branch, checkout,
+    commit, core, credential, extensions, fetch, gitoxide, gpg, http, index, notes, protocol, push, remote, ssh,
 };
 #[cfg(feature = "blob-diff")]
 pub use sections::{Diff, diff};
@@ -126,32 +129,6 @@ pub use sections::{Status, status};
 
 /// Generic value implementations for static instantiation.
 pub mod keys;
-
-///
-pub mod key {
-    ///
-    pub mod validate {
-        /// The error returned by [`Key::validate()`][crate::config::tree::Key::validate()].
-        #[derive(Debug, thiserror::Error)]
-        #[error(transparent)]
-        pub struct Error {
-            #[from]
-            source: Box<dyn std::error::Error + Send + Sync + 'static>,
-        }
-    }
-    ///
-    pub mod validate_assignment {
-        /// The error returned by [`Key::validated_assignment`*()][crate::config::tree::Key::validated_assignment_fmt()].
-        #[derive(Debug, thiserror::Error)]
-        #[expect(missing_docs)]
-        pub enum Error {
-            #[error("Failed to validate the value to be assigned to this key")]
-            Validate(#[from] super::validate::Error),
-            #[error("{message}")]
-            Name { message: String },
-        }
-    }
-}
 
 mod traits;
 pub use traits::{Key, Link, Note, Section, SubSectionRequirement};

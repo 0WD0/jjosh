@@ -176,6 +176,41 @@ fn test_log_author_timestamp_local() {
 }
 
 #[test]
+fn test_log_fill() {
+    let test_env = TestEnvironment::default();
+    test_env.run_jj_in(".", ["git", "init", "repo"]).success();
+    let work_dir = test_env.work_dir("repo");
+
+    work_dir
+        .run_jj([
+            "describe",
+            "-m",
+            "A change with a long description and a LongCharSequenceWithoutSpaces",
+        ])
+        .success();
+
+    let template = "fill(20, description)";
+    let output = work_dir.run_jj(["log", "--no-graph", "-T", template]);
+    insta::assert_snapshot!(output, @"
+    A change with a long
+    description and a
+    LongCharSequenceWithoutSpaces
+    [EOF]
+    ");
+
+    // Should break words longer than width if specified
+    let template = "fill(20, description, break_words=true)";
+    let output = work_dir.run_jj(["log", "--no-graph", "-T", template]);
+    insta::assert_snapshot!(output, @"
+    A change with a long
+    description and a
+    LongCharSequenceWith
+    outSpaces
+    [EOF]
+    ");
+}
+
+#[test]
 fn test_log_author_timestamp_after_before() {
     let test_env = TestEnvironment::default();
     test_env.run_jj_in(".", ["git", "init", "repo"]).success();
@@ -256,7 +291,7 @@ fn test_log_json() {
     insta::assert_snapshot!(output, @r#"
     @  {"commit_id":"b1cb6b2f9141e6ffee18532a8bf9a2075ca02606","parents":["68a505386f936fff6d718f55005e77ea72589bc1"],"change_id":"kkmpptxzrspxrzommnulwmwkkqwworpl","description":"second\n","author":{"name":"Test User","email":"test.user@example.com","timestamp":"2001-02-03T04:05:09+07:00"},"committer":{"name":"Test User","email":"test.user@example.com","timestamp":"2001-02-03T04:05:09+07:00"}}
     ○  {"commit_id":"68a505386f936fff6d718f55005e77ea72589bc1","parents":["0000000000000000000000000000000000000000"],"change_id":"qpvuntsmwlqtpsluzzsnyyzlmlwvmlnu","description":"first\n","author":{"name":"Test User","email":"test.user@example.com","timestamp":"2001-02-03T04:05:08+07:00"},"committer":{"name":"Test User","email":"test.user@example.com","timestamp":"2001-02-03T04:05:08+07:00"}}
-    ◆  {"commit_id":"0000000000000000000000000000000000000000","parents":[],"change_id":"zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz","description":"","author":{"name":"","email":"","timestamp":"1970-01-01T00:00:00Z"},"committer":{"name":"","email":"","timestamp":"1970-01-01T00:00:00Z"}}
+    ◆  {"commit_id":"0000000000000000000000000000000000000000","parents":[],"change_id":"zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz","description":"","author":{"name":"","email":"","timestamp":"1970-01-01T00:00:00+00:00"},"committer":{"name":"","email":"","timestamp":"1970-01-01T00:00:00+00:00"}}
     [EOF]
     "#);
 }
@@ -902,13 +937,13 @@ fn test_log_contained_in() {
     separate(" ",
       description.first_line(),
       bookmarks,
-      if(self.contained_in("{revset}"), "[contained_in]"),
+      if(self.contained_in({revset}), "[contained_in]"),
     ) ++ "\n"
     "#
         )
     };
 
-    let output = work_dir.run_jj(["log", "-r::", "-T", &template_for_revset("subject(A)::")]);
+    let output = work_dir.run_jj(["log", "-r::", "-T", &template_for_revset("'subject(A)::'")]);
     insta::assert_snapshot!(output, @"
     @  D
     │ ○  C [contained_in]
@@ -923,7 +958,7 @@ fn test_log_contained_in() {
         "log",
         "-r::",
         "-T",
-        &template_for_revset(r#"visible_heads()"#),
+        &template_for_revset("'visible_heads()'"),
     ]);
     insta::assert_snapshot!(output, @"
     @  D [contained_in]
@@ -935,15 +970,32 @@ fn test_log_contained_in() {
     [EOF]
     ");
 
+    let output = work_dir.run_jj([
+        "log",
+        "-r::",
+        "-T",
+        // Build the revset query dynamically from the current commit.
+        &template_for_revset("commit_id"),
+    ]);
+    insta::assert_snapshot!(output, @"
+    @  D [contained_in]
+    │ ○  C [contained_in]
+    │ ○  B main [contained_in]
+    │ ○  A [contained_in]
+    ├─╯
+    ◆  [contained_in]
+    [EOF]
+    ");
+
     // Suppress error that could be detected earlier
-    let output = work_dir.run_jj(["log", "-r::", "-T", &template_for_revset("unknown_fn()")]);
+    let output = work_dir.run_jj(["log", "-r::", "-T", &template_for_revset("'unknown_fn()'")]);
     insta::assert_snapshot!(output, @r#"
     ------- stderr -------
     Error: Failed to parse template: In revset expression
     Caused by:
     1:  --> 5:28
       |
-    5 |       if(self.contained_in("unknown_fn()"), "[contained_in]"),
+    5 |       if(self.contained_in('unknown_fn()'), "[contained_in]"),
       |                            ^------------^
       |
       = In revset expression
@@ -957,7 +1009,12 @@ fn test_log_contained_in() {
     [exit status: 1]
     "#);
 
-    let output = work_dir.run_jj(["log", "-r::", "-T", &template_for_revset("author(x:'y')")]);
+    let output = work_dir.run_jj([
+        "log",
+        "-r::",
+        "-T",
+        &template_for_revset(r#""author(x:'y')""#),
+    ]);
     insta::assert_snapshot!(output, @r#"
     ------- stderr -------
     Error: Failed to parse template: In revset expression
@@ -980,18 +1037,48 @@ fn test_log_contained_in() {
     [exit status: 1]
     "#);
 
-    let output = work_dir.run_jj(["log", "-r::", "-T", &template_for_revset("maine")]);
+    let output = work_dir.run_jj(["log", "-r::", "-T", &template_for_revset("'maine'")]);
     insta::assert_snapshot!(output, @r#"
     ------- stderr -------
     Error: Failed to parse template: Failed to evaluate revset
     Caused by:
     1:  --> 5:28
       |
-    5 |       if(self.contained_in("maine"), "[contained_in]"),
+    5 |       if(self.contained_in('maine'), "[contained_in]"),
       |                            ^-----^
       |
       = Failed to evaluate revset
     2: Revision `maine` doesn't exist
+    Hint: Did you mean `main`?
+    [EOF]
+    [exit status: 1]
+    "#);
+
+    let output = work_dir.run_jj([
+        "log",
+        // Configure a bad alias to ensure aliases are expanded in diagnostics.
+        "--config=template-aliases.bad_revset='\"maine\"'",
+        "-r::",
+        "-T",
+        &template_for_revset("bad_revset"),
+    ]);
+    insta::assert_snapshot!(output, @r#"
+    ------- stderr -------
+    Error: Failed to parse template: In alias `bad_revset`
+    Caused by:
+    1:  --> 5:28
+      |
+    5 |       if(self.contained_in(bad_revset), "[contained_in]"),
+      |                            ^--------^
+      |
+      = In alias `bad_revset`
+    2:  --> 1:1
+      |
+    1 | "maine"
+      | ^-----^
+      |
+      = Failed to evaluate revset
+    3: Revision `maine` doesn't exist
     Hint: Did you mean `main`?
     [EOF]
     [exit status: 1]
@@ -1120,7 +1207,7 @@ fn test_log_diff_predefined_formats() -> TestResult {
     [1mindex 422c2b7ab3..de980441c3 100644[0m
     [1m--- a/file1[0m
     [1m+++ b/file1[0m
-    [38;5;6m@@ -1,2 +1,3 @@[39m
+    [38;5;6m@@ -1,2 +1,3 @@ a[39m
      a
      b
     [38;5;2m+[4mc[24m[39m
@@ -1128,7 +1215,7 @@ fn test_log_diff_predefined_formats() -> TestResult {
     [1mindex 7898192261..9ddeb5c484 100644[0m
     [1m--- a/file2[0m
     [1m+++ b/file2[0m
-    [38;5;6m@@ -1,1 +1,2 @@[39m
+    [38;5;6m@@ -1,1 +1,2 @@ b[39m
     [38;5;1m-[4ma[24m[39m
     [38;5;2m+[4mb[24m[39m
     [38;5;2m+[4mc[24m[39m
@@ -1164,7 +1251,7 @@ fn test_log_diff_predefined_formats() -> TestResult {
     [1m<<log commit diff git file_header::index 422c2b7ab3..de980441c3 100644>>[0m
     [1m<<log commit diff git file_header::--- a/file1>>[0m
     [1m<<log commit diff git file_header::+++ b/file1>>[0m
-    [38;5;6m<<log commit diff git hunk_header::@@ -1,2 +1,3 @@>>[39m
+    [38;5;6m<<log commit diff git hunk_header::@@ -1,2 +1,3 @@ a>>[39m
     <<log commit diff git context:: a>>
     <<log commit diff git context:: b>>
     [38;5;2m<<log commit diff git added::+>>[4m<<log commit diff git added token::c>>[24m[39m
@@ -1172,7 +1259,7 @@ fn test_log_diff_predefined_formats() -> TestResult {
     [1m<<log commit diff git file_header::index 7898192261..9ddeb5c484 100644>>[0m
     [1m<<log commit diff git file_header::--- a/file2>>[0m
     [1m<<log commit diff git file_header::+++ b/file2>>[0m
-    [38;5;6m<<log commit diff git hunk_header::@@ -1,1 +1,2 @@>>[39m
+    [38;5;6m<<log commit diff git hunk_header::@@ -1,1 +1,2 @@ b>>[39m
     [38;5;1m<<log commit diff git removed::->>[4m<<log commit diff git removed token::a>>[24m<<log commit diff git removed::>>[39m
     [38;5;2m<<log commit diff git added::+>>[4m<<log commit diff git added token::b>>[24m<<log commit diff git added::>>[39m
     [38;5;2m<<log commit diff git added::+>>[4m<<log commit diff git added token::c>>[24m[39m
@@ -1209,7 +1296,7 @@ fn test_log_diff_predefined_formats() -> TestResult {
     index 422c2b7ab3..de980441c3 100644
     --- a/file1
     +++ b/file1
-    @@ -1,2 +1,3 @@
+    @@ -1,2 +1,3 @@ a
      a
      b
     +c
@@ -1217,7 +1304,7 @@ fn test_log_diff_predefined_formats() -> TestResult {
     index 7898192261..9ddeb5c484 100644
     --- a/file2
     +++ b/file2
-    @@ -1,1 +1,2 @@
+    @@ -1,1 +1,2 @@ b
     -a
     +b
     +c
@@ -1256,7 +1343,7 @@ fn test_log_diff_predefined_formats() -> TestResult {
     insta::assert_snapshot!(output, @"
     === color_words ===
     Modified regular file file1:
-        ...
+        ...    b
             3: c
     Modified regular file file2:
        1     : a
@@ -1268,14 +1355,14 @@ fn test_log_diff_predefined_formats() -> TestResult {
     index 422c2b7ab3..de980441c3 100644
     --- a/file1
     +++ b/file1
-    @@ -2,1 +2,2 @@
+    @@ -2,1 +2,2 @@ b
      b
     +c
     diff --git a/file2 b/file2
     index 7898192261..9ddeb5c484 100644
     --- a/file2
     +++ b/file2
-    @@ -1,1 +1,2 @@
+    @@ -1,1 +1,2 @@ b
     -a
     +b
     +c
@@ -1327,7 +1414,7 @@ fn test_log_diff_predefined_formats() -> TestResult {
     let output = work_dir.run_jj(["log", "--no-graph", "-r@", "-T", template]);
     insta::assert_snapshot!(output, @"
     Modified regular file file1:
-        ...
+        ...    b
             3: c
     [EOF]
     ");
@@ -1340,7 +1427,7 @@ fn test_log_diff_predefined_formats() -> TestResult {
     index 422c2b7ab3..de980441c3 100644
     --- a/file1
     +++ b/file1
-    @@ -2,1 +2,2 @@
+    @@ -2,1 +2,2 @@ b
      b
     +c
     [EOF]
@@ -1817,6 +1904,143 @@ fn test_log_format_trailers() {
         "-r@",
     ]);
     insta::assert_snapshot!(output, @"false[EOF]");
+}
+
+#[test]
+fn test_log_revset() {
+    let test_env = TestEnvironment::default();
+    test_env.run_jj_in(".", ["git", "init", "repo"]).success();
+    let work_dir = test_env.work_dir("repo");
+
+    work_dir.run_jj(["desc", "-m=first commit"]).success();
+    work_dir.run_jj(["desc", "-m=second commit"]).success();
+    work_dir.run_jj(["desc", "-m=third commit"]).success();
+    let change_id = work_dir
+        .run_jj(["log", "--no-graph", "-r=@", "-T=change_id"])
+        .success()
+        .stdout
+        .raw()
+        .trim()
+        .to_owned();
+
+    for revision in 0..3 {
+        work_dir
+            .run_jj([
+                "bookmark",
+                "create",
+                &format!("-r={change_id}/{revision}"),
+                &format!("bookmark-{revision}"),
+            ])
+            .success();
+    }
+
+    work_dir
+        .run_jj(["abandon", &format!("{change_id}/2")])
+        .success();
+
+    let output = work_dir.run_jj([
+        "log",
+        "-T",
+        r#"
+            separate(
+                " ",
+                commit_id.short(),
+                change_id.short(),
+                "Build-time evaluation: " ++ revset("000000000000").first().change_id().short()
+            ) ++ "\n"
+        "#,
+    ]);
+    insta::assert_snapshot!(output, @"
+    @  776560591705 qpvuntsmwlqt Build-time evaluation: zzzzzzzzzzzz
+    │ ○  6c3346980c51 qpvuntsmwlqt Build-time evaluation: zzzzzzzzzzzz
+    ├─╯
+    ◆  000000000000 zzzzzzzzzzzz Build-time evaluation: zzzzzzzzzzzz
+    [EOF]
+    ");
+
+    let output = work_dir.run_jj([
+        "log",
+        "-T",
+        r#"
+            separate(
+                " ",
+                commit_id.short(),
+                change_id.short(),
+                "Own: " ++ bookmarks,
+                "Others: " ++ revset("change_id(" ++ change_id ++ ")").map(|c| c.bookmarks().map(|b| b.name())).join(", ")
+            ) ++ "\n"
+        "#,
+    ]);
+    insta::assert_snapshot!(output, @"
+    @  776560591705 qpvuntsmwlqt Own: bookmark-0 Others: bookmark-0, bookmark-1
+    │ ○  6c3346980c51 qpvuntsmwlqt Own: bookmark-1 Others: bookmark-0, bookmark-1
+    ├─╯
+    ◆  000000000000 zzzzzzzzzzzz Own:  Others:
+    [EOF]
+    ");
+
+    let output = work_dir.run_jj(["log", "-T=revset()"]);
+    insta::assert_snapshot!(output, @"
+    ------- stderr -------
+    Error: Failed to parse template: Function `revset`: Expected 1 arguments
+    Caused by:  --> 1:8
+      |
+    1 | revset()
+      |        ^
+      |
+      = Function `revset`: Expected 1 arguments
+    [EOF]
+    [exit status: 1]
+    ");
+
+    let output = work_dir.run_jj(["log", "-T=revset('non-existent()')"]);
+    insta::assert_snapshot!(output, @"
+    ------- stderr -------
+    Error: Failed to parse template: In revset expression
+    Caused by:
+    1:  --> 1:8
+      |
+    1 | revset('non-existent()')
+      |        ^--------------^
+      |
+      = In revset expression
+    2:  --> 1:13
+      |
+    1 | non-existent()
+      |             ^---
+      |
+      = expected <EOI>, `@`, `:`, `-`, `+`, `::`, `..`, `|`, `&`, or `~`
+    Hint: See https://docs.jj-vcs.dev/latest/revsets/ or use `jj help -k revsets` for revsets syntax and how to quote symbols.
+    [EOF]
+    [exit status: 1]
+    ");
+
+    let output = work_dir.run_jj([
+        "log",
+        // Configure a bad alias to ensure aliases are expanded in diagnostics.
+        "--config=template-aliases.bad_revset='\"maine\"'",
+        "-T=revset(bad_revset)",
+    ]);
+    insta::assert_snapshot!(output, @r#"
+    ------- stderr -------
+    Error: Failed to parse template: In alias `bad_revset`
+    Caused by:
+    1:  --> 1:8
+      |
+    1 | revset(bad_revset)
+      |        ^--------^
+      |
+      = In alias `bad_revset`
+    2:  --> 1:1
+      |
+    1 | "maine"
+      | ^-----^
+      |
+      = Failed to evaluate revset
+    3: Revision `maine` doesn't exist
+    [EOF]
+    [exit status: 1]
+    "#);
 }
 
 #[test]

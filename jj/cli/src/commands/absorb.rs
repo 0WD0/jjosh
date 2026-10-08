@@ -20,6 +20,7 @@ use jj_lib::absorb::absorb_hunks;
 use jj_lib::absorb::split_hunks_to_trees;
 use jj_lib::matchers::EverythingMatcher;
 use jj_lib::merge::Diff;
+use jj_lib::repo::Repo as _;
 use tracing::instrument;
 
 use crate::cli_util::CommandHelper;
@@ -111,7 +112,7 @@ pub(crate) async fn cmd_absorb(
         workspace_command.diff_selector(ui, args.tool.as_deref(), args.interactive)?;
     let repo = workspace_command.repo().as_ref();
     let source = if diff_selector.is_interactive() {
-        let parent_tree = source_commit.parent_tree(repo).await?;
+        let parent_tree = source_commit.parent_tree(repo.index()).await?;
         let source_tree = source_commit.tree();
         let format_instructions = || {
             formatdoc! {"
@@ -200,7 +201,7 @@ pub(crate) async fn cmd_absorb(
         && let Some(commit) = &stats.rewritten_source
     {
         let repo = workspace_command.repo().as_ref();
-        if !commit.is_empty(repo).await? {
+        if !commit.is_empty(repo.index()).await? {
             writeln!(formatter, "Remaining changes:")?;
             let diff_renderer = workspace_command.diff_renderer(vec![DiffFormat::Summary]);
             let matcher = &EverythingMatcher; // also print excluded paths

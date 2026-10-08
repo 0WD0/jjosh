@@ -6,13 +6,14 @@ members = [
     "cli",
     "core",
     "core/proc-macros",
+    "dsl",
     "lib",
     "lib/gen-protos",
     "lib/testutils",
 ]
 
 [workspace.package]
-version = "0.45.1"
+version = "0.46.0"
 license = "Apache-2.0"
 rust-version = "1.97.1" # NOTE: remember to update CI, mise.toml, contributing.md, changelog.md, and install-and-setup.md
 edition = "2024"
@@ -30,11 +31,6 @@ assert_cmd = "2.2.2"
 async-trait = "0.1.89"
 blake2 = "0.11.0"
 bstr = { version = "1.12.1", features = ["serde"] }
-chrono = { version = "0.4.44", default-features = false, features = [
-    "std",
-    "clock",
-    "serde",
-] }
 clap = { version = "4.6.1", features = [
     "derive",
     "deprecated",
@@ -59,23 +55,27 @@ erased-serde = "0.4.10"
 etcetera = "0.11.0"
 eyre = "0.6"
 futures = "0.3.32"
-gix = { version = "0.87.1", default-features = false, features = [
+gix = { version = "0.89.0", default-features = false, features = [
     "attributes",
+    "auto-chain-error",
     "blob-diff",
     "index",
-    "max-performance-safe",
+    # The vendored gitoxide removed the deprecated `max-performance-safe` alias;
+    # `max-performance` expands to the same feature set.
+    "max-performance",
     "sha1",
     "sha256",
 ] }
-gix-ignore = { version = "0.22.1" }
+gix-ignore = { version = "0.24.0" }
 globset = "0.4.18"
 hashbrown = { version = "0.17.1", default-features = false, features = ["inline-more"] }
 indexmap = { version = "2.14.0", features = ["serde"] }
 indoc = "2.0.7"
 insta = { version = "1.47.2", features = ["filters"] }
-interim = { version = "0.2.1", features = ["chrono_0_4"] }
+interim = { version = "0.2.1", features = ["jiff_0_2"] }
 itertools = "0.15.0"
-jsonschema = { version = "0.56.0", default-features = false }
+jiff = { version = "0.2", features = ["serde"] }
+jsonschema = { version = "0.58.2", default-features = false }
 libc = { version = "0.2.186" }
 maplit = "1.0.2"
 memchr = "2.8.2"
@@ -91,8 +91,8 @@ pollster = "1.0.1"
 pretty_assertions = "1.4.1"
 proc-macro2 = "1.0.104"
 proptest = "1.11.0"
-proptest-derive = "0.8.0"
-proptest-state-machine = "0.8.0"
+proptest-derive = "0.9.0"
+proptest-state-machine = "0.9.0"
 prost = "0.14.3"
 prost-build = "0.14.3"
 quote = "1.0.45"
@@ -145,9 +145,10 @@ winreg = "0.56"
 
 # put all inter-workspace libraries, i.e. those that use 'path = ...' here in
 # their own (alphabetically sorted) block
-jj-core = { path = "core", version = "0.45.1" }
-jj-core-proc-macros = { path = "core/proc-macros", version = "0.45.1" }
-jj-lib = { path = "lib", version = "0.45.1", default-features = false }
+jj-core = { path = "core", version = "0.46.0" }
+jj-core-proc-macros = { path = "core/proc-macros", version = "0.46.0" }
+jj-dsl = { path = "dsl", version = "0.46.0" }
+jj-lib = { path = "lib", version = "0.46.0", default-features = false }
 testutils = { path = "lib/testutils" }
 
 [workspace.lints.clippy]

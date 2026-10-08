@@ -1,11 +1,13 @@
+use gix_error::Result;
 use std::collections::HashSet;
 
+use gix_error::OptionExt;
 use gix_hash::{ObjectId, oid};
 use gix_revwalk::{PriorityQueue, graph::IdMap};
 
 use crate::commit::{
     Info, Parents, Topo, find,
-    topo::{Error, Sorting, WalkFlags, iter::gen_and_commit_time},
+    topo::{Sorting, WalkFlags, iter::gen_and_commit_time},
 };
 
 /// Builder for [`Topo`].
@@ -118,7 +120,7 @@ where
     /// Build a new [`Topo`] instance.
     ///
     /// Note that merely building an instance is currently expensive.
-    pub fn build(self) -> Result<Topo<Find, Predicate>, Error> {
+    pub fn build(self) -> Result<Topo<Find, Predicate>> {
         let mut w = Topo {
             commit_graph: self.commit_graph,
             find: self.find,
@@ -162,9 +164,9 @@ where
         // reason. See handle_commit()
         for id in &self.ends {
             let parents = w.collect_all_parents(id)?;
-            for (id, _) in parents {
+            for parent in parents {
                 w.states
-                    .entry(id)
+                    .entry(parent.commit_id)
                     .and_modify(|s| *s |= WalkFlags::Uninteresting)
                     .or_insert(WalkFlags::Uninteresting | WalkFlags::Seen);
             }
@@ -176,7 +178,10 @@ where
         // the tips, but then in simplify_commit() Git is told to ignore it. For
         // now the tests pass.
         for id in self.tips.iter() {
-            let i = w.indegrees.get(id).ok_or(Error::MissingIndegreeUnexpected)?;
+            let i = w
+                .indegrees
+                .get(id)
+                .ok_or_raise(|| gix_error::corruption("Indegree information is missing"))?;
 
             if *i != 1 {
                 continue;
@@ -184,7 +189,11 @@ where
 
             let commit = find(w.commit_graph.as_ref(), &w.find, id, &mut w.buf)?;
             let (generation, time) = gen_and_commit_time(commit)?;
-            let parent_ids = w.collect_all_parents(id)?.into_iter().map(|e| e.0).collect();
+            let parent_ids = w
+                .collect_all_parents(id)?
+                .into_iter()
+                .map(|parent| parent.commit_id)
+                .collect();
 
             w.topo_queue.push(
                 time,

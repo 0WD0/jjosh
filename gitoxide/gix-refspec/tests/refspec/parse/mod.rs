@@ -1,3 +1,4 @@
+use gix_testtools::TestResult;
 use std::panic::catch_unwind;
 
 use bstr::ByteSlice;
@@ -5,9 +6,9 @@ use gix_refspec::parse::Operation;
 use gix_testtools::scripted_fixture_read_only;
 
 #[test]
-fn baseline() {
-    let dir = scripted_fixture_read_only("parse_baseline.sh").unwrap();
-    let baseline = std::fs::read(dir.join("baseline.git")).unwrap();
+fn baseline() -> TestResult {
+    let dir = scripted_fixture_read_only("parse_baseline.sh")?;
+    let baseline = std::fs::read(dir.join("baseline.git"))?;
     let mut lines = baseline.lines();
     let mut panics = 0;
     let mut mismatch = 0;
@@ -16,13 +17,7 @@ fn baseline() {
         count += 1;
         let (kind, spec) = kind_spec.split_at(kind_spec.find_byte(b' ').expect("space between kind and spec"));
         let spec = &spec[1..];
-        let err_code: usize = lines
-            .next()
-            .expect("err code")
-            .to_str()
-            .unwrap()
-            .parse()
-            .expect("number");
+        let err_code: usize = lines.next().expect("err code").to_str()?.parse()?;
         let op = match kind {
             b"fetch" => Operation::Fetch,
             b"push" => Operation::Push,
@@ -55,10 +50,11 @@ fn baseline() {
             panics
         );
     }
+    Ok(())
 }
 
 #[test]
-fn local_and_remote() -> crate::Result {
+fn local_and_remote() -> TestResult {
     let spec = gix_refspec::parse("remote:local".into(), Operation::Fetch)?;
     assert_eq!(spec.remote(), spec.source());
     assert_eq!(spec.local(), spec.destination());
@@ -74,14 +70,54 @@ mod invalid;
 mod push;
 
 mod util {
+    use bstr::ByteSlice;
+    use gix_error::{Error, Result};
     use gix_refspec::{Instruction, RefSpecRef, parse::Operation};
 
     pub fn b(input: &str) -> &bstr::BStr {
         input.into()
     }
 
-    pub fn try_parse(spec: &str, op: Operation) -> Result<RefSpecRef<'_>, gix_refspec::parse::Error> {
+    pub fn try_parse(spec: &str, op: Operation) -> Result<RefSpecRef<'_>> {
         gix_refspec::parse(spec.into(), op)
+    }
+
+    pub fn assert_validation(spec: &str, op: Operation) -> Error {
+        let err = try_parse(spec, op).expect_err("refspec is invalid");
+        assert!(err.is_validation(), "invalid refspecs retain their classification");
+        err
+    }
+
+    pub fn assert_reference_error(spec: &str, op: Operation) -> Error {
+        let err = try_parse(spec, op).expect_err("refspec contains an invalid reference name");
+        assert!(
+            err.downcast_any_ref::<gix_validate::reference::name::Error>().is_some(),
+            "the original reference-name validation error is retained"
+        );
+        assert!(
+            err.is_validation(),
+            "reference-name errors retain their validation classification"
+        );
+        assert_eq!(
+            err.iter_errors().count(),
+            1,
+            "reference-name validation contributes one diagnostic, without a duplicate message wrapper"
+        );
+        err
+    }
+
+    pub fn assert_unsupported_pattern(spec: &str, op: Operation) -> Error {
+        let err = assert_validation(spec, op);
+        let Some(gix_error::MetadataValue::Bytes(input)) = err
+            .metadata()
+            .next()
+            .expect("diagnostic metadata is retained")
+            .get("input")
+        else {
+            panic!("the unsupported pattern is retained as bytes");
+        };
+        assert!(spec.as_bytes().contains_str(input.as_slice()));
+        err
     }
 
     pub fn assert_parse<'a>(spec: &'a str, expected: Instruction<'_>) -> RefSpecRef<'a> {

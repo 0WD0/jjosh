@@ -5,16 +5,16 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
-use anyhow::{Context, Result};
 use gix::{
-    ObjectId,
+    Error, ObjectId, Result,
     bstr::{BStr, BString, ByteSlice, ByteVec},
+    error::{ErrorExt, OptionExt, ResultExt, message},
     objs::commit::ref_iter::Token,
 };
 
 use crate::app::{Attribution, AttributionKind, Author, Commit, LoadedCommits, Metadata, SignatureState};
 
-pub(crate) type SharedAuthors = gix::features::threading::OwnShared<gix::features::threading::Mutable<Authors>>;
+pub(crate) type SharedAuthors = gix::parallel::OwnShared<gix::parallel::Mutable<Authors>>;
 static EMPTY_AUTHOR: std::sync::LazyLock<Author> = std::sync::LazyLock::new(|| Author {
     name: BStr::new(b""),
     email: BStr::new(b""),
@@ -48,9 +48,30 @@ pub(crate) type Decorations = HashMap<ObjectId, Vec<Decoration>>;
 
 pub(crate) const PIN_PREFIX: &[u8] = b"refs/worktree/tix/pins/";
 pub(crate) const HEAD_PIN_NAME: &[u8] = b"refs/worktree/tix/pins/HEAD";
+pub(crate) const REVIEW_PIN_PREFIX: &[u8] = b"refs/worktree/tix/pins/review/";
 pub(crate) const STASH_PREFIX: &[u8] = b"refs/tix/stash/";
 pub(crate) const REVIEW_PREFIX: &[u8] = b"refs/worktree/tix/review/";
 pub(crate) const REVIEW_STASH_PREFIX: &[u8] = b"refs/worktree/tix/review/stashes/";
+
+pub(crate) fn nearest_review_root(
+    roots: &[ObjectId],
+    commit: ObjectId,
+    mut is_ancestor: impl FnMut(ObjectId, ObjectId) -> bool,
+) -> std::result::Result<Option<ObjectId>, ()> {
+    let mut nearest = None;
+    for root in roots.iter().copied() {
+        if !is_ancestor(root, commit) {
+            continue;
+        }
+        nearest = match nearest {
+            None => Some(root),
+            Some(current) if is_ancestor(current, root) => Some(root),
+            Some(current) if is_ancestor(root, current) => Some(current),
+            Some(_) => return Err(()),
+        };
+    }
+    Ok(nearest)
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct Pin {
@@ -63,6 +84,10 @@ impl Pin {
     pub(crate) fn is_head(&self) -> bool {
         self.name.as_bstr() == HEAD_PIN_NAME
     }
+
+    pub(crate) fn is_review_return(&self) -> bool {
+        self.name.as_bstr().starts_with(REVIEW_PIN_PREFIX)
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -70,6 +95,8 @@ pub(crate) struct WorktreeCheckout {
     pub id: ObjectId,
     pub label_id: ObjectId,
     pub checkout_name: BString,
+    /// The qualified reference to this worktree's physical `HEAD`.
+    pub head_reference: gix::refs::FullName,
     pub reference: Option<gix::refs::FullName>,
     pub is_current: bool,
     pub is_detached: bool,
@@ -87,9 +114,7 @@ pub(crate) struct CommitIndex(u32);
 impl CommitIndex {
     fn new(index: usize) -> Result<Self> {
         Ok(CommitIndex(
-            index
-                .try_into()
-                .context("tix cannot index more than u32::MAX commits")?,
+            u32::try_from(index).or_raise(|| message("tix cannot index more than u32::MAX commits"))?,
         ))
     }
 
@@ -126,8 +151,15 @@ pub(crate) struct HistoryGraph {
     parents: Vec<CommitIndex>,
     by_id: HashMap<ObjectId, CommitIndex>,
     stored_order: Vec<CommitIndex>,
+    edit_scope: HashSet<ObjectId>,
+    read_only: HashSet<ObjectId>,
+    /// Active history bounded by hidden tips, retained separately when an edit expands its scope.
+    pub(crate) bounded_history: Option<Vec<ObjectId>>,
     tracking: HashMap<CommitIndex, Vec<SelectionRef>>,
     relations: HashMap<(CommitIndex, CommitIndex), (usize, usize)>,
+    edit_metadata_checked: HashSet<ObjectId>,
+    pub(crate) unavailable_patches: HashSet<ObjectId>,
+    pub(crate) auto_merges: HashMap<ObjectId, crate::edit::auto_merge::Definition>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -183,26 +215,27 @@ impl HistoryGraph {
                 state: NODE_LOADED,
             };
         }
-        graph.set_current_view(&commits.iter().map(|(id, _)| *id).collect::<Vec<_>>());
+        let ids = commits.iter().map(|(id, _)| *id).collect::<Vec<_>>();
+        graph.set_current_view(&ids);
+        graph.edit_scope.extend(ids);
         graph
     }
 
     pub(crate) fn for_commits(repo: &gix::Repository, ids: &[ObjectId]) -> Result<Self> {
         let mut graph = HistoryGraph::default();
         let shallow: HashSet<_> = repo
-            .shallow_commits()
-            .context("could not read shallow commits")?
+            .shallow_commits()?
             .into_iter()
             .flat_map(|commits| commits.iter().copied().collect::<Vec<_>>())
             .collect();
-        let commit_graph = repo
-            .commit_graph_if_enabled()
-            .context("could not open commit-graph for rebase")?;
+        let commit_graph = repo.commit_graph_if_enabled()?;
         let mut buf = Vec::new();
         for id in ids {
             graph.ensure_commit(repo, commit_graph.as_ref(), &shallow, *id, &mut buf)?;
         }
         graph.set_current_view(ids);
+        graph.edit_scope.extend(ids.iter().copied());
+        graph.inspect_edit_metadata(repo)?;
         Ok(graph)
     }
 
@@ -230,7 +263,8 @@ impl HistoryGraph {
         self.commits[index.as_usize()].id
     }
 
-    pub(crate) fn parents(&self, index: CommitIndex) -> &[CommitIndex] {
+    /// Cached edges for traversal; an unloaded frontier has no known edges.
+    pub(crate) fn known_parents(&self, index: CommitIndex) -> &[CommitIndex] {
         let range = self.commits[index.as_usize()].parents.clone();
         &self.parents[range.start as usize..range.end as usize]
     }
@@ -241,6 +275,49 @@ impl HistoryGraph {
 
     pub(crate) fn stored_commit_ids(&self) -> impl Iterator<Item = ObjectId> + '_ {
         self.stored_order.iter().map(|index| self.id(*index))
+    }
+
+    pub(crate) fn is_in_edit_scope(&self, id: ObjectId) -> bool {
+        self.edit_scope.contains(&id)
+    }
+
+    pub(crate) fn is_read_only(&self, commit_id: ObjectId) -> bool {
+        self.read_only.contains(&commit_id)
+    }
+
+    pub(crate) fn edit_commit_ids(&self) -> Vec<ObjectId> {
+        self.commits
+            .iter()
+            .filter(|commit| self.edit_scope.contains(&commit.id))
+            .map(|commit| commit.id)
+            .collect()
+    }
+
+    fn inspect_edit_metadata(&mut self, repo: &gix::Repository) -> Result<()> {
+        for commit_id in self.edit_commit_ids() {
+            if self.edit_metadata_checked.contains(&commit_id) {
+                continue;
+            }
+            let commit = repo.find_commit(commit_id)?;
+            let decoded = commit.decode()?;
+            if decoded
+                .extra_headers()
+                .find_all(crate::patch_id::HEADER)
+                .any(|value| value == crate::patch_id::UNAVAILABLE)
+            {
+                self.unavailable_patches.insert(commit_id);
+            }
+            if let Some(definition) = crate::edit::auto_merge::Definition::from_headers(
+                decoded
+                    .extra_headers
+                    .iter()
+                    .map(|(name, value)| (*name, value.as_ref())),
+            )? {
+                self.auto_merges.insert(commit_id, definition);
+            }
+            self.edit_metadata_checked.insert(commit_id);
+        }
+        Ok(())
     }
 
     pub(crate) fn is_ancestor(&self, ancestor: ObjectId, descendant: ObjectId) -> bool {
@@ -256,7 +333,7 @@ impl HistoryGraph {
             if std::mem::replace(&mut seen[index.as_usize()], true) {
                 continue;
             }
-            pending.extend_from_slice(self.parents(index));
+            pending.extend_from_slice(self.known_parents(index));
         }
         false
     }
@@ -274,16 +351,34 @@ impl HistoryGraph {
             .collect()
     }
 
+    /// `None` means unloaded or unknown; an empty list means a loaded root or shallow boundary.
     pub(crate) fn parents_of(&self, id: ObjectId) -> Option<Vec<ObjectId>> {
         let index = self.index(id)?;
-        Some(self.parents(index).iter().map(|parent| self.id(*parent)).collect())
+        (self.commits[index.as_usize()].state & NODE_LOADED != 0).then(|| {
+            self.known_parents(index)
+                .iter()
+                .map(|parent| self.id(*parent))
+                .collect()
+        })
+    }
+
+    /// Read missing ancestry without changing the cached graph or its editable scope.
+    pub(crate) fn parents_or_load(&self, repo: &gix::Repository, commit_id: ObjectId) -> Result<Vec<ObjectId>> {
+        match self.parents_of(commit_id) {
+            Some(parents) => Ok(parents),
+            None => Ok(repo.find_commit(commit_id)?.parent_ids().map(gix::Id::detach).collect()),
+        }
     }
 
     pub(crate) fn commits_with_merge_descendants(&self) -> HashSet<ObjectId> {
         let mut pending: Vec<_> = self
             .commits
             .iter()
-            .filter(|commit| commit.state & NODE_IN_VIEW != 0 && commit.parents.len() > 1)
+            .filter(|commit| {
+                commit.state & NODE_IN_VIEW != 0
+                    && commit.parents.len() > 1
+                    && !self.auto_merges.contains_key(&commit.id)
+            })
             .flat_map(|commit| {
                 let range = commit.parents.clone();
                 self.parents[range.start as usize..range.end as usize].iter().copied()
@@ -293,7 +388,7 @@ impl HistoryGraph {
         while let Some(index) = pending.pop() {
             if ancestors.insert(index) {
                 pending.extend(
-                    self.parents(index)
+                    self.known_parents(index)
                         .iter()
                         .copied()
                         .filter(|parent| self.commits[parent.as_usize()].state & NODE_IN_VIEW != 0),
@@ -304,47 +399,53 @@ impl HistoryGraph {
     }
 
     pub(crate) fn descendants_in_parent_order(&self, root: ObjectId) -> Option<Vec<ObjectId>> {
-        let root = self.index(root)?;
-        if self.commits[root.as_usize()].state & NODE_IN_VIEW == 0 {
+        if !self.is_in_edit_scope(root) {
             return None;
         }
-        let mut included = HashSet::from([root]);
-        loop {
-            let mut changed = false;
-            for index in 0..self.commits.len() {
-                let index = CommitIndex::new(index).expect("an existing graph index fits into u32");
-                if self.commits[index.as_usize()].state & NODE_IN_VIEW == 0
-                    || included.contains(&index)
-                    || !self.parents(index).iter().any(|parent| included.contains(parent))
-                {
-                    continue;
-                }
-                included.insert(index);
-                changed = true;
+        let root = self.index(root)?;
+        let mut children = vec![Vec::new(); self.commits.len()];
+        for (index, commit) in self.commits.iter().enumerate() {
+            if !self.is_in_edit_scope(commit.id) {
+                continue;
             }
-            if !changed {
-                break;
+            let index = CommitIndex::new(index).expect("an existing graph index fits into u32");
+            for parent in self.known_parents(index) {
+                children[parent.as_usize()].push(index);
             }
         }
-        let mut out = Vec::with_capacity(included.len());
-        while out.len() < included.len() {
-            let before = out.len();
-            for index in &included {
-                if out.contains(index)
-                    || self
-                        .parents(*index)
-                        .iter()
-                        .any(|parent| included.contains(parent) && !out.contains(parent))
-                {
-                    continue;
-                }
-                out.push(*index);
+        let mut included = vec![false; self.commits.len()];
+        let mut pending = vec![root];
+        let mut total = 0;
+        while let Some(index) = pending.pop() {
+            if std::mem::replace(&mut included[index.as_usize()], true) {
+                continue;
             }
-            if out.len() == before {
-                return None;
+            total += 1;
+            pending.extend_from_slice(&children[index.as_usize()]);
+        }
+        let mut remaining_parents = vec![0; self.commits.len()];
+        for (index, _) in included.iter().enumerate().filter(|(_, present)| **present) {
+            let index = CommitIndex::new(index).expect("an existing graph index fits into u32");
+            remaining_parents[index.as_usize()] = self
+                .known_parents(index)
+                .iter()
+                .filter(|parent| included[parent.as_usize()])
+                .count();
+            if remaining_parents[index.as_usize()] == 0 {
+                pending.push(index);
             }
         }
-        Some(out.into_iter().map(|index| self.id(index)).collect())
+        let mut out = Vec::with_capacity(total);
+        while let Some(index) = pending.pop() {
+            out.push(self.id(index));
+            for child in &children[index.as_usize()] {
+                remaining_parents[child.as_usize()] -= 1;
+                if remaining_parents[child.as_usize()] == 0 {
+                    pending.push(*child);
+                }
+            }
+        }
+        (out.len() == total).then_some(out)
     }
 
     pub(crate) fn set_current_view(&mut self, tips: &[ObjectId]) {
@@ -357,12 +458,36 @@ impl HistoryGraph {
                 continue;
             }
             self.commits[index.as_usize()].state |= NODE_IN_VIEW;
-            pending.extend_from_slice(self.parents(index));
+            pending.extend_from_slice(self.known_parents(index));
         }
     }
 
+    pub(crate) fn switch_view(&mut self, view_tips: &[ObjectId], hidden_tips: &[ObjectId]) {
+        self.set_current_view(if view_tips.is_empty() && !hidden_tips.is_empty() {
+            hidden_tips
+        } else {
+            view_tips
+        });
+        self.set_edit_scope(view_tips, hidden_tips);
+    }
+
+    fn set_edit_scope(&mut self, view_tips: &[ObjectId], hidden_tips: &[ObjectId]) {
+        let (visible, boundary) = view_scope(view_tips, hidden_tips, |id, out| {
+            if let Some(index) = self.index(id) {
+                out.extend(self.known_parents(index).iter().map(|parent| self.id(*parent)));
+            }
+        });
+        self.edit_scope = visible;
+        self.edit_scope.extend(boundary.iter().copied());
+        self.read_only = boundary;
+        self.bounded_history = (!hidden_tips.is_empty()).then(|| self.edit_commit_ids());
+    }
+
     fn parent_ids(&self, index: CommitIndex) -> gix::traverse::commit::ParentIds {
-        self.parents(index).iter().map(|parent| self.id(*parent)).collect()
+        self.known_parents(index)
+            .iter()
+            .map(|parent| self.id(*parent))
+            .collect()
     }
 
     fn ensure_commit(
@@ -377,14 +502,13 @@ impl HistoryGraph {
         if self.commits[index.as_usize()].state & NODE_LOADED != 0 {
             return Ok(index);
         }
-        let commit = gix::traverse::commit::find(cache, &repo.objects, &id, buf)
-            .context("could not load commit for cached history traversal")?;
+        let commit = gix::traverse::commit::find(cache, &repo.objects, &id, buf)?;
         let (mut parents, commit_time, generation) = match commit {
             gix::traverse::commit::Either::CommitRefIter(iter) => {
                 let mut parents = gix::traverse::commit::ParentIds::new();
                 let mut commit_time = 0;
                 for token in iter {
-                    match token.context("could not decode cached history commit")? {
+                    match token? {
                         Token::Tree { .. } => {}
                         Token::Parent { id } => parents.push(id),
                         Token::Committer { signature } => {
@@ -400,8 +524,7 @@ impl HistoryGraph {
                 let cache = cache.expect("cached commits originate from the provided commit-graph");
                 let mut parents = gix::traverse::commit::ParentIds::new();
                 for parent in commit.iter_parents() {
-                    let parent =
-                        parent.map_err(|err| anyhow::anyhow!("could not decode commit-graph parent: {err}"))?;
+                    let parent = parent.or_raise(|| message("could not decode commit-graph parent"))?;
                     parents.push(cache.id_at(parent).to_owned());
                 }
                 (
@@ -418,17 +541,11 @@ impl HistoryGraph {
             .into_iter()
             .map(|parent| self.intern(parent))
             .collect::<Result<_>>()?;
-        let start: u32 = self
-            .parents
-            .len()
-            .try_into()
-            .context("tix cannot index more than u32::MAX parent edges")?;
+        let start: u32 = u32::try_from(self.parents.len())
+            .or_raise(|| message("tix cannot index more than u32::MAX parent edges"))?;
         self.parents.extend(parents);
-        let end: u32 = self
-            .parents
-            .len()
-            .try_into()
-            .context("tix cannot index more than u32::MAX parent edges")?;
+        let end: u32 = u32::try_from(self.parents.len())
+            .or_raise(|| message("tix cannot index more than u32::MAX parent edges"))?;
         let node = &mut self.commits[index.as_usize()];
         node.parents = start..end;
         node.commit_time = commit_time;
@@ -503,7 +620,7 @@ impl HistoryGraph {
             let relation = if let Some(relation) = self.relations.get(&pair).copied() {
                 Some(relation)
             } else {
-                let relation = self.paint(id, std::slice::from_ref(&upstream))?;
+                let relation = self.ahead_behind(id, std::slice::from_ref(&upstream))?;
                 self.relations.insert(pair, relation);
                 Some(relation)
             };
@@ -514,7 +631,7 @@ impl HistoryGraph {
         if has_upstream || refs.is_empty() || hidden.is_empty() {
             return None;
         }
-        self.paint(id, hidden)
+        self.ahead_behind(id, hidden)
             .map(|(visible, _)| crate::app::SelectionRelation::Visible(visible))
     }
 
@@ -541,7 +658,7 @@ impl HistoryGraph {
         out
     }
 
-    fn paint(&self, first: ObjectId, others: &[ObjectId]) -> Option<(usize, usize)> {
+    pub(crate) fn ahead_behind(&self, first: ObjectId, others: &[ObjectId]) -> Option<(usize, usize)> {
         self.paint_inner(first, others, false)
             .map(|(ahead, behind, _)| (ahead, behind))
     }
@@ -585,7 +702,7 @@ impl HistoryGraph {
                 propagated |= STALE;
                 flags[index.as_usize()] = propagated;
             }
-            for &parent in self.parents(index) {
+            for &parent in self.known_parents(index) {
                 let parent_flags = &mut flags[parent.as_usize()];
                 let previous = *parent_flags;
                 if previous & propagated != propagated {
@@ -633,17 +750,50 @@ impl HistoryGraph {
         expand: &HashSet<ObjectId>,
         authors: &SharedAuthors,
     ) -> Result<Refresh> {
-        let refs = snapshot(repo, revisions, hidden_revisions, include_worktrees)?;
+        self.refresh_inner(
+            repo,
+            revisions,
+            hidden_revisions,
+            include_worktrees,
+            expand,
+            Some(authors),
+        )
+    }
+
+    pub(crate) fn refresh_graph(
+        &mut self,
+        repo: &gix::Repository,
+        revisions: &[OsString],
+        hidden_revisions: &[OsString],
+    ) -> Result<RefSnapshot> {
+        self.refresh_inner(repo, revisions, hidden_revisions, false, &HashSet::new(), None)
+            .map(|refresh| refresh.refs)
+    }
+
+    fn refresh_inner(
+        &mut self,
+        repo: &gix::Repository,
+        revisions: &[OsString],
+        hidden_revisions: &[OsString],
+        include_worktrees: bool,
+        expand: &HashSet<ObjectId>,
+        authors: Option<&SharedAuthors>,
+    ) -> Result<Refresh> {
+        let refs = snapshot_inner(
+            repo,
+            revisions,
+            hidden_revisions,
+            include_worktrees,
+            None,
+            include_worktrees || authors.is_some(),
+        )?;
         let hidden_only = refs.view_tips.is_empty() && !refs.hidden_tips.is_empty();
         let shallow: HashSet<_> = repo
-            .shallow_commits()
-            .context("could not read shallow commits")?
+            .shallow_commits()?
             .into_iter()
             .flat_map(|commits| commits.iter().copied().collect::<Vec<_>>())
             .collect();
-        let cache = repo
-            .commit_graph_if_enabled()
-            .context("could not open commit-graph for history refresh")?;
+        let cache = repo.commit_graph_if_enabled()?;
         let local_refs = local_refs_by_target(repo)?;
         let mut tracking = HashMap::new();
         let mut states = vec![WalkState::default(); self.commits.len()];
@@ -708,6 +858,7 @@ impl HistoryGraph {
 
         let mut rows = Vec::new();
         let mut attributions = Vec::new();
+        let mut newly_stored = Vec::new();
         while let Some((_time, index)) = queue.pop() {
             let state = &mut states[index.as_usize()];
             let delta = state.flags & !state.expanded;
@@ -716,15 +867,15 @@ impl HistoryGraph {
             }
             state.expanded |= delta;
             let id = self.id(index);
-            let commit = &self.commits[index.as_usize()];
-            let was_stored = commit.state & NODE_STORED != 0;
+            let was_stored = self.commits[index.as_usize()].state & NODE_STORED != 0 || state.stored;
             let should_store = delta & (VISIBLE | EXPAND) != 0 && !was_stored;
+            if should_store {
+                state.stored = true;
+            }
             let stop = !should_store
-                && commit.state & NODE_COMPLETE != 0
+                && self.commits[index.as_usize()].state & NODE_COMPLETE != 0
                 && (delta & EXPAND == 0 || was_stored && !expand.contains(&id));
-            let parent_indices = self.parents(index).to_vec();
-            let parent_ids = self.parent_ids(index);
-            let generation = commit.generation();
+            let parent_indices = self.known_parents(index).to_vec();
             if should_store {
                 if let Some(names) = local_refs.get(&id) {
                     let tracked = resolve_tracking(repo, names)?;
@@ -754,48 +905,52 @@ impl HistoryGraph {
                     }
                     tracking.insert(index, tracked);
                 }
-                let metadata = if generation.is_some() {
-                    None
-                } else {
-                    let object = repo.find_commit(id).context("could not read refreshed commit")?;
-                    let mut authors = gix::features::threading::lock(authors);
-                    Some(decode_metadata(object.iter(), &mut authors, &mut attributions)?)
-                };
-                let metadata_loaded = metadata.is_some();
-                let Metadata {
-                    committer_time,
-                    author_time,
-                    author,
-                    attributions: row_attributions,
-                    title,
-                    has_agent_marker,
-                    is_review,
-                    signature,
-                } = metadata.unwrap_or_else(|| Metadata {
-                    committer_time: Default::default(),
-                    author_time: Default::default(),
-                    author: &EMPTY_AUTHOR,
-                    attributions: 0..0,
-                    title: BString::default(),
-                    has_agent_marker: false,
-                    is_review: false,
-                    signature: SignatureState::Unsigned,
-                });
-                rows.push(Commit {
-                    id,
-                    parent_ids: parent_ids.clone(),
-                    committer_time,
-                    author_time,
-                    author,
-                    attributions: row_attributions,
-                    title,
-                    metadata_loaded,
-                    has_agent_marker,
-                    is_review,
-                    signature,
-                });
-                self.commits[index.as_usize()].state |= NODE_STORED;
-                self.stored_order.push(index);
+                if let Some(authors) = authors {
+                    let metadata = if self.commits[index.as_usize()].generation().is_some() {
+                        None
+                    } else {
+                        let object = repo.find_commit(id)?;
+                        let mut authors = gix::parallel::lock(authors);
+                        Some(decode_metadata(object.iter(), &mut authors, &mut attributions)?)
+                    };
+                    let metadata_loaded = metadata.is_some();
+                    let Metadata {
+                        committer_time,
+                        author_time,
+                        author,
+                        attributions: row_attributions,
+                        title,
+                        has_agent_marker,
+                        is_review,
+                        has_merge_replay,
+                        signature,
+                    } = metadata.unwrap_or_else(|| Metadata {
+                        committer_time: Default::default(),
+                        author_time: Default::default(),
+                        author: &EMPTY_AUTHOR,
+                        attributions: 0..0,
+                        title: BString::default(),
+                        has_agent_marker: false,
+                        is_review: false,
+                        has_merge_replay: false,
+                        signature: SignatureState::Unsigned,
+                    });
+                    rows.push(Commit {
+                        id,
+                        parent_ids: self.parent_ids(index),
+                        committer_time,
+                        author_time,
+                        author,
+                        attributions: row_attributions,
+                        title,
+                        metadata_loaded,
+                        has_agent_marker,
+                        is_review,
+                        has_merge_replay,
+                        signature,
+                    });
+                    newly_stored.push(index);
+                }
             }
             if stop {
                 continue;
@@ -817,23 +972,73 @@ impl HistoryGraph {
             }
         }
         for (index, state) in states.into_iter().enumerate() {
-            if state.expanded & (VISIBLE | INTERNAL | EXPAND) != 0 {
+            if !hidden_only && state.expanded & (VISIBLE | INTERNAL | EXPAND) != 0 {
                 self.commits[index].state |= NODE_COMPLETE;
             }
         }
-        self.tracking = tracking;
-        self.set_current_view(if hidden_only {
-            &refs.hidden_tips
-        } else {
-            &refs.view_tips
-        });
-        let decorations = decorations(repo, &refs.pins, &refs.worktrees)?;
+        self.tracking.extend(tracking);
+        self.switch_view(&refs.view_tips, &refs.hidden_tips);
+        self.inspect_edit_metadata(repo)?;
+        let decorations = match authors {
+            Some(_) => decorations(repo, &refs.pins, &refs.worktrees)?,
+            None => Decorations::new(),
+        };
+        for index in newly_stored {
+            self.commits[index.as_usize()].state |= NODE_STORED;
+            self.stored_order.push(index);
+        }
         Ok(Refresh {
             refs,
             decorations,
             commits: LoadedCommits { rows, attributions },
         })
     }
+}
+
+/// Return the editable commits and the hidden commits needed to connect the view tips to their bases.
+pub(crate) fn view_scope(
+    view_tips: &[ObjectId],
+    hidden_tips: &[ObjectId],
+    mut extend_parents: impl FnMut(ObjectId, &mut Vec<ObjectId>),
+) -> (HashSet<ObjectId>, HashSet<ObjectId>) {
+    fn reachable_from(
+        tips: &[ObjectId],
+        extend_parents: &mut impl FnMut(ObjectId, &mut Vec<ObjectId>),
+    ) -> HashSet<ObjectId> {
+        let mut reachable = HashSet::new();
+        let mut pending = tips.to_vec();
+        while let Some(id) = pending.pop() {
+            if reachable.insert(id) {
+                extend_parents(id, &mut pending);
+            }
+        }
+        reachable
+    }
+
+    let reachable = reachable_from(view_tips, &mut extend_parents);
+    let hidden = reachable_from(hidden_tips, &mut extend_parents);
+    let visible: HashSet<_> = reachable.difference(&hidden).copied().collect();
+    let boundary = if visible.is_empty() {
+        if view_tips.is_empty() { hidden_tips } else { view_tips }
+            .iter()
+            .copied()
+            .collect()
+    } else if hidden_tips.is_empty() {
+        HashSet::new()
+    } else {
+        let mut boundary = Vec::new();
+        for id in &visible {
+            extend_parents(*id, &mut boundary);
+        }
+        let mut boundary: HashSet<_> = boundary.into_iter().filter(|id| !visible.contains(id)).collect();
+        if view_tips.iter().any(|id| hidden.contains(id)) {
+            let shared = reachable_from(&boundary.iter().copied().collect::<Vec<_>>(), &mut extend_parents);
+            boundary.extend(reachable.difference(&shared).copied().filter(|id| hidden.contains(id)));
+            boundary.extend(view_tips.iter().copied().filter(|id| hidden.contains(id)));
+        }
+        boundary
+    };
+    (visible, boundary)
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -843,6 +1048,9 @@ pub(crate) struct RefSnapshot {
     pub view_tips: Vec<ObjectId>,
     pub hidden_tips: Vec<ObjectId>,
     pub pins: Vec<Pin>,
+    pub active_branch: Option<gix::refs::FullName>,
+    #[cfg(feature = "blocking-network-client")]
+    pub fetch_remote: Option<BString>,
     pub worktrees: Vec<WorktreeCheckout>,
 }
 
@@ -872,6 +1080,7 @@ const NODE_IN_VIEW: u8 = 1 << 3;
 struct WalkState {
     flags: u8,
     expanded: u8,
+    stored: bool,
 }
 
 #[expect(clippy::too_many_arguments)]
@@ -925,7 +1134,7 @@ fn hidden_frontier(
             propagated |= STALE;
             flags[index.as_usize()] = propagated;
         }
-        let parents = graph.parents(index).to_vec();
+        let parents = graph.known_parents(index).to_vec();
         for parent in parents {
             let parent_id = graph.id(parent);
             let parent = graph.ensure_commit(repo, cache, shallow, parent_id, &mut buf)?;
@@ -947,17 +1156,13 @@ fn hidden_frontier(
 
 fn local_refs_by_target(repo: &gix::Repository) -> Result<HashMap<ObjectId, Vec<BString>>> {
     let mut out = HashMap::<ObjectId, Vec<BString>>::new();
-    let platform = repo.references().context("could not open references")?;
-    let refs = platform
-        .local_branches()
-        .context("could not iterate local branches")?
-        .peeled()
-        .context("could not prepare local branches for peeling")?;
+    let platform = repo.references()?;
+    let refs = platform.local_branches()?.peeled()?;
     for reference in refs {
         let reference = match reference {
             Ok(reference) => reference,
-            Err(err) if is_missing_ref(&*err) => continue,
-            Err(err) => return Err(anyhow::anyhow!("could not read local branch: {err}")),
+            Err(err) if is_missing_ref(&err) => continue,
+            Err(err) => return Err(message!("could not read local branch: {err}").raise()),
         };
         out.entry(reference.id().detach())
             .or_default()
@@ -971,17 +1176,17 @@ fn resolve_tracking(repo: &gix::Repository, names: &[BString]) -> Result<Vec<Sel
     for full_name in names {
         let Some(reference) = repo
             .try_find_reference(full_name.as_bstr())
-            .with_context(|| format!("could not read local branch {full_name}"))?
+            .or_raise(|| message!("could not read local branch {full_name}"))?
         else {
             continue;
         };
         let upstream = reference
             .remote_tracking_ref_name(gix::remote::Direction::Fetch)
             .map(|name| {
-                let name = name.context("could not resolve remote-tracking branch name")?;
-                Ok::<_, anyhow::Error>(
+                let name = name.or_raise(|| message("could not resolve remote-tracking branch name"))?;
+                Ok::<_, Error>(
                     repo.try_find_reference(name.as_bstr())
-                        .with_context(|| format!("could not read remote-tracking branch {name}"))?
+                        .or_raise(|| message!("could not read remote-tracking branch {name}"))?
                         .and_then(|mut reference| reference.peel_to_id().ok().map(gix::Id::detach)),
                 )
             })
@@ -1031,19 +1236,16 @@ pub(crate) fn load(
         return Ok(());
     }
     let shallow: HashSet<_> = repo
-        .shallow_commits()
-        .context("could not read shallow commits")?
+        .shallow_commits()?
         .into_iter()
         .flat_map(|commits| commits.iter().copied().collect::<Vec<_>>())
         .collect();
-    let commit_graph = repo
-        .commit_graph_if_enabled()
-        .context("could not open commit-graph for history traversal")?;
+    let commit_graph = repo.commit_graph_if_enabled()?;
     let mut graph = HistoryGraph::default();
     if tips.is_empty() {
         let mut rows = Vec::with_capacity(hidden_tips.len());
         let mut attributions = Vec::new();
-        let mut authors = gix::features::threading::lock(authors);
+        let mut authors = gix::parallel::lock(authors);
         let mut buf = Vec::new();
         for &id in &hidden_tips {
             if cancelled.load(Ordering::Relaxed) {
@@ -1063,11 +1265,27 @@ pub(crate) fn load(
             return Ok(());
         }
         emit(Event::VisibleComplete);
-        graph.set_current_view(&hidden_tips);
+        graph.switch_view(&tips, &hidden_tips);
+        graph.inspect_edit_metadata(repo)?;
         emit(Event::Complete(graph));
         return Ok(());
     }
     let hidden = hidden_frontier(&mut graph, repo, commit_graph.as_ref(), &tips, &hidden_tips, &shallow)?;
+    if tips.iter().any(|id| hidden.contains(id)) {
+        // A requested hidden tip meets the frontier at itself. Also walk from the
+        // other tips to cache the hidden paths down to their shared bases.
+        let visible_tips: Vec<_> = tips.iter().copied().filter(|id| !hidden.contains(id)).collect();
+        if !visible_tips.is_empty() {
+            hidden_frontier(
+                &mut graph,
+                repo,
+                commit_graph.as_ref(),
+                &visible_tips,
+                &hidden_tips,
+                &shallow,
+            )?;
+        }
+    }
     let local_refs = local_refs_by_target(repo)?;
     let mut tracking = HashMap::new();
     let mut states = vec![Node::default(); graph.commits.len()];
@@ -1107,8 +1325,10 @@ pub(crate) fn load(
             state.emitted |= should_emit;
             (delta, should_emit)
         };
-        graph.commits[index.as_usize()].state |= NODE_COMPLETE;
-        let parent_indices = graph.parents(index).to_vec();
+        if hidden.is_empty() {
+            graph.commits[index.as_usize()].state |= NODE_COMPLETE;
+        }
+        let parent_indices = graph.known_parents(index).to_vec();
         let parent_ids = graph.parent_ids(index);
         let generation = graph.commits[index.as_usize()].generation();
         if should_emit && let Some(names) = local_refs.get(&id) {
@@ -1144,8 +1364,8 @@ pub(crate) fn load(
         let metadata = if !should_emit || generation.is_some() {
             None
         } else {
-            let object = repo.find_commit(id).context("could not read commit")?;
-            let mut authors = gix::features::threading::lock(authors);
+            let object = repo.find_commit(id)?;
+            let mut authors = gix::parallel::lock(authors);
             Some(decode_metadata(object.iter(), &mut authors, &mut attributions)?)
         };
         if should_emit {
@@ -1158,6 +1378,7 @@ pub(crate) fn load(
                 title,
                 has_agent_marker,
                 is_review,
+                has_merge_replay,
                 signature,
             } = metadata.unwrap_or_else(|| Metadata {
                 committer_time: Default::default(),
@@ -1167,6 +1388,7 @@ pub(crate) fn load(
                 title: BString::default(),
                 has_agent_marker: false,
                 is_review: false,
+                has_merge_replay: false,
                 signature: SignatureState::Unsigned,
             });
             if !hidden_revisions.is_empty() {
@@ -1183,6 +1405,7 @@ pub(crate) fn load(
                 metadata_loaded,
                 has_agent_marker,
                 is_review,
+                has_merge_replay,
                 signature,
             });
             graph.commits[index.as_usize()].state |= NODE_STORED;
@@ -1227,10 +1450,23 @@ pub(crate) fn load(
         return Ok(());
     }
     if !hidden_revisions.is_empty() {
+        connected.extend(
+            tips.iter()
+                .copied()
+                .filter(|commit_id| connected_seen.insert(*commit_id)),
+        );
+        let (_, boundary) = view_scope(&tips, &hidden_tips, |id, out| {
+            if let Some(parents) = graph.parents_of(id) {
+                out.extend(parents);
+            }
+        });
+        let mut revealed: Vec<_> = boundary.into_iter().filter(|id| connected_seen.insert(*id)).collect();
+        revealed.sort_unstable();
+        connected.extend(revealed);
         connected.retain(|id| graph.index(*id).is_none_or(|index| !states[index.as_usize()].emitted));
         let mut rows = Vec::with_capacity(connected.len());
         let mut attributions = Vec::new();
-        let mut authors = gix::features::threading::lock(authors);
+        let mut authors = gix::parallel::lock(authors);
         for id in connected {
             if cancelled.load(Ordering::Relaxed) {
                 emit(Event::Cancelled);
@@ -1249,7 +1485,8 @@ pub(crate) fn load(
     }
     emit(Event::VisibleComplete);
     graph.tracking = tracking;
-    graph.set_current_view(&tips);
+    graph.switch_view(&tips, &hidden_tips);
+    graph.inspect_edit_metadata(repo)?;
     emit(Event::Complete(graph));
     Ok(())
 }
@@ -1265,16 +1502,11 @@ pub(crate) fn snapshot(
 
 pub(crate) fn ref_tree_revisions(repo: &gix::Repository, include_tags: bool) -> Result<Vec<OsString>> {
     let mut out = Vec::new();
-    for reference in repo
-        .references()
-        .context("could not open references")?
-        .all()
-        .context("could not iterate references")?
-    {
+    for reference in repo.references()?.all()? {
         let mut reference = match reference {
             Ok(reference) => reference,
-            Err(err) if is_missing_ref(&*err) => continue,
-            Err(err) => return Err(anyhow::anyhow!("could not read reference: {err}")),
+            Err(err) if is_missing_ref(&err) => continue,
+            Err(err) => return Err(message!("could not read reference: {err}").raise()),
         };
         let name = reference.name().as_bstr().to_owned();
         let kind = decoration_kind(&name);
@@ -1282,6 +1514,7 @@ pub(crate) fn ref_tree_revisions(repo: &gix::Repository, include_tags: bool) -> 
             || matches!(kind, DecorationKind::Tag) && !include_tags
             || name.starts_with(STASH_PREFIX)
             || name.starts_with(REVIEW_STASH_PREFIX)
+            || crate::edit::replay_refs::is_ref(name.as_bstr())
         {
             continue;
         }
@@ -1289,7 +1522,7 @@ pub(crate) fn ref_tree_revisions(repo: &gix::Repository, include_tags: bool) -> 
         if repo.find_header(id)?.kind() != gix::object::Kind::Commit {
             continue;
         }
-        out.push(gix::path::from_bstr(&name).into_owned().into_os_string());
+        out.push(gix::path::from_bstr(&name)?.into_owned().into_os_string());
     }
     if repo.head().is_ok_and(|head| head.referent_name().is_none()) {
         out.push("HEAD".into());
@@ -1304,11 +1537,33 @@ pub(crate) fn snapshot_ignoring_pin(
     include_worktrees: bool,
     ignored_pin: Option<&BStr>,
 ) -> Result<RefSnapshot> {
-    let pins = applicable_pins(repo)?
+    snapshot_inner(repo, revisions, hidden, include_worktrees, ignored_pin, true)
+}
+
+fn snapshot_inner(
+    repo: &gix::Repository,
+    revisions: &[OsString],
+    hidden: &[OsString],
+    include_worktrees: bool,
+    ignored_pin: Option<&BStr>,
+    collect_worktrees: bool,
+) -> Result<RefSnapshot> {
+    let (pins, active_branch) = pins_for_head(repo)?;
+    #[cfg(feature = "blocking-network-client")]
+    let fetch_remote = active_branch
+        .as_ref()
+        .and_then(|branch| repo.branch_remote_name(branch.shorten(), gix::remote::Direction::Fetch))
+        .map(|name| name.as_bstr().to_owned())
+        .or_else(|| repo.remote_default_name(gix::remote::Direction::Fetch));
+    let pins = pins
         .into_iter()
         .filter(|pin| ignored_pin != Some(pin.name.as_bstr()))
         .collect::<Vec<_>>();
-    let worktrees = worktree_checkouts(repo);
+    let worktrees = if collect_worktrees {
+        worktree_checkouts(repo)?
+    } else {
+        Vec::new()
+    };
     let mut view = referenced_refs(repo, revisions)?;
     for pin in &pins {
         insert_ref_chain(repo, pin.name.as_bstr(), &mut view)?;
@@ -1331,17 +1586,23 @@ pub(crate) fn snapshot_ignoring_pin(
         view_tips,
         hidden_tips: resolve_revisions(repo, hidden, "hidden ")?,
         pins,
+        active_branch,
+        #[cfg(feature = "blocking-network-client")]
+        fetch_remote,
         worktrees,
     })
 }
 
-pub(crate) fn worktree_checkouts(repo: &gix::Repository) -> Vec<WorktreeCheckout> {
+pub(crate) fn worktree_checkouts(repo: &gix::Repository) -> Result<Vec<WorktreeCheckout>> {
     let mut out = Vec::new();
-    let current_worktree = repo.worktree().map(|worktree| worktree.id().map(ToOwned::to_owned));
+    let current_worktree = repo
+        .worktree()
+        .map(|worktree| worktree.id().map(|id| id.map(ToOwned::to_owned)))
+        .transpose()?;
     match repo.main_repo() {
         Ok(main) if !main.is_bare() => {
             let name = main.workdir().and_then(worktree_basename);
-            add_worktree_checkout(&main, name, b"main".as_bstr(), current_worktree == Some(None), &mut out);
+            add_worktree_checkout(&main, name, None, current_worktree == Some(None), &mut out);
         }
         Ok(_) => {}
         Err(err) => tracing::warn!(error = %err, "ignoring inaccessible main worktree"),
@@ -1349,7 +1610,7 @@ pub(crate) fn worktree_checkouts(repo: &gix::Repository) -> Vec<WorktreeCheckout
     match repo.worktrees() {
         Ok(worktrees) => {
             for proxy in worktrees {
-                let worktree = proxy.id().to_owned();
+                let worktree = proxy.id()?.to_owned();
                 let name = proxy.base().ok().as_deref().and_then(worktree_basename);
                 let is_current = current_worktree
                     .as_ref()
@@ -1357,7 +1618,7 @@ pub(crate) fn worktree_checkouts(repo: &gix::Repository) -> Vec<WorktreeCheckout
                     .is_some_and(|current| current == &worktree);
                 match proxy.into_repo_with_possibly_inaccessible_worktree() {
                     Ok(repository) => {
-                        add_worktree_checkout(&repository, name, worktree.as_bstr(), is_current, &mut out);
+                        add_worktree_checkout(&repository, name, Some(worktree.as_bstr()), is_current, &mut out);
                     }
                     Err(err) => {
                         tracing::warn!(worktree = %worktree, error = %err, "ignoring inaccessible linked worktree");
@@ -1374,16 +1635,27 @@ pub(crate) fn worktree_checkouts(repo: &gix::Repository) -> Vec<WorktreeCheckout
             .then_with(|| a.reference.cmp(&b.reference))
     });
     out.dedup();
-    out
+    Ok(out)
 }
 
 fn add_worktree_checkout(
     repo: &gix::Repository,
     checkout_name: Option<BString>,
-    worktree: &BStr,
+    worktree: Option<&BStr>,
     is_current: bool,
     out: &mut Vec<WorktreeCheckout>,
 ) {
+    let head_category = worktree.map_or(gix::refs::Category::MainPseudoRef, |name| {
+        gix::refs::Category::LinkedPseudoRef { name }
+    });
+    let worktree = worktree.unwrap_or(b"main".as_bstr());
+    let head_reference = match head_category.to_full_name("HEAD") {
+        Ok(reference) => reference,
+        Err(err) => {
+            tracing::warn!(%worktree, error = %err, "ignoring worktree with invalid HEAD reference name");
+            return;
+        }
+    };
     let mut head = match repo.head() {
         Ok(head) => head,
         Err(err) => {
@@ -1392,7 +1664,7 @@ fn add_worktree_checkout(
         }
     };
     let is_detached = head.is_detached();
-    let head_reference = head.referent_name().map(ToOwned::to_owned);
+    let head_referent = head.referent_name().map(ToOwned::to_owned);
     let id = match head.try_peel_to_id() {
         Ok(Some(id)) => id.detach(),
         Ok(None) => return,
@@ -1405,13 +1677,14 @@ fn add_worktree_checkout(
         .then(|| remembered_worktree_branch(repo, worktree))
         .flatten();
     let (reference, label_id) = remembered
-        .or_else(|| head_reference.map(|reference| (reference, id)))
+        .or_else(|| head_referent.map(|reference| (reference, id)))
         .map_or((None, id), |(reference, id)| (Some(reference), id));
     let checkout_name = checkout_name.unwrap_or_else(|| worktree.to_owned());
     out.push(WorktreeCheckout {
         id,
         label_id,
         checkout_name,
+        head_reference,
         reference,
         is_current,
         is_detached,
@@ -1475,23 +1748,27 @@ pub(crate) fn review_number(name: &BStr) -> Option<&BStr> {
         .then_some(suffix.as_bstr())
 }
 
+pub(crate) fn review_pin_number(name: &BStr) -> Option<&BStr> {
+    let suffix = name.strip_prefix(REVIEW_PIN_PREFIX)?;
+    (suffix.first().is_some_and(|digit| matches!(digit, b'1'..=b'9')) && suffix.iter().all(u8::is_ascii_digit))
+        .then_some(suffix.as_bstr())
+}
+
 fn refs_with_commit_targets(repo: &gix::Repository, prefix: &[u8], label: &str) -> Result<Vec<Pin>> {
     let mut out = Vec::new();
-    let references = repo.references().context("could not open references")?;
-    for reference in references
-        .prefixed(prefix.as_bstr())
-        .with_context(|| format!("could not iterate tix {label}s"))?
-    {
+    let references = repo.references()?;
+    for reference in references.prefixed(prefix.as_bstr())? {
         let mut reference = match reference {
             Ok(reference) => reference,
-            Err(err) if is_missing_ref(&*err) => continue,
-            Err(err) => return Err(anyhow::anyhow!("could not read tix {label}: {err}")),
+            Err(err) if is_missing_ref(&err) => continue,
+            Err(err) => return Err(message!("could not read tix {label}: {err}").raise()),
         };
         let suffix = reference.name().as_bstr().strip_prefix(prefix).unwrap_or_default();
         let valid_suffix = if prefix == REVIEW_PREFIX {
             review_number(reference.name().as_bstr()).is_some()
         } else {
-            suffix.len() >= 4 && suffix.iter().all(u8::is_ascii_alphanumeric)
+            review_pin_number(reference.name().as_bstr()).is_some()
+                || suffix.len() >= 4 && suffix.iter().all(u8::is_ascii_alphanumeric)
         };
         if !valid_suffix {
             tracing::warn!(name = %reference.name(), %label, "ignoring malformed tix reference");
@@ -1500,9 +1777,15 @@ fn refs_with_commit_targets(repo: &gix::Repository, prefix: &[u8], label: &str) 
         let name = reference.name().to_owned();
         let target = reference.target().into_owned();
         if let Some(target_name) = target.try_name()
-            && crate::edit::undo::ref_chain_reaches_queue(repo, target_name)?
+            && crate::edit::undo::ref_chain_reaches_internal(repo, target_name)?
         {
-            tracing::warn!(name = %name, %label, "ignoring tix reference into the undo queue");
+            tracing::warn!(name = %name, %label, "ignoring tix reference into internal state");
+            continue;
+        }
+        if let Some(target_name) = target.try_name()
+            && crate::edit::replay_refs::ref_chain_reaches(repo, target_name)?
+        {
+            tracing::warn!(name = %name, %label, "ignoring tix reference into merge replay resources");
             continue;
         }
         if name.as_bstr() == HEAD_PIN_NAME
@@ -1520,8 +1803,8 @@ fn refs_with_commit_targets(repo: &gix::Repository, prefix: &[u8], label: &str) 
                 continue;
             }
         };
-        if crate::edit::undo::is_queue_commit(repo, id)? {
-            tracing::warn!(name = %name, %label, "ignoring tix reference to an undo queue commit");
+        if crate::edit::undo::is_internal_commit(repo, id)? {
+            tracing::warn!(name = %name, %label, "ignoring tix reference to an internal state commit");
             continue;
         }
         match repo.find_header(id) {
@@ -1535,27 +1818,39 @@ fn refs_with_commit_targets(repo: &gix::Repository, prefix: &[u8], label: &str) 
                 continue;
             }
         }
+        if crate::edit::replay_refs::is_checkpoint(repo, id)? {
+            tracing::warn!(name = %name, %label, "ignoring tix reference to a merge replay checkpoint");
+            continue;
+        }
         out.push(Pin { name, target, id });
     }
     out.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(out)
 }
 
-pub(crate) fn applicable_pins(repo: &gix::Repository) -> Result<Vec<Pin>> {
-    let head = repo.head().context("could not read HEAD while resolving tix pins")?;
+fn pins_for_head(repo: &gix::Repository) -> Result<(Vec<Pin>, Option<gix::refs::FullName>)> {
+    let head = repo
+        .head()
+        .or_raise(|| message("could not read HEAD while resolving tix pins"))?;
     let detached = head.is_detached();
-    let Some(head_id) = head.id().map(gix::Id::detach) else {
-        return Ok(Vec::new());
-    };
+    let has_head = head.id().is_some();
+    let attached_branch = head
+        .referent_name()
+        .filter(|name| name.as_bstr().starts_with(b"refs/heads/"))
+        .map(ToOwned::to_owned);
     drop(head);
-    let pins = all_pins(repo)?;
-    if detached {
-        return Ok(pins);
+    let mut pins = all_pins(repo)?;
+    let remembered_branch = pins
+        .iter()
+        .find(|pin| pin.is_head())
+        .and_then(|pin| pin.target.try_name())
+        .map(ToOwned::to_owned);
+    if !has_head {
+        pins.clear();
+    } else if !detached {
+        pins.retain(|pin| !pin.is_head());
     }
-    Ok(pins
-        .into_iter()
-        .filter(|pin| !pin.is_head() && pin.id != head_id)
-        .collect())
+    Ok((pins, has_head.then(|| attached_branch.or(remembered_branch)).flatten()))
 }
 
 pub(crate) fn referenced_refs(
@@ -1574,14 +1869,18 @@ pub(crate) fn referenced_refs(
     let mut out = HashMap::new();
     for revision in revisions {
         let revision = gix::path::os_str_into_bstr(revision)
-            .with_context(|| format!("revision {} is not valid UTF-8", revision.to_string_lossy()))?;
+            .or_raise(|| message!("revision {} is not valid UTF-8", revision.to_string_lossy()))?;
         let spec = repo
             .rev_parse(revision)
-            .with_context(|| format!("could not parse revision {revision}"))?;
+            .or_raise(|| message!("could not parse revision {revision}"))?;
         for reference in [spec.first_reference(), spec.second_reference()].into_iter().flatten() {
-            anyhow::ensure!(
-                !crate::edit::undo::ref_chain_reaches_queue(repo, reference.name.as_ref())?,
-                "the undo queue is not a selectable revision"
+            gix::error::ensure!(
+                !crate::edit::undo::ref_chain_reaches_internal(repo, reference.name.as_ref())?,
+                message("internal Tix state is not a selectable revision")
+            );
+            gix::error::ensure!(
+                !crate::edit::replay_refs::ref_chain_reaches(repo, reference.name.as_ref())?,
+                "merge replay resources are not selectable revisions"
             );
             insert_ref_chain(repo, reference.name.as_bstr(), &mut out)?;
         }
@@ -1598,7 +1897,7 @@ fn insert_ref_chain(repo: &gix::Repository, name: &BStr, out: &mut HashMap<BStri
         let reference = match repo.try_find_reference(name.as_bstr()) {
             Ok(reference) => reference,
             Err(err) if is_missing_ref(&err) => return Ok(()),
-            Err(err) => return Err(err).with_context(|| format!("could not read reference {name}")),
+            Err(err) => return Err(err).or_raise(|| message!("could not read reference {name}")),
         };
         let Some(reference) = reference else {
             return Ok(());
@@ -1616,9 +1915,9 @@ pub(crate) fn load_metadata(
     id: ObjectId,
     authors: &SharedAuthors,
 ) -> Result<(Metadata<BString>, Vec<Attribution>)> {
-    let object = repo.find_commit(id).context("could not read commit")?;
+    let object = repo.find_commit(id)?;
     let mut attributions = Vec::new();
-    let mut authors = gix::features::threading::lock(authors);
+    let mut authors = gix::parallel::lock(authors);
     let metadata = decode_metadata(object.iter(), &mut authors, &mut attributions)?;
     Ok((metadata, attributions))
 }
@@ -1629,7 +1928,7 @@ fn decode_commit(
     authors: &mut Authors,
     attributions: &mut Vec<Attribution>,
 ) -> Result<Commit<BString>> {
-    let object = repo.find_commit(id).context("could not read commit")?;
+    let object = repo.find_commit(id)?;
     let parent_ids = object.parent_ids().map(gix::Id::detach).collect();
     let Metadata {
         committer_time,
@@ -1639,6 +1938,7 @@ fn decode_commit(
         title,
         has_agent_marker,
         is_review,
+        has_merge_replay,
         signature,
     } = decode_metadata(object.iter(), authors, attributions)?;
     Ok(Commit {
@@ -1652,12 +1952,13 @@ fn decode_commit(
         metadata_loaded: true,
         has_agent_marker,
         is_review,
+        has_merge_replay,
         signature,
     })
 }
 
 fn decode_metadata<'a>(
-    tokens: impl Iterator<Item = Result<Token<'a>, gix::objs::decode::Error>>,
+    tokens: impl Iterator<Item = gix::Result<Token<'a>>>,
     authors: &mut Authors,
     attributions: &mut Vec<Attribution>,
 ) -> Result<Metadata<BString>> {
@@ -1668,16 +1969,17 @@ fn decode_metadata<'a>(
     let mut title = None;
     let mut has_agent_marker = false;
     let mut is_review = false;
+    let mut has_merge_replay = false;
     let mut signature = SignatureState::Unsigned;
     for token in tokens {
-        match token.context("could not decode commit")? {
+        match token? {
             Token::Author { signature } => {
-                author_time = Some(signature.time().context("could not decode author time")?);
+                author_time = Some(signature.time()?);
                 let signature = signature.trim();
                 author = Some(authors.intern_author(signature.name, signature.email));
             }
             Token::Committer { signature } => {
-                committer_time = Some(signature.time().context("could not decode committer time")?);
+                committer_time = Some(signature.time()?);
             }
             Token::Message(message) => {
                 has_agent_marker = contains_agent_marker(message);
@@ -1706,8 +2008,9 @@ fn decode_metadata<'a>(
                     }
                 }
             }
-            Token::ExtraHeader((name, _)) if name == "tix-rebase-parent" => {
+            Token::ExtraHeader((name, _)) if name == "tix-rebase-parent" || name == "tix-rebase-merge" => {
                 signature = SignatureState::PendingRebase;
+                has_merge_replay |= name == "tix-rebase-merge";
             }
             Token::ExtraHeader((name, value))
                 if name == "tix-rebase" && value.as_ref().starts_with(b"onto refs/worktree/tix/review/") =>
@@ -1725,13 +2028,14 @@ fn decode_metadata<'a>(
         }
     }
     Ok(Metadata {
-        committer_time: committer_time.context("commit has no committer time")?,
-        author_time: author_time.context("commit has no author time")?,
-        author: author.context("commit has no author")?,
+        committer_time: committer_time.ok_or_raise(|| message("commit has no committer time"))?,
+        author_time: author_time.ok_or_raise(|| message("commit has no author time"))?,
+        author: author.ok_or_raise(|| message("commit has no author"))?,
         attributions: attribution_start..attributions.len(),
-        title: title.context("commit has no message")?,
+        title: title.ok_or_raise(|| message("commit has no message"))?,
         has_agent_marker,
         is_review,
+        has_merge_replay,
         signature,
     })
 }
@@ -1739,16 +2043,12 @@ fn decode_metadata<'a>(
 pub(crate) fn contains_agent_marker(message: &[u8]) -> bool {
     [b"--- agent".as_slice(), b"<!-- agent -->".as_slice()]
         .iter()
-        .any(|marker| message.windows(marker.len()).any(|window| window == *marker))
+        .any(|marker| message.contains_str(*marker))
 }
 
 fn resolve_tips(repo: &gix::Repository, revisions: &[OsString]) -> Result<Option<Vec<ObjectId>>> {
     if revisions.is_empty() {
-        repo.head()
-            .context("could not read HEAD")?
-            .try_peel_to_id()
-            .context("could not resolve HEAD")
-            .map(|id| id.map(|id| vec![id.detach()]))
+        Ok(repo.head()?.try_peel_to_id()?.map(|id| vec![id.detach()]))
     } else {
         resolve_revisions(repo, revisions, "").map(Some)
     }
@@ -1790,21 +2090,13 @@ pub(crate) fn available_hidden_revisions(
 fn auto_hidden_revisions(repo: &gix::Repository) -> Result<Vec<OsString>> {
     let mut branches = BTreeSet::new();
     for remote_name in repo.remote_names() {
-        let mut head = BString::from("refs/remotes/");
-        head.extend_from_slice(&remote_name);
-        head.extend_from_slice(b"/HEAD");
-        let Ok(Some(reference)) = repo.try_find_reference(head.as_bstr()) else {
+        let Ok(remote) = repo.find_remote(remote_name) else {
             continue;
         };
-        let target = reference.target();
-        let Some(tracking) = target.try_name() else { continue };
-        let Ok(Some((upstream, remote))) = repo.upstream_branch_and_remote_for_tracking_branch(tracking) else {
+        let Ok(Some(branch)) = remote.default_branch() else {
             continue;
         };
-        if remote.name().map(gix::remote::Name::as_bstr) != Some(remote_name.as_bstr()) {
-            continue;
-        }
-        let Ok(Some(mut local)) = repo.try_find_reference(upstream.as_ref()) else {
+        let Ok(Some(mut local)) = repo.try_find_reference(branch.as_ref()) else {
             continue;
         };
         let Ok(id) = local.peel_to_id() else { continue };
@@ -1812,13 +2104,13 @@ fn auto_hidden_revisions(repo: &gix::Repository) -> Result<Vec<OsString>> {
             .find_header(id)
             .is_ok_and(|header| header.kind() == gix::object::Kind::Commit)
         {
-            branches.insert(upstream);
+            branches.insert(branch);
         }
     }
-    Ok(branches
+    branches
         .into_iter()
-        .map(|name| gix::path::from_bstr(name.as_bstr()).into_owned().into_os_string())
-        .collect())
+        .map(|name| Ok(gix::path::from_bstr(name.as_bstr())?.into_owned().into_os_string()))
+        .collect()
 }
 
 fn attribution_kind(trailer: &gix::objs::commit::message::body::TrailerRef<'_>) -> Option<AttributionKind> {
@@ -1844,9 +2136,9 @@ fn resolve_revisions(repo: &gix::Repository, revisions: &[OsString], kind: &str)
         .iter()
         .map(|revision| {
             let revision = gix::path::os_str_into_bstr(revision)
-                .with_context(|| format!("{kind}revision {} is not valid UTF-8", revision.to_string_lossy()))?;
+                .or_raise(|| message!("{kind}revision {} is not valid UTF-8", revision.to_string_lossy()))?;
             resolve_revision(repo, revision)
-                .with_context(|| format!("could not resolve {kind}revision {revision}"))
+                .or_raise(|| message!("could not resolve {kind}revision {revision}"))
                 .map(|(id, _reference)| id)
         })
         .collect()
@@ -1859,22 +2151,30 @@ pub(crate) fn resolve_revision(
     let spec = repo.rev_parse(revision)?;
     let first_reference = spec.first_reference().map(|reference| reference.name.clone());
     for reference in [spec.first_reference(), spec.second_reference()].into_iter().flatten() {
-        anyhow::ensure!(
-            !crate::edit::undo::ref_chain_reaches_queue(repo, reference.name.as_ref())?,
-            "the undo queue is not a selectable revision"
+        gix::error::ensure!(
+            !crate::edit::undo::ref_chain_reaches_internal(repo, reference.name.as_ref())?,
+            message("internal Tix state is not a selectable revision")
+        );
+        gix::error::ensure!(
+            !crate::edit::replay_refs::ref_chain_reaches(repo, reference.name.as_ref())?,
+            "merge replay resources are not selectable revisions"
         );
     }
     let id = spec
         .single()
-        .context("revision does not name a single object")?
+        .ok_or_raise(|| message("revision does not name a single object"))?
         .object()
-        .context("could not read revision")?
+        .or_raise(|| message("could not read revision"))?
         .peel_to_kind(gix::object::Kind::Commit)
-        .context("revision does not resolve to a commit")?
+        .or_raise(|| message("revision does not resolve to a commit"))?
         .id;
-    anyhow::ensure!(
-        !crate::edit::undo::is_queue_commit(repo, id)?,
-        "the undo queue is not a selectable revision"
+    gix::error::ensure!(
+        !crate::edit::undo::is_internal_commit(repo, id)?,
+        message("internal Tix state is not a selectable revision")
+    );
+    gix::error::ensure!(
+        !crate::edit::replay_refs::is_checkpoint(repo, id)?,
+        "merge replay checkpoints are not selectable revisions"
     );
     Ok((id, first_reference))
 }
@@ -1919,22 +2219,23 @@ pub(crate) fn decorations_excluding(
         .map(ToOwned::to_owned);
     let pins: HashSet<_> = pins.iter().map(|pin| pin.name.as_bstr()).collect();
     let review_count = all_reviews(repo)?.len();
-    for reference in repo
-        .references()
-        .context("could not open references")?
-        .all()
-        .context("could not iterate references")?
-    {
+    for reference in repo.references()?.all()? {
         let mut reference = match reference {
             Ok(reference) => reference,
-            Err(err) if is_missing_ref(&*err) => continue,
-            Err(err) => return Err(anyhow::anyhow!("could not read reference: {err}")),
+            Err(err) if is_missing_ref(&err) => continue,
+            Err(err) => return Err(message!("could not read reference: {err}").raise()),
         };
         let full_name = reference.name().to_owned();
-        if excluded.contains(full_name.as_bstr()) || crate::edit::undo::is_queue_ref(full_name.as_bstr()) {
+        if excluded.contains(full_name.as_bstr())
+            || crate::edit::is_internal_ref(full_name.as_bstr())
+            || crate::edit::replay_refs::is_ref(full_name.as_bstr())
+        {
             continue;
         }
         if full_name.as_bstr() == HEAD_PIN_NAME {
+            continue;
+        }
+        if full_name.as_bstr().starts_with(REVIEW_PIN_PREFIX) {
             continue;
         }
         if full_name.as_bstr().starts_with(REVIEW_STASH_PREFIX) {
@@ -1980,7 +2281,7 @@ pub(crate) fn decorations_excluding(
         let mut kind = decoration_kind(full_name.as_bstr());
         if kind == DecorationKind::Tag {
             let annotated = match reference.try_id() {
-                Some(id) => id.header().context("could not inspect tag")?.kind() == gix::objs::Kind::Tag,
+                Some(id) => id.header()?.kind() == gix::objs::Kind::Tag,
                 None => false,
             };
             if annotated {
@@ -2068,11 +2369,7 @@ pub(crate) fn decorations_excluding(
         }
     }
     if !excluded.contains(b"HEAD".as_bstr())
-        && let Some(id) = repo
-            .head()
-            .context("could not read HEAD")?
-            .try_peel_to_id()
-            .context("could not peel HEAD")?
+        && let Some(id) = repo.head()?.try_peel_to_id()?
     {
         out.entry(id.detach()).or_default().push(Decoration {
             name: "HEAD".into(),
@@ -2082,17 +2379,8 @@ pub(crate) fn decorations_excluding(
     Ok(out)
 }
 
-pub(crate) fn is_missing_ref(mut err: &(dyn std::error::Error + 'static)) -> bool {
-    loop {
-        if err
-            .downcast_ref::<std::io::Error>()
-            .is_some_and(|err| err.kind() == std::io::ErrorKind::NotFound)
-        {
-            return true;
-        }
-        let Some(source) = err.source() else { return false };
-        err = source;
-    }
+pub(crate) fn is_missing_ref(err: &gix::Error) -> bool {
+    err.is_not_found()
 }
 
 pub(crate) fn decoration_kind(name: &[u8]) -> DecorationKind {
@@ -2115,7 +2403,9 @@ pub(crate) fn decoration_kind(name: &[u8]) -> DecorationKind {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashSet, process::Command};
+    use std::collections::HashSet;
+
+    use gix::error::TestResult;
 
     use super::*;
     use crate::app::AttributionKind;
@@ -2148,10 +2438,9 @@ mod tests {
         };
     }
 
-    fn loaded(path: &std::path::Path, revisions: &[&str], hidden_revisions: &[&str]) -> Result<Vec<Event>> {
+    fn loaded(path: &std::path::Path, revisions: &[&str], hidden_revisions: &[&str]) -> TestResult<Vec<Event>> {
         let mut events = Vec::new();
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
         let repo = crate::test_repository::open(path)?;
         load(
             &repo,
@@ -2170,9 +2459,13 @@ mod tests {
 
     #[test]
     fn only_missing_ref_reads_are_ignored() {
-        let ref_error = |kind| gix::refs::file::iter::loose_then_packed::Error::ReadFileContents {
-            source: std::io::Error::from(kind),
-            path: "refs/heads/racing".into(),
+        let ref_error = |kind| {
+            gix::Exn::new(std::io::Error::from(kind))
+                .raise(
+                    gix::error::Message::new("Could not read reference")
+                        .with("path", std::path::Path::new("refs/heads/racing")),
+                )
+                .into_error()
         };
         assert!(
             is_missing_ref(&ref_error(std::io::ErrorKind::NotFound)),
@@ -2200,9 +2493,51 @@ mod tests {
         }
 
         assert_eq!(
-            graph.paint(id(6), &[id(7)]),
+            graph.ahead_behind(id(6), &[id(7)]),
             Some((2, 2)),
             "both merge tips stop at the shared criss-cross ancestry"
+        );
+    }
+
+    #[test]
+    fn switches_cached_rev_sets_without_leaking_the_previous_view() {
+        let mut graph = HistoryGraph::default();
+        for (n, parents, generation) in [(1, vec![], 1), (2, vec![1], 2), (3, vec![1], 2), (4, vec![2], 3)] {
+            insert_commit(&mut graph, n, &parents, generation);
+        }
+
+        graph.switch_view(&[id(4)], &[id(3)]);
+        assert!(
+            graph.is_in_edit_scope(id(4)) && graph.is_in_edit_scope(id(1)),
+            "the visible tip and its hidden boundary are editable"
+        );
+        assert!(!graph.is_in_edit_scope(id(3)), "hidden-only commits stay out of scope");
+        assert_eq!(
+            graph.ahead_behind(id(4), &[id(3)]),
+            Some((2, 1)),
+            "relations use every commit cached by either view"
+        );
+
+        graph.switch_view(&[id(3)], &[]);
+        assert!(
+            graph.is_in_edit_scope(id(3)) && graph.is_in_edit_scope(id(1)),
+            "a view without hidden tips makes its full ancestry editable"
+        );
+        assert!(!graph.is_in_edit_scope(id(4)), "the previous view is removed");
+        assert!(
+            graph.commits[graph.index(id(4)).expect("the old tip stays cached").as_usize()].state & NODE_IN_VIEW == 0,
+            "cached commits outside the new rev-set are no longer in view"
+        );
+
+        graph.switch_view(&[], &[id(3)]);
+        assert!(
+            graph.commits[graph.index(id(1)).expect("the root stays cached").as_usize()].state & NODE_IN_VIEW != 0,
+            "hidden-only views still display the selected tip's ancestry"
+        );
+        assert!(graph.is_in_edit_scope(id(3)), "the hidden fallback tip stays editable");
+        assert!(
+            !graph.is_in_edit_scope(id(1)),
+            "only the hidden fallback tip is editable"
         );
     }
 
@@ -2255,7 +2590,7 @@ mod tests {
         let fixture = gix_testtools::scripted_fixture_writable("history.sh")?;
         let path = fixture.path();
         let git = |args: &[&str]| -> gix_testtools::Result {
-            let output = Command::new("git").current_dir(path).args(args).output()?;
+            let output = gix_testtools::git_command(path).args(args).output()?;
             assert!(
                 output.status.success(),
                 "git {args:?} prepares remote HEADs: {}",
@@ -2285,6 +2620,16 @@ mod tests {
                 "+refs/heads/missing:refs/remotes/stale/default",
                 "refs/remotes/stale/default",
             ),
+            (
+                "custom",
+                "+refs/heads/merged:refs/tracking/custom/default",
+                "refs/tracking/custom/default",
+            ),
+            (
+                "overlap",
+                "+refs/heads/topic:refs/remotes/origin/main",
+                "refs/remotes/origin/main",
+            ),
         ] {
             git(&["config", &format!("remote.{remote}.url"), "https://example.com/repo"])?;
             git(&["config", &format!("remote.{remote}.fetch"), fetch])?;
@@ -2298,23 +2643,95 @@ mod tests {
         let repo = crate::test_repository::open(path)?;
         assert_eq!(
             auto_hidden_revisions(&repo)?,
-            [OsString::from("refs/heads/main"), OsString::from("refs/heads/trunk")],
-            "remote defaults are reverse-mapped, deduplicated, and limited to existing local branches"
+            [
+                "refs/heads/main",
+                "refs/heads/merged",
+                "refs/heads/topic",
+                "refs/heads/trunk"
+            ]
+            .map(OsString::from),
+            "each remote's own refspecs determine its default, even with overlapping or custom tracking destinations"
         );
         assert_eq!(
             available_hidden_revisions(&repo, &[OsString::from("topic")], true)?.0,
             [
                 OsString::from("topic"),
                 OsString::from("refs/heads/main"),
+                OsString::from("refs/heads/merged"),
+                OsString::from("refs/heads/topic"),
                 OsString::from("refs/heads/trunk")
             ],
-            "explicit and inferred hidden revisions are combined"
+            "explicit and inferred hidden revisions are combined and remote defaults are deduplicated"
         );
         Ok(())
     }
 
     #[test]
-    fn walks_the_same_reachable_set_as_git_for_multiple_tips() -> gix_testtools::Result {
+    fn remote_defaults_ignore_unknown_invalid_and_non_commit_branches() -> TestResult {
+        let fixture = gix_testtools::scripted_fixture_writable("history.sh")?;
+        let path = fixture.path();
+        let repo = crate::test_repository::open(path)?;
+        let blob_id = repo.write_blob(b"not a commit")?;
+        repo.reference(
+            "refs/heads/not-a-commit",
+            blob_id,
+            gix::refs::transaction::PreviousValue::MustNotExist,
+            "prepare a non-commit default branch",
+        )?;
+        for (remote, source) in [
+            ("valid", "refs/heads/merged"),
+            ("no-head", "refs/heads/main"),
+            ("direct", "refs/heads/topic"),
+            ("unmapped", "refs/heads/main"),
+            ("ambiguous", "refs/heads/main"),
+            ("tag", "refs/tags/v1"),
+            ("unqualified", "topic"),
+            ("head-source", "HEAD"),
+            ("non-commit", "refs/heads/not-a-commit"),
+            ("invalid-config", "invalid refspec"),
+        ] {
+            let tracking = format!("refs/remotes/{remote}/default");
+            gix_testtools::git(path, &format!("config remote.{remote}.url https://example.com/repo"))?;
+            let output = gix_testtools::git_command(path)
+                .args([
+                    "config",
+                    &format!("remote.{remote}.fetch"),
+                    &format!("+{source}:{tracking}"),
+                ])
+                .output()?;
+            assert!(output.status.success(), "configure the fetch refspec for {remote}");
+            if remote == "direct" {
+                gix_testtools::git(path, &format!("update-ref refs/remotes/{remote}/HEAD main"))?;
+            } else if remote != "no-head" {
+                let target = if remote == "unmapped" {
+                    format!("{tracking}-other")
+                } else {
+                    tracking
+                };
+                gix_testtools::git(path, &format!("update-ref {target} main"))?;
+                gix_testtools::git(path, &format!("symbolic-ref refs/remotes/{remote}/HEAD {target}"))?;
+            }
+        }
+        gix_testtools::git(
+            path,
+            "config --add remote.ambiguous.fetch +refs/heads/topic:refs/remotes/ambiguous/default",
+        )?;
+
+        let repo = crate::test_repository::open(path)?;
+        assert!(
+            repo.find_remote("ambiguous")?.default_branch().is_err(),
+            "multiple branches mapping to the same target make a remote default ambiguous"
+        );
+        assert_eq!(
+            auto_hidden_revisions(&repo)?,
+            [OsString::from("refs/heads/merged")],
+            "invalid remotes and unknown or non-commit defaults do not prevent hiding a valid local default"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn walks_the_same_reachable_set_as_git_for_multiple_tips() -> TestResult {
         let fixture = fixture()?;
         let events = loaded(&fixture, &["main", "topic"], &[])?;
         let actual: HashSet<_> = events
@@ -2324,8 +2741,7 @@ mod tests {
                 _ => Vec::new(),
             })
             .collect();
-        let output = Command::new("git")
-            .current_dir(&fixture)
+        let output = gix_testtools::git_command(&fixture)
             .args(["rev-list", "main", "topic", "--"])
             .output()?;
         assert!(
@@ -2435,7 +2851,7 @@ mod tests {
             .find_commit(entry)?
             .parent_ids()
             .next()
-            .context("the undo entry has its queue predecessor")?
+            .ok_or_raise(|| message("the undo entry has its queue predecessor"))?
             .detach();
 
         for revision in [
@@ -2477,24 +2893,21 @@ mod tests {
             ["worktree", "add", "-q", "--detach", "detached-wt", "main~2"].as_slice(),
             ["worktree", "add", "-q", "--detach", "broken-wt", "main~2"].as_slice(),
         ] {
-            let status = Command::new("git").current_dir(fixture.path()).args(args).status()?;
+            let status = gix_testtools::git_command(fixture.path()).args(args).status()?;
             assert!(status.success(), "git creates the worktree fixture");
         }
-        let remembered_branch = Command::new("git")
-            .current_dir(fixture.path())
+        let remembered_branch = gix_testtools::git_command(fixture.path())
             .args(["branch", "remembered", "main~1"])
             .status()?;
         assert!(remembered_branch.success(), "git creates the remembered branch");
-        let remembered_worktree = Command::new("git")
-            .current_dir(fixture.path())
+        let remembered_worktree = gix_testtools::git_command(fixture.path())
             .args(["worktree", "add", "-q", "remembered-wt", "remembered"])
             .status()?;
         assert!(
             remembered_worktree.success(),
             "git checks out the branch remembered by another worktree"
         );
-        let remembered_pin = Command::new("git")
-            .current_dir(fixture.path().join("detached-wt"))
+        let remembered_pin = gix_testtools::git_command(fixture.path().join("detached-wt"))
             .args(["symbolic-ref", "refs/worktree/tix/pins/HEAD", "refs/heads/remembered"])
             .status()?;
         assert!(remembered_pin.success(), "the foreign worktree remembers its branch");
@@ -2509,10 +2922,11 @@ mod tests {
         let topic = repo.rev_parse_single("topic")?.detach();
         let root = repo.rev_parse_single("main~2")?.detach();
         let remembered = repo.rev_parse_single("remembered")?.detach();
-        let worktrees = worktree_checkouts(&repo);
+        let worktrees = worktree_checkouts(&repo)?;
         assert!(worktrees.iter().any(|worktree| {
             worktree.id == main
                 && worktree.label_id == main
+                && worktree.head_reference == "main-worktree/HEAD"
                 && worktree.is_current
                 && !worktree.is_detached
                 && worktree
@@ -2524,6 +2938,7 @@ mod tests {
             worktree.id == topic
                 && worktree.label_id == topic
                 && worktree.checkout_name == "topic-wt"
+                && worktree.head_reference == "worktrees/topic-wt/HEAD"
                 && !worktree.is_current
                 && !worktree.is_detached
                 && worktree
@@ -2535,6 +2950,7 @@ mod tests {
             worktree.id == root
                 && worktree.label_id == remembered
                 && worktree.checkout_name == "detached-wt"
+                && worktree.head_reference == "worktrees/detached-wt/HEAD"
                 && worktree
                     .reference
                     .as_ref()
@@ -2543,6 +2959,13 @@ mod tests {
                 && worktree.is_detached
         }));
         assert_eq!(worktrees.len(), 4, "the malformed worktree is ignored");
+        for worktree in &worktrees {
+            assert_eq!(
+                repo.find_reference(worktree.head_reference.as_ref())?.peel_to_id()?,
+                worktree.id,
+                "qualified HEAD references resolve to the physical checkout, even when its directory is absent"
+            );
+        }
 
         let main_repo_decorations = decorations(&repo, &[], &worktrees)?;
         let main_decorations = main_repo_decorations.get(&main).expect("main is decorated");
@@ -2588,11 +3011,15 @@ mod tests {
 
         let linked_path = fixture.path().join("topic-wt");
         let linked_repo = crate::test_repository::open(&linked_path)?;
-        let linked_worktrees = worktree_checkouts(&linked_repo);
+        let linked_worktrees = worktree_checkouts(&linked_repo)?;
+        assert!(linked_worktrees.iter().any(|worktree| worktree.id == topic
+            && worktree.is_current
+            && worktree.head_reference == "worktrees/topic-wt/HEAD"));
         assert!(
             linked_worktrees
                 .iter()
-                .any(|worktree| worktree.id == topic && worktree.is_current)
+                .any(|worktree| worktree.id == main && worktree.head_reference == "main-worktree/HEAD"),
+            "main-worktree HEAD keeps its identity when viewed from a linked worktree"
         );
         let linked_decorations = decorations(&linked_repo, &[], &linked_worktrees)?;
         assert!(linked_decorations.get(&topic).is_some_and(|decorations| {
@@ -2608,13 +3035,12 @@ mod tests {
                 .any(|decoration| decoration.kind == DecorationKind::WorktreeBranch && decoration.name == "main")
         }));
 
-        let status = Command::new("git")
-            .current_dir(&linked_path)
+        let status = gix_testtools::git_command(&linked_path)
             .args(["checkout", "-q", "--detach", "main~1"])
             .status()?;
         assert!(status.success(), "git detaches the current linked worktree");
         let detached_repo = crate::test_repository::open(&linked_path)?;
-        let detached_worktrees = worktree_checkouts(&detached_repo);
+        let detached_worktrees = worktree_checkouts(&detached_repo)?;
         let current = detached_worktrees
             .iter()
             .find(|worktree| worktree.is_current)
@@ -2622,6 +3048,10 @@ mod tests {
         assert!(current.reference.is_none());
         assert!(current.is_detached);
         assert_eq!(current.label_id, current.id);
+        assert_eq!(
+            current.head_reference, "worktrees/topic-wt/HEAD",
+            "detaching keeps the physical HEAD reference"
+        );
         let detached_decorations = decorations(&detached_repo, &[], &detached_worktrees)?;
         assert!(detached_decorations.get(&current.id).is_some_and(|decorations| {
             decorations.iter().any(|decoration| {
@@ -2629,13 +3059,12 @@ mod tests {
             })
         }));
 
-        let symbolic = Command::new("git")
-            .current_dir(&linked_path)
+        let symbolic = gix_testtools::git_command(&linked_path)
             .args(["symbolic-ref", "refs/worktree/tix/pins/HEAD", "refs/heads/topic"])
             .status()?;
         assert!(symbolic.success(), "git remembers the detached worktree's branch");
         let remembered_repo = crate::test_repository::open(&linked_path)?;
-        let remembered_worktrees = worktree_checkouts(&remembered_repo);
+        let remembered_worktrees = worktree_checkouts(&remembered_repo)?;
         let current = remembered_worktrees
             .iter()
             .find(|worktree| worktree.is_current)
@@ -2644,13 +3073,17 @@ mod tests {
         assert_eq!(current.label_id, topic, "the label follows the remembered branch tip");
         assert_eq!(current.checkout_name, "topic-wt");
         assert!(current.is_detached);
+        assert_eq!(
+            current.head_reference, "worktrees/topic-wt/HEAD",
+            "remembering a branch leaves the physical HEAD reference unchanged"
+        );
         assert!(
             current
                 .reference
                 .as_ref()
                 .is_some_and(|name| name == "refs/heads/topic")
         );
-        let remembered_pins = applicable_pins(&remembered_repo)?;
+        let remembered_pins = snapshot(&remembered_repo, &[], &[], false)?.pins;
         let remembered_decorations = decorations(&remembered_repo, &remembered_pins, &remembered_worktrees)?;
         assert!(remembered_decorations.get(&topic).is_some_and(|decorations| {
             decorations
@@ -2661,23 +3094,18 @@ mod tests {
     }
 
     #[test]
-    fn decodes_commits_missing_from_a_stale_graph_and_defers_graph_commits() -> gix_testtools::Result {
+    fn decodes_commits_missing_from_a_stale_graph_and_defers_graph_commits() -> TestResult {
         let fixture = gix_testtools::scripted_fixture_writable("history.sh")?;
         let fixture_path = fixture.path();
-        let graph = Command::new("git")
-            .current_dir(fixture_path)
+        let graph = gix_testtools::git_command(fixture_path)
             .args(["commit-graph", "write", "--reachable"])
             .status()?;
         assert!(graph.success(), "git writes the initial commit-graph");
 
         std::fs::write(fixture_path.join("new"), "new\n")?;
-        let add = Command::new("git")
-            .current_dir(fixture_path)
-            .args(["add", "new"])
-            .status()?;
+        let add = gix_testtools::git_command(fixture_path).args(["add", "new"]).status()?;
         assert!(add.success(), "the new file is staged");
-        let commit = Command::new("git")
-            .current_dir(fixture_path)
+        let commit = gix_testtools::git_command(fixture_path)
             .env("GIT_AUTHOR_DATE", "2000-01-05T00:00:00 +0000")
             .env("GIT_COMMITTER_DATE", "2000-01-06T00:00:00 +0000")
             .args(["-c", "commit.gpgSign=false", "commit", "-q", "-m", "new"])
@@ -2712,8 +3140,7 @@ mod tests {
             .expect("older graph commits defer metadata");
 
         let repo = crate::test_repository::open(fixture_path)?;
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
         let (metadata, _) = load_metadata(&repo, deferred.id, &authors)?;
         assert!(
             !metadata.title.is_empty(),
@@ -2723,26 +3150,28 @@ mod tests {
     }
 
     #[test]
-    fn unborn_views_show_only_the_hidden_tips() -> gix_testtools::Result {
+    fn views_without_visible_commits_emit_only_their_boundary_tips() -> TestResult {
         let fixture = gix_testtools::scripted_fixture_writable("history.sh")?;
         let repo = crate::test_repository::open(fixture.path())?;
         let main = repo.rev_parse_single("main")?.detach();
+        let behind = repo.rev_parse_single("main~1")?.detach();
         let topic = repo.rev_parse_single("topic")?.detach();
         drop(repo);
         assert!(
-            Command::new("git")
-                .current_dir(fixture.path())
+            gix_testtools::git_command(fixture.path())
                 .args(["symbolic-ref", "HEAD", "refs/heads/unborn"])
                 .status()?
                 .success(),
             "the fixture enters an unborn branch"
         );
 
-        for (hidden, expected) in [
-            (&["main"][..], HashSet::from([main])),
-            (&["main", "topic"][..], HashSet::from([main, topic])),
+        for (visible, hidden, expected) in [
+            (&[][..], &["main"][..], HashSet::from([main])),
+            (&[][..], &["main", "topic"][..], HashSet::from([main, topic])),
+            (&["main"][..], &["main"][..], HashSet::from([main])),
+            (&["main~1"][..], &["main"][..], HashSet::from([behind])),
         ] {
-            let events = loaded(fixture.path(), &[], hidden)?;
+            let events = loaded(fixture.path(), visible, hidden)?;
             let visible: Vec<_> = events
                 .iter()
                 .filter_map(|event| match event {
@@ -2768,7 +3197,7 @@ mod tests {
                 .expect("the hidden-only history completes");
 
             assert!(visible.is_empty(), "hidden ancestry is not exposed as visible history");
-            assert_eq!(boundaries, expected, "each hidden tip is emitted as a boundary");
+            assert_eq!(boundaries, expected, "only the applicable fallback tips are emitted");
             assert_eq!(
                 graph.stored_commit_ids().collect::<HashSet<_>>(),
                 expected,
@@ -2779,12 +3208,208 @@ mod tests {
     }
 
     #[test]
-    fn hidden_only_refresh_stops_after_the_new_tip() -> gix_testtools::Result {
+    fn pinned_hidden_history_is_loaded_through_its_shared_base() -> TestResult {
+        let fixture = gix_testtools::scripted_fixture_writable("history.sh")?;
+        let repo = crate::test_repository::open(fixture.path())?;
+        let main_id = repo.rev_parse_single("main")?.detach();
+        let side_commit_id = repo.rev_parse_single("main^2")?.detach();
+        let topic_id = repo.rev_parse_single("topic")?.detach();
+        let base_id = repo.rev_parse_single("topic^")?.detach();
+        let root_id = repo.rev_parse_single("topic^^")?.detach();
+        crate::ref_tree::pin_references(&repo, main_id, &[DecorationKind::Local])?;
+
+        let events = loaded(fixture.path(), &["topic"], &["main"])?;
+        let mut visible = HashSet::new();
+        let mut boundary = HashSet::new();
+        for event in &events {
+            match event {
+                Event::Commits(commits) => visible.extend(commits.rows.iter().map(|row| row.id)),
+                Event::HiddenCommits(commits) => boundary.extend(commits.rows.iter().map(|row| row.id)),
+                _ => {}
+            }
+        }
+        assert_eq!(visible, HashSet::from([topic_id]), "hidden ancestry stays read-only");
+        assert_eq!(
+            boundary,
+            HashSet::from([main_id, side_commit_id, base_id]),
+            "the pin reveals its hidden history through the shared base after restarting"
+        );
+        let graph = events
+            .iter()
+            .find_map(|event| match event {
+                Event::Complete(graph) => Some(graph),
+                _ => None,
+            })
+            .expect("loading completes with a graph");
+        assert!(
+            [main_id, side_commit_id, base_id]
+                .into_iter()
+                .all(|commit_id| graph.is_in_edit_scope(commit_id)),
+            "all displayed hidden commits are in the edit scope"
+        );
+        assert!(
+            !graph.is_in_edit_scope(root_id),
+            "ancestry below the displayed boundaries stays out of scope"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn edit_metadata_retains_conflict_barriers_without_loading_patch_trees() -> gix_testtools::Result {
+        let fixture = gix_testtools::scripted_fixture_writable("rebase_edit.sh")?;
+        let repo = crate::test_repository::open(fixture.path())?;
+        let original_commit_id = repo.head_id()?.detach();
+        let mut commit = repo.find_commit(original_commit_id)?.decode()?.into_owned()?;
+        crate::patch_id::mark_unavailable(&mut commit);
+        let conflict_commit_id = repo.write_object(&commit)?.detach();
+        let graph = HistoryGraph::for_commits(&repo, &[original_commit_id, conflict_commit_id])?;
+        assert!(
+            graph.unavailable_patches.contains(&conflict_commit_id),
+            "conflict placeholders remain source barriers even outside the viewport"
+        );
+        assert!(
+            !graph.unavailable_patches.contains(&original_commit_id),
+            "ordinary commits are not confused with unresolved placeholders"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn edit_scope_is_visible_history_plus_its_hidden_boundary() -> gix::error::TestResult {
+        let fixture = gix_testtools::scripted_fixture_writable("history.sh")?;
+        let repo = crate::test_repository::open(fixture.path())?;
+        let topic = repo.rev_parse_single("topic")?.detach();
+        let boundary = repo.rev_parse_single("topic^")?.detach();
+        let root = repo.rev_parse_single("topic^^")?.detach();
+        let hidden_tip = repo.rev_parse_single("main")?.detach();
+        let mut graph = loaded(fixture.path(), &["topic"], &["main"])?
+            .into_iter()
+            .find_map(|event| match event {
+                Event::Complete(graph) => Some(graph),
+                _ => None,
+            })
+            .expect("history loading returns the completed graph");
+
+        assert!(graph.is_in_edit_scope(topic), "visible commits are in the edit scope");
+        assert!(!graph.is_read_only(topic), "visible commits can be transplanted");
+        assert!(
+            graph.is_read_only(boundary),
+            "hidden boundaries remain read-only anchors"
+        );
+        assert!(
+            graph.is_in_edit_scope(boundary),
+            "the displayed hidden base is in the edit scope"
+        );
+        assert!(
+            !graph.is_in_edit_scope(root),
+            "history below the hidden base is excluded"
+        );
+        assert!(
+            !graph.is_in_edit_scope(hidden_tip),
+            "hidden-only descendants are excluded"
+        );
+
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
+        graph.refresh(
+            &repo,
+            &[OsString::from("main")],
+            &[OsString::from("main")],
+            false,
+            &HashSet::new(),
+            &authors,
+        )?;
+        assert!(graph.is_in_edit_scope(hidden_tip), "refresh installs its new boundary");
+        assert!(
+            !graph.is_in_edit_scope(topic),
+            "refresh removes the previous visible scope"
+        );
+        assert!(
+            !graph.is_in_edit_scope(boundary),
+            "refresh removes the previous boundary"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn explicit_commit_graph_has_exact_edit_scope() -> gix_testtools::Result {
+        let fixture = gix_testtools::scripted_fixture_writable("history.sh")?;
+        let repo = crate::test_repository::open(fixture.path())?;
+        let tip = repo.rev_parse_single("topic")?.detach();
+        let parent = repo.rev_parse_single("topic^")?.detach();
+
+        let graph = HistoryGraph::for_commits(&repo, &[tip])?;
+
+        assert!(graph.is_in_edit_scope(tip), "the requested commit is in the edit scope");
+        assert!(graph.index(parent).is_some(), "the requested commit's parent is known");
+        assert_eq!(graph.parents_of(tip), Some(vec![parent]), "loaded edges are available");
+        assert_eq!(
+            graph.parents_of(parent),
+            None,
+            "an unloaded frontier is not a root commit"
+        );
+        let root = repo.rev_parse_single("topic^^")?.detach();
+        assert_eq!(
+            graph.parents_or_load(&repo, parent)?,
+            [root],
+            "a frontier can be read on demand"
+        );
+        assert_eq!(
+            graph.parents_of(parent),
+            None,
+            "an ancestry read does not expand the cache"
+        );
+        assert_eq!(
+            HistoryGraph::for_commits(&repo, &[root])?.parents_of(root),
+            Some(Vec::new()),
+            "a loaded root has a known empty parent list"
+        );
+        assert_eq!(
+            graph.descendants_in_parent_order(parent),
+            None,
+            "interning an ancestor does not make it an editable rewrite root"
+        );
+        assert!(
+            !graph.is_in_edit_scope(parent),
+            "an interned parent stays outside the explicit edit scope"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn refresh_walks_past_an_initial_hidden_frontier() -> TestResult {
+        let fixture = gix_testtools::scripted_fixture_writable("history.sh")?;
+        let repo = crate::test_repository::open(fixture.path())?;
+        let tip = repo.rev_parse_single("topic")?.detach();
+        let expected: HashSet<_> = repo
+            .rev_walk([tip])
+            .all()?
+            .map(|info| info.map(|info| info.id))
+            .collect::<std::result::Result<_, _>>()?;
+        let mut graph = loaded(fixture.path(), &["topic"], &["main"])?
+            .into_iter()
+            .find_map(|event| match event {
+                Event::Complete(graph) => Some(graph),
+                _ => None,
+            })
+            .expect("history loading returns the persistent graph");
+
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
+        graph.refresh(&repo, &["topic".into()], &[], false, &HashSet::new(), &authors)?;
+
+        assert_eq!(
+            graph.stored_commit_ids().collect::<HashSet<_>>(),
+            expected,
+            "changing the hidden frontier materializes the newly visible ancestry"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn hidden_only_refresh_does_not_mark_unwalked_ancestry_complete() -> TestResult {
         let fixture = gix_testtools::scripted_fixture_writable("history.sh")?;
         let path = fixture.path();
         assert!(
-            Command::new("git")
-                .current_dir(path)
+            gix_testtools::git_command(path)
                 .args(["symbolic-ref", "HEAD", "refs/heads/unborn"])
                 .status()?
                 .success()
@@ -2810,12 +3435,11 @@ mod tests {
             ][..],
             &["symbolic-ref", "HEAD", "refs/heads/unborn"][..],
         ] {
-            assert!(Command::new("git").current_dir(path).args(args).status()?.success());
+            assert!(gix_testtools::git_command(path).args(args).status()?.success());
         }
         let repo = crate::test_repository::open(path)?;
         let new_tip = repo.rev_parse_single("main")?.detach();
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
         let refresh = graph.refresh(&repo, &[], &["main".into()], false, &HashSet::new(), &authors)?;
 
         assert_eq!(
@@ -2823,11 +3447,101 @@ mod tests {
             [new_tip],
             "refresh emits the advanced hidden tip without walking its ancestry"
         );
+        graph.refresh(&repo, &["main".into()], &[], false, &HashSet::new(), &authors)?;
+        let expected: HashSet<_> = repo
+            .rev_walk([new_tip])
+            .all()?
+            .map(|info| info.map(|info| info.id))
+            .collect::<std::result::Result<_, _>>()?;
+        assert_eq!(
+            graph.stored_commit_ids().collect::<HashSet<_>>(),
+            expected,
+            "a hidden-only refresh does not truncate a later visible traversal"
+        );
         Ok(())
     }
 
     #[test]
-    fn refresh_stops_at_the_persistent_graph() -> gix_testtools::Result {
+    fn graph_only_refresh_leaves_rows_available_for_display() -> gix_testtools::Result {
+        let fixture = gix_testtools::scripted_fixture_writable("history.sh")?;
+        let repo = crate::test_repository::open(fixture.path())?;
+        let tip = repo.rev_parse_single("topic")?.detach();
+        let revisions = [OsString::from("topic")];
+        let mut graph = HistoryGraph::default();
+
+        graph.refresh_graph(&repo, &revisions, &[])?;
+        assert_eq!(
+            graph.stored_commit_ids().count(),
+            0,
+            "graph-only traversal does not claim rows were sent to the UI"
+        );
+
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
+        let refresh = graph.refresh(&repo, &revisions, &[], false, &HashSet::new(), &authors)?;
+        assert!(
+            refresh.commits.rows.iter().any(|row| row.id == tip),
+            "the next display refresh emits graph-only commits"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn failed_refresh_does_not_mark_unreturned_rows_stored() -> gix::error::TestResult {
+        let fixture = gix_testtools::scripted_fixture_writable("history.sh")?;
+        let mut graph = loaded(fixture.path(), &["main"], &[])?
+            .into_iter()
+            .find_map(|event| match event {
+                Event::Complete(graph) => Some(graph),
+                _ => None,
+            })
+            .expect("history loading returns the persistent graph");
+        std::fs::write(fixture.path().join("new"), "new\n")?;
+        for args in [
+            &["add", "new"][..],
+            &["-c", "commit.gpgSign=false", "commit", "-q", "-m", "new"],
+        ] {
+            assert!(
+                gix_testtools::git_command(fixture.path())
+                    .args(args)
+                    .status()?
+                    .success(),
+                "git prepares a commit for the failed refresh"
+            );
+        }
+        let broken_tag = fixture.path().join(".git/refs/tags/broken");
+        std::fs::create_dir_all(broken_tag.parent().expect("the tag has a parent directory"))?;
+        std::fs::write(&broken_tag, format!("{}\n", "f".repeat(40)))?;
+        let repo = crate::test_repository::open(fixture.path())?;
+        let new_tip = repo.rev_parse_single("main")?.detach();
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
+
+        graph
+            .refresh(&repo, &["main".into()], &[], false, &HashSet::new(), &authors)
+            .expect_err("the broken tag makes decoration loading fail after traversal");
+        assert_eq!(
+            graph.commits[graph
+                .index(new_tip)
+                .expect("the failed traversal reached the new tip")
+                .as_usize()]
+            .state
+                & NODE_STORED,
+            0,
+            "rows not returned to the caller remain unstored"
+        );
+        drop(repo);
+        std::fs::remove_file(broken_tag)?;
+        let repo = crate::test_repository::open(fixture.path())?;
+        let retry = graph.refresh(&repo, &["main".into()], &[], false, &HashSet::new(), &authors)?;
+        assert_eq!(
+            retry.commits.rows.iter().map(|row| row.id).collect::<Vec<_>>(),
+            [new_tip],
+            "retrying returns the row discarded with the failed refresh"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn refresh_stops_at_the_persistent_graph() -> TestResult {
         let fixture = gix_testtools::scripted_fixture_writable("history.sh")?;
         let events = loaded(fixture.path(), &["main"], &[])?;
         let mut graph = events
@@ -2837,18 +3551,26 @@ mod tests {
                 _ => None,
             })
             .expect("history loading returns the persistent graph");
+        let repo = crate::test_repository::open(fixture.path())?;
+        let root = repo.rev_parse_single("main~2")?.detach();
+        let root_index = graph.index(root).expect("the initial view contains the root");
+        let cached_tracking = vec![SelectionRef {
+            name: "cached".into(),
+            upstream: Some(Some(root)),
+        }];
+        graph.tracking.insert(root_index, cached_tracking.clone());
+        drop(repo);
 
         std::fs::write(fixture.path().join("new"), "new\n")?;
         for args in [
             &["add", "new"][..],
             &["-c", "commit.gpgSign=false", "commit", "-q", "-m", "new"],
         ] {
-            let status = Command::new("git").current_dir(fixture.path()).args(args).status()?;
+            let status = gix_testtools::git_command(fixture.path()).args(args).status()?;
             assert!(status.success(), "git prepares one new commit");
         }
         let repo = crate::test_repository::open(fixture.path())?;
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
         let first = graph.refresh(&repo, &["main".into()], &[], false, &HashSet::new(), &authors)?;
         assert_eq!(first.commits.rows.len(), 1, "only the new descendant is loaded");
         let second = graph.refresh(&repo, &["main".into()], &[], false, &HashSet::new(), &authors)?;
@@ -2856,11 +3578,57 @@ mod tests {
             second.commits.rows.is_empty(),
             "an unchanged tip stops immediately at complete cached ancestry"
         );
+        assert_eq!(
+            graph.tracking.get(&root_index),
+            Some(&cached_tracking),
+            "refresh retains tracking metadata cached for another view"
+        );
         Ok(())
     }
 
     #[test]
-    fn refresh_excludes_replaced_commits_from_descendant_queries() -> gix_testtools::Result {
+    fn descendants_order_all_parents_and_do_not_bridge_excluded_commits() {
+        let mut graph = HistoryGraph::from_test_commits(&[
+            (id(6), vec![id(5)]),
+            (id(5), vec![id(3), id(4)]),
+            (id(4), vec![id(2)]),
+            (id(3), vec![id(2)]),
+            (id(2), vec![id(1)]),
+            (id(1), Vec::new()),
+        ]);
+        let descendants = graph.descendants_in_parent_order(id(2)).expect("the tree is acyclic");
+        assert_eq!(
+            descendants.len(),
+            5,
+            "only the selected root and descendants enter scope"
+        );
+        let positions: HashMap<_, _> = descendants.iter().enumerate().map(|(index, id)| (*id, index)).collect();
+        for commit_id in &descendants {
+            for parent_id in graph.parents_of(*commit_id).expect("test parents are loaded") {
+                if let Some(parent) = positions.get(&parent_id) {
+                    assert!(parent < &positions[commit_id], "every merge parent precedes its child");
+                }
+            }
+        }
+        graph.edit_scope.remove(&id(5));
+        let descendants = graph
+            .descendants_in_parent_order(id(2))
+            .expect("the editable subtree is acyclic");
+        assert_eq!(descendants.len(), 3, "out-of-scope nodes are traversal barriers");
+        assert!(
+            !descendants.contains(&id(6)),
+            "excluded ancestry cannot bridge into an editable descendant"
+        );
+        let cycle = HistoryGraph::from_test_commits(&[(id(1), vec![id(2)]), (id(2), vec![id(1)])]);
+        assert_eq!(
+            cycle.descendants_in_parent_order(id(1)),
+            None,
+            "cycles cannot produce a rebase order"
+        );
+    }
+
+    #[test]
+    fn refresh_excludes_replaced_commits_from_descendant_queries() -> TestResult {
         let fixture = gix_testtools::scripted_fixture_writable("history.sh")?;
         let events = loaded(fixture.path(), &["main"], &[])?;
         let mut graph = events
@@ -2880,8 +3648,7 @@ mod tests {
             .detach();
         drop(repo);
 
-        let amend = Command::new("git")
-            .current_dir(fixture.path())
+        let amend = gix_testtools::git_command(fixture.path())
             .args([
                 "-c",
                 "commit.gpgSign=false",
@@ -2896,8 +3663,7 @@ mod tests {
 
         let repo = crate::test_repository::open(fixture.path())?;
         let replacement = repo.rev_parse_single("main")?.detach();
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
         graph.refresh(&repo, &["main".into()], &[], false, &HashSet::new(), &authors)?;
         let descendants = graph
             .descendants_in_parent_order(parent)
@@ -2911,7 +3677,7 @@ mod tests {
     }
 
     #[test]
-    fn refresh_stops_at_cached_tracking_ancestry() -> gix_testtools::Result {
+    fn refresh_stops_at_cached_tracking_ancestry() -> TestResult {
         let fixture = gix_testtools::scripted_fixture_writable("history.sh")?;
         let main = crate::test_repository::open(fixture.path())?
             .rev_parse_single("main")?
@@ -2923,7 +3689,7 @@ mod tests {
             &["config", "branch.topic.merge", "refs/heads/main"][..],
             &["update-ref", "refs/remotes/origin/main", &main.to_hex().to_string()][..],
         ] {
-            let status = Command::new("git").current_dir(fixture.path()).args(args).status()?;
+            let status = gix_testtools::git_command(fixture.path()).args(args).status()?;
             assert!(status.success(), "git configures a tracking branch");
         }
         let events = loaded(fixture.path(), &["topic"], &[])?;
@@ -2937,7 +3703,7 @@ mod tests {
         let repo = crate::test_repository::open(fixture.path())?;
         let index = graph.index(main).expect("the tracking tip was scheduled");
         let fake_parent = graph.intern(id(255)).expect("the small test graph fits in u32");
-        let mut parents = graph.parents(index).to_vec();
+        let mut parents = graph.known_parents(index).to_vec();
         parents.push(fake_parent);
         let start = graph.parents.len() as u32;
         graph.parents.extend(parents);
@@ -2946,8 +3712,7 @@ mod tests {
         assert!(cached.state & NODE_COMPLETE != 0 && cached.state & NODE_STORED == 0);
         cached.parents = start..end;
 
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
         let refresh = graph.refresh(&repo, &["topic".into()], &[], false, &HashSet::new(), &authors)?;
         assert!(
             refresh.commits.rows.is_empty(),
@@ -2957,7 +3722,7 @@ mod tests {
     }
 
     #[test]
-    fn refresh_walks_cached_tracking_ancestry_when_a_symbolic_pin_makes_it_visible() -> gix_testtools::Result {
+    fn refresh_walks_cached_tracking_ancestry_when_a_symbolic_pin_makes_it_visible() -> TestResult {
         let fixture = gix_testtools::scripted_fixture_writable("history.sh")?;
         let main = crate::test_repository::open(fixture.path())?
             .rev_parse_single("main")?
@@ -2972,7 +3737,7 @@ mod tests {
             &["config", "branch.topic.merge", "refs/heads/main"][..],
             &["update-ref", "refs/remotes/origin/main", &main.to_hex().to_string()][..],
         ] {
-            let status = Command::new("git").current_dir(fixture.path()).args(args).status()?;
+            let status = gix_testtools::git_command(fixture.path()).args(args).status()?;
             assert!(status.success(), "git configures a tracking branch");
         }
         let events = loaded(fixture.path(), &["topic"], &[])?;
@@ -2991,8 +3756,7 @@ mod tests {
         );
 
         assert!(
-            Command::new("git")
-                .current_dir(fixture.path())
+            gix_testtools::git_command(fixture.path())
                 .args(["switch", "-q", "topic"])
                 .status()?
                 .success(),
@@ -3005,8 +3769,7 @@ mod tests {
             main,
             "test symbolic ref-tree pin",
         )?;
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
         let refresh = graph.refresh(&repo, &["topic".into()], &[], false, &HashSet::new(), &authors)?;
         let refreshed: HashSet<_> = refresh.commits.rows.iter().map(|row| row.id).collect();
         assert!(
@@ -3017,11 +3780,11 @@ mod tests {
     }
 
     #[test]
-    fn hidden_history_keeps_tracking_relations_complete_and_can_be_expanded() -> gix_testtools::Result {
+    fn hidden_history_keeps_tracking_relations_complete_and_can_be_expanded() -> TestResult {
         let fixture = gix_testtools::scripted_fixture_writable("history.sh")?;
         let path = fixture.path();
         let git = |args: &[&str]| -> gix_testtools::Result {
-            let output = Command::new("git").current_dir(path).args(args).output()?;
+            let output = gix_testtools::git_command(path).args(args).output()?;
             assert!(
                 output.status.success(),
                 "git {args:?} prepares the hidden tracking fixture: {}",
@@ -3084,8 +3847,7 @@ mod tests {
         }
         let mut graph = graph.expect("history loading returns the persistent graph");
         let refs = graph.selection_refs(local, &decorations);
-        let counts = Command::new("git")
-            .current_dir(path)
+        let counts = gix_testtools::git_command(path)
             .args([
                 "rev-list",
                 "--left-right",
@@ -3097,7 +3859,7 @@ mod tests {
         let expected: Vec<_> = String::from_utf8(counts.stdout)?
             .split_whitespace()
             .map(str::parse::<usize>)
-            .collect::<Result<_, _>>()?;
+            .collect::<std::result::Result<_, _>>()?;
         assert_eq!(
             graph.selection_relation(local, &refs, &[]),
             Some(crate::app::SelectionRelation::Tracking {
@@ -3108,15 +3870,14 @@ mod tests {
         );
 
         let repo = crate::test_repository::open(path)?;
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
         let refresh = graph.refresh(&repo, &["local".into()], &[], false, &boundary, &authors)?;
         visible.extend(refresh.commits.rows.into_iter().map(|row| row.id));
         let expected: HashSet<_> = repo
             .rev_walk([local])
             .all()?
             .map(|info| info.map(|info| info.id))
-            .collect::<Result<_, _>>()?;
+            .collect::<std::result::Result<_, _>>()?;
         assert_eq!(
             visible, expected,
             "showing hidden materializes the original view ancestry"
@@ -3129,7 +3890,7 @@ mod tests {
     }
 
     #[test]
-    fn hides_tips_and_every_commit_reachable_from_them() -> gix_testtools::Result {
+    fn hides_tips_and_every_commit_reachable_from_them() -> TestResult {
         let fixture = fixture()?;
         let events = loaded(&fixture, &["topic"], &["main"])?;
         let actual: HashSet<_> = events
@@ -3139,8 +3900,7 @@ mod tests {
                 _ => Vec::new(),
             })
             .collect();
-        let output = Command::new("git")
-            .current_dir(&fixture)
+        let output = gix_testtools::git_command(&fixture)
             .args(["rev-list", "topic", "--not", "main", "--"])
             .output()?;
         assert!(
@@ -3171,7 +3931,7 @@ mod tests {
     }
 
     #[test]
-    fn reports_decorations_and_honours_cancellation() -> gix_testtools::Result {
+    fn reports_decorations_and_honours_cancellation() -> TestResult {
         let fixture = fixture()?;
         let events = loaded(&fixture, &["main"], &[])?;
         let Event::Decorations(decorations) = &events[0] else {
@@ -3193,8 +3953,7 @@ mod tests {
         );
 
         let mut cancelled = Vec::new();
-        let authors =
-            gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
+        let authors = gix::parallel::OwnShared::new(gix::parallel::Mutable::new(Authors::default()));
         let repo = crate::test_repository::open(&fixture)?;
         load(&repo, &[], &[], false, &authors, &AtomicBool::new(true), |event| {
             cancelled.push(event);
@@ -3272,7 +4031,7 @@ mod tests {
         assert!(
             with_tags
                 .iter()
-                .all(|name| !crate::edit::undo::is_queue_ref(name.as_bytes().into())),
+                .all(|name| !crate::edit::is_internal_ref(name.as_bytes().into())),
             "undo queue refs never become tree traversal tips"
         );
         Ok(())
@@ -3308,32 +4067,96 @@ mod tests {
     }
 
     #[test]
-    fn head_pin_marks_its_branch_without_an_ordinary_pin_decoration() -> gix_testtools::Result {
+    fn active_branch_prefers_attached_head_and_falls_back_to_the_head_pin() -> gix_testtools::Result {
         let fixture = gix_testtools::scripted_fixture_writable("history.sh")?;
-        let symbolic = Command::new("git")
-            .current_dir(fixture.path())
-            .args(["symbolic-ref", "refs/worktree/tix/pins/HEAD", "refs/heads/main"])
+        let repo = crate::test_repository::open(fixture.path())?;
+        let attached = snapshot(&repo, &[], &[], false)?;
+        assert_eq!(
+            attached.active_branch.as_ref().map(gix::refs::FullName::as_bstr),
+            Some(b"refs/heads/main".as_bstr()),
+            "an attached branch is active without a HEAD pin"
+        );
+        drop(repo);
+
+        let symbolic = gix_testtools::git_command(fixture.path())
+            .args(["symbolic-ref", "refs/worktree/tix/pins/HEAD", "refs/heads/topic"])
             .status()?;
         assert!(symbolic.success(), "git creates the symbolic HEAD pin");
-        let detached = Command::new("git")
-            .current_dir(fixture.path())
+
+        let repo = crate::test_repository::open(fixture.path())?;
+        let attached = snapshot(&repo, &[], &[], false)?;
+        assert_eq!(
+            attached.active_branch.as_ref().map(gix::refs::FullName::as_bstr),
+            Some(b"refs/heads/main".as_bstr()),
+            "the attached branch wins over a different remembered branch"
+        );
+        assert!(
+            attached.pins.iter().all(|pin| !pin.is_head()),
+            "the attached HEAD pin remains excluded from history traversal"
+        );
+        drop(repo);
+
+        let detached = gix_testtools::git_command(fixture.path())
             .args(["checkout", "-q", "--detach", "main~2"])
             .status()?;
         assert!(detached.success(), "git detaches HEAD below the remembered branch");
 
         let repo = crate::test_repository::open(fixture.path())?;
-        let main = repo.rev_parse_single("main")?.detach();
+        let topic = repo.rev_parse_single("topic")?.detach();
         let snapshot = snapshot(&repo, &[], &[], false)?;
-        assert!(snapshot.view_tips.contains(&main), "the HEAD pin retains its branch");
+        assert_eq!(
+            snapshot.active_branch.as_ref().map(gix::refs::FullName::as_bstr),
+            Some(b"refs/heads/topic".as_bstr())
+        );
+        assert!(snapshot.view_tips.contains(&topic), "the HEAD pin retains its branch");
         let decorations = decorations(&repo, &snapshot.pins, &snapshot.worktrees)?;
-        let main = decorations.get(&main).expect("the remembered branch is decorated");
+        let topic = decorations.get(&topic).expect("the remembered branch is decorated");
         assert!(
-            main.iter()
-                .any(|decoration| { decoration.kind == DecorationKind::HeadPinBranch && decoration.name == "main" })
+            topic
+                .iter()
+                .any(|decoration| { decoration.kind == DecorationKind::HeadPinBranch && decoration.name == "topic" })
         );
         assert!(
-            main.iter().all(|decoration| decoration.kind != DecorationKind::Pin),
+            topic.iter().all(|decoration| decoration.kind != DecorationKind::Pin),
             "the HEAD pin has no ordinary pin marker"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn attached_hidden_base_keeps_its_ordinary_pin_decoration() -> gix::error::TestResult {
+        let fixture = gix_testtools::scripted_fixture_writable("history.sh")?;
+        let repo = crate::test_repository::open(fixture.path())?;
+        let head_id = repo.head_id()?.detach();
+        let (_, created) = crate::edit::time_travel::create_or_reuse_pin(
+            &repo,
+            gix::refs::Target::Object(head_id),
+            head_id,
+            "test hidden-base pin",
+        )?;
+        assert!(created, "the hidden base receives an ordinary pin");
+        drop(repo);
+
+        let events = loaded(fixture.path(), &[], &["main"])?;
+        assert!(
+            events.iter().any(|event| matches!(
+                event,
+                Event::HiddenCommits(commits) if commits.rows.iter().any(|row| row.id == head_id)
+            )),
+            "the attached HEAD is displayed as the hidden boundary"
+        );
+        let decorations = events
+            .iter()
+            .find_map(|event| match event {
+                Event::Decorations(decorations) => Some(decorations),
+                _ => None,
+            })
+            .expect("history loading emits decorations first");
+        assert!(
+            decorations.get(&head_id).is_some_and(|decorations| decorations
+                .iter()
+                .any(|decoration| decoration.kind == DecorationKind::Pin)),
+            "the hidden base pin remains visible so the action is offered as unpin"
         );
         Ok(())
     }
@@ -3365,7 +4188,7 @@ mod tests {
             !snapshot(&repo, &[], &[], false)?.view_tips.contains(&review),
             "review resources do not retain history"
         );
-        let decorations = decorations(&repo, &[], &worktree_checkouts(&repo))?;
+        let decorations = decorations(&repo, &[], &worktree_checkouts(&repo)?)?;
         assert!(
             decorations.get(&review).is_some_and(|decorations| decorations
                 .iter()
@@ -3396,7 +4219,7 @@ mod tests {
         )?;
 
         assert!(!snapshot(&repo, &[], &[], false)?.view_tips.contains(&stash));
-        let decorations = decorations(&repo, &[], &worktree_checkouts(&repo))?;
+        let decorations = decorations(&repo, &[], &worktree_checkouts(&repo)?)?;
         assert!(
             decorations.get(&head).is_some_and(|decorations| decorations
                 .iter()
@@ -3418,9 +4241,7 @@ mod tests {
         let linked = gix_testtools::tempfile::tempdir()?;
         let linked_path = linked.path().join("linked");
         assert!(
-            std::process::Command::new("git")
-                .arg("-C")
-                .arg(fixture.path())
+            gix_testtools::git_command(fixture.path())
                 .args(["worktree", "add", "-q", "--detach"])
                 .arg(&linked_path)
                 .arg("topic")

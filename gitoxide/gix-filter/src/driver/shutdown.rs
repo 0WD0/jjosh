@@ -1,4 +1,5 @@
 use bstr::BString;
+use gix_error::{Result, bail};
 
 use crate::driver::State;
 
@@ -9,33 +10,22 @@ pub struct Outcome {
     pub processes: Vec<(BString, Option<std::process::ExitStatus>)>,
 }
 
-/// A filter process that exited unsuccessfully during shutdown.
-#[derive(Debug, thiserror::Error)]
-#[error("Filter process {command:?} failed with {status}")]
-pub struct Error {
-    /// The command that launched the process.
-    pub command: BString,
-    /// Its unsuccessful exit status.
-    pub status: std::process::ExitStatus,
-}
-
 impl Outcome {
     /// Return this outcome if all observed processes exited successfully, or the first failure otherwise.
     ///
     /// This is stricter than Git, which ignores a long-running filter's exit status during shutdown after it has
     /// successfully converted all requested input. Callers that require Git-compatible behavior should inspect or
     /// discard the outcome instead.
-    pub fn into_result(self) -> Result<Self, Error> {
+    ///
+    /// Failures provide `exit_status` metadata and `exit_code` when available.
+    pub fn into_result(self) -> Result<Self> {
         if let Some((command, status)) = self.processes.iter().find_map(|(command, status)| {
             status
                 .as_ref()
                 .filter(|status| !status.success())
                 .map(|status| (command, status))
         }) {
-            return Err(Error {
-                command: command.clone(),
-                status: *status,
-            });
+            bail!("Filter process {command:?} failed".with_exit_status(*status));
         }
         Ok(self)
     }
@@ -56,7 +46,7 @@ impl State {
     /// Handle long-running processes according to `mode` while leaving this state ready to launch new ones.
     /// If an error occurs, all remaining processes will be ignored automatically.
     /// Return the process outcomes for inspection or conversion into an error with [`Outcome::into_result()`].
-    pub fn shutdown(&mut self, mode: Mode) -> Result<Outcome, std::io::Error> {
+    pub fn shutdown(&mut self, mode: Mode) -> std::result::Result<Outcome, std::io::Error> {
         let mut out = Vec::with_capacity(self.running.len());
         for (cmd, client) in self.running.drain() {
             match mode {

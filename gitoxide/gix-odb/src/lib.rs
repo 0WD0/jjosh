@@ -8,6 +8,18 @@
 //! * access to packed objects
 //! * multiple loose objects and pack locations as gathered from `alternates` files.
 //!
+//! Errors preserve their original sources and classifications through [`gix_error::Exn`] and [`gix_error::Error`].
+//! [`gix_error::Message`] contexts carry diagnostic details such as native paths, object IDs as hex text,
+//! and unsigned sizes or limits. Functions creating these contexts document their keys and value types.
+//! Use [`gix_error::Error::metadata()`] to inspect each dictionary,
+//! skipping empty ones. Synthetic failures combine their message, class, and values
+//! in one diagnostic; real callee errors remain separate causes.
+//! Alternate cycles retain their directory chain in [`alternate::Cycle`] and expose a classification-only
+//! [`gix_error::ClassificationMarker`] source. Use [`gix_error::classify()`] or `is_corrupted()` on [`gix_error::Exn`]
+//! and [`gix_error::Error`] without depending on the concrete diagnostic type.
+//! Retryable verification diagnostics use [`gix_error::retryable()`]. Interrupted verification retains its original
+//! I/O error and uses [`gix_error::ClassificationMarker`] with [`gix_error::Class::Cancelled`].
+//!
 //! ## Write And Read Loose Objects
 //!
 //! ```
@@ -56,8 +68,8 @@ use std::{
 };
 
 use arc_swap::ArcSwap;
-use gix_features::threading::OwnShared;
 pub use gix_pack as pack;
+use gix_parallel::OwnShared;
 use gix_zlib::stream::deflate;
 
 mod store_impls;
@@ -116,7 +128,7 @@ pub use traits::{Header, HeaderExt};
 
 /// A thread-local handle to access any object.
 pub type Handle = Cache<store::Handle<OwnShared<Store>>>;
-/// A thread-local handle to access any object, but thread-safe and independent of the actual type of `OwnShared` or feature toggles in `gix-features`.
+/// A thread-local handle to access any object, but thread-safe and independent of the actual type of `OwnShared` or feature toggles in `gix-parallel`.
 pub type HandleArc = Cache<store::Handle<Arc<Store>>>;
 
 use store::types;

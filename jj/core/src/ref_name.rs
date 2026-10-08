@@ -90,6 +90,9 @@ pub struct RemoteNameBuf(String);
 #[repr(transparent)]
 pub struct RemoteName(str);
 
+/// Name of the pseudo-remote that mirrors refs of the local Git repository.
+pub const REMOTE_NAME_FOR_LOCAL_GIT_REPO: &RemoteName = RemoteName::new("git");
+
 /// Owned workspace name.
 ///
 /// Use `.as_str()` or `.as_symbol()` for displaying. Other than that, this can

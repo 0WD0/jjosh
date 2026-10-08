@@ -1,9 +1,10 @@
 use crate::repository::config::config_snapshot::options_with_includes;
 use crate::{named_repo, repo_rw_opts};
+use gix_testtools::TestResult;
 use std::io::Write;
 
 #[test]
-fn locks_and_edits_one_physical_file_until_explicit_reload() -> crate::Result {
+fn locks_and_edits_one_physical_file_until_explicit_reload() -> TestResult {
     let (mut repo, _tmp) = repo_rw_opts("make_config_repo.sh", options_with_includes())?;
     let git_config_path = repo.git_dir().join("config");
     let target_path = repo.workdir().expect("worktree repository").join("a.config");
@@ -34,11 +35,24 @@ leading = value
 
     repo.config_snapshot_mut().set_raw_value("memory.value", "transient")?;
     let mut file = repo.config_file_mut(&target_path)?;
-    match repo.config_file_mut(&target_path) {
-        Err(gix::config::file_mut::Error::AcquireLock(_)) => {}
-        Err(err) => panic!("lock contention must be reported precisely: {err:?}"),
+    let err = match repo.config_file_mut(&target_path) {
+        Err(err) => err,
         Ok(_) => panic!("a second transaction must not acquire the same lock"),
-    }
+    };
+    insta::with_settings!({ filters => vec![(r"after \d+ attempt\(s\)", "after <attempts> attempt(s)")] }, {
+        insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&(err), &[(&(_tmp.path()).to_string_lossy(), "<repo>")]), "lock contention must be reported as retryable: {err:?}", @r#"
+        Could not acquire the lock for the configuration file
+
+        Caused by:
+            0: The lock for resource "<repo>/a.config" could not be obtained after 1.00s after <attempts> attempt(s). The lockfile at "<repo>/a.config.lock" might need manual deletion.
+            1: I/O error (AlreadyExists)
+            2: AlreadyExists at path "<repo>/a.config.lock"
+        "#);
+    });
+    assert!(
+        err.can_retry(),
+        "lock contention must be reported as retryable: {err:?}"
+    );
     file.set_raw_value("a.local-override", "written")?;
     file.commit()?;
 
@@ -88,7 +102,7 @@ leading = value
 }
 
 #[test]
-fn honors_core_config_lock_timeout() -> crate::Result {
+fn honors_core_config_lock_timeout() -> TestResult {
     let (mut repo, _tmp) = repo_rw_opts("make_config_repo.sh", gix::open::Options::isolated())?;
     let config_path = repo.git_dir().join("config");
     let mut lock_path = config_path.as_os_str().to_owned();
@@ -113,22 +127,23 @@ fn honors_core_config_lock_timeout() -> crate::Result {
         Err(err) => err,
     };
     std::fs::remove_file(lock_path)?;
-    let gix::config::file_mut::Error::AcquireLock(err) = err else {
-        panic!("a held lock must cause a lock-acquisition error")
-    };
     assert!(
-        err.downcast_any_ref::<gix::error::RetryableError>().is_some(),
-        "lock contention is retryable"
+        err.can_retry(),
+        "lock contention must be reported as retryable: {err:?}"
     );
-    assert!(
-        err.to_string().contains("immediately"),
-        "the configured zero timeout must be retained in the error"
-    );
+    insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&(err), &[(&(_tmp.path()).to_string_lossy(), "<repo>")]), "the configured zero timeout must be retained in the error", @r#"
+    Could not acquire the lock for the configuration file
+
+    Caused by:
+        0: The lock for resource "<repo>/.git/config" could not be obtained immediately after 1 attempt(s). The lockfile at "<repo>/.git/config.lock" might need manual deletion.
+        1: I/O error (AlreadyExists)
+        2: AlreadyExists at path "<repo>/.git/config.lock"
+    "#);
     Ok(())
 }
 
 #[test]
-fn preserves_permissions() -> crate::Result {
+fn preserves_permissions() -> TestResult {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -157,11 +172,8 @@ fn preserves_permissions() -> crate::Result {
         file.set_raw_value("a.local-override", "written")?;
         file.commit()?;
 
-        let mut permissions = std::fs::metadata(&target_path)?.permissions();
-        let is_readonly = permissions.readonly();
-        #[expect(clippy::permissions_set_readonly_false, reason = "this test only runs on Windows")]
-        permissions.set_readonly(false);
-        std::fs::set_permissions(&target_path, permissions)?;
+        let is_readonly = std::fs::metadata(&target_path)?.permissions().readonly();
+        gix_fs::clear_readonly_attribute(&target_path)?;
         assert!(is_readonly, "writing preserves read-only file permissions");
     }
     Ok(())
@@ -169,7 +181,7 @@ fn preserves_permissions() -> crate::Result {
 
 #[test]
 #[cfg(unix)]
-fn follows_symlinked_configuration_files() -> crate::Result {
+fn follows_symlinked_configuration_files() -> TestResult {
     use std::os::unix::fs::symlink;
 
     let repo = named_repo("make_basic_repo.sh")?;
@@ -185,11 +197,21 @@ fn follows_symlinked_configuration_files() -> crate::Result {
     symlink("target.config", &link)?;
 
     let mut file = repo.config_file_mut(&link)?;
-    match repo.config_file_mut(&target) {
-        Err(gix::config::file_mut::Error::AcquireLock(_)) => {}
-        Err(err) => panic!("the target must report lock contention: {err:?}"),
+    let err = match repo.config_file_mut(&target) {
+        Err(err) => err,
         Ok(_) => panic!("the symlink and its target must use the same lock"),
-    }
+    };
+    insta::with_settings!({ filters => vec![(r"after \d+ attempt\(s\)", "after <attempts> attempt(s)")] }, {
+        insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&(err), &[(&(dir.path()).to_string_lossy(), "<tmp>")]), "the target must report lock contention: {err:?}", @r#"
+        Could not acquire the lock for the configuration file
+
+        Caused by:
+            0: The lock for resource "<tmp>/target.config" could not be obtained after 1.00s after <attempts> attempt(s). The lockfile at "<tmp>/target.config.lock" might need manual deletion.
+            1: I/O error (AlreadyExists)
+            2: AlreadyExists at path "<tmp>/target.config.lock"
+        "#);
+    });
+    assert!(err.can_retry(), "the target must report lock contention: {err:?}");
     file.set_raw_value("core.abbrev", "8")?;
     file.commit()?;
 
@@ -207,7 +229,7 @@ fn follows_symlinked_configuration_files() -> crate::Result {
 }
 
 #[test]
-fn supports_empty_and_missing_files() -> crate::Result {
+fn supports_empty_and_missing_files() -> TestResult {
     let repo = named_repo("make_basic_repo.sh")?;
     let dir = gix_testtools::tempfile::tempdir()?;
     let empty = dir.path().join("empty.config");
@@ -233,7 +255,7 @@ fn supports_empty_and_missing_files() -> crate::Result {
 
 #[test]
 #[cfg(unix)]
-fn applies_shared_repository_permissions_to_new_files() -> crate::Result {
+fn applies_shared_repository_permissions_to_new_files() -> TestResult {
     use std::os::unix::fs::PermissionsExt;
 
     let mut repo = named_repo("make_basic_repo.sh")?;
@@ -254,7 +276,7 @@ fn applies_shared_repository_permissions_to_new_files() -> crate::Result {
 }
 
 #[test]
-fn semantic_validation_happens_on_reload() -> crate::Result {
+fn semantic_validation_happens_on_reload() -> TestResult {
     let (mut repo, _tmp) = repo_rw_opts("make_config_repo.sh", options_with_includes().strict_config(true))?;
     let original_format_version = repo.config_snapshot().integer("core.repositoryFormatVersion");
     let config_path = repo.git_dir().join("config");
@@ -269,12 +291,16 @@ fn semantic_validation_happens_on_reload() -> crate::Result {
         Err(err) => err,
     };
     assert!(
-        matches!(
-            err,
-            gix::open::Error::Config(gix::config::Error::UnsupportedRepositoryFormatVersion { version: 2 })
-        ),
-        "reload reports the semantic error: {err:?}"
+        err.is_unsupported(),
+        "reload reports the unavailable repository format: {err:?}"
     );
+    insta::assert_debug_snapshot!(err.probable_cause(), "semantic validation happens on reload", @r#"
+    Message {
+        message: "Unsupported repository format version; only versions 0 and 1 are supported",
+        class: Unsupported,
+        values: {input: I64(2), key: String("core.repositoryFormatVersion")},
+    }
+    "#);
     assert_eq!(
         repo.config_snapshot().integer("core.repositoryFormatVersion"),
         original_format_version,
@@ -284,7 +310,7 @@ fn semantic_validation_happens_on_reload() -> crate::Result {
 }
 
 #[test]
-fn include_changes_take_effect_only_after_reload() -> crate::Result {
+fn include_changes_take_effect_only_after_reload() -> TestResult {
     let (mut repo, _tmp) = repo_rw_opts("make_config_repo.sh", options_with_includes())?;
     let replacement_path = repo.workdir().expect("worktree repository").join("replacement.config");
     std::fs::write(
@@ -314,7 +340,7 @@ value = visible
 
 #[test]
 #[cfg(unix)]
-fn paths_with_parent_components_retain_symlink_semantics() -> crate::Result {
+fn paths_with_parent_components_retain_symlink_semantics() -> TestResult {
     use std::os::unix::fs::symlink;
 
     let repo = named_repo("make_basic_repo.sh")?;

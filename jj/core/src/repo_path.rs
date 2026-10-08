@@ -547,8 +547,24 @@ impl Ord for RepoPath {
         // If there were leading/trailing slash, components-based Ord would
         // disagree with str-based Eq.
         debug_assert!(is_valid_repo_path_str(&self.value));
-        self.components().cmp(other.components())
+        // Comparing components is equivalent to comparing the strings with '/'
+        // sorting before all other bytes. This is much faster than splitting
+        // into components.
+        let a = self.value.as_bytes();
+        let b = other.value.as_bytes();
+        let common_len = iter::zip(a, b).take_while(|(a, b)| a == b).count();
+        match (a.get(common_len), b.get(common_len)) {
+            (Some(&a), Some(&b)) => separator_first_key(a).cmp(&separator_first_key(b)),
+            (Some(_), None) => Ordering::Greater,
+            (None, Some(_)) => Ordering::Less,
+            (None, None) => Ordering::Equal,
+        }
     }
+}
+
+/// Maps a byte in a path to a key that sorts '/' before all other bytes.
+fn separator_first_key(byte: u8) -> u16 {
+    if byte == b'/' { 0 } else { u16::from(byte) + 1 }
 }
 
 impl Ord for RepoPathBuf {
@@ -675,12 +691,24 @@ impl<V> RepoPathTree<V> {
     where
         V: Default,
     {
+        self.add_with_ancestors(path, |_| {})
+    }
+
+    /// Add a path to the tree like [`Self::add()`], calling `f` on each node
+    /// from the root to the added node (inclusive).
+    pub fn add_with_ancestors(&mut self, path: &RepoPath, mut f: impl FnMut(&mut Self)) -> &mut Self
+    where
+        V: Default,
+    {
+        f(self);
         path.components().fold(self, |sub, name| {
             // Avoid name.clone() if entry already exists.
             if !sub.entries.contains_key(name) {
                 sub.entries.insert(name.to_owned(), Self::default());
             }
-            sub.entries.get_mut(name).unwrap()
+            let child = sub.entries.get_mut(name).unwrap();
+            f(child);
+            child
         })
     }
 
@@ -731,6 +759,20 @@ mod tests {
 
     fn repo_path_component(value: &str) -> &RepoPathComponent {
         RepoPathComponent::new(value).unwrap()
+    }
+
+    #[test]
+    fn test_repo_path_tree_add_with_ancestors() {
+        let mut tree: RepoPathTree<u32> = RepoPathTree::default();
+        tree.add(repo_path("a/x"));
+        let node = tree.add_with_ancestors(repo_path("a/b/c"), |node| *node.value_mut() += 1);
+        *node.value_mut() += 10;
+        tree.add_with_ancestors(repo_path("a/b"), |node| *node.value_mut() += 1);
+        assert_eq!(*tree.value(), 2);
+        assert_eq!(*tree.get(repo_path("a")).unwrap().value(), 2);
+        assert_eq!(*tree.get(repo_path("a/b")).unwrap().value(), 2);
+        assert_eq!(*tree.get(repo_path("a/b/c")).unwrap().value(), 11);
+        assert_eq!(*tree.get(repo_path("a/x")).unwrap().value(), 0);
     }
 
     #[test]
@@ -838,6 +880,22 @@ mod tests {
         assert!(repo_path("dis") > repo_path("dir/file"));
         assert!(repo_path("xyz") > repo_path("dir/file"));
         assert!(repo_path("dir1/xyz") < repo_path("dir2/abc"));
+    }
+
+    #[test]
+    fn test_order_matches_components() {
+        let paths = [
+            "", "\0", "a", "a\0", "a\0/b", "a!", "a!/b", "a.", "a/\0", "a/b", "a/b/c", "a/bc",
+            "a0", "a0/b", "ab", "ab/c", "b", "\u{e9}", "\u{e9}/a",
+        ]
+        .map(repo_path);
+        for (a, b) in paths.iter().cartesian_product(&paths) {
+            assert_eq!(
+                a.cmp(b),
+                a.components().cmp(b.components()),
+                "{a:?} vs {b:?}"
+            );
+        }
     }
 
     #[test]

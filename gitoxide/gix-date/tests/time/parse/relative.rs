@@ -14,23 +14,20 @@ fn large_offsets() {
 
 #[test]
 fn large_offsets_do_not_panic() {
-    assert_eq!(
-        gix_date::parse("9999999999 weeks ago", Some(utc(SystemTime::UNIX_EPOCH)))
-            .unwrap_err()
-            .to_string(),
-        "Couldn't parse span from 'week 9999999999'"
-    );
-    assert_eq!(
-        gix_date::parse(
+    insta::assert_debug_snapshot!(gix_date::parse("9999999999 weeks ago", Some(utc(SystemTime::UNIX_EPOCH)))
+            .expect_err("large offsets do not panic"), "large offsets do not panic", @"
+    Couldn't parse span from 'week 9999999999'
+
+    Caused by:
+        0: parameter 'Unix timestamp seconds' is not in the required range of -377705023201..=253402207200
+    ");
+    insta::assert_debug_snapshot!(gix_date::parse(
             "2027 years 9223372036854775807 months ago",
             Some(utc(
                 SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_774_958_400)
             )),
         )
-        .expect_err("month subtraction beyond i64::MIN must fail")
-        .to_string(),
-        "Couldn't parse span from 'month 9223372036854775807'"
-    );
+        .expect_err("month subtraction beyond i64::MIN must fail"), "large offsets do not panic", @"Couldn't parse span from 'month 9223372036854775807'");
 }
 
 #[test]
@@ -40,16 +37,15 @@ fn offset_leading_to_before_unix_epoch_can_be_represented() {
 }
 
 #[test]
-fn the_timezone_of_now_controls_calendar_arithmetic() {
-    let now = jiff::Timestamp::from_second(1_772_325_000)
-        .expect("valid timestamp")
-        .to_zoned(TimeZone::fixed(jiff::tz::Offset::from_hours(-5).expect("valid offset")));
-    let actual = gix_date::parse("1 month ago", Some(now)).expect("relative date parses");
+fn the_timezone_of_now_controls_calendar_arithmetic() -> gix_testtools::TestResult {
+    let now = jiff::Timestamp::from_second(1_772_325_000)?.to_zoned(TimeZone::fixed(jiff::tz::Offset::from_hours(-5)?));
+    let actual = gix_date::parse("1 month ago", Some(now))?;
     assert_eq!(
         actual.seconds, 1_769_646_600,
         "local February 28th becomes January 28th"
     );
     assert_eq!(actual.offset, -5 * 60 * 60, "the timezone offset is retained");
+    Ok(())
 }
 
 #[test]
@@ -137,7 +133,7 @@ fn various() {
 }
 
 #[test]
-fn months_and_years_roll_over_month_ends_like_git() {
+fn months_and_years_roll_over_month_ends_like_git() -> gix_testtools::TestResult {
     // Each expected value is Git's own: `TZ=UTC GIT_TEST_DATE_NOW=<now> git rev-parse --since='<input>'`
     // (Git 2.48.1). Git subtracts months and years from the calendar fields while keeping the
     // day, so a day beyond the end of the target month rolls over into the following month,
@@ -182,14 +178,13 @@ fn months_and_years_roll_over_month_ends_like_git() {
     ];
     for (now, input, expected) in cases {
         let now = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(now);
-        let actual = gix_date::parse(input, Some(utc(now)))
-            .expect("these relative dates parse")
-            .seconds;
+        let actual = gix_date::parse(input, Some(utc(now)))?.seconds;
         assert_eq!(
             actual, expected,
             "'{input}' should produce the same point in time as `git rev-parse --since`"
         );
     }
+    Ok(())
 }
 
 #[test]

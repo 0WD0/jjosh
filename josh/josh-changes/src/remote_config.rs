@@ -110,6 +110,7 @@ fn try_read_remote_config_from_repo(
         &remote_file,
         gix::lock::acquire::Fail::Immediately,
         None,
+        0,
     ) {
         Ok(lock) => lock,
         // No remotes directory means there cannot yet be a published sidecar.
@@ -121,7 +122,7 @@ fn try_read_remote_config_from_repo(
             return Ok(None);
         }
         Err(error) => {
-            return Err(error.into_error()).with_context(|| {
+            return Err(error).with_context(|| {
                 format!("Failed to lock remote config file: {}", remote_file.display())
             });
         }
@@ -159,7 +160,6 @@ fn try_read_remote_config_from_repo(
     let url = config_string(repo, &format!("remote.{remote_name}.url"))?
         .with_context(|| format!("Missing Git remote.{remote_name}.url"))?;
     gix::url::parse(url.as_str())
-        .map_err(|error| error.into_error())
         .context("Invalid Git remote URL")?;
 
     let forge = filter
@@ -174,7 +174,6 @@ fn try_read_remote_config_from_repo(
     let push_url = config_string(repo, &format!("remote.{remote_name}.pushurl"))?;
     if let Some(push_url) = &push_url {
         gix::url::parse(push_url.as_str())
-            .map_err(|error| error.into_error())
             .context("Invalid Git remote push URL")?;
     }
 
@@ -217,7 +216,6 @@ pub fn write_remote_config(
     validate_remote_name(remote_name)?;
     anyhow::ensure!(!url.contains('\0'), "Git remote URL must not contain NUL");
     gix::url::parse(url)
-        .map_err(|error| error.into_error())
         .context("Invalid Git remote URL")?;
     if let Some(push_url) = push_url {
         anyhow::ensure!(
@@ -225,7 +223,6 @@ pub fn write_remote_config(
             "Git remote push URL must not contain NUL"
         );
         gix::url::parse(push_url)
-            .map_err(|error| error.into_error())
             .context("Invalid Git remote push URL")?;
     }
     for (index, (key, value)) in extra_remote_settings.iter().enumerate() {
@@ -343,8 +340,8 @@ pub fn write_remote_config(
         &remote_file,
         gix::lock::acquire::Fail::Immediately,
         None,
+        0,
     )
-    .map_err(|error| error.into_error())
     .with_context(|| {
         format!(
             "Failed to lock remote config file: {}",
@@ -462,7 +459,7 @@ mod tests {
         config.set_raw_value("remote.origin.url", "https://example.com/new").unwrap();
         let remote_file = repo.common_dir().join("josh/remotes/origin.josh");
         let sidecar_lock = gix::lock::Marker::acquire_to_hold_resource(
-            &remote_file, gix::lock::acquire::Fail::Immediately, None,
+            &remote_file, gix::lock::acquire::Fail::Immediately, None, 0,
         ).unwrap();
         std::fs::write(&remote_file, ":/new").unwrap();
 

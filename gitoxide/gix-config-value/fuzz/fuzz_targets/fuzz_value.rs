@@ -2,14 +2,14 @@
 
 extern crate libfuzzer_sys;
 
-use anyhow::Result;
 use arbitrary::Arbitrary;
 use bstr::BStr;
 use gix_config_value::{
+    Boolean, Color, Integer, Path,
     color::{Attribute, Name},
     path::interpolate::Context,
-    Boolean, Color, Integer, Path,
 };
+use gix_error::Result;
 use libfuzzer_sys::fuzz_target;
 use std::{fmt::Write, hint::black_box, str::FromStr};
 
@@ -36,8 +36,8 @@ fn fuzz(ctx: Ctx) -> Result<()> {
     let name = Name::from_str(ctx.name_str)?;
     _ = black_box(write!(&mut buf, "{name}"));
 
-    let i = Integer::try_from(BStr::new(ctx.integer_str))?;
-    _ = black_box(i.to_decimal());
+    _ = black_box(Integer::from_bytes::<i64>(ctx.integer_str))?;
+    _ = black_box(Integer::from_bytes::<usize>(ctx.integer_str))?;
 
     let p = Path::from(BStr::new(ctx.path_str));
     _ = black_box(p.interpolate(Context::default()));

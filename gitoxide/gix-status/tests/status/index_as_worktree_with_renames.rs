@@ -317,7 +317,7 @@ fn fixture_filtered_detailed(
                 old_root: None,
                 new_root: Some(worktree.to_owned()),
             },
-            gix_filter::Pipeline::new(Default::default(), Default::default()),
+            gix_filter::Pipeline::new(Default::default(), gix_testtools::object_hash(), Default::default()),
             vec![],
             gix_diff::blob::pipeline::Options {
                 large_file_threshold_bytes: 0,
@@ -341,7 +341,6 @@ fn fixture_filtered_detailed(
         },
     };
     let options = Options {
-        object_hash,
         tracked_file_modifications: gix_status::index_as_worktree::Options {
             fs: capabilities,
             stat: crate::index_as_worktree::TEST_OPTIONS,
@@ -362,7 +361,7 @@ fn fixture_filtered_detailed(
         FastEq,
         crate::index_as_worktree::SubmoduleStatusMock { dirty: false },
         objects,
-        &mut gix_features::progress::Discard,
+        &mut gix_utils::progress::Discard,
         context,
         options,
     )

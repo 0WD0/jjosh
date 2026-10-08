@@ -1,7 +1,7 @@
+use gix_error::Result;
 use std::{
     any::Any,
     borrow::Cow,
-    error::Error,
     ffi::OsString,
     io::Write,
     process::{self, Stdio},
@@ -99,7 +99,7 @@ impl SpawnProcessOnDemand {
     fn prepare_command(
         &self,
         service: Service,
-    ) -> Result<(gix_command::Prepare, Option<ssh::ProgramKind>, OsString), client::Error> {
+    ) -> std::result::Result<(gix_command::Prepare, Option<ssh::ProgramKind>, OsString), client::Error> {
         let (mut cmd, ssh_kind, cmd_name) = match &self.ssh_cmd {
             Some((command, kind)) => (
                 kind.prepare_invocation(command, &self.url, self.desired_version, self.ssh_disallow_shell)
@@ -159,7 +159,7 @@ impl SpawnProcessOnDemand {
 }
 
 impl client::TransportWithoutIO for SpawnProcessOnDemand {
-    fn set_identity(&mut self, identity: gix_sec::identity::Account) -> Result<(), client::Error> {
+    fn set_identity(&mut self, identity: gix_sec::identity::Account) -> std::result::Result<(), client::Error> {
         if self.url.scheme == gix_url::Scheme::Ssh {
             self.url
                 .set_user((!identity.username.is_empty()).then_some(identity.username));
@@ -177,7 +177,7 @@ impl client::TransportWithoutIO for SpawnProcessOnDemand {
         true
     }
 
-    fn configure(&mut self, _config: &dyn Any) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
+    fn configure(&mut self, _config: &dyn Any) -> Result {
         Ok(())
     }
 }
@@ -243,7 +243,7 @@ fn supervise_stderr(
     std::thread::Builder::new()
         .name("supervise ssh stderr".into())
         .stack_size(128 * 1024)
-        .spawn(move || -> std::io::Result<()> {
+        .spawn(gix_trace::in_thread(move || -> std::io::Result<()> {
             let mut process_stderr = std::io::stderr();
             for line in std::io::BufReader::new(stderr).byte_lines() {
                 let line = line?;
@@ -258,7 +258,7 @@ fn supervise_stderr(
                 }
             }
             Ok(())
-        })
+        }))
         .expect("named threads with small stack work on all platforms");
     ReadStdoutFailOnError { read: stdout, recv }
 }
@@ -268,31 +268,34 @@ impl client::blocking_io::Transport for SpawnProcessOnDemand {
         &mut self,
         service: Service,
         extra_parameters: &'a [(&'a str, Option<&'a str>)],
-    ) -> Result<SetServiceResponse<'_>, client::Error> {
+    ) -> std::result::Result<SetServiceResponse<'_>, client::Error> {
         let (cmd, ssh_kind, cmd_name) = self.prepare_command(service)?;
         let envs = std::mem::take(&mut self.envs);
-        let into_std_command = |mut cmd: gix_command::Prepare| {
+        let into_std_command = |mut cmd: gix_command::Prepare, command: &std::ffi::OsStr| {
             cmd.stdin = Stdio::piped();
             cmd.stdout = Stdio::piped();
 
-            let mut cmd = std::process::Command::from(cmd);
+            let mut cmd = std::process::Command::try_from(cmd).map_err(|err| client::Error::InvokeProgram {
+                source: std::io::Error::new(std::io::ErrorKind::InvalidInput, err),
+                command: command.to_owned(),
+            })?;
             for env_to_remove in ENV_VARS_TO_REMOVE {
                 cmd.env_remove(env_to_remove);
             }
             cmd.envs(envs.iter().map(|(k, v)| (k, v)));
-            cmd
+            Ok::<_, client::Error>(cmd)
         };
 
-        let mut cmd = into_std_command(cmd);
-        gix_features::trace::debug!(command = ?cmd, "gix_transport::SpawnProcessOnDemand");
+        let mut cmd = into_std_command(cmd, &cmd_name)?;
+        gix_trace::debug!(command = ?cmd, "gix_transport::SpawnProcessOnDemand");
         let mut child = match cmd.spawn() {
             Ok(child) => child,
             Err(err) if ssh_kind.is_none() && err.kind() == std::io::ErrorKind::NotFound => {
                 // The service program wasn't found in `PATH`, but as `git` itself can be found,
                 // the service can still be run through it (#2313).
                 let (cmd, cmd_name) = self.prepare_fallback_command(service);
-                let mut cmd = into_std_command(cmd);
-                gix_features::trace::debug!(command = ?cmd, "gix_transport::SpawnProcessOnDemand (fallback)");
+                let mut cmd = into_std_command(cmd, &cmd_name)?;
+                gix_trace::debug!(command = ?cmd, "gix_transport::SpawnProcessOnDemand (fallback)");
                 cmd.spawn().map_err(|err| client::Error::InvokeProgram {
                     source: err,
                     command: cmd_name,
@@ -332,7 +335,7 @@ impl client::blocking_io::Transport for SpawnProcessOnDemand {
         write_mode: WriteMode,
         on_into_read: MessageKind,
         trace: bool,
-    ) -> Result<RequestWriter<'_>, client::Error> {
+    ) -> std::result::Result<RequestWriter<'_>, client::Error> {
         self.connection
             .as_mut()
             .ok_or(client::Error::MissingHandshake)?
@@ -348,7 +351,7 @@ pub fn connect(
     path: impl Into<BString>,
     desired_version: Protocol,
     trace: bool,
-) -> Result<SpawnProcessOnDemand, std::convert::Infallible> {
+) -> std::result::Result<SpawnProcessOnDemand, std::convert::Infallible> {
     Ok(SpawnProcessOnDemand::new_local(path.into(), desired_version, trace))
 }
 
@@ -420,7 +423,7 @@ mod tests {
             }
 
             #[test]
-            fn upload_pack_invocation_preserves_scp_like_path_distinction() {
+            fn upload_pack_invocation_preserves_scp_like_path_distinction() -> gix_testtools::TestResult {
                 for (url, expected) in [
                     (
                         "git@forge.com:/path/repo",
@@ -435,22 +438,20 @@ mod tests {
                         &["ssh", "git@forge.com", "git-upload-pack", "'/path/repo'"][..],
                     ),
                 ] {
-                    let url = gix_url::parse(url).expect("valid url");
-                    let cmd = ssh::connect(url, Protocol::V1, Default::default(), false).expect("parse success");
+                    let url = gix_url::parse(url)?;
+                    let cmd = ssh::connect(url, Protocol::V1, Default::default(), false)?;
                     assert_eq!(
-                        command_and_args(
-                            cmd.prepare_command(crate::Service::UploadPack)
-                                .expect("valid command")
-                                .0
-                        ),
+                        command_and_args(cmd.prepare_command(crate::Service::UploadPack)?.0),
                         expected,
                         "the remote shell command must match Git's parsed repository path"
                     );
                 }
+                Ok(())
             }
 
             #[test]
             fn ambiguous_host_disallowed() {
+                let mut matched_error_diagnostics = Vec::new();
                 for url in [
                     "ssh://-oProxyCommand=open$IFS-aCalculator/foo",
                     "user@-oProxyCommand=open$IFS-aCalculator:username/repo",
@@ -461,16 +462,39 @@ mod tests {
                         disallow_shell: false,
                         kind: None,
                     };
-                    assert!(matches!(
-                        ssh::connect(url, Protocol::V1, options, false),
-                        Err(ssh::Error::AmbiguousHostName { host }) if host == "-oProxyCommand=open$IFS-aCalculator",
-                    ));
+                    let failure = ssh::connect(url, Protocol::V1, options, false)
+                        .err()
+                        .expect("the operation must fail");
+                    matched_error_diagnostics.push(gix_testtools::redact_debug_snapshot(&failure, &[]));
+                    assert!(
+                        matches!(failure, ssh::Error::AmbiguousHostName { host } if host == "-oProxyCommand=open$IFS-aCalculator"),
+                        "ambiguous host disallowed"
+                    );
                 }
+                insta::assert_debug_snapshot!(matched_error_diagnostics, "ambiguous host disallowed", @r#"
+                [
+                    AmbiguousHostName {
+                        host: "-oProxyCommand=open$IFS-aCalculator",
+                    },
+                    AmbiguousHostName {
+                        host: "-oProxyCommand=open$IFS-aCalculator",
+                    },
+                ]
+                "#);
             }
 
             fn command_and_args(cmd: gix_command::Prepare) -> Vec<String> {
-                let cmd = std::process::Command::from(cmd);
-                std::iter::once(cmd.get_program())
+                let program = cmd.command.clone();
+                let cmd =
+                    std::process::Command::try_from(cmd).expect("command fixture can be represented by the platform");
+                let expected_program = std::process::Command::try_from(gix_command::prepare(&program))
+                    .expect("command fixture can be represented by the platform");
+                assert_eq!(
+                    cmd.get_program(),
+                    expected_program.get_program(),
+                    "the selected SSH program follows the platform's command lookup"
+                );
+                std::iter::once(program.as_os_str())
                     .chain(cmd.get_args())
                     .map(|arg| arg.to_string_lossy().into_owned())
                     .collect()

@@ -26,6 +26,7 @@ use std::ops::Range;
 use std::rc::Rc;
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use bstr::BString;
 use futures::StreamExt as _;
 use futures::stream::LocalBoxStream;
@@ -45,6 +46,7 @@ use crate::backend::ChangeId;
 use crate::backend::CommitId;
 use crate::backend::MillisSinceEpoch;
 use crate::commit::Commit;
+use crate::commit::merge_commit_trees_no_resolve;
 use crate::conflict_labels::ConflictLabels;
 use crate::conflicts::MaterializedTreeValue;
 use crate::conflicts::materialize_tree_value;
@@ -52,6 +54,7 @@ use crate::default_index::bit_set::AncestorsBitSet;
 use crate::diff::ContentDiff;
 use crate::diff::DiffHunkKind;
 use crate::files;
+use crate::files::MergeOptions;
 use crate::graph::GraphNode;
 use crate::matchers::FilesMatcher;
 use crate::matchers::Matcher;
@@ -68,10 +71,8 @@ use crate::revset::Revset;
 use crate::revset::RevsetContainingFn;
 use crate::revset::RevsetEvaluationError;
 use crate::revset::RevsetFilterPredicate;
-use crate::rewrite;
 use crate::store::Store;
 use crate::str_util::StringMatcher;
-use crate::tree_merge::MergeOptions;
 use crate::tree_merge::resolve_file_values;
 use crate::union_find;
 
@@ -151,6 +152,7 @@ impl<I> fmt::Debug for RevsetImpl<I> {
     }
 }
 
+#[async_trait(?Send)]
 impl<I: AsCompositeIndex + Clone> Revset for RevsetImpl<I> {
     fn stream<'a>(&self) -> LocalBoxStream<'a, Result<CommitId, RevsetEvaluationError>>
     where
@@ -188,11 +190,11 @@ impl<I: AsCompositeIndex + Clone> Revset for RevsetImpl<I> {
         futures::stream::iter(self.iter_graph_impl(skip_transitive_edges)).boxed_local()
     }
 
-    fn is_empty(&self) -> Result<bool, RevsetEvaluationError> {
+    async fn is_empty(&self) -> Result<bool, RevsetEvaluationError> {
         Ok(self.positions().next().transpose()?.is_none())
     }
 
-    fn count_estimate(&self) -> Result<(usize, Option<usize>), RevsetEvaluationError> {
+    async fn count_estimate(&self) -> Result<(usize, Option<usize>), RevsetEvaluationError> {
         if cfg!(feature = "testing") {
             // Exercise the estimation feature in tests. (If we ever have a Revset
             // implementation in production code that returns estimates, we can probably
@@ -1439,11 +1441,10 @@ async fn has_diff_from_parent(
     }
 
     // Conflict resolution is expensive, try that only for matched files.
-    let from_tree =
-        rewrite::merge_commit_trees_no_resolve_without_repo(store, index, &parents).await?;
+    let from_tree = merge_commit_trees_no_resolve(store, index, &parents).await?;
     let to_tree = commit.tree();
     // TODO: handle copy tracking
-    let mut tree_diff = from_tree.diff_stream(&to_tree, matcher);
+    let mut tree_diff = from_tree.diff(&to_tree, matcher);
     // TODO: Resolve values concurrently
     while let Some(entry) = tree_diff.next().await {
         let mut values = entry.values?;
@@ -1466,11 +1467,10 @@ async fn matches_diff_from_parent(
 ) -> BackendResult<bool> {
     let parents = commit.parents().await?;
     // Conflict resolution is expensive, try that only for matched files.
-    let from_tree =
-        rewrite::merge_commit_trees_no_resolve_without_repo(store, index, &parents).await?;
+    let from_tree = merge_commit_trees_no_resolve(store, index, &parents).await?;
     let to_tree = commit.tree();
     // TODO: handle copy tracking
-    let mut tree_diff = from_tree.diff_stream(&to_tree, files_matcher);
+    let mut tree_diff = from_tree.diff(&to_tree, files_matcher);
     // TODO: Resolve values concurrently
     while let Some(entry) = tree_diff.next().await {
         let mut values = entry.values?;

@@ -1,8 +1,9 @@
 use super::*;
+use crate::Result;
 use crate::util::{commit_graph, fixture, git_rev_list, odb_at};
 use std::{cell::Cell, rc::Rc};
 
-fn assert_simple_repo_graph(repo_dir: &std::path::Path) -> crate::Result {
+fn assert_simple_repo_graph(repo_dir: &std::path::Path) -> Result {
     let graph = git_graph(repo_dir)?;
 
     insta::allow_duplicates! {
@@ -27,17 +28,8 @@ fn assert_simple_repo_graph(repo_dir: &std::path::Path) -> crate::Result {
 }
 
 #[test]
-fn disjoint_hidden_and_interesting() -> crate::Result {
+fn disjoint_hidden_and_interesting() -> gix_testtools::TestResult {
     let (repo_dir, odb) = named_fixture("make_repos.sh", "disjoint_branches")?;
-
-    insta::assert_snapshot!(git_graph(&repo_dir)?, @r"
-        * Oid(1)  (HEAD -> disjoint) b3
-        * Oid(2)  b2
-        * Oid(3)  b1
-        * Oid(4)  (main) a3
-        * Oid(5)  a2
-        * Oid(6)  a1
-        ");
 
     let tip = hex_to_id("e07cf1277ff7c43090f1acfc85a46039e7de1272"); // b3
     let hidden = [hex_to_id("b5665181bf4c338ab16b10da0524d81b96aff209")]; // a3
@@ -46,6 +38,11 @@ fn disjoint_hidden_and_interesting() -> crate::Result {
         hex_to_id("94cf3f3a4c782b672173423e7a4157a02957dd48"), // b2
         hex_to_id("34e5ff5ce3d3ba9f0a00d11a7fad72551fff0861"), // b1
     ];
+    assert_eq!(
+        git_rev_list(&repo_dir, &["disjoint", "--not", "main"])?,
+        expected,
+        "Git confirms that hiding main preserves every commit on the disjoint branch"
+    );
 
     for sorting in all_sortings() {
         let result = traverse_both([tip], &odb, sorting, Parents::All, hidden)?;
@@ -55,7 +52,7 @@ fn disjoint_hidden_and_interesting() -> crate::Result {
 }
 
 #[test]
-fn all_hidden() -> crate::Result {
+fn all_hidden() -> gix_testtools::TestResult {
     let (_repo_dir, odb) = named_fixture("make_repos.sh", "disjoint_branches")?;
     let tips = [
         hex_to_id("e07cf1277ff7c43090f1acfc85a46039e7de1272"), // b3
@@ -72,7 +69,7 @@ fn all_hidden() -> crate::Result {
 }
 
 #[test]
-fn some_hidden_and_all_hidden() -> crate::Result {
+fn some_hidden_and_all_hidden() -> gix_testtools::TestResult {
     let (repo_dir, odb) = named_fixture("make_repos.sh", "simple")?;
 
     assert_simple_repo_graph(&repo_dir)?;
@@ -115,7 +112,7 @@ fn some_hidden_and_all_hidden() -> crate::Result {
     Ok(())
 }
 
-fn hidden_bug_repo(name: &str) -> crate::Result<(std::path::PathBuf, gix_odb::Handle)> {
+fn hidden_bug_repo(name: &str) -> Result<(std::path::PathBuf, gix_odb::Handle)> {
     let dir = fixture("make_repo_for_hidden_bug.sh")?;
     let repo_path = dir.join(name);
     let odb = odb_at(repo_path.join(".git").join("objects"))?;
@@ -123,7 +120,7 @@ fn hidden_bug_repo(name: &str) -> crate::Result<(std::path::PathBuf, gix_odb::Ha
 }
 
 #[test]
-fn hidden_tip_with_longer_path_to_shared_ancestor() -> crate::Result {
+fn hidden_tip_with_longer_path_to_shared_ancestor() -> gix_testtools::TestResult {
     // Graph:
     //   A(tip) --> shared
     //            /
@@ -166,7 +163,7 @@ fn hidden_tip_with_longer_path_to_shared_ancestor() -> crate::Result {
 }
 
 #[test]
-fn interesting_tip_with_longer_path_to_shared_ancestor() -> crate::Result {
+fn interesting_tip_with_longer_path_to_shared_ancestor() -> gix_testtools::TestResult {
     // Graph:
     //   A(tip) --> B --> C --> D(shared)
     //                        /
@@ -208,7 +205,7 @@ fn interesting_tip_with_longer_path_to_shared_ancestor() -> crate::Result {
 }
 
 #[test]
-fn without_commit_graph_still_hides_single_visible_tip_correctly() -> crate::Result {
+fn without_commit_graph_still_hides_single_visible_tip_correctly() -> gix_testtools::TestResult {
     let (repo_dir, odb) = named_fixture("make_repos.sh", "simple")?;
     assert_simple_repo_graph(&repo_dir)?;
     let tip_c2 = hex_to_id("ad33ff2d0c4fc77d56b5fbff6f86f332fe792d83");
@@ -220,14 +217,14 @@ fn without_commit_graph_still_hides_single_visible_tip_correctly() -> crate::Res
         .commit_graph(None)
         .hide([hidden_c5])?
         .map(|res| res.map(|info| info.id))
-        .collect::<Result<Vec<_>, _>>()?;
+        .collect::<std::result::Result<Vec<_>, _>>()?;
 
     assert!(result.is_empty(), "c2 is reachable from hidden c5");
     Ok(())
 }
 
 #[test]
-fn commit_graph_reduces_odb_lookups_when_hidden_tips_cover_visible_tips() -> crate::Result {
+fn commit_graph_reduces_odb_lookups_when_hidden_tips_cover_visible_tips() -> gix_testtools::TestResult {
     let (repo_dir, odb) = named_fixture("make_repos.sh", "simple")?;
     assert_simple_repo_graph(&repo_dir)?;
     let tips = [
@@ -250,7 +247,7 @@ fn commit_graph_reduces_odb_lookups_when_hidden_tips_cover_visible_tips() -> cra
     .commit_graph(None)
     .hide([hidden_c5])?
     .map(|res| res.map(|info| info.id))
-    .collect::<Result<Vec<_>, _>>()?;
+    .collect::<std::result::Result<Vec<_>, _>>()?;
 
     let with_graph: Vec<_> = Simple::new(
         tips,
@@ -264,7 +261,7 @@ fn commit_graph_reduces_odb_lookups_when_hidden_tips_cover_visible_tips() -> cra
     .commit_graph(commit_graph(odb.store_ref()))
     .hide([hidden_c5])?
     .map(|res| res.map(|info| info.id))
-    .collect::<Result<Vec<_>, _>>()?;
+    .collect::<std::result::Result<Vec<_>, _>>()?;
 
     assert!(
         without_graph.is_empty(),
@@ -282,7 +279,7 @@ fn commit_graph_reduces_odb_lookups_when_hidden_tips_cover_visible_tips() -> cra
 }
 
 #[test]
-fn hide_and_commit_graph_call_order_do_not_matter() -> crate::Result {
+fn hide_and_commit_graph_call_order_do_not_matter() -> gix_testtools::TestResult {
     let (repo_dir, odb) = named_fixture("make_repos.sh", "simple")?;
     assert_simple_repo_graph(&repo_dir)?;
     let tip_merge = hex_to_id("f49838d84281c3988eeadd988d97dd358c9f9dc4");
@@ -297,7 +294,7 @@ fn hide_and_commit_graph_call_order_do_not_matter() -> crate::Result {
         .hide(hidden_branches)?
         .commit_graph(commit_graph(odb.store_ref()))
         .map(|res| res.map(|info| info.id))
-        .collect::<Result<Vec<_>, _>>()?;
+        .collect::<std::result::Result<Vec<_>, _>>()?;
 
     let graph_then_hide: Vec<_> = Simple::new([tip_merge], &odb)
         .sorting(Sorting::BreadthFirst)?
@@ -305,7 +302,7 @@ fn hide_and_commit_graph_call_order_do_not_matter() -> crate::Result {
         .commit_graph(commit_graph(odb.store_ref()))
         .hide(hidden_branches)?
         .map(|res| res.map(|info| info.id))
-        .collect::<Result<Vec<_>, _>>()?;
+        .collect::<std::result::Result<Vec<_>, _>>()?;
 
     assert_eq!(hide_then_graph, graph_then_hide);
     Ok(())
@@ -321,7 +318,7 @@ impl gix_object::Find for CountingFind<'_> {
         &self,
         id: &gix_hash::oid,
         buffer: &'a mut Vec<u8>,
-    ) -> Result<Option<gix_object::Data<'a>>, gix_object::find::Error> {
+    ) -> gix_error::Result<Option<gix_object::Data<'a>>> {
         self.lookups.set(self.lookups.get() + 1);
         gix_object::Find::try_find(self.inner, id, buffer)
     }

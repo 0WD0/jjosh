@@ -1,8 +1,10 @@
 use std::collections::BTreeMap;
 
+use gix_error::bail;
+
 use crate::{
-    bstr::{BStr, BString, ByteSlice},
-    config,
+    Error, Result,
+    bstr::{BStr, ByteSlice},
     config::tree::{Protocol, gitoxide},
 };
 
@@ -17,17 +19,6 @@ pub enum Allow {
     User,
 }
 
-/// The error returned when obtaining transport permissions from configuration.
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-    /// The value of `protocol[.<name>].allow` was invalid.
-    #[error(transparent)]
-    Allow(#[from] config::protocol::allow::Error),
-    /// `GIT_PROTOCOL_FROM_USER` was not a valid Git boolean.
-    #[error(transparent)]
-    ProtocolFromUser(#[from] config::boolean::Error),
-}
-
 impl Allow {
     /// Return true if we represent something like 'allow == true'.
     pub fn to_bool(self, user_allowed: Option<bool>) -> bool {
@@ -40,14 +31,16 @@ impl Allow {
 }
 
 impl TryFrom<&BStr> for Allow {
-    type Error = BString;
+    type Error = Error;
 
-    fn try_from(v: &BStr) -> Result<Self, Self::Error> {
+    fn try_from(v: &BStr) -> Result<Self> {
         Ok(match v.as_bytes() {
             b"never" => Allow::Never,
             b"always" => Allow::Always,
             b"user" => Allow::User,
-            unknown => return Err(unknown.into()),
+            _ => {
+                bail!(crate::error::validation(format!("Unknown protocol permission {v:?}")).with_input(v));
+            }
         })
     }
 }
@@ -65,10 +58,7 @@ pub(crate) struct SchemePermission {
 /// Init
 impl SchemePermission {
     /// NOTE: _intentionally without leniency_
-    pub fn from_config(
-        config: &gix_config::File,
-        mut filter: fn(&gix_config::file::Metadata) -> bool,
-    ) -> Result<Self, Error> {
+    pub fn from_config(config: &gix_config::File, mut filter: fn(&gix_config::file::Metadata) -> bool) -> Result<Self> {
         if let Some(allow_protocol) = config.string_filter(gitoxide::Allow::PROTOCOL, &mut filter) {
             return Ok(SchemePermission {
                 user_allowed: None,
@@ -202,7 +192,7 @@ mod tests {
     }
 
     #[test]
-    fn allow_protocol_overrides_all_other_policy() {
+    fn allow_protocol_overrides_all_other_policy() -> gix_testtools::TestResult {
         let config = gix_config::File::from_bytes_no_includes(
             br#"[gitoxide "allow"]
 protocol = foo
@@ -213,9 +203,8 @@ allow = always
 "#,
             gix_config::file::Metadata::default(),
             Default::default(),
-        )
-        .expect("valid test configuration");
-        let permissions = SchemePermission::from_config(&config, |_| true).expect("valid permissions");
+        )?;
+        let permissions = SchemePermission::from_config(&config, |_| true)?;
 
         assert!(
             permissions.allow(&gix_url::Scheme::Helper("foo".into())),
@@ -233,5 +222,6 @@ allow = always
             !permissions.allow(&gix_url::Scheme::Https),
             "the allowlist overrides known-safe defaults"
         );
+        Ok(())
     }
 }

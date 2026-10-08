@@ -15,7 +15,14 @@ impl Source {
                 if env_var("GIT_ATTR_NOSYSTEM").is_some() {
                     return None;
                 } else {
-                    gix_path::env::system_prefix()?.join("etc/gitattributes")
+                    let prefix = gix_path::env::system_prefix()?;
+                    // Git for Windows builds ETC_GITATTRIBUTES as ../etc/gitattributes.
+                    let prefix = if cfg!(windows) {
+                        prefix.parent().unwrap_or(prefix)
+                    } else {
+                        prefix
+                    };
+                    prefix.join("etc/gitattributes")
                 }
             }
             Git => return gix_path::env::xdg_config("attributes", env_var),

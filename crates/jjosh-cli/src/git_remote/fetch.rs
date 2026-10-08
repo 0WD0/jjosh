@@ -367,7 +367,9 @@ pub(super) async fn run(
     let url = gix::url::parse(endpoint.as_str()).map_err(user_error)?;
     let native_path =
         if session.whole() && session.project.is_some() && url.scheme == gix::url::Scheme::File {
-            let path = gix::path::from_bstr(url.path.as_bstr()).into_owned();
+            let path = gix::path::from_bstr(url.path.as_bstr())
+                .map_err(user_error)?
+                .into_owned();
             path.join(".jj").is_dir().then_some(path)
         } else {
             None

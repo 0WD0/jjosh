@@ -1,3 +1,4 @@
+use gix_error::Result;
 use std::io;
 
 use bstr::{BString, ByteSlice};
@@ -15,30 +16,6 @@ use _impl::{Action, DelegateBlocking, RefsAction};
 
 mod ref_map;
 
-mod error {
-    use std::io;
-
-    use gix_protocol::{fetch::response, handshake, ls_refs};
-    use gix_transport::client;
-
-    /// The error used in [`fetch()`][crate::fetch()].
-    #[derive(Debug, thiserror::Error)]
-    #[expect(missing_docs)]
-    pub enum Error {
-        #[error(transparent)]
-        Handshake(#[from] handshake::Error),
-        #[error("Could not access repository or failed to read streaming pack file")]
-        Io(#[from] io::Error),
-        #[error(transparent)]
-        Transport(#[from] client::Error),
-        #[error(transparent)]
-        LsRefs(#[from] ls_refs::Error),
-        #[error(transparent)]
-        Response(#[from] response::Error),
-    }
-}
-pub use error::Error;
-
 mod arguments;
 
 #[cfg(feature = "blocking-client")]
@@ -46,8 +23,7 @@ type Cursor = std::io::Cursor<Vec<u8>>;
 #[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
 type Cursor = futures_lite::io::Cursor<Vec<u8>>;
 
-#[expect(clippy::result_large_err)]
-fn helper_unused(_action: gix_credentials::helper::Action) -> gix_credentials::protocol::Result {
+fn helper_unused(_action: gix_credentials::helper::Action) -> Result<Option<gix_credentials::protocol::Outcome>> {
     panic!("Call to credentials helper is unexpected")
 }
 
@@ -174,8 +150,8 @@ impl DelegateBlocking for LsRemoteDelegate {
 mod blocking_io {
     use std::io;
 
-    use gix_features::progress::NestedProgress;
     use gix_protocol::{fetch::Response, handshake, handshake::Ref};
+    use gix_utils::progress::NestedProgress;
 
     use super::_impl::Delegate;
     use crate::fetch::{CloneDelegate, CloneRefInWantDelegate, LsRemoteDelegate};
@@ -231,8 +207,8 @@ mod async_io {
 
     use async_trait::async_trait;
     use futures_io::AsyncBufRead;
-    use gix_features::progress::NestedProgress;
     use gix_protocol::{fetch::Response, handshake, handshake::Ref};
+    use gix_utils::progress::NestedProgress;
 
     use super::_impl::Delegate;
     use crate::fetch::{CloneDelegate, CloneRefInWantDelegate, LsRemoteDelegate};

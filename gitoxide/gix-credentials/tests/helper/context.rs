@@ -1,8 +1,9 @@
+use crate::TestResult;
 use bstr::ByteSlice;
 use gix_credentials::protocol::{Context, ContextOptions};
 
 #[test]
-fn authentication_challenges_survive_a_protocol_roundtrip() -> crate::Result {
+fn authentication_challenges_survive_a_protocol_roundtrip() -> TestResult {
     let input = b"protocol=https
 host=github.com
 wwwauth[]=Basic realm=\"GitHub\" domain_hint=\"example\"
@@ -62,30 +63,31 @@ mod write_to {
     use gix_credentials::protocol::{Context, ContextOptions};
 
     #[test]
-    fn quit_is_not_serialized_but_can_be_parsed() {
+    fn quit_is_not_serialized_but_can_be_parsed() -> gix_testtools::TestResult {
         let mut buf = Vec::<u8>::new();
         Context {
             quit: Some(true),
             ..Default::default()
         }
-        .write_to(&mut buf)
-        .unwrap();
+        .write_to(&mut buf)?;
         assert_eq!(
-            Context::from_bytes(&buf, ContextOptions::default()).unwrap(),
+            Context::from_bytes(&buf, ContextOptions::default())?,
             Context::default()
         );
         assert_eq!(
-            Context::from_bytes(b"quit=true\nurl=https://example.com", ContextOptions::default()).unwrap(),
+            Context::from_bytes(b"quit=true\nurl=https://example.com", ContextOptions::default())?,
             Context {
                 quit: Some(true),
                 url: Some("https://example.com".into()),
                 ..Default::default()
             }
         );
+        Ok(())
     }
 
     #[test]
     fn record_delimiters_are_invalid() {
+        let mut error_snapshots = Vec::new();
         for input in [&b"foo\0"[..], b"foo\n", b"foo\r"] {
             let ctx = Context {
                 url: Some(input.into()),
@@ -93,8 +95,25 @@ mod write_to {
             };
             let mut buf = Vec::<u8>::new();
             let err = ctx.write_to(&mut buf).unwrap_err();
+            error_snapshots.push(gix_testtools::redact_debug_snapshot(&(err), &[]));
             assert_eq!(err.kind(), std::io::ErrorKind::Other);
         }
+        insta::assert_debug_snapshot!(error_snapshots, "record delimiters are invalid", @r#"
+        [
+            Custom {
+                kind: Other,
+                error: "url"="foo\0" must not contain null bytes or newlines neither in key nor in value., input="foo\0",
+            },
+            Custom {
+                kind: Other,
+                error: "url"="foo\n" must not contain null bytes or newlines neither in key nor in value., input="foo\n",
+            },
+            Custom {
+                kind: Other,
+                error: "url"="foo\r" must not contain null bytes or newlines neither in key nor in value., input="foo\r",
+            },
+        ]
+        "#);
     }
 
     #[test]
@@ -147,13 +166,11 @@ username=bob";
     }
 
     #[test]
-    fn quit_supports_git_config_boolean_values() {
+    fn quit_supports_git_config_boolean_values() -> gix_testtools::TestResult {
         for true_value in ["1", "42", "-42", "true", "on", "yes"] {
             let input = format!("quit={true_value}");
             assert_eq!(
-                Context::from_bytes(input.as_bytes(), ContextOptions::default())
-                    .unwrap()
-                    .quit,
+                Context::from_bytes(input.as_bytes(), ContextOptions::default())?.quit,
                 Some(true),
                 "{input}"
             );
@@ -161,33 +178,28 @@ username=bob";
         for false_value in ["0", "false", "off", "no"] {
             let input = format!("quit={false_value}");
             assert_eq!(
-                Context::from_bytes(input.as_bytes(), ContextOptions::default())
-                    .unwrap()
-                    .quit,
+                Context::from_bytes(input.as_bytes(), ContextOptions::default())?.quit,
                 Some(false),
                 "{input}"
             );
         }
+        Ok(())
     }
 
     #[test]
     fn null_bytes_when_decoding() {
         let err = Context::from_bytes(b"url=https://foo\0", ContextOptions::default()).unwrap_err();
-        assert!(matches!(
-            err,
-            gix_credentials::protocol::context::decode::Error::Encoding(_)
-        ));
+        insta::assert_debug_snapshot!(err, "null bytes when decoding", @r#""url"="https://foo\0" must not contain null bytes or newlines neither in key nor in value., input="https://foo\0""#);
     }
 
     #[test]
-    fn carriage_returns_can_be_allowed() {
+    fn carriage_returns_can_be_allowed() -> gix_testtools::TestResult {
         let ctx = Context::from_bytes(
             b"url=https://example.com/with\rreturn\n",
             ContextOptions {
                 protect_protocol: false,
             },
-        )
-        .expect("CR protection is disabled");
+        )?;
         assert_eq!(ctx.url, Some(b"https://example.com/with\rreturn".as_slice().into()));
         assert_eq!(
             ctx.options,
@@ -198,8 +210,8 @@ username=bob";
         );
 
         let mut out = Vec::new();
-        ctx.write_to(&mut out)
-            .expect("retained options allow the same value to be encoded again");
+        ctx.write_to(&mut out)?;
         assert_eq!(out, b"url=https://example.com/with\rreturn\n");
+        Ok(())
     }
 }

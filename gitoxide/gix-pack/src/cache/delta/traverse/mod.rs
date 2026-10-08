@@ -1,10 +1,10 @@
-use std::{collections::TryReserveError, sync::atomic::AtomicBool};
+use gix_error::Result;
+use std::sync::atomic::{AtomicBool, Ordering};
 
-use gix_features::{
-    progress::{self, DynNestedProgress, Progress},
-    threading,
-    threading::{Mutable, OwnShared},
-};
+use gix_error::bail;
+use gix_parallel as threading;
+use gix_parallel::{Mutable, OwnShared};
+use gix_utils::progress::{self, DynNestedProgress, Progress};
 
 use crate::{
     cache::delta::{Tree, traverse::util::ItemSliceSync, tree::Item},
@@ -17,50 +17,13 @@ pub(crate) mod util;
 /// Shared access to ref-delta child indices awaiting a resolved base, keyed by its object ID.
 pub(super) type SharedRefDeltaChildren = OwnShared<Mutable<super::tree::RefDeltaChildren>>;
 
-/// Returned by [`Tree::traverse()`]
-#[derive(thiserror::Error, Debug)]
-#[allow(missing_docs)]
-pub enum Error {
-    #[error("{message}")]
-    ZlibInflate {
-        source: gix_error::Error,
-        message: &'static str,
-    },
-    #[error("The resolver failed to obtain the pack entry bytes for the entry at {pack_offset}")]
-    ResolveFailed { pack_offset: u64 },
-    #[error(transparent)]
-    EntryType(#[from] crate::data::entry::decode::Error),
-    #[error("One of the object inspectors failed")]
-    Inspect(#[from] Box<dyn std::error::Error + Send + Sync>),
-    #[error("Interrupted")]
-    Interrupted,
-    #[error("Entry too large to fit in memory")]
-    OutOfMemory,
-    #[error(
-        "The base at {base_pack_offset} was referred to by a ref-delta, but it was never added to the tree as if the pack was still thin."
-    )]
-    OutOfPackRefDelta {
-        /// The base's offset which was from a resolved ref-delta that didn't actually get added to the tree
-        base_pack_offset: crate::data::Offset,
-    },
-    #[error("The ref-delta base object {base_id} could not be found")]
-    UnresolvedRefDelta {
-        /// The id named by one or more unresolved ref-delta entries.
-        base_id: gix_hash::ObjectId,
-    },
-    #[error("Failed to hash an object while resolving in-pack ref-deltas")]
-    ObjectHash(#[from] gix_hash::hasher::Error),
-    #[error("Failed to spawn thread when switching to work-stealing mode")]
-    SpawnThread(#[from] std::io::Error),
-    #[error(transparent)]
-    Delta(#[from] crate::data::delta::apply::Error),
+#[cold]
+pub(super) fn allocation_error(kind: gix_error::ResourceExhaustionKind) -> gix_error::Message {
+    gix_error::resource_exhaustion(kind, "Entry too large to fit in memory")
 }
 
-impl From<TryReserveError> for Error {
-    #[cold]
-    fn from(_: TryReserveError) -> Self {
-        Self::OutOfMemory
-    }
+pub(super) fn interrupted() -> gix_error::Error {
+    gix_error::message("Interrupted").cancelled_error()
 }
 
 /// Additional context passed to the `inspect_object(…)` function of the [`Tree::traverse()`] method.
@@ -109,6 +72,10 @@ where
 {
     /// Traverse this tree of delta objects with a function `inspect_object` to process each object at will.
     ///
+    /// Forward references with known base offsets are attached before traversal. Children recorded by base object ID
+    /// during streaming indexing are attached when their bases are fully decoded and hashed, including bases that are
+    /// themselves deltas. All bases must be represented in this tree; external thin-pack bases must be inserted beforehand.
+    ///
     /// * `should_run_in_parallel() -> bool` returns true if the underlying pack is big enough to warrant parallel traversal at all.
     /// * `resolve(EntrySlice, &mut Vec<u8>) -> Option<()>` resolves the bytes in the pack for the given `EntrySlice` and stores them in the
     ///   output vector. It returns `Some(())` if the object existed in the pack, or `None` to indicate a resolution error, which would abort the
@@ -124,7 +91,7 @@ where
     /// This method returns a vector of all tree items, along with their potentially modified custom node data.
     ///
     /// _Note_ that this method consumed the Tree to assure safe parallel traversal with mutation support.
-    pub fn traverse<F, MBFN, E, R>(
+    pub fn traverse<F, MBFN, R>(
         mut self,
         resolve: F,
         resolve_data: &R,
@@ -138,12 +105,11 @@ where
             object_hash,
             alloc_limit_bytes,
         }: Options<'_, '_>,
-    ) -> Result<Outcome<T>, Error>
+    ) -> Result<Outcome<T>>
     where
         F: for<'r> Fn(EntryRange, &'r R) -> Option<&'r [u8]> + Send + Clone,
         R: Send + Sync,
-        MBFN: FnMut(&mut T, &dyn Progress, Context<'_>) -> Result<(), E> + Send + Clone,
-        E: std::error::Error + Send + Sync + 'static,
+        MBFN: FnMut(&mut T, &dyn Progress, Context<'_>) -> Result + Send + Clone,
     {
         self.set_pack_entries_end_and_resolve_ref_offsets(pack_entries_end)?;
 
@@ -151,6 +117,7 @@ where
         let object_counter = {
             let progress = &mut object_progress;
             progress.init(Some(num_objects), progress::count("objects"));
+            progress.set(0);
             progress.counter()
         };
         size_progress.init(None, progress::bytes());
@@ -170,7 +137,7 @@ where
                 &child_items,
                 thread_limit,
                 num_objects,
-                object_counter,
+                object_counter.clone(),
                 size_counter,
                 &resolver_progress,
                 resolve,
@@ -186,7 +153,11 @@ where
         if let Some(ref_delta_children) = ref_delta_children
             && let Some((base_id, _children)) = threading::lock(&ref_delta_children).first_key_value()
         {
-            return Err(Error::UnresolvedRefDelta { base_id: *base_id });
+            bail!("The ref-delta base object {base_id} could not be found".not_found());
+        }
+
+        if object_counter.load(Ordering::Relaxed) != num_objects {
+            bail!(gix_error::corruption("Pack delta traversal left unresolved objects"));
         }
 
         object_progress.show_throughput(start);

@@ -1,6 +1,8 @@
+use gix_error::Result;
 use std::{cmp::Ordering, io::Write, process::Stdio};
 
 use bstr::{BStr, BString, ByteSlice};
+use gix_error::{ExnResult, OptionExt, ResultExt, bail, message, validation};
 
 use super::Algorithm;
 use crate::blob::{Pipeline, Platform, ResourceKind, pipeline};
@@ -113,6 +115,7 @@ pub mod resource {
     impl<'a> Iterator for ByteLinesWithoutTerminator<'a> {
         type Item = &'a [u8];
 
+        #[inline(always)]
         fn next(&mut self) -> Option<Self::Item> {
             let mut l = match self.0.find_byte(b'\n') {
                 None if self.0.is_empty() => None,
@@ -238,32 +241,58 @@ pub mod resource {
     }
 }
 
-///
+/// Errors from setting a diff resource, including [`Platform::set_resource_by_change()`].
 pub mod set_resource {
     use bstr::BString;
 
-    use crate::blob::{ResourceKind, pipeline};
+    use crate::blob::ResourceKind;
 
-    /// The error returned by [Platform::set_resource](super::Platform::set_resource).
-    #[derive(Debug, thiserror::Error)]
-    #[expect(missing_docs)]
+    /// A failure to set up a diff resource. Callee errors are retained as exception causes.
+    #[derive(Debug)]
+    #[non_exhaustive]
     pub enum Error {
-        #[error("Can only diff blobs and links, not {mode:?}")]
-        InvalidMode { mode: gix_object::tree::EntryKind },
-        #[error("Failed to read {kind} worktree data from '{rela_path}'")]
-        Io {
-            rela_path: BString,
-            kind: ResourceKind,
-            source: std::io::Error,
+        /// Only blobs and symbolic links can be diffed.
+        InvalidMode {
+            /// The unsupported mode.
+            mode: gix_object::tree::EntryKind,
         },
-        #[error("Failed to obtain attributes for {kind} resource at '{rela_path}'")]
+        /// Attributes could not be obtained for the resource.
         Attributes {
-            rela_path: BString,
+            /// The side of the diff.
             kind: ResourceKind,
-            source: std::io::Error,
+            /// The byte-oriented path relative to the worktree.
+            rela_path: BString,
         },
-        #[error(transparent)]
-        ConvertToDiffable(#[from] pipeline::convert_to_diffable::Error),
+        /// The resource could not be converted to diffable data.
+        ConvertToDiffable {
+            /// The side of the diff.
+            kind: ResourceKind,
+            /// The byte-oriented path relative to the worktree.
+            rela_path: BString,
+        },
+    }
+
+    impl std::fmt::Display for Error {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                Self::InvalidMode { mode } => write!(f, "Can only diff blobs and links, not {mode:?}"),
+                Self::Attributes { kind, rela_path } => {
+                    write!(f, "Failed to obtain attributes for {kind} resource at \"{rela_path}\"")
+                }
+                Self::ConvertToDiffable { kind, rela_path } => {
+                    write!(f, "Failed to convert {kind} resource at '{rela_path}' to diffable data")
+                }
+            }
+        }
+    }
+
+    impl std::error::Error for Error {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            match self {
+                Self::InvalidMode { .. } => Some(const { &gix_error::ClassificationMarker::VALIDATION }),
+                Self::Attributes { .. } | Self::ConvertToDiffable { .. } => None,
+            }
+        }
     }
 }
 
@@ -272,6 +301,33 @@ pub mod prepare_diff {
     use bstr::BStr;
 
     use crate::blob::platform::Resource;
+
+    /// A failure to prepare a diff from the configured resources.
+    #[derive(Debug)]
+    #[non_exhaustive]
+    pub enum Error {
+        /// At least one side has not been set successfully.
+        SourceOrDestinationUnset,
+        /// Both sides were set, but neither resource exists.
+        SourceAndDestinationRemoved,
+    }
+
+    impl std::fmt::Display for Error {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str(match self {
+                Self::SourceOrDestinationUnset => {
+                    "Either the source or the destination of the diff operation were not set"
+                }
+                Self::SourceAndDestinationRemoved => "Tried to diff resources that are both considered removed",
+            })
+        }
+    }
+
+    impl std::error::Error for Error {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            Some(const { &gix_error::ClassificationMarker::VALIDATION })
+        }
+    }
 
     /// The kind of operation that should be performed based on the configuration of the resources involved in the diff.
     #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -333,37 +389,11 @@ pub mod prepare_diff {
             )
         }
     }
-
-    /// The error returned by [Platform::prepare_diff()](super::Platform::prepare_diff()).
-    #[derive(Debug, thiserror::Error)]
-    #[expect(missing_docs)]
-    pub enum Error {
-        #[error("Either the source or the destination of the diff operation were not set")]
-        SourceOrDestinationUnset,
-        #[error("Tried to diff resources that are both considered removed")]
-        SourceAndDestinationRemoved,
-    }
 }
 
 ///
 pub mod prepare_diff_command {
     use std::ops::{Deref, DerefMut};
-
-    use bstr::BString;
-
-    /// The error returned by [Platform::prepare_diff_command()](super::Platform::prepare_diff_command()).
-    #[derive(Debug, thiserror::Error)]
-    #[expect(missing_docs)]
-    pub enum Error {
-        #[error("Either the source or the destination of the diff operation were not set")]
-        SourceOrDestinationUnset,
-        #[error("Binary resources can't be diffed with an external command (as we don't have the data anymore)")]
-        SourceOrDestinationBinary,
-        #[error("Tempfile to store content of '{rela_path}' for passing to external diff command could not be created")]
-        CreateTempfile { rela_path: BString, source: std::io::Error },
-        #[error("Could not write content of '{rela_path}' to tempfile for passing to external diff command")]
-        WriteTempfile { rela_path: BString, source: std::io::Error },
-    }
 
     /// The outcome of a [`prepare_diff_command`](super::Platform::prepare_diff_command()) operation.
     ///
@@ -458,7 +488,7 @@ impl Platform {
         rela_path: &BStr,
         kind: ResourceKind,
         objects: &impl gix_object::FindObjectOrHeader, // TODO: make this `dyn` once https://github.com/rust-lang/rust/issues/65991 is stable, then also make tracker.rs `objects` dyn
-    ) -> Result<(), set_resource::Error> {
+    ) -> ExnResult<(), set_resource::Error> {
         let res = self.set_resource_inner(id, mode, rela_path, kind, objects);
         if res.is_err() {
             *match kind {
@@ -489,11 +519,11 @@ impl Platform {
         context: gix_command::Context,
         count: usize,
         total: usize,
-    ) -> Result<prepare_diff_command::Command, prepare_diff_command::Error> {
+    ) -> Result<prepare_diff_command::Command> {
         fn add_resource(
             cmd: &mut std::process::Command,
             res: Resource<'_>,
-        ) -> Result<Option<gix_tempfile::Handle<gix_tempfile::handle::Closed>>, prepare_diff_command::Error> {
+        ) -> Result<Option<gix_tempfile::Handle<gix_tempfile::handle::Closed>>> {
             let tmpfile = match res.data {
                 resource::Data::Missing => {
                     cmd.args(["/dev/null", ".", "."]);
@@ -505,38 +535,49 @@ impl Platform {
                         gix_tempfile::ContainingDirectory::Exists,
                         gix_tempfile::AutoRemove::Tempfile,
                     )
-                    .map_err(|err| prepare_diff_command::Error::CreateTempfile {
-                        rela_path: res.rela_path.to_owned(),
-                        source: err,
+                    .or_raise(|| {
+                        message!(
+                            "Tempfile to store content of \"{}\" for passing to external diff command could not be created",
+                            res.rela_path
+                        )
                     })?;
-                    tmp.write_all(buf)
-                        .map_err(|err| prepare_diff_command::Error::WriteTempfile {
-                            rela_path: res.rela_path.to_owned(),
-                            source: err,
-                        })?;
+                    tmp.write_all(buf).or_raise(|| {
+                        message!(
+                            "Could not write content of \"{}\" to tempfile for passing to external diff command",
+                            res.rela_path
+                        )
+                    })?;
                     tmp.with_mut(|f| {
                         cmd.arg(f.path());
                     })
-                    .map_err(|err| prepare_diff_command::Error::WriteTempfile {
-                        rela_path: res.rela_path.to_owned(),
-                        source: err,
+                    .or_raise(|| {
+                        message!(
+                            "Could not access tempfile for \"{}\" while preparing external diff command",
+                            res.rela_path
+                        )
                     })?;
                     cmd.arg(res.id.to_string()).arg(res.mode.as_octal_str().to_string());
-                    let tmp = tmp.close().map_err(|err| prepare_diff_command::Error::WriteTempfile {
-                        rela_path: res.rela_path.to_owned(),
-                        source: err,
+                    let tmp = tmp.close().or_raise(|| {
+                        message!(
+                            "Could not close tempfile for \"{}\" while preparing external diff command",
+                            res.rela_path
+                        )
                     })?;
                     Some(tmp)
                 }
-                resource::Data::Binary { .. } => return Err(prepare_diff_command::Error::SourceOrDestinationBinary),
+                resource::Data::Binary { .. } => {
+                    bail!(validation(
+                        "Binary resources can't be diffed with an external command (as we don't have the data anymore)"
+                    ));
+                }
             };
             Ok(tmpfile)
         }
 
         let (old, new) = self
             .resources()
-            .ok_or(prepare_diff_command::Error::SourceOrDestinationUnset)?;
-        let mut cmd: std::process::Command = gix_command::prepare(gix_path::from_bstring(diff_command))
+            .ok_or_raise(|| message("Either the source or the destination of the diff operation were not set"))?;
+        let mut cmd: std::process::Command = gix_command::prepare(gix_path::from_bstring(diff_command)?)
             .command_may_be_shell_script_disallow_manual_argument_splitting()
             .with_context(context)
             .env("GIT_DIFF_PATH_COUNTER", (count + 1).to_string())
@@ -544,9 +585,9 @@ impl Platform {
             .stdin(Stdio::inherit())
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
-            .into();
+            .try_into()?;
 
-        cmd.arg(gix_path::from_bstr(old.rela_path).into_owned());
+        cmd.arg(gix_path::from_bstr(old.rela_path)?.into_owned());
         let mut out = prepare_diff_command::Command {
             cmd,
             old: None,
@@ -557,7 +598,7 @@ impl Platform {
         out.new = add_resource(&mut out.cmd, new)?;
 
         if old.rela_path != new.rela_path {
-            out.cmd.arg(gix_path::from_bstr(new.rela_path).into_owned());
+            out.cmd.arg(gix_path::from_bstr(new.rela_path)?.into_owned());
         }
 
         Ok(out)
@@ -592,7 +633,7 @@ impl Platform {
     ///
     /// The returned outcome allows to easily perform diff operations, based on the [`prepare_diff::Outcome::operation`] field,
     /// which hints at what should be done.
-    pub fn prepare_diff(&mut self) -> Result<prepare_diff::Outcome<'_>, prepare_diff::Error> {
+    pub fn prepare_diff(&mut self) -> ExnResult<prepare_diff::Outcome<'_>, prepare_diff::Error> {
         let old_key = &self.old.as_ref().ok_or(prepare_diff::Error::SourceOrDestinationUnset)?;
         let old = self
             .diff_cache
@@ -615,7 +656,9 @@ impl Platform {
         };
 
         match (old.conversion.data, new.conversion.data) {
-            (None, None) => return Err(prepare_diff::Error::SourceAndDestinationRemoved),
+            (None, None) => {
+                bail!(prepare_diff::Error::SourceAndDestinationRemoved);
+            }
             (Some(pipeline::Data::Binary { .. }), _) | (_, Some(pipeline::Data::Binary { .. })) => return Ok(out),
             _either_missing_or_non_binary => {
                 if let Some(command) = old
@@ -696,12 +739,12 @@ impl Platform {
         rela_path: &BStr,
         kind: ResourceKind,
         objects: &impl gix_object::FindObjectOrHeader,
-    ) -> Result<(), set_resource::Error> {
+    ) -> ExnResult<(), set_resource::Error> {
         if matches!(
             mode,
             gix_object::tree::EntryKind::Commit | gix_object::tree::EntryKind::Tree
         ) {
-            return Err(set_resource::Error::InvalidMode { mode });
+            bail!(set_resource::Error::InvalidMode { mode });
         }
         let storage = match kind {
             ResourceKind::OldOrSource => &mut self.old,
@@ -720,24 +763,29 @@ impl Platform {
         let entry =
             self.attr_stack
                 .at_entry(rela_path, None, objects)
-                .map_err(|err| set_resource::Error::Attributes {
-                    source: err,
+                .or_raise_typed(|| set_resource::Error::Attributes {
                     kind,
-                    rela_path: rela_path.to_owned(),
+                    rela_path: rela_path.into(),
                 })?;
         let mut buf = self.free_list.pop().unwrap_or_default();
-        let out = self.filter.convert_to_diffable(
-            &id,
-            mode,
-            rela_path,
-            kind,
-            &mut |_, out| {
-                let _ = entry.matching_attributes(out);
-            },
-            objects,
-            self.filter_mode,
-            &mut buf,
-        )?;
+        let out = self
+            .filter
+            .convert_to_diffable(
+                &id,
+                mode,
+                rela_path,
+                kind,
+                &mut |_, out| {
+                    let _ = entry.matching_attributes(out);
+                },
+                objects,
+                self.filter_mode,
+                &mut buf,
+            )
+            .or_raise_typed(|| set_resource::Error::ConvertToDiffable {
+                kind,
+                rela_path: rela_path.into(),
+            })?;
         let key = storage.clone();
         assert!(
             self.diff_cache

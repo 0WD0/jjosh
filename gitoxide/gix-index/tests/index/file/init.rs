@@ -1,6 +1,7 @@
 mod at {
     #[test]
-    fn shorter_than_checksum() -> gix_testtools::Result {
+    fn shorter_than_checksum() -> gix_testtools::TestResult {
+        let mut error_snapshots = Vec::new();
         let tmp = gix_testtools::tempfile::TempDir::new()?;
         let path = tmp.path().join("index");
         for object_hash in [gix_hash::Kind::Sha1, gix_hash::Kind::Sha256] {
@@ -11,19 +12,23 @@ mod at {
                         .expect_err("an index shorter than its checksum must be rejected without panicking");
                     // Some platforms cannot memory-map an empty file and return an IO error instead.
                     if len != 0 {
+                        error_snapshots.push(gix_testtools::redact_debug_snapshot(&(err), &[]));
                         assert!(
-                            matches!(
-                                err,
-                                gix_index::file::init::Error::Decode(gix_index::decode::Error::Header(
-                                    gix_index::decode::header::Error::Corrupt(_)
-                                ))
-                            ),
+                            err.is_corrupted(),
                             "expected a corrupt header for {object_hash:?}, {len} bytes, skip_hash={skip_hash}: {err}"
                         );
                     }
                 }
             }
         }
+        insta::assert_debug_snapshot!(error_snapshots, "shorter than checksum", @"
+        [
+            File is too small even for header with zero entries and smallest hash,
+            File is too small even for header with zero entries and smallest hash,
+            File is too small even for header with zero entries and smallest hash,
+            File is too small even for header with zero entries and smallest hash,
+        ]
+        ");
         Ok(())
     }
 }
@@ -32,25 +37,43 @@ mod at_or_new {
     use crate::Fixture::Generated;
 
     #[test]
-    fn opens_existing() {
+    fn opens_existing() -> gix_testtools::TestResult {
         gix_index::File::at_or_default(
             Generated("v4_more_files_IEOT").to_path(),
             gix_testtools::object_hash(),
             false,
             Default::default(),
-        )
-        .expect("file exists and can be opened");
+        )?;
+        Ok(())
     }
 
     #[test]
-    fn create_empty_in_memory_state_if_file_does_not_exist() {
+    fn missing_shared_index_is_an_error() -> gix_testtools::TestResult {
+        let tmp = gix_testtools::tempfile::TempDir::new()?;
+        let index_path = tmp.path().join("index");
+        // Keep the primary split index, but leave its shared index behind.
+        std::fs::copy(Generated("v2_split_index").to_path(), &index_path)?;
+
+        let err = gix_index::File::at_or_default(index_path, gix_testtools::object_hash(), false, Default::default())
+            .expect_err("a missing shared index must not produce an empty index");
+        insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&(err), &[(&(tmp.path()).to_string_lossy(), "<index-dir>")]), "the missing-file cause is preserved", @"
+        Could not open index file at \"<index-dir>/sharedindex.Oid(1)\"
+
+        Caused by:
+            0: NotFound
+        ");
+        assert!(err.is_not_found(), "the missing-file cause is preserved");
+        Ok(())
+    }
+
+    #[test]
+    fn create_empty_in_memory_state_if_file_does_not_exist() -> gix_testtools::TestResult {
         let index = gix_index::File::at_or_default(
             "__definitely no file that exists ever__",
             gix_testtools::object_hash(),
             false,
             Default::default(),
-        )
-        .expect("file is defaulting to a new one");
+        )?;
         assert!(!index.path().is_file(), "the file wasn't created yet");
         assert_eq!(
             index.object_hash(),
@@ -58,6 +81,7 @@ mod at_or_new {
             "object hash is respected"
         );
         assert_eq!(index.entries().len(), 0, "index is empty");
+        Ok(())
     }
 }
 
@@ -67,7 +91,7 @@ mod from_state {
     use crate::Fixture::*;
 
     #[test]
-    fn writes_data_to_disk_and_is_a_valid_index() -> gix_testtools::Result {
+    fn writes_data_to_disk_and_is_a_valid_index() -> gix_testtools::TestResult {
         let fixtures = [
             (Loose("extended-flags"), V3),
             (Generated("v2"), V2),

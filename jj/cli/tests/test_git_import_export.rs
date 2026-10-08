@@ -196,7 +196,7 @@ fn test_git_import_undo() -> TestResult {
         .success()
         .stdout
         .into_raw();
-    let commit_id = gix::ObjectId::from_hex(commit_id.as_bytes())?;
+    let commit_id = gix::ObjectId::from_hex(commit_id.as_bytes()).unwrap();
     git_repo.reference(
         "refs/heads/a",
         commit_id,
@@ -256,7 +256,7 @@ fn test_git_import_move_export_with_default_undo() -> TestResult {
         .success()
         .stdout
         .into_raw();
-    let commit_id = gix::ObjectId::from_hex(commit_id.as_bytes())?;
+    let commit_id = gix::ObjectId::from_hex(commit_id.as_bytes()).unwrap();
     git_repo.reference(
         "refs/heads/a",
         commit_id,
@@ -369,7 +369,7 @@ fn test_git_import_export_stats_color() -> TestResult {
     [EOF]
     "#);
 
-    let other_commit_id = gix::ObjectId::from_hex(other_commit_id.as_bytes())?;
+    let other_commit_id = gix::ObjectId::from_hex(other_commit_id.as_bytes()).unwrap();
     for name in ["refs/heads/foo", "refs/heads/bar", "refs/tags/baz"] {
         git_repo.reference(
             name,

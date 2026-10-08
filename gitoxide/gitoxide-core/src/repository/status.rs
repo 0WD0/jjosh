@@ -1,8 +1,9 @@
-use std::path::Path;
+use std::{io, path::Path};
 
-use anyhow::bail;
 use gix::{
+    Result,
     bstr::{BStr, BString, ByteSlice},
+    error::{ResultExt, bail, unsupported},
     status::{self, index_worktree},
 };
 use gix_status::index_as_worktree::{Change, Conflict, EntryStatus};
@@ -61,12 +62,12 @@ pub fn show(
         index_worktree_renames,
         untracked,
     }: Options,
-) -> anyhow::Result<()> {
+) -> Result<()> {
     if output_format != OutputFormat::Human {
-        bail!("Only human format is supported right now");
+        bail!(gix::error::unsupported("Only human format is supported right now"));
     }
     if !matches!(format, Format::Simplified) {
-        bail!("Only the simplified format is currently implemented");
+        bail!(unsupported("Only the simplified format is currently implemented"));
     }
 
     let start = std::time::Instant::now();
@@ -132,7 +133,7 @@ pub fn show(
                     gix::diff::index::Change::Rewrite {
                         ref source_location, ..
                     } => {
-                        let source_location = gix::path::from_bstr(source_location.as_ref());
+                        let source_location = gix::path::from_bstr(source_location.as_ref())?;
                         let source_location = gix::path::relativize_with_prefix(&source_location, prefix);
                         writeln!(
                             out,
@@ -140,23 +141,25 @@ pub fn show(
                             status = "R",
                             source_rela_path = source_location.display(),
                             dest_rela_path =
-                                gix::path::relativize_with_prefix(&gix::path::from_bstr(location), prefix).display(),
-                        )?;
+                                gix::path::relativize_with_prefix(&gix::path::from_bstr(location)?, prefix).display(),
+                        )
+                        .or_error()?;
                         continue;
                     }
                 };
                 writeln!(
                     out,
                     "{status: >2}  {rela_path}",
-                    rela_path = gix::path::relativize_with_prefix(&gix::path::from_bstr(location), prefix).display(),
-                )?;
+                    rela_path = gix::path::relativize_with_prefix(&gix::path::from_bstr(location)?, prefix).display(),
+                )
+                .or_error()?;
             }
             status::Item::IndexWorktree(index_worktree::Item::Modification {
                 entry: _,
                 entry_index: _,
                 rela_path,
                 status,
-            }) => print_index_entry_status(&mut out, prefix, rela_path.as_ref(), status)?,
+            }) => print_index_entry_status(&mut out, prefix, rela_path.as_ref(), status).or_error()?,
             status::Item::IndexWorktree(index_worktree::Item::DirectoryContents {
                 entry,
                 collapsed_directory_status,
@@ -166,14 +169,15 @@ pub fn show(
                         out,
                         "{status: >3} {rela_path}{slash}",
                         status = "?",
-                        rela_path =
-                            gix::path::relativize_with_prefix(&gix::path::from_bstr(entry.rela_path), prefix).display(),
+                        rela_path = gix::path::relativize_with_prefix(&gix::path::from_bstr(entry.rela_path)?, prefix)
+                            .display(),
                         slash = if entry.disk_kind.unwrap_or(gix::dir::entry::Kind::File).is_dir() {
                             "/"
                         } else {
                             ""
                         }
-                    )?;
+                    )
+                    .or_error()?;
                 }
             }
             status::Item::IndexWorktree(index_worktree::Item::Rewrite {
@@ -185,18 +189,19 @@ pub fn show(
                     "{status: >3} {source_rela_path} → {dest_rela_path}",
                     status = "R",
                     source_rela_path =
-                        gix::path::relativize_with_prefix(&gix::path::from_bstr(source.rela_path()), prefix).display(),
+                        gix::path::relativize_with_prefix(&gix::path::from_bstr(source.rela_path())?, prefix).display(),
                     dest_rela_path = gix::path::relativize_with_prefix(
-                        &gix::path::from_bstr(dirwalk_entry.rela_path.as_bstr()),
+                        &gix::path::from_bstr(dirwalk_entry.rela_path.as_bstr())?,
                         prefix
                     )
                     .display(),
-                )?;
+                )
+                .or_error()?;
             }
         }
     }
     if gix::interrupt::is_triggered() {
-        bail!("interrupted by user");
+        bail!(gix::error::cancelled("interrupted by user"));
     }
 
     let out = iter.outcome_mut().expect("successful iteration has outcome");
@@ -234,7 +239,7 @@ fn print_index_entry_status(
         EntryStatus::IntentToAdd => "A",
     };
 
-    let rela_path = gix::path::from_bstr(rela_path);
+    let rela_path = gix::path::from_bstr(rela_path).map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?;
     let display_path = gix::path::relativize_with_prefix(&rela_path, prefix);
     writeln!(out, "{status: >3} {}", display_path.display())
 }

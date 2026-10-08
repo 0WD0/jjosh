@@ -321,7 +321,11 @@ fn test_git_colocated_unborn_bookmark() -> TestResult {
             &gix::progress::Discard,
             &gix::progress::Discard,
             &gix::interrupt::IS_INTERRUPTED,
-            gix::worktree::state::checkout::Options::default(),
+            gix::worktree::state::checkout::Options::new(gix::filter::plumbing::Pipeline::new(
+                Default::default(),
+                git_repo.object_hash(),
+                Default::default(),
+            )),
         )
         .unwrap();
     };
@@ -621,7 +625,7 @@ fn test_git_colocated_bookmarks() -> TestResult {
         .into_raw();
     git_repo.reference(
         "refs/heads/master",
-        gix::ObjectId::from_hex(target_id.as_bytes())?,
+        gix::ObjectId::from_hex(target_id.as_bytes()).unwrap(),
         gix::refs::transaction::PreviousValue::Any,
         "test",
     )?;
@@ -775,7 +779,7 @@ fn test_git_colocated_explicit_import_export() -> TestResult {
         .into_raw();
     git_repo.reference(
         "refs/remotes/git/bar",
-        gix::ObjectId::from_hex(target_id.as_bytes())?,
+        gix::ObjectId::from_hex(target_id.as_bytes()).unwrap(),
         gix::refs::transaction::PreviousValue::Any,
         "",
     )?;
@@ -936,6 +940,7 @@ fn test_git_colocated_fetch_deleted_or_moved_bookmark() -> TestResult {
     let output = clone_dir.run_jj(["git", "fetch"]);
     insta::assert_snapshot!(output, @"
     ------- stderr -------
+    Fetching from Git remotes: origin
     bookmark: B_to_delete@origin [deleted] untracked
     bookmark: C_to_move@origin   [updated] tracked
     Abandoned 1 commits that are no longer reachable:
@@ -1142,7 +1147,10 @@ fn test_git_colocated_concurrent_checkout() -> TestResult {
     insta::assert_snapshot!(output, @r#"
     ------- stderr -------
     Warning: Failed to update Git HEAD ref
-    Caused by: The reference "HEAD" should have content dc0b92dfa0af129b2929fa1789fc896b075782b2, actual content was 091e39feb0aba632ab9a9503ceb1dddeac4dd496
+    Caused by:
+    1: Could not prepare reference edit, reference="HEAD"
+    2: Expected reference content dc0b92dfa0af129b2929fa1789fc896b075782b2
+    3: The reference "HEAD" changed to 091e39feb0aba632ab9a9503ceb1dddeac4dd496
     Working copy  (@) now at: mzvwutvl cf0ddbb4 (empty) (no description set)
     Parent commit (@-)      : zsuskuln b6786455 (empty) commit3
     [EOF]

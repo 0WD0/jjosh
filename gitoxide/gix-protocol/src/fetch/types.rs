@@ -40,15 +40,15 @@ pub struct Context<'a, T> {
 #[cfg(feature = "fetch")]
 mod with_fetch {
     use bstr::ByteSlice;
+    use gix_error::Result;
 
     use crate::fetch::{self, negotiate, refmap};
 
     /// For use in [`fetch`](crate::fetch()).
-    pub struct NegotiateContext<'a, 'b, 'c, Objects, Alternates, AlternatesOut, AlternatesErr, Find>
+    pub struct NegotiateContext<'a, 'b, 'c, Objects, Alternates, AlternatesOut, Find>
     where
         Objects: gix_object::Find + gix_object::FindHeader + gix_object::Exists,
-        Alternates: FnOnce() -> Result<AlternatesOut, AlternatesErr>,
-        AlternatesErr: Into<Box<dyn std::error::Error + Send + Sync + 'static>>,
+        Alternates: FnOnce() -> Result<AlternatesOut>,
         AlternatesOut: Iterator<Item = (gix_ref::file::Store, Find)>,
         Find: gix_object::Find,
     {
@@ -70,7 +70,7 @@ mod with_fetch {
     /// Typical implementations use the utilities found in the [`negotiate`] module.
     pub trait Negotiate {
         /// Typically invokes [`negotiate::mark_complete_and_common_ref()`].
-        fn mark_complete_and_common_ref(&mut self) -> Result<negotiate::Action, negotiate::Error>;
+        fn mark_complete_and_common_ref(&mut self) -> Result<negotiate::Action>;
         /// Typically invokes [`negotiate::add_wants()`].
         /// Returns `true` if wants were added, or `false` if the negotiation should be aborted.
         #[must_use]
@@ -81,7 +81,7 @@ mod with_fetch {
             state: &mut negotiate::one_round::State,
             arguments: &mut fetch::Arguments,
             previous_response: Option<&fetch::Response>,
-        ) -> Result<(negotiate::Round, bool), negotiate::Error>;
+        ) -> Result<(negotiate::Round, bool)>;
     }
 
     /// The outcome of [`fetch()`](crate::fetch()).
@@ -267,7 +267,7 @@ pub enum ProgressId {
     RemoteProgress,
 }
 
-impl From<ProgressId> for gix_features::progress::Id {
+impl From<ProgressId> for gix_utils::progress::Id {
     fn from(v: ProgressId) -> Self {
         match v {
             ProgressId::RemoteProgress => *b"FERP",

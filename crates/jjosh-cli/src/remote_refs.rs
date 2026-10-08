@@ -195,8 +195,7 @@ impl CommitTag {
     /// Preserve direct raw tag identities as evidence, independently of retargeting.
     pub(crate) fn copy_annotations_to(&self, git: &gix::Repository) -> anyhow::Result<()> {
         for annotation in self.annotations.iter().rev() {
-            gix::objs::Write::write_buf(&git.objects, gix::objs::Kind::Tag, annotation)
-                .map_err(anyhow::Error::from_boxed)?;
+            gix::objs::Write::write_buf(&git.objects, gix::objs::Kind::Tag, annotation)?;
         }
         Ok(())
     }
@@ -224,8 +223,7 @@ impl CommitTag {
             }
             rewritten.push(b'\n');
             rewritten.extend_from_slice(suffix);
-            target = gix::objs::Write::write_buf(&git.objects, gix::objs::Kind::Tag, &rewritten)
-                .map_err(anyhow::Error::from_boxed)?;
+            target = gix::objs::Write::write_buf(&git.objects, gix::objs::Kind::Tag, &rewritten)?;
             kind = "tag";
         }
         Ok(target)

@@ -14,6 +14,7 @@
 
 use clap_complete::ArgValueCandidates;
 use clap_complete::ArgValueCompleter;
+use futures::StreamExt as _;
 use tracing::instrument;
 
 use crate::cli_util::CommandHelper;
@@ -35,18 +36,16 @@ pub(crate) struct FileListArgs {
 
     /// Render each file entry using the given template
     ///
-    /// All 0-argument methods of the [`TreeEntry` type] are available as
-    /// keywords in the template expression. See [`jj help -k templates`] for
-    /// more information.
+    /// All 0-argument methods of the [`TreeEntry` type][TreeEntry] are
+    /// available as keywords in the template expression. See
+    /// [`jj help -k templates`][templates] for more information.
     ///
     /// The default template can be set by the `templates.file_list`
     /// setting.
     ///
-    /// [`TreeEntry` type]:
-    ///     https://docs.jj-vcs.dev/latest/templates/#treeentry-type
+    /// [TreeEntry]: https://docs.jj-vcs.dev/latest/templates/#treeentry-type
     ///
-    /// [`jj help -k templates`]:
-    ///     https://docs.jj-vcs.dev/latest/templates/
+    /// [templates]: https://docs.jj-vcs.dev/latest/templates/
     #[arg(long, short = 'T')]
     #[arg(add = ArgValueCandidates::new(complete::template_aliases))]
     template: Option<String>,
@@ -83,7 +82,8 @@ pub(crate) async fn cmd_file_list(
 
     ui.request_pager();
     let mut formatter = ui.stdout_formatter();
-    for (path, value) in tree.entries_matching(matcher.as_ref()) {
+    let mut entries = tree.entries_matching(matcher.as_ref());
+    while let Some((path, value)) = entries.next().await {
         let entry = TreeEntry {
             path,
             value: value?,

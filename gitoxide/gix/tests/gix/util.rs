@@ -1,5 +1,5 @@
-#![allow(clippy::result_large_err)]
 use gix::{Repository, ThreadSafeRepository, open};
+use gix_error::Error;
 pub use gix_testtools::Result;
 use gix_testtools::tempfile;
 use std::collections::HashMap;
@@ -214,7 +214,7 @@ pub fn freeze_time() -> gix_testtools::Env<'static> {
 pub fn init_repo_isolated(
     path: impl AsRef<std::path::Path>,
     kind: gix::create::Kind,
-) -> std::result::Result<ThreadSafeRepository, gix::init::Error> {
+) -> std::result::Result<ThreadSafeRepository, gix::Error> {
     ThreadSafeRepository::init_opts(path, kind, Default::default(), open::Options::isolated())
 }
 
@@ -223,7 +223,7 @@ pub fn repo(name: &str) -> Result<ThreadSafeRepository> {
     Ok(ThreadSafeRepository::open_opts(repo_path, restricted())?)
 }
 
-pub fn repo_opts(name: &str, opts: open::Options) -> std::result::Result<ThreadSafeRepository, open::Error> {
+pub fn repo_opts(name: &str, opts: open::Options) -> std::result::Result<ThreadSafeRepository, Error> {
     let repo_path = gix_testtools::scripted_fixture_read_only(name).unwrap();
     ThreadSafeRepository::open_opts(repo_path, opts)
 }
@@ -233,13 +233,9 @@ pub fn named_repo(name: &str) -> Result<Repository> {
     Ok(ThreadSafeRepository::open_opts(repo_path, restricted())?.to_thread_local())
 }
 
-pub fn named_subrepo_opts(
-    fixture: &str,
-    name: &str,
-    opts: open::Options,
-) -> std::result::Result<Repository, gix::open::Error> {
+pub fn named_subrepo_opts(fixture: &str, name: &str, opts: open::Options) -> std::result::Result<Repository, Error> {
     let repo_path = gix_testtools::scripted_fixture_read_only(fixture)
-        .map_err(|err| gix::open::Error::Io(std::io::Error::other(err)))?
+        .map_err(|err| Error::from_boxed(err))?
         .join(name);
     Ok(ThreadSafeRepository::open_opts(repo_path, opts)?.to_thread_local())
 }
@@ -281,4 +277,45 @@ pub fn basic_repo() -> Result<Repository> {
 
 pub fn basic_rw_repo() -> Result<(Repository, tempfile::TempDir)> {
     repo_rw("make_basic_repo.sh")
+}
+
+/// Request interruption when the checkout engine obtains progress counters, after entry-point checks.
+#[cfg(feature = "worktree-mutation")]
+pub struct InterruptCheckout(pub std::sync::Arc<std::sync::atomic::AtomicBool>);
+
+#[cfg(feature = "worktree-mutation")]
+impl gix::progress::Count for InterruptCheckout {
+    fn set(&self, _: usize) {}
+    fn step(&self) -> usize {
+        0
+    }
+    fn inc_by(&self, _: usize) {}
+    fn counter(&self) -> gix::progress::StepShared {
+        self.0.store(true, std::sync::atomic::Ordering::Relaxed);
+        gix::progress::Discard.counter()
+    }
+}
+
+#[cfg(feature = "worktree-mutation")]
+impl gix::progress::Progress for InterruptCheckout {
+    fn init(&mut self, _: Option<usize>, _: Option<gix::progress::Unit>) {}
+    fn set_name(&mut self, _: String) {}
+    fn name(&self) -> Option<String> {
+        None
+    }
+    fn id(&self) -> gix::progress::Id {
+        gix::progress::UNKNOWN
+    }
+    fn message(&self, _: gix::progress::MessageLevel, _: String) {}
+}
+
+#[cfg(feature = "worktree-mutation")]
+impl gix::progress::NestedProgress for InterruptCheckout {
+    type SubProgress = Self;
+    fn add_child(&mut self, _: impl Into<String>) -> Self {
+        Self(self.0.clone())
+    }
+    fn add_child_with_id(&mut self, name: impl Into<String>, _: gix::progress::Id) -> Self {
+        self.add_child(name)
+    }
 }

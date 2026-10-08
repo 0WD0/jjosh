@@ -485,7 +485,7 @@ impl<'a> DiffRenderer<'a> {
         let diff_stream = || {
             trees
                 .before
-                .diff_stream_with_copies(trees.after, matcher, copy_records)
+                .diff_with_copies(trees.after, matcher, copy_records)
         };
         let conflict_labels = trees.map(|tree| tree.labels());
 
@@ -624,7 +624,7 @@ impl<'a> DiffRenderer<'a> {
             .simplify()
         };
         let to_description = Merge::resolved(to_commit.description());
-        let from_tree = rebase_to_dest_parent(self.repo, from_commits, to_commit).await?;
+        let from_tree = rebase_to_dest_parent(self.repo.index(), from_commits, to_commit).await?;
         let to_tree = to_commit.tree();
         let copy_records = CopyRecords::default(); // TODO
         show_diff_bytes(
@@ -654,7 +654,7 @@ impl<'a> DiffRenderer<'a> {
         matcher: &dyn Matcher,
         width: usize,
     ) -> Result<(), DiffRenderError> {
-        let from_tree = commit.parent_tree(self.repo).await?;
+        let from_tree = commit.parent_tree(self.repo.index()).await?;
         let to_tree = commit.tree();
         let copy_record_targets =
             get_copy_record_targets(Diff::new(&from_tree, &to_tree), matcher).await?;
@@ -703,7 +703,7 @@ pub async fn get_copy_record_targets(
 ) -> BackendResult<Vec<RepoPathBuf>> {
     trees
         .before
-        .diff_stream(trees.after, matcher)
+        .diff(trees.after, matcher)
         .map(|entry| {
             let values = entry.values?;
             Ok((values.before.is_absent() && values.after.is_file_like()).then_some(entry.path))
@@ -730,7 +730,8 @@ pub fn show_diff_bytes<T: AsRef<[u8]> + Eq>(
         .after
         .rsplit(path::is_separator)
         .next()
-        .and_then(SourceLanguage::from_file_name);
+        .and_then(SourceLanguage::from_file_name)
+        .or(Some(SourceLanguage::Generic));
     for format in formats {
         match format {
             // Omit diff from "short" formats. Printing dummy file path wouldn't
@@ -886,6 +887,7 @@ fn show_color_words_diff_hunks<T: AsRef<[u8]>>(
                 formatter,
                 language,
                 contents.as_ref(),
+                conflict_labels,
                 line_number,
                 labels,
                 options,
@@ -899,6 +901,7 @@ fn show_color_words_conflict_hunks(
     formatter: &mut dyn Formatter,
     language: Option<SourceLanguage>,
     contents: Diff<&Merge<BString>>,
+    conflict_labels: Diff<&ConflictLabels>,
     mut line_number: DiffLineNumber,
     labels: Diff<&str>,
     options: &ColorWordsDiffOptions,
@@ -950,6 +953,7 @@ fn show_color_words_conflict_hunks(
                         formatter,
                         language,
                         &hunk,
+                        conflict_labels,
                         line_number,
                         labels,
                         options,
@@ -976,6 +980,7 @@ fn show_color_words_unresolved_hunk(
     formatter: &mut dyn Formatter,
     language: Option<SourceLanguage>,
     hunk: &ConflictDiffHunk,
+    conflict_labels: Diff<&ConflictLabels>,
     line_number: DiffLineNumber,
     labels: Diff<&str>,
     options: &ColorWordsDiffOptions,
@@ -1006,13 +1011,10 @@ fn show_color_words_unresolved_hunk(
         let positive = i % 2 == 0;
         writeln!(
             formatter.labeled("hunk_header"),
-            "{sep} left {left_name} #{left_index} to right {right_name} #{right_index}",
+            "{sep} left{left_term} to right{right_term}",
             sep = if positive { "+++++++" } else { "-------" },
-            // these numbers should be compatible with the "tree-set" language #5307
-            left_name = if left_index % 2 == 0 { "side" } else { "base" },
-            left_index = left_index / 2 + 1,
-            right_name = if right_index % 2 == 0 { "side" } else { "base" },
-            right_index = right_index / 2 + 1,
+            left_term = describe_conflict_term(&hunk.lefts, conflict_labels.before, left_index),
+            right_term = describe_conflict_term(&hunk.rights, conflict_labels.after, right_index),
         )?;
         let contents = Diff::new(left_content, right_content);
         let labels = match positive {
@@ -1037,6 +1039,31 @@ fn show_color_words_unresolved_hunk(
 
     writeln!(formatter.labeled("hunk_header"), ">>>>>>> Conflict ends")?;
     Ok(max_line_number)
+}
+
+/// Describes the term at `index` of a conflict hunk, such as `side #1
+/// (<label>)` or `base #1`.
+fn describe_conflict_term(
+    terms: &Merge<&BStr>,
+    conflict_labels: &ConflictLabels,
+    index: usize,
+) -> String {
+    if terms.is_resolved() {
+        return String::new();
+    }
+    // These numbers should be compatible with the "tree-set" language #5307
+    let is_add = index.is_multiple_of(2);
+    let name = if is_add { "side" } else { "base" };
+    let number = index / 2 + 1;
+    let label = if is_add {
+        conflict_labels.get_add(index / 2)
+    } else {
+        conflict_labels.get_remove(index / 2)
+    };
+    match label {
+        Some(label) => format!(" {name} #{number} ({label})"),
+        None => format!(" {name} #{number}"),
+    }
 }
 
 fn show_color_words_resolved_hunks(
@@ -1506,7 +1533,8 @@ pub async fn show_color_words_diff(
         let language = right_path
             .components()
             .next_back()
-            .and_then(|name| SourceLanguage::from_file_name(name.as_internal_str()));
+            .and_then(|name| SourceLanguage::from_file_name(name.as_internal_str()))
+            .or(Some(SourceLanguage::Generic));
         let Diff {
             before: left_value,
             after: right_value,
@@ -1891,7 +1919,8 @@ pub async fn show_git_diff(
         let language = right_path
             .components()
             .next_back()
-            .and_then(|name| SourceLanguage::from_file_name(name.as_internal_str()));
+            .and_then(|name| SourceLanguage::from_file_name(name.as_internal_str()))
+            .or(Some(SourceLanguage::Generic));
         let values = values?;
 
         let left_part = git_diff_part(left_path, values.before, materialize_options).await?;

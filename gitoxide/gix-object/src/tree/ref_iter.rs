@@ -1,3 +1,4 @@
+use gix_error::{ErrorExt, Result};
 use std::ops::ControlFlow;
 
 use bstr::BStr;
@@ -39,7 +40,7 @@ where
     };
 
     let Some(entry) = TreeRefIter::from_bytes(tree.data, tree.object_hash)
-        .filter_map(Result::ok)
+        .filter_map(std::result::Result::ok)
         .find(|entry| component.eq(entry.filename))
     else {
         return ControlFlow::Break(None);
@@ -71,7 +72,7 @@ impl<'a> TreeRefIter<'a> {
         odb: impl crate::Find,
         buffer: &'a mut Vec<u8>,
         path: I,
-    ) -> Result<Option<tree::Entry>, crate::find::Error>
+    ) -> Result<Option<tree::Entry>>
     where
         I: IntoIterator<Item = P>,
         P: PartialEq<BStr>,
@@ -108,7 +109,7 @@ impl<'a> TreeRefIter<'a> {
         odb: impl crate::Find,
         buffer: &'a mut Vec<u8>,
         relative_path: impl AsRef<std::path::Path>,
-    ) -> Result<Option<tree::Entry>, crate::find::Error> {
+    ) -> Result<Option<tree::Entry>> {
         self.lookup_entry(
             odb,
             buffer,
@@ -122,7 +123,7 @@ impl<'a> TreeRefIter<'a> {
 
 impl<'a> TreeRef<'a> {
     /// Deserialize a Tree from `data`, assuming `object_hash` to determine how the object ids are encoded in this particular tree.
-    pub fn from_bytes(data: &'a [u8], hash_kind: gix_hash::Kind) -> Result<TreeRef<'a>, crate::decode::Error> {
+    pub fn from_bytes(data: &'a [u8], hash_kind: gix_hash::Kind) -> Result<TreeRef<'a>> {
         decode::tree(data, hash_kind.len_in_bytes())
     }
 
@@ -146,7 +147,7 @@ impl<'a> TreeRef<'a> {
 
 impl<'a> TreeRefIter<'a> {
     /// Consume self and return all parsed entries.
-    pub fn entries(self) -> Result<Vec<EntryRef<'a>>, crate::decode::Error> {
+    pub fn entries(self) -> Result<Vec<EntryRef<'a>>> {
         self.collect()
     }
 
@@ -167,7 +168,7 @@ impl<'a> TreeRefIter<'a> {
 }
 
 impl<'a> Iterator for TreeRefIter<'a> {
-    type Item = Result<EntryRef<'a>, crate::decode::Error>;
+    type Item = Result<EntryRef<'a>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.data.is_empty() {
@@ -180,7 +181,7 @@ impl<'a> Iterator for TreeRefIter<'a> {
             }
             None => {
                 self.data = &[];
-                Some(Err(crate::decode::Error))
+                Some(Err(crate::decode::empty_error().raise()))
             }
         }
     }
@@ -189,13 +190,14 @@ impl<'a> Iterator for TreeRefIter<'a> {
 impl<'a> TryFrom<&'a [u8]> for tree::EntryMode {
     type Error = &'a [u8];
 
-    fn try_from(mode: &'a [u8]) -> Result<Self, Self::Error> {
+    fn try_from(mode: &'a [u8]) -> std::result::Result<Self, Self::Error> {
         tree::EntryMode::from_bytes(mode).ok_or(mode)
     }
 }
 
 mod decode {
     use bstr::ByteSlice;
+    use gix_error::{Result, bail};
 
     use crate::{TreeRef, tree, tree::EntryRef};
 
@@ -218,7 +220,7 @@ mod decode {
         ))
     }
 
-    pub fn tree(data: &[u8], hash_len: usize) -> Result<TreeRef<'_>, crate::decode::Error> {
+    pub fn tree(data: &[u8], hash_len: usize) -> Result<TreeRef<'_>> {
         let mut i = data;
 
         // Calculate an estimate of the amount of entries to reduce
@@ -234,7 +236,7 @@ mod decode {
 
         while !i.is_empty() {
             let Some((rest, entry)) = fast_entry(i, hash_len) else {
-                return Err(crate::decode::Error);
+                bail!(crate::decode::empty_error());
             };
             i = rest;
             out.push(entry);

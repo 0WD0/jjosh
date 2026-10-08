@@ -641,7 +641,7 @@ fn io_to_read_error(err: PathError, id: &impl ObjectId) -> OpStoreError {
         OpStoreError::ObjectNotFound {
             object_type: id.object_type(),
             hash: id.hex(),
-            source: Box::new(err),
+            source: Some(Box::new(err)),
         }
     } else {
         to_read_error(err.into(), id)
@@ -862,7 +862,13 @@ fn view_to_proto(view: &View) -> crate::protos::simple_op_store::View {
             },
         )
         .collect();
-    let head_ids = view.head_ids.iter().map(|id| id.to_bytes()).collect();
+    // Sort head ids so they serialize in a stable order.
+    let head_ids = view
+        .head_ids
+        .iter()
+        .sorted()
+        .map(|id| id.to_bytes())
+        .collect();
 
     let bookmarks = bookmark_views_to_proto_legacy(&view.local_bookmarks, &view.remote_views);
 
@@ -1734,6 +1740,63 @@ mod tests {
         }
         let view_reconstructed = view_from_proto(proto).unwrap();
         assert_eq!(view.remote_views, view_reconstructed.remote_views);
+    }
+
+    #[test]
+    fn test_view_to_proto_sorted_head_ids() {
+        let ids = (0..50).map(|i| CommitId::new(vec![i; 4])).collect_vec();
+        let make_view = |order: &[CommitId]| {
+            let mut view = create_view();
+            view.head_ids = order.iter().cloned().collect();
+            view
+        };
+        let proto1 = view_to_proto(&make_view(&ids));
+        let proto2 = view_to_proto(&make_view(&ids.iter().rev().cloned().collect_vec()));
+        assert!(proto1.head_ids.is_sorted());
+        assert_eq!(proto1.head_ids, proto2.head_ids);
+    }
+
+    #[test]
+    fn test_view_to_proto_deterministic_wc_commit_ids() {
+        let entries = (0..50)
+            .map(|i| {
+                (
+                    WorkspaceNameBuf::from(format!("ws{i}")),
+                    CommitId::new(vec![i; 4]),
+                )
+            })
+            .collect_vec();
+        let make_view = |entries: Vec<_>| {
+            let mut view = create_view();
+            // Leave head_ids empty so the test only covers wc_commit_ids.
+            view.head_ids.clear();
+            view.wc_commit_ids = entries.into_iter().collect();
+            view
+        };
+        let view1 = make_view(entries.clone());
+        let view2 = make_view(entries.into_iter().rev().collect());
+        assert_eq!(
+            view_to_proto(&view1).encode_to_vec(),
+            view_to_proto(&view2).encode_to_vec()
+        );
+    }
+
+    #[test]
+    fn test_operation_to_proto_deterministic_attributes() {
+        let entries = (0..50)
+            .map(|i| (format!("key{i}"), format!("value{i}")))
+            .collect_vec();
+        let make_operation = |entries: Vec<_>| {
+            let mut operation = create_operation();
+            operation.metadata.attributes = entries.into_iter().collect();
+            operation
+        };
+        let operation1 = make_operation(entries.clone());
+        let operation2 = make_operation(entries.into_iter().rev().collect());
+        assert_eq!(
+            operation_to_proto(&operation1).encode_to_vec(),
+            operation_to_proto(&operation2).encode_to_vec()
+        );
     }
 
     #[test]

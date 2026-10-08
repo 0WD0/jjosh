@@ -3,6 +3,14 @@ use std::{cell::RefCell, ops::Deref};
 
 use crate::Store;
 
+fn error_to_io(err: impl Into<gix_error::Error>) -> std::io::Error {
+    let err = err.into();
+    let kind = err
+        .downcast_any_ref::<std::io::Error>()
+        .map_or(std::io::ErrorKind::Other, std::io::Error::kind);
+    std::io::Error::new(kind, err)
+}
+
 /// This effectively acts like a handle but exists to be usable from the actual `crate::Handle` implementation which adds caches on top.
 /// Each store is quickly cloned and contains thread-local state for shared packs.
 pub struct Handle<S>
@@ -64,8 +72,7 @@ impl RefreshMode {
     }
 }
 
-///
-pub mod find;
+mod find;
 
 ///
 pub mod prefix;
@@ -75,8 +82,7 @@ mod header;
 ///
 pub mod iter;
 
-///
-pub mod write;
+mod write;
 
 ///
 pub mod init;
@@ -86,8 +92,7 @@ pub use types::Metrics;
 
 pub(crate) mod handle;
 
-///
-pub mod load_index;
+mod load_index;
 
 ///
 pub mod verify;

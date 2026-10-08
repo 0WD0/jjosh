@@ -3,7 +3,7 @@ use gix_object::{Tree, TreeRef, TreeRefIter, WriteTo, bstr::ByteSlice, tree, tre
 use crate::{fixture_oid, tree_fixture};
 
 #[test]
-fn empty() -> crate::Result {
+fn empty() -> gix_testtools::TestResult {
     let tree_ref = TreeRef::from_bytes(&[], gix_testtools::object_hash())?;
     assert_eq!(
         tree_ref,
@@ -22,7 +22,7 @@ fn empty() -> crate::Result {
 }
 
 #[test]
-fn everything() -> crate::Result {
+fn everything() -> gix_testtools::TestResult {
     let fixture = tree_fixture("everything.tree")?;
     let hash_kind = crate::fixture_hash_kind();
     let tree_ref = TreeRef::from_bytes(&fixture, hash_kind)?;
@@ -69,7 +69,7 @@ fn invalid() {
     assert!(TreeRef::from_bytes(partial_tree, hash_kind).is_err());
     assert!(
         TreeRefIter::from_bytes(partial_tree, hash_kind)
-            .take_while(Result::is_ok)
+            .take_while(std::result::Result::is_ok)
             .count()
             > 0,
         "we can decode some entries before failing"
@@ -94,7 +94,7 @@ fn fuzz_artifact_inputs_can_be_parsed_without_panicking() {
 }
 
 #[test]
-fn special_trees() -> crate::Result {
+fn special_trees() -> gix_testtools::TestResult {
     let hash_kind = crate::fixture_hash_kind();
     for (name, expected_entry_count) in [
         ("maybe-special", 160),
@@ -109,13 +109,15 @@ fn special_trees() -> crate::Result {
         let actual = TreeRef::from_bytes(&fixture, hash_kind)?;
         assert_eq!(actual.entries.len(), expected_entry_count, "{name}");
         assert_eq!(
-            TreeRefIter::from_bytes(&fixture, hash_kind).map(Result::unwrap).count(),
+            TreeRefIter::from_bytes(&fixture, hash_kind)
+                .map(std::result::Result::unwrap)
+                .count(),
             expected_entry_count,
             "{name}"
         );
         // Show we can roundtrip
         let mut buf: Vec<u8> = Default::default();
-        actual.write_to(&mut buf).expect("Failed to write bytes to buffer");
+        actual.write_to(&mut buf)?;
         assert_eq!(buf, fixture);
     }
     Ok(())

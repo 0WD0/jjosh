@@ -1,3 +1,4 @@
+use crate::{Result, TestResult};
 use std::fs;
 
 use bstr::{BString, ByteSlice};
@@ -11,10 +12,8 @@ use gix_testtools::tempfile::tempdir;
 
 use crate::file::{bstring, init::from_paths::includes::conditional::git_init};
 
-type Result = crate::Result;
-
 #[test]
-fn literal_branch_names_match() -> Result {
+fn literal_branch_names_match() -> TestResult {
     assert_section_value(
         Options {
             condition: "literal-match",
@@ -27,7 +26,7 @@ fn literal_branch_names_match() -> Result {
 }
 
 #[test]
-fn full_ref_names_do_not_match() -> Result {
+fn full_ref_names_do_not_match() -> TestResult {
     assert_section_value(
         Options {
             condition: "refs/heads/simple",
@@ -40,7 +39,7 @@ fn full_ref_names_do_not_match() -> Result {
 }
 
 #[test]
-fn non_branches_never_match() -> Result {
+fn non_branches_never_match() -> TestResult {
     assert_section_value(
         Options {
             condition: "good",
@@ -53,7 +52,7 @@ fn non_branches_never_match() -> Result {
 }
 
 #[test]
-fn patterns_ending_with_slash_match_subdirectories_recursively() -> Result {
+fn patterns_ending_with_slash_match_subdirectories_recursively() -> TestResult {
     let mut env = GitEnv::new()?;
     assert_section_value(
         Options {
@@ -84,7 +83,7 @@ fn patterns_ending_with_slash_match_subdirectories_recursively() -> Result {
 }
 
 #[test]
-fn simple_glob_patterns() -> Result {
+fn simple_glob_patterns() -> TestResult {
     let mut env = GitEnv::new()?;
     assert_section_value(
         Options {
@@ -132,7 +131,7 @@ fn simple_glob_patterns() -> Result {
 }
 
 #[test]
-fn simple_globs_do_not_cross_component_boundary() -> Result {
+fn simple_globs_do_not_cross_component_boundary() -> TestResult {
     let mut env = GitEnv::new()?;
     assert_section_value(
         Options {
@@ -155,7 +154,7 @@ fn simple_globs_do_not_cross_component_boundary() -> Result {
 }
 
 #[test]
-fn double_star_globs_cross_component_boundaries() -> Result {
+fn double_star_globs_cross_component_boundaries() -> TestResult {
     assert_section_value(
         Options {
             condition: "feature/**/start",
@@ -178,7 +177,7 @@ struct GitEnv {
 }
 
 impl GitEnv {
-    fn new() -> crate::Result<Self> {
+    fn new() -> Result<Self> {
         let dir = tempdir()?;
         git_init(dir.path(), true)?;
         Ok(GitEnv { dir })
@@ -191,7 +190,7 @@ struct Options<'a> {
     expect: Value,
 }
 
-fn assert_section_value(opts: Options, env: &mut GitEnv) -> crate::Result {
+fn assert_section_value(opts: Options, env: &mut GitEnv) -> Result {
     assert_section_value_msg(opts, env, None)
 }
 
@@ -203,7 +202,7 @@ fn assert_section_value_msg(
     }: Options,
     GitEnv { dir }: &mut GitEnv,
     message: Option<&str>,
-) -> crate::Result<()> {
+) -> Result<()> {
     let root_config = dir.path().join("config");
     let included_config = dir.path().join("include.config");
 
@@ -253,7 +252,7 @@ value = branch-override-by-include
             Value::OverrideByInclude => "branch-override-by-include",
             Value::Base => "base-value",
         })),
-        "{}, info: {:?}, debug at {:?}",
+        "{}, info: {:?}, debug at {}",
         match expect {
             Value::Base => "the base value should not be overridden as the branch does not match",
             Value::OverrideByInclude =>
@@ -265,7 +264,7 @@ value = branch-override-by-include
                 dir,
                 gix_testtools::tempfile::TempDir::new().expect("substitute can be created"),
             );
-            dir.keep()
+            dir.keep().display().to_string()
         }
     );
 
@@ -274,7 +273,7 @@ value = branch-override-by-include
     Ok(())
 }
 
-fn assure_git_agrees(expected: Value, dir: &mut gix_testtools::tempfile::TempDir) -> crate::Result {
+fn assure_git_agrees(expected: Value, dir: &mut gix_testtools::tempfile::TempDir) -> Result {
     let git_dir = dir.path();
     let output = gix_testtools::git_command(git_dir)
         .args(["config", "--get", "section.value"])
@@ -293,9 +292,8 @@ fn assure_git_agrees(expected: Value, dir: &mut gix_testtools::tempfile::TempDir
     };
     assert!(
         output.status.success(),
-        "{:?}, {:?} for debugging",
-        output,
-        keep_dir_on_disk()
+        "{output:?}, {} for debugging",
+        keep_dir_on_disk().display()
     );
     let git_output: BString = output.stdout.trim_end().into();
     assert_eq!(
@@ -304,8 +302,8 @@ fn assure_git_agrees(expected: Value, dir: &mut gix_testtools::tempfile::TempDir
             Value::Base => "base-value",
             Value::OverrideByInclude => "branch-override-by-include",
         },
-        "git disagrees with gix-config, {:?} for debugging",
-        keep_dir_on_disk()
+        "git disagrees with gix-config, {} for debugging",
+        keep_dir_on_disk().display()
     );
     Ok(())
 }

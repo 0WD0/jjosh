@@ -1,6 +1,7 @@
 use bstr::{BStr, ByteSlice};
 use gix_glob::pattern::Case;
 use gix_ignore::search::Match;
+use gix_testtools::TestResult;
 
 struct Expectations<'a> {
     lines: bstr::Lines<'a>,
@@ -28,7 +29,7 @@ impl<'a> Iterator for Expectations<'a> {
 }
 
 #[test]
-fn baseline_from_git_dir() -> crate::Result {
+fn baseline_from_git_dir() -> TestResult {
     for repo_name in [
         "repo",
         "slash-and-excludes",
@@ -84,7 +85,7 @@ fn baseline_from_git_dir() -> crate::Result {
         let ignore_file = repo_dir.join("dir-with-ignore").join(".gitignore");
         if ignore_file.is_file() {
             let buf = std::fs::read(&ignore_file)?;
-            group.add_patterns_buffer(&buf, ignore_file, repo_dir.as_path().into(), Default::default());
+            group.add_patterns_buffer(&buf, ignore_file, repo_dir.as_path().into(), Default::default())?;
         }
 
         for (path, source_and_line) in (Expectations {
@@ -117,7 +118,7 @@ fn baseline_from_git_dir() -> crate::Result {
                 }
                 (None, None) => {}
                 (actual, expected) => {
-                    panic!("{repo_name}: {case:?}: actual {actual:?} should match {expected:?} with path '{path}'")
+                    panic!("{repo_name}: {case:?}: actual {actual:?} should match {expected:?} with path \"{path}\"")
                 }
             }
         }

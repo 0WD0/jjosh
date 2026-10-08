@@ -53,16 +53,18 @@ fn remote_default_name() {
 
 mod branch_remote {
     use gix::{config::tree::Push, remote};
+    use gix_testtools::TestResult;
 
     use crate::util::named_subrepo_opts;
 
     mod name {
         use gix::remote;
+        use gix_testtools::TestResult;
 
         use crate::repository::config::remote::branch_remote::repo;
 
         #[test]
-        fn push() -> crate::Result {
+        fn push() -> TestResult {
             {
                 let repo = repo("push-remote")?;
 
@@ -90,20 +92,18 @@ mod branch_remote {
     }
 
     #[test]
-    fn fetch() -> crate::Result {
+    fn fetch() -> TestResult {
         let repo = repo("fetch")?;
 
         assert_eq!(
             repo.branch_remote_ref_name("refs/heads/main".try_into()?, remote::Direction::Fetch)
-                .expect("Remote Merge ref exists")
-                .expect("Remote Merge ref is valid")
+                .expect("Remote Merge ref exists")?
                 .shorten(),
             "main"
         );
         assert_eq!(
             repo.branch_remote_tracking_ref_name("refs/heads/main".try_into()?, remote::Direction::Fetch)
-                .expect("Remote Merge ref exists")
-                .expect("Remote Merge ref is valid"),
+                .expect("Remote Merge ref exists")?,
             "refs/remotes/remote_repo/main"
         );
         let (upstream, remote_name) = repo
@@ -132,8 +132,7 @@ mod branch_remote {
 
         assert_eq!(
             repo.branch_remote_ref_name("refs/heads/broken".try_into()?, remote::Direction::Fetch)
-                .expect("Remote Merge ref exists")
-                .expect("merge ref is turned into a full-name"),
+                .expect("Remote Merge ref exists")?,
             "refs/heads/not_a_valid_merge_ref",
             "short names are simply turned into branch names - this doesn't always work, but sometimes."
         );
@@ -149,8 +148,7 @@ mod branch_remote {
         }
         assert_eq!(
             repo.branch_remote_tracking_ref_name("refs/heads/broken".try_into()?, remote::Direction::Fetch)
-                .expect("no error")
-                .expect("valid result"),
+                .expect("no error")?,
             "refs/remotes/remote_repo/not_a_valid_merge_ref",
             "the merge ref is broken, but we turned it into a full ref name from which everything else was derived",
         );
@@ -159,7 +157,7 @@ mod branch_remote {
     }
 
     #[test]
-    fn upstream_branch_and_remote_name_for_tracking_branch() -> crate::Result {
+    fn upstream_branch_and_remote_name_for_tracking_branch() -> TestResult {
         let mut repo = repo("multiple-remotes")?;
         for expected_remote_name in ["other", "with/two"] {
             let (upstream, remote) = repo
@@ -175,11 +173,7 @@ mod branch_remote {
         let err = repo
             .upstream_branch_and_remote_for_tracking_branch("refs/remotes/with/two/slashes/main".try_into()?)
             .expect_err("both remotes reverse-map the tracking branch");
-        assert_eq!(
-            err.to_string(),
-            "Found ambiguous remotes without 1:1 mapping or more than one match: with/two, with/two/slashes",
-            "the name is ambiguous because both remotes have fetch refspecs mapping to it"
-        );
+        insta::assert_debug_snapshot!(err, "the name is ambiguous because both remotes have fetch refspecs mapping to it", @"Found ambiguous remotes without 1:1 mapping or more than one match: with/two, with/two/slashes");
 
         let (upstream, remote) = repo
             .upstream_branch_and_remote_for_tracking_branch("refs/remotes/with/two/special".try_into()?)?
@@ -219,16 +213,59 @@ mod branch_remote {
         let err = repo
             .upstream_branch_and_remote_for_tracking_branch("refs/remotes/prefix/main".try_into()?)
             .expect_err("multiple remotes are ambiguous");
-        assert_eq!(
-            err.to_string(),
-            "Found ambiguous remotes without 1:1 mapping or more than one match: also-fallback, fallback",
-            "all remotes mapping the same tracking branch are reported"
+        insta::assert_debug_snapshot!(err, "all remotes mapping the same tracking branch are reported", @"Found ambiguous remotes without 1:1 mapping or more than one match: also-fallback, fallback");
+        Ok(())
+    }
+
+    #[test]
+    fn upstream_reverse_mapping_preserves_sources_and_matches_destinations_literally() -> TestResult {
+        let repo = |name| {
+            named_subrepo_opts(
+                "make_remote_reverse_mapping_repos.sh",
+                name,
+                gix::open::Options::isolated(),
+            )
+        };
+        let tracking_branch = "refs/remotes/origin/main".try_into()?;
+        for (name, expected) in [
+            ("full-source", Some("refs/heads/main")),
+            ("partial-source", Some("heads/main")),
+            ("head-source", Some("HEAD")),
+            ("short-source", None),
+            ("object-id-source", None),
+        ] {
+            let repo = repo(name)?;
+            let result = repo.upstream_branch_and_remote_for_tracking_branch(tracking_branch);
+            if let Some(expected) = expected {
+                let (upstream, remote) = result?.expect("the full destination matches");
+                assert_eq!(
+                    upstream.as_bstr(),
+                    expected,
+                    "the parsed source isn't expanded into a branch"
+                );
+                assert_eq!(
+                    remote.name().expect("named remote"),
+                    "origin",
+                    "the source belongs to origin"
+                );
+            } else {
+                assert!(
+                    result.is_err(),
+                    "the source in `{name}` cannot be turned into a full reference name offline"
+                );
+            }
+        }
+        let repo = repo("abbreviated-destination")?;
+        assert!(
+            repo.upstream_branch_and_remote_for_tracking_branch(tracking_branch)?
+                .is_none(),
+            "an abbreviated destination doesn't match a full tracking-reference name"
         );
         Ok(())
     }
 
     #[test]
-    fn push_default() -> crate::Result {
+    fn push_default() -> TestResult {
         let repo = repo("fetch")?;
 
         assert_eq!(
@@ -258,7 +295,7 @@ mod branch_remote {
     }
 
     #[test]
-    fn push_mapped() -> crate::Result {
+    fn push_mapped() -> TestResult {
         let repo = repo("push-mapped")?;
 
         assert_eq!(
@@ -315,7 +352,7 @@ mod branch_remote {
     }
 
     #[test]
-    fn push_missing() -> crate::Result {
+    fn push_missing() -> TestResult {
         let repo = repo("push-missing")?;
 
         assert!(
@@ -342,7 +379,7 @@ mod branch_remote {
     }
 
     #[test]
-    fn push_default_current() -> crate::Result {
+    fn push_default_current() -> TestResult {
         let mut repo = repo("push-default-current")?;
 
         for same_name_default in ["current", "matching"] {
@@ -395,7 +432,7 @@ mod branch_remote {
         Ok(())
     }
 
-    fn repo(name: &str) -> Result<gix::Repository, gix::open::Error> {
+    fn repo(name: &str) -> std::result::Result<gix::Repository, gix_error::Error> {
         named_subrepo_opts("make_remote_config_repos.sh", name, gix::open::Options::isolated())
     }
 }

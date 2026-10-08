@@ -1,14 +1,9 @@
+use gix_error::Result;
 use std::sync::atomic::AtomicBool;
 
-use gix_features::progress::Progress;
+use gix_utils::progress::Progress;
 
 use crate::data::File;
-
-///
-pub mod checksum {
-    /// Returned by [`data::File::verify_checksum()`][crate::data::File::verify_checksum()].
-    pub type Error = crate::verify::checksum::Error;
-}
 
 /// Checksums and verify checksums
 impl<T> File<T>
@@ -24,7 +19,7 @@ where
     /// returning the actual checksum equivalent to the return value of [`checksum()`][File::checksum()] if there
     /// is no mismatch.
     ///
-    /// Note that if no `progress` is desired, one can pass [`gix_features::progress::Discard`].
+    /// Note that if no `progress` is desired, one can pass [`gix_utils::progress::Discard`].
     ///
     /// Have a look at [`index::File::verify_integrity(…)`][crate::index::File::verify_integrity()] for an
     /// even more thorough integrity check.
@@ -32,7 +27,7 @@ where
         &self,
         progress: &mut dyn Progress,
         should_interrupt: &AtomicBool,
-    ) -> Result<gix_hash::ObjectId, checksum::Error> {
+    ) -> Result<gix_hash::ObjectId> {
         crate::verify::checksum_on_disk_or_mmap(
             self.path(),
             &self.data,

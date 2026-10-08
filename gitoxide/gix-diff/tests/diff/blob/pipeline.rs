@@ -6,11 +6,12 @@ pub(crate) mod convert_to_diffable {
     };
     use gix_filter::{eol, eol::AutoCrlf};
     use gix_object::{bstr::ByteSlice, tree::EntryKind};
+    use gix_testtools::TestResult;
 
     use crate::util::{insert, object_db};
 
     #[test]
-    fn simple() -> crate::Result {
+    fn simple() -> TestResult {
         for mode in [
             pipeline::Mode::ToWorktreeAndBinaryToText,
             pipeline::Mode::ToGit,
@@ -22,7 +23,7 @@ pub(crate) mod convert_to_diffable {
                     old_root: Some(tmp.path().to_owned()),
                     new_root: None,
                 },
-                gix_filter::Pipeline::default(),
+                gix_filter::Pipeline::new(Default::default(), gix_testtools::object_hash(), Default::default()),
                 vec![],
                 default_options(),
             );
@@ -66,6 +67,30 @@ pub(crate) mod convert_to_diffable {
                 a_name,
                 "links are just files with a different mode, with its content pointing to the target"
             );
+
+            filter.options.fs.symlink = false;
+            let err = filter
+                .convert_to_diffable(
+                    &does_not_matter,
+                    EntryKind::Link,
+                    link_name.into(),
+                    ResourceKind::OldOrSource,
+                    &mut |_, _| {},
+                    &gix_object::find::Never,
+                    mode,
+                    &mut buf,
+                )
+                .expect_err("the caller disabled symlinks but supplied a symlink resource");
+            assert!(
+                err.is_validation(),
+                "the resource mode contradicts the configured capabilities"
+            );
+            assert_eq!(
+                err.to_string(),
+                "Entry at \"link\" is declared as symlink but symlinks are disabled via core.symlinks",
+                "classification preserves the diagnostic"
+            );
+            filter.options.fs.symlink = true;
             drop(tmp);
 
             let db = object_db();
@@ -92,14 +117,45 @@ pub(crate) mod convert_to_diffable {
     }
 
     #[test]
-    fn binary_below_large_file_threshold() -> crate::Result {
+    fn invalid_resource_modes() -> gix_error::TestResult {
+        let mut filter = gix_diff::blob::Pipeline::new(
+            Default::default(),
+            gix_filter::Pipeline::new(Default::default(), gix_testtools::object_hash(), Default::default()),
+            vec![],
+            default_options(),
+        );
+        for mode in [EntryKind::Tree, EntryKind::Commit] {
+            let err = filter
+                .convert_to_diffable(
+                    gix_hash::Kind::Sha1.null().as_ref(),
+                    mode,
+                    "a".into(),
+                    ResourceKind::OldOrSource,
+                    &mut |_, _| panic!("mode validation precedes attribute lookup"),
+                    &gix_object::find::Never,
+                    pipeline::Mode::ToGit,
+                    &mut Vec::new(),
+                )
+                .expect_err("only files and symlinks can be converted to diffable resources");
+            assert!(err.is_validation(), "these modes violate the pipeline's input contract");
+            assert_eq!(
+                err.to_string(),
+                format!("Entry at \"a\" must be regular file or symlink, but was {mode:?}"),
+                "classification preserves the diagnostic"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn binary_below_large_file_threshold() -> TestResult {
         let tmp = gix_testtools::tempfile::TempDir::new()?;
         let mut filter = gix_diff::blob::Pipeline::new(
             WorktreeRoots {
                 old_root: None,
                 new_root: Some(tmp.path().to_owned()),
             },
-            gix_filter::Pipeline::default(),
+            gix_filter::Pipeline::new(Default::default(), gix_testtools::object_hash(), Default::default()),
             vec![],
             gix_diff::blob::pipeline::Options {
                 large_file_threshold_bytes: 5,
@@ -147,14 +203,14 @@ pub(crate) mod convert_to_diffable {
     }
 
     #[test]
-    fn above_large_file_threshold() -> crate::Result {
+    fn above_large_file_threshold() -> TestResult {
         let tmp = gix_testtools::tempfile::TempDir::new()?;
         let mut filter = gix_diff::blob::Pipeline::new(
             WorktreeRoots {
                 old_root: None,
                 new_root: Some(tmp.path().to_owned()),
             },
-            gix_filter::Pipeline::default(),
+            gix_filter::Pipeline::new(Default::default(), gix_testtools::object_hash(), Default::default()),
             vec![],
             gix_diff::blob::pipeline::Options {
                 large_file_threshold_bytes: 4,
@@ -230,14 +286,14 @@ pub(crate) mod convert_to_diffable {
     }
 
     #[test]
-    fn non_existing() -> crate::Result {
+    fn non_existing() -> TestResult {
         let tmp = gix_testtools::tempfile::TempDir::new()?;
         let mut filter = gix_diff::blob::Pipeline::new(
             WorktreeRoots {
                 old_root: Some(tmp.path().to_owned()),
                 new_root: None,
             },
-            gix_filter::Pipeline::default(),
+            gix_filter::Pipeline::new(Default::default(), gix_testtools::object_hash(), Default::default()),
             vec![],
             default_options(),
         );
@@ -300,10 +356,11 @@ pub(crate) mod convert_to_diffable {
     }
 
     #[test]
-    fn worktree_filter() -> crate::Result {
+    fn worktree_filter() -> TestResult {
         let tmp = gix_testtools::tempfile::TempDir::new()?;
         let filter = gix_filter::Pipeline::new(
             Default::default(),
+            gix_testtools::object_hash(),
             gix_filter::pipeline::Options {
                 eol_config: eol::Configuration {
                     auto_crlf: AutoCrlf::Enabled,
@@ -434,7 +491,7 @@ pub(crate) mod convert_to_diffable {
     }
 
     #[test]
-    fn worktree_filter_skips_null_id_lookups() -> crate::Result {
+    fn worktree_filter_skips_null_id_lookups() -> TestResult {
         let tmp = gix_testtools::tempfile::TempDir::new()?;
         std::fs::write(tmp.path().join("a"), "worktree\r\n")?;
         let mut filter = gix_diff::blob::Pipeline::new(
@@ -444,6 +501,7 @@ pub(crate) mod convert_to_diffable {
             },
             gix_filter::Pipeline::new(
                 Default::default(),
+                gix_testtools::object_hash(),
                 gix_filter::pipeline::Options {
                     eol_config: eol::Configuration {
                         auto_crlf: AutoCrlf::Input,
@@ -494,7 +552,7 @@ pub(crate) mod convert_to_diffable {
     }
 
     #[test]
-    fn binary_by_buffer_inspection() -> crate::Result {
+    fn binary_by_buffer_inspection() -> TestResult {
         let tmp = gix_testtools::tempfile::TempDir::new()?;
         let root = crate::scripted_fixture_read_only("make_blob_repo.sh")?;
         let mut attributes = crate::blob::new_attributes_stack(root);
@@ -503,7 +561,7 @@ pub(crate) mod convert_to_diffable {
                 old_root: Some(tmp.path().to_owned()),
                 new_root: None,
             },
-            gix_filter::Pipeline::default(),
+            gix_filter::Pipeline::new(Default::default(), gix_testtools::object_hash(), Default::default()),
             vec![gix_diff::blob::Driver {
                 name: "c".into(),
                 binary_to_text_command: Some(r"printf '\0'; cat <".into()),
@@ -582,7 +640,59 @@ pub(crate) mod convert_to_diffable {
     }
 
     #[test]
-    fn with_driver() -> crate::Result {
+    fn failing_textconv_is_unclassified() -> gix_error::TestResult {
+        let root = crate::scripted_fixture_read_only("make_blob_repo.sh")?;
+        let mut attributes = crate::blob::new_attributes_stack(&root);
+        let mut filter = gix_diff::blob::Pipeline::new(
+            WorktreeRoots {
+                old_root: Some(root),
+                new_root: None,
+            },
+            gix_filter::Pipeline::new(Default::default(), gix_testtools::object_hash(), Default::default()),
+            vec![gix_diff::blob::Driver {
+                name: "a".into(),
+                binary_to_text_command: Some("echo textconv-failure >&2; false".into()),
+                ..Default::default()
+            }],
+            default_options(),
+        );
+        let entry = attributes.at_entry("a", None, &gix_object::find::Never)?;
+        let err = filter
+            .convert_to_diffable(
+                gix_hash::Kind::Sha1.null().as_ref(),
+                EntryKind::Blob,
+                "a".into(),
+                ResourceKind::OldOrSource,
+                &mut |_, out| {
+                    let _ = entry.matching_attributes(out);
+                },
+                &gix_object::find::Never,
+                pipeline::Mode::ToWorktreeAndBinaryToText,
+                &mut Vec::new(),
+            )
+            .expect_err("the text conversion command exits unsuccessfully");
+        assert!(
+            err.classify().next().is_none(),
+            "a subprocess failure alone does not establish invalid input, corruption, or retryability"
+        );
+        let diagnostic = err
+            .iter_errors()
+            .find_map(|err| err.downcast_ref::<gix_error::Message>())
+            .expect("the conversion failure has a diagnostic message");
+        assert!(
+            diagnostic.message.starts_with("Binary-to-text conversion ") && diagnostic.message.ends_with(" failed"),
+            "the conversion failure identifies the command and entry without repeating stderr"
+        );
+        assert_eq!(
+            diagnostic.values.get("stderr"),
+            Some(&gix_error::MetadataValue::from(b"textconv-failure\n".to_vec())),
+            "the driver's stderr is retained in metadata"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn with_driver() -> TestResult {
         let root = crate::scripted_fixture_read_only("make_blob_repo.sh")?;
         let command = "echo to-text; cat <";
         let mut attributes = crate::blob::new_attributes_stack(&root);
@@ -591,7 +701,7 @@ pub(crate) mod convert_to_diffable {
                 old_root: Some(root.clone()),
                 new_root: None,
             },
-            gix_filter::Pipeline::default(),
+            gix_filter::Pipeline::new(Default::default(), gix_testtools::object_hash(), Default::default()),
             vec![
                 gix_diff::blob::Driver {
                     name: "a".into(),

@@ -139,6 +139,59 @@ mod multiple {
     }
 
     #[test]
+    fn reverse_fetch_mapping_preserves_sources_for_negation_and_deduplication() -> gix_testtools::TestResult {
+        let target = gix_testtools::object_hash().null();
+        let item = Item {
+            full_ref_name: "refs/remotes/origin/main".into(),
+            target: &target,
+            object: None,
+        };
+        for (negative, expected) in [
+            ("^main", vec!["refs/heads/main"]),
+            ("^refs/heads/main", vec!["main"]),
+            ("^heads/main", vec!["main", "refs/heads/main"]),
+        ] {
+            let specs = [
+                "main:refs/remotes/origin/main",
+                "refs/heads/main:refs/remotes/origin/main",
+                "main:refs/remotes/origin/main",
+                negative,
+            ]
+            .into_iter()
+            .map(|spec| gix_refspec::parse(spec.into(), Operation::Fetch))
+            .collect::<gix_error::Result<Vec<_>>>()?;
+            let outcome = MatchGroup::from_fetch_specs(specs).match_rhs(std::iter::once(item));
+            let sources: Vec<_> = outcome.mappings.iter().map(|mapping| mapping.lhs.to_string()).collect();
+            assert_eq!(
+                sources, expected,
+                "{negative} excludes literal sources, and only identical mappings are deduplicated"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn glob_prefix_and_suffix_cannot_overlap_in_either_direction() -> gix_testtools::TestResult {
+        let target = gix_testtools::object_hash().null();
+        let item = Item {
+            full_ref_name: "refs/heads/main".into(),
+            target: &target,
+            object: None,
+        };
+        let spec = gix_refspec::parse("refs/heads/*heads/main:refs/heads/*heads/main".into(), Operation::Fetch)?;
+        let group = MatchGroup::from_fetch_specs([spec]);
+        assert!(
+            group.clone().match_lhs(std::iter::once(item)).mappings.is_empty(),
+            "a glob capture cannot have negative length when matching sources"
+        );
+        assert!(
+            group.match_rhs(std::iter::once(item)).mappings.is_empty(),
+            "a glob capture cannot have negative length when matching destinations"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn reverse_fetch_mapping_honors_negative_source_patterns() {
         let specs = ["refs/heads/*:refs/remotes/origin/*", "^refs/heads/*-deploy"]
             .into_iter()
@@ -209,38 +262,40 @@ mod multiple {
 
     #[test]
     fn fetch_and_update_with_conflicts() {
-        baseline::agrees_with_fetch_specs_validation_error(
-            [
+        insta::assert_debug_snapshot!(baseline::agrees_with_fetch_specs_validation_error([
                 "refs/heads/f1:refs/remotes/origin/conflict",
                 "refs/heads/f2:refs/remotes/origin/conflict",
-            ],
-            "Found 1 issue that prevents the refspec mapping to be used: \n\tConflicting destination \"refs/remotes/origin/conflict\" would be written by refs/heads/f1 (\"refs/heads/f1:refs/remotes/origin/conflict\"), refs/heads/f2 (\"refs/heads/f2:refs/remotes/origin/conflict\")",
-        );
-        baseline::agrees_with_fetch_specs_validation_error(
-            [
+            ]), "conflicting destinations identify every contributing refspec", @"
+        Found 1 issue that prevents the refspec mapping to be used:\x20
+        \tConflicting destination \"refs/remotes/origin/conflict\" would be written by refs/heads/f1 (\"refs/heads/f1:refs/remotes/origin/conflict\"), refs/heads/f2 (\"refs/heads/f2:refs/remotes/origin/conflict\")
+        ");
+        insta::assert_debug_snapshot!(baseline::agrees_with_fetch_specs_validation_error([
                 "refs/heads/f1:refs/remotes/origin/conflict2",
                 "refs/heads/f2:refs/remotes/origin/conflict2",
                 "refs/heads/f1:refs/remotes/origin/conflict",
                 "refs/heads/f2:refs/remotes/origin/conflict",
                 "refs/heads/f3:refs/remotes/origin/conflict",
-            ],
-            "Found 2 issues that prevent the refspec mapping to be used: \n\tConflicting destination \"refs/remotes/origin/conflict\" would be written by refs/heads/f1 (\"refs/heads/f1:refs/remotes/origin/conflict\"), refs/heads/f2 (\"refs/heads/f2:refs/remotes/origin/conflict\"), refs/heads/f3 (\"refs/heads/f3:refs/remotes/origin/conflict\")\n\tConflicting destination \"refs/remotes/origin/conflict2\" would be written by refs/heads/f1 (\"refs/heads/f1:refs/remotes/origin/conflict2\"), refs/heads/f2 (\"refs/heads/f2:refs/remotes/origin/conflict2\")",
-        );
-        baseline::agrees_with_fetch_specs_validation_error(
-            [
+            ]), "conflicting destinations identify every contributing refspec", @"
+        Found 2 issues that prevent the refspec mapping to be used:\x20
+        \tConflicting destination \"refs/remotes/origin/conflict\" would be written by refs/heads/f1 (\"refs/heads/f1:refs/remotes/origin/conflict\"), refs/heads/f2 (\"refs/heads/f2:refs/remotes/origin/conflict\"), refs/heads/f3 (\"refs/heads/f3:refs/remotes/origin/conflict\")
+        \tConflicting destination \"refs/remotes/origin/conflict2\" would be written by refs/heads/f1 (\"refs/heads/f1:refs/remotes/origin/conflict2\"), refs/heads/f2 (\"refs/heads/f2:refs/remotes/origin/conflict2\")
+        ");
+        insta::assert_debug_snapshot!(baseline::agrees_with_fetch_specs_validation_error([
                 "refs/heads/f1:refs/remotes/origin/same",
                 "refs/tags/v0.0-f1:refs/remotes/origin/same",
-            ],
-            "Found 1 issue that prevents the refspec mapping to be used: \n\tConflicting destination \"refs/remotes/origin/same\" would be written by refs/heads/f1 (\"refs/heads/f1:refs/remotes/origin/same\"), refs/tags/v0.0-f1 (\"refs/tags/v0.0-f1:refs/remotes/origin/same\")",
-        );
-        baseline::agrees_with_fetch_specs_validation_error(
-            [
+            ]), "conflicting destinations identify every contributing refspec", @"
+        Found 1 issue that prevents the refspec mapping to be used:\x20
+        \tConflicting destination \"refs/remotes/origin/same\" would be written by refs/heads/f1 (\"refs/heads/f1:refs/remotes/origin/same\"), refs/tags/v0.0-f1 (\"refs/tags/v0.0-f1:refs/remotes/origin/same\")
+        ");
+        insta::assert_debug_snapshot!(baseline::agrees_with_fetch_specs_validation_error([
                 "+refs/heads/*:refs/remotes/origin/*",
                 "refs/heads/f1:refs/remotes/origin/f2",
                 "refs/heads/f2:refs/remotes/origin/f1",
-            ],
-            "Found 2 issues that prevent the refspec mapping to be used: \n\tConflicting destination \"refs/remotes/origin/f1\" would be written by refs/heads/f1 (\"+refs/heads/*:refs/remotes/origin/*\"), refs/heads/f2 (\"refs/heads/f2:refs/remotes/origin/f1\")\n\tConflicting destination \"refs/remotes/origin/f2\" would be written by refs/heads/f2 (\"+refs/heads/*:refs/remotes/origin/*\"), refs/heads/f1 (\"refs/heads/f1:refs/remotes/origin/f2\")",
-        );
+            ]), "conflicting destinations identify every contributing refspec", @"
+        Found 2 issues that prevent the refspec mapping to be used:\x20
+        \tConflicting destination \"refs/remotes/origin/f1\" would be written by refs/heads/f1 (\"+refs/heads/*:refs/remotes/origin/*\"), refs/heads/f2 (\"refs/heads/f2:refs/remotes/origin/f1\")
+        \tConflicting destination \"refs/remotes/origin/f2\" would be written by refs/heads/f2 (\"+refs/heads/*:refs/remotes/origin/*\"), refs/heads/f1 (\"refs/heads/f1:refs/remotes/origin/f2\")
+        ");
     }
 
     #[test]
