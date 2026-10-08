@@ -299,9 +299,12 @@ async fn handshake_v1_and_request() -> TestResult {
 
     assert_eq!(
         out.as_slice().as_bstr(),
-        b"002egit-upload-pack /foo.git\x00host=example.org\x000000000ahello\n\
-    000aworld\n\
-    0009done\n"
+        b"002egit-upload-pack /foo.git\x00\
+          host=example.org\x00\
+          0000\
+          000ahello\n\
+          000aworld\n\
+          0009done\n"
             .as_bstr(),
         "it sends the correct request"
     );
@@ -417,7 +420,16 @@ async fn push_v1_simulated() -> TestResult {
 
     let mut writer = c.request(client::WriteMode::Binary, client::MessageKind::Flush, false)?;
     let expected = fixture_bytes("v1/push.request");
-    writer.write_all(b"7c09ba0c4c3680af369bda4fc8e3c58d3fccdc76 32690d87d3943c7c0dda81246d0cde344ca7e633 refs/heads/main\0 report-status-v2 side-band-64k object-format=sha1 agent=git/2.37.1.(Apple.Git-137.1)").await?;
+    writer
+        .write_all(
+            b"7c09ba0c4c3680af369bda4fc8e3c58d3fccdc76 \
+              32690d87d3943c7c0dda81246d0cde344ca7e633 \
+              refs/heads/main\0 \
+              report-status-v2 side-band-64k \
+              object-format=sha1 \
+              agent=git/2.37.1.(Apple.Git-137.1)",
+        )
+        .await?;
     writer.write_message(client::MessageKind::Flush).await?;
     {
         let (mut write, mut read) = writer.into_parts();
@@ -543,15 +555,15 @@ async fn handshake_v2_and_request() -> TestResult {
 
 #[crate::bisync::bisync]
 async fn handshake_v2_and_request_inner() -> TestResult {
-    let fixture = super::transport_fixture::v2()?;
-    let hash_name = fixture.hash.to_string();
+    let baseline = super::transport_baseline::v2()?;
+    let hash_name = baseline.hash.to_string();
     assert_eq!(
-        fixture.commit_id.len(),
-        fixture.hash.len_in_hex(),
+        baseline.commit_id_hex.len(),
+        baseline.hash.len_in_hex(),
         "Git generated an ID in the selected object format"
     );
     let mut out = Vec::new();
-    let input = &fixture.response;
+    let input = &baseline.response;
     let mut c = Connection::new(
         input.as_slice(),
         &mut out,
@@ -577,7 +589,7 @@ async fn handshake_v2_and_request_inner() -> TestResult {
         res.capabilities
             .capability("object-format")
             .expect("Git advertises its object format")
-            .supports(hash_name.as_str())
+            .supports(&hash_name)
             .expect("object-format has a value"),
         "the handshake surfaces the selected object format"
     );
@@ -616,14 +628,14 @@ async fn handshake_v2_and_request_inner() -> TestResult {
     assert_eq!(
         refs,
         vec![
-            format!("{} HEAD symref-target:refs/heads/main", fixture.commit_id),
-            format!("{} refs/heads/main", fixture.commit_id)
+            format!("{} HEAD symref-target:refs/heads/main", baseline.commit_id_hex),
+            format!("{} refs/heads/main", baseline.commit_id_hex)
         ],
         "ref discovery returns the independently recorded Git commit ID"
     );
     drop(lines);
 
-    let want = format!("want {}", fixture.commit_id);
+    let want = format!("want {}", baseline.commit_id_hex);
     let mut reader = c
         .invoke(
             "fetch",
@@ -666,7 +678,7 @@ async fn handshake_v2_and_request_inner() -> TestResult {
         reader,
         input::Mode::Verify,
         input::EntryDataMode::Crc32,
-        fixture.hash,
+        baseline.hash,
     )?;
     let mut object_count = 0;
     for entry in entries {
@@ -674,16 +686,20 @@ async fn handshake_v2_and_request_inner() -> TestResult {
         object_count += 1;
     }
     assert_eq!(
-        object_count, fixture.object_count,
+        object_count, baseline.object_count,
         "all received pack entries verify with the selected hash"
     );
 
     let messages = Arc::try_unwrap(messages).expect("no other handle").into_inner();
     assert!(!messages.is_empty(), "Git sends progress alongside the pack");
 
-    let mut expected = b"0039git-upload-pack /bar.git\x00host=example.org\x00\x00version=2\x00".to_vec();
-    expected.extend(&fixture.ls_refs_request);
-    expected.extend(&fixture.fetch_request);
+    let mut expected = b"0039git-upload-pack /bar.git\x00\
+                         host=example.org\x00\
+                         \x00\
+                         version=2\x00"
+        .to_vec();
+    expected.extend(&baseline.ls_refs_request);
+    expected.extend(&baseline.fetch_request);
     assert_eq!(
         out.as_slice().as_bstr(),
         expected.as_bstr(),
