@@ -2704,6 +2704,7 @@ dependencies = [
  "globset",
  "hashbrown 0.17.1",
  "indexmap",
+ "indoc",
  "insta",
  "itertools 0.15.0",
  "jj-core-proc-macros",
