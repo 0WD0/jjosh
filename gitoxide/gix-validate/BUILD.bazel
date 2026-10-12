@@ -29,6 +29,9 @@ rust_library(
         "@platforms//cpu:x86_64",
     ],
     version = _CRATE["version"],
-    visibility = ["//visibility:public"],
+    visibility = [
+        "//jjosh/gitoxide:__subpackages__",
+        "//jjosh/josh:__subpackages__",
+    ],
     deps = all_crate_deps(normal = True),
 )
