@@ -4,13 +4,14 @@ load("@rules_rust//rust:defs.bzl", "rust_library")
 
 _CRATE = DEP_DATA[package_name()]
 
+exports_files(["Cargo.toml"], visibility = ["//visibility:public"])
+
 exports_files(
     [
-        "Cargo.toml",
         "tests/de.rs",
         "tests/ser.rs",
     ],
-    visibility = ["//visibility:public"],
+    visibility = ["//jjosh/josh:__pkg__"],
 )
 
 rust_library(
@@ -31,6 +32,6 @@ rust_library(
         "@platforms//cpu:x86_64",
     ],
     version = _CRATE["version"],
-    visibility = ["//visibility:public"],
+    visibility = ["//jjosh/josh:__pkg__"],
     deps = all_crate_deps(normal = True),
 )

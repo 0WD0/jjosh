@@ -25,7 +25,6 @@ rust_test(
         "@platforms//os:linux",
         "@platforms//cpu:x86_64",
     ],
-    visibility = ["//visibility:public"],
     deps = ["//jjosh/josh/josh-git-serde"] + all_crate_deps(
         package_name = _SERDE_PACKAGE,
         normal = True,
@@ -44,7 +43,6 @@ rust_test(
         "@platforms//os:linux",
         "@platforms//cpu:x86_64",
     ],
-    visibility = ["//visibility:public"],
     deps = ["//jjosh/josh/josh-git-serde"] + all_crate_deps(
         package_name = _SERDE_PACKAGE,
         normal = True,
