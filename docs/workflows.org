@@ -365,7 +365,7 @@ jjosh tag set v1.0#parser -r topic#parser
 jjosh git push --remote fork --tag v1.0#parser
 #+end_src
 
-远端 tag 叫 =v1.0=。支持轻量 tag 和未签名的 annotated commit tag；转换签名 tag 会拒绝。
+远端 tag 叫 =v1.0=。支持轻量 tag 和 annotated commit tag；签名 tag 在转换改变对象时去掉失效签名并报告，原对象仍保留在 raw 命名空间。
 tag 的不可变规则可能将工作副本移到新子提交。
 移动已有 tag 使用 =tag set --allow-move=；删除用 =tag delete=，随后 push 对应 tag 删除。
 获取远端 tag 后可用 =tag track= 跟踪。

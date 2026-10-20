@@ -162,11 +162,14 @@ pub(crate) fn record_absence(
 pub(crate) struct CommitTag {
     pub(crate) commit: gix::ObjectId,
     annotations: Vec<Vec<u8>>,
+    /// Offset of each annotation's in-body signature, which ends the object.
+    signatures: Vec<Option<usize>>,
 }
 
 impl CommitTag {
     pub(crate) fn read(git: &gix::Repository, mut id: gix::ObjectId) -> anyhow::Result<Self> {
         let mut annotations = Vec::new();
+        let mut signatures = Vec::new();
         loop {
             let object = git.find_object(id)?;
             match object.kind {
@@ -174,15 +177,16 @@ impl CommitTag {
                     return Ok(Self {
                         commit: id,
                         annotations,
+                        signatures,
                     });
                 }
                 gix::objs::Kind::Tag => {
                     let tag = gix::objs::TagRef::from_bytes(&object.data, id.kind())?;
-                    // Reject every supported armor format, even malformed signatures.
-                    // Rewriting either a target or the public name invalidates it.
-                    anyhow::ensure!(
-                        tag.signature.is_none(),
-                        "Signed tags cannot be transformed without invalidating their signatures; no canonical tag or publication lease was created. Publish an explicitly unsigned tag instead"
+                    // Every supported armor format, even a malformed one, is a
+                    // borrowed suffix of the object bytes.
+                    signatures.push(
+                        tag.signature
+                            .map(|sig| sig.as_ptr() as usize - object.data.as_ptr() as usize),
                     );
                     id = tag.target();
                     annotations.push(object.data.to_vec());
@@ -190,6 +194,11 @@ impl CommitTag {
                 _ => anyhow::bail!("Only tags that peel to commits can be transformed"),
             }
         }
+    }
+
+    /// Whether any annotation in the chain carries a signature.
+    pub(crate) fn signed(&self) -> bool {
+        self.signatures.iter().any(Option::is_some)
     }
 
     /// Preserve direct raw tag identities as evidence, independently of retargeting.
@@ -208,9 +217,12 @@ impl CommitTag {
     ) -> anyhow::Result<gix::ObjectId> {
         let mut kind = "commit";
         for (index, annotation) in self.annotations.iter().enumerate().rev() {
+            // A signature covers the whole object. It stays only when the
+            // rewritten object is unchanged; otherwise it is invalid and removed.
+            let unsigned = &annotation[..self.signatures[index].unwrap_or(annotation.len())];
             // Parse above validates the three leading headers. Rewrite only those
-            // that change: keep inner tag names, tagger bytes and the entire body.
-            let mut lines = annotation.splitn(4, |byte| *byte == b'\n');
+            // that change: keep inner tag names, tagger bytes and the message.
+            let mut lines = unsigned.splitn(4, |byte| *byte == b'\n');
             lines.next();
             lines.next();
             let name = lines.next().expect("validated tag name");
@@ -223,6 +235,9 @@ impl CommitTag {
             }
             rewritten.push(b'\n');
             rewritten.extend_from_slice(suffix);
+            if rewritten == unsigned {
+                rewritten = annotation.clone();
+            }
             target = gix::objs::Write::write_buf(&git.objects, gix::objs::Kind::Tag, &rewritten)?;
             kind = "tag";
         }

@@ -6831,7 +6831,7 @@ fn fetched_unsigned_nested_tags_republish_annotations_and_exported_targets() {
 }
 
 #[test]
-fn signed_scoped_tag_preflight_prevents_sibling_branch_publication() {
+fn signed_scoped_tag_publishes_without_invalidated_signature() {
     let temp = tempfile::tempdir().unwrap();
     let (_, alpha, _) = create_remote(temp.path(), "alpha");
     let (_, beta, _) = create_remote(temp.path(), "beta");
@@ -6847,8 +6847,8 @@ fn signed_scoped_tag_preflight_prevents_sibling_branch_publication() {
             .unwrap()
             .trim(),
     );
-    // Signature-bearing tags are refused without attempting cryptographic
-    // validation. In particular, malformed armor must not become unsigned.
+    // The inner signature covers the canonical target, so publishing to
+    // another coordinate removes it and keeps both annotations.
     let signed = tag_object(
         &git_dir,
         &canonical,
@@ -6865,11 +6865,7 @@ fn signed_scoped_tag_preflight_prevents_sibling_branch_publication() {
     );
     git(&git_dir, &["update-ref", "refs/tags/v1.0#beta", &outer]);
     jjosh(&client, &["git", "import"]);
-    let refs = git(&git_dir, &["show-ref"]);
-    let operation = operation_id(&client);
-    let alpha_refs = git(&alpha, &["show-ref"]);
-    let beta_refs = git(&beta, &["show-ref"]);
-    let rejected = jjosh_unchecked(
+    jjosh(
         &client,
         &[
             "git",
@@ -6880,11 +6876,17 @@ fn signed_scoped_tag_preflight_prevents_sibling_branch_publication() {
             "v1.0#beta",
         ],
     );
-    assert!(!rejected.status.success());
-    assert_eq!(git(&alpha, &["show-ref"]), alpha_refs);
-    assert_eq!(git(&beta, &["show-ref"]), beta_refs);
-    assert_eq!(git(&git_dir, &["show-ref"]), refs);
-    assert_eq!(operation_id(&client), operation);
+    let outer = git(&beta, &["cat-file", "tag", "refs/tags/v1.0"]);
+    assert!(outer.ends_with("\nouter unsigned annotation\n"), "{outer}");
+    let inner = outer
+        .lines()
+        .next()
+        .and_then(|line| line.strip_prefix("object "))
+        .unwrap()
+        .to_owned();
+    let inner = git(&beta, &["cat-file", "tag", &inner]);
+    assert!(inner.ends_with("\nsigned release\n"), "{inner}");
+    assert!(!inner.contains("SIGNATURE"));
 }
 
 #[test]
@@ -6949,7 +6951,7 @@ fn annotation_only_remote_replacement_requires_a_fresh_tag_lease() {
 }
 
 #[test]
-fn signed_transformed_fetch_does_not_grant_sibling_observations_or_leases() {
+fn signed_transformed_fetch_keeps_annotation_without_invalidated_signature() {
     let temp = tempfile::tempdir().unwrap();
     let (_, source, tip) = create_remote(temp.path(), "alpha");
     let client = create_client(temp.path(), false);
@@ -6959,6 +6961,8 @@ fn signed_transformed_fetch_does_not_grant_sibling_observations_or_leases() {
             .unwrap()
             .trim(),
     );
+    // Signatures are not validated: any armor is removed once conversion
+    // changes the object it covers.
     let signed = tag_object(
         &source,
         &tip,
@@ -6967,30 +6971,26 @@ fn signed_transformed_fetch_does_not_grant_sibling_observations_or_leases() {
         "signed\n-----BEGIN PGP SIGNATURE-----\ninvalid\n-----END PGP SIGNATURE-----\n",
     );
     git(&source, &["update-ref", "refs/tags/v1.0", &signed]);
-    git(&source, &["update-ref", "refs/heads/sibling", &tip]);
-    let refs = git(&git_dir, &["show-ref"]);
-    let operation = operation_id(&client);
-    let rejected = jjosh_unchecked(
+    let fetched = jjosh(
         &client,
         &[
             "git",
             "fetch",
             "--remote",
             "alpha-upstream#alpha",
-            "--branch",
-            "sibling",
             "--tag",
             "v1.0",
         ],
     );
-    assert!(!rejected.status.success());
-    assert_eq!(git(&git_dir, &["show-ref"]), refs);
-    assert_eq!(operation_id(&client), operation);
-    assert_eq!(
-        git(&source, &["rev-parse", "refs/tags/v1.0"]).trim(),
-        signed
+    assert!(
+        String::from_utf8_lossy(&fetched.stderr).contains("without its invalidated signature")
     );
-    // The same signed object remains legal on an ordinary unscoped remote.
+    jjosh(&client, &["tag", "track", "v1.0#alpha@alpha-upstream"]);
+    jjosh(&client, &["git", "export"]);
+    let canonical = git(&git_dir, &["cat-file", "tag", "refs/tags/v1.0#alpha"]);
+    assert!(canonical.ends_with("\nsigned\n"), "{canonical}");
+    assert!(!canonical.contains("SIGNATURE"));
+    // The same signed object remains unchanged on an ordinary unscoped remote.
     jjosh(
         &client,
         &["git", "remote", "add", "ordinary", source.to_str().unwrap()],

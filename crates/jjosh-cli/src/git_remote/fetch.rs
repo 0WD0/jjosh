@@ -783,10 +783,16 @@ pub(super) async fn run(
             let name = source
                 .strip_prefix("refs/tags/")
                 .expect("tag classified above");
-            converted.mirror = Some(
-                tag.retarget(&git, commit, session.local_name(name).as_str())
-                    .map_err(user_error)?,
-            );
+            let mirror = tag
+                .retarget(&git, commit, session.local_name(name).as_str())
+                .map_err(user_error)?;
+            if tag.signed() {
+                writeln!(
+                    ui.warning_default(),
+                    "Converted tag {name} without its invalidated signature"
+                )?;
+            }
+            converted.mirror = Some(mirror);
         }
     }
     // Generated objects and native boundary refs must be durable before exposing
