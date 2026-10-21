@@ -398,7 +398,7 @@ async fn cmd_attach(
     }
     let connection = git::remote_connection_id(&git_repo, &remote)
         .map_err(user_error)?
-        .unwrap_or_else(ConnectionId::generate);
+        .unwrap_or_else(|| ConnectionId::new(command.settings().get_rng().new_random_id(16)));
     git::check_remote_owner(workspace.repo().view(), &remote, Some(&connection))
         .map_err(user_error)?;
     if workspace
@@ -519,7 +519,10 @@ async fn cmd_attach(
         .view_mut()
         .project_state_mut()
         .bindings
-        .insert(BindingId::generate(), Merge::resolved(Some(binding)));
+        .insert(
+            BindingId::new(command.settings().get_rng().new_random_id(16)),
+            Merge::resolved(Some(binding)),
+        );
     tx.repo_mut()
         .view_mut()
         .store_view_mut()

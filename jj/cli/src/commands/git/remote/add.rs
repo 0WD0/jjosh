@@ -69,7 +69,7 @@ pub async fn cmd_git_remote_add(
         &args.remote,
         args.binding.project.as_deref(),
     )?;
-    let connection = ConnectionId::generate();
+    let connection = ConnectionId::new(command.settings().get_rng().new_random_id(16));
     let mut binding_args = args.binding.clone();
     if let Some(project) = &requested_scope {
         binding_args.project = Some(
@@ -135,7 +135,10 @@ pub async fn cmd_git_remote_add(
             .view_mut()
             .project_state_mut()
             .bindings
-            .insert(BindingId::generate(), Merge::resolved(Some(binding)));
+            .insert(
+                BindingId::new(command.settings().get_rng().new_random_id(16)),
+                Merge::resolved(Some(binding)),
+            );
     }
     tx.repo_mut()
         .view_mut()

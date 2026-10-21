@@ -2458,11 +2458,17 @@ fn create_git_ref(
 ) -> Result<(), FailedRefExportReason> {
     let new_oid = new_ref_oid.unwrap_or(new_commit_oid);
     let constraint = gix::refs::transaction::PreviousValue::MustNotExist;
+    let full_ref_name: gix::refs::FullName = git_ref_name
+        .as_str()
+        .try_into()
+        .map_err(|err: gix::validate::reference::name::Error| {
+            use gix::error::ErrorExt as _;
+            FailedRefExportReason::FailedToSet(err.and_raise(gix::error::message(
+                "The ref name or path is not a valid ref name",
+            )))
+        })?;
     let edit = gix::refs::transaction::RefEdit::update(
-        git_ref_name
-            .as_str()
-            .try_into()
-            .map_err(|err| FailedRefExportReason::FailedToSet(gix::Error::from_error(err)))?,
+        full_ref_name,
         new_oid,
         constraint,
         "export from jj",
@@ -2497,11 +2503,17 @@ fn move_git_ref(
     let new_oid = new_ref_oid.unwrap_or(new_commit_oid);
     let constraint =
         gix::refs::transaction::PreviousValue::MustExistAndMatch(old_commit_oid.into());
+    let full_ref_name: gix::refs::FullName = git_ref_name
+        .as_str()
+        .try_into()
+        .map_err(|err: gix::validate::reference::name::Error| {
+            use gix::error::ErrorExt as _;
+            FailedRefExportReason::FailedToSet(err.and_raise(gix::error::message(
+                "The ref name or path is not a valid ref name",
+            )))
+        })?;
     let edit = gix::refs::transaction::RefEdit::update(
-        git_ref_name
-            .as_str()
-            .try_into()
-            .map_err(|err| FailedRefExportReason::FailedToSet(gix::Error::from_error(err)))?,
+        full_ref_name,
         new_oid,
         constraint,
         "export from jj",
@@ -4019,7 +4031,10 @@ fn remote_has_config(git_repo: &gix::Repository, remote: &RemoteName) -> bool {
         .sections_by_name("remote")
         .into_iter()
         .flatten()
-        .any(|section| section.header().subsection_name() == Some(BStr::new(remote.as_str())))
+        .any(|section| {
+            section.meta().source == gix::config::Source::Local
+                && section.header().subsection_name() == Some(BStr::new(remote.as_str()))
+        })
 }
 
 pub fn inspect_remote_management(

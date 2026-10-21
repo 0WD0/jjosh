@@ -1524,7 +1524,11 @@ fn test_bookmark_forget_fetched_bookmark() {
         .success();
     insta::assert_snapshot!(get_bookmark_output(&work_dir), @"");
     let output = work_dir.run_jj(["git", "export"]);
-    insta::assert_snapshot!(output, @"");
+    insta::assert_snapshot!(output, @"
+    ------- stderr -------
+    Nothing changed.
+    [EOF]
+    ");
     let output = work_dir.run_jj(["git", "import"]);
     insta::assert_snapshot!(output, @r#"
     ------- stderr -------
@@ -1535,6 +1539,7 @@ fn test_bookmark_forget_fetched_bookmark() {
     let output = work_dir.run_jj(["git", "fetch", "--remote=origin"]);
     insta::assert_snapshot!(output, @r#"
     ------- stderr -------
+    Fetching from Git remotes: origin
     bookmark: feature1@origin [new] tracked
     [EOF]
     "#);

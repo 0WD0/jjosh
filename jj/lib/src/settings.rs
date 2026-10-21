@@ -346,6 +346,16 @@ impl JJRng {
         ChangeId::new(random_bytes)
     }
 
+    /// Generates a random byte string from the settings-seeded RNG.
+    ///
+    /// Used for project and connection identities so that operation contents
+    /// (and therefore operation IDs) are reproducible under
+    /// `debug.randomness-seed`.
+    pub fn new_random_id(&self, length: usize) -> Vec<u8> {
+        let mut rng = self.0.lock().unwrap();
+        (0..length).map(|_| rng.random::<u8>()).collect()
+    }
+
     /// Creates a new RNGs. Could be made public, but we'd like to encourage all
     /// RNGs references to point to the same RNG.
     fn new(seed: Option<u64>) -> Self {

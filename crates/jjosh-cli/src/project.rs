@@ -156,7 +156,13 @@ pub(crate) async fn run(
                     crate::native_project::project_tree(&commit, &root)
                         .await
                         .map_err(user_error)?;
-                    crate::project_config::register(&mut view, &name, &root).map_err(user_error)?;
+                    crate::project_config::register(
+                        &mut view,
+                        &name,
+                        &root,
+                        workspace.settings().get_rng().as_ref(),
+                    )
+                    .map_err(user_error)?;
                     format!("register project {name}")
                 }
                 Command::Rename(args) => {

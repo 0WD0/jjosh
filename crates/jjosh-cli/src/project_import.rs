@@ -18,6 +18,7 @@ use jj_lib::project::BindingId;
 use jj_lib::project::BindingRecord;
 use jj_lib::project::BindingTarget;
 use jj_lib::project::ConnectionId;
+use jj_lib::settings::JJRng;
 use jj_lib::project::ProjectState;
 use jj_lib::project::Representation;
 use jj_lib::project::ScopedRemoteName;
@@ -204,7 +205,8 @@ pub(crate) async fn run_import(
         }
         if matches!(mode, ImportMode::Git) {
             let url = jj_cli::git_util::absolute_git_url(command.cwd(), &path)?;
-            let mut plan = plan_outer(&mut reserved, &name, &mount)?;
+            let mut plan =
+                plan_outer(&mut reserved, &name, &mount, command.settings().get_rng().as_ref())?;
             let remote = RemoteNameBuf::from(format!("origin#{name}"));
             reserve_remotes(&git, &reserved, std::iter::once(&remote), &mut remotes)?;
             let binding = plan.metadata.bindings[&plan.binding]
@@ -308,7 +310,7 @@ pub(crate) async fn run_import(
             plan.reserve_into(&mut reserved);
             (ProjectPlan::Preserved(Box::new(plan)), Some(provenance))
         } else {
-            let plan = plan_outer(&mut reserved, &name, &mount)?;
+            let plan = plan_outer(&mut reserved, &name, &mount, command.settings().get_rng().as_ref())?;
             (ProjectPlan::Outer(plan), None)
         };
         let extra_roots = provenance
@@ -598,12 +600,14 @@ fn plan_outer(
     reserved: &mut View,
     name: &str,
     mount: &RepoPath,
+    rng: &JJRng,
 ) -> Result<OuterPlan, CommandError> {
-    let project = crate::project_config::register(reserved, name, mount).map_err(user_error)?;
-    let binding = BindingId::generate();
+    let project =
+        crate::project_config::register(reserved, name, mount, rng).map_err(user_error)?;
+    let binding = BindingId::new(rng.new_random_id(16));
     let record = jj_lib::merge::Merge::resolved(Some(BindingRecord {
         target: BindingTarget::Project(project.clone()),
-        connection_id: ConnectionId::generate(),
+        connection_id: ConnectionId::new(rng.new_random_id(16)),
         representation: Representation::Whole,
         base: None,
     }));

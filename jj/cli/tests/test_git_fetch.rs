@@ -134,7 +134,7 @@ fn test_git_fetch_with_default_config() {
     ------- stderr -------
     Fetching from Git remotes: origin
     bookmark: origin@origin [new] untracked
-    Operation left uncommitted because --no-integrate-operation was requested: 5500d10ac059
+    Operation left uncommitted because --no-integrate-operation was requested: 02d363d65bb9
     [EOF]
     ");
     // No remote refs to import.

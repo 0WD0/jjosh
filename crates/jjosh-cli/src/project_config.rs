@@ -4,6 +4,7 @@ use jj_lib::object_id::ObjectId as _;
 use jj_lib::op_store::View;
 use jj_lib::project::{BindingTarget, ProjectId, ProjectRecord};
 use jj_lib::repo_path::RepoPath;
+use jj_lib::settings::JJRng;
 
 /// Every active suffix-bearing reference participates in a label claim, including
 /// tracking and local Git mirrors. Never reinterpret a pre-existing literal name.
@@ -113,9 +114,14 @@ pub(crate) fn validate_registration(view: &View, name: &str, root: &RepoPath) ->
     Ok(())
 }
 
-pub(crate) fn register(view: &mut View, name: &str, root: &RepoPath) -> Result<ProjectId> {
+pub(crate) fn register(
+    view: &mut View,
+    name: &str,
+    root: &RepoPath,
+    rng: &JJRng,
+) -> Result<ProjectId> {
     validate_registration(view, name, root)?;
-    let id = ProjectId::generate();
+    let id = ProjectId::new(rng.new_random_id(16));
     view.project_state.projects.insert(
         id.clone(),
         Merge::resolved(Some(ProjectRecord {
