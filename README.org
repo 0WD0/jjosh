@@ -19,10 +19,8 @@ cargo build --locked --release -p jjosh-cli
 export PATH="$PWD/target/release:$PATH"
 #+end_src
 
-历史转换目前要求 SHA-1 Git backend。下面新建非 colocated 仓库，便于以后调整检出布局。
-当前版本写入 =simple_op_store_projects_v3=。父子项目共享同一套 v3 记录与 View 编码；嵌套只改变合法拓扑，不引入新的 store 格式。v1/v2 仓库仍需先用支持旧格式迁移的历史 jjosh 完成升级。
-升级或备份前先读[[file:docs/workflows.org][使用指南]]中的版本边界说明；不要让不兼容的旧程序继续写入。
-即使尚无子项目，通过 jjosh 管理根 remote 也可能启用带连接身份的 v3 存储；此后不能让旧版或上游原版 jj 写入该存储。
+历史转换目前要求 SHA-1 Git backend，所以下面的例子用 =--object-hash sha1= 新建非 colocated 仓库；非 colocated 布局便于以后调整检出方式。
+数据与备份边界见文末[[*数据边界][数据边界]]。
 
 * 最短工作流：带入、修改、发布
 
@@ -63,7 +61,8 @@ jjosh git push --bookmark topic#parser
 
 * 按目标继续
 
-- [[file:docs/workflows.org][使用指南]]：已有目录、Git 和本地 jj 输入；fork 与默认 remote；批量同步、tag、过滤表示、稀疏检出、恢复与旧格式版本边界。
-- [[file:docs/subprojects-design.org][subproject设计]]：项目、引用归属与名称解析、逻辑连接、本地地址和历史观察的统一设计。
+- [[file:docs/workflows.org][使用指南]]：已有目录、Git 和本地 jj 输入；fork 与默认 remote；批量同步、tag、过滤表示、稀疏检出、恢复与数据边界。
+- [[file:docs/subprojects-design.org][subproject 设计]]：项目、引用归属与名称解析、逻辑连接、本地地址和历史观察的状态模型。
+- [[file:docs/project-relocate-spec.org][目录迁移提案]]：尚未实现的 =project relocate= 及其验收条件。
 - [[file:jj/docs/][Jujutsu 文档]]：new、describe、rebase、squash、revset、workspace 等日常用法。
 - [[file:CHANGELOG.md][jjosh 变更记录]]：jjosh 自己的版本变化和兼容性提示。

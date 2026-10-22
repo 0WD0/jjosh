@@ -1,0 +1,142 @@
+#+title: project relocate 设计提案
+#+subtitle: 尚未实现
+#+options: toc:2 num:nil
+
+=project relocate= 目前只是提案。下面的内容是实现前必须满足的合同：命令边界、身份与证据、历史变换、恢复证明、合并语义和验收场景。主设计模型见[[file:subprojects-design.org][subprojects 设计]]。
+
+目标是在同一仓库内改变项目的 canonical 目录，保留开发身份、完整项目历史及可验证的来源关系；不以注销重建、重新导入或工作副本别名替代迁移。
+
+* 命令边界
+
+拟议接口：
+
+#+begin_src sh
+jjosh project relocate dotfiles-guix --to guix-config --name guix-config --dry-run
+jjosh project relocate dotfiles-guix --to guix-config --name guix-config
+jjosh project relocate --resume OPERATION
+#+end_src
+
+=--to= 是明确的仓库 canonical 根坐标，不随调用者 cwd 或 sparse 映射解释。=--name= 可选，仅同时改变显示名。原有 =project rename= 保持只改显示名的合同。
+
+此操作是显式历史重写，不是添加一个普通的目录移动提交。它从当前已记录开发图出发，保留用户已经修改的提交说明和内容；不重新拿原始上游图覆盖本地历史。历史提交的路径与父 ID 随迁移变化，旧 operation 及来源对象不重写。
+
+稳定 label 不随目录移动，因而书签后缀、物理 remote 名、URL、项目默认 fetch/push 设置不发生隐式改名。label 是独立的引用命名空间，不是目录 basename；更换 label 不属于此命令。新工作树不保留旧目录 symlink 或兼容路径。
+
+=--dry-run= 不发布 operation、不改登记、引用或工作文件，也不暗中 snapshot。它展示基于记录状态的计划；发现未记录的物理改动时要求先快照再预览。实际执行按正常工作副本规则先保存本地修改，然后重新规划并复核，不能照搬过期预览。
+
+计划必须列出：目录与嵌套项目变化、改写提交/引用/签名、需要替换的绑定、受到真实内容变化影响的父级交付范围、工作副本更新及阻塞条件。不可变历史仍受现有保护，不能在 relocate 内偷偷绕过。
+
+* 身份与证据
+
+| 状态 | 迁移合同 |
+|------+----------|
+| ProjectId、ConnectionId | 保持；位置变化不是新项目或新 remote |
+| ChangeId、描述、作者、有序父关系、空提交、divergence | 保持；父 commit ID 按同一映射改写 |
+| 未受影响的完整 commit | 原样复用，不为更新 committer 时间而重写 |
+| 被改写 commit 的已有元数据 | 显式保留，不能依赖 builder 的默认补全/更新时间行为 |
+| 加密签名 | 原对象保留；改写后不沿用失效签名，计划报告移除范围 |
+| BindingId | 需要新的 canonical 对应关系时轮换，不覆盖原命名空间 |
+| raw ID、source base、filter/view 文本、normalization generation | 不变，均属来源坐标或来源证据 |
+| endpoint/wire-ref publication lease | 字节不变；迁移不代表 fetch、push 或观察到远端不存在 |
+
+现有 native 锚点以 =(BindingId, kind, raw ID)= 唯一定位 canonical 版本，不能把原值直接改指向新提交。对证明等价且需要搬运证据的绑定分配新 BindingId，保持其 BindingRecord 字段和连接身份，安装新命名空间后在新 View 中替换活动绑定。旧定义、锚点及原始材料仍供旧 operation 使用；同一连接或同一项目的旧/新 offline 绑定不能同时作为当前有效来源，避免同一 raw ID 对应两个 canonical 版本。
+
+绑定轮换不是注销项目，也不是忘掉 provenance。它比为所有转换消费者引入第二个 canonical epoch 轴更窄；不得借用现有 raw normalization generation 表达目录迁移。
+
+* 历史变换与范围
+
+令 =T= 为源前缀 A 到目标前缀 B 的精确树变换，=M= 为 canonical commit 映射：
+
+#+begin_example
+tree(M(C))    = T(tree(C))
+parents(M(C)) = map(M, parents(C))  ; 顺序不变
+#+end_example
+
+逐个变换完整树的 signed terms，再设置映射后的父提交；不能通过补丁 rebase 猜测 rename，也不能落盘冲突标记再解析回去。变换仅移动目录条目，不搜索替换源码内容或提交说明。项目相对树、其他路径的文件内容和完整父图应可逐项验证。
+
+遍历根包括所有开发 heads、workspace commits、本地 bookmarks/tags、各类引用的正负项，以及观察和私有 provenance 中的 canonical 根。当前不可见的原始导入锚点也必须纳入；重写过描述的当前版本和隐藏原始版本不能混为一个版本。隐藏证据迁移后仍是隐藏证据，不提升为开发 head。
+
+遍历某个引用的祖先不等于可以重定向该引用。普通 rewrite helper 不覆盖全部 tag、观察及 Git baseline；relocate 必须建立显式的按所有者分类的引用计划。
+
+| 交付范围 | 处理 |
+|----------+------|
+| 被移动项目及其嵌套子项目 | 根按相同前缀变换；验证项目相对历史等价后迁移 canonical 证据 |
+| 不相交项目，但锚点引用的完整 commit 改变 | 只有相对历史等价才迁移上下文；必要时也轮换其绑定，不能只检查项目路径字符串 |
+| 父项目、目标的包围项目、RepositoryView、普通根 remote | 可能是实际交付内容变化；旧远端观察与 raw 锚点保持原意，新本地图不能冒充已经被远端观察到 |
+
+等价证明包含相对树、投影后的有序祖先及边界语义，不只比较 tip 文件。父级 filter 排除了移动目录，也仍须证明其表示不变。不能为了使引用全部显示新目录，就伪造父级或整仓库的 raw→canonical 关系。
+
+对等价绑定，迁移完整 signed observation 和相应的 canonical remote targets/mirrors；保留 raw 项、缺失项、正负号、base、generation、来源 binding 的连接和独立的目标 connection。revision observation 的 raw ID 键、直接 tag 对象和 endpoint lease 不改。非等价范围保留真实旧观察，不把它们当作新图的精确转换边界。
+
+登记在 A 内的子项目自动保持后缀并移动，保留其 ID。所有严格包围范围都进入影响清单；不能把合法的项目嵌套一律当冲突。目标占用、非目录祖先和等根登记冲突须检查每个被变换的历史树项，不只是当前工作树。A/B 自身相等、互相包含、历史目标占用或映射产生无法无损保留的版本歧义时拒绝，不合并内容、不挑选赢家。
+
+* 可恢复的迁移证明
+
+增加一个不可变、内容寻址的 =ProjectRelocation= 证明，由 operation View 引用，包含：
+
+- 规划所依据的 operation；
+- 每个移动项目的 ProjectId、旧根和新根；
+- 覆盖开发及隐藏证据闭包的旧/新 canonical 根对；
+- 旧/新 BindingId 对应及其等价交付范围。
+
+canonical 根对的父图保持同构，可按有序父边恢复完整 M；与普通 operation 的 =commit_predecessors= 配合，不另存一份逐文件迁移日志或每次查询都猜旧目录。执行期间共用重写映射和树缓存，只生成改变的对象。
+
+证明不能只放在 operation 描述文本或易失缓存里。活动迁移链、旧 operation、尚未更新的 workspace 及转换证据需要的证明和 canonical 根均参与保活；原 raw 对象、native 锚点、source generations 和 leases 继续按原规则保留。迁移不顺带做来源 GC。
+
+* operation 合并、恢复与格式
+
+仅放宽 =canonical_root= 的一个赋值点不成立：当前读取/校验把同一 ProjectId 的不同根项视为损坏，而并发迁移会合法产生这种状态。
+
+新模型将位置差异表示为可持久化的项目冲突，保留完整 signed candidates。涉及坐标变化的 operation 合并必须先按迁移证明选择共同坐标并正规化 base/双方的图、项目根、等价绑定证据和 workspace 选择，再使用普通合并机制；不能直接把旧路径补丁 rebase 到新图。
+
+- 迁移与旧坐标下的内容/描述修改并发：按明确的迁移链搬运对方修改，不能复活旧目录或遗漏改动。
+- 双方都迁到相同目标：只有证明和绑定证据可统一才合并；相同路径字符串不足以证明等价。
+- 同一项目迁向不同目标，或无法唯一正规化：保留可读取的位置冲突，阻断受影响的项目定位与传输，不生成貌似正常的混合目录。resolve 选择目标坐标时须调用同一迁移规划器，不能只挑一个根字段。
+- 完整 undo/redo/restore：一起恢复图、位置、活动绑定和 workspace 选择，旧命名空间仍可用；不倒退外部 publication lease。
+- Repo 与 RemoteTracking 的部分恢复：先证明并翻译等价的历史证据；无法与所选位置兼容时明确拒绝，不丢弃观察，也不把旧 binding 强行当作新上下文。
+
+这些是功能完成条件，不是路径移动之后再补的边角。新证明字段及位置冲突语义需要新的项目格式；旧 View 保持可读，不能让不理解迁移的程序写入新状态。
+
+* 工作副本与发布顺序
+
+1. 从单一已集成 operation 开始，先 snapshot 当前工作副本，再捕获图、项目、引用、实际 checkout/layout 和物理资源见证。删除与未提交修改都进入输入，不能因迁移重新从来源恢复文件。
+2. 预检全部记录状态和历史目标占用，在隔离的计划中建立新图、绑定命名空间、证明及最终 View。旧 provenance 不覆盖；标签、Git config 和 endpoint ledger 不变。
+3. 发布前在相应锁下复核 base operation 和资源 expected-old。过期计划作废；普通 Transaction::publish 的加锁不等于已经做了 expected-base 校验。
+4. 发布一个完整的逻辑迁移 operation。准备性 snapshot/layout baseline 和收敛完成记录可以另有 operation，不能谎称整个命令只产生一个操作记录。
+5. 发布后按所有权与 CAS 收敛需要改变的 canonical Git mirrors，并以新 commit 和新 sparse/layout 更新当前工作副本。完成情况从已发布证明、所选 View 和真实资源核对，=--resume OPERATION= 不重放一次逻辑迁移或盲覆写并发结果。
+
+需要物理 Git ref 更新时，迁移 View 同时携带受影响引用的所有者、expected-old/new 和待收敛标记；CAS 完成后用单独的完成 operation 清除标记。仓库加载及自动 Git-ref 导入必须识别它，在完成前阻断受影响的传输/自动导入，保留检查和恢复入口，不能把尚未搬完的旧 mirror 当作新的远端变化。并发修改使 expected-old 不再成立时重新集成并验证证据，不能强制写回。这只是仓库拥有的 refs 的前向收敛状态，不是覆盖所有外部资源的回滚日志；workspace 的实际更新继续由各自的 stale/guard 状态管理。
+
+其他 workspace 的已记录 heads 和 canonical 选择进入同一逻辑计划，但不假定其磁盘干净，也不静默修改另一个编辑会话。它们继续保持旧 actual checkout，下一次更新时先在旧坐标 snapshot 本地改动，再按迁移证明翻译，最后 checkout 新状态。因此 =update-stale= 的迁移感知是必需的，不能仅把 recorded head 改掉便宣布完成。
+
+sparse 规则及 mapping source 属于 canonical 坐标，explicit physical destination 是另一回事。完整 identity checkout 跟随新目录；用户明确映射到固定位置的工作区保留该位置。通过 fileset AST 和映射语义改写、校验覆盖范围；不能简单替换字符串。无法证明无损转换的规则在发布前报告具体 workspace/规则并拒绝，要求显式给出新选择，不能悄悄 reset 或藏掉其他项目。
+
+物理迁移必须预检自己的删除/覆盖范围，即使 sparse 配置没变也一样。忽略文件、未跟踪文件、目标碰撞和外部编辑不能当作已 snapshot 的内容覆盖或清理。JJ 工作副本锁不能阻止编辑器写入；破坏性物化前须复核受影响文件，发现变化时保留实际内容并停止。
+
+不承诺跨 operation、Git refs、来源对象和多个文件系统的全局 ACID，也不引入一套总回滚 journal。发布前失败只留下未激活的不可变材料；发布后失败保留新逻辑状态并报告待完成资源，不能用恢复旧 operation 冒充补偿事务。部分物化后的 in-progress guard 不自动删除；该状态按现有保留文件/替换 workspace 合同恢复，不能强行 snapshot 半新半旧的目录。
+
+* 实现落点与验收
+
+核心实现应分为可复用的迁移规划/证明、exact-tree 改写、按绑定搬运证据、逻辑发布、物理收敛；CLI 只组织这些已有状态边界，不复制一套 project import 或 Git 传输实现。
+
+- =core/project.rs=、=project_store.rs=、=view/restore.rs=、=repo.rs=：位置冲突、证明引用、格式、合并/恢复及完整引用处理。
+- =rewrite.rs=、=native_source.rs=、=native_import.rs=：复用精确树和图遍历机制，不复用导入的去重、身份创建或清空 workspace 策略。
+- =native_project.rs=、=project_provenance.rs=、=git_remote/=：新绑定证据、所有权分类、隐藏根保活、正常 fetch/push 的迁移后续接。
+- =cli_util.rs=、=working_copy_patterns.rs=、=local_working_copy.rs=：实际布局下的 snapshot、规则变换、stale 更新、guard 与资源见证。
+
+验收必须覆盖消费者可见行为，而不只是字段复制：
+
+| 场景 | 必须观察到的结果 |
+|------+----------------|
+| offline Whole 导入后改写过描述再 relocate | 当前描述保留，隐藏原始锚点仍能支持后续接入 remote，不重新导入旧描述 |
+| 多分支、merge、空提交、divergence、冲突树、本地 tag | 图与版本身份完整；只改变明确的目录/父 ID，不丢 head 或简化冲突 |
+| Whole、filter、versioned view 的真实 fetch/push | 等价项目继续往返，filter 外内容不变；raw/generation/lease 未被迁移伪造 |
+| 不相交项目共享完整 commit、父子项目、RepositoryView/根 remote | 等价上下文可续接；实际内容变化不能复用旧 raw 输出 |
+| 当前删除/修改、另一个 dirty/stale workspace | 本地改动保存且归到新路径；不会重新出现旧目录或恢复已删除文件 |
+| identity、固定物理目录、复杂 sparse 规则、目标未跟踪文件 | 不漏检出、不覆盖；无法无损处理的状态在指定边界拒绝 |
+| 并发编辑/rename/不同目的迁移、完整及部分恢复 | 正规化或持久化明确冲突；旧 operation 可读，绑定/观察没有静默损失 |
+| 历史目标占用、不可变提交、缺失 provenance、版本对应歧义 | 在发布前拒绝，不靠清缓存、重 fetch 或任选版本继续 |
+| 发布前失败、operation 已发布但 ref/checkout 失败 | 真实状态可辨认，恢复不覆盖并发结果、不伪造 rollback 或新 lease |
+
+回归测试之外，实施后还须用隔离的真实本地 remote 跑完整 relocate→fetch/push→undo/redo 往返。=dotfiles-guix= 的最终 cutover 还须从新路径实际求值 Home/system 配置与保留包 derivation；仅重命名元数据或测试中模拟 forwarding 不算完成。
+

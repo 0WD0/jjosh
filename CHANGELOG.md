@@ -8,11 +8,10 @@
 ### 不兼容变化
 
 - subproject 的项目定义、稳定 label、不可变 binding、connection 身份和转换观察由 JJ operation 持有。
-  当前写入格式继续是 `simple_op_store_projects_v3`；嵌套项目只放宽拓扑校验，不改变 ProjectRecord、View 编码或 operation-store 类型。v1/v2 仅保留读取兼容，当前版本不提供旧格式迁移器。
-- `project migrate` 与通用 legacy-adoption 实现已退役。仍停留在旧 project store 的仓库，需要先用支持对应格式的历史 jjosh 完成升级。
+  写入格式为 `simple_op_store_projects_v3`；嵌套项目只放宽拓扑校验，不改变 ProjectRecord、View 编码或 operation-store 类型。
 - 旧的 `jjosh native`、`link` 以及早期 projection/project 管理入口不再作为兼容别名保留。日常远端同步统一走 `jjosh git fetch/push`，项目管理统一走 `jjosh project`。
 - project 本地引用继续使用 `NAME#LABEL` 约定。活动 label 会占用对应后缀；不会为了同时支持同名字面根引用而自动重新解释已有 refs。
-- jjosh 的 sparse 工作副本使用 fileset 选择与显式路径映射；复杂 sparse/layout 状态写入 operation，并使用新的 working-copy / operation-store 格式标记，旧 writer 会被拒绝。
+- jjosh 的 sparse 工作副本使用 fileset 选择与显式路径映射；复杂 sparse/layout 状态写入 operation，并带 working-copy / operation-store 格式标记。
 
 ### 主要能力
 
