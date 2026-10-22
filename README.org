@@ -2,17 +2,19 @@
 #+subtitle: 在一起开发，向各自的仓库发布
 #+options: toc:nil num:nil
 
-jjosh 扩展 [[file:jj/][Jujutsu]]，让一个本地仓库里的多个项目与各自的 Git 仓库交换历史；仓库布局的转换由 [[file:josh/][Josh]] 完成。
-你可以在同一个 change 中修改应用和依赖，一起构建、测试，再只把依赖的修改送回它的上游或 fork。
-日常仍使用 jj 的修改图、书签、冲突处理和 operation history。
+jjosh 扩展 [[file:jj/][Jujutsu]]：多个 Git 仓库以普通目录出现在同一个本地仓库里，共享一张修改图；目录布局与历史的转换由 [[file:josh/][Josh]] 完成。
+你可以在同一个 change 中修改应用和依赖，一起构建、测试，再只把各项目的修改送回它们自己的上游或 fork。
+本地没有 submodule 或嵌套仓库，各远端收到的仍是普通的单仓库历史。
+日常操作仍是 jj 的修改图、书签、冲突处理和 operation history，由 =jjosh= 提供。
 
 项目指定本地哪部分内容独立交付；项目的 remote 指定外部仓库及其布局。
 每个项目和仓库根各有自己的 remote 名字，因此都可以叫 =origin=。
+=NAME#LABEL= 是本地交付版本，=NAME#LABEL@REMOTE= 是该 remote 已记录的状态；=#LABEL= 是项目的稳定引用后缀，不随显示名或目录变化。
 
 * 安装与准备
 
-需要 Rust 1.99+、Git，以及本仓库中的 =jj/=、=josh/=、=gitoxide/= 本地源码。
-在仓库根目录构建并加入 PATH：
+需要 Rust 1.99+ 和 Git。=jjosh= 由本目录中的 =jj/=、=josh/=、=gitoxide/= 源码构建，并沿用 jj 的用户配置。
+在 =jjosh/= 目录构建并加入 PATH：
 
 #+begin_src sh
 cargo build --locked --release -p jjosh-cli
@@ -20,7 +22,6 @@ export PATH="$PWD/target/release:$PATH"
 #+end_src
 
 历史转换目前要求 SHA-1 Git backend，所以下面的例子用 =--object-hash sha1= 新建非 colocated 仓库；非 colocated 布局便于以后调整检出方式。
-数据与备份边界见文末[[*数据边界][数据边界]]。
 
 * 最短工作流：带入、修改、发布
 
@@ -56,13 +57,15 @@ jjosh git push --bookmark topic#parser
 
 远端收到 =topic= 分支，内容来自 =libs/parser/=，并放在远端根目录。
 同一提交中的应用修改不会被这个项目的发布带走。
-=#parser= 是稳定的项目引用 label；=main#parser@origin= 读取 parser 的 origin 记录，=topic#parser= 则选定本地交付版本。
 书签指向完整提交，并不是一个只含 parser 文件的提交。
+
+* 当前边界
+
+- 历史转换只支持 SHA-1 Git 仓库；用 SHA-256 初始化的仓库无法完成 fetch、push 或 import。
+- 项目定义、绑定、观察和 provenance 随 jj operation 保存。受管仓库只应由当前 jjosh 写入；上游 jj 和旧版 jjosh 不理解这些数据。
+- 普通 =git clone= 只包含可见历史，不是完整备份。不可重建的 provenance 在 jj operation 和来源对象库中，备份范围见[[file:docs/subprojects-design.org][subproject 设计]]中的“持久化与数据边界”。
 
 * 按目标继续
 
-- [[file:docs/workflows.org][使用指南]]：已有目录、Git 和本地 jj 输入；fork 与默认 remote；批量同步、tag、过滤表示、稀疏检出、恢复与数据边界。
-- [[file:docs/subprojects-design.org][subproject 设计]]：项目、引用归属与名称解析、逻辑连接、本地地址和历史观察的状态模型。
-- [[file:docs/project-relocate-spec.org][目录迁移提案]]：尚未实现的 =project relocate= 及其验收条件。
-- [[file:jj/docs/][Jujutsu 文档]]：new、describe、rebase、squash、revset、workspace 等日常用法。
-- [[file:CHANGELOG.md][jjosh 变更记录]]：jjosh 自己的版本变化和兼容性提示。
+- [[file:docs/workflows.org][使用指南]]：已有目录、Git 和本地 jj 输入；fork 与默认 remote；批量同步、tag、过滤表示、稀疏检出与恢复。
+- [[file:docs/subprojects-design.org][subproject 设计]]：项目、引用归属与名称解析、逻辑连接、本地地址、历史观察与数据边界的状态模型。
