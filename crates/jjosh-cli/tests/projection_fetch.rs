@@ -1,6 +1,7 @@
 #![cfg(unix)]
 
 use std::fs;
+use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -87,10 +88,38 @@ fn ordinary_fetch_batches_observations_and_leaves_unchanged_packs_alone() {
         );
     }
     jjosh(&client, &["git", "init", "--colocate"]);
-    jjosh(
+    let ssh = temp.path().join("fake-ssh");
+    let calls = temp.path().join("ssh-calls");
+    fs::write(
+        &ssh,
+        r#"#!/bin/sh
+set -eu
+case " $* " in *" -G "*) exit 0 ;; esac
+echo connection >> "$(dirname "$0")/ssh-calls"
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    "git-upload-pack")
+      shift
+      path=$1
+      path=${path#\'}
+      path=${path%\'}
+      exec git-upload-pack "$path"
+      ;;
+    "git-upload-pack "*) exec sh -c "$1" ;;
+  esac
+  shift
+done
+exit 2
+"#,
+    )
+    .unwrap();
+    fs::set_permissions(&ssh, fs::Permissions::from_mode(0o755)).unwrap();
+    git(
         &client,
-        &["git", "remote", "add", "origin", source.to_str().unwrap()],
+        &["config", "core.sshCommand", ssh.to_str().unwrap()],
     );
+    let remote_url = format!("ssh://dummy{}", source.display());
+    jjosh(&client, &["git", "remote", "add", "origin", &remote_url]);
     let packs = || {
         let directory = client.join(".git/objects/pack");
         let mut paths: Vec<_> = fs::read_dir(directory)
@@ -108,6 +137,7 @@ fn ordinary_fetch_batches_observations_and_leaves_unchanged_packs_alone() {
     let before = packs();
     jjosh(&client, &fetch);
     let after = packs();
+    assert_eq!(fs::read_to_string(&calls).unwrap().lines().count(), 2);
     assert!(
         after.len() <= before.len() + 2,
         "fetch must batch observation objects instead of making a pack per ref: {} new packs",
@@ -126,6 +156,11 @@ fn ordinary_fetch_batches_observations_and_leaves_unchanged_packs_alone() {
     let first = observations();
     assert_eq!(first.lines().count(), 25);
     jjosh(&client, &fetch);
+    assert_eq!(
+        fs::read_to_string(&calls).unwrap().lines().count(),
+        3,
+        "unchanged fetch needs only discovery, without a second SSH connection"
+    );
     assert_eq!(packs(), after, "unchanged fetch must not create packs");
     assert_eq!(observations(), first);
 
@@ -135,6 +170,7 @@ fn ordinary_fetch_batches_observations_and_leaves_unchanged_packs_alone() {
     fs::write(source.join("file.txt"), "advanced\n").unwrap();
     git(&source, &["commit", "-am", "advance main"]);
     jjosh(&client, &fetch);
+    assert_eq!(fs::read_to_string(&calls).unwrap().lines().count(), 5);
     let renewed = observations();
     assert_eq!(renewed.lines().count(), 25);
     assert_ne!(renewed, first);

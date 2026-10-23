@@ -548,6 +548,7 @@ pub(super) async fn run(
         }
         negotiation_tips.sort_unstable();
         negotiation_tips.dedup();
+        let retained_objects = old_raw.values().copied().collect();
         let outcome = crate::git_transport::fetch::fetch(
             if options.fetch_url.is_some() {
                 raw_git.remote_at(endpoint.as_str()).map_err(user_error)?
@@ -565,6 +566,7 @@ pub(super) async fn run(
             &revisions,
             shallow,
             negotiation_tips,
+            &retained_objects,
             &AtomicBool::new(false),
         )
         .map_err(user_error)?;

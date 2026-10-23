@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -21,8 +22,8 @@ pub(crate) struct Outcome {
 /// Discover all refs, then receive only the selected, advertisement-pinned objects.
 ///
 /// Neither connection has destination refspecs or automatic tag mappings. The
-/// second connection requests literal object IDs, never names that may have moved
-/// since discovery. A server refusing those IDs fails the operation.
+/// second connection, when needed, requests literal object IDs, never names that
+/// may have moved since discovery. A server refusing those IDs fails the operation.
 /// Only the caller's retained raw commit tips seed negotiation, not unrelated
 /// canonical histories or internal GC retention refs in the monorepo.
 pub(crate) fn fetch(
@@ -31,6 +32,7 @@ pub(crate) fn fetch(
     revisions: &[gix::ObjectId],
     shallow: gix::remote::fetch::Shallow,
     negotiation_tips: Vec<gix::ObjectId>,
+    retained_objects: &BTreeSet<gix::ObjectId>,
     interrupt: &AtomicBool,
 ) -> anyhow::Result<Outcome> {
     ensure!(!interrupt.load(Ordering::Relaxed), "Git fetch interrupted");
@@ -58,11 +60,17 @@ pub(crate) fn fetch(
         .collect();
     ensure!(!interrupt.load(Ordering::Relaxed), "Git fetch interrupted");
 
+    let reuse_objects = matches!(shallow, gix::remote::fetch::Shallow::NoChange);
     let keep_paths = receive_objects(
         remote,
         received
             .iter()
             .filter_map(|reference| reference.unpack().1.map(ToOwned::to_owned))
+            // Retained raw refs already protect these exact received objects.
+            // Still discover the current advertisement, but avoid reconnecting
+            // just to confirm an unchanged selection. Depth changes must always
+            // reach the server, even when every tip is already available.
+            .filter(|id| !reuse_objects || !retained_objects.contains(id))
             .chain(revisions.iter().copied()),
         shallow,
         negotiation_tips,
