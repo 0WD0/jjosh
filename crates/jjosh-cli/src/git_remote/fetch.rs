@@ -146,6 +146,7 @@ fn install_refs(
     }
     let updates = new
         .iter()
+        .filter(|(name, id)| old.get(*name) != Some(*id))
         .map(|(name, id)| {
             Ok(RefEdit {
                 name: name.as_str().try_into().map_err(user_error)?,
@@ -591,7 +592,8 @@ pub(super) async fn run(
                 if let Some((_, name)) = source_ref(source)
                     && let Some((_, label)) = name.rsplit_once('#')
                     && session
-                        .view.projects()
+                        .view
+                        .projects()
                         .resolve_label(label)
                         .map_err(user_error)?
                         .is_some()
@@ -763,14 +765,14 @@ pub(super) async fn run(
         }
         // Only a successfully converted selection advances publication leases.
         if let Some(transaction) = &transaction {
-            for source in converted.keys().filter(|name| source_ref(name).is_some()) {
-                match advertised.get(source).copied().flatten() {
-                    Some(id) => {
-                        crate::remote_refs::record_observation(transaction, &endpoint, source, id)?
-                    }
-                    None => crate::remote_refs::record_absence(transaction, &endpoint, source)?,
-                }
-            }
+            crate::remote_refs::record_observations(
+                transaction,
+                &endpoint,
+                converted
+                    .keys()
+                    .filter(|name| source_ref(name).is_some())
+                    .map(|source| (source.as_str(), advertised.get(source).copied().flatten())),
+            )?;
         }
     }
     for (source, tag) in annotations {

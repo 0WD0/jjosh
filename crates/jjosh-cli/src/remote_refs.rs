@@ -56,13 +56,10 @@ pub(crate) fn validate_publication_record(
 
 // Leases store object identities, not object reachability. In particular, a
 // shallow source's raw commit must never become a root in the canonical ODB.
-fn observation_key(
-    transaction: &josh_core::cache::Transaction,
-    remote: &str,
-    destination: &str,
-) -> Result<gix_hash::ObjectId, CommandError> {
+fn observation_key(remote: &str, destination: &str) -> Result<gix_hash::ObjectId, CommandError> {
     let key = format!("{remote}\0{destination}");
-    josh_core::objects::write_blob(transaction.odb(), key.as_bytes()).map_err(user_error)
+    gix_object::compute_hash(gix_hash::Kind::Sha1, gix_object::Kind::Blob, key.as_bytes())
+        .map_err(user_error)
 }
 
 fn save_observation(
@@ -76,21 +73,27 @@ fn save_observation(
             "A publication observation must identify a branch or tag",
         ));
     }
-    let key = observation_key(transaction, remote, destination)?;
+    let key = observation_key(remote, destination)?;
     let reference = format!("{}{key}", PUBLICATION_PREFIXES[0]);
     let previous = transaction.resolve_ref(&reference).map_err(user_error)?;
-    let value = josh_core::objects::write_blob(transaction.odb(), value).map_err(user_error)?;
-    transaction
-        .update_ref(
-            &reference,
-            previous.map_or(
-                josh_core::cache::Expected::Absent,
-                josh_core::cache::Expected::At,
-            ),
-            value,
-            "observe remote object identity",
-        )
+    let value_id = gix_object::compute_hash(gix_hash::Kind::Sha1, gix_object::Kind::Blob, value)
         .map_err(user_error)?;
+    // Renewing unchanged evidence needs no objects or ref writes. In particular,
+    // do not refill the memory ODB and rescan every pack just to flush duplicates.
+    if previous != Some(value_id) {
+        let value = josh_core::objects::write_blob(transaction.odb(), value).map_err(user_error)?;
+        transaction
+            .update_ref(
+                &reference,
+                previous.map_or(
+                    josh_core::cache::Expected::Absent,
+                    josh_core::cache::Expected::At,
+                ),
+                value,
+                "observe remote object identity",
+            )
+            .map_err(user_error)?;
+    }
     // Renewing an observation upgrades its previous on-disk representation.
     // Never reset an existing lease merely because the storage format changed.
     let old = format!("{}{key}", PUBLICATION_PREFIXES[1]);
@@ -98,6 +101,20 @@ fn save_observation(
         transaction
             .delete_ref(&old, josh_core::cache::Expected::At(value))
             .map_err(user_error)?;
+    }
+    Ok(())
+}
+
+/// Publish a fetched selection with one durability boundary, rather than making
+/// a tiny pack and reopening the complete pack index for every advertised ref.
+pub(crate) fn record_observations<'a>(
+    transaction: &josh_core::cache::Transaction,
+    remote: &str,
+    observations: impl IntoIterator<Item = (&'a str, Option<gix_hash::ObjectId>)>,
+) -> Result<(), CommandError> {
+    for (destination, object) in observations {
+        let value = object.map_or_else(|| "absent".to_owned(), |id| id.to_string());
+        save_observation(transaction, remote, destination, value.as_bytes())?;
     }
     transaction.flush_mem_odb().map_err(user_error)
 }
@@ -108,12 +125,7 @@ pub(crate) fn record_observation(
     destination: &str,
     object: gix_hash::ObjectId,
 ) -> Result<(), CommandError> {
-    save_observation(
-        transaction,
-        remote,
-        destination,
-        object.to_string().as_bytes(),
-    )
+    record_observations(transaction, remote, [(destination, Some(object))])
 }
 
 /// Missing ledger state is not evidence that the remote reference is absent.
@@ -123,7 +135,7 @@ pub(crate) fn observation(
     destination: &str,
 ) -> Result<crate::git_transport::push::Expected, CommandError> {
     use crate::git_transport::push::Expected;
-    let key = observation_key(transaction, remote, destination)?;
+    let key = observation_key(remote, destination)?;
     if let Some(id) = transaction
         .resolve_ref(&format!("{}{key}", PUBLICATION_PREFIXES[0]))
         .map_err(user_error)?
@@ -154,7 +166,7 @@ pub(crate) fn record_absence(
     remote: &str,
     destination: &str,
 ) -> Result<(), CommandError> {
-    save_observation(transaction, remote, destination, b"absent")
+    record_observations(transaction, remote, [(destination, None)])
 }
 
 /// A commit tag chain, with its original annotation bytes in outer-to-inner order.

@@ -66,6 +66,95 @@ fn operation_id(cwd: &Path) -> String {
 }
 
 #[test]
+fn ordinary_fetch_batches_observations_and_leaves_unchanged_packs_alone() {
+    let temp = tempfile::tempdir().unwrap();
+    let source = temp.path().join("source");
+    let client = temp.path().join("client");
+    for path in [&source, &client] {
+        fs::create_dir(path).unwrap();
+        git(path, &["init", "-b", "main"]);
+        git(path, &["config", "user.name", "Smoke Test"]);
+        git(path, &["config", "user.email", "smoke@example.com"]);
+    }
+    fs::write(source.join("file.txt"), "source\n").unwrap();
+    git(&source, &["add", "."]);
+    git(&source, &["commit", "-m", "source"]);
+    for i in 0..12 {
+        git(&source, &["branch", &format!("topic-{i}")]);
+        git(
+            &source,
+            &["tag", "-a", &format!("v{i}"), "-m", &format!("version {i}")],
+        );
+    }
+    jjosh(&client, &["git", "init", "--colocate"]);
+    jjosh(
+        &client,
+        &["git", "remote", "add", "origin", source.to_str().unwrap()],
+    );
+    let packs = || {
+        let directory = client.join(".git/objects/pack");
+        let mut paths: Vec<_> = fs::read_dir(directory)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| {
+                path.extension()
+                    .is_some_and(|extension| extension == "pack")
+            })
+            .collect();
+        paths.sort();
+        paths
+    };
+    let fetch = ["git", "fetch", "--branch", "*", "--tag", "*"];
+    let before = packs();
+    jjosh(&client, &fetch);
+    let after = packs();
+    assert!(
+        after.len() <= before.len() + 2,
+        "fetch must batch observation objects instead of making a pack per ref: {} new packs",
+        after.len() - before.len()
+    );
+    let observations = || {
+        git(
+            &client,
+            &[
+                "for-each-ref",
+                "--format=%(refname) %(objectname)",
+                "refs/jjosh/observations/",
+            ],
+        )
+    };
+    let first = observations();
+    assert_eq!(first.lines().count(), 25);
+    jjosh(&client, &fetch);
+    assert_eq!(packs(), after, "unchanged fetch must not create packs");
+    assert_eq!(observations(), first);
+
+    // A real update must still renew the lease, including explicit absences.
+    git(&source, &["branch", "-D", "topic-0"]);
+    git(&source, &["tag", "-d", "v0"]);
+    fs::write(source.join("file.txt"), "advanced\n").unwrap();
+    git(&source, &["commit", "-am", "advance main"]);
+    jjosh(&client, &fetch);
+    let renewed = observations();
+    assert_eq!(renewed.lines().count(), 25);
+    assert_ne!(renewed, first);
+    let absent = gix_object::compute_hash(gix_hash::Kind::Sha1, gix_object::Kind::Blob, b"absent")
+        .unwrap()
+        .to_string();
+    assert_eq!(
+        renewed
+            .lines()
+            .filter(|line| line.ends_with(&absent))
+            .count(),
+        2
+    );
+    assert_eq!(
+        git(&client, &["rev-parse", "refs/remotes/origin/main"]),
+        git(&source, &["rev-parse", "main"])
+    );
+}
+
+#[test]
 fn fetch_projects_refs_and_imports_only_visible_changes() {
     let temp = tempfile::tempdir().unwrap();
     let upstream_work = temp.path().join("upstream-work");
