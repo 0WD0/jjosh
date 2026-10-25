@@ -1,15 +1,5 @@
 //! A benchmark for `gix-blame`. It benchmarks blames for files in `gitoxide` itself, in order to
 //! exercise somewhat realistic workloads.
-//!
-//! ## Running the benchmark
-//!
-//!     # to capture a baseline
-//!     cargo bench -p gix-blame --bench blame -- --save-baseline baseline
-//!
-//!     # to compare a change against a captured baseline
-//!     cargo bench -p gix-blame --bench blame -- --baseline baseline
-//!
-//! Since `gitoxide` uses SHA-1 hashes, we can hardcode `object_hash` to `Sha1`.
 use std::path::PathBuf;
 
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
