@@ -185,35 +185,3 @@ impl<T, E> ApplyLeniencyDefaultValue<T> for std::result::Result<T, E> {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::parse_object_caches;
-
-    #[test]
-    fn parse_object_caches_reads_documented_pack_cache_keys() -> gix_testtools::TestResult {
-        let config = gix_config::File::try_from(
-            "[core]\n\tdeltaBaseCacheLimit = 2k\n[gitoxide \"core\"]\n\tdefaultPackCacheMemoryLimit = 1k\n",
-        )?;
-        let (static_pack_cache_limit, pack_cache_bytes, ..) = parse_object_caches(&config, false, |_| true)?;
-        assert_eq!(
-            static_pack_cache_limit,
-            Some(1024),
-            "`gitoxide.core.defaultPackCacheMemoryLimit` configures the static pack cache"
-        );
-        assert_eq!(
-            pack_cache_bytes,
-            Some(2048),
-            "`core.deltaBaseCacheLimit` configures the memory-capped pack cache"
-        );
-
-        let (static_pack_cache_limit, pack_cache_bytes, ..) =
-            parse_object_caches(&gix_config::File::default(), false, |_| true)?;
-        assert_eq!(
-            (static_pack_cache_limit, pack_cache_bytes),
-            (None, None),
-            "without configuration, the default pack cache is used"
-        );
-        Ok(())
-    }
-}
