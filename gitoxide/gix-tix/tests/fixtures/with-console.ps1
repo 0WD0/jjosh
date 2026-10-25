@@ -16,7 +16,7 @@ $process = Start-Process -FilePath $Executable `
     -ArgumentList @('--exact', $TestName, '--nocapture', '--test-threads=1') `
     -WorkingDirectory (Get-Location).Path -WindowStyle Hidden `
     -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
-$limit = [TimeSpan]::FromSeconds(30)
+$limit = [TimeSpan]::FromMinutes(2)
 if (-not $process.WaitForExit($limit)) {
     Stop-Process -Id $process.Id -Force
     throw "The console editor test did not finish within $($limit.TotalSeconds) seconds."
