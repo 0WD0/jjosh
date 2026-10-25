@@ -369,7 +369,7 @@ fn fuzzed_exponential_runaway_denial_of_service() {
     // original: "?[at(/\u{1d}\0\u{4}\u{14}\0[[[[:[\0\0\0\0\0\0\0\0Wt(/\u{1d}\0\u{4}\u{14}\0[[[[:[\0\0\0\0\0\0\0\0\0\0\0]"
     //  reduced: "[[:[:]"
     for pattern in [
-        include_bytes!("../fixtures/fuzzed/many-stars.pattern"),
+        include_bytes!("../../fixtures/fuzzed/many-stars.pattern"),
         "*?[wxxxxxx\0!t[:rt]\u{14}*".as_bytes(),
         "?[at(/\u{1d}\0\u{4}\u{14}\0[[[[:[\0\0\0\0\0\0\0\0\0\0/s\0\0\0*\0\0\0\0\0\0\0\0]\0\0\0\0\0\0\0\0\0".as_bytes(),
         b"[[:digit]ab]",
