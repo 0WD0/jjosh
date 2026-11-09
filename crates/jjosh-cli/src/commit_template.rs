@@ -45,8 +45,22 @@ impl CommitTemplateLanguageExtension for Extension {
                     .cache_extension::<Rc<TouchedProjectsCache>>()
                     .expect("project template cache is installed")
                     .clone();
-                let out_property =
-                    property.and_then(move |commit| Ok(cache.get(repo, &commit).block_on()?));
+                let selected = language.project_scope().and_then(|id| {
+                    repo.view()
+                        .project_state()
+                        .projects
+                        .get(id)
+                        .and_then(|target| target.as_resolved())
+                        .and_then(Option::as_ref)
+                        .map(|record| record.name.clone())
+                });
+                let out_property = property.and_then(move |commit| {
+                    let mut names = cache.get(repo, &commit).block_on()?;
+                    if let Some(selected) = &selected {
+                        names.retain(|name| name == selected);
+                    }
+                    Ok(names)
+                });
                 Ok(out_property.into_dyn_wrapped())
             },
         );

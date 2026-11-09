@@ -17,7 +17,6 @@ use clap_complete::ArgValueCompleter;
 use futures::StreamExt as _;
 use futures::TryStreamExt as _;
 use futures::stream;
-use jj_lib::matchers::EverythingMatcher;
 use tracing::instrument;
 
 use crate::cli_util::CommandHelper;
@@ -91,6 +90,7 @@ pub(crate) async fn cmd_show(
         .parse_commit_template(ui, &template_string)?
         .labeled(["show", "commit"]);
     let diff_renderer = workspace_command.diff_renderer_for(&args.format)?;
+    let matcher = workspace_command.parse_file_patterns(ui, &[])?.to_matcher();
 
     let mut commit_stream = target_expr.evaluate_to_commits()?;
     if args.reversed {
@@ -107,7 +107,7 @@ pub(crate) async fn cmd_show(
 
         if !args.no_patch {
             diff_renderer
-                .show_patch(ui, formatter, &commit, &EverythingMatcher, ui.term_width())
+                .show_patch(ui, formatter, &commit, matcher.as_ref(), ui.term_width())
                 .await?;
         }
     }

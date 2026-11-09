@@ -140,7 +140,10 @@ pub(crate) async fn cmd_log(
     let fileset_expression = workspace_command.parse_file_patterns(ui, &args.paths)?;
     let revset_expression = {
         // only use default revset if neither revset nor path are specified
-        let mut expression = if args.revisions.is_empty() && args.paths.is_empty() {
+        let mut expression = if args.revisions.is_empty()
+            && args.paths.is_empty()
+            && workspace_command.env().project().is_none()
+        {
             let revset_string = settings.get_string("revsets.log")?;
             workspace_command.parse_revset(ui, &RevisionArg::from(revset_string))?
         } else if !args.revisions.is_empty() {
@@ -149,6 +152,19 @@ pub(crate) async fn cmd_log(
             // a path was specified so we use all() and add path filter later
             workspace_command.attach_revset_evaluator(RevsetExpression::all())
         };
+        if let Some(project) = workspace_command.env().project()
+            && args.revisions.is_empty()
+        {
+            let heads = workspace_command
+                .attach_revset_evaluator(expression.expression().heads())
+                .evaluate_to_commit_ids()?
+                .try_collect()
+                .await?;
+            let retained = project
+                .history(workspace_command.repo().as_ref(), heads)
+                .await?;
+            expression.intersect_with(&RevsetExpression::commits(retained.into_iter().collect()));
+        }
         if !args.paths.is_empty() {
             // Beware that args.paths = ["root:."] is not identical to []. The
             // former will filter out empty commits.

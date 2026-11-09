@@ -129,6 +129,8 @@ pub enum RevsetFilterPredicate {
     },
     /// Commits with conflicts
     HasConflict,
+    /// Commits with conflicts in the selected file scope.
+    HasConflictIn(FilesetExpression),
     /// Commits that are cryptographically signed.
     Signed,
     /// Custom predicates provided by extensions

@@ -1045,9 +1045,9 @@ static BUILTIN_FUNCTION_MAP: LazyLock<HashMap<&str, RevsetFunction>> = LazyLock:
             RevsetFilterPredicate::CommitterDate(pattern),
         ))
     });
-    map.insert("empty", |_diagnostics, function, _context| {
+    map.insert("empty", |_diagnostics, function, context| {
         function.expect_no_arguments()?;
-        Ok(RevsetExpression::is_empty())
+        Ok(RevsetExpression::filter(RevsetFilterPredicate::File(context.all_files())).negated())
     });
     map.insert("files", |diagnostics, function, context| {
         let fileset_context = context.fileset_parse_context().ok_or_else(|| {
@@ -1102,9 +1102,17 @@ static BUILTIN_FUNCTION_MAP: LazyLock<HashMap<&str, RevsetFunction>> = LazyLock:
     });
     // TODO: Remove diff_contains() in jj 0.44+
     map.insert("diff_contains", map["diff_lines"]);
-    map.insert("conflicts", |_diagnostics, function, _context| {
+    map.insert("conflicts", |_diagnostics, function, context| {
         function.expect_no_arguments()?;
-        Ok(RevsetExpression::filter(RevsetFilterPredicate::HasConflict))
+        let predicate = if context
+            .fileset_parse_context()
+            .is_some_and(|c| c.path_converter.project_root().is_some())
+        {
+            RevsetFilterPredicate::HasConflictIn(context.all_files())
+        } else {
+            RevsetFilterPredicate::HasConflict
+        };
+        Ok(RevsetExpression::filter(predicate))
     });
     map.insert("divergent", |_diagnostics, function, _context| {
         function.expect_no_arguments()?;
@@ -1154,7 +1162,7 @@ fn expand_optional_files_arg(
     } else {
         // TODO: defaults to CLI path arguments?
         // https://github.com/jj-vcs/jj/issues/2933#issuecomment-1925870731
-        Ok(FilesetExpression::all())
+        Ok(context.all_files())
     }
 }
 
@@ -2963,6 +2971,7 @@ pub trait SymbolResolverExtension: Send + Sync {
 /// Resolves bookmarks, remote bookmarks, tags, git refs, and full and
 /// abbreviated commit and change ids.
 pub struct SymbolResolver<'a> {
+    project: Option<crate::project::ProjectId>,
     commit_id_resolver: CommitPrefixResolver<'a>,
     change_id_resolver: ChangePrefixResolver<'a>,
     extensions: Vec<Box<dyn PartialSymbolResolver + 'a>>,
@@ -2976,6 +2985,7 @@ impl<'a> SymbolResolver<'a> {
         extensions: &[impl AsRef<dyn SymbolResolverExtension>],
     ) -> Self {
         SymbolResolver {
+            project: None,
             commit_id_resolver: CommitPrefixResolver {
                 context_repo,
                 context: None,
@@ -2994,6 +3004,12 @@ impl<'a> SymbolResolver<'a> {
     pub fn with_id_prefix_context(mut self, id_prefix_context: &'a IdPrefixContext) -> Self {
         self.commit_id_resolver.context = Some(id_prefix_context);
         self.change_id_resolver.context = Some(id_prefix_context);
+        self
+    }
+
+    /// Resolve reference names in this project while keeping canonical commit IDs.
+    pub fn with_project_scope(mut self, project: Option<crate::project::ProjectId>) -> Self {
+        self.project = project;
         self
     }
 
@@ -3017,6 +3033,31 @@ impl<'a> SymbolResolver<'a> {
             return Err(RevsetResolutionError::EmptyString);
         }
 
+        if let Some(project) = &self.project {
+            let name = project_reference_name(repo.view(), project, RefName::new(symbol))
+                .map_err(|err| RevsetResolutionError::Other(err.into()))?;
+            for resolver in [
+                &TagResolver as &dyn PartialSymbolResolver,
+                &BookmarkResolver,
+            ] {
+                if let Some(id) = resolver.resolve_symbol(repo, name.as_str())? {
+                    return Ok(id);
+                }
+            }
+            // Never fall back from a missing project bookmark to a root bookmark.
+            for resolver in [
+                &self.commit_id_resolver as &dyn PartialSymbolResolver,
+                &self.change_id_resolver,
+            ] {
+                if let Some(id) = resolver.resolve_symbol(repo, symbol)? {
+                    return Ok(id);
+                }
+            }
+            return Err(make_no_such_symbol_error(
+                repo,
+                format_symbol(name.as_str()),
+            ));
+        }
         for partial_resolver in self.partial_resolvers() {
             if let Some(id) = partial_resolver.resolve_symbol(repo, symbol)? {
                 return Ok(id);
@@ -3038,6 +3079,22 @@ fn resolve_commit_ref(
             Ok(vec![commit_id])
         }
         RevsetCommitRef::RemoteSymbol(symbol) => {
+            let mut symbol = symbol.clone();
+            if let Some(project) = &symbol_resolver.project {
+                symbol.name = project_reference_name(repo.view(), project, &symbol.name)
+                    .map_err(|err| RevsetResolutionError::Other(err.into()))?;
+                let physical = resolve_remote_ref_symbol(repo.view(), symbol.as_ref())
+                    .map_err(|err| RevsetResolutionError::Other(err.into()))?;
+                if !repo
+                    .view()
+                    .remote_in_scope(&physical.remote, Some(project))
+                    .map_err(|err| RevsetResolutionError::Other(err.into()))?
+                {
+                    return Err(RevsetResolutionError::Other(
+                        "Remote is outside the selected project".into(),
+                    ));
+                }
+            }
             let commit_id = resolve_remote_symbol(repo, symbol.as_ref())?;
             Ok(vec![commit_id])
         }
@@ -3064,9 +3121,26 @@ fn resolve_commit_ref(
             Ok(resolver.try_resolve(repo, prefix)?.into_iter().collect())
         }
         RevsetCommitRef::Bookmarks(expression) => {
+            let matcher = expression.to_matcher();
+            if symbol_resolver.project.is_none() {
+                return Ok(repo
+                    .view()
+                    .local_bookmarks_matching(&matcher)
+                    .flat_map(|(_, target)| target.present_adds())
+                    .cloned()
+                    .collect());
+            }
             let commit_ids = repo
                 .view()
-                .local_bookmarks_matching(&expression.to_matcher())
+                .local_bookmarks()
+                .filter(|(name, _)| {
+                    project_reference_matches(
+                        repo.view(),
+                        symbol_resolver.project.as_ref(),
+                        name,
+                        &matcher,
+                    )
+                })
                 .flat_map(|(_, target)| target.present_adds())
                 .cloned()
                 .collect();
@@ -3077,12 +3151,28 @@ fn resolve_commit_ref(
             remote_ref_state,
         } => {
             let name_matcher = symbol.name.to_matcher();
-            let remote_matcher = remote_name_expression_to_matcher(repo.view(), &symbol.remote);
+            let remote_matcher = if symbol_resolver.project.is_some() {
+                symbol.remote.to_matcher()
+            } else {
+                remote_name_expression_to_matcher(repo.view(), &symbol.remote)
+            };
             let view = repo.view();
             let mut commit_ids = Vec::new();
             for (symbol, remote_ref) in view.all_remote_bookmarks() {
-                if !name_matcher.is_match(symbol.name.as_str())
-                    || !remote_matcher.is_match(symbol.remote.as_str())
+                let remote_matches = if let Some(project) = &symbol_resolver.project {
+                    view.remote_in_scope(symbol.remote, Some(project))
+                        .unwrap_or(false)
+                        && (remote_matcher.is_match(view.remote_local_name(symbol.remote).as_str())
+                            || remote_matcher.is_match(&view.remote_qualified_name(symbol.remote)))
+                } else {
+                    remote_matcher.is_match(symbol.remote.as_str())
+                };
+                if !project_reference_matches(
+                    view,
+                    symbol_resolver.project.as_ref(),
+                    symbol.name,
+                    &name_matcher,
+                ) || !remote_matches
                 {
                     continue;
                 }
@@ -3095,9 +3185,26 @@ fn resolve_commit_ref(
             Ok(commit_ids)
         }
         RevsetCommitRef::Tags(expression) => {
+            let matcher = expression.to_matcher();
+            if symbol_resolver.project.is_none() {
+                return Ok(repo
+                    .view()
+                    .local_tags_matching(&matcher)
+                    .flat_map(|(_, target)| target.present_adds())
+                    .cloned()
+                    .collect());
+            }
             let commit_ids = repo
                 .view()
-                .local_tags_matching(&expression.to_matcher())
+                .local_tags()
+                .filter(|(name, _)| {
+                    project_reference_matches(
+                        repo.view(),
+                        symbol_resolver.project.as_ref(),
+                        name,
+                        &matcher,
+                    )
+                })
                 .flat_map(|(_, target)| target.present_adds())
                 .cloned()
                 .collect();
@@ -3108,12 +3215,28 @@ fn resolve_commit_ref(
             remote_ref_state,
         } => {
             let name_matcher = symbol.name.to_matcher();
-            let remote_matcher = remote_name_expression_to_matcher(repo.view(), &symbol.remote);
+            let remote_matcher = if symbol_resolver.project.is_some() {
+                symbol.remote.to_matcher()
+            } else {
+                remote_name_expression_to_matcher(repo.view(), &symbol.remote)
+            };
             let view = repo.view();
             let mut commit_ids = Vec::new();
             for (symbol, remote_ref) in view.all_remote_tags() {
-                if !name_matcher.is_match(symbol.name.as_str())
-                    || !remote_matcher.is_match(symbol.remote.as_str())
+                let remote_matches = if let Some(project) = &symbol_resolver.project {
+                    view.remote_in_scope(symbol.remote, Some(project))
+                        .unwrap_or(false)
+                        && (remote_matcher.is_match(view.remote_local_name(symbol.remote).as_str())
+                            || remote_matcher.is_match(&view.remote_qualified_name(symbol.remote)))
+                } else {
+                    remote_matcher.is_match(symbol.remote.as_str())
+                };
+                if !project_reference_matches(
+                    view,
+                    symbol_resolver.project.as_ref(),
+                    symbol.name,
+                    &name_matcher,
+                ) || !remote_matches
                 {
                     continue;
                 }
@@ -3126,6 +3249,51 @@ fn resolve_commit_ref(
             Ok(commit_ids)
         }
     }
+}
+
+/// Qualify a local reference against the selected operation's stable project label.
+pub fn project_reference_name(
+    view: &crate::view::View,
+    project: &crate::project::ProjectId,
+    name: &RefName,
+) -> Result<crate::ref_name::RefNameBuf, String> {
+    view.projects().validate_project(project)?;
+    if name.as_str().ends_with('#') {
+        return Err("Root reference is outside the selected project".into());
+    }
+    if let Some(owner) = remote_ref_project(view, name)? {
+        return if &owner == project {
+            Ok(name.to_owned())
+        } else {
+            Err("Reference is outside the selected project".into())
+        };
+    }
+    let labels: Vec<_> = view
+        .project_state()
+        .labels
+        .iter()
+        .filter(|(_, target)| target.as_resolved().and_then(Option::as_ref) == Some(project))
+        .map(|(label, _)| label)
+        .collect();
+    let [label] = labels.as_slice() else {
+        return Err("Project requires one unambiguous reference label".into());
+    };
+    Ok(format!("{}#{label}", name.as_str()).into())
+}
+
+/// Match local spelling (or an explicitly qualified spelling) within a project.
+pub fn project_reference_matches(
+    view: &crate::view::View,
+    project: Option<&crate::project::ProjectId>,
+    name: &RefName,
+    matcher: &crate::str_util::StringMatcher,
+) -> bool {
+    let Some(project) = project else {
+        return matcher.is_match(name.as_str());
+    };
+    remote_ref_project(view, name).is_ok_and(|owner| owner.as_ref() == Some(project))
+        && (matcher.is_match(name.as_str())
+            || matcher.is_match(name.as_str().rsplit_once('#').unwrap().0))
 }
 
 /// Resolves symbols and commit refs recursively.
@@ -3616,6 +3784,15 @@ impl<'a> LoweringContext<'a> {
             aliases_map: self.fileset_aliases_map,
             path_converter: self.workspace?.path_converter,
         })
+    }
+
+    fn all_files(&self) -> FilesetExpression {
+        self.fileset_parse_context()
+            .map_or_else(FilesetExpression::all, |context| {
+                context
+                    .path_converter
+                    .scope_fileset(FilesetExpression::all())
+            })
     }
 
     pub fn symbol_resolvers(&self) -> &'a [impl AsRef<dyn SymbolResolverExtension> + use<>] {

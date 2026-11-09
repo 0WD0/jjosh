@@ -52,6 +52,9 @@ pub enum UiPathParseError {
     /// A physical path has no unambiguous canonical interpretation.
     #[error("{0}; use a canonical root: fileset instead")]
     Mapping(String),
+    /// Invalid project-relative path.
+    #[error("Invalid project-relative path: {0}")]
+    Project(#[source] RelativePathParseError),
 }
 
 /// Converts `RepoPath`s to and from plain strings as displayed to the user
@@ -80,6 +83,13 @@ pub enum RepoPathUiConverter {
         /// Compiled canonical selection, shared by cloned converters.
         matcher: Arc<dyn Matcher>,
     },
+    /// Logical project coordinates, independent of the physical checkout layout.
+    Project {
+        /// Canonical directory selected in the operation.
+        root: RepoPathBuf,
+        /// Actual workspace coordinates, retained for working-copy operations.
+        physical: Box<RepoPathUiConverter>,
+    },
     // TODO: Add a no-op variant that uses the internal `RepoPath` representation. Can be useful
     // on a server.
 }
@@ -88,6 +98,10 @@ impl RepoPathUiConverter {
     /// Format a path for display in the UI.
     pub fn format_file_path(&self, file: &RepoPath) -> String {
         match self {
+            Self::Project { root, .. } => file.strip_prefix(root).map_or_else(
+                || format!("root:{}", file.as_internal_file_string()),
+                |path| path.as_internal_file_string().to_owned(),
+            ),
             Self::Fs { cwd, base } => {
                 file_util::relative_path(cwd, &file.to_fs_path_unchecked(base))
                     .display()
@@ -122,7 +136,7 @@ impl RepoPathUiConverter {
     /// If `before == after`, this is equivalent to `format_file_path()`.
     pub fn format_copied_path(&self, paths: Diff<&RepoPath>) -> String {
         match self {
-            Self::Fs { .. } | Self::MappedFs { .. } => {
+            Self::Fs { .. } | Self::MappedFs { .. } | Self::Project { .. } => {
                 let paths = paths.map(|path| self.format_file_path(path));
                 collapse_copied_path(paths.as_deref(), std::path::MAIN_SEPARATOR)
             }
@@ -135,6 +149,12 @@ impl RepoPathUiConverter {
     /// where relative paths are interpreted as relative to.
     pub fn parse_file_path(&self, input: &str) -> Result<RepoPathBuf, UiPathParseError> {
         match self {
+            Self::Project { root, .. } => RepoPathBuf::from_relative_path(input)
+                .map(|path| {
+                    path.components()
+                        .fold(root.clone(), |base, entry| base.join(entry))
+                })
+                .map_err(UiPathParseError::Project),
             Self::Fs { cwd, base } => parse_fs_path(cwd, base, input).map_err(UiPathParseError::Fs),
             Self::MappedFs {
                 cwd,
@@ -162,6 +182,7 @@ impl RepoPathUiConverter {
     pub fn cwd(&self) -> &Path {
         match self {
             Self::Fs { cwd, .. } | Self::MappedFs { cwd, .. } => cwd,
+            Self::Project { physical, .. } => physical.cwd(),
         }
     }
 
@@ -169,11 +190,18 @@ impl RepoPathUiConverter {
     pub fn base(&self) -> &Path {
         match self {
             Self::Fs { base, .. } | Self::MappedFs { base, .. } => base,
+            Self::Project { physical, .. } => physical.base(),
         }
     }
 
     /// Set the actual layout after a checkout or deferred synchronization.
     pub fn with_patterns(&self, patterns: WorkingCopyPatterns) -> Self {
+        if let Self::Project { root, physical } = self {
+            return Self::Project {
+                root: root.clone(),
+                physical: Box::new(physical.with_patterns(patterns)),
+            };
+        }
         if patterns.is_identity() {
             Self::Fs {
                 cwd: self.cwd().to_owned(),
@@ -187,6 +215,35 @@ impl RepoPathUiConverter {
                 patterns: Box::new(patterns),
                 matcher,
             }
+        }
+    }
+
+    /// Actual checkout coordinates, without logical project interpretation.
+    pub fn physical(&self) -> &Self {
+        match self {
+            Self::Project { physical, .. } => physical.physical(),
+            _ => self,
+        }
+    }
+
+    /// Selected logical project root, if any.
+    pub fn project_root(&self) -> Option<&RepoPath> {
+        match self {
+            Self::Project { root, .. } => Some(root),
+            _ => None,
+        }
+    }
+
+    /// Restrict an expression even when it contains all(), negation, or root: paths.
+    pub fn scope_fileset(
+        &self,
+        files: crate::fileset::FilesetExpression,
+    ) -> crate::fileset::FilesetExpression {
+        match self.project_root() {
+            Some(root) => files.intersection(crate::fileset::FilesetExpression::prefix_path(
+                root.to_owned(),
+            )),
+            None => files,
         }
     }
 

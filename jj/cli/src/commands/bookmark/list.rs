@@ -13,6 +13,8 @@
 // limitations under the License.
 
 use std::collections::HashSet;
+
+use itertools::Itertools as _;
 use std::rc::Rc;
 
 use clap_complete::ArgValueCandidates;
@@ -131,11 +133,27 @@ pub async fn cmd_bookmark_list(
     let view = repo.view();
 
     // Like cmd_git_push(), names and revisions are OR-ed.
-    let name_expr = match (&args.names, &args.revisions) {
+    let mut name_expr = match (&args.names, &args.revisions) {
         (Some(texts), _) => parse_union_name_patterns(ui, texts)?,
         (None, Some(_)) => StringExpression::none(),
         (None, None) => StringExpression::all(),
     };
+    if let Some(project) = workspace_command.env().project() {
+        let matcher = name_expr.to_matcher();
+        name_expr = StringExpression::union_all(
+            view.bookmarks()
+                .filter(|(name, _)| {
+                    jj_lib::revset::project_reference_matches(
+                        view,
+                        Some(&project.id),
+                        name,
+                        &matcher,
+                    )
+                })
+                .map(|(name, _)| StringExpression::exact(name))
+                .collect_vec(),
+        );
+    }
     let matched_local_targets: HashSet<_> = if let Some(revisions) = &args.revisions {
         // Match against local targets only, which is consistent with "jj git push".
         let mut expression = workspace_command.parse_union_revsets(ui, revisions)?;
@@ -171,18 +189,43 @@ pub async fn cmd_bookmark_list(
         (None, None) => StringExpression::all(),
     };
 
+    let remote_matcher = if let Some(project) = workspace_command.env().project() {
+        let matcher = remote_expr.to_matcher();
+        StringExpression::union_all(
+            view.remote_views()
+                .filter(|(remote, _)| {
+                    view.remote_in_scope(remote, Some(&project.id))
+                        .unwrap_or(false)
+                        && (matcher.is_match(view.remote_local_name(remote).as_str())
+                            || matcher.is_match(&view.remote_qualified_name(remote)))
+                })
+                .map(|(remote, _)| StringExpression::exact(remote))
+                .collect_vec(),
+        )
+        .to_matcher()
+    } else {
+        jj_lib::revset::remote_name_expression_to_matcher(view, &remote_expr)
+    };
     let predicates = RefFilterPredicates {
         name_matcher: name_expr.to_matcher(),
-        remote_matcher: jj_lib::revset::remote_name_expression_to_matcher(view, &remote_expr),
+        remote_matcher,
         matched_local_targets,
         conflicted: args.conflicted,
         include_local_only: !args.tracked && args.remotes.is_none(),
         include_synced_remotes: args.tracked || args.all_remotes || args.remotes.is_some(),
         include_untracked_remotes: !args.tracked && (args.all_remotes || args.remotes.is_some()),
     };
-    let mut bookmark_list_items =
-        commit_ref_list::collect_items(view, view.bookmarks(), &predicates)
-            .map_err(crate::command_error::user_error)?;
+    let mut bookmark_list_items = commit_ref_list::collect_items(
+        view,
+        view.bookmarks().filter(|(name, _)| {
+            workspace_command
+                .env()
+                .project()
+                .is_none_or(|p| p.contains_ref(repo.as_ref(), name))
+        }),
+        &predicates,
+    )
+    .map_err(crate::command_error::user_error)?;
     let sort_keys = if args.sort.is_empty() {
         workspace_command.settings().get_value_with(
             "ui.bookmark-list-sort-keys",

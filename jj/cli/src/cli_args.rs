@@ -136,6 +136,17 @@ pub struct GlobalArgs {
     #[arg(add = ArgValueCandidates::new(complete::operations))]
     pub at_operation: Option<String>,
 
+    /// Interpret paths and references within this registered project
+    ///
+    /// The project is resolved in the selected operation. Relative paths start at
+    /// its canonical root, independently of cwd and sparse layout. Commit IDs,
+    /// parent relationships, and working-copy snapshots remain repository-wide.
+    /// Log defaults to project history; explicit -r expressions select canonical
+    /// revisions. root: filesets keep canonical coordinates and are still bounded
+    /// by the project. Commands without project semantics reject this option.
+    #[arg(long, global = true, value_name = "PROJECT")]
+    pub in_project: Option<String>,
+
     /// Enable debug logging
     #[arg(long, global = true)]
     pub debug: bool,

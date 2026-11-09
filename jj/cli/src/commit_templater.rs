@@ -158,6 +158,7 @@ pub struct CommitTemplateLanguage<'repo> {
     conflict_marker_style: ConflictMarkerStyle,
     build_fn_table: CommitTemplateBuildFnTable<'repo>,
     keyword_cache: CommitKeywordCache,
+    project: Option<jj_lib::project::ProjectId>,
     cache_extensions: ExtensionsMap,
 }
 
@@ -195,8 +196,14 @@ impl<'repo> CommitTemplateLanguage<'repo> {
             conflict_marker_style,
             build_fn_table,
             keyword_cache: CommitKeywordCache::default(),
+            project: None,
             cache_extensions,
         }
+    }
+
+    pub fn with_project_scope(mut self, project: Option<jj_lib::project::ProjectId>) -> Self {
+        self.project = project;
+        self
     }
 
     fn conflict_materialize_options(&self) -> ConflictMaterializeOptions {
@@ -436,6 +443,11 @@ impl<'repo> TemplateLanguage<'repo> for CommitTemplateLanguage<'repo> {
 impl<'repo> CommitTemplateLanguage<'repo> {
     pub fn repo(&self) -> &'repo dyn Repo {
         self.repo
+    }
+
+    /// Project selected for this template environment, if any.
+    pub fn project_scope(&self) -> Option<&jj_lib::project::ProjectId> {
+        self.project.as_ref()
     }
 
     pub fn workspace_name(&self) -> &WorkspaceName {
@@ -1133,6 +1145,7 @@ impl CommitKeywordCache {
                 &language.revset_parse_context,
                 language.id_prefix_context,
                 expression,
+                None, // Immutable policy is always repository-wide.
             )
             .map_err(|err| {
                 TemplateParseError::expression("Failed to evaluate revset", span).with_source(err)
@@ -1170,6 +1183,7 @@ fn builtin_commit_template_functions<'repo>()
             let repo = language.repo;
             let revset_parse_context = language.revset_parse_context.clone();
             let id_prefix_context = language.id_prefix_context;
+            let project = language.project.clone();
             let out_property = revset_property.and_then(move |query| {
                 let (expression, _) = parse_revset_expression(&revset_parse_context, &query)?;
                 let revset = evaluate_revset_expression(
@@ -1177,6 +1191,7 @@ fn builtin_commit_template_functions<'repo>()
                     &revset_parse_context,
                     id_prefix_context,
                     &expression,
+                    project.clone(),
                 )?;
                 let commits: Vec<Commit> = revset
                     .stream()
@@ -1202,12 +1217,9 @@ fn builtin_commit_template_functions<'repo>()
                 let remotes = jj_lib::git::get_all_remote_names(repo.store()).unwrap_or_default();
                 remote_property.and_then(move |selector| {
                     let view = repo.view();
-                    let (name, project) = crate::git_remote::parse_remote_selector_scope(
-                        view,
-                        &selector,
-                        None,
-                    )
-                    .map_err(|err| err.error)?;
+                    let (name, project) =
+                        crate::git_remote::parse_remote_selector_scope(view, &selector, None)
+                            .map_err(|err| err.error)?;
                     let name = jj_lib::ref_name::RemoteName::new(name);
                     // A missing remote retains the best-effort empty result. Let the
                     // model resolver diagnose ambiguous names or invalid metadata.
@@ -1224,8 +1236,10 @@ fn builtin_commit_template_functions<'repo>()
                     let remote = view
                         .resolve_remote_name(&remotes, project.as_ref(), name)
                         .map_err(|err| TemplatePropertyError(err.into()))?;
-                    Ok(crate::git_util::get_remote_web_url(repo.base_repo(), remote.as_str())
-                        .unwrap_or_default())
+                    Ok(
+                        crate::git_util::get_remote_web_url(repo.base_repo(), remote.as_str())
+                            .unwrap_or_default(),
+                    )
                 })
             };
             #[cfg(not(feature = "git"))]
@@ -1349,8 +1363,22 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
                 .bookmarks_index(language.repo)
                 .map_err(|err| TemplateParseError::expression(err, function.name_span))?
                 .clone();
-            let out_property =
-                self_property.map(move |commit| collect_distinct_refs(index.get(commit.id())));
+            let project = language.project.clone();
+            let repo = language.repo;
+            let out_property = self_property.map(move |commit| {
+                collect_distinct_refs(index.get(commit.id()))
+                    .into_iter()
+                    .filter(|reference| {
+                        project.as_ref().is_none_or(|id| {
+                            jj_lib::revset::remote_ref_project(
+                                repo.view(),
+                                RefName::new(reference.name()),
+                            )
+                            .is_ok_and(|owner| owner.as_ref() == Some(id))
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            });
             Ok(out_property.into_dyn_wrapped())
         },
     );
@@ -1363,8 +1391,22 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
                 .bookmarks_index(language.repo)
                 .map_err(|err| TemplateParseError::expression(err, function.name_span))?
                 .clone();
-            let out_property =
-                self_property.map(move |commit| collect_local_refs(index.get(commit.id())));
+            let project = language.project.clone();
+            let repo = language.repo;
+            let out_property = self_property.map(move |commit| {
+                collect_local_refs(index.get(commit.id()))
+                    .into_iter()
+                    .filter(|reference| {
+                        project.as_ref().is_none_or(|id| {
+                            jj_lib::revset::remote_ref_project(
+                                repo.view(),
+                                RefName::new(reference.name()),
+                            )
+                            .is_ok_and(|owner| owner.as_ref() == Some(id))
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            });
             Ok(out_property.into_dyn_wrapped())
         },
     );
@@ -1377,8 +1419,22 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
                 .bookmarks_index(language.repo)
                 .map_err(|err| TemplateParseError::expression(err, function.name_span))?
                 .clone();
-            let out_property =
-                self_property.map(move |commit| collect_remote_refs(index.get(commit.id())));
+            let project = language.project.clone();
+            let repo = language.repo;
+            let out_property = self_property.map(move |commit| {
+                collect_remote_refs(index.get(commit.id()))
+                    .into_iter()
+                    .filter(|reference| {
+                        project.as_ref().is_none_or(|id| {
+                            jj_lib::revset::remote_ref_project(
+                                repo.view(),
+                                RefName::new(reference.name()),
+                            )
+                            .is_ok_and(|owner| owner.as_ref() == Some(id))
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            });
             Ok(out_property.into_dyn_wrapped())
         },
     );
@@ -1391,8 +1447,22 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
                 .tags_index(language.repo)
                 .map_err(|err| TemplateParseError::expression(err, function.name_span))?
                 .clone();
-            let out_property =
-                self_property.map(move |commit| collect_distinct_refs(index.get(commit.id())));
+            let project = language.project.clone();
+            let repo = language.repo;
+            let out_property = self_property.map(move |commit| {
+                collect_distinct_refs(index.get(commit.id()))
+                    .into_iter()
+                    .filter(|reference| {
+                        project.as_ref().is_none_or(|id| {
+                            jj_lib::revset::remote_ref_project(
+                                repo.view(),
+                                RefName::new(reference.name()),
+                            )
+                            .is_ok_and(|owner| owner.as_ref() == Some(id))
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            });
             Ok(out_property.into_dyn_wrapped())
         },
     );
@@ -1405,8 +1475,22 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
                 .tags_index(language.repo)
                 .map_err(|err| TemplateParseError::expression(err, function.name_span))?
                 .clone();
-            let out_property =
-                self_property.map(move |commit| collect_local_refs(index.get(commit.id())));
+            let project = language.project.clone();
+            let repo = language.repo;
+            let out_property = self_property.map(move |commit| {
+                collect_local_refs(index.get(commit.id()))
+                    .into_iter()
+                    .filter(|reference| {
+                        project.as_ref().is_none_or(|id| {
+                            jj_lib::revset::remote_ref_project(
+                                repo.view(),
+                                RefName::new(reference.name()),
+                            )
+                            .is_ok_and(|owner| owner.as_ref() == Some(id))
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            });
             Ok(out_property.into_dyn_wrapped())
         },
     );
@@ -1419,8 +1503,22 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
                 .tags_index(language.repo)
                 .map_err(|err| TemplateParseError::expression(err, function.name_span))?
                 .clone();
-            let out_property =
-                self_property.map(move |commit| collect_remote_refs(index.get(commit.id())));
+            let project = language.project.clone();
+            let repo = language.repo;
+            let out_property = self_property.map(move |commit| {
+                collect_remote_refs(index.get(commit.id()))
+                    .into_iter()
+                    .filter(|reference| {
+                        project.as_ref().is_none_or(|id| {
+                            jj_lib::revset::remote_ref_project(
+                                repo.view(),
+                                RefName::new(reference.name()),
+                            )
+                            .is_ok_and(|owner| owner.as_ref() == Some(id))
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            });
             Ok(out_property.into_dyn_wrapped())
         },
     );
@@ -1503,6 +1601,7 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
                 let repo = language.repo;
                 let revset_parse_context = language.revset_parse_context.clone();
                 let id_prefix_context = language.id_prefix_context;
+                let project = language.project.clone();
                 let out_property =
                     (self_property, revset_property).and_then(move |(commit, query)| {
                         let (expression, _) =
@@ -1512,6 +1611,7 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
                             &revset_parse_context,
                             id_prefix_context,
                             &expression,
+                            project.clone(),
                         )?;
                         Ok(revset.containing_fn()(commit.id()).block_on()?)
                     });
@@ -1521,9 +1621,26 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
     );
     map.insert(
         "conflict",
-        |_language, _diagnostics, _build_ctx, self_property, function| {
+        |language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
-            let out_property = self_property.map(|commit| commit.has_conflict());
+            let matcher = language
+                .path_converter
+                .scope_fileset(FilesetExpression::all())
+                .to_matcher();
+            let scoped = language.project.is_some();
+            let out_property = self_property.and_then(move |commit| {
+                if !scoped {
+                    return Ok(commit.has_conflict());
+                }
+                Ok(commit
+                    .tree()
+                    .conflicts_matching(matcher.as_ref())
+                    .next()
+                    .block_on()
+                    .map(|(_, value)| value)
+                    .transpose()?
+                    .is_some())
+            });
             Ok(out_property.into_dyn_wrapped())
         },
     );
@@ -1532,8 +1649,24 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
         |language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
             let repo = language.repo;
-            let out_property =
-                self_property.and_then(|commit| Ok(commit.is_empty(repo.index()).block_on()?));
+            let matcher = language
+                .path_converter
+                .scope_fileset(FilesetExpression::all())
+                .to_matcher();
+            let scoped = language.project.is_some();
+            let out_property = self_property.and_then(move |commit| {
+                if !scoped {
+                    return Ok(commit.is_empty(repo.index()).block_on()?);
+                }
+                let before = commit.parent_tree(repo.index()).block_on()?;
+                Ok(before
+                    .diff(&commit.tree(), matcher.as_ref())
+                    .next()
+                    .block_on()
+                    .map(|entry| entry.values.map(|_| ()))
+                    .transpose()?
+                    .is_none())
+            });
             Ok(out_property.into_dyn_wrapped())
         },
     );
@@ -1549,6 +1682,7 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
                 FilesetExpression::all()
             };
             let repo = language.repo;
+            let files = language.path_converter.scope_fileset(files);
             let matcher: Rc<dyn Matcher> = files.to_matcher().into();
             let out_property = self_property.and_then(move |commit| {
                 Ok(TreeDiff::from_commit(repo, &commit, matcher.clone()).block_on()?)
@@ -1567,7 +1701,7 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
                 // https://github.com/jj-vcs/jj/issues/2933#issuecomment-1925870731
                 FilesetExpression::all()
             };
-            let matcher = files.to_matcher();
+            let matcher = language.path_converter.scope_fileset(files).to_matcher();
             let out_property = self_property.and_then(move |commit| {
                 let tree = commit.tree();
                 let entries: Vec<_> = tree
@@ -1582,12 +1716,16 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
     );
     map.insert(
         "conflicted_files",
-        |_language, _diagnostics, _build_ctx, self_property, function| {
+        |language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
-            let out_property = self_property.and_then(|commit| {
+            let matcher = language
+                .path_converter
+                .scope_fileset(FilesetExpression::all())
+                .to_matcher();
+            let out_property = self_property.and_then(move |commit| {
                 let tree = commit.tree();
                 let entries: Vec<_> = tree
-                    .conflicts()
+                    .conflicts_matching(matcher.as_ref())
                     .map(|(path, value)| value.map(|value| TreeEntry { path, value }))
                     .try_collect()
                     .block_on()?;
@@ -1655,12 +1793,14 @@ fn evaluate_revset_expression(
     revset_parse_context: &RevsetParseContext,
     id_prefix_context: &IdPrefixContext,
     expression: &UserRevsetExpression,
+    project: Option<jj_lib::project::ProjectId>,
 ) -> Result<Box<dyn Revset>, UserRevsetEvaluationError> {
     let symbol_resolver = revset_util::default_symbol_resolver(
         repo,
         revset_parse_context.extensions.symbol_resolvers(),
         id_prefix_context,
-    );
+    )
+    .with_project_scope(project);
     let revset = expression
         .resolve_user_expression(repo, &symbol_resolver)
         .map_err(UserRevsetEvaluationError::Resolution)?
@@ -1687,6 +1827,7 @@ fn parse_evaluate_static_revset(
         &language.revset_parse_context,
         language.id_prefix_context,
         &expression,
+        language.project.clone(),
     )
     .map_err(|err| {
         TemplateParseError::expression("Failed to evaluate revset", span).with_source(err)
@@ -1735,6 +1876,7 @@ fn builtin_commit_evolution_entry_methods<'repo>()
                 FilesetExpression::all()
             };
             let repo = language.repo;
+            let files = language.path_converter.scope_fileset(files);
             let matcher: Rc<dyn Matcher> = files.to_matcher().into();
             let out_property = self_property.and_then(move |entry| {
                 let predecessors = entry.predecessors().block_on()?;
@@ -2307,24 +2449,26 @@ fn builtin_repo_path_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, R
             // We handle the absolute path here instead of in a wrapper in
             // `RepoPathUiConverter` because absolute paths only make sense for
             // filesystem paths. Other cases should fail here.
-            let out_property = self_property.and_then(move |path| match path_converter {
-                RepoPathUiConverter::Fs { cwd: _, base } => Ok(path.to_fs_path(base)?),
-                RepoPathUiConverter::MappedFs {
-                    base,
-                    patterns,
-                    matcher,
-                    ..
-                } => {
-                    let physical = patterns
-                        .repo_to_wc_with_matcher(&path, matcher.as_ref())?
-                        .ok_or_else(|| {
+            let out_property =
+                self_property.and_then(move |path| match path_converter.physical() {
+                    RepoPathUiConverter::Project { .. } => unreachable!("physical converter"),
+                    RepoPathUiConverter::Fs { cwd: _, base } => Ok(path.to_fs_path(base)?),
+                    RepoPathUiConverter::MappedFs {
+                        base,
+                        patterns,
+                        matcher,
+                        ..
+                    } => {
+                        let physical = patterns
+                            .repo_to_wc_with_matcher(&path, matcher.as_ref())?
+                            .ok_or_else(|| {
                             std::io::Error::other(
                                 "Canonical path is outside the mapped working copy",
                             )
                         })?;
-                    Ok(physical.as_repo_path().to_fs_path(base)?)
-                }
-            });
+                        Ok(physical.as_repo_path().to_fs_path(base)?)
+                    }
+                });
             Ok(out_property.into_dyn_wrapped())
         },
     );

@@ -61,7 +61,11 @@ pub async fn cmd_bookmark_create(
         .await?;
     let repo = workspace_command.repo().as_ref();
     let view = repo.view();
-    let bookmark_names = &args.names;
+    let bookmark_names = &args
+        .names
+        .iter()
+        .map(|name| workspace_command.reference_name(name))
+        .collect::<Result<Vec<_>, _>>()?;
     for name in bookmark_names {
         if view.get_local_bookmark(name).is_present() {
             return Err(user_error(format!(

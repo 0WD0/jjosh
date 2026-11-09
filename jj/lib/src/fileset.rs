@@ -528,6 +528,7 @@ pub fn parse(
     let node = fileset_parser::expand_aliases(node, context.aliases_map)?;
     // TODO: add basic tree substitution pass to eliminate redundant expressions
     resolve_expression(diagnostics, context.path_converter, &node)
+        .map(|files| context.path_converter.scope_fileset(files))
 }
 
 /// Parses text into `FilesetExpression` with bare string fallback.
@@ -543,6 +544,7 @@ pub fn parse_maybe_bare(
     let node = fileset_parser::expand_aliases(node, context.aliases_map)?;
     // TODO: add basic tree substitution pass to eliminate redundant expressions
     resolve_expression(diagnostics, context.path_converter, &node)
+        .map(|files| context.path_converter.scope_fileset(files))
 }
 
 #[cfg(test)]

@@ -43,6 +43,7 @@ pub async fn cmd_git_remote_list(
     let project = args
         .project
         .as_deref()
+        .or(command.global_args().in_project.as_deref())
         .map(|name| view.projects().project_by_name(name).map(|(id, _)| id))
         .transpose()
         .map_err(crate::command_error::user_error)?;

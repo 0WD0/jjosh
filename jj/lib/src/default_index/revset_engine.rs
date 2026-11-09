@@ -1407,6 +1407,22 @@ fn build_predicate_fn(
             let commit = store.get_commit(&entry.commit_id())?;
             Ok(commit.has_conflict())
         }),
+        RevsetFilterPredicate::HasConflictIn(files) => {
+            let matcher: Rc<dyn Matcher> = files.to_matcher().into();
+            box_pure_predicate_fn(move |index, pos| {
+                let entry = index.commits().entry_by_pos(pos);
+                let commit = store.get_commit(&entry.commit_id())?;
+                Ok(commit.has_conflict()
+                    && commit
+                        .tree()
+                        .conflicts_matching(matcher.as_ref())
+                        .next()
+                        .block_on()
+                        .map(|(_, value)| value)
+                        .transpose()?
+                        .is_some())
+            })
+        }
         RevsetFilterPredicate::Signed => box_pure_predicate_fn(move |index, pos| {
             let entry = index.commits().entry_by_pos(pos);
             let commit = store.get_commit(&entry.commit_id())?;

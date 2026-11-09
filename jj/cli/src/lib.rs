@@ -36,6 +36,7 @@ pub mod merge_tools;
 pub mod movement_util;
 pub mod operation_templater;
 mod progress;
+pub mod project_context;
 pub mod revset_util;
 mod source_symbol;
 pub mod template_builder;

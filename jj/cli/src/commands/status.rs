@@ -91,7 +91,27 @@ pub(crate) async fn cmd_status(
         print_unmatched_explicit_paths(ui, &workspace_command, &fileset_expression, [&status.tree])
             .await?;
 
-        if !status.has_any_tracked_changes() && !status.has_any_untracked_paths() {
+        let has_tracked_changes = if workspace_command.env().project().is_some() {
+            status
+                .parent_tree
+                .diff(&status.tree, matcher.as_ref())
+                .next()
+                .await
+                .map(|entry| entry.values.map(|_| ()))
+                .transpose()?
+                .is_some()
+        } else {
+            status.has_any_tracked_changes()
+        };
+        let has_untracked_paths = if workspace_command.env().project().is_some() {
+            status
+                .untracked_paths_matching(matcher.as_ref())
+                .next()
+                .is_some()
+        } else {
+            !status.untracked_paths.is_empty()
+        };
+        if !has_tracked_changes && !has_untracked_paths {
             writeln!(formatter, "The working copy has no changes.")?;
         } else {
             if status.has_any_tracked_changes() {
@@ -163,8 +183,10 @@ pub(crate) async fn cmd_status(
             writeln!(formatter)?;
         }
 
-        if status.commit.has_conflict() {
-            let conflicts: Vec<_> = status.tree.conflicts_matching(&matcher).collect().await;
+        let conflicts: Vec<_> = status.tree.conflicts_matching(&matcher).collect().await;
+        if !conflicts.is_empty()
+            || (workspace_command.env().project().is_none() && status.commit.has_conflict())
+        {
             writeln!(
                 formatter.labeled("warning").with_heading("Warning: "),
                 "There are unresolved conflicts at these paths:"
@@ -191,7 +213,15 @@ pub(crate) async fn cmd_status(
                 .await?;
         } else {
             for parent in &status.parents {
-                if parent.has_conflict() {
+                if parent.has_conflict()
+                    && (workspace_command.env().project().is_none()
+                        || parent
+                            .tree()
+                            .conflicts_matching(&matcher)
+                            .next()
+                            .await
+                            .is_some())
+                {
                     writeln!(
                         formatter.labeled("hint").with_heading("Hint: "),
                         "Conflict in parent commit has been resolved in working copy."
@@ -207,12 +237,24 @@ pub(crate) async fn cmd_status(
     let conflicted_local_bookmarks = repo
         .view()
         .local_bookmarks()
+        .filter(|(name, _)| {
+            workspace_command
+                .env()
+                .project()
+                .is_none_or(|p| p.contains_ref(repo.as_ref(), name))
+        })
         .filter(|(_, target)| !target.is_resolved())
         .map(|(bookmark_name, _)| bookmark_name)
         .collect_vec();
     let conflicted_remote_bookmarks = repo
         .view()
         .all_remote_bookmarks()
+        .filter(|(symbol, _)| {
+            workspace_command
+                .env()
+                .project()
+                .is_none_or(|p| p.contains_ref(repo.as_ref(), symbol.name))
+        })
         .filter(|(_, remote_ref)| !remote_ref.target.is_resolved())
         .map(|(symbol, _)| repo.view().remote_ref_symbol(symbol))
         .collect_vec();
@@ -263,10 +305,6 @@ struct WorkingCopyStatus {
 impl WorkingCopyStatus {
     fn has_any_tracked_changes(&self) -> bool {
         self.tree.tree_ids() != self.parent_tree.tree_ids()
-    }
-
-    fn has_any_untracked_paths(&self) -> bool {
-        !self.untracked_paths.is_empty()
     }
 
     fn untracked_paths_matching(&self, matcher: &dyn Matcher) -> impl Iterator<Item = &RepoPath> {

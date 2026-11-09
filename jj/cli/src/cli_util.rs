@@ -545,6 +545,7 @@ impl CommandHelper {
         let op_head =
             self.resolve_operation(ui, workspace.repo_loader(), workspace.workspace_name())?;
         let repo = workspace.repo_loader().load_at(&op_head).await?;
+        env.select_project(repo.as_ref())?;
         if let Err(err) =
             revset_util::try_resolve_trunk_alias(repo.as_ref(), &env.revset_parse_context())
         {
@@ -975,6 +976,7 @@ pub struct WorkspaceCommandEnvironment {
     template_aliases_map: TemplateAliasesMap,
     default_ignored_remote: Option<&'static RemoteName>,
     path_converter: RepoPathUiConverter,
+    project: Option<crate::project_context::ProjectContext>,
     working_copy_shared_with_git: bool,
     workspace_name: WorkspaceNameBuf,
     immutable_heads_expression: Arc<UserRevsetExpression>,
@@ -1014,6 +1016,7 @@ impl WorkspaceCommandEnvironment {
             template_aliases_map,
             default_ignored_remote,
             path_converter,
+            project: None,
             working_copy_shared_with_git,
             workspace_name: workspace.workspace_name().to_owned(),
             immutable_heads_expression: RevsetExpression::root(),
@@ -1022,6 +1025,22 @@ impl WorkspaceCommandEnvironment {
         };
         env.reload_revset_expressions(ui)?;
         Ok(env)
+    }
+
+    fn select_project(&mut self, repo: &dyn Repo) -> Result<(), CommandError> {
+        if let Some(name) = &self.command.global_args().in_project {
+            let project = crate::project_context::ProjectContext::resolve(repo, name)?;
+            self.path_converter = RepoPathUiConverter::Project {
+                root: project.root.clone(),
+                physical: Box::new(self.path_converter.clone()),
+            };
+            self.project = Some(project);
+        }
+        Ok(())
+    }
+
+    pub fn project(&self) -> Option<&crate::project_context::ProjectContext> {
+        self.project.as_ref()
     }
 
     pub(crate) fn path_converter(&self) -> &RepoPathUiConverter {
@@ -1181,6 +1200,14 @@ impl WorkspaceCommandEnvironment {
         }
     }
 
+    fn repository_revset_parse_context(&self) -> RevsetParseContext<'_> {
+        let mut context = self.revset_parse_context();
+        if let Some(workspace) = &mut context.workspace {
+            workspace.path_converter = self.path_converter.physical();
+        }
+        context
+    }
+
     /// Creates fresh new context which manages cache of short commit/change ID
     /// prefixes. New context should be created per repo view (or operation.)
     pub fn new_id_prefix_context(&self) -> IdPrefixContext {
@@ -1222,7 +1249,7 @@ impl WorkspaceCommandEnvironment {
         let mut diagnostics = RevsetDiagnostics::new();
         let expression = revset_util::parse_immutable_heads_expression(
             &mut diagnostics,
-            &self.revset_parse_context(),
+            &self.repository_revset_parse_context(),
         )
         .map_err(|e| config_error_with_message("Invalid `revset-aliases.immutable_heads()`", e))?;
         print_parse_diagnostics(ui, "In `revset-aliases.immutable_heads()`", &diagnostics)?;
@@ -1245,7 +1272,7 @@ impl WorkspaceCommandEnvironment {
             let expression = revset::parse(
                 &mut diagnostics,
                 &revset_string,
-                &self.revset_parse_context(),
+                &self.repository_revset_parse_context(),
             )
             .map_err(|err| config_error_with_message("Invalid `revsets.short-prefixes`", err))?;
             print_parse_diagnostics(ui, "In `revsets.short-prefixes`", &diagnostics)?;
@@ -1323,6 +1350,7 @@ impl WorkspaceCommandEnvironment {
             self.conflict_marker_style,
             &self.command.data.commit_template_extensions,
         )
+        .with_project_scope(self.project().map(|p| p.id.clone()))
     }
 
     pub fn operation_template_extensions(&self) -> &[Arc<dyn OperationTemplateLanguageExtension>] {
@@ -1883,6 +1911,17 @@ to the current parents may contain changes from multiple commits.
         self.path_converter().format_file_path(file)
     }
 
+    /// Qualify a bookmark or tag name within the selected project, if any.
+    pub fn reference_name(&self, name: &RefName) -> Result<RefNameBuf, CommandError> {
+        match self.env.project() {
+            Some(project) => {
+                jj_lib::revset::project_reference_name(self.repo().view(), &project.id, name)
+                    .map_err(user_error)
+            }
+            None => Ok(name.to_owned()),
+        }
+    }
+
     /// Parses a path relative to cwd into a RepoPath, which is relative to the
     /// workspace root.
     pub fn parse_file_path(&self, input: &str) -> Result<RepoPathBuf, UiPathParseError> {
@@ -1899,7 +1938,9 @@ to the current parents may contain changes from multiple commits.
         // but it would be weird if parse_union_*() had a special case for the
         // empty arguments.
         if values.is_empty() {
-            Ok(FilesetExpression::all())
+            Ok(self
+                .path_converter()
+                .scope_fileset(FilesetExpression::all()))
         } else {
             self.parse_union_filesets(ui, values)
         }
@@ -2096,6 +2137,19 @@ to the current parents may contain changes from multiple commits.
         }
     }
 
+    /// Parse repository policy without the command's project namespace or path scope.
+    pub fn parse_repository_revset(
+        &self,
+        ui: &Ui,
+        revision_arg: &RevisionArg,
+    ) -> Result<RevsetExpressionEvaluator<'_>, CommandError> {
+        let mut diagnostics = RevsetDiagnostics::new();
+        let context = self.env.repository_revset_parse_context();
+        let expression = revset::parse(&mut diagnostics, revision_arg.as_ref(), &context)?;
+        print_parse_diagnostics(ui, "In revset expression", &diagnostics)?;
+        Ok(self.attach_revset_evaluator(expression))
+    }
+
     pub fn parse_revset(
         &self,
         ui: &Ui,
@@ -2105,7 +2159,9 @@ to the current parents may contain changes from multiple commits.
         let context = self.env.revset_parse_context();
         let expression = revset::parse(&mut diagnostics, revision_arg.as_ref(), &context)?;
         print_parse_diagnostics(ui, "In revset expression", &diagnostics)?;
-        Ok(self.attach_revset_evaluator(expression))
+        Ok(self
+            .attach_revset_evaluator(expression)
+            .with_project_scope(self.env.project().map(|p| p.id.clone())))
     }
 
     /// Parses the given revset expressions and concatenates them all.
@@ -2122,7 +2178,9 @@ to the current parents may contain changes from multiple commits.
             .try_collect()?;
         print_parse_diagnostics(ui, "In revset expression", &diagnostics)?;
         let expression = RevsetExpression::union_all(&expressions);
-        Ok(self.attach_revset_evaluator(expression))
+        Ok(self
+            .attach_revset_evaluator(expression)
+            .with_project_scope(self.env.project().map(|p| p.id.clone())))
     }
 
     pub fn attach_revset_evaluator(
@@ -2870,6 +2928,32 @@ to the current parents may contain changes from multiple commits.
         repo: &ReadonlyRepo,
         conflicted_commits: Vec<CommitId>,
     ) -> Result<(), CommandError> {
+        let conflicted_commits = if self.env.project().is_some() {
+            let matcher = self
+                .path_converter()
+                .scope_fileset(FilesetExpression::all())
+                .to_matcher();
+            let mut scoped = Vec::new();
+            for id in conflicted_commits {
+                if repo
+                    .store()
+                    .get_commit_async(&id)
+                    .await?
+                    .tree()
+                    .conflicts_matching(matcher.as_ref())
+                    .next()
+                    .await
+                    .map(|(_, value)| value)
+                    .transpose()?
+                    .is_some()
+                {
+                    scoped.push(id);
+                }
+            }
+            scoped
+        } else {
+            conflicted_commits
+        };
         if !self.settings().get_bool("hints.resolving-conflicts")? || conflicted_commits.is_empty()
         {
             return Ok(());
@@ -4687,6 +4771,7 @@ impl<'a> CliRunner<'a> {
                     };
                     Box::new(AsyncCliDispatchFn(f))
                 });
+        crate::project_context::check_command(&command_helper)?;
         dispatch.call(ui, &command_helper).await
     }
 

@@ -307,13 +307,73 @@ pub async fn cmd_git_push(
     }
     let mut workspace_command = command.workspace_helper(ui).await?;
     if (args.base.is_some() || args.merge || args.source.is_some())
-        && !crate::git_remote::capabilities(command).contains(&"jjosh-v1") {
+        && !crate::git_remote::capabilities(command).contains(&"jjosh-v1")
+    {
         return Err(user_error(
             "--source, --base and --merge require capability jjosh-v1",
         ));
     }
 
+    let mut scoped_args = args.clone();
+    if let Some(project) = workspace_command.env().project() {
+        let view = workspace_command.repo().view();
+        for (patterns, refs) in [
+            (
+                &mut scoped_args.bookmark,
+                view.bookmarks().map(|(name, _)| name).collect_vec(),
+            ),
+            (
+                &mut scoped_args.tag,
+                view.tags().map(|(name, _)| name).collect_vec(),
+            ),
+        ] {
+            if patterns.is_empty() {
+                continue;
+            }
+            let mut selected = std::collections::BTreeSet::new();
+            for text in patterns.iter() {
+                let matcher =
+                    parse_union_name_patterns(ui, std::slice::from_ref(text))?.to_matcher();
+                let names = refs
+                    .iter()
+                    .filter(|name| {
+                        jj_lib::revset::project_reference_matches(
+                            view,
+                            Some(&project.id),
+                            name,
+                            &matcher,
+                        )
+                    })
+                    .collect_vec();
+                if names.is_empty() {
+                    return Err(user_error(format!(
+                        "No references matching {text:?} in project {}",
+                        project.name
+                    )));
+                }
+                selected.extend(
+                    names
+                        .into_iter()
+                        .map(|name| format!("exact:{}", name.as_str())),
+                );
+            }
+            *patterns = selected.into_iter().collect();
+        }
+    }
+    let args = &scoped_args;
     let all_remotes = git::get_all_remote_names(workspace_command.repo().store())?;
+    let all_remotes: Vec<_> = all_remotes
+        .into_iter()
+        .filter(|name| {
+            workspace_command.env().project().is_none_or(|p| {
+                workspace_command
+                    .repo()
+                    .view()
+                    .remote_in_scope(name, Some(&p.id))
+                    .unwrap_or(false)
+            })
+        })
+        .collect();
     let mut tx = workspace_command.start_transaction();
     // Create these before resolving routes, so generated names use the same
     // routing and classification as every other selected bookmark.
@@ -751,7 +811,9 @@ pub async fn cmd_git_push(
             )?;
             print_commits_ready_to_push(formatter.as_mut(), tx.repo(), ref_updates).await?;
         }
-        if args.dry_run && let Some(prepared) = prepared_pushes.get(remote) {
+        if args.dry_run
+            && let Some(prepared) = prepared_pushes.get(remote)
+        {
             prepared.describe(ui)?;
         }
     }
@@ -887,7 +949,14 @@ impl<'a> PushRouting<'a> {
         namespace: &str,
         targets: LocalAndRemoteRef<'_>,
     ) -> Result<(), CommandError> {
-        crate::git_remote::check_selected_ref(self.store, self.view, symbol.remote, symbol.name, self.capabilities, self.source)?;
+        crate::git_remote::check_selected_ref(
+            self.store,
+            self.view,
+            symbol.remote,
+            symbol.name,
+            self.capabilities,
+            self.source,
+        )?;
         if self.dry_run
             && matches!(
                 classify_ref_push_action(targets),
@@ -967,6 +1036,13 @@ async fn resolve_push_routes<'a>(
                     .map(|(name, targets)| (false, name, targets)),
             )
         {
+            if workspace
+                .env()
+                .project()
+                .is_some_and(|p| !p.contains_ref(workspace.repo().as_ref(), name))
+            {
+                continue;
+            }
             let explicitly_named = if is_bookmark {
                 bookmark_matcher.is_match(name.as_str())
             } else {
@@ -1019,7 +1095,8 @@ async fn resolve_push_routes<'a>(
             .as_str()
             .rsplit_once('#')
             .map(|(name, label)| {
-                view.projects().resolve_label(label)
+                view.projects()
+                    .resolve_label(label)
                     .map(|project| project.map(|project| (name, project)))
             })
             .transpose()
@@ -1096,7 +1173,9 @@ async fn resolve_push_routes<'a>(
                 writeln!(
                     ui.warning_default(),
                     "No bookmarks/tags found in revsets.git-push: {text} (remote={remote})",
-                    text = default_revset_text.as_deref().expect("default revset selected"),
+                    text = default_revset_text
+                        .as_deref()
+                        .expect("default revset selected"),
                     remote = view.remote_qualified_name(remote),
                 )?;
             }
@@ -1262,7 +1341,7 @@ impl<'repo> CommitsValidator<'repo> {
             let settings = workspace_helper.settings();
             let revset_str = settings.get_string("git.private-commits")?;
             let is_private = workspace_helper
-                .parse_revset(ui, &RevisionArg::from(revset_str.clone()))?
+                .parse_repository_revset(ui, &RevisionArg::from(revset_str.clone()))?
                 .evaluate()?
                 .containing_fn();
             Some((revset_str, is_private))
@@ -1866,7 +1945,10 @@ async fn find_default_target_revisions(
     revset_text: &str,
     remote: &RemoteName,
 ) -> Result<HashSet<CommitId>, CommandError> {
-    let remote_name = workspace_command.repo().view().remote_qualified_name(remote);
+    let remote_name = workspace_command
+        .repo()
+        .view()
+        .remote_qualified_name(remote);
     let mut context = workspace_command.env().revset_parse_context();
     context
         .local_variables

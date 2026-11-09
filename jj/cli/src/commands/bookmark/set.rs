@@ -69,7 +69,11 @@ pub async fn cmd_bookmark_set(
         .resolve_single_rev(ui, &args.revision)
         .await?;
     let repo = workspace_command.repo().as_ref();
-    let bookmark_names = &args.names;
+    let bookmark_names = &args
+        .names
+        .iter()
+        .map(|name| workspace_command.reference_name(name))
+        .collect::<Result<Vec<_>, _>>()?;
     let mut new_bookmarks = HashSet::new();
     let mut moved_bookmark_count = 0;
     for name in bookmark_names {
@@ -109,14 +113,16 @@ pub async fn cmd_bookmark_set(
                 };
                 let symbol = name.to_remote_symbol(remote_name);
                 if !matcher.is_match(name.as_str())
-                    || !jj_lib::revset::remote_ref_matches_scope(readonly_repo.view(), symbol).map_err(user_error)?
+                    || !jj_lib::revset::remote_ref_matches_scope(readonly_repo.view(), symbol)
+                        .map_err(user_error)?
                 {
                     continue;
                 }
                 if remote_view.bookmarks.contains_key(name) {
                     writeln!(
                         ui.warning_default(),
-                        "Auto-tracking bookmark that exists on the remote: {}", readonly_repo.view().remote_ref_symbol(symbol)
+                        "Auto-tracking bookmark that exists on the remote: {}",
+                        readonly_repo.view().remote_ref_symbol(symbol)
                     )?;
                 }
                 tx.repo_mut().track_remote_bookmark(symbol).await?;

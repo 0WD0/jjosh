@@ -79,6 +79,7 @@ pub struct RevsetExpressionEvaluator<'repo> {
     extensions: Arc<RevsetExtensions>,
     id_prefix_context: &'repo IdPrefixContext,
     expression: Arc<UserRevsetExpression>,
+    project: Option<jj_lib::project::ProjectId>,
 }
 
 impl<'repo> RevsetExpressionEvaluator<'repo> {
@@ -93,7 +94,13 @@ impl<'repo> RevsetExpressionEvaluator<'repo> {
             extensions,
             id_prefix_context,
             expression,
+            project: None,
         }
+    }
+
+    pub fn with_project_scope(mut self, project: Option<jj_lib::project::ProjectId>) -> Self {
+        self.project = project;
+        self
     }
 
     /// Returns the underlying expression.
@@ -125,7 +132,8 @@ impl<'repo> RevsetExpressionEvaluator<'repo> {
             self.repo,
             self.extensions.symbol_resolvers(),
             self.id_prefix_context,
-        );
+        )
+        .with_project_scope(self.project.clone());
         self.expression
             .resolve_user_expression(self.repo, &symbol_resolver)
     }
@@ -441,12 +449,12 @@ pub fn resolve_remote_settings(
     for (selector, settings) in settings {
         let (name, project) = match selector.as_str().rsplit_once('#') {
             Some((name, "")) => (RemoteName::new(name), None),
-            Some((name, label)) => match view.projects().resolve_label(label)
-                .map_err(user_error)?
-            {
-                Some(project) => (RemoteName::new(name), Some(project)),
-                None => (selector.as_ref(), None),
-            },
+            Some((name, label)) => {
+                match view.projects().resolve_label(label).map_err(user_error)? {
+                    Some(project) => (RemoteName::new(name), Some(project)),
+                    None => (selector.as_ref(), None),
+                }
+            }
             None => (selector.as_ref(), None),
         };
         let mut matching = Vec::new();

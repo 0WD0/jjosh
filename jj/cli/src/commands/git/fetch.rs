@@ -211,7 +211,7 @@ pub async fn cmd_git_fetch(
         }
         projects
     } else if args.project.is_empty() {
-        vec![None]
+        vec![workspace_command.env().project().map(|p| p.id.clone())]
     } else {
         args.project
             .iter()
