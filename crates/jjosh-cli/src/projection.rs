@@ -8,6 +8,7 @@ use jj_cli::cli_util::{CommandHelper, RevisionArg, WorkspaceCommandHelper};
 use jj_cli::command_error::{CommandError, user_error, user_error_with_message};
 use jj_cli::ui::Ui;
 use jj_lib::repo::Repo as _;
+use jj_lib::repo_path::RepoPathBuf;
 
 #[derive(clap::Args, Clone, Debug)]
 pub(crate) struct Args {
@@ -209,6 +210,56 @@ fn preview_history(
     Ok(commits)
 }
 
+/// These operations only consume the projected input; they cannot load an external history
+/// or dynamically select another filter from repository content.
+fn scoped_filter(filter: josh_core::filter::Filter) -> bool {
+    use josh_core::filter::{Op, to_op};
+    match to_op(filter) {
+        Op::Nop
+        | Op::Empty
+        | Op::Paths
+        | Op::Subdir(_)
+        | Op::Prefix(_)
+        | Op::File(_, _)
+        | Op::Pattern(_)
+        | Op::RegexReplace(_)
+        | Op::Author(_, _)
+        | Op::Committer(_, _)
+        | Op::Message(_, _)
+        | Op::Prune
+        | Op::Squash => true,
+        Op::Meta(_, filter) | Op::Exclude(filter) | Op::Select(filter) => scoped_filter(filter),
+        Op::Chain(filters) | Op::Compose(filters) => filters.into_iter().all(scoped_filter),
+        Op::Subtract(left, right) => scoped_filter(left) && scoped_filter(right),
+        _ => false,
+    }
+}
+
+/// A leading subtree selection gives native conflicts an unambiguous scope.
+/// Dynamic views and external-history operators retain the original whole-history checks.
+fn leading_subdir(
+    filter: josh_core::filter::Filter,
+) -> Option<(RepoPathBuf, josh_core::filter::Filter)> {
+    let steps = josh_core::filter::flatten_chain(filter);
+    let (first, rest) = steps.split_first()?;
+    if !rest.iter().copied().all(scoped_filter) {
+        return None;
+    }
+    let josh_core::filter::Op::Subdir(path) = josh_core::filter::to_op(*first) else {
+        return None;
+    };
+    let path = RepoPathBuf::from_internal_string(path.to_str()?).ok()?;
+    if path.is_root() {
+        return None;
+    }
+    let remainder = rest
+        .iter()
+        .fold(josh_core::filter::Filter::new(), |filter, step| {
+            filter.chain(*step)
+        });
+    Some((path, remainder))
+}
+
 async fn run_preview(
     ui: &mut Ui,
     command_helper: &CommandHelper,
@@ -219,8 +270,6 @@ async fn run_preview(
     let commit = workspace_command
         .resolve_single_rev(ui, &args.revision)
         .await?;
-
-    check_projectable_repo_history(workspace_command.repo().as_ref(), &commit).await?;
 
     let git_repo_path = sha1_git_repo_path(&workspace_command)?;
     let filter = FilterArgs {
@@ -233,8 +282,25 @@ async fn run_preview(
     // Filtering transforms history; the displayed change ID belongs to the source,
     // not a claim that the derived graph preserves every source commit.
     let transaction = open_josh_transaction(&git_repo_path, true)?;
-    let projected_oid = josh_core::filter_commit(&transaction, filter, source_oid)
-        .map_err(|err| user_error_with_message("Failed to apply the Josh projection", err))?;
+    let projected_oid = if let Some((mount, remainder)) = leading_subdir(filter) {
+        let subtree = crate::native_project::preview::project(
+            workspace_command.repo().as_ref(),
+            &transaction,
+            &commit,
+            &mount,
+        )
+        .await
+        .map_err(user_error)?;
+        if subtree.is_null() || remainder.is_nop() {
+            Ok(subtree)
+        } else {
+            josh_core::filter_commit(&transaction, remainder, subtree)
+        }
+    } else {
+        check_projectable_repo_history(workspace_command.repo().as_ref(), &commit).await?;
+        josh_core::filter_commit(&transaction, filter, source_oid)
+    }
+    .map_err(|err| user_error_with_message("Failed to apply the Josh projection", err))?;
 
     let preview = Preview {
         filter: josh_core::filter::spec(filter),

@@ -70,6 +70,25 @@ pub(super) async fn project<T>(
     mount: &RepoPath,
     heads: &[CommitId],
     boundary: impl Fn(&CommitId) -> Option<CommitId>,
+    emit: impl FnMut(&Commit, &MergedTree, Vec<CommitId>) -> Result<(CommitId, Option<T>)>,
+) -> Result<History<T>> {
+    project_with_tree(
+        repo,
+        heads,
+        boundary,
+        async |commit| super::project_tree(commit, mount).await,
+        emit,
+    )
+    .await
+}
+
+/// Preview supplies a tree reader which never resolves trees into the persistent store.
+/// Parent pruning and empty-commit handling remain shared with native publication.
+pub(super) async fn project_with_tree<T>(
+    repo: &dyn Repo,
+    heads: &[CommitId],
+    boundary: impl Fn(&CommitId) -> Option<CommitId>,
+    tree_for: impl AsyncFn(&Commit) -> Result<MergedTree>,
     mut emit: impl FnMut(&Commit, &MergedTree, Vec<CommitId>) -> Result<(CommitId, Option<T>)>,
 ) -> Result<History<T>> {
     let root = repo.store().root_commit_id();
@@ -95,7 +114,7 @@ pub(super) async fn project<T>(
                 }
                 let commit = repo.store().get_commit_async(&id).await?;
                 if let Some(representative) = boundary(&id) {
-                    let tree = super::project_tree(&commit, mount).await?;
+                    let tree = tree_for(&commit).await?;
                     mapped.insert(
                         id,
                         Projected {
@@ -116,7 +135,7 @@ pub(super) async fn project<T>(
                 pending.extend(parents.into_iter().map(Visit::Read));
             }
             Visit::Write(commit) => {
-                let tree = super::project_tree(&commit, mount).await?;
+                let tree = tree_for(&commit).await?;
                 let mut seen = HashSet::new();
                 let mut parents: Vec<_> = commit
                     .parent_ids()
