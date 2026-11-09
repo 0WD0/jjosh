@@ -233,39 +233,6 @@ impl Fixture {
             ],
         )
     }
-
-    fn native_conflict(&self, changed_path: &str) -> PathBuf {
-        let client = self.init_client("client", false);
-        self.write(&client, "api/value.txt", "API base\n");
-        self.write(&client, "other/value.txt", "other base\n");
-        self.jj(&client, &["describe", "-m", "create API"]);
-        self.jj(&client, &["bookmark", "create", "base"]);
-        for side in ["left", "right"] {
-            self.jj(&client, &["new", "base", "-m", side]);
-            self.write(&client, changed_path, &format!("{side}\n"));
-            self.jj(&client, &["bookmark", "create", side]);
-        }
-        self.jj(&client, &["new", "left", "right", "-m", "native conflict"]);
-        assert!(!self.log(&client, "@ & conflicts()", "commit_id").is_empty());
-        client
-    }
-
-    fn objects(&self, git: &Path) -> String {
-        let mut ids: Vec<_> = self
-            .git(
-                git,
-                &[
-                    "cat-file",
-                    "--batch-all-objects",
-                    "--batch-check=%(objectname)",
-                ],
-            )
-            .lines()
-            .map(str::to_owned)
-            .collect();
-        ids.sort();
-        ids.join("\n")
-    }
 }
 
 #[test]
@@ -420,160 +387,7 @@ fn registering_a_filtered_project_preserves_its_reverse_source_layout() {
 }
 
 #[test]
-fn projection_preview_uses_recorded_history_without_snapshotting_pending_files() {
-    let f = Fixture::new();
-    let client = f.init_client("client", false);
-    f.write(&client, "outside.txt", "initial scaffold\n");
-    f.jj(&client, &["describe", "-m", "monorepo scaffold"]);
-    f.jj(&client, &["new", "-m", "create API"]);
-    f.write(&client, "api/api.txt", "recorded API\n");
-    f.jj(&client, &["describe", "-m", "create API"]);
-    f.jj(&client, &["new", "-m", "unrelated monorepo change"]);
-    f.write(&client, "outside.txt", "unrelated edit\n");
-    f.jj(&client, &["describe", "-m", "unrelated monorepo change"]);
-    let operation = f.operation_id(&client);
-    let git_path = f.jj(&client, &["git", "root"]);
-    let refs = f.refs(Path::new(git_path.trim()));
-    f.write(&client, "api/pending.txt", "not recorded\n");
-    let preview: serde_json::Value = serde_json::from_str(&f.jj(
-        &client,
-        &[
-            "projection",
-            "preview",
-            ":/api",
-            "--files",
-            "--history",
-            "--json",
-        ],
-    ))
-    .unwrap();
-    assert_eq!(preview["files"], serde_json::json!(["api.txt"]));
-    let history = preview["history"].as_array().unwrap();
-    assert_eq!(
-        history
-            .iter()
-            .map(|commit| commit["description"].as_str().unwrap().trim())
-            .collect::<Vec<_>>(),
-        ["create API"]
-    );
-    assert_eq!(f.operation_id(&client), operation);
-    assert_eq!(f.refs(Path::new(git_path.trim())), refs);
-    assert_eq!(
-        fs::read_to_string(client.join("api/pending.txt")).unwrap(),
-        "not recorded\n"
-    );
-}
-
-#[test]
-fn projection_preview_excludes_unrelated_native_conflicts_without_persisting_objects() {
-    for resolve_head in [false, true] {
-        let f = Fixture::new();
-        let client = f.native_conflict("other/value.txt");
-        if resolve_head {
-            f.jj(&client, &["new", "-m", "resolve unrelated conflict"]);
-            f.write(&client, "other/value.txt", "resolved\n");
-            f.jj(&client, &["describe", "-m", "resolve unrelated conflict"]);
-            assert_eq!(f.log(&client, "@ & conflicts()", "commit_id"), "");
-        }
-        let source = f.log(&client, "@", "commit_id");
-        let operation = f.operation_id(&client);
-        let git_path = f.jj(&client, &["git", "root"]);
-        let git_path = Path::new(git_path.trim());
-        let refs = f.refs(git_path);
-        let objects = f.objects(git_path);
-        f.write(&client, "api/pending.txt", "not recorded\n");
-
-        for (filter, files) in [
-            (":/api", vec!["value.txt"]),
-            (":/api:prefix=renamed", vec!["renamed/value.txt"]),
-            (":/missing", vec![]),
-        ] {
-            let preview: serde_json::Value = serde_json::from_str(&f.jj(
-                &client,
-                &[
-                    "projection",
-                    "preview",
-                    filter,
-                    "--files",
-                    "--history",
-                    "--json",
-                ],
-            ))
-            .unwrap();
-            assert_eq!(preview["source_commit"], source);
-            assert_eq!(preview["files"], serde_json::json!(files));
-            let history = preview["history"].as_array().unwrap();
-            if files.is_empty() {
-                assert!(preview["projected_commit"].is_null());
-                assert!(history.is_empty());
-            } else {
-                assert_eq!(history.len(), 1);
-                assert_eq!(
-                    history[0]["description"].as_str().unwrap().trim(),
-                    "create API"
-                );
-                assert_eq!(history[0]["parents"], serde_json::json!([]));
-                let projected = preview["projected_commit"].as_str().unwrap();
-                assert!(
-                    !f.run(git_path, Path::new("git"), &["cat-file", "-e", projected])
-                        .status
-                        .success()
-                );
-            }
-        }
-        assert_eq!(f.objects(git_path), objects);
-        assert_eq!(f.refs(git_path), refs);
-        assert_eq!(f.operation_id(&client), operation);
-        assert_eq!(
-            fs::read_to_string(client.join("api/pending.txt")).unwrap(),
-            "not recorded\n"
-        );
-    }
-}
-
-#[test]
-fn projection_preview_rejects_in_scope_native_conflict_ancestry() {
-    for resolve_head in [false, true] {
-        let f = Fixture::new();
-        let client = f.native_conflict("api/value.txt");
-        if resolve_head {
-            f.jj(&client, &["new", "-m", "resolve API conflict"]);
-            f.write(&client, "api/value.txt", "resolved\n");
-            f.jj(&client, &["describe", "-m", "resolve API conflict"]);
-            assert_eq!(f.log(&client, "@ & conflicts()", "commit_id"), "");
-        }
-        let operation = f.operation_id(&client);
-        let git_path = f.jj(&client, &["git", "root"]);
-        let git_path = Path::new(git_path.trim());
-        let refs = f.refs(git_path);
-        let objects = f.objects(git_path);
-        let rejected = f.jj_unchecked(&client, &["projection", "preview", ":/api", "--json"]);
-        assert!(!rejected.status.success());
-        let error = String::from_utf8(rejected.stderr).unwrap();
-        assert!(
-            error.contains("native conflict in projection path api"),
-            "{error}"
-        );
-        assert_eq!(f.objects(git_path), objects);
-        assert_eq!(f.refs(git_path), refs);
-        assert_eq!(f.operation_id(&client), operation);
-    }
-}
-
-#[test]
-fn projection_preview_keeps_checks_for_dynamic_or_unscoped_filters() {
-    let f = Fixture::new();
-    let client = f.native_conflict("other/value.txt");
-    for filter in [":/", ":prefix=renamed", ":/api:workspace=views"] {
-        let rejected = f.jj_unchecked(&client, &["projection", "preview", filter, "--json"]);
-        assert!(!rejected.status.success());
-        let error = String::from_utf8(rejected.stderr).unwrap();
-        assert!(error.contains("contains a native conflict"), "{error}");
-    }
-}
-
-#[test]
-fn projection_preview_matches_native_export_with_an_unrelated_conflicted_merge_parent() {
+fn native_export_preserves_project_merges_with_an_unrelated_conflicted_parent() {
     let f = Fixture::new();
     let client = f.init_client("client", false);
     f.write(&client, "packages/api/a.txt", "a base\n");
@@ -616,41 +430,6 @@ fn projection_preview_matches_native_export_with_an_unrelated_conflicted_merge_p
         ],
     );
     assert!(!f.log(&client, "@ & conflicts()", "commit_id").is_empty());
-    let git_path = f.jj(&client, &["git", "root"]);
-    let git_path = Path::new(git_path.trim());
-    let objects = f.objects(git_path);
-    let refs = f.refs(git_path);
-    let operation = f.operation_id(&client);
-    let preview: serde_json::Value = serde_json::from_str(&f.jj(
-        &client,
-        &[
-            "projection",
-            "preview",
-            ":/packages/api",
-            "--files",
-            "--history",
-            "--json",
-        ],
-    ))
-    .unwrap();
-    assert_eq!(preview["files"], serde_json::json!(["a.txt", "b.txt"]));
-    let history = preview["history"].as_array().unwrap();
-    assert_eq!(history.len(), 4);
-    assert_eq!(
-        history[0]["description"].as_str().unwrap().trim(),
-        "merge API"
-    );
-    assert_eq!(history[0]["parents"].as_array().unwrap().len(), 2);
-    assert!(
-        history
-            .iter()
-            .all(|commit| !commit["description"].as_str().unwrap().contains("foreign"))
-    );
-    assert_eq!(f.objects(git_path), objects);
-    assert_eq!(f.refs(git_path), refs);
-    assert_eq!(f.operation_id(&client), operation);
-
-    // Compare the preview to the ordinary whole-project publisher in a disposable local remote.
     f.jj(
         &client,
         &["project", "add", "api", "--path", "packages/api"],
@@ -673,8 +452,19 @@ fn projection_preview_matches_native_export_with_an_unrelated_conflicted_merge_p
     f.jj(&client, &["bookmark", "create", "main#api"]);
     f.jj(&client, &["git", "push", "--bookmark", "main#api"]);
     assert_eq!(
-        preview["projected_commit"].as_str().unwrap(),
-        f.git(&remote, &["rev-parse", "main"]).trim()
+        f.git(&remote, &["ls-tree", "-r", "--name-only", "main"]),
+        "a.txt\nb.txt\n"
+    );
+    assert_eq!(f.git(&remote, &["rev-list", "--count", "main"]).trim(), "4");
+    assert_eq!(
+        f.git(&remote, &["show", "-s", "--format=%P", "main"])
+            .split_whitespace()
+            .count(),
+        2
+    );
+    assert!(
+        !f.git(&remote, &["log", "--format=%s", "main"])
+            .contains("foreign")
     );
 }
 
@@ -1562,41 +1352,6 @@ fn view_paths_are_literal_and_cannot_be_combined_with_filter_expressions() {
         f.git(&remote, &["show", "main:src/Sunshine/private.txt"]),
         "outside literal view\n"
     );
-
-    let raw = f.client("raw-reader", true, &remote, ":/");
-    let before = f.refs(&remote);
-    let preview = f.jj(
-        &raw,
-        &["projection", "preview", "--view", view, "-r", "main@origin"],
-    );
-    assert_eq!(
-        preview,
-        f.jj(
-            &raw,
-            &[
-                "projection",
-                "preview",
-                "--view",
-                &format!("./{view}"),
-                "-r",
-                "main@origin",
-            ]
-        )
-    );
-    let rejected = f.jj_unchecked(
-        &raw,
-        &[
-            "projection",
-            "preview",
-            ":/",
-            "--view",
-            view,
-            "-r",
-            "main@origin",
-        ],
-    );
-    assert!(!rejected.status.success());
-    assert_eq!(f.refs(&remote), before);
 }
 
 #[test]

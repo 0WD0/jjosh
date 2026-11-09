@@ -466,7 +466,7 @@ jjosh git fetch --project parser --remote origin --branch main \
 使用输出 =Fetched revision RAW as CANONICAL= 中的 CANONICAL 选择本地版本；本地 jj 原生来源不支持 raw OID 选择。
 =--revision= 和 =--fetch-url= 都要求整批去重后恰好一个物理 named remote，多个项目里同名 origin 不算一个。
 
-** 仓库级过滤与预览
+** 仓库级过滤
 
 在另一个目标仓库，不指定项目即可让过滤结果成为整个仓库根：
 
@@ -478,14 +478,7 @@ jjosh new main@upstream
 
 也可以用 =--view PATH=；发布仍用 git push。
 这种仓库级绑定与项目目录、sparse 映射是不同层次的东西，不要混用。
-仅查看当前仓库某个已记录版本的过滤结果：
-
-#+begin_src sh
-jjosh projection preview ':/libs/parser' -r @ --files --history
-#+end_src
-
-可加 =--json=，或用 =--view PATH= 替换 filter。
-preview 不改变记录状态；具体 remote 的交付结果仍用 push dry-run 检查。
+具体 remote 的交付结果用 =git push --dry-run= 检查。
 
 * 恢复 operation
 

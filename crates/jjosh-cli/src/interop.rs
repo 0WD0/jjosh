@@ -38,12 +38,6 @@ pub(crate) fn open_josh_transaction(
         .map_err(|err| user_error_with_message("Failed to open the Git repository for Josh", err))
 }
 
-pub(crate) fn commit_as_josh_oid(commit: &Commit) -> Result<gix_hash::ObjectId, CommandError> {
-    gix_hash::ObjectId::try_from(commit.id().as_bytes()).map_err(|err| {
-        user_error_with_message("Could not convert the jj commit ID to a Git object ID", err)
-    })
-}
-
 pub(crate) fn commit_id_from_josh_oid(oid: gix_hash::ObjectId) -> jj_lib::backend::CommitId {
     jj_lib::backend::CommitId::from_bytes(oid.as_bytes())
 }

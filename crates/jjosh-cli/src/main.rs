@@ -11,7 +11,6 @@ mod project_config;
 mod project_import;
 mod project_preserve;
 mod project_provenance;
-mod projection;
 mod projection_history;
 mod ref_names;
 mod remote_refs;
@@ -26,8 +25,6 @@ use jj_cli::ui::Ui;
 enum JjoshCommand {
     /// Register, inspect, and import operation-owned subprojects.
     Project(project::Args),
-    /// Work with bidirectional Josh history projections.
-    Projection(projection::Args),
 }
 
 async fn run_jjosh_command(
@@ -37,7 +34,6 @@ async fn run_jjosh_command(
 ) -> Result<(), CommandError> {
     match command {
         JjoshCommand::Project(args) => project::run(ui, command_helper, args).await,
-        JjoshCommand::Projection(args) => projection::run(ui, command_helper, args).await,
     }
 }
 
