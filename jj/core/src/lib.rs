@@ -27,15 +27,20 @@
 // - https://github.com/rust-lang/rust/issues/54363
 extern crate self as jj_core;
 
+// Re-exported for use by the `id_type!` macro.
+#[doc(hidden)]
+pub use serde;
+
 pub mod backend;
+mod cached_loader;
 pub mod commit;
 pub mod conflict_labels;
+pub mod conflicts;
 pub mod content_hash;
 pub mod copies;
 pub mod dag_walk;
 pub mod dag_walk_async;
 pub mod diff;
-pub mod file_util;
 pub mod files;
 pub mod fileset_backend;
 pub mod filtered_tree_writer;
@@ -50,6 +55,7 @@ pub mod merged_tree;
 pub mod merged_tree_builder;
 pub mod object_id;
 pub mod op_store;
+pub mod op_walk;
 pub mod operation;
 pub mod project;
 pub mod ref_name;
@@ -65,23 +71,13 @@ pub mod tree;
 pub mod tree_merge;
 mod tree_rewriter;
 mod tree_walk;
+pub mod union_find;
 pub mod view;
 pub mod working_copy_patterns;
 pub mod workspace_store;
 
 #[cfg(test)]
 mod tests {
-    use tempfile::TempDir;
-
     // Copied from `testutils::TestResult` to remove dependency cycle.
     pub type TestResult<T = ()> = eyre::Result<T>;
-
-    /// Unlike `testutils::new_temp_dir()`, this function doesn't set up
-    /// hermetic Git environment.
-    pub fn new_temp_dir() -> TempDir {
-        tempfile::Builder::new()
-            .prefix("jj-test-")
-            .tempdir()
-            .unwrap()
-    }
 }

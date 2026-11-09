@@ -42,6 +42,26 @@ echo d >> d
 git commit -q -am "c2"
 store_tree "c2"
 
+# Intent-to-add entries do not participate in the committed tree. Replacing tracked
+# entries with them therefore stages deletions, including with skip-worktree set.
+git rm --cached a d
+git add --intent-to-add a d
+echo new >will-ita-add
+git add --intent-to-add will-ita-add
+cp .git/index .git/index-intent-to-add
+git diff --cached --no-renames --name-status >.git/intent-to-add.git
+git update-index --skip-worktree a d
+cp .git/index .git/index-intent-to-add-skip
+git diff --cached --no-renames --name-status >.git/intent-to-add-skip.git
+git update-index --no-skip-worktree a d
+cp a a-renamed
+git add a-renamed
+cp .git/index .git/index-intent-to-add-rename
+git diff --cached --no-renames --name-status >.git/intent-to-add-rename.git
+git diff --cached --find-renames=100% --name-status >.git/intent-to-add-rename-with-renames.git
+git reset --hard HEAD
+rm -f will-ita-add a-renamed
+
 echo a1 >> a
 echo dir/c1 >> dir/c
 git commit -q -am "c3-modification"
@@ -792,7 +812,8 @@ git -c diff.renames=1 show > baseline-3.with-renames
 git -c diff.renames=0 show HEAD~2 > baseline-2.no-renames
 git -c diff.renames=1 show HEAD~2 > baseline-2.with-renames
 git -c diff.renames=0 show HEAD~4 > baseline.no-renames
-git -c diff.renames=1 show HEAD~4 > baseline.with-renames
+# Match the identity test's copy detection, empty sources, and small fuzzy limit.
+git -c diff.renames=copies show --rename-empty -l1 HEAD~4 > baseline.with-renames
 
 echo 1 >src/plumbing/main.rs
 echo 2 >src/plumbing/mod.rs

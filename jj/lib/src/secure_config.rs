@@ -21,18 +21,19 @@ use std::io::Write as _;
 use std::path::Path;
 use std::path::PathBuf;
 
+use jj_core::hex_util::encode_hex;
+use jj_local_util::file_util::BadPathEncoding;
+use jj_local_util::file_util::IoResultExt as _;
+use jj_local_util::file_util::PathError;
+use jj_local_util::file_util::new_temp_file_with_default_permissions;
+use jj_local_util::file_util::path_from_bytes;
+use jj_local_util::file_util::path_to_bytes;
 use prost::Message as _;
 use rand::RngExt as _;
 use rand_chacha::ChaCha20Rng;
 use tempfile::NamedTempFile;
 use thiserror::Error;
 
-use crate::file_util::BadPathEncoding;
-use crate::file_util::IoResultExt as _;
-use crate::file_util::PathError;
-use crate::file_util::path_from_bytes;
-use crate::file_util::path_to_bytes;
-use crate::hex_util::encode_hex;
 use crate::protos::secure_config::ConfigMetadata;
 
 const CONFIG_FILE: &str = "config.toml";
@@ -98,7 +99,7 @@ pub struct LoadedSecureConfig {
 
 fn atomic_write(path: &Path, content: &[u8]) -> Result<(), SecureConfigError> {
     let d = path.parent().unwrap();
-    let mut temp_file = NamedTempFile::new_in(d).context(d)?;
+    let mut temp_file = new_temp_file_with_default_permissions(d).context(d)?;
     temp_file.write_all(content).context(temp_file.path())?;
     temp_file.persist(path).map_err(|e| PathError {
         path: path.to_path_buf(),

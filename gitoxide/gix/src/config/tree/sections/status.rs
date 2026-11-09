@@ -4,7 +4,7 @@ use crate::{
 };
 
 impl Status {
-    /// The `status.showUntrackedFiles` key
+    /// The `status.showUntrackedFiles` key. Boolean values select `normal` when true and `no` when false.
     pub const SHOW_UNTRACKED_FILES: ShowUntrackedFiles = ShowUntrackedFiles::new_with_validate(
         "showUntrackedFiles",
         &config::Tree::STATUS,
@@ -13,13 +13,13 @@ impl Status {
     /// The `status.renameLimit` key.
     pub const RENAME_LIMIT: keys::UnsignedInteger = keys::UnsignedInteger::new_unsigned_integer(
         "renameLimit",
-        &config::Tree::MERGE,
+        &config::Tree::STATUS,
     )
     .with_note(
         "The limit is actually squared, so 1000 stands for up to 1 million diffs if fuzzy rename tracking is enabled",
     );
     /// The `status.renames` key.
-    pub const RENAMES: super::diff::Renames = super::diff::Renames::new_renames("renames", &config::Tree::MERGE);
+    pub const RENAMES: super::diff::Renames = super::diff::Renames::new_renames("renames", &config::Tree::STATUS);
 }
 
 /// The `status.showUntrackedFiles` key.
@@ -36,8 +36,14 @@ mod show_untracked_files {
             value: impl gix_utils::AsBStr,
         ) -> Result<status::UntrackedFiles> {
             let value = value.as_bstr();
+            if let Ok(boolean) = gix_config::Boolean::try_from(value) {
+                return Ok(if boolean.0 {
+                    status::UntrackedFiles::Collapsed
+                } else {
+                    status::UntrackedFiles::None
+                });
+            }
             Ok(match value.as_bstr().as_bytes() {
-                b"no" => status::UntrackedFiles::None,
                 b"normal" => status::UntrackedFiles::Collapsed,
                 b"all" => status::UntrackedFiles::Files,
                 _ => {
@@ -62,9 +68,11 @@ impl Section for Status {
     }
 }
 
-mod validate {
+/// Validation for `status` configuration keys.
+pub mod validate {
     use crate::{Result, bstr::BStr, config::tree::keys};
 
+    /// Validate values for [`super::ShowUntrackedFiles`].
     #[derive(Clone, Copy)]
     pub struct ShowUntrackedFiles;
     impl keys::Validate for ShowUntrackedFiles {

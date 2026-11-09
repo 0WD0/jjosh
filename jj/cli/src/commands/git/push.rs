@@ -14,7 +14,6 @@
 
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::future;
 use std::io;
 use std::io::Write as _;
 use std::iter;
@@ -48,7 +47,6 @@ use jj_lib::refs::RefPushAction;
 use jj_lib::refs::classify_ref_push_action;
 use jj_lib::repo::Repo;
 use jj_lib::revset;
-use jj_lib::revset::ResolvedRevsetExpression;
 use jj_lib::revset::RevsetContainingFn;
 use jj_lib::revset::RevsetDiagnostics;
 use jj_lib::revset::RevsetExpression;
@@ -705,13 +703,12 @@ pub async fn cmd_git_push(
         }
     }
 
-    by_remote.retain(|(_, updates)| !updates.bookmarks.is_empty() || !updates.tags.is_empty());
-    if by_remote.is_empty() {
-        writeln!(ui.status(), "Nothing changed.")?;
-        return Ok(());
-    }
+    // Suppress status messages for remotes with no changes.
+    by_remote.retain(|(_, ref_updates)| {
+        !ref_updates.bookmarks.is_empty() || !ref_updates.tags.is_empty()
+    });
 
-    if !args.dry_run && tx.settings().get_bool("git.sign-on-push")? {
+    if !args.dry_run {
         let to_push_exprs = by_remote
             .iter()
             .map(|(remote, ref_updates)| ready_to_push_revset_expression(&tx, remote, ref_updates))
@@ -823,7 +820,7 @@ pub async fn cmd_git_push(
     }
 
     let mut all_ok = true;
-    let mut some_exported = false;
+    let mut some_pushed = false;
     let mut push_error = None;
 
     for (remote, ref_updates) in &by_remote {
@@ -860,7 +857,7 @@ pub async fn cmd_git_push(
         print_push_stats(ui, tx.repo().view(), &push_stats)?;
 
         all_ok &= push_stats.all_ok();
-        some_exported |= push_stats.some_exported();
+        some_pushed |= !push_stats.pushed.is_empty();
         if push_error.is_some() {
             all_ok = false;
             break;
@@ -869,14 +866,13 @@ pub async fn cmd_git_push(
 
     // TODO: On partial success, locally-created --change/--named bookmarks will
     // be committed. It's probably better to remove failed local bookmarks.
-    if all_ok || some_exported {
+    if all_ok || some_pushed {
         let description = {
             let remotes = match &*by_remote {
                 [(remote, _)] => format!(
                     "git remote {}",
                     tx.repo().view().remote_qualified_name(remote)
                 ),
-                // by_remote is not empty
                 _ => format!(
                     "git remotes {remotes}",
                     remotes = by_remote
@@ -1312,7 +1308,6 @@ impl RejectedCommitReason {
 struct CommitsValidator<'repo> {
     repo: &'repo dyn Repo,
     known_heads: Vec<CommitId>,
-    immutable_heads: Arc<ResolvedRevsetExpression>,
     private_commits: Option<(String, Box<RevsetContainingFn<'static>>)>,
     validation_session: Option<&'repo dyn GitRemoteSession>,
     allow_empty_description: bool,
@@ -1328,15 +1323,14 @@ impl<'repo> CommitsValidator<'repo> {
         validation_session: Option<&'repo dyn GitRemoteSession>,
     ) -> Result<Self, CommandError> {
         let repo = workspace_helper.repo().as_ref();
-        let known_heads = repo
-            .view()
-            .remote_bookmarks(remote)
-            .flat_map(|(_, old_head)| old_head.target.present_adds())
-            .cloned()
-            .collect();
-        let immutable_heads = workspace_helper
-            .attach_revset_evaluator(workspace_helper.env().immutable_heads_expression().clone())
-            .resolve()?;
+        let known_heads = itertools::chain(
+            repo.view().remote_bookmarks(remote),
+            repo.view().remote_tags(remote),
+        )
+        .flat_map(|(_, old_head)| old_head.target.present_adds())
+        .cloned()
+        .chain([repo.store().root_commit_id().clone()])
+        .collect();
         let private_commits = if !args.allow_private {
             let settings = workspace_helper.settings();
             let revset_str = settings.get_string("git.private-commits")?;
@@ -1351,7 +1345,6 @@ impl<'repo> CommitsValidator<'repo> {
         Ok(Self {
             repo,
             known_heads,
-            immutable_heads,
             private_commits,
             validation_session,
             allow_empty_description: args.allow_empty_description,
@@ -1381,7 +1374,6 @@ impl<'repo> CommitsValidator<'repo> {
         new_heads: &[CommitId],
     ) -> Result<Result<(), RejectedCommitReason>, CommandError> {
         let new_commits = RevsetExpression::commits(self.known_heads.clone())
-            .union(&self.immutable_heads)
             .range(&RevsetExpression::commits(new_heads.to_vec()));
         let candidates = new_commits.evaluate(self.repo)?.stream();
         let mut commits = match self.validation_session {
@@ -1461,19 +1453,18 @@ async fn sign_commits_before_push<'a>(
     commits_to_push: Arc<UserRevsetExpression>,
     by_remote: Vec<(&'a RemoteName, GitPushRefTargets)>,
 ) -> Result<(Vec<(&'a RemoteName, GitPushRefTargets)>, usize), CommandError> {
-    let mut sign_settings = tx.settings().sign_settings();
-    sign_settings.behavior = SignBehavior::Own;
-    // TODO: make filter condition configurable by revset?
-    let needs_signing = |commit: &Commit| {
-        future::ready(!commit.is_signed() && sign_settings.should_sign(commit.store_commit()))
-    };
-
     let workspace_helper = tx.base_workspace_helper();
+    let settings = tx.settings();
+    let sign_on_push = workspace_helper.parse_repository_revset(
+        ui,
+        &RevisionArg::from(settings.get_string("revsets.git-sign-on-push")?),
+    )?;
+    let needs_signing = commits_to_push.intersection(sign_on_push.expression());
+
     let immutable = workspace_helper.env().immutable_expression();
     let skipped: Vec<Commit> = workspace_helper
-        .attach_revset_evaluator(commits_to_push.intersection(&immutable))
+        .attach_revset_evaluator(needs_signing.intersection(&immutable))
         .evaluate_to_commits()?
-        .try_filter(needs_signing)
         .take(11)
         .try_collect()
         .await?;
@@ -1496,9 +1487,8 @@ async fn sign_commits_before_push<'a>(
     }
 
     let commit_ids: IndexSet<CommitId> = workspace_helper
-        .attach_revset_evaluator(commits_to_push.minus(&immutable))
+        .attach_revset_evaluator(needs_signing.minus(&immutable))
         .evaluate_to_commits()?
-        .try_filter(needs_signing)
         .map_ok(|commit| commit.id().clone())
         .try_collect()
         .await?;
@@ -1525,7 +1515,7 @@ async fn sign_commits_before_push<'a>(
                     if commit_ids.contains(&old_commit_id) {
                         let commit = rewriter
                             .reparent()
-                            .set_sign_behavior(sign_settings.behavior)
+                            .set_sign_behavior(SignBehavior::Force)
                             .write()
                             .await?;
                         old_to_new_commits_map.insert(old_commit_id, commit.id().clone());

@@ -23,31 +23,31 @@ use std::sync::Arc;
 use bstr::BString;
 use futures::StreamExt as _;
 use itertools::Itertools as _;
+use jj_core::backend::BackendError;
+use jj_core::backend::BackendResult;
+use jj_core::backend::CommitId;
+use jj_core::backend::TreeValue;
+use jj_core::commit::Commit;
+use jj_core::commit::conflict_label_for_commits;
+use jj_core::conflicts::MaterializedFileValue;
+use jj_core::conflicts::MaterializedTreeValue;
+use jj_core::conflicts::materialized_diff_stream;
+use jj_core::copies::CopyRecords;
+use jj_core::diff::ContentDiff;
+use jj_core::diff::DiffHunkKind;
+use jj_core::matchers::Matcher;
+use jj_core::merge::Diff;
+use jj_core::merge::Merge;
+use jj_core::merged_tree::MergedTree;
+use jj_core::merged_tree_builder::MergedTreeBuilder;
+use jj_core::repo_path::RepoPathBuf;
+use jj_core::revset_backend::RevsetEvaluationError;
 use thiserror::Error;
 
 use crate::annotate::FileAnnotator;
-use crate::backend::BackendError;
-use crate::backend::BackendResult;
-use crate::backend::CommitId;
-use crate::backend::TreeValue;
-use crate::commit::Commit;
-use crate::commit::conflict_label_for_commits;
-use crate::conflicts::MaterializedFileValue;
-use crate::conflicts::MaterializedTreeValue;
-use crate::conflicts::materialized_diff_stream;
-use crate::copies::CopyRecords;
-use crate::diff::ContentDiff;
-use crate::diff::DiffHunkKind;
-use crate::matchers::Matcher;
-use crate::merge::Diff;
-use crate::merge::Merge;
-use crate::merged_tree::MergedTree;
-use crate::merged_tree_builder::MergedTreeBuilder;
 use crate::repo::MutableRepo;
 use crate::repo::Repo;
-use crate::repo_path::RepoPathBuf;
 use crate::revset::ResolvedRevsetExpression;
-use crate::revset::RevsetEvaluationError;
 
 /// The source commit to absorb into its ancestry.
 #[derive(Clone, Debug)]
@@ -155,12 +155,12 @@ pub async fn split_hunks_to_trees(
 
         // Compute annotation of parent (= left) content to map right hunks
         let mut annotator =
-            FileAnnotator::with_file_content(source.commit.id(), left_path, left_text.clone());
+            FileAnnotator::with_file_content(&source.commit, left_path, left_text.clone());
         annotator.compute(repo, destinations).await?;
         let annotation = annotator.to_annotation();
         let annotation_ranges = annotation
             .compact_line_ranges()
-            .filter_map(|(commit_id, range)| Some((commit_id.ok()?, range)))
+            .filter_map(|(commit, range)| Some((commit.ok()?.id(), range)))
             .collect_vec();
         let diff = ContentDiff::by_line([&left_text, &right_text]);
         let selected_ranges = split_file_hunks(&annotation_ranges, &diff);

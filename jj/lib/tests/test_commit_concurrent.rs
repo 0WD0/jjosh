@@ -17,7 +17,7 @@ use std::convert::Infallible;
 use std::sync::Arc;
 use std::thread;
 
-use jj_lib::dag_walk_async;
+use jj_core::dag_walk_async;
 use jj_lib::repo::ReadonlyRepo;
 use jj_lib::repo::Repo as _;
 use pollster::FutureExt as _;
@@ -73,7 +73,7 @@ fn test_commit_parallel(backend: TestRepoBackend) -> TestResult {
             });
         }
     });
-    let repo = repo.reload_at_head().block_on()?;
+    let repo = test_workspace.reload_at_head().block_on()?;
     // One commit per thread plus the commit from the initial working-copy on top of
     // the root commit
     assert_eq!(repo.view().heads().len(), num_threads + 1);

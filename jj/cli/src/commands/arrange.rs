@@ -15,6 +15,7 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::io;
+use std::time::Duration;
 
 use bstr::ByteSlice as _;
 use crossterm::ExecutableCommand as _;
@@ -145,6 +146,13 @@ pub(crate) async fn cmd_arrange(
     let mut state = State::new(commits, external_children).await?;
     state.update_commit_order();
 
+    // TODO(https://github.com/ratatui/ansi-to-tui/issues/82): Hyperlinks do not
+    // work in ratatui (the hyperlink and the rest of its line are completely
+    // stripped). To prevent this from hitting any users, we will specifically
+    // disable hyperlinks in `jj arrange`, which renders `templates.arrange`
+    // with color, which may contain hyperlinks. Once this issue is closed, we
+    // can remove this method.
+    workspace_command.add_hyperlink_template_overrides_for_arrange();
     let template_string = workspace_command
         .settings()
         .get_string("templates.arrange")?;
@@ -525,28 +533,35 @@ fn run_tui<B: ratatui::backend::Backend>(
             })
             .map_err(|e| internal_error(format!("Failed to draw TUI: {e}")))?;
 
-        if let Event::Key(event) =
-            event::read().map_err(|e| internal_error(format!("Failed to read TUI events: {e}")))?
-        {
+        // Wait for an event. If multiple events arrived while we were drawing, then
+        // we will handle them all in this loop before redrawing, so we don't redraw
+        // once per key press when the user types faster than we can draw.
+        let read_error = |e| internal_error(format!("Failed to read TUI events: {e}"));
+        loop {
+            let event = event::read().map_err(read_error)?;
             // On Windows, we get Press and Release (and maybe Repeat) events, but on Linux
             // we only get Press.
-            if event.is_release() {
-                continue;
-            }
-            match (event.code, event.modifiers) {
-                (KeyCode::Char('q'), KeyModifiers::NONE)
-                | (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
-                    return Ok(None);
+            if let Event::Key(key_event) = event
+                && !key_event.is_release()
+            {
+                match (key_event.code, key_event.modifiers) {
+                    (KeyCode::Char('q'), KeyModifiers::NONE)
+                    | (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
+                        return Ok(None);
+                    }
+                    (KeyCode::Char('c'), KeyModifiers::NONE) => {
+                        return Ok(Some(state));
+                    }
+                    _ => {}
                 }
-                (KeyCode::Char('c'), KeyModifiers::NONE) => {
-                    return Ok(Some(state));
+                let new_state = handle_key_event(key_event, state.clone());
+                if new_state != state && new_state.is_valid() {
+                    state = new_state;
+                    state.update_commit_order();
                 }
-                _ => {}
             }
-            let new_state = handle_key_event(event, state.clone());
-            if new_state != state && new_state.is_valid() {
-                state = new_state;
-                state.update_commit_order();
+            if !event::poll(Duration::ZERO).map_err(read_error)? {
+                break;
             }
         }
     }

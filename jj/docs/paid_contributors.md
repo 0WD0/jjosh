@@ -56,11 +56,13 @@ See [contribution docs](contributing.md#code-reviews) for details on this policy
 * Ralith
 * rdamazio
 * sbarfurth
+* SergejSalnikov
 * solson
 * spectral54
 * steadmon
 * tbodt
 * vaghinak-vardanyan
+* vslashg
 * zygoloid
 
 ## IMC Trading

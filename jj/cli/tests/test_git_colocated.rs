@@ -298,6 +298,40 @@ fn test_git_colocated_update_stale_resets_git_head() {
 }
 
 #[test]
+fn test_git_colocated_preserve_git_index() {
+    let test_env = TestEnvironment::default();
+    test_env
+        .run_jj_in(".", ["git", "init", "--colocate", "repo"])
+        .success();
+    let work_dir = test_env.work_dir("repo");
+    let git_repo = git::open(work_dir.root());
+
+    work_dir.write_file("file", "working copy\n");
+    let mut index_manager = git::IndexManager::new(&git_repo);
+    index_manager.add_file("file", b"staged\n");
+    index_manager.sync_index();
+    let original_index = get_index_state(work_dir.root());
+    insta::assert_snapshot!(
+        original_index,
+        @"Unconflicted Mode(FILE) 19d9cc8584ac ctime=0:0 mtime=0:0 size=0 flags=0 file");
+
+    work_dir.run_jj(["status"]).success();
+    let index_after_snapshot = get_index_state(work_dir.root());
+    insta::assert_snapshot!(
+        index_after_snapshot,
+        @"Unconflicted Mode(FILE) 19d9cc8584ac ctime=0:0 mtime=0:0 size=0 flags=0 file");
+
+    work_dir.run_jj(["describe", "-mnew"]).success();
+    let index_after_describe = get_index_state(work_dir.root());
+    insta::assert_snapshot!(
+        index_after_describe,
+        @"Unconflicted Mode(FILE) 19d9cc8584ac ctime=0:0 mtime=0:0 size=0 flags=0 file");
+
+    assert_eq!(index_after_snapshot, original_index);
+    assert_eq!(index_after_describe, original_index);
+}
+
+#[test]
 fn test_git_colocated_unborn_bookmark() -> TestResult {
     let test_env = TestEnvironment::default();
     let work_dir = test_env.work_dir("repo");
@@ -584,6 +618,54 @@ fn test_git_colocated_rebase_on_import() -> TestResult {
 }
 
 #[test]
+fn test_git_colocated_abandon_root_child_of_merge_on_import() -> TestResult {
+    let test_env = TestEnvironment::default();
+    test_env
+        .run_jj_in(".", ["git", "init", "--colocate", "repo"])
+        .success();
+    let work_dir = test_env.work_dir("repo");
+    let git_repo = git::open(work_dir.root());
+
+    work_dir.run_jj(["new", "root()", "-m", "a"]).success();
+    work_dir.run_jj(["new", "root()", "-m", "b"]).success();
+    work_dir
+        .run_jj(["bookmark", "create", "-r@", "b"])
+        .success();
+    work_dir
+        .run_jj(["new", "subject(a)", "subject(b)", "-m", "merge"])
+        .success();
+    insta::assert_snapshot!(get_log_output(&work_dir), @"
+    @    1c28fb9114293469b4e7c4d2dac480a6f56a96d2 merge
+    ├─╮
+    │ ○  a82129fb35837a935a665361a0ed67d8c011994c b b
+    ○ │  4e1b2d80261b75c016b5c070719ce41c9e2c707a a
+    ├─╯
+    ◆  0000000000000000000000000000000000000000
+    [EOF]
+    ");
+
+    // Deleting the bookmark in Git makes "b" unreachable, so the import abandons
+    // it. The merge commit should be rebased onto "a" alone, since the Git
+    // backend leaves out the root commit as a parent of a merge commit.
+    git_repo.find_reference("refs/heads/b")?.delete()?;
+    insta::assert_snapshot!(get_log_output(&work_dir), @"
+    @  787033e55578912cb0b7e695b68b77691694ab24 merge
+    ○  4e1b2d80261b75c016b5c070719ce41c9e2c707a a
+    ◆  0000000000000000000000000000000000000000
+    [EOF]
+    ------- stderr -------
+    Abandoned 1 commits that are no longer reachable.
+    Rebased 1 descendant commits off of commits rewritten from Git.
+    Working copy  (@) now at: mzvwutvl 787033e5 (empty) merge
+    Parent commit (@-)      : rlvkpnrz 4e1b2d80 (empty) a
+    Done importing changes from the underlying Git repo.
+    [EOF]
+    ");
+
+    Ok(())
+}
+
+#[test]
 fn test_git_colocated_bookmarks() -> TestResult {
     let test_env = TestEnvironment::default();
     test_env
@@ -706,6 +788,8 @@ fn test_git_colocated_bookmark_at_root() -> TestResult {
     let output = work_dir.run_jj(["bookmark", "move", "foo", "--to=@"]);
     insta::assert_snapshot!(output, @"
     ------- stderr -------
+    Warning: Failed to export some bookmarks:
+      foo@git: Ref cannot point to the root commit in Git
     Warning: Target revision is empty.
     Moved 1 bookmarks to qpvuntsm e8849ae1 foo | (empty) (no description set)
     [EOF]
@@ -792,6 +876,8 @@ fn test_git_colocated_explicit_import_export() -> TestResult {
       refs/remotes/git/bar
     Hint: Git remote named 'git' is reserved for local Git repository.
     Use `jj git remote rename` to give a different name.
+    Warning: Failed to export some bookmarks:
+      foo@git: Ref cannot point to the root commit in Git
     No import needed in colocated workspaces.
     [EOF]
     ");
@@ -816,6 +902,8 @@ fn test_git_colocated_explicit_import_export() -> TestResult {
       refs/remotes/git/bar
     Hint: Git remote named 'git' is reserved for local Git repository.
     Use `jj git remote rename` to give a different name.
+    Warning: Failed to export some bookmarks:
+      foo@git: Ref cannot point to the root commit in Git
     No export needed in colocated workspaces.
     [EOF]
     ");
@@ -1194,6 +1282,64 @@ fn test_git_colocated_concurrent_checkout() -> TestResult {
     Reset the working copy parent to the new Git HEAD.
     [EOF]
     ");
+
+    Ok(())
+}
+
+#[test]
+fn test_git_colocated_ignore_working_copy() -> TestResult {
+    let test_env = TestEnvironment::default();
+    test_env
+        .run_jj_in(".", ["git", "init", "--colocate", "repo"])
+        .success();
+    let work_dir = test_env.work_dir("repo");
+    let git_repo = git::open(work_dir.root());
+
+    work_dir.run_jj(["new"]).success();
+    work_dir.run_jj(["describe", "-mA"]).success();
+    work_dir.run_jj(["new", "-mB", "@-"]).success();
+    insta::assert_snapshot!(get_log_output(&work_dir), @"
+    @  2a161845f4f1b32e7ccd093eb00d361e6dfb53b8 B
+    │ ○  c72b63c19bbecddada345832e9467f754ceaa138 A
+    ├─╯
+    ○  e8849ae12c709f2321908879bc724fdb2ab8a781
+    ◆  0000000000000000000000000000000000000000
+    [EOF]
+    ");
+
+    // Git HEAD shouldn't be exported with --ignore-working-copy
+    let output = work_dir.run_jj(["new", "--ignore-working-copy", "subject(A)"]);
+    insta::assert_snapshot!(output, @"");
+    insta::assert_compact_debug_snapshot!(
+        git_repo.head()?.try_into_peeled_id()?,
+        @"Some(Sha1(e8849ae12c709f2321908879bc724fdb2ab8a781))");
+
+    // Git refs shouldn't be exported with --ignore-working-copy
+    let output = work_dir.run_jj(["bookmark", "set", "--ignore-working-copy", "-r@-", "book"]);
+    insta::assert_snapshot!(output, @"
+    ------- stderr -------
+    Created 1 bookmarks pointing to rlvkpnrz c72b63c1 book | (empty) A
+    [EOF]
+    ");
+    insta::assert_compact_debug_snapshot!(
+        git_repo.try_find_reference("refs/heads/book")?.map(|r| r.id()),
+        @"None");
+
+    // Pending Git HEAD and refs should be exported here (instead of resetting
+    // to the current Git HEAD)
+    let output = work_dir.run_jj(["status"]);
+    insta::assert_snapshot!(output, @"
+    The working copy has no changes.
+    Working copy  (@) : royxmykx 154562ce (empty) (no description set)
+    Parent commit (@-): rlvkpnrz c72b63c1 book | (empty) A
+    [EOF]
+    ");
+    insta::assert_compact_debug_snapshot!(
+        git_repo.head()?.try_into_peeled_id()?,
+        @"Some(Sha1(c72b63c19bbecddada345832e9467f754ceaa138))");
+    insta::assert_compact_debug_snapshot!(
+        git_repo.try_find_reference("refs/heads/book")?.map(|r| r.id()),
+        @"Some(Sha1(c72b63c19bbecddada345832e9467f754ceaa138))");
 
     Ok(())
 }

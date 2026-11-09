@@ -12,39 +12,43 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![expect(missing_docs)]
+//! Transactions for making atomic changes to a repo.
 
 use std::sync::Arc;
 
+use jj_core::backend::Timestamp;
+use jj_core::index::IndexError;
+use jj_core::index::ReadonlyIndex;
+use jj_core::index_store::IndexStoreError;
+use jj_core::op_store;
+use jj_core::op_store::OpStoreError;
+use jj_core::op_store::OperationMetadata;
+use jj_core::op_store::TimestampRange;
+use jj_core::operation::Operation;
+use jj_core::ref_name::WorkspaceName;
+use jj_core::view::View;
 use thiserror::Error;
 
-use crate::backend::Timestamp;
-use crate::index::IndexError;
-use crate::index::ReadonlyIndex;
-use crate::index_store::IndexStoreError;
 use crate::op_heads_store::OpHeadsStore;
 use crate::op_heads_store::OpHeadsStoreError;
-use crate::op_store;
-use crate::op_store::OpStoreError;
-use crate::op_store::OperationMetadata;
-use crate::op_store::TimestampRange;
-use crate::operation::Operation;
-use crate::ref_name::WorkspaceName;
 use crate::repo::MutableRepo;
 use crate::repo::ReadonlyRepo;
 use crate::repo::Repo as _;
 use crate::repo::RepoLoader;
 use crate::repo::RepoLoaderError;
 use crate::settings::UserSettings;
-use crate::view::View;
 
 /// Error from attempts to write and publish transaction.
 #[derive(Debug, Error)]
 #[error("Failed to commit new operation")]
 pub enum TransactionCommitError {
+    /// Error from the index.
     Index(#[from] IndexError),
+    /// Error from the index store.
     IndexStore(#[from] IndexStoreError),
+    /// Error from the operation heads store.
     OpHeadsStore(#[from] OpHeadsStoreError),
+    /// Error from the operation store.
     OpStore(#[from] OpStoreError),
 }
 
@@ -67,8 +71,11 @@ pub struct Transaction {
 }
 
 impl Transaction {
-    pub fn new(mut_repo: MutableRepo, user_settings: &UserSettings) -> Self {
-        let parent_ops = vec![mut_repo.base_repo().operation().clone()];
+    /// Creates a transaction on top of `repo`.
+    pub fn new(repo: &Arc<ReadonlyRepo>) -> Self {
+        let mut_repo = MutableRepo::new(repo.clone(), repo.readonly_index(), repo.view());
+        let parent_ops = vec![repo.operation().clone()];
+        let user_settings = repo.settings();
         let op_metadata = create_op_metadata(user_settings, "".to_string(), false);
         let end_time = user_settings.operation_timestamp();
         Self {
@@ -79,22 +86,27 @@ impl Transaction {
         }
     }
 
+    /// Returns the repo the transaction started from.
     pub fn base_repo(&self) -> &Arc<ReadonlyRepo> {
         self.mut_repo.base_repo()
     }
 
+    /// Returns the parent operations of the operation to be created.
     pub fn parent_ops(&self) -> &[Operation] {
         &self.parent_ops
     }
 
+    /// Sets an attribute in the operation metadata.
     pub fn set_attribute(&mut self, key: String, value: String) {
         self.op_metadata.attributes.insert(key, value);
     }
 
+    /// Returns the repo being modified by this transaction.
     pub fn repo(&self) -> &MutableRepo {
         &self.mut_repo
     }
 
+    /// Returns the repo being modified by this transaction, mutably.
     pub fn repo_mut(&mut self) -> &mut MutableRepo {
         &mut self.mut_repo
     }
@@ -113,10 +125,12 @@ impl Transaction {
         Ok(())
     }
 
+    /// Sets whether the operation records a working-copy snapshot.
     pub fn set_is_snapshot(&mut self, is_snapshot: bool) {
         self.op_metadata.is_snapshot = is_snapshot;
     }
 
+    /// Sets the name of the workspace the operation is attributed to.
     pub fn set_workspace_name(&mut self, workspace_name: &WorkspaceName) {
         self.op_metadata.workspace_name = Some(workspace_name.to_owned());
     }
@@ -173,6 +187,8 @@ impl Transaction {
     }
 }
 
+/// Creates operation metadata from the user settings, with the start and
+/// end times set to the configured operation timestamp or the current time.
 pub fn create_op_metadata(
     user_settings: &UserSettings,
     description: String,
@@ -224,10 +240,13 @@ impl UnpublishedOperation {
         }
     }
 
+    /// Returns the unpublished operation.
     pub fn operation(&self) -> &Operation {
         self.repo.operation()
     }
 
+    /// Publishes the operation by updating the operation heads, and returns the
+    /// repo loaded at the operation.
     pub async fn publish(self) -> Result<Arc<ReadonlyRepo>, TransactionCommitError> {
         let _lock = self.op_heads_store.lock().await?;
         self.op_heads_store
@@ -236,6 +255,7 @@ impl UnpublishedOperation {
         Ok(self.repo)
     }
 
+    /// Returns the repo loaded at the operation without publishing it.
     pub fn leave_unpublished(self) -> Arc<ReadonlyRepo> {
         self.repo
     }

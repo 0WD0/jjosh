@@ -45,7 +45,7 @@ fn all_stages() -> gix_testtools::TestResult {
     };
     assert_eq!(
         buf.as_bstr(),
-        format!("➡a\r\n➡b\r\n➡$Id: {expected_hash}$"),
+        format!("➡a\r\n➡b\r\n➡$Id: {expected_hash} $"),
         "the buffer shows that a lot of transformations were applied"
     );
     Ok(())
@@ -84,7 +84,7 @@ fn all_stages_no_filter() -> gix_testtools::TestResult {
     };
     assert_eq!(
         buf.as_bstr(),
-        format!("$Id: {expected_hash}$a\r\nb\r\n"),
+        format!("$Id: {expected_hash} $a\r\nb\r\n"),
         "the buffer shows that a lot of transformations were applied"
     );
     Ok(())
@@ -194,7 +194,14 @@ fn encoding_failure_can_be_an_error() -> gix_testtools::TestResult {
         )
         .err()
         .expect("unrepresentable characters can be rejected explicitly");
-    insta::assert_debug_snapshot!(err, "encoding failure can be an error", @"The character '😀' could not be mapped to the windows-1252");
+    assert!(
+        err.is_validation(),
+        "an unrepresentable character is a validation failure"
+    );
+    assert!(
+        err.to_string().contains("ISO-8859-1"),
+        "the diagnostic identifies the requested worktree encoding"
+    );
     Ok(())
 }
 

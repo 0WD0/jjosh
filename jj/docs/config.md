@@ -401,7 +401,10 @@ Some ready-to-use trailer templates are available for frequently used trailers:
 * `format_signed_off_by_trailer(commit)` creates a "Signed-off-by" trailer
   using the committer info.
 * `format_gerrit_change_id_trailer(commit)` creates a "Change-Id" trailer
-  suitable to be used with Gerrit. It is based Jujutsu's change id.
+  suitable to be used with Gerrit. It is based on Jujutsu's change ID. See the
+  [Gerrit docs](gerrit.md#change-id-management).
+* `format_gerrit_link_trailer(commit)` creates a "Link" trailer suitable to be
+  used with Gerrit. See the [Gerrit docs](gerrit.md#alternative-link-trailer).
 
 Existing trailers are also accessible via `commit.trailers()`.
 
@@ -618,6 +621,18 @@ To prevent rewriting commits authored by other users:
 Ancestors of the configured set are also immutable. The root commit is always
 immutable even if the set is empty.
 
+!!! warning
+
+    Functions such as `remote_bookmarks()` may include hidden revisions.
+    Mentioning them in `immutable_heads()`, even in a negated expression, can
+    temporarily make those revisions and their ancestors reachable. For example,
+    those hidden revisions may then appear in `mutable()`.
+
+    To exclude bookmarks by name, negate the name pattern:
+    `remote_bookmarks(~'private/*')`. Negating the entire revset instead, as
+    in `~remote_bookmarks('private/*')`, brings revisions pointed to by
+    `private/*` bookmarks into the evaluation.
+
 Immutable commits (other than the root commit) can be rewritten using the
 `--ignore-immutable` CLI flag.
 
@@ -758,8 +773,16 @@ graph.style = "square"
 The symbols used to represent commits or operations can be customized via
 templates.
 
-- `templates.log_node` for commits (with `Option<Commit>` keywords)
-- `templates.op_log_node` for operations (with `Operation` keywords)
+- `templates.log_node` for commits. `self` is an
+  [`Option<Commit>`][template-type-commit] object, where an unset value (see
+  [`Option` type][template-type-option]) corresponds to the node of an
+  `(elided revisions)` line.
+- `templates.op_log_node` for operations. `self` is an
+  [`Operation`][template-type-operation] object.
+
+[template-type-commit]: templates.md#commit-type
+[template-type-operation]: templates.md#operation-type
+[template-type-option]: templates.md#option-type
 
 For example:
 
@@ -770,7 +793,9 @@ coalesce(
   if(!self, "🮀"),
   if(current_working_copy, "@"),
   if(root, "┴"),
-  if(immutable, "●", "○"),
+  if(immutable, "●"),
+  if(empty, "◌"),
+  "○",
 )
 '''
 op_log_node = 'if(current_operation, "@", "○")'
@@ -1789,28 +1814,30 @@ to do with signing commits on modification of a change (e.g., rebasing or edits)
   author.
 
 To sign commits only when pushing, set `signing.behavior = "drop"` and
-`git.sign-on-push = true`:
+`revsets.git-sign-on-push` to a revset of commits to sign:
 
 ```toml
 # Configure signing backend as before, but lazily signing only on push.
 [signing]
+# Avoid doing any signing on commit creation
 behavior = "drop"
 backend = "ssh"
 key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGj+J6N6SO+4P8dOZqfR1oiay2yxhhHnagH52avUqw5h"
 
-[git]
-sign-on-push = true
+[revsets]
+# Sign all non-signed commits on push
+# Could be "~signed()", or any other revset
+git-sign-on-push = "~signed() & mine()"
 ```
 
 With this setup, commits are not signed when they are created or rewritten. At
-push time, `git.sign-on-push` only signs commits that are not yet signed (that
-are mutable and authored by you, behaving like `own` even though write-time
-signing uses `drop`).
+push time, `revsets.git-sign-on-push` is evaluated and all matching mutable
+commits to be pushed will be signed beforehand.
 
 This is useful when the signing backend requires user interaction or is slow,
 because the signing work is deferred to push time. If `signing.behavior` is set
 to `own` or `force`, commits may already be signed when written, and
-`git.sign-on-push` would have little or nothing left to sign.
+`revsets.git-sign-on-push` would have little or nothing left to sign.
 
 The commits are signed in their own transaction which is committed before
 the push starts. If the push fails, the commits stay signed and retrying
@@ -2064,9 +2091,10 @@ unset, all commits are eligible to be pushed.
 private-commits = "description('wip:*') | description('private:*')"
 ```
 
-If a commit is in `git.private-commits` but is already on the remote, then it is
-not considered a private commit. Commits that are immutable are also excluded
-from the private set.
+If a commit is in `git.private-commits` but is already on the remote being
+pushed to, then it is not considered a private commit. Commits that are on
+other remotes are still considered private, since the remote being pushed to
+may be more public.
 
 Private commits prevent their descendants from being pushed, since doing so
 would require pushing the private commit as well.

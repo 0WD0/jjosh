@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![expect(missing_docs)]
+//! User settings loaded from the configuration.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -21,26 +21,29 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use itertools::Itertools as _;
+use jj_core::backend::ChangeId;
+use jj_core::backend::Commit;
+use jj_core::backend::Signature;
+use jj_core::backend::Timestamp;
+use jj_core::files::MergeOptions;
+use jj_core::ref_name::RemoteNameBuf;
+use jj_core::time_util;
+#[cfg(feature = "git")]
+use jj_git_backend::git_backend::GitBackendSettings;
+use jj_local_util::file_util::expand_home_path;
 use rand::prelude::*;
 use rand_chacha::ChaCha20Rng;
 use serde::Deserialize;
 
-use crate::backend::ChangeId;
-use crate::backend::Commit;
-use crate::backend::Signature;
-use crate::backend::Timestamp;
 use crate::config::ConfigGetError;
 use crate::config::ConfigGetResultExt as _;
 use crate::config::ConfigTable;
 use crate::config::ConfigValue;
 use crate::config::StackedConfig;
 use crate::config::ToConfigNamePath;
-use crate::file_util::expand_home_path;
-use crate::files::MergeOptions;
 use crate::fmt_util::binary_prefix;
-use crate::ref_name::RemoteNameBuf;
-use crate::time_util;
 
+/// User settings, backed by the stacked config.
 #[derive(Debug, Clone)]
 pub struct UserSettings {
     config: Arc<StackedConfig>,
@@ -61,8 +64,10 @@ struct UserSettingsData {
     home_dir: Option<PathBuf>,
 }
 
+/// Map of remote names to their settings.
 pub type RemoteSettingsMap = HashMap<RemoteNameBuf, RemoteSettings>;
 
+/// Per-remote settings from the `remotes.<name>` config tables.
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct RemoteSettings {
@@ -82,6 +87,7 @@ pub struct RemoteSettings {
 }
 
 impl RemoteSettings {
+    /// Loads the settings of all remotes from `settings`.
     pub fn table_from_settings(
         settings: &UserSettings,
     ) -> Result<RemoteSettingsMap, ConfigGetError> {
@@ -202,34 +208,56 @@ impl UserSettings {
         Self::from_inner(config, self.data.home_dir.clone(), self.rng.clone())
     }
 
+    /// Returns the shared random number generator.
     pub fn get_rng(&self) -> Arc<JJRng> {
         self.rng.clone()
     }
 
+    /// Returns the configured user name (`user.name`).
     pub fn user_name(&self) -> &str {
         &self.data.user_name
     }
 
+    /// Returns the configured user email (`user.email`).
     pub fn user_email(&self) -> &str {
         &self.data.user_email
     }
 
+    /// Loads the settings needed by the Git backend.
+    #[cfg(feature = "git")]
+    pub fn git_backend_settings(&self) -> Result<GitBackendSettings, ConfigGetError> {
+        Ok(GitBackendSettings {
+            git_executable: self.get("git.executable-path")?,
+            write_change_id_header: self.get("git.write-change-id-header")?,
+            user_name: self.user_name().to_owned(),
+            user_email: self.user_email().to_owned(),
+        })
+    }
+
+    /// Returns the timestamp to use for commits instead of the current time,
+    /// if configured by `debug.commit-timestamp`.
     pub fn commit_timestamp(&self) -> Option<Timestamp> {
         self.data.commit_timestamp
     }
 
+    /// Returns the timestamp to use for operations instead of the current
+    /// time, if configured by `debug.operation-timestamp`.
     pub fn operation_timestamp(&self) -> Option<Timestamp> {
         self.data.operation_timestamp
     }
 
+    /// Returns the hostname to record in operations (`operation.hostname`).
     pub fn operation_hostname(&self) -> &str {
         &self.data.operation_hostname
     }
 
+    /// Returns the username to record in operations (`operation.username`).
     pub fn operation_username(&self) -> &str {
         &self.data.operation_username
     }
 
+    /// Returns a signature for the configured user, timestamped with
+    /// [`commit_timestamp()`](Self::commit_timestamp) or the current time.
     pub fn signature(&self) -> Signature {
         let timestamp = self.data.commit_timestamp.unwrap_or_else(Timestamp::now);
         Signature {
@@ -246,10 +274,13 @@ impl UserSettings {
         &self.config
     }
 
+    /// Loads the settings of all remotes.
     pub fn remote_settings(&self) -> Result<RemoteSettingsMap, ConfigGetError> {
         RemoteSettings::table_from_settings(self)
     }
 
+    /// Returns the configured signing backend (`signing.backend`), or `None`
+    /// if it's set to `"none"`.
     // separate from sign_settings as those two are needed in pretty different
     // places
     pub fn signing_backend(&self) -> Result<Option<String>, ConfigGetError> {
@@ -257,6 +288,8 @@ impl UserSettings {
         Ok((backend != "none").then_some(backend))
     }
 
+    /// Returns the settings for deciding whether to sign commits (`user.email`
+    /// and `signing.behavior`).
     pub fn sign_settings(&self) -> SignSettings {
         SignSettings {
             behavior: self.data.signing_behavior,
@@ -340,6 +373,7 @@ impl UserSettings {
 #[derive(Debug)]
 pub struct JJRng(Mutex<ChaCha20Rng>);
 impl JJRng {
+    /// Generates a random change ID of `length` bytes.
     pub fn new_change_id(&self, length: usize) -> ChangeId {
         let mut rng = self.0.lock().unwrap();
         let random_bytes = (0..length).map(|_| rng.random::<u8>()).collect();
@@ -439,8 +473,9 @@ fn parse_human_byte_size(v: &str) -> Result<u64, &'static str> {
 mod tests {
     use std::assert_matches;
 
+    use jj_core::backend::MillisSinceEpoch;
+
     use super::*;
-    use crate::backend::MillisSinceEpoch;
 
     #[test]
     fn parse_timestamp_with_numeric_offset() {

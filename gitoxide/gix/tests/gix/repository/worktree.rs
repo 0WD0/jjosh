@@ -2269,6 +2269,29 @@ mod remove {
     }
 
     #[test]
+    #[cfg(unix)]
+    fn submodule_safety_check_does_not_follow_symlinks() -> gix_testtools::TestResult {
+        let fixture = gix_testtools::scripted_fixture_writable_with_args(
+            "make_worktree_with_symlinked_gitlink.sh",
+            None::<String>,
+            gix_testtools::Creation::Execute,
+        )?;
+        let repo = gix::open_opts(fixture.path().join("main"), crate::restricted())?;
+        let destination = fixture.path().join("linked");
+        let private_git_dir = gix::open_opts(&destination, crate::restricted())?.git_dir().to_owned();
+        let target = repo.workdir().expect("main worktree");
+
+        let err = repo
+            .remove_worktree(&destination, Force::Never, gix::progress::Discard)
+            .expect_err("the safety check must not inspect the symlink target");
+        assert!(err.is_validation(), "the symlink is rejected: {err:?}");
+        assert!(destination.is_dir(), "rejected removal retains the checkout");
+        assert!(private_git_dir.is_dir(), "rejected removal retains its registration");
+        assert!(target.is_dir(), "the unrelated repository remains intact");
+        Ok(())
+    }
+
+    #[test]
     fn initialized_submodules_require_force() -> gix_testtools::TestResult {
         let (repo, _fixture) = crate::basic_rw_repo()?;
         let destinations = gix_testtools::tempfile::TempDir::new()?;
@@ -2757,11 +2780,21 @@ fn from_nonbare_parent_repo() -> TestResult {
 
 #[test]
 fn linked_worktree_proxy_base_with_relative_linking_files() -> TestResult {
-    let fixture = gix_testtools::scripted_fixture_read_only_needs_archive("make_worktree_relative_linking.sh")?;
-    let main = fixture.join("main");
+    if gix_testtools::run_in_isolated_process()? {
+        return Ok(());
+    }
+    let Some(fixture) =
+        gix_testtools::scripted_fixture_read_only_with_git_version("make_worktree_relative_linking.sh", |version| {
+            version >= (2, 48, 0)
+        })?
+    else {
+        return Ok(());
+    };
+    let _cwd = gix_testtools::set_current_dir(&fixture)?;
     let linked = fixture.join("linked");
-    let private_git_dir = main.join(".git/worktrees/linked");
-    let repo = gix::open_opts(&main, crate::restricted())?;
+    let repo = gix::open_opts("main", crate::restricted())?;
+    assert!(repo.git_dir().is_relative(), "exercise a relative parent Git directory");
+    let private_git_dir = repo.git_dir().join("worktrees/linked");
     let worktrees = repo.worktrees()?;
     assert_eq!(worktrees.len(), 1, "the relative-path fixture has one linked worktree");
     let proxy = worktrees.into_iter().next().expect("one worktree");
@@ -2788,7 +2821,13 @@ fn linked_worktree_proxy_base_with_relative_linking_files() -> TestResult {
 #[test]
 #[cfg(unix)]
 fn linked_worktree_proxy_base_with_symlinked_main_repo() -> TestResult {
-    let fixture = gix_testtools::scripted_fixture_read_only_needs_archive("make_worktree_relative_linking.sh")?;
+    let Some(fixture) =
+        gix_testtools::scripted_fixture_read_only_with_git_version("make_worktree_relative_linking.sh", |version| {
+            version >= (2, 48, 0)
+        })?
+    else {
+        return Ok(());
+    };
     let linked = fixture.join("actual/linked");
     let main_symlink = fixture.join("main-symlink");
 

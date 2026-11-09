@@ -404,9 +404,11 @@ jobs:
       - name: Show all individual asset names
         run: cat assets.txt
 
-      # The `features` array is repeated because GHA doesn't support YAML anchors.
-      # We will check that the macOS `universal` features match the others exactly.
-      # In the future this and the next step may be removed, or expanded to do more validation.
+      # The `features` array is repeated rather than using YAML anchors. We will check that the macOS
+      # `universal` features match the others exactly. In the future this and the next step may be
+      # removed, or expanded to do more validation. (GHA supports YAML anchors, but zizmor's support
+      # is beta, and it warns on any input that contains them. For details, see
+      # https://docs.zizmor.sh/usage/#yaml-anchors.)
       - name: Extract macOS asset names by architecture
         run: |
           for arch in aarch64 x86_64 universal; do
@@ -564,7 +566,7 @@ jobs:
           rustup update "$RUST"
           rustup default "$RUST"
           rustup target add "$TARGET"
-      - uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884 # v2.32.0
+      - uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2.33.0
         with:
           msystem: MINGW${{ startsWith(matrix.target, 'i686-') && '32' || '64' }}
           pacboy: cc:p

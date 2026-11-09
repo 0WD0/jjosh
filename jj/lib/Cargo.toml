@@ -40,7 +40,10 @@ indexmap = { workspace = true }
 itertools = { workspace = true }
 jiff = { workspace = true }
 jj-core = { workspace = true }
+jj-default-index = { workspace = true }
 jj-dsl = { workspace = true }
+jj-git-backend = { workspace = true, optional = true }
+jj-local-util = { workspace = true }
 maplit = { workspace = true }
 memchr = { workspace = true }
 once_cell = { workspace = true }
@@ -61,12 +64,6 @@ toml_edit = { workspace = true }
 tracing = { workspace = true }
 watchman_client = { workspace = true, optional = true }
 
-[target.'cfg(unix)'.dependencies]
-rustix = { workspace = true }
-
-[target.'cfg(windows)'.dependencies]
-windows-sys = { workspace = true }
-
 [dev-dependencies]
 eyre = { workspace = true }
 indoc = { workspace = true }
@@ -84,9 +81,9 @@ nix = { workspace = true, features = [ "fs" ] }
 
 [features]
 default = ["git"]
-git = ["dep:gix"]
+git = ["dep:gix", "dep:jj-git-backend"]
 watchman = ["dep:watchman_client", "dep:tokio"]
-testing = ["git"]
+testing = ["git", "jj-default-index/testing", "jj-git-backend/testing"]
 
 [lints]
 workspace = true

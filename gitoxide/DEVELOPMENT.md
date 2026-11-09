@@ -1,6 +1,7 @@
 # Development Guide
 
 See the [contribution guide] for requirements to meet before beginning implementation.
+Follow the [repository-wide development rules](AGENTS.md); this guide provides additional workflow, tooling, and design background.
 
 [contribution guide]: https://github.com/GitoxideLabs/gitoxide/blob/main/CONTRIBUTING.md
 
@@ -30,87 +31,22 @@ bash etc/scripts/remap-release-paths.sh check target/release/gix target/release/
 
 ## Practices
 
- * **test-first development**
-   * protect against regression and make implementing features easy.
-   * user containers to test more elaborate user interactions
-   * keep it practical, knowing the Rust compiler already has your back
-     for the mundane things, like unhappy code paths.
-   * *use git itself* as reference implementation, and use their test-cases and fixtures where
-     appropriate. At the very least, try to learn from them.
-      * Run the same test against git whenever feasible to assure git agrees with our implementation.
-        See `gix-glob` for examples.
-   * *use libgit2* test fixtures and cases where appropriate, or learn from them.
  * **fuzzing**
    * fuzz parsers, algorithms, and other code that processes untrusted input.
    * add a regression test for every issue found before fixing it.
  * **benchmarks**
    * benchmark performance-sensitive changes before and after implementation.
    * use representative inputs and compare against git when applicable.
- * **safety first**
-   * handle all errors, never `unwrap()`. If needed, `expect("why")`.
-   * provide an error chain and make it easy to understand what went wrong.
-   * We `thiserror` generally.
  * Adhere to the [stability guide](https://github.com/GitoxideLabs/gitoxide/blob/main/STABILITY.md)
-
-## Commit Messages
-
-We use a style I'd call 'purposeful [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/)', and instead of classifying
-every commit using _conventional commit_ messaging, we do so only if the message should show up in the changelog.
-
-The _subject_ usually informs about the *what* and the body provides details and explains the *why*.
-
-Commit messages _must_ show up in the changelog in case of breaking changes. Examples for that are:
-
-- change!: rename `Foo` to `Bar`. (#123)
-
-  And this is why we do it in the body.
-- remove!: `Repository::obsolete()`.
-
-  Nobody used this method.
-
-Features or other changes that are visible and people should know about look like this:
-
-- feat: add `Repository::foo()` to do great things. (#234)
-
-  And here is how it's used and some more details.
-- fix: don't panic when calling `foo()` in a bare repository. (#456)
-
-A conventional commit _scope_ naming the crate that should receive the changelog entry is required whenever a changelog-worthy
-commit touches paths outside that crate. If in doubt, always add the scope, for example
-`feat(gix-odb)!: add a new object lookup API` or `fix(gix-ref)!: reject invalid reference names`.
-
-Everything else, particularly refactors or chores, don't use _conventional commits_ as these don't affect users of the API.
-Examples could be:
-
-- make test module structure similar to the modules they are testing for consistency
-- `make fmt`
-- thanks clippy
-
-Please refrain from using `chore:` or `refactor:` prefixes as for the most part, users of the API don't care about those. When a `refactor`
-changes the API in some way, prefer to use `feat`, `change`, `rename` or `remove` instead, and most of the time the ones that are not `feat`
-are breaking so would be seen with their _exclamation mark_ suffix, like `change!`.
-
-### Reasoning
-
-Commit messages are used for guiding `cargo smart-release` to do most of the release work for us. This includes changelog generation
-as well as picking the right version bump for each crate.
-
-## Commit self-containment
-
-Every commit must be self-contained and pass CI independently. Keep a breaking change and all adaptations required to build and test the
-workspace in the same commit. Do not split them merely to route changelog entries. If that commit touches multiple crates, use the
-conventional commit _scope_ to name the crate whose changelog should receive the entry, as described above.
 
 ## Commit History
 
-We generally follow a 'track everything' approach and there is a lot of freedom leading to more commits rather than less. There
-is no obligation to squash commits or to otherwise tune the history.
+We use feature branches and pull requests to take advantage of CI and GitHub review tools, and merge with merge commits
+to make individual efforts stand out. There is no requirement to squash commits or linearize history.
+However, commits may be squashed when the history is too messy to review, and commit titles may receive minor edits.
 
-We use feature branches and PRs most of the time to be able to take advantage of CI and GitHub review tools, and merge with merge commits
-to make individual efforts stand out. There is no need for linearizing history or tuning it in any other way. However, each commit
-_must_ follow the guidelines laid out in the `Commit Messages` paragraph.
-
-There is value in organizing commits by topic and [_Stacked Git_](https://stacked-git.github.io) is hereby endorsed to do that.
+Use Tix to organize topic-oriented commit stacks. See the [Tix workflow](.agents/skills/tix/SKILL.md) for history edits
+and preservation of review state.
 
 ## Configuration and overrides
 
@@ -174,23 +110,14 @@ including feature selection and matching inventories in both formats.
 
 * **async**
   * **library client-side**
-    * ~~Don't use it client side, as operations there are usually bound by the CPU and ultra-fast access to memory mapped files.
-      It's no problem to saturate either CPU or the IO system.~~
-      * Provide `async` clients as opt-in using feature toggles to help integrating into an existing async codebase.
+    * Provide `async` network clients as opt-in using feature toggles, and document supported transports and runtime requirements.
   * **User Interfaces**
     * User interfaces can greatly benefit from using async as it's much easier to maintain a responsive UI thread that way thanks
       to the wonderful future combinators.
-    * `blocking` can be used to make `Read` and `Iterator` async, or move any operation onto a thread which blends it into the
-      async world.
-       * Most operations are fast and 'interrupting' them is as easy as ignoring their result by cancelling their task.
-       * Long-running operations can be roughly interacted with using the `gix::interrupt::trigger()` function, and after a moment
-         of waiting the flag can be unset with the `gix::interrupt::reset()` function to allow new long-running operations to work.
-         Every long running operation supports this.
+    * Offload blocking work, including pack processing in async APIs, to an execution context that tolerates blocking rather than the UI thread.
+    * Ignoring a result does not stop background work or roll back filesystem changes. Inspect the operation's documented interruption outcome.
   * **server-side**
-    * ~~Building a pack is CPU and at some point, IO bound, and it makes no sense to use async to handle more connections - git
-      needs a lot of resources and threads will do just fine.~~
-      * Support async out of the box without locking it into particular traits using conditional complication. This will make integrating
-        into an async codebase easier, which we assume is given on the server side _these days_.
+    * Keep async integration independent of a particular runtime where feasible; account for CPU-intensive and blocking work.
   * **shared blocking and async code**
     * Use async-shaped source with the `keep`, `discard`, and `sync` attributes from `gix-macros`. Alias them in a local `bisync` module at each
       integration point so both variants can coexist while being generated from one implementation that cannot drift.
@@ -203,73 +130,28 @@ including feature selection and matching inventories in both formats.
        control of the name to the caller. However, call `.init(…)` to configure the iteration.
      * and when calling `add_child(…)` don't use the parent progress instance for anything else.
 * **interruption of long-running operations**
-  * Use `gix_utils::interrupt::*` for building support for interruptions of long-running operations only.
-    * It's up to the author to decide how to best integrate it, generally we use a poll-based mechanism to check whether
-      an interrupt flag is set.
-    * **this is a must if…**
-      * …temporary resources like files might otherwise be leaked.
-    * **this is optional but desirable if…**
-      * …there is no leakage otherwise to support user interfaces. They background long-running operations and need them to be cancellable.
+  * Use `gix_utils::interrupt::*` to implement cooperative interruption by polling the operation's interrupt flag.
+  * The process-global `gix::interrupt::trigger()` flag affects only operations that explicitly poll it. Reset it with
+    `gix::interrupt::reset()` only after the affected work has finished, not after an arbitrary delay.
+  * **this is a must if…**
+    * …temporary resources like files might otherwise be leaked.
+  * **this is optional but desirable if…**
+    * …there is no leakage otherwise to support user interfaces. They background long-running operations and need them to be cancellable.
 
-* **prepare for SHA256 support by using `gix_hash::ObjectId` and `gix_hash::oid`**
-  * eventually there will be the need to support both Sha1 and Sha256. We anticipate it by using the `Id` type instead
-    of slices or arrays of 20 bytes. This way, eventually we can support multiple hash digest sizes.
-  * Right now it's unclear how Sha256 is going to work in git, so we only support Sha1 for now. It might be an avenue to proactively
-    implement it ahead of time once there is a specification to follow.
-  * It looks like Git prepares to support it by using compile time, we can support it at runtime though with minimal cost. If needed,
-    we can later remove support using a cargo feature toggle.
-* **symbolic links do not exist** as far as we are concerned
-  * in older, probably linux only, git versions symbolic links were used for symbolic references for example. This required special handling
-    in some places. We don't implement that and assume more modern repositories.
 * **when to use interior mutability**
-  - in **plumbing**, do not use it at all but instead provide the mutable part (like caches, buffers) as arguments, pushing their handling entirely to the caller.
-  - Set on top an optional abstraction that manages the above for you using **interior mutability only if part of the mutable state has to be returned as borrow**
+  - Optional abstractions can manage caller-owned caches and buffers using **interior mutability only if part of the mutable state has to be returned as borrow**
     or if otherwise it wouldn't be possible to borrowcheck. Or in other words: start without interior mutability and try to do it the standard way, but switch when needed.
-  - When using primitives to support interior mutability, use the provided ones and utility functions in `gix_parallel::*` exclusively to allow switching between
-    thread-safe and none-threadsafe versions at compile time.
-      - The preferred way of using it is to start out as upgradable reader, and upgrading to write if needed, keeping contention to a minimum.
-  - If _shared ownership_ is involved, one always needs _interior mutability_, but may still decide to use an API that requires `&mut self` if locally stored caches are involved.
+  - The preferred way of using it is to start out as upgradable reader, and upgrading to write if needed, keeping contention to a minimum.
+  - Shared ownership alone does not require interior mutability; mutation through shared references does. Locally stored caches may still use an API requiring `&mut self`.
   - Types that are not thread-local must be `Sync`, but only if the `gix-parallel/parallel` is enabled due to the usage of `gix_parallel::…` primitives which won't
     be thread-safe without the feature.
 * **when to use shared ownership**
-  - Use `gix_parallel::OwnShared` particularly when shared resources supposed to be used by thread-local handles. Going through a wrapper for shared ownership is fast
-    and won't be the bottleneck, as it's only about 16% slower than going through a shared reference on a single core.
-* **Path encoding**
-  - For `git`, paths are just bytes no matter on which platform. We assume that on windows its path handling goes through some abstraction layer like `MSYS2`
-    which avoids it to seeing UTF-16 encoded paths (and writing them). Thus it should be safe to assume `git`s path encoding is byte oriented.
-  - Assuming UTF8-ish bytes in paths produced by `git` even on windows due to `MSYS2`, we use `os_str_bytes` to convert these back into `OsStr` and derivatives like `Path`
-    as needed even though it might not always be the case depending on the actual encoding used by `MSYS2` or other abstraction layers, or avoiding to use std types altogether
-    using our own instead.
+  - Use `gix_parallel::OwnShared` for resources shared by thread-local handles. It selects `Arc` or `Rc` according to the `parallel` feature.
+    Measure ownership and synchronization overhead in the relevant workload.
 
-## Sha256
+## Architecture background
 
-A bunch of notes collected to keep track of what's needed to eventually support it
-
-* read `hash-function-transition.txt`
-* [x] support `gpgsig-sha256` field - we won't break, but also don't do anything with it (e.g. `extra_headers`)
-* [ ] support index V3
-* [ ] Pack file PSRC field
-
-## `.unwrap()` vs `.expect(…)`
-
-* don't use unwrap, not even in tests. Instead use `quick_error!()` or `Box<dyn std::error::Error>`.
-* Use `expect(…)` as assertion on Options, providing context on *why* the expectations should hold. Or in other words,
-  answer "This should work _because_…<expect(…)>"
-
-## `Options` vs `Context`
-
-- Use `Options` whenever there is something to configure in terms of branching behaviour. It can be defaulted, and if it can't these fields should be parameters of the method
-  that takes these `Options`.
-- Use `Context` when data is required to perform an operation at all. See `gix_config::path::Context` as reference. It can't be defaulted and the fields could also be parameters.
-
-## Lifetimes
-
-In _plumbing_ crates, prefer to default to keeping references if this is feasible to avoid typically expensive clones.
-
-In _porcelain_ crates, like `gix`, we have `Platforms` which are typically cheap enough to create on demand as they configure one or more method calls. These
-should keep a reference to the `Repository` instance that created them as the user is expected to clone the `Repository` if there is the need.
-However, if these structures are more expensive, call them `Cache` or `<NotPlatform>` and prefer to clone the `Repository` into them or otherwise keep them free of lifetimes
-to allow the user to keep this structure around for repeated calls. References for this paragraph are [this PR](https://github.com/Canop/bacon/pull/98) and
+For background on repository-backed platforms and caches, see [this PR](https://github.com/Canop/bacon/pull/98) and
 [this discussion](https://github.com/GitoxideLabs/gitoxide/discussions/675).
 
 ## Examples, Porcelain CLI and Plumbing CLI - which does what?
@@ -280,7 +162,8 @@ Both terms are coming from the `git` implementation itself, even though it won't
 are porcelain.
 The term *plumbing* refers to lower-level, more rarely used commands that complement porcelain by being invoked by it or by hand for certain use
 cases.
-The term *porcelain* refers to those with a decent user experience, they are primarily intended for use by humans.
+The term *porcelain* refers to commands that prioritize an approachable user experience. They are primarily designed for humans,
+but may also be used by scripts and agents.
 
 In any case, both types of programs must self-document their capabilities using through the `--help` flag.
 
@@ -292,97 +175,493 @@ From there, we can derive a few rules to adhere to unless there are good reasons
 * if supported and logging is enabled, it will show timestamps in UTC
 * tracing is buffered independently of progress and written to stderr with terminal-aware colors after the command finishes
 * `corpus` uses the same trace display while persisting full per-run trees independently of the display level
-* it does not need a git repository, but instead takes all required information via the command-line
+* repository-independent operations accept explicit inputs; repository operations may discover or open a repository
 
 #### Porcelain
 
-* Provides output to stderr by default to provide progress information. There is no need to allow disabling it, but it shouldn't show up unless
-  the operation takes some time.
+* Provides progress information to stderr during long-running operations; allow it to be disabled with `--quiet`.
 * If timestamps are shown, they are in localtime.
 * Non-progress information goes to stdout.
 
 #### Summary
 
 Here is the hierarchy of programs - each level requires more polish and generally work to be done.
-_Experiments_ are the quickest ways to obtain some insights. _Examples_ are materialized ideas that others can learn from but that don't quite have
-the polish (or the potential) to move up to _plumbing_ or _porcelain_. _Plumbing_ is programs for use in scripts, whereas _porcelain_ is for use
-by humans.
+_Examples_ are materialized ideas that others can learn from but that don't quite have the polish (or the potential) to move up to
+_plumbing_ or _porcelain_. _Plumbing_ prioritizes composition, whereas _porcelain_ prioritizes an approachable user experience.
 
-* **Experiments** (out of tree due to `git2` builds sometimes failing CI)
-  * quick, potentially one-off programs to learn about an aspect of gitoxide potentially in comparison to other implementations like `libgit2`.
-  * No need for tests of any kind, but it must compile and be idiomatic Rust and `gitoxide`.
-  * Manual command-line parsing is OK
-  * no polish
-  * make it compile quickly, so no extras
 * **Examples**
   * An implementation of ideas for actual occasional use and the first step towards getting integrated into Porcelain or Plumbing CLIs.
   * Proper command-line parsing with Clap.
-  * No tests or progress.
+  * Examples must compile; add focused tests where behavior or correctness warrants them. Elaborate test suites are not required.
+  * No progress.
   * High quality Rust code along with idiomatic `gitoxide` usage so people can learn from it.
-* **Plumbing CLI**
-  * Use Clap AND Argh for command-line parsing via feature toggles to allow for tiny builds as plumbing is mostly for scripts.
-  * Journey tests
+* **Plumbing CLI (like `gix`)**
+  * Use Clap for command-line parsing, including small builds.
+  * Journey tests only if it's proven valuable
   * Progress can be turned on using the `--verbose` flag, quiet by default.
-  * Examples can be turned into plumbing by adding journey tests and `argh` command-line parsing, as well as progress.
-* **Porcelain CLI**
+  * Examples can be turned into plumbing by adding journey tests and optional progress.
+* **Porcelain CLI (like `ein`)**
   * Use Clap for command-line parsing for the best quality CLI experience - it's for the user.
-  * Journey tests.
+  * Journey tests
   * Support for `--quiet`; line progress is shown by default for long-running operations.
   * Verbose by default.
-  * Examples can be turned into plumbing by adding journey tests and progress.
+  * Examples can be turned into porcelain by adding journey tests and progress.
 
 # Maintenance Guide
 
-Utilities to aid in keeping the project fresh and in sync can be found in the `Maintenance` section of the `makefile`. Run `make` to
-get an overview.
+Run `just --list --group 'Maintenance'` to browse maintenance tasks. The `Makefile` retains specific build and fixture-generation targets used by CI.
 
-## Reviewing PRs
+## QA locally and in CI
 
-- Be sure to clone locally and run tests with `GIX_TEST_IGNORE_ARCHIVES=1` to assure new fixture scripts (if there are any) are validated
-  on _MacOS_ and _Windows_. Linux doesn't need to be tested locally that way, as CI on Linux includes it.
+`just qa` runs every selected quality-assurance check that can run on your host. CI uses the same task
+catalogue and commands, distributing them across jobs and additional platforms. Use fast
+mode while developing, and exhaustive mode to reproduce the checks used after integration:
+
+```bash
+just qa                             # fast: affected work, plus mandatory policy checks
+just qa --base stable-gix            # compare a stacked PR against its own base branch
+just qa --mode exhaustive            # every applicable configuration on this host
+just test                           # alias for exhaustive QA
+just qa --dry-run                    # inspect commands without executing checks
+just qa --agent                      # compact progress, with detailed task logs
+just qa --help                       # list options and available stage selectors
+just qa --stage tests,doctests        # union of stages; overlapping selectors run once
+just qa-plan                         # JSON selection, reasons, tasks and job assignments
+just qa-plan --all-platforms          # CI's assignments, including other platforms
+just qa-plan --platform windows-x86_64 --mode exhaustive
+```
+
+When `CODEX_THREAD_ID` is present, QA automatically enables agent output. Each task
+shows basic progress; failures name a retained log containing its commands, working
+directory, diagnostics, stdout, and stderr. The logs are in the printed temporary
+directory. `--agent` enables this output explicitly. JSON plans and `--dry-run`
+command listings remain available for detailed inspection.
+
+When `tix` is installed, a successful complete local run records a checks-pass message
+on the tested commit's tree: the selected QA profile passed with the recorded scope.
+Its gutter emoji distinguishes fast (`⚡`) and thorough (`🔬`, exhaustive mode) coverage,
+including automatic exhaustive fallbacks. Fast runs that omit tests include `coverage selection` in the title.
+The title shows the elapsed run time; the body records the host, comparison base, selected
+package count, selection reasons, package/configuration planning time and elapsed time for
+each task, including setup. Coverage reports include the effective mode, observed test
+execution and omission counts, and index reuse, collection or fallback. Inventory and
+per-test selection timings are a breakdown of task times, not additional elapsed time.
+Timing starts inside the QA runner, after any compilation needed to launch it. Recording requires the
+same clean `HEAD` at the start and end of the run. Dirty runs, task
+failures (including nonblocking failures), stage subsets, saved plans, dry runs and CI
+jobs do not receive a checks-pass message. A missing `tix` or unavailable initial Git
+state skips recording; other Tix errors are reported separately from passing QA.
+
+Fast mode compares against the merge base with `origin/main` by default, including staged,
+unstaged and untracked changes. Fetch your intended base before comparing. Selection includes
+owning crates and reverse normal/build workspace dependencies, including optional and
+platform-specific dependencies. Their dev consumers are selected too, without propagating
+further through those dev-only edges. Known root prose files and Markdown documents under `etc/plan/`
+select no Rust work; crate documentation is a crate input because it can appear in rustdoc.
+Manifests, lockfiles, fuzzers, shared tests, CI/build configuration, unclassified paths and a
+missing base conservatively select exhaustive coverage. The plan explains each fallback.
+An unchanged checkout still checks licenses, dependency policy, advisories, workflow policy,
+script modes and the MSRV badge.
+
+Fast mode also checks declared feature and WASM configurations with Cargo
+(`cargo tree --locked --offline --target all`). It omits a configuration only when its normal, build and
+applicable dev dependencies exclude every directly changed package. Direct edits retain all
+of that package's configurations; shared fixture consumers count as directly changed inputs.
+Cargo resolves optional dependencies, renamed dependencies and feature unification, including
+self dev-dependencies. Queries include all targets so the same plan remains conservative on
+other CI platforms, and configurations sharing a dependency selection reuse the query.
+
+An [investigation of LSP-based test selection](etc/plan/qa-test-selection.md) measured finer
+selection with rust-analyzer. Missing call edges and mismatched feature configurations currently
+prevent using those results to omit individual tests safely.
+
+Fast QA automatically uses LLVM coverage selection for native, isolated and feature
+tests when stable Rust's matching LLVM tools are available. It uses a compatible local index
+to select individual tests. If the configuration has no usable index, it runs the full selected case
+with per-test coverage collection and saves the result for later QA invocations. This first run pays
+for collection and analysis; subsequent runs can reuse the index. New or unrecorded tests always run.
+
+```bash
+just qa                             # use coverage when available; otherwise collect for later runs
+just qa --coverage off              # use only package/configuration selection
+```
+
+The tools can be installed with `rustup component add llvm-tools-preview --toolchain stable`.
+Local QA does not install them automatically. Missing tools or unsupported configuration retain ordinary
+QA. Unknown changed paths and non-Rust changes retain the full test case; unavailable or invalid
+coverage cannot cause tests to be omitted. Exhaustive mode keeps ordinary execution without automatic
+collection; use `--coverage collect` to seed those configurations explicitly. Actual test failures
+still fail QA. Automatic runs use the same separate, reusable instrumented build cache whether
+collecting or pruning. A workspace compiler wrapper preserves configured Rust flags and does not
+replace existing custom compiler wrappers.
+
+If a valid index cannot classify changed inputs, automatic mode runs the full case and refreshes it
+when source contents differ from its last capture. A source-content hash avoids repeated collection
+for the same unknown or disabled inputs; it never permits test omission. Newly added tests run until
+a refreshed index records their coverage. Partial coverage, including unmapped functions from child
+executables, leaves that individual test unrecorded so it always runs.
+
+Coverage records executed source files. Constants, type layouts and other compile-time inputs can
+affect tests without executing those files. Checks-pass records success of the selected profile and
+reports test omissions. The layer does not prune compilation, clippy, doctests or shell journeys.
+See the [measurements and limits](etc/plan/qa-test-selection.md#llvm-coverage-selection).
+
+Tix QA sweeps retain automatic coverage selection unless explicitly disabled by the user and preserve
+the runner's checks-pass artifact with its coverage and timing report.
+
+The coverage modes can also be selected explicitly:
+
+```bash
+just qa --coverage collect           # run all selected tests and measure per-test file coverage
+just qa --coverage shadow            # compare the historical selection while running all tests
+just qa --coverage prune             # reuse saved indexes without collecting missing configurations
+```
+
+Collection uses stable Rust's `-C instrument-coverage` and the matching LLVM tools; no nightly compiler
+is required. Missing/corrupt indexes and unsupported custom Nextest scripts/profiles retain ordinary QA.
+
+Automatic collection and `collect` write indexes under `target/qa-coverage/indexes`, never committed.
+They are published only after the whole QA run succeeds with unchanged checkout contents and `HEAD`.
+Automatic collection from a dirty checkout records its `HEAD` and dirty paths; those paths remain
+part of subsequent selection even if the edits are later reverted. Raw profiles are discarded after
+each case; compiler build caches remain reusable. Explicit `collect` still requires a clean checkout
+for publication. Each index records the exact Cargo package batch, features, compiler, inherited
+Cargo configuration, fixture mode and runtime hash. Exhaustive native
+workspace builds therefore cannot supply an index for a differently batched PR build; matching
+per-package feature cases can reuse their own indexes. An older index must name an ancestor of
+`HEAD`; selection includes the entire diff from that ancestor, the QA comparison base, recorded dirty
+paths, and current staged, unstaged and untracked inputs.
+New/unrecorded tests always run, and unknown changed paths or non-Rust inputs retain the complete case.
+Exhaustive mode never omits tests.
+
+Use `shadow` to compare selections while retaining complete execution. Collecting coverage runs the
+tests being measured; reuse is what can make later runs faster.
+
+CI enables collection and reuse by default for native, isolated and feature tests. Main jobs attempt
+to install LLVM tools, collect complete configuration indexes and publish 14-day Actions artifacts.
+PR jobs attempt to download the matching job's artifact from a successful run at their base commit
+and use `prune`; a missing index retains ordinary execution without collecting an unused PR index.
+Unavailable tools, artifact services, GitHub CLI or baseline runs retain ordinary QA. Set the repository
+variable `QA_COVERAGE` to `shadow` to report PR selections while running all tests, or `off` to disable
+CI coverage. No repository variable is needed for the default behavior. Locally, `GIX_QA_COVERAGE`
+selects the mode, and an explicit `--coverage` takes precedence. Downloaded JSON indexes can also be
+placed in `target/qa-coverage/indexes` for local reuse without Git LFS.
+
+Unavailable cached dependencies and unfamiliar arguments retain the original checks. Saved
+plans carry the exclusions, capped at 12 KiB to leave room for job metadata in Windows'
+environment variables; excess configurations remain selected. CI fetches the lockfile's
+dependencies into its planning cache so offline queries also work there. Local planning does
+not fetch dependencies. Exhaustive mode retains every configuration.
+
+All PRs request fast mode. Pushes to `main` or `run-ci/**`, and manual workflow dispatch,
+request exhaustive mode. Exhaustive checks on landed commits provide feedback for forward
+fixes when fast selection misses an undeclared dependency. CI cancels obsolete PR runs but
+keeps landed-commit runs. The `Tests pass` gate requires the planner and all required jobs.
+Advisory, package-size and WASM failures remain informational, locally and in CI.
+
+### What runs where
+
+Portable checks run locally on Linux, macOS or Windows. CI assigns them once to Linux x86-64
+instead of repeating them on every OS. Native tests run on Linux, macOS and Windows in fast
+mode; exhaustive CI adds Linux ARM64, Linux 32-bit x86/ARM, and Windows ARM64. Local Intel macOS
+is also supported. Only Windows runs the no-Git and 32-bit Windows cases; only Linux x86-64
+runs the constrained pure-Rust Docker check. Journey tests require Unix. CI also retains
+Windows baseline doctests and MSRV builds. `--all-platforms` shows these exact assignments;
+a local run never attempts another host's native checks. Isolated package tests and Windows binary
+checks have their own CI jobs to run concurrently with native tests, retaining their Cargo feature selections.
+
+Linux feature compilation checks and feature tests run in separate jobs, retaining every
+selected configuration.
+
+Local and CI builds use `debug = 0` and `strip = "debuginfo"` in the workspace's `dev`
+profile, also inherited by `test` and `qa`. This reduces object files, libraries and linked
+debug information while retaining debug assertions and overflow checks, including in
+dependencies with an optimized development profile. Panic messages and `gix-error` source
+locations remain available, but stack backtraces lose file/line information and debuggers
+cannot inspect local variables or types. MSVC builds still emit smaller PDBs for symbols.
+CI applies the same artifact settings to downstream workspaces through Cargo profile environment variables.
+
+For debugging, set `CARGO_PROFILE_DEV_DEBUG=2` and `CARGO_PROFILE_DEV_STRIP=none` before
+running Cargo or QA; use `line-tables-only` instead of `2` when only file/line backtraces
+are needed. Unset both variables to return to the smaller defaults. Release and benchmark
+profiles retain their separate settings.
+
+Local incremental compilation remains enabled to speed up rebuilds. Set `CARGO_INCREMENTAL=0`
+for builds where disk space matters more than recompilation speed; CI's Rust cache action
+already does this. Profile changes affect newly built artifacts and do not remove old
+artifacts or other toolchain/feature variants from `target`.
+
+Rust caches are saved by `main` runs and restored by PRs. They retain downloaded dependencies
+and their build artifacts; workspace crates are rebuilt. Job caches compete for the repository's
+storage allowance, so a correct key can still miss after eviction. Changes to the Cargo profile
+environment produce new cache keys that need a `main` run to populate.
+
+| Stage | Checks |
+| --- | --- |
+| `self-test` | Lightweight planner/runner tests; CI runs these once in the planning gate |
+| `policy`, `advisories`, `audit` | Dependency licenses, bans and sources; advisory reporting; `audit` selects both |
+| `housekeeping` | Workflow credentials/gate policy, executable script modes and MSRV badge |
+| `lint`, `check` | Formatting and Clippy; `check` also compiles selected manifest configurations; exhaustive adds machete and workspace feature contracts |
+| `tests`, `default-tests` | Native nextest, isolated package tests, and supported Windows checks; `tests` also includes declared feature/hash variants |
+| `doctests`, `docs` | Cargo doctests and rustdoc, including declared doctest variants |
+| `journey` | CLI journeys: affected `small` in fast mode; all four configurations in exhaustive mode |
+| `api` | Ignored API checker integration tests, on Rust 1.99.0 |
+| `msrv` | Minimal dependency resolution and declared MSRV builds, in an isolated source copy |
+| `auditable`, `size` | Auditable build and package-size reporting |
+| `wasm` | Affected supported packages/configurations for the three WASM targets |
+| `pure-rust` | Linux x86-64 Docker build with constrained C/C++ tooling |
+
+Independent tasks continue after failures; the command fails if any required task failed.
+Within a task, prerequisites remain ordered: a failed journey build cannot run a stale CLI.
+Missing tools produce visible failures. Use `--stage` to reproduce a subset without installing
+unrelated tools. `just unit-tests`, `just doc-tests`, `just check`, `just qa-test` and
+`etc/scripts/ci-check-local.sh --fast|--thorough` delegate to the shared runner. The script's
+profiles now mean the same fast/exhaustive modes; it no longer cleans fixtures. Complete
+local profiles use the same Tix checks-pass recording described above. The legacy
+`ci`, `ci-plan`, `ci-test` and `ci-journey-tests` recipes remain aliases for their `qa` counterparts.
+
+### Local prerequisites and isolation
+
+Each task declares the tools, Rust components/toolchains/targets and system dependencies it
+needs. Inspect the requirements of your selected work before installing tools:
+
+```bash
+just qa-plan | jq '.tasks[].task | {id, requirements}'
+just qa-plan | jq '.jobs[] | {id, tools, rust_components, rust_toolchains, rust_targets, just, diet, xz}'
+```
+
+The tool versions live in `[workspace.metadata.qa.tool-versions]` in the root manifest. CI
+provisions the requirements collected from its assigned tasks; the same requirements appear
+in the local plan. Component and target requirements retain their toolchain, for example
+`{"toolchain":"stable","component":"clippy"}` or
+`{"toolchain":"1.99.0","target":"wasm32-wasip1"}`. Pass that toolchain to
+`rustup component add --toolchain` or `rustup target add --toolchain`, after installing it.
+The following commands install the tools used across exhaustive QA.
+
+Install Git, Bash, `just` 1.58.0, `jq`, and a C toolchain, plus platform libraries required by
+the selected features (OpenSSL/pkg-config and liblzma where applicable). The shared runner
+selects stable Rust for ordinary tasks and Rust 1.99.0 for API tasks. Stable should match CI's
+current stable version; Git and system libraries also need compatible versions. MSRV uses the
+declaring package's `rust-version` and nightly Cargo for minimal-version resolution:
+
+```bash
+rustup toolchain install stable 1.99.0 nightly "$(just msrv)"
+rustup component add --toolchain stable clippy rustfmt
+rustup target add --toolchain stable wasm32-unknown-unknown wasm32-wasip1 wasm32-wasip2
+# Windows x86-64 also needs:
+# rustup target add --toolchain stable i686-pc-windows-msvc
+cargo install --locked cargo-nextest --version 0.9.122
+cargo install --locked cargo-deny --version 0.20.0
+cargo install --locked cargo-machete --version 0.9.1
+cargo install --locked cargo-semver-checks --version 0.51.0
+cargo install --locked cargo-auditable --version 0.7.6
+cargo install --locked cargo-diet --version 1.2.7
+```
+
+Housekeeping parses workflow YAML directly in Rust. The same parser is available as
+`cargo run --locked -p internal-tools -- yaml-to-json FILE`; omit `FILE` or use `-` to read stdin.
+It emits JSON on stdout and rejects duplicate keys, non-string mapping keys, non-finite numbers,
+and multiple YAML documents.
+
+The pure-Rust check needs Docker; it uses a disposable Debian container, a read-only source mount,
+and the persistent Docker volume `gitoxide-ci-pure-rust` for Rust/download/build caches.
+Ordinary checks reuse `target`.
+
+The runner sets `CI=true` locally too, including journey assertions and Git-version checks.
+It disables snapshot/baseline updates and overrides inherited fixture-selection variables.
+Native fast tests on Windows reuse valid checked-in fixture archives, falling back to generation
+when an archive is absent or stale. This avoids repeated expensive Git subprocesses on Windows;
+comparisons against freshly generated Git baselines still run in exhaustive QA. Linux and macOS
+fast tests use freshly generated fixtures. Exhaustive native tests compile/list once,
+then reuse the same nextest binaries for archived and generated fixtures in separate temporary
+source copies. Native passes and feature/hash or isolated test variants within one QA run
+share a fresh cache of generated read-only scripted fixtures, locally and within each CI job.
+When no archive is available, the archived pass can generate a fixture once for both passes;
+the shared cache never substitutes extracted archives for generated fixtures. Fixtures that write archives or require
+execution in a writable destination keep their existing behavior. The cache and its source
+copies remain alive until the run finishes, and are retained together if a source copy changes.
+Changes to source files between stages prevent cache reuse. Feature/hash variants also run in
+an isolated copy and continue after individual failures. Separate runs and CI jobs never reuse
+each other's generated fixtures or extracted archives. Archive changes cause
+a failure and retain the changed copy for inspection. Explicit archive-only fixtures keep
+their normal semantics.
+
+Source copies include current tracked and visible untracked files, preserving local edits,
+deletions, permissions and safe relative symlinks. Native copies use an intent-to-add index
+to track paths without storing duplicate Git blobs; source checks hash the copied files directly.
+MSRV resolution changes only its copied lockfile. The runner never restores, cleans or stages
+your checkout. Native tests also check the original source for unexpected changes because
+compile-time Rust paths may still point there. Avoid editing while those checks run; concurrent
+edits are reported as changes too.
+
+### Maintaining QA selection
+
+The `qa` binary in `internal-tools` (`tests/it`) owns planning, the task catalogue, platform
+assignment and execution. Each task exposes its requirements, inferred from direct Cargo
+commands or declared alongside opaque scripts, recipes and internal operations. Job requirements
+are their task requirements combined, so the workflow does not maintain a second list of which
+checks need each tool. `.github/workflows/ci.yml` provisions those requirements and schedules the
+plan. Its gate builds with `--no-default-features`, requiring only Clap, JSON parsing and the
+dependency-free `gix-error`; the existing `it` binary retains the default `tools` feature.
+
+Launchers use the `qa` Cargo profile, which inherits `dev`, so workspace builds cannot replace
+the running executable on Windows. The checks retain their existing profiles and target
+directory, including `CARGO_TARGET_DIR` overrides. Use that profile for manual invocations too:
+
+```bash
+cargo run --profile qa --locked -p internal-tools --no-default-features --bin qa -- plan
+cargo test --locked -p internal-tools --no-default-features --bin qa
+just qa-plan > /tmp/qa-plan.json
+just qa --plan /tmp/qa-plan.json --dry-run
+```
+
+Plans use `cargo metadata --no-deps`, without resolving all external dependencies. Saved plans
+preserve selection; regenerate them after changing the checkout. A CI job can be reproduced
+with `--plan FILE --job ID` on its matching platform. Stage selection and normal local execution
+use the same tasks. Add custom automation in `tests/it/src/qa` or `tests/it/qa`; workflow command
+bodies only provision the declared prerequisites.
+
+Crate-specific variants live beside their features in `Cargo.toml`:
+
+```toml
+[package.metadata.qa]
+checks = [{ args = ["--features", "serde"] }]
+tests = [
+    { args = ["--features", "serde"] },
+    { args = ["--features", "sha256"], env = { GIX_TEST_FIXTURE_HASH = "sha256" } },
+]
+doctests = [{ args = ["--features", "blocking-io"] }]
+extra-inputs = ["another-crate/tests/fixtures"]
+```
+
+`checks` compiles the declared configurations with `cargo check`; `tests` runs nextest and
+`doctests` runs Cargo doctests. The owner package is implicit. Grouped cases can specify
+`packages = ["owner", "other"]` and run when any member is affected. Arguments go directly to
+Cargo/nextest; the runner supplies package selection and the appropriate locked/test options.
+Use `requires = ["xz"]` on a case that needs an extra system capability. Keep feature combinations
+separate when Cargo unification changes dependency features. Declare external crate input paths
+in `extra-inputs` (repository-relative files/directories, without globs).
+
+For a small set of independent features, opt in to checking each declared feature separately.
+For example, a package such as `gix-parallel` can use:
+
+```toml
+[package.metadata.qa.each-feature]
+args = ["--no-default-features"]
+exclude = ["default", "document-features"]
+```
+
+The policy checks the baseline, then adds each non-excluded feature to it once. New features
+automatically gain a check. `base = ["sha1"]` can supply a required baseline for a package that
+declares that feature; `args = ["--no-default-features", "--tests"]` also compiles its tests.
+Use `exclude` for unsupported combinations, aggregate features or redundant configurations,
+and explicit `checks` for combinations that matter together. The policy does not enumerate a
+cross product. Exact repeated cases are removed; meaningful combinations remain explicit.
+The same `each-feature` policy is available under `qa.wasm`.
+Fast mode runs these checks for affected packages. Exhaustive mode also runs the shared feature
+contracts, including expected compilation failures and separate fuzz workspaces.
+
+`gix` and `gix-utils` use this linear policy. Common `serde`, `parallel` and hash cases keep
+small explicit configurations: feature names alone do not establish compatible combinations,
+and dev-dependency feature unification can hide missing feature edges. Runtime combinations
+stay explicit, including their fixture settings; adding a compile check does not add a test run.
+
+WASM support is declared by each package. List the targets it supports and any required feature
+configurations; without `checks` or `each-feature`, the package builds with its default features:
+
+```toml
+[package.metadata.qa.wasm]
+targets = ["wasm32-unknown-unknown", "wasm32-wasip1", "wasm32-wasip2"]
+checks = [{ args = ["--features", "sha1"] }]
+```
+
+MSRV builds use the declaring package's `rust-version` and an explicit list of configurations:
+
+```toml
+[package.metadata.qa.msrv]
+checks = [
+    { args = [] },
+    { args = ["--no-default-features", "--features", "async-network-client,max-performance,sha1"] },
+]
+```
+
+In `[package.metadata.qa]`, packages whose tests require separate feature resolution set
+`isolated = true`; the workspace baseline excludes them and their declared cases run separately.
+`without-git = true` requests
+the supported Windows check without Git on `PATH`. CLI owners declare `journey = true` and
+`auditable = true` for their corresponding tasks. These roles keep crate selection beside the
+crate's other QA settings. The API checker declares `api-checker = true` and its `api-toolchain`.
+Nextest retains the settings in `.config/nextest.toml`. Cargo package selection saves compilation
+as well as execution, which nextest test filters alone cannot do.
+
+Explicit feature and hash variants complement the native baselines. Three equivalent
+`gix-hash` variants were combined after comparing their resolved feature graphs, as were two
+`gix-zlib` compile checks already covered by its tests. Clippy covers default compilation;
+rustdoc's former second command had the same effective documented crate features and was
+removed. Journey builds remain adjacent to their runs because later configurations overwrite
+the same binary paths.
+
+### Downstream compatibility (CI only)
+
+GitHub Actions separately checks ten major external `gix` consumers from their current default
+branches in twelve package-specific jobs. These jobs are not part of local QA, including exhaustive
+runs. In fast mode they run only when the existing dependency selection includes `gix`;
+exhaustive CI runs select all twelve jobs.
+This is conservative: changes to any workspace dependency that can affect `gix` select every
+consumer, without downloading and resolving upstream projects in the planner.
+
+The declarations live in `gix/Cargo.toml` under `package.metadata.qa.downstream`. They enable each
+consumer's Git backend explicitly instead of enabling all unrelated features. The first five entries
+use total downloads from the [crates.io reverse dependencies API](https://crates.io/api/v1/crates/gix/reverse_dependencies?page=1&per_page=100)
+on 2026-11-01, excluding this repository and grouping crates by upstream project:
+
+| Consumer | Total downloads | Enabled consumer features |
+| --- | ---: | --- |
+| [built](https://github.com/lukaslueg/built) | 76,145,348 | `gix` |
+| [rustsec](https://github.com/rustsec/rustsec) | 15,074,921 | `gix-reqwest`, `osv-export` |
+| [crates-index](https://github.com/frewsxcv/rust-crates-index) | 9,182,813 | `git` |
+| [cargo](https://github.com/rust-lang/cargo) | 8,196,198 | defaults |
+| [cargo-generate](https://github.com/cargo-generate/cargo-generate) | 2,616,134 | `git` |
+| [jj](https://github.com/jj-vcs/jj) (`jj-cli`, `testutils`) | — | defaults |
+| [GitButler](https://github.com/gitbutlerapp/gitbutler) (`but`, `but-gpui`) | — | defaults |
+| [Starship](https://github.com/starship/starship) | — | defaults |
+| [vergen-gix](https://github.com/rustyhorde/vergen) | — | defaults |
+| [Onefetch](https://github.com/o2sh/onefetch) | — | defaults |
+
+Download counts include versions and builds where `gix` is disabled. Refresh this reviewed list
+from the paginated API when needed; jobs discover each repository's default branch at checkout.
+`jj` and GitButler extend coverage to version-control applications. Their CLI, test-support, and
+GUI packages each run in a separate job, preserving default features. GitButler jobs install their
+Linux development libraries; the GPUI job also installs Zig for its terminal dependency.
+Starship and Onefetch cover repository inspection in CLI applications; `vergen-gix` covers
+Git information emitted by build scripts.
+
+The `internal-tools` runner replaces direct Gitoxide library dependencies in the disposable
+consumer workspace with paths into the checkout under test, preserving requested features and
+default-feature settings. This also keeps explicitly used plumbing crates on the same source
+tree. It verifies that the selected build actually compiles local `gix`, so Cargo cannot silently
+check a published version or skip a disabled optional dependency. Consumer API errors, removed
+features, and other failures remain visible as advisory warnings while `gix` is pre-1.0.
+The jobs print the upstream revision and use separate Rust caches for each consumer.
+
+The original [main CI run on 2026-10-31](https://github.com/GitoxideLabs/gitoxide/actions/runs/41186371733)
+took 28m23s; Windows ARM fixture regeneration and Linux feature tests dominated. Fast mode avoids
+unaffected packages and additional architecture/fixture configurations. Actual savings depend
+on the selected dependency closure and cache state; no new wall-clock CI speedup has yet been
+measured for this restructuring.
 
 ## Creating a release
 
-Run `make publish-all` to publish all crates in leaf-first order using `cargo release` based on the currently set version.
-For this to work, you have to run `cargo release minor|major` each time you break the API of a crate but abort it during package verification.
-That way, `cargo release` updates all the dependents for you with the new version, without actually publishing to crates.io.
+Use `just release` to publish crates with the repository's release defaults. Additional release-tool arguments can be passed to this recipe.
 
-## Which git-version to chase?
+`just roll-release <cargo-smart-release-args>` runs the release command and then triggers the GitHub binary workflow for the unique `v*` tag at `HEAD`.
+To trigger only that workflow, use `just run-release-workflow`. Workflow commands require an authenticated `gh` CLI.
 
-Generally, we take the git version installed on ubuntu-latest as the one we stay compatible with (_while maintaining backwards
-compatibility_). Certain tests only run on CI, designed to validate certain assumptions still hold against possibly changed
-git program versions.
+## Git compatibility checks
 
-This also means that CI may fail despite everything being alright locally, and the fix depends on the problem at hand.
+Git-version detection and fixture support live in [`gix-testtools`](tests/tools/src/lib.rs).
+`should_skip_as_git_version_is_smaller_than()` lets tests skip locally when the installed Git is too old, but deliberately
+never skips on CI. Check a failing test's required Git version when reproducing CI-only failures.
 
-## How to update fixtures
-
-### For object data
-
-Fixtures are created by using a line like this which produces a line we ignore via `tail +1` followed by the un-prettified object payload
-trailed by a newline.
-```sh
-echo c56a8e7aa92c86c41a923bc760d2dc39e8a31cf7  | git cat-file --batch | tail +2 > fixture
-```
-
-Thus one has to post-process the file by reducing its size by one using `truncate -s -1 fixture`, **removing the newline byte**.
-
-# Tips & Tricks
-
-## Git debug mode cranked up to 11
-
-```
-GIT_TRACE=true \
-GIT_TRACE_PACK_ACCESS=true \
-GIT_TRACE_PACKET=true \
-GIT_TRACE_PACKFILE=true \
-GIT_TRACE_PERFORMANCE=true \
-GIT_TRACE_SHALLOW=true \
-GIT_TRACE_SETUP=true \
-GIT_CURL_VERBOSE=true \
-GIT_SSH_COMMAND="ssh -VVV" \
-git <command>
-```
-
-Consider adding `GIT_TRACE2_PERF=1` (possibly add `GIT_TRACE2_PERF_BRIEF=1` for brevity) as well for statistics and variables
-(see [their source for more](https://github.com/git/git/blob/b50a608ba20348cb3dfc16a696816d51780e3f0f/trace2/tr2_sysenv.c#L50).
+For fixtures requiring a particular Git version, `scripted_fixture_read_only_with_git_version()` and its writable counterpart
+run the fixture script only with a compatible Git. Otherwise they use a matching archive, or return `None` if none is available.

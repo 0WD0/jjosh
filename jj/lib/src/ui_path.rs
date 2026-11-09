@@ -15,21 +15,21 @@
 //! Utilities for converting between `RepoPath`s and plain strings as displayed
 //! to the user (e.g. relative to CWD).
 
+use jj_core::matchers::Matcher;
 use std::iter;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use jj_core::merge::Diff;
+use jj_core::repo_path::RelativePathParseError;
+use jj_core::repo_path::RepoPath;
+use jj_core::repo_path::RepoPathBuf;
+use jj_local_util::file_util;
 use thiserror::Error;
 
-use crate::file_util;
-use crate::matchers::Matcher;
-use crate::merge::Diff;
-use crate::repo_path::RelativePathParseError;
-use crate::repo_path::RepoPath;
-use crate::repo_path::RepoPathBuf;
-use crate::working_copy_patterns::WorkingCopyPathBuf;
-use crate::working_copy_patterns::WorkingCopyPatterns;
+use jj_core::working_copy_patterns::WorkingCopyPathBuf;
+use jj_core::working_copy_patterns::WorkingCopyPatterns;
 
 /// An error which occurs when we're parsing paths.
 #[derive(Clone, Debug, Eq, Error, PartialEq)]

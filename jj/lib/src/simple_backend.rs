@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![expect(missing_docs)]
+//! Simple file-based commit backend, mainly used for testing.
 
 use std::fmt::Debug;
 use std::fs;
@@ -33,39 +33,38 @@ use futures::StreamExt as _;
 use futures::io::Cursor;
 use futures::stream;
 use futures::stream::BoxStream;
+use jj_core::backend::Backend;
+use jj_core::backend::BackendError;
+use jj_core::backend::BackendResult;
+use jj_core::backend::ChangeId;
+use jj_core::backend::Commit;
+use jj_core::backend::CommitId;
+use jj_core::backend::CopyHistory;
+use jj_core::backend::CopyId;
+use jj_core::backend::CopyRecord;
+use jj_core::backend::FileId;
+use jj_core::backend::MillisSinceEpoch;
+use jj_core::backend::RelatedCopy;
+use jj_core::backend::SecureSig;
+use jj_core::backend::Signature;
+use jj_core::backend::SigningFn;
+use jj_core::backend::SymlinkId;
+use jj_core::backend::Timestamp;
+use jj_core::backend::Tree;
+use jj_core::backend::TreeId;
+use jj_core::backend::TreeValue;
+use jj_core::backend::make_root_commit;
+use jj_core::conflict_labels::ConflictLabels;
+use jj_core::content_hash::blake2b_hash;
+use jj_core::merge::MergeBuilder;
+use jj_core::object_id::ObjectId;
+use jj_core::repo_path::RepoPath;
+use jj_core::repo_path::RepoPathBuf;
+use jj_core::repo_path::RepoPathComponentBuf;
+use jj_local_util::file_util::new_temp_file_with_default_permissions;
+use jj_local_util::file_util::persist_content_addressed_temp_file;
 use pollster::FutureExt as _;
 use prost::Message as _;
-use tempfile::NamedTempFile;
-
-use crate::backend::Backend;
-use crate::backend::BackendError;
-use crate::backend::BackendResult;
-use crate::backend::ChangeId;
-use crate::backend::Commit;
-use crate::backend::CommitId;
-use crate::backend::CopyHistory;
-use crate::backend::CopyId;
-use crate::backend::CopyRecord;
-use crate::backend::FileId;
-use crate::backend::MillisSinceEpoch;
-use crate::backend::RelatedCopy;
-use crate::backend::SecureSig;
-use crate::backend::Signature;
-use crate::backend::SigningFn;
-use crate::backend::SymlinkId;
-use crate::backend::Timestamp;
-use crate::backend::Tree;
-use crate::backend::TreeId;
-use crate::backend::TreeValue;
-use crate::backend::make_root_commit;
-use crate::conflict_labels::ConflictLabels;
-use crate::content_hash::blake2b_hash;
-use crate::file_util::persist_content_addressed_temp_file;
-use crate::merge::MergeBuilder;
-use crate::object_id::ObjectId;
-use crate::repo_path::RepoPath;
-use crate::repo_path::RepoPathBuf;
-use crate::repo_path::RepoPathComponentBuf;
 
 const COMMIT_ID_LENGTH: usize = 64;
 const CHANGE_ID_LENGTH: usize = 16;
@@ -90,6 +89,8 @@ fn to_other_err(err: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Bac
     BackendError::Other(err.into())
 }
 
+/// Commit backend that stores objects as protobuf files on disk, mainly used
+/// for testing.
 #[derive(Debug)]
 pub struct SimpleBackend {
     path: PathBuf,
@@ -99,8 +100,10 @@ pub struct SimpleBackend {
 }
 
 impl SimpleBackend {
+    /// Name of this backend type.
     pub const NAME: &str = "Simple";
 
+    /// Initializes a new backend at `store_path`.
     pub fn init(store_path: &Path) -> Self {
         fs::create_dir(store_path.join("commits")).unwrap();
         fs::create_dir(store_path.join("trees")).unwrap();
@@ -116,6 +119,7 @@ impl SimpleBackend {
         backend
     }
 
+    /// Loads an existing backend from `store_path`.
     pub fn load(store_path: &Path) -> Self {
         let root_commit_id = CommitId::from_bytes(&[0; COMMIT_ID_LENGTH]);
         let root_change_id = ChangeId::from_bytes(&[0; CHANGE_ID_LENGTH]);
@@ -200,7 +204,7 @@ impl Backend for SimpleBackend {
         contents: &mut (dyn AsyncRead + Send + Unpin),
     ) -> BackendResult<FileId> {
         // TODO: Write temporary file in the destination directory (#5712)
-        let temp_file = NamedTempFile::new_in(&self.path).map_err(to_other_err)?;
+        let temp_file = new_temp_file_with_default_permissions(&self.path).map_err(to_other_err)?;
         let mut file = temp_file.as_file();
         let mut hasher = Blake2b512::new();
         let mut buff: Vec<u8> = vec![0; 1 << 14];
@@ -229,7 +233,8 @@ impl Backend for SimpleBackend {
 
     async fn write_symlink(&self, _path: &RepoPath, target: &str) -> BackendResult<SymlinkId> {
         // TODO: Write temporary file in the destination directory (#5712)
-        let mut temp_file = NamedTempFile::new_in(&self.path).map_err(to_other_err)?;
+        let mut temp_file =
+            new_temp_file_with_default_permissions(&self.path).map_err(to_other_err)?;
         temp_file
             .write_all(target.as_bytes())
             .map_err(to_other_err)?;
@@ -270,7 +275,7 @@ impl Backend for SimpleBackend {
 
     async fn write_tree(&self, _path: &RepoPath, tree: &Tree) -> BackendResult<TreeId> {
         // TODO: Write temporary file in the destination directory (#5712)
-        let temp_file = NamedTempFile::new_in(&self.path).map_err(to_other_err)?;
+        let temp_file = new_temp_file_with_default_permissions(&self.path).map_err(to_other_err)?;
 
         let proto = tree_to_proto(tree);
         temp_file
@@ -313,7 +318,7 @@ impl Backend for SimpleBackend {
             ));
         }
         // TODO: Write temporary file in the destination directory (#5712)
-        let temp_file = NamedTempFile::new_in(&self.path).map_err(to_other_err)?;
+        let temp_file = new_temp_file_with_default_permissions(&self.path).map_err(to_other_err)?;
 
         let mut proto = commit_to_proto(&commit);
         if let Some(sign) = sign_with {
@@ -349,6 +354,7 @@ impl Backend for SimpleBackend {
     }
 }
 
+/// Converts a [`Commit`] into its protobuf representation.
 #[expect(clippy::assigning_clones)]
 pub fn commit_to_proto(commit: &Commit) -> crate::protos::simple_store::Commit {
     let mut proto = crate::protos::simple_store::Commit::default();
@@ -504,8 +510,9 @@ fn signature_from_proto(proto: crate::protos::simple_store::commit::Signature) -
 mod tests {
     use std::assert_matches;
 
+    use jj_core::merge::Merge;
+
     use super::*;
-    use crate::merge::Merge;
     use crate::tests::TestResult;
     use crate::tests::new_temp_dir;
 

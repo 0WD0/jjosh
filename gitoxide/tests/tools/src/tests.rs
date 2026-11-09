@@ -7,6 +7,11 @@ fn parse_version() -> TestResult {
         git_version_from_bytes(b"git version 2.32.1 (Apple Git-133)")?,
         (2, 32, 1)
     );
+    assert_eq!(
+        git_version_from_bytes(b"git version 2.50.1.windows.1\r\n")?,
+        (2, 50, 1),
+        "Git for Windows suffixes do not affect the version gate"
+    );
     Ok(())
 }
 
@@ -550,7 +555,7 @@ fn gitignore_fallback_normalizes_windows_path_separators() {
 }
 
 #[test]
-fn archive_required_fixtures_use_a_separate_cache_directory() {
+fn archive_required_fixtures_use_a_separate_cache_directory() -> TestResult {
     // Archive-required fixtures must not share the normal generated fixture
     // cache. Otherwise, a previous script run can leave platform-specific
     // output behind and make a later archive-required request skip extraction.
@@ -563,7 +568,7 @@ fn archive_required_fixtures_use_a_separate_cache_directory() {
         Some(gix_hash::Kind::default()),
         &1234,
         None,
-    );
+    )?;
     let (_, archived_dir) = force_and_dir(
         None,
         &fixture_base,
@@ -571,7 +576,7 @@ fn archive_required_fixtures_use_a_separate_cache_directory() {
         Some(gix_hash::Kind::default()),
         &1234,
         Some("archive"),
-    );
+    )?;
 
     assert_ne!(generated_dir, archived_dir);
     assert!(
@@ -579,6 +584,7 @@ fn archive_required_fixtures_use_a_separate_cache_directory() {
             .components()
             .any(|component| component.as_os_str() == "archive")
     );
+    Ok(())
 }
 
 struct Included;
@@ -807,7 +813,7 @@ fn stale_required_archives_are_unavailable_instead_of_generated() -> TestResult 
 }
 
 #[test]
-fn required_archives_use_a_dedicated_cache_directory() {
+fn required_archives_use_a_dedicated_cache_directory() -> TestResult {
     let fixture_base = Path::new("tests").join("fixtures");
     let (_, generated_dir) = force_and_dir(
         None,
@@ -816,7 +822,7 @@ fn required_archives_use_a_dedicated_cache_directory() {
         Some(gix_hash::Kind::default()),
         &1234,
         None,
-    );
+    )?;
     let (_, preferred_archive_dir) = force_and_dir(
         None,
         &fixture_base,
@@ -824,7 +830,7 @@ fn required_archives_use_a_dedicated_cache_directory() {
         Some(gix_hash::Kind::default()),
         &1234,
         Some("archive"),
-    );
+    )?;
     let (_, required_archive_dir) = force_and_dir(
         None,
         &fixture_base,
@@ -832,7 +838,7 @@ fn required_archives_use_a_dedicated_cache_directory() {
         Some(gix_hash::Kind::default()),
         &1234,
         Some("required-archive"),
-    );
+    )?;
 
     assert_ne!(required_archive_dir, generated_dir);
     assert_ne!(required_archive_dir, preferred_archive_dir);
@@ -841,4 +847,5 @@ fn required_archives_use_a_dedicated_cache_directory() {
             .components()
             .any(|component| component.as_os_str() == "required-archive")
     );
+    Ok(())
 }

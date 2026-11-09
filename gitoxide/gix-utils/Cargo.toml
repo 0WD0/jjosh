@@ -2,7 +2,7 @@ lints.workspace = true
 
 [package]
 name = "gix-utils"
-version = "0.5.1"
+version = "0.5.2"
 repository = "https://github.com/GitoxideLabs/gitoxide"
 license = "MIT OR Apache-2.0"
 description = "Utilities shared by the gitoxide crates"
@@ -46,7 +46,7 @@ io-pipe = ["dep:bytes"]
 cache-efficiency-debug = []
 
 [dependencies]
-gix-error = { version = "^0.5.1", path = "../gix-error", optional = true }
+gix-error = { version = "^0.5.2", path = "../gix-error", optional = true }
 prodash = { version = "31.0.1", optional = true }
 bytesize = { version = "2.3.1", optional = true }
 bytes = { version = "1.11.1", optional = true }
@@ -78,3 +78,30 @@ required-features = ["io-pipe"]
 [package.metadata.docs.rs]
 all-features = true
 features = ["document-features"]
+
+[package.metadata.qa]
+checks = [
+    { args = ["--all-features"] },
+    { args = ["--features", "progress,progress-unit-bytes"] },
+    { args = ["--features", "progress,progress-unit-human-numbers"] },
+]
+tests = [
+    { args = ["--all-features"] },
+]
+
+[package.metadata.qa.each-feature]
+# There is no default feature; check independent additions without multiplying combinations.
+args = ["--no-default-features"]
+exclude = ["prodash", "document-features", "progress-unit-bytes", "progress-unit-human-numbers"]
+
+[package.metadata.qa.wasm]
+targets = ["wasm32-unknown-unknown", "wasm32-wasip1", "wasm32-wasip2"]
+checks = [
+    { args = ["--no-default-features", "--features", "progress,progress-unit-bytes"] },
+    { args = ["--no-default-features", "--features", "progress,progress-unit-human-numbers"] },
+]
+
+[package.metadata.qa.wasm.each-feature]
+args = ["--no-default-features"]
+# Keep platform coverage for the established independent features and explicit progress-unit pairs.
+exclude = ["bstr", "prodash", "document-features", "progress-unit-bytes", "progress-unit-human-numbers"]

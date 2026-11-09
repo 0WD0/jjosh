@@ -479,7 +479,7 @@ fn test_op_log_word_wrap() {
     test_env.run_jj_in(".", ["git", "init", "repo"]).success();
     let work_dir = test_env.work_dir("repo");
     work_dir.write_file("file1", "foo\n".repeat(100));
-    work_dir.run_jj(["debug", "snapshot"]).success();
+    work_dir.run_jj(["util", "snapshot"]).success();
 
     let render = |args: &[&str], columns: u32, word_wrap: bool| {
         let word_wrap = to_toml_value(word_wrap);
@@ -492,22 +492,22 @@ fn test_op_log_word_wrap() {
 
     // ui.log-word-wrap option works
     insta::assert_snapshot!(render(&["op", "log"], 40, false), @"
-    @  2c5632322012 test-username@host.example.com default@ 2001-02-03 04:05:08.000 +07:00 - 2001-02-03 04:05:08.000 +07:00
+    @  9f793904665f test-username@host.example.com default@ 2001-02-03 04:05:08.000 +07:00 - 2001-02-03 04:05:08.000 +07:00
     │  snapshot working copy
-    │  args: jj debug snapshot
+    │  args: jj util snapshot
     ○  f63ee16f9553 test-username@host.example.com 2001-02-03 04:05:07.000 +07:00 - 2001-02-03 04:05:07.000 +07:00
     │  add workspace 'default'
     ○  000000000000 root()
     [EOF]
     ");
     insta::assert_snapshot!(render(&["op", "log"], 40, true), @"
-    @  2c5632322012
+    @  9f793904665f
     │  test-username@host.example.com
     │  default@ 2001-02-03 04:05:08.000
     │  +07:00 - 2001-02-03 04:05:08.000
     │  +07:00
     │  snapshot working copy
-    │  args: jj debug snapshot
+    │  args: jj util snapshot
     ○  f63ee16f9553
     │  test-username@host.example.com
     │  2001-02-03 04:05:07.000 +07:00 -
@@ -519,13 +519,13 @@ fn test_op_log_word_wrap() {
 
     // Nested graph should be wrapped
     insta::assert_snapshot!(render(&["op", "log", "--op-diff"], 40, true), @"
-    @  2c5632322012
+    @  9f793904665f
     │  test-username@host.example.com
     │  default@ 2001-02-03 04:05:08.000
     │  +07:00 - 2001-02-03 04:05:08.000
     │  +07:00
     │  snapshot working copy
-    │  args: jj debug snapshot
+    │  args: jj util snapshot
     │
     │  Changed commits:
     │  ○  + qpvuntsm 79f0968d (no
@@ -558,13 +558,13 @@ fn test_op_log_word_wrap() {
 
     // Nested diff stat shouldn't exceed the terminal width
     insta::assert_snapshot!(render(&["op", "log", "-n1", "--stat"], 40, true), @"
-    @  2c5632322012
+    @  9f793904665f
     │  test-username@host.example.com
     │  default@ 2001-02-03 04:05:08.000
     │  +07:00 - 2001-02-03 04:05:08.000
     │  +07:00
     │  snapshot working copy
-    │  args: jj debug snapshot
+    │  args: jj util snapshot
     │
     │  Changed commits:
     │  ○  + qpvuntsm 79f0968d (no
@@ -582,12 +582,12 @@ fn test_op_log_word_wrap() {
     [EOF]
     ");
     insta::assert_snapshot!(render(&["op", "log", "-n1", "--no-graph", "--stat"], 40, true), @"
-    2c5632322012
+    9f793904665f
     test-username@host.example.com default@
     2001-02-03 04:05:08.000 +07:00 -
     2001-02-03 04:05:08.000 +07:00
     snapshot working copy
-    args: jj debug snapshot
+    args: jj util snapshot
 
     Changed commits:
     + qpvuntsm 79f0968d (no description set)
@@ -1322,9 +1322,13 @@ fn test_op_diff() {
 
     Changed commits:
     ○  + skovwzlu 854c38b8 Commit 4
+
     ○  + rnnslrkn 4ff62539 bookmark-2@origin | Commit 2
+
     ○  + rnnkyono 11671e4c bookmark-3@origin | Commit 3
+
     ○  + pukowqtp 0cb7e07e bookmark-1 | Commit 1
+
     ○  + qpvuntsm e8849ae1 (empty) (no description set)
 
     Changed working copy default@:
@@ -1375,9 +1379,13 @@ fn test_op_diff() {
 
     Changed commits:
     ○  - skovwzlu/0 854c38b8 (hidden) Commit 4
+
     ○  - rnnslrkn/0 4ff62539 (hidden) Commit 2
+
     ○  - rnnkyono/0 11671e4c (hidden) Commit 3
+
     ○  - pukowqtp/0 0cb7e07e (hidden) Commit 1
+
     ○  - qpvuntsm/0 e8849ae1 (hidden) (empty) (no description set)
 
     Changed working copy default@:
@@ -1546,7 +1554,9 @@ fn test_op_diff() {
 
     Changed commits:
     ○  + kulxwnxm e1a239a5 bookmark-2@origin | Commit 5
+
     ○  + zkmtkqvo 0dee6313 bookmark-1?? bookmark-1@origin | Commit 4
+
     ○  - rnnkyono/0 11671e4c (hidden) Commit 3
 
     Changed local bookmarks:
@@ -1714,7 +1724,7 @@ fn test_op_diff() {
     let output = work_dir.run_jj(["op", "diff"]);
     insta::assert_snapshot!(output, @"
     From operation: 9083d0a3761f (2001-02-03 08:05:37) delete bookmark bookmark-2
-      To operation: ce4fdf550bc1 (2001-02-03 08:05:39) push all tracked bookmarks/tags to git remote origin
+      To operation: daefb3a6ea3f (2001-02-03 08:05:39) push all tracked bookmarks/tags to git remote origin
 
     Changed remote bookmarks:
     bookmark-1@origin:
@@ -1731,8 +1741,8 @@ fn test_op_diff() {
     work_dir.run_jj(["tag", "set", "-r@-", "tag1"]).success();
     let output = work_dir.run_jj(["op", "diff"]);
     insta::assert_snapshot!(output, @"
-    From operation: 992738d46254 (2001-02-03 08:05:41) new empty commit
-      To operation: 94408f332b2a (2001-02-03 08:05:42) set tag tag1 to commit 96f3a57c9a4a4ae7bb45d1eafe32fe3b6e33f458
+    From operation: cb654b6211d6 (2001-02-03 08:05:41) new empty commit
+      To operation: 56eb0bc7efa8 (2001-02-03 08:05:42) set tag tag1 to commit 96f3a57c9a4a4ae7bb45d1eafe32fe3b6e33f458
 
     Changed local tags:
     tag1:
@@ -1747,8 +1757,8 @@ fn test_op_diff() {
         .success();
     let output = work_dir.run_jj(["op", "diff"]);
     insta::assert_snapshot!(output, @"
-    From operation: 94408f332b2a (2001-02-03 08:05:42) set tag tag1 to commit 96f3a57c9a4a4ae7bb45d1eafe32fe3b6e33f458
-      To operation: 363aa83e194f (2001-02-03 08:05:44) set tag tag1 to commit 0dee631320b13c6a6542c80bced33b9dd29f6bf0
+    From operation: 56eb0bc7efa8 (2001-02-03 08:05:42) set tag tag1 to commit 96f3a57c9a4a4ae7bb45d1eafe32fe3b6e33f458
+      To operation: e526b69f27b1 (2001-02-03 08:05:44) set tag tag1 to commit 0dee631320b13c6a6542c80bced33b9dd29f6bf0
 
     Changed local tags:
     tag1:
@@ -1761,8 +1771,8 @@ fn test_op_diff() {
     work_dir.run_jj(["tag", "delete", "tag1"]).success();
     let output = work_dir.run_jj(["op", "diff"]);
     insta::assert_snapshot!(output, @"
-    From operation: 363aa83e194f (2001-02-03 08:05:44) set tag tag1 to commit 0dee631320b13c6a6542c80bced33b9dd29f6bf0
-      To operation: 51b4abfe164c (2001-02-03 08:05:46) delete tag tag1
+    From operation: e526b69f27b1 (2001-02-03 08:05:44) set tag tag1 to commit 0dee631320b13c6a6542c80bced33b9dd29f6bf0
+      To operation: ef26d439c3c3 (2001-02-03 08:05:46) delete tag tag1
 
     Changed local tags:
     tag1:
@@ -1872,6 +1882,7 @@ fn test_op_diff_patch() {
 
     Changed commits:
     ○  + yqosqzyt c97a8573 (empty) (no description set)
+
     ○  - mzvwutvl/0 6cbd01ae (hidden) (empty) (no description set)
 
     Changed working copy default@:
@@ -1995,6 +2006,7 @@ fn test_op_diff_sibling() {
 
     Changed commits:
     ○  - qpvuntsm/0 b1ca67e2 (hidden) (empty) B
+
     ○    + mzvwutvl 08c63613 (empty) A
     ├─╮
     │ ○  + kkmpptxz 6c70a4f7 A.1
@@ -2372,12 +2384,12 @@ fn test_op_diff_word_wrap() {
 
     // Add some file content changes
     work_dir.write_file("file1", "foo\n".repeat(100));
-    work_dir.run_jj(["debug", "snapshot"]).success();
+    work_dir.run_jj(["util", "snapshot"]).success();
 
     // ui.log-word-wrap option works, and diff stat respects content width
     insta::assert_snapshot!(render(&["op", "diff", "--from=@---", "--stat"], 40, true), @"
     From operation: 267d2e28edfc (2001-02-03 08:05:07) add git remote origin
-      To operation: 27d1c8bca003 (2001-02-03 08:05:08) snapshot working copy
+      To operation: 76c742945b37 (2001-02-03 08:05:08) snapshot working copy
 
     Changed commits:
     ○  + sqpuoqvx f6f32c19 (no description
@@ -2445,7 +2457,7 @@ fn test_op_diff_word_wrap() {
     insta::assert_snapshot!(
         render(&["op", "diff", "--from=@---", "--config", config], 10, true), @"
     From operation: 267d2e28edfc (2001-02-03 08:05:07) add git remote origin
-      To operation: 27d1c8bca003 (2001-02-03 08:05:08) snapshot working copy
+      To operation: 76c742945b37 (2001-02-03 08:05:08) snapshot working copy
 
     Changed
     commits:
@@ -2609,8 +2621,11 @@ fn test_op_show() {
 
     Changed commits:
     ○  + skovwzlu 854c38b8 Commit 4
+
     ○  + rnnslrkn 4ff62539 bookmark-2@origin | Commit 2
+
     ○  + rnnkyono 11671e4c bookmark-3@origin | Commit 3
+
     ○  + pukowqtp 0cb7e07e bookmark-1@origin | Commit 1
 
     Changed historical remote connection owners:
@@ -2694,7 +2709,9 @@ fn test_op_show() {
 
     Changed commits:
     ○  + kulxwnxm e1a239a5 bookmark-2@origin | Commit 5
+
     ○  + zkmtkqvo 0dee6313 bookmark-1?? bookmark-1@origin | Commit 4
+
     ○  - rnnkyono/0 11671e4c (hidden) Commit 3
 
     Changed local bookmarks:
@@ -2801,6 +2818,7 @@ fn test_op_show() {
 
     Changed commits:
     ○  + tlkvzzqu 8f340dd7 (empty) new commit
+
     ○  - qpvuntsm/0 e8849ae1 (hidden) (empty) (no description set)
 
     Changed working copy default@:
@@ -2861,7 +2879,7 @@ fn test_op_show() {
     ");
     let output = work_dir.run_jj(["op", "show"]);
     insta::assert_snapshot!(output, @"
-    3dc2ade1ec41 test-username@host.example.com default@ 2001-02-03 04:05:33.000 +07:00 - 2001-02-03 04:05:33.000 +07:00
+    cb616181ad79 test-username@host.example.com default@ 2001-02-03 04:05:33.000 +07:00 - 2001-02-03 04:05:33.000 +07:00
     push all tracked bookmarks/tags to git remote origin
     args: jj git push --tracked --deleted
 
@@ -2989,6 +3007,7 @@ fn test_op_show_patch() {
 
     Changed commits:
     ○  + yqosqzyt c97a8573 (empty) (no description set)
+
     ○  - mzvwutvl/0 6cbd01ae (hidden) (empty) (no description set)
 
     Changed working copy default@:
@@ -3006,6 +3025,7 @@ fn test_op_show_patch() {
     │
     │  Changed commits:
     │  ○  + yqosqzyt c97a8573 (empty) (no description set)
+    │
     │  ○  - mzvwutvl/0 6cbd01ae (hidden) (empty) (no description set)
     │
     │  Changed working copy default@:
@@ -3270,8 +3290,10 @@ fn test_op_immutable_revisions() {
 
     Changed commits:
     ○  - tlkvzzqu/0 7c60d8fd (hidden) (empty) f2 3
+    ╷
     ╷ ○  - nkmrtpmo/0 caf991b6 (hidden) (empty) f1 3
     ╭─╯
+    ╷
     ○  - royxmykx/0 9c86781f (hidden) (empty) commit 5
        (Elided 9 newly removed revisions)
     [EOF]
@@ -3415,8 +3437,11 @@ fn test_op_immutable_revisions() {
     Changed commits:
     ○  + ztnvrxlv 13887367 (empty) (no description set)
     ○  + wqxolloz 4ebd4aa1 (empty) single-2
+
     ○  + xpnwykqz 741a5187 bb | (empty) mix-b5
+    ╷
     ○  + zowrlwsv 5653a1de ba | (empty) mix-a5
+
     ○  - pzsxstzt/0 8192fa83 (hidden) (empty) (no description set)
        (Elided 9 newly added revisions)
 
@@ -3885,7 +3910,7 @@ fn test_op_diff_invalid_revset() {
     1 | invalid(
       |         ^---
       |
-      = expected <strict_identifier> or <expression>
+      = expected <argument>
     [EOF]
     [exit status: 1]
     ");
@@ -3900,7 +3925,7 @@ fn test_op_diff_invalid_revset() {
     1 | invalid(
       |         ^---
       |
-      = expected <strict_identifier> or <expression>
+      = expected <argument>
     For help, see https://docs.jj-vcs.dev/latest/config/ or use `jj help -k config`.
     [EOF]
     [exit status: 1]

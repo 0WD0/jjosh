@@ -23,6 +23,7 @@ use crate::rewrites;
 ///
 /// Note that only `rhs` may contain unmerged entries, as `rhs` is expected to be the index read from `.git/index`.
 /// Unmerged entries are skipped entirely.
+/// Intent-to-add entries in `rhs` are treated as absent, so matching entries in `lhs` are deleted.
 ///
 /// Conceptually, `rhs` is *ours*, and `lhs` is *theirs*.
 /// The entries in `lhs` and `rhs` are both expected to be sorted like index entries are typically sorted.
@@ -74,6 +75,7 @@ where
         rhs.entries()[rhs_range.clone()]
             .iter()
             .enumerate()
+            .filter(|(_, entry)| !entry.flags.contains(gix_index::entry::Flags::INTENT_TO_ADD))
             .map(|(idx, e)| (idx + rhs_range.start, e.path(rhs), e))
             .filter(|(_, path, e)| pattern_matches.borrow_mut()(path, e)),
     );
@@ -104,7 +106,7 @@ where
                         std::ops::ControlFlow::Break(()) => return Ok(None),
                     },
                     Ordering::Equal => {
-                        if ignore_unmerged_and_intent_to_add(rhs) {
+                        if rhs_entry.stage() != gix_index::entry::Stage::Unconflicted {
                             rhs_storage = rhs_iter.next();
                             lhs_storage = lhs_iter.next();
                             continue;
@@ -163,8 +165,14 @@ where
         let out = tracker.emit(
             |dst, src| {
                 let change = if let Some(src) = src {
-                    let (lhs_path, lhs_index, lhs_mode, lhs_id) = src.change.fields();
-                    let (rhs_path, rhs_index, rhs_mode, rhs_id) = dst.change.fields();
+                    let (lhs_path, lhs_index, lhs_mode, lhs_id) = src
+                        .change
+                        .lhs_fields()
+                        .expect("rewrite sources are deletions or modifications with an entry in lhs");
+                    let (rhs_path, rhs_index, rhs_mode, rhs_id) = dst
+                        .change
+                        .rhs_fields()
+                        .expect("rewrite destinations are additions with an entry in rhs");
                     ChangeRef::Rewrite {
                         source_location: Cow::Owned(lhs_path.into()),
                         source_index: lhs_index,
@@ -195,13 +203,13 @@ where
             find,
             |push| {
                 for (index, entry) in lhs.entries().iter().enumerate() {
-                    let path = entry.path(rhs);
+                    let path = entry.path(lhs);
                     push(
                         ChangeRef::Modification {
                             location: Cow::Borrowed(path),
-                            previous_index: 0, /* does not matter */
+                            previous_index: index,
                             previous_entry_mode: entry.mode,
-                            previous_id: Cow::Owned(entry.id.kind().null()),
+                            previous_id: Cow::Borrowed(entry.id.as_ref()),
                             index,
                             entry_mode: entry.mode,
                             id: Cow::Borrowed(entry.id.as_ref()),
@@ -251,7 +259,7 @@ fn emit_addition<'rhs, 'lhs: 'rhs>(
     mut cb: impl FnMut(ChangeRef<'lhs, 'rhs>) -> Result<Action>,
     tracker: Option<&mut rewrites::Tracker<ChangeRef<'lhs, 'rhs>>>,
 ) -> Result<Action> {
-    if ignore_unmerged_and_intent_to_add((idx, path, entry)) {
+    if entry.stage() != gix_index::entry::Stage::Unconflicted {
         return Ok(std::ops::ControlFlow::Continue(()));
     }
 
@@ -275,11 +283,4 @@ fn emit_addition<'rhs, 'lhs: 'rhs>(
 
 fn callback_error(err: Error) -> Error {
     err.and_raise(message("The callback indicated failure"))
-}
-
-fn ignore_unmerged_and_intent_to_add<'rhs, 'lhs: 'rhs>(
-    (_idx, _path, entry): (usize, &'rhs BStr, &'rhs gix_index::Entry),
-) -> bool {
-    let stage = entry.stage();
-    entry.flags.contains(gix_index::entry::Flags::INTENT_TO_ADD) || stage != gix_index::entry::Stage::Unconflicted
 }

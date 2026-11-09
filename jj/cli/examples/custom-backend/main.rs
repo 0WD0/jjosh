@@ -40,11 +40,12 @@ use jj_lib::backend::SymlinkId;
 use jj_lib::backend::Tree;
 use jj_lib::backend::TreeId;
 use jj_lib::git_backend::GitBackend;
-use jj_lib::repo::StoreFactories;
+use jj_lib::ref_name::WorkspaceName;
 use jj_lib::repo_path::RepoPath;
 use jj_lib::repo_path::RepoPathBuf;
 use jj_lib::settings::UserSettings;
 use jj_lib::signing_factory::signer_from_settings;
+use jj_lib::store_factories::StoreFactories;
 use jj_lib::workspace::Workspace;
 use jj_lib::workspace::WorkspaceInitError;
 
@@ -78,6 +79,7 @@ async fn run_custom_command(
             Workspace::init_with_backend(
                 &settings,
                 wc_path,
+                WorkspaceName::DEFAULT,
                 &|settings, store_path| Ok(Box::new(JitBackend::init(settings, store_path)?)),
                 signer_from_settings(&settings).map_err(WorkspaceInitError::SignInit)?,
             )
@@ -103,12 +105,19 @@ struct JitBackend {
 
 impl JitBackend {
     fn init(settings: &UserSettings, store_path: &Path) -> Result<Self, BackendInitError> {
-        let inner = GitBackend::init_internal(settings, store_path, gix::hash::Kind::default())?;
+        let git_settings = settings
+            .git_backend_settings()
+            .map_err(BackendInitError::new)?;
+        let inner =
+            GitBackend::init_internal(&git_settings, store_path, gix::hash::Kind::default())?;
         Ok(Self { inner })
     }
 
     fn load(settings: &UserSettings, store_path: &Path) -> Result<Self, BackendLoadError> {
-        let inner = GitBackend::load(settings, store_path)?;
+        let git_settings = settings
+            .git_backend_settings()
+            .map_err(BackendLoadError::new)?;
+        let inner = GitBackend::load(&git_settings, store_path)?;
         Ok(Self { inner })
     }
 }

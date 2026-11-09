@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![expect(missing_docs)]
+//! Readonly and mutable repos and their loading and initialization.
 
 use std::collections::BTreeMap;
 use std::collections::HashMap;
@@ -21,7 +21,6 @@ use std::collections::hash_map::Entry;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::fs;
-use std::io::ErrorKind;
 use std::path::Path;
 use std::slice;
 use std::sync::Arc;
@@ -32,74 +31,76 @@ use futures::TryStreamExt as _;
 use futures::future::try_join_all;
 use futures::stream;
 use itertools::Itertools as _;
+use jj_core::backend::BackendError;
+use jj_core::backend::BackendInitError;
+use jj_core::backend::BackendLoadError;
+use jj_core::backend::BackendResult;
+use jj_core::backend::ChangeId;
+use jj_core::backend::CommitId;
+use jj_core::commit::Commit;
+use jj_core::commit::CommitByCommitterTimestamp;
+use jj_core::dag_walk;
+use jj_core::dag_walk_async;
+use jj_core::index::ChangeIdIndex;
+use jj_core::index::Index;
+use jj_core::index::IndexError;
+use jj_core::index::IndexResult;
+use jj_core::index::MutableIndex;
+use jj_core::index::ReadonlyIndex;
+use jj_core::index::ResolvedChangeTargets;
+use jj_core::index_store::IndexStore;
+use jj_core::index_store::IndexStoreError;
+use jj_core::merge::MergeBuilder;
+use jj_core::merge::SameChange;
+use jj_core::merge::trivial_merge;
+use jj_core::merged_tree::MergedTree;
+use jj_core::object_id::HexPrefix;
+use jj_core::object_id::PrefixResolution;
+use jj_core::op_store;
+use jj_core::op_store::OpStore;
+use jj_core::op_store::OpStoreError;
+use jj_core::op_store::OpStoreResult;
+use jj_core::op_store::OperationId;
+use jj_core::op_store::RefTarget;
+use jj_core::op_store::RemoteRef;
+use jj_core::op_store::RemoteRefState;
+use jj_core::op_store::RootOperationData;
+use jj_core::op_walk;
+use jj_core::operation::Operation;
+use jj_core::ref_name::GitRefName;
+use jj_core::ref_name::RefName;
+use jj_core::ref_name::RemoteName;
+use jj_core::ref_name::RemoteRefSymbol;
+use jj_core::ref_name::WorkspaceName;
+use jj_core::ref_name::WorkspaceNameBuf;
+use jj_core::refs::diff_named_commit_ids;
+use jj_core::refs::diff_named_ref_targets;
+use jj_core::refs::diff_named_remote_refs;
+use jj_core::refs::merge_ref_targets;
+use jj_core::refs::merge_remote_refs;
+use jj_core::revset_backend::RevsetEvaluationError;
+use jj_core::revset_backend::RevsetStreamExt as _;
+use jj_core::signing::Signer;
+use jj_core::store::Store;
+use jj_core::view::RenameWorkspaceError;
+use jj_core::view::View;
+use jj_core::workspace_store::WorkspaceStore;
+use jj_default_index::DefaultMutableIndex;
+use jj_local_util::file_util;
+use jj_local_util::file_util::IoResultExt as _;
+use jj_local_util::file_util::PathError;
 use once_cell::sync::OnceCell;
 use thiserror::Error;
 use tracing::instrument;
 
-use crate::backend::Backend;
-use crate::backend::BackendError;
-use crate::backend::BackendInitError;
-use crate::backend::BackendLoadError;
-use crate::backend::BackendResult;
-use crate::backend::ChangeId;
-use crate::backend::CommitId;
-use crate::commit::Commit;
-use crate::commit::CommitByCommitterTimestamp;
 use crate::commit_builder::CommitBuilder;
 use crate::commit_builder::DetachedCommitBuilder;
-use crate::dag_walk;
-use crate::dag_walk_async;
-use crate::default_index::DefaultIndexStore;
-use crate::default_index::DefaultMutableIndex;
-use crate::default_submodule_store::DefaultSubmoduleStore;
-use crate::file_util::IoResultExt as _;
-use crate::file_util::PathError;
-use crate::index::ChangeIdIndex;
-use crate::index::Index;
-use crate::index::IndexError;
-use crate::index::IndexResult;
-use crate::index::MutableIndex;
-use crate::index::ReadonlyIndex;
-use crate::index::ResolvedChangeTargets;
-use crate::index_store::IndexStore;
-use crate::index_store::IndexStoreError;
-use crate::merge::Merge;
-use crate::merge::MergeBuilder;
-use crate::merge::SameChange;
-use crate::merge::trivial_merge;
-use crate::merged_tree::MergedTree;
-use crate::object_id::HexPrefix;
-use crate::object_id::PrefixResolution;
 use crate::op_heads_store;
 use crate::op_heads_store::OpHeadsStore;
 use crate::op_heads_store::OpHeadsStoreError;
-use crate::op_store;
-use crate::op_store::OpStore;
-use crate::op_store::OpStoreError;
-use crate::op_store::OpStoreResult;
-use crate::op_store::OperationId;
-use crate::op_store::RefTarget;
-use crate::op_store::RemoteRef;
-use crate::op_store::RemoteRefState;
-use crate::op_store::RootOperationData;
-use crate::op_walk;
-use crate::operation::Operation;
-use crate::ref_name::GitRefName;
-use crate::ref_name::RefName;
-use crate::ref_name::RemoteName;
-use crate::ref_name::RemoteRefSymbol;
-use crate::ref_name::WorkspaceName;
-use crate::ref_name::WorkspaceNameBuf;
-use crate::refs::diff_named_commit_ids;
-use crate::refs::diff_named_ref_targets;
-use crate::refs::diff_named_remote_refs;
-use crate::refs::merge_ref_targets;
-use crate::refs::merge_remote_refs;
 use crate::revset;
 use crate::revset::ResolvedRevsetExpression;
-use crate::revset::RevsetEvaluationError;
 use crate::revset::RevsetExpression;
-use crate::revset::RevsetStreamExt as _;
 use crate::rewrite::CommitRewriter;
 use crate::rewrite::RebaseOptions;
 use crate::rewrite::RebasedCommit;
@@ -107,36 +108,43 @@ use crate::rewrite::RewriteRefsOptions;
 use crate::rewrite::merge_commit_trees;
 use crate::rewrite::rebase_commit_with_options;
 use crate::settings::UserSettings;
-use crate::signing::Signer;
-use crate::signing_factory::SignInitError;
 use crate::signing_factory::signer_from_settings;
-use crate::simple_op_heads_store::SimpleOpHeadsStore;
-use crate::simple_op_store::SimpleOpStore;
-use crate::simple_workspace_store::SimpleWorkspaceStore;
-use crate::store::Store;
+use crate::store_factories::BackendInitializer;
+use crate::store_factories::IndexStoreInitializer;
+use crate::store_factories::OpHeadsStoreInitializer;
+use crate::store_factories::OpStoreInitializer;
+use crate::store_factories::StoreFactories;
+use crate::store_factories::StoreLoadError;
+use crate::store_factories::SubmoduleStoreInitializer;
+use crate::store_factories::WorkspaceStoreInitializer;
 use crate::submodule_store::SubmoduleStore;
 use crate::transaction::Transaction;
 use crate::transaction::TransactionCommitError;
-use crate::view::RenameWorkspaceError;
-use crate::view::View;
-use crate::workspace_store::WorkspaceStore;
+use jj_core::merge::Merge;
 
+/// Common interface for [`ReadonlyRepo`] and [`MutableRepo`].
 #[async_trait(?Send)]
 pub trait Repo {
     /// Base repository that contains all committed data. Returns `self` if this
     /// is a `ReadonlyRepo`,
     fn base_repo(&self) -> &ReadonlyRepo;
 
+    /// Returns the commit store.
     fn store(&self) -> &Arc<Store>;
 
+    /// Returns the operation store.
     fn op_store(&self) -> &Arc<dyn OpStore>;
 
+    /// Returns the commit index.
     fn index(&self) -> &dyn Index;
 
+    /// Returns the view, i.e. the heads, bookmarks, tags, working-copy commits, etc.
     fn view(&self) -> &View;
 
+    /// Returns the submodule store.
     fn submodule_store(&self) -> &Arc<dyn SubmoduleStore>;
 
+    /// Looks up the commits associated with the given full `change_id`.
     async fn resolve_change_id(
         &self,
         change_id: &ChangeId,
@@ -150,17 +158,22 @@ pub trait Repo {
         }
     }
 
+    /// Resolves a change ID prefix to the commits associated with the matching
+    /// change.
     async fn resolve_change_id_prefix(
         &self,
         prefix: &HexPrefix,
     ) -> IndexResult<PrefixResolution<ResolvedChangeTargets>>;
 
+    /// Returns the length of the shortest unique prefix of the given change ID.
     async fn shortest_unique_change_id_prefix_len(
         &self,
         target_id_bytes: &ChangeId,
     ) -> IndexResult<usize>;
 }
 
+/// A repo at a specific operation. Cannot be modified directly; use
+/// [`ReadonlyRepo::start_transaction()`] to make changes.
 pub struct ReadonlyRepo {
     loader: RepoLoader,
     operation: Operation,
@@ -178,41 +191,24 @@ impl Debug for ReadonlyRepo {
     }
 }
 
+/// Error from initializing a repo.
 #[derive(Error, Debug)]
 pub enum RepoInitError {
+    /// Failed to initialize the commit backend.
     #[error(transparent)]
     Backend(#[from] BackendInitError),
+    /// Failed to initialize the operation heads store.
     #[error(transparent)]
     OpHeadsStore(#[from] OpHeadsStoreError),
+    /// Failed to create or write a file in the repo directory.
     #[error(transparent)]
     Path(#[from] PathError),
 }
 
 impl ReadonlyRepo {
-    pub fn default_workspace_store_initializer() -> &'static WorkspaceStoreInitializer<'static> {
-        &|_settings, store_path| Ok(Box::new(SimpleWorkspaceStore::init(store_path)?))
-    }
-
-    pub fn default_op_store_initializer() -> &'static OpStoreInitializer<'static> {
-        &|_settings, store_path, root_data| {
-            Ok(Box::new(SimpleOpStore::init(store_path, root_data)?))
-        }
-    }
-
-    pub fn default_op_heads_store_initializer() -> &'static OpHeadsStoreInitializer<'static> {
-        &|_settings, store_path, root_op_id| {
-            Ok(Box::new(SimpleOpHeadsStore::init(store_path, root_op_id)?))
-        }
-    }
-
-    pub fn default_index_store_initializer() -> &'static IndexStoreInitializer<'static> {
-        &|_settings, store_path| Ok(Box::new(DefaultIndexStore::init(store_path)?))
-    }
-
-    pub fn default_submodule_store_initializer() -> &'static SubmoduleStoreInitializer<'static> {
-        &|_settings, store_path| Ok(Box::new(DefaultSubmoduleStore::init(store_path)))
-    }
-
+    /// Creates a new repo at `repo_path` (which must exist), initializing each
+    /// store with the given initializers, and returns the repo at its root
+    /// operation.
     #[expect(clippy::too_many_arguments)]
     pub async fn init(
         settings: &UserSettings,
@@ -225,16 +221,14 @@ impl ReadonlyRepo {
         index_store_initializer: &IndexStoreInitializer<'_>,
         submodule_store_initializer: &SubmoduleStoreInitializer<'_>,
     ) -> Result<Arc<Self>, RepoInitError> {
-        let repo_path = dunce::canonicalize(repo_path).context(repo_path)?;
+        let repo_path = file_util::canonicalize(repo_path).context(repo_path)?;
 
         let store_path = repo_path.join("store");
         fs::create_dir(&store_path).context(&store_path)?;
         let backend = backend_initializer(settings, &store_path)?;
         let backend_path = store_path.join("type");
         fs::write(&backend_path, backend.name()).context(&backend_path)?;
-        let merge_options = settings
-            .merge_options()
-            .map_err(|err| BackendInitError(err.into()))?;
+        let merge_options = settings.merge_options().map_err(BackendInitError::new)?;
         let store = Store::new(backend, signer, merge_options);
 
         let workspace_store_path = repo_path.join("workspace_store");
@@ -278,15 +272,15 @@ impl ReadonlyRepo {
             .context(&submodule_store_type_path)?;
         let submodule_store = Arc::from(submodule_store);
 
-        let loader = RepoLoader {
-            settings: settings.clone(),
+        let loader = RepoLoader::new(
+            settings.clone(),
             store,
             workspace_store,
             op_store,
             op_heads_store,
             index_store,
             submodule_store,
-        };
+        );
 
         let root_operation = loader.root_operation().await;
         let root_view = root_operation
@@ -300,7 +294,7 @@ impl ReadonlyRepo {
             .await
             // If the root op index couldn't be read, the index backend wouldn't
             // be initialized properly.
-            .map_err(|err| BackendInitError(err.into()))?;
+            .map_err(BackendInitError::new)?;
         Ok(Arc::new(Self {
             loader,
             operation: root_operation,
@@ -310,22 +304,27 @@ impl ReadonlyRepo {
         }))
     }
 
+    /// Returns the [`RepoLoader`] this repo was loaded with.
     pub fn loader(&self) -> &RepoLoader {
         &self.loader
     }
 
+    /// Returns the ID of the operation this repo was loaded at.
     pub fn op_id(&self) -> &OperationId {
         self.operation.id()
     }
 
+    /// Returns the operation this repo was loaded at.
     pub fn operation(&self) -> &Operation {
         &self.operation
     }
 
+    /// Returns the view at this repo's operation.
     pub fn view(&self) -> &View {
         &self.view
     }
 
+    /// Returns the index at this repo's operation.
     pub fn readonly_index(&self) -> &dyn ReadonlyIndex {
         self.index.as_ref()
     }
@@ -339,27 +338,36 @@ impl ReadonlyRepo {
             .map(AsRef::as_ref)
     }
 
+    /// Returns the operation heads store.
     pub fn op_heads_store(&self) -> &Arc<dyn OpHeadsStore> {
         self.loader.op_heads_store()
     }
 
+    /// Returns the index store.
     pub fn index_store(&self) -> &Arc<dyn IndexStore> {
         self.loader.index_store()
     }
 
+    /// Returns the user settings this repo was loaded with.
     pub fn settings(&self) -> &UserSettings {
         self.loader.settings()
     }
 
+    /// Starts a new transaction on top of this repo.
     pub fn start_transaction(self: &Arc<Self>) -> Transaction {
-        let mut_repo = MutableRepo::new(self.clone(), self.readonly_index(), &self.view);
-        Transaction::new(mut_repo, self.settings())
+        Transaction::new(self)
     }
 
-    pub async fn reload_at_head(&self) -> Result<Arc<Self>, RepoLoaderError> {
-        self.loader().load_at_head().await
+    /// Loads the repo at the current head operation, merging divergent
+    /// operations if needed.
+    pub async fn reload_at_head(
+        &self,
+        workspace_name: Option<&WorkspaceName>,
+    ) -> Result<Arc<Self>, RepoLoaderError> {
+        self.loader().load_at_head(workspace_name).await
     }
 
+    /// Loads the repo at the given operation.
     #[instrument]
     pub async fn reload_at(&self, operation: &Operation) -> Result<Arc<Self>, RepoLoaderError> {
         self.loader().load_at(operation).await
@@ -409,287 +417,25 @@ impl Repo for ReadonlyRepo {
     }
 }
 
-pub type BackendInitializer<'a> =
-    dyn Fn(&UserSettings, &Path) -> Result<Box<dyn Backend>, BackendInitError> + 'a;
-pub type WorkspaceStoreInitializer<'a> =
-    dyn Fn(&UserSettings, &Path) -> Result<Box<dyn WorkspaceStore>, BackendInitError> + 'a;
-#[rustfmt::skip] // auto-formatted line would exceed the maximum width
-pub type OpStoreInitializer<'a> =
-    dyn Fn(&UserSettings, &Path, RootOperationData) -> Result<Box<dyn OpStore>, BackendInitError>
-    + 'a;
-#[rustfmt::skip] // auto-formatted line would exceed the maximum width
-pub type OpHeadsStoreInitializer<'a> = 
-    dyn Fn(&UserSettings, &Path, &OperationId)
-    -> Result<Box<dyn OpHeadsStore>, BackendInitError>
-    + 'a;
-pub type IndexStoreInitializer<'a> =
-    dyn Fn(&UserSettings, &Path) -> Result<Box<dyn IndexStore>, BackendInitError> + 'a;
-pub type SubmoduleStoreInitializer<'a> =
-    dyn Fn(&UserSettings, &Path) -> Result<Box<dyn SubmoduleStore>, BackendInitError> + 'a;
-
-type BackendFactory =
-    Box<dyn Fn(&UserSettings, &Path) -> Result<Box<dyn Backend>, BackendLoadError>>;
-type OpStoreFactory = Box<
-    dyn Fn(&UserSettings, &Path, RootOperationData) -> Result<Box<dyn OpStore>, BackendLoadError>,
->;
-type WorkspaceStoreFactory =
-    Box<dyn Fn(&UserSettings, &Path) -> Result<Box<dyn WorkspaceStore>, BackendLoadError>>;
-type OpHeadsStoreFactory =
-    Box<dyn Fn(&UserSettings, &Path) -> Result<Box<dyn OpHeadsStore>, BackendLoadError>>;
-type IndexStoreFactory =
-    Box<dyn Fn(&UserSettings, &Path) -> Result<Box<dyn IndexStore>, BackendLoadError>>;
-type SubmoduleStoreFactory =
-    Box<dyn Fn(&UserSettings, &Path) -> Result<Box<dyn SubmoduleStore>, BackendLoadError>>;
-
-pub fn merge_factories_map<F>(base: &mut HashMap<String, F>, ext: HashMap<String, F>) {
-    for (name, factory) in ext {
-        match base.entry(name) {
-            Entry::Vacant(v) => {
-                v.insert(factory);
-            }
-            Entry::Occupied(o) => {
-                panic!("Conflicting factory definitions for '{}' factory", o.key())
-            }
-        }
-    }
-}
-
-pub struct StoreFactories {
-    backend_factories: HashMap<String, BackendFactory>,
-    workspace_store_factories: HashMap<String, WorkspaceStoreFactory>,
-    op_store_factories: HashMap<String, OpStoreFactory>,
-    op_heads_store_factories: HashMap<String, OpHeadsStoreFactory>,
-    index_store_factories: HashMap<String, IndexStoreFactory>,
-    submodule_store_factories: HashMap<String, SubmoduleStoreFactory>,
-}
-
-#[derive(Debug, Error)]
-pub enum StoreLoadError {
-    #[error("Unsupported {store} backend type '{store_type}'")]
-    UnsupportedType {
-        store: &'static str,
-        store_type: String,
-    },
-    #[error("Failed to read {store} backend type")]
-    ReadError {
-        store: &'static str,
-        source: PathError,
-    },
-    #[error(transparent)]
-    Backend(#[from] BackendLoadError),
-    #[error(transparent)]
-    Signing(#[from] SignInitError),
-}
-
-impl StoreFactories {
-    pub fn empty() -> Self {
-        Self {
-            backend_factories: HashMap::new(),
-            workspace_store_factories: HashMap::new(),
-            op_store_factories: HashMap::new(),
-            op_heads_store_factories: HashMap::new(),
-            index_store_factories: HashMap::new(),
-            submodule_store_factories: HashMap::new(),
-        }
-    }
-
-    pub fn merge(&mut self, ext: Self) {
-        let Self {
-            backend_factories,
-            workspace_store_factories,
-            op_store_factories,
-            op_heads_store_factories,
-            index_store_factories,
-            submodule_store_factories,
-        } = ext;
-
-        merge_factories_map(&mut self.backend_factories, backend_factories);
-        merge_factories_map(
-            &mut self.workspace_store_factories,
-            workspace_store_factories,
-        );
-        merge_factories_map(&mut self.op_store_factories, op_store_factories);
-        merge_factories_map(&mut self.op_heads_store_factories, op_heads_store_factories);
-        merge_factories_map(&mut self.index_store_factories, index_store_factories);
-        merge_factories_map(
-            &mut self.submodule_store_factories,
-            submodule_store_factories,
-        );
-    }
-
-    pub fn add_backend(&mut self, name: &str, factory: BackendFactory) {
-        self.backend_factories.insert(name.to_string(), factory);
-    }
-
-    pub fn load_backend(
-        &self,
-        settings: &UserSettings,
-        store_path: &Path,
-    ) -> Result<Box<dyn Backend>, StoreLoadError> {
-        let backend_type = read_store_type("commit", store_path.join("type"))?;
-        let backend_factory = self.backend_factories.get(&backend_type).ok_or_else(|| {
-            StoreLoadError::UnsupportedType {
-                store: "commit",
-                store_type: backend_type.clone(),
-            }
-        })?;
-        Ok(backend_factory(settings, store_path)?)
-    }
-
-    pub fn add_workspace_store(&mut self, name: &str, factory: WorkspaceStoreFactory) {
-        self.workspace_store_factories
-            .insert(name.to_string(), factory);
-    }
-
-    pub fn load_workspace_store(
-        &self,
-        settings: &UserSettings,
-        store_path: &Path,
-    ) -> Result<Box<dyn WorkspaceStore>, StoreLoadError> {
-        // TODO: The .jj/repo/workspace_store/type file is a recent addition, older
-        // repos do not have this file. In jj 0.51+ switch from read_store_type_compat
-        // to read_store_type.
-        let workspace_store_type = read_store_type_compat(
-            "workspace",
-            store_path.join("type"),
-            SimpleWorkspaceStore::NAME,
-        )?;
-        let workspace_store_factory = self
-            .workspace_store_factories
-            .get(&workspace_store_type)
-            .ok_or_else(|| StoreLoadError::UnsupportedType {
-                store: "workspace",
-                store_type: workspace_store_type.clone(),
-            })?;
-        Ok(workspace_store_factory(settings, store_path)?)
-    }
-
-    pub fn add_op_store(&mut self, name: &str, factory: OpStoreFactory) {
-        self.op_store_factories.insert(name.to_string(), factory);
-    }
-
-    pub fn load_op_store(
-        &self,
-        settings: &UserSettings,
-        store_path: &Path,
-        root_data: RootOperationData,
-    ) -> Result<Box<dyn OpStore>, StoreLoadError> {
-        let op_store_type = read_store_type("operation", store_path.join("type"))?;
-        let op_store_factory = self.op_store_factories.get(&op_store_type).ok_or_else(|| {
-            StoreLoadError::UnsupportedType {
-                store: "operation",
-                store_type: op_store_type.clone(),
-            }
-        })?;
-        Ok(op_store_factory(settings, store_path, root_data)?)
-    }
-
-    pub fn add_op_heads_store(&mut self, name: &str, factory: OpHeadsStoreFactory) {
-        self.op_heads_store_factories
-            .insert(name.to_string(), factory);
-    }
-
-    pub fn load_op_heads_store(
-        &self,
-        settings: &UserSettings,
-        store_path: &Path,
-    ) -> Result<Box<dyn OpHeadsStore>, StoreLoadError> {
-        let op_heads_store_type = read_store_type("operation heads", store_path.join("type"))?;
-        let op_heads_store_factory = self
-            .op_heads_store_factories
-            .get(&op_heads_store_type)
-            .ok_or_else(|| StoreLoadError::UnsupportedType {
-                store: "operation heads",
-                store_type: op_heads_store_type.clone(),
-            })?;
-        Ok(op_heads_store_factory(settings, store_path)?)
-    }
-
-    pub fn add_index_store(&mut self, name: &str, factory: IndexStoreFactory) {
-        self.index_store_factories.insert(name.to_string(), factory);
-    }
-
-    pub fn load_index_store(
-        &self,
-        settings: &UserSettings,
-        store_path: &Path,
-    ) -> Result<Box<dyn IndexStore>, StoreLoadError> {
-        let index_store_type = read_store_type("index", store_path.join("type"))?;
-        let index_store_factory = self
-            .index_store_factories
-            .get(&index_store_type)
-            .ok_or_else(|| StoreLoadError::UnsupportedType {
-                store: "index",
-                store_type: index_store_type.clone(),
-            })?;
-        Ok(index_store_factory(settings, store_path)?)
-    }
-
-    pub fn add_submodule_store(&mut self, name: &str, factory: SubmoduleStoreFactory) {
-        self.submodule_store_factories
-            .insert(name.to_string(), factory);
-    }
-
-    pub fn load_submodule_store(
-        &self,
-        settings: &UserSettings,
-        store_path: &Path,
-    ) -> Result<Box<dyn SubmoduleStore>, StoreLoadError> {
-        let submodule_store_type = read_store_type("submodule_store", store_path.join("type"))?;
-        let submodule_store_factory = self
-            .submodule_store_factories
-            .get(&submodule_store_type)
-            .ok_or_else(|| StoreLoadError::UnsupportedType {
-                store: "submodule_store",
-                store_type: submodule_store_type.clone(),
-            })?;
-
-        Ok(submodule_store_factory(settings, store_path)?)
-    }
-}
-
-pub fn read_store_type(
-    store: &'static str,
-    path: impl AsRef<Path>,
-) -> Result<String, StoreLoadError> {
-    let path = path.as_ref();
-    fs::read_to_string(path)
-        .context(path)
-        .map_err(|source| StoreLoadError::ReadError { store, source })
-}
-
-fn read_store_type_compat(
-    store: &'static str,
-    path: impl AsRef<Path>,
-    default_type: &str,
-) -> Result<String, StoreLoadError> {
-    let path = path.as_ref();
-    let read_or_write_default = || match fs::read_to_string(path) {
-        Ok(content) => Ok(content),
-        Err(err) if err.kind() == ErrorKind::NotFound => {
-            fs::create_dir(path.parent().unwrap()).ok();
-            fs::write(path, default_type)?;
-            Ok(default_type.to_owned())
-        }
-        Err(err) => Err(err),
-    };
-    read_or_write_default()
-        .context(path)
-        .map_err(|source| StoreLoadError::ReadError { store, source })
-}
-
+/// Error from loading a repo.
 #[derive(Debug, Error)]
 pub enum RepoLoaderError {
+    /// Error from the commit backend.
     #[error(transparent)]
     Backend(#[from] BackendError),
+    /// Error from the index.
     #[error(transparent)]
     Index(#[from] IndexError),
+    /// Error from the index store.
     #[error(transparent)]
     IndexStore(#[from] IndexStoreError),
+    /// Error from the operation heads store.
     #[error(transparent)]
     OpHeadsStoreError(#[from] OpHeadsStoreError),
+    /// Error from the operation store.
     #[error(transparent)]
     OpStore(#[from] OpStoreError),
+    /// Failed to commit the transaction merging divergent operations.
     #[error(transparent)]
     TransactionCommit(#[from] TransactionCommitError),
 }
@@ -708,6 +454,7 @@ pub struct RepoLoader {
 }
 
 impl RepoLoader {
+    /// Creates a `RepoLoader` from already-loaded stores.
     pub fn new(
         settings: UserSettings,
         store: Arc<Store>,
@@ -736,9 +483,7 @@ impl RepoLoader {
         repo_path: &Path,
         store_factories: &StoreFactories,
     ) -> Result<Self, StoreLoadError> {
-        let merge_options = settings
-            .merge_options()
-            .map_err(|err| BackendLoadError(err.into()))?;
+        let merge_options = settings.merge_options().map_err(BackendLoadError::new)?;
         let store = Store::new(
             store_factories.load_backend(settings, &repo_path.join("store"))?,
             signer_from_settings(settings)?,
@@ -762,52 +507,64 @@ impl RepoLoader {
         let submodule_store = Arc::from(
             store_factories.load_submodule_store(settings, &repo_path.join("submodule_store"))?,
         );
-        Ok(Self {
-            settings: settings.clone(),
+        Ok(Self::new(
+            settings.clone(),
             store,
             workspace_store,
             op_store,
             op_heads_store,
             index_store,
             submodule_store,
-        })
+        ))
     }
 
+    /// Returns the user settings.
     pub fn settings(&self) -> &UserSettings {
         &self.settings
     }
 
+    /// Returns the workspace store.
     pub fn workspace_store(&self) -> &Arc<dyn WorkspaceStore> {
         &self.workspace_store
     }
 
+    /// Returns the commit store.
     pub fn store(&self) -> &Arc<Store> {
         &self.store
     }
 
+    /// Returns the index store.
     pub fn index_store(&self) -> &Arc<dyn IndexStore> {
         &self.index_store
     }
 
+    /// Returns the operation store.
     pub fn op_store(&self) -> &Arc<dyn OpStore> {
         &self.op_store
     }
 
+    /// Returns the operation heads store.
     pub fn op_heads_store(&self) -> &Arc<dyn OpHeadsStore> {
         &self.op_heads_store
     }
 
+    /// Returns the submodule store.
     pub fn submodule_store(&self) -> &Arc<dyn SubmoduleStore> {
         &self.submodule_store
     }
 
-    pub async fn load_at_head(&self) -> Result<Arc<ReadonlyRepo>, RepoLoaderError> {
+    /// Loads the repo at the current head operation. If there are multiple
+    /// operation heads, they are merged in a new operation, which is attributed
+    /// to `workspace_name` if given.
+    pub async fn load_at_head(
+        &self,
+        workspace_name: Option<&WorkspaceName>,
+    ) -> Result<Arc<ReadonlyRepo>, RepoLoaderError> {
         let op = op_heads_store::resolve_op_heads(
             self.op_heads_store.as_ref(),
             &self.op_store,
             async |op_heads| -> Result<Operation, RepoLoaderError> {
                 assert!(op_heads.len() > 1);
-                let workspace_name = None;
                 let transaction_description = Some("reconcile divergent operations");
                 let transaction_attributes = [];
                 let (merged_repo, _num_rebased) = self
@@ -826,12 +583,15 @@ impl RepoLoader {
         self.finish_load(op, view).await
     }
 
+    /// Loads the repo at the given operation.
     #[instrument(skip(self))]
     pub async fn load_at(&self, op: &Operation) -> Result<Arc<ReadonlyRepo>, RepoLoaderError> {
         let view = op.view().await?;
         self.finish_load(op.clone(), view).await
     }
 
+    /// Creates a repo at the given operation from an already-loaded view and
+    /// index.
     pub fn create_from(
         &self,
         operation: Operation,
@@ -1029,6 +789,7 @@ impl Rewrite {
     }
 }
 
+/// A repo that is being modified in a [`Transaction`].
 pub struct MutableRepo {
     base_repo: Arc<ReadonlyRepo>,
     index: Box<dyn MutableIndex>,
@@ -1055,6 +816,8 @@ impl MutableRepo {
         &mut self.view
     }
 
+    /// Creates a mutable repo on top of `base_repo` with the given index and
+    /// view as the starting state.
     pub fn new(base_repo: Arc<ReadonlyRepo>, index: &dyn ReadonlyIndex, view: &View) -> Self {
         let mut_index = index.start_modification();
         Self {
@@ -1066,10 +829,12 @@ impl MutableRepo {
         }
     }
 
+    /// Returns the repo this mutable repo was created from.
     pub fn base_repo(&self) -> &Arc<ReadonlyRepo> {
         &self.base_repo
     }
 
+    /// Returns the index being modified.
     pub fn mutable_index(&self) -> &dyn MutableIndex {
         self.index.as_ref()
     }
@@ -1078,12 +843,16 @@ impl MutableRepo {
         self.index.downcast_ref::<DefaultMutableIndex>().is_some()
     }
 
+    /// Returns true if any commits, rewrites, or view changes have been
+    /// recorded.
     pub fn has_changes(&self) -> bool {
         !(self.commit_predecessors.is_empty()
             && self.parent_mapping.is_empty()
             && self.view() == &self.base_repo.view)
     }
 
+    /// Normalizes the heads and returns the mutable index, the view, and the
+    /// mapping from new commits to their predecessors.
     pub async fn consume(
         mut self,
     ) -> IndexResult<(
@@ -1179,6 +948,8 @@ impl MutableRepo {
         );
     }
 
+    /// Returns true if any rewritten or abandoned commits have been recorded
+    /// since the last [`MutableRepo::rebase_descendants()`].
     pub fn has_rewrites(&self) -> bool {
         !self.parent_mapping.is_empty()
     }
@@ -1658,6 +1429,8 @@ impl MutableRepo {
         Ok(num_reparented)
     }
 
+    /// Sets the working-copy commit of the workspace `name`. Returns an error
+    /// if `commit_id` is the root commit.
     pub fn set_wc_commit(
         &mut self,
         name: WorkspaceNameBuf,
@@ -1678,6 +1451,8 @@ impl MutableRepo {
         self.view.set_wc_sparse_patterns(name, target);
     }
 
+    /// Removes the workspace `name` from the view, abandoning its working-copy
+    /// commit if it's discardable.
     pub async fn remove_workspace(&mut self, name: &WorkspaceName) -> Result<(), EditCommitError> {
         self.maybe_abandon_wc_commit(name).await?;
         self.view.remove_workspace(name);
@@ -1713,6 +1488,7 @@ impl MutableRepo {
         }
     }
 
+    /// Renames the workspace `old_name` to `new_name`.
     pub fn rename_workspace(
         &mut self,
         old_name: &WorkspaceName,
@@ -1721,6 +1497,8 @@ impl MutableRepo {
         self.view.rename_workspace(old_name, new_name)
     }
 
+    /// Creates a new working-copy commit on top of `commit` for workspace
+    /// `name` and returns it.
     pub async fn check_out(
         &mut self,
         name: WorkspaceNameBuf,
@@ -1734,6 +1512,9 @@ impl MutableRepo {
         Ok(wc_commit)
     }
 
+    /// Sets `commit` as the working-copy commit of workspace `name`. The
+    /// previous working-copy commit is abandoned if it's discardable, a head,
+    /// and not referenced by bookmarks, tags, or other workspaces.
     pub async fn edit(
         &mut self,
         name: WorkspaceNameBuf,
@@ -1829,6 +1610,7 @@ impl MutableRepo {
         Ok(())
     }
 
+    /// Removes `head` from the set of visible heads.
     pub fn remove_head(&mut self, head: &CommitId) {
         self.view.remove_head(head);
     }
@@ -1883,10 +1665,13 @@ impl MutableRepo {
         Ok(indexed_commits)
     }
 
+    /// Returns the target of the local bookmark `name`.
     pub fn get_local_bookmark(&self, name: &RefName) -> &RefTarget {
         self.view.get_local_bookmark(name)
     }
 
+    /// Sets the target of the local bookmark `name`, adding the target commits
+    /// as heads.
     pub fn set_local_bookmark_target(&mut self, name: &RefName, target: RefTarget) {
         for id in target.present_adds() {
             self.view.add_head(id);
@@ -1894,6 +1679,8 @@ impl MutableRepo {
         self.view.set_local_bookmark_target(name, target);
     }
 
+    /// Merges the local bookmark `name` with the change from `base_target` to
+    /// `other_target`.
     pub async fn merge_local_bookmark(
         &mut self,
         name: &RefName,
@@ -1907,10 +1694,12 @@ impl MutableRepo {
         Ok(())
     }
 
+    /// Returns the remote bookmark `symbol`.
     pub fn get_remote_bookmark(&self, symbol: RemoteRefSymbol<'_>) -> &RemoteRef {
         self.view.get_remote_bookmark(symbol)
     }
 
+    /// Sets the remote bookmark `symbol` to `remote_ref`.
     pub fn set_remote_bookmark(&mut self, symbol: RemoteRefSymbol<'_>, remote_ref: RemoteRef) {
         self.view.set_remote_bookmark(symbol, remote_ref);
     }
@@ -1951,26 +1740,33 @@ impl MutableRepo {
         self.set_remote_bookmark(symbol, remote_ref);
     }
 
+    /// Adds the remote `remote_name` to the view if it doesn't exist.
     pub fn ensure_remote(&mut self, remote_name: &RemoteName) {
         self.view.ensure_remote(remote_name);
     }
 
+    /// Removes the remote `remote_name` along with its remote bookmarks and tags.
     pub fn remove_remote(&mut self, remote_name: &RemoteName) {
         self.view.remove_remote(remote_name);
     }
 
+    /// Renames the remote while preserving its project identity.
     pub fn rename_remote(&mut self, old: &RemoteName, new: &RemoteName) -> Result<(), String> {
         self.view.rename_remote(old, new)
     }
 
+    /// Returns the target of the local tag `name`.
     pub fn get_local_tag(&self, name: &RefName) -> &RefTarget {
         self.view.get_local_tag(name)
     }
 
+    /// Sets the target of the local tag `name`.
     pub fn set_local_tag_target(&mut self, name: &RefName, target: RefTarget) {
         self.view.set_local_tag_target(name, target);
     }
 
+    /// Merges the local tag `name` with the change from `base_target` to
+    /// `other_target`.
     pub async fn merge_local_tag(
         &mut self,
         name: &RefName,
@@ -1984,10 +1780,12 @@ impl MutableRepo {
         Ok(())
     }
 
+    /// Returns the remote tag `symbol`.
     pub fn get_remote_tag(&self, symbol: RemoteRefSymbol<'_>) -> &RemoteRef {
         self.view.get_remote_tag(symbol)
     }
 
+    /// Sets the remote tag `symbol` to `remote_ref`.
     pub fn set_remote_tag(&mut self, symbol: RemoteRefSymbol<'_>, remote_ref: RemoteRef) {
         self.view.set_remote_tag(symbol, remote_ref);
     }
@@ -2023,10 +1821,12 @@ impl MutableRepo {
         self.set_remote_tag(symbol, remote_ref);
     }
 
+    /// Returns the target of the Git ref `name`.
     pub fn get_git_ref(&self, name: &GitRefName) -> &RefTarget {
         self.view.get_git_ref(name)
     }
 
+    /// Sets the target of the Git ref `name`.
     pub fn set_git_ref_target(&mut self, name: &GitRefName, target: RefTarget) {
         self.view.set_git_ref_target(name, target);
     }
@@ -2044,19 +1844,23 @@ impl MutableRepo {
         Ok(())
     }
 
+    /// Returns the Git HEAD target for `workspace`.
     pub fn git_head(&self, workspace: &WorkspaceName) -> &RefTarget {
         self.view.git_head(workspace)
     }
 
+    /// Sets the Git HEAD target for `workspace`.
     pub fn set_git_head_target(&mut self, workspace: &WorkspaceName, target: RefTarget) {
         self.view.set_git_head_target(workspace, target);
     }
 
+    /// Replaces the view with `data`.
     pub fn set_view(&mut self, data: op_store::View) {
         let head_normalized = false;
         self.view.set_view(data, head_normalized);
     }
 
+    /// Merges the changes from `base_repo` to `other_repo` into this repo.
     pub async fn merge(
         &mut self,
         base_repo: &ReadonlyRepo,
@@ -2075,6 +1879,7 @@ impl MutableRepo {
         Ok(())
     }
 
+    /// Merges the index of `other_repo` into this repo's index.
     pub fn merge_index(&mut self, other_repo: &ReadonlyRepo) -> IndexResult<()> {
         self.index.merge_in(other_repo.readonly_index())
     }
@@ -2342,12 +2147,16 @@ pub struct RewriteRootCommit;
 /// Error from attempts to edit a commit
 #[derive(Debug, Error)]
 pub enum EditCommitError {
+    /// The current working-copy commit could not be read.
     #[error("Current working-copy commit not found")]
     WorkingCopyCommitNotFound(#[source] BackendError),
+    /// Attempted to edit the root commit.
     #[error(transparent)]
     RewriteRootCommit(#[from] RewriteRootCommit),
+    /// Error from the commit backend.
     #[error(transparent)]
     BackendError(#[from] BackendError),
+    /// Error from the index.
     #[error(transparent)]
     IndexError(#[from] IndexError),
 }
@@ -2355,8 +2164,10 @@ pub enum EditCommitError {
 /// Error from attempts to check out a commit
 #[derive(Debug, Error)]
 pub enum CheckOutCommitError {
+    /// Failed to create the new working-copy commit.
     #[error("Failed to create new working-copy commit")]
     CreateCommit(#[from] BackendError),
+    /// Failed to edit the new working-copy commit.
     #[error("Failed to edit commit")]
     EditCommit(#[from] EditCommitError),
 }

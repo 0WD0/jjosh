@@ -355,7 +355,7 @@ fn test_bad_function_call() {
     1 | remote_bookmarks(=foo)
       |                  ^---
       |
-      = expected <strict_identifier> or <expression>
+      = expected <argument>
     Hint: See https://docs.jj-vcs.dev/latest/revsets/ or use `jj help -k revsets` for revsets syntax and how to quote symbols.
     [EOF]
     [exit status: 1]
@@ -419,7 +419,7 @@ fn test_function_name_hint() {
       | ^-----^
       |
       = Function `author_` doesn't exist
-    Hint: Did you mean `author`, `author_date`, `author_email`, `author_name`, `my_author`?
+    Hint: Did you mean `author`, `author_date`, `author_name`, `author_email`, `my_author`?
     [EOF]
     [exit status: 1]
     ");
@@ -444,6 +444,71 @@ fn test_function_name_hint() {
     [EOF]
     [exit status: 1]
     ");
+}
+
+#[test]
+fn test_symbol_name_hint() {
+    let test_env = TestEnvironment::default();
+    test_env.run_jj_in(".", ["git", "init", "repo"]).success();
+    let work_dir = test_env.work_dir("repo");
+    let evaluate = |expr| work_dir.run_jj(["log", "-r", expr]);
+
+    for i in 1..=6 {
+        work_dir
+            .run_jj(["bookmark", "create", "-r@", &format!("feature-{i}")])
+            .success();
+    }
+
+    insta::assert_snapshot!(evaluate("feature-9"), @"
+    ------- stderr -------
+    Error: Revision `feature-9` doesn't exist
+    Hint: Did you mean `feature-1`, `feature-2`, `feature-3`, `feature-4`, `feature-5`, or 1 others?
+    [EOF]
+    [exit status: 1]
+    ");
+
+    work_dir
+        .run_jj(["bookmark", "create", "-r@", "feature-7"])
+        .success();
+
+    insta::assert_snapshot!(evaluate("feature-9"), @"
+    ------- stderr -------
+    Error: Revision `feature-9` doesn't exist
+    Hint: Did you mean `feature-1`, `feature-2`, `feature-3`, `feature-4`, `feature-5`, or 2 others?
+    [EOF]
+    [exit status: 1]
+    ");
+
+    // 'feature-9' sorts last alphabetically, but it's the most similar name,
+    // so it comes first.
+    for i in 8..=12 {
+        work_dir
+            .run_jj(["bookmark", "create", "-r@", &format!("feature-{i}")])
+            .success();
+    }
+
+    insta::assert_snapshot!(evaluate("feature-9x"), @"
+    ------- stderr -------
+    Error: Revision `feature-9x` doesn't exist
+    Hint: Did you mean `feature-9`, `feature-1`, `feature-2`, `feature-3`, `feature-4`, or 7 others?
+    [EOF]
+    [exit status: 1]
+    ");
+
+    // Quotes and escapes in a bookmark name don't lower its similarity.
+    for name in [r#""abc\"""#, "abc0", "abc1", "abc2", "abc3", "abc4"] {
+        work_dir
+            .run_jj(["bookmark", "create", "-r@", name])
+            .success();
+    }
+
+    insta::assert_snapshot!(evaluate("abc"), @r#"
+    ------- stderr -------
+    Error: Revision `abc` doesn't exist
+    Hint: Did you mean `"abc\""`, `abc0`, `abc1`, `abc2`, `abc3`, or 1 others?
+    [EOF]
+    [exit status: 1]
+    "#);
 }
 
 #[test]
@@ -940,6 +1005,56 @@ fn test_revset_committer_date_with_time_zone() {
     second 2023-01-25 12:30:00.000 -05:00
     [EOF]
     ");
+}
+
+#[test]
+fn test_user_trunk_absent_with_revset_warnings() {
+    let test_env = TestEnvironment::default();
+    test_env.add_config("revset-aliases.'trunk()' = 'main'");
+    test_env.add_config(r#"revset-aliases.'immutable_heads()' = 'trunk() | diff_contains("x")'"#);
+    test_env.run_jj_in(".", ["git", "init", "repo"]).success();
+    let work_dir = test_env.work_dir("repo");
+
+    // The warning about immutable_heads() is printed only once, even though
+    // the expression is reloaded after falling back from trunk().
+    let output = work_dir.run_jj(["log", "-r@", "-Tcommit_id.short()"]);
+    insta::assert_snapshot!(output, @r#"
+    @  e8849ae12c70
+    │
+    ~
+    [EOF]
+    ------- stderr -------
+    Warning: In `revset-aliases.immutable_heads()`
+     --> 1:11
+      |
+    1 | trunk() | diff_contains("x")
+      |           ^-----------^
+      |
+      = diff_contains() is deprecated; use diff_lines() instead
+    Warning: In `revsets.short-prefixes`
+     --> 1:1
+      |
+    1 | builtin_log()
+      | ^-----------^
+      |
+      = In alias `builtin_log()`
+     --> 1:24
+      |
+    1 | present(@) | ancestors(immutable_heads().., 2) | trunk()
+      |                        ^---------------^
+      |
+      = In alias `immutable_heads()`
+     --> 1:11
+      |
+    1 | trunk() | diff_contains("x")
+      |           ^-----------^
+      |
+      = diff_contains() is deprecated; use diff_lines() instead
+    Warning: Failed to resolve `revset-aliases.trunk()`: Revision `main` doesn't exist
+    The `trunk()` alias is temporarily set to `root()`.
+    Hint: Use `jj config edit --repo` to adjust the `trunk()` alias.
+    [EOF]
+    "#);
 }
 
 #[test]

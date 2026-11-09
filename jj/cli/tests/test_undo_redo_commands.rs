@@ -78,7 +78,7 @@ fn test_undo_push_operation() {
     ------- stderr -------
     Warning: Undoing a push operation often leads to conflicted bookmarks.
     Hint: To avoid this, run `jj redo` now.
-    Undid operation: 841f09db81a1 (2001-02-03 08:05:10) push bookmark push-rlvkpnrzqnoo to git remote origin
+    Undid operation: bf468ba1c198 (2001-02-03 08:05:10) push bookmark push-rlvkpnrzqnoo to git remote origin
     Restored to operation: 27cf57bcf92a (2001-02-03 08:05:09) commit 3850397cf31988d0657948307ad5bbe873d76a38
     [EOF]
     ");
@@ -93,7 +93,7 @@ fn test_jump_over_old_undo_stack() {
     // create a few normal operations
     for state in 'A'..='D' {
         work_dir.write_file("state", state.to_string());
-        work_dir.run_jj(["debug", "snapshot"]).success();
+        work_dir.run_jj(["util", "snapshot"]).success();
     }
     assert_eq!(work_dir.read_file("state"), "D");
 
@@ -105,9 +105,9 @@ fn test_jump_over_old_undo_stack() {
 
     // create operations E and F
     work_dir.write_file("state", "E");
-    work_dir.run_jj(["debug", "snapshot"]).success();
+    work_dir.run_jj(["util", "snapshot"]).success();
     work_dir.write_file("state", "F");
-    work_dir.run_jj(["debug", "snapshot"]).success();
+    work_dir.run_jj(["util", "snapshot"]).success();
     assert_eq!(work_dir.read_file("state"), "F");
 
     // undo operations F, E and B, restoring the state of A while skipping the
@@ -128,9 +128,9 @@ fn test_undo_ignores_op_revert() {
 
     // create a few normal operations
     work_dir.write_file("state", "A");
-    work_dir.run_jj(["debug", "snapshot"]).success();
+    work_dir.run_jj(["util", "snapshot"]).success();
     work_dir.write_file("state", "B");
-    work_dir.run_jj(["debug", "snapshot"]).success();
+    work_dir.run_jj(["util", "snapshot"]).success();
     assert_eq!(work_dir.read_file("state"), "B");
 
     // `op revert` works the same way as `undo` initially, but running `undo`
@@ -141,6 +141,36 @@ fn test_undo_ignores_op_revert() {
     assert_eq!(work_dir.read_file("state"), "A");
     work_dir.run_jj(["undo"]).success();
     assert_eq!(work_dir.read_file("state"), "B");
+}
+
+#[test]
+fn test_undo_workspace_add() {
+    let test_env = TestEnvironment::default();
+    test_env.run_jj_in(".", ["git", "init", "main"]).success();
+    let main_dir = test_env.work_dir("main");
+    main_dir.run_jj(["workspace", "add", "../second"]).success();
+
+    // The operations that added the workspace were performed in the main
+    // workspace, so they can be undone from there
+    let output = main_dir.run_jj(["undo"]);
+    insta::assert_snapshot!(output, @"
+    ------- stderr -------
+    Undid operation: ba256c651f84 (2001-02-03 08:05:08) create initial working-copy commit in workspace second
+    Restored to operation: 62a09c39f88b (2001-02-03 08:05:08) add workspace 'second'
+    [EOF]
+    ");
+    let output = main_dir.run_jj(["undo"]);
+    insta::assert_snapshot!(output, @"
+    ------- stderr -------
+    Undid operation: 62a09c39f88b (2001-02-03 08:05:08) add workspace 'second'
+    Restored to operation: f63ee16f9553 (2001-02-03 08:05:07) add workspace 'default'
+    [EOF]
+    ");
+    let output = main_dir.run_jj(["workspace", "list"]);
+    insta::assert_snapshot!(output, @"
+    default (current): . qpvuntsm e8849ae1 (empty) (no description set)
+    [EOF]
+    ");
 }
 
 #[test]
@@ -157,7 +187,7 @@ fn test_undo_redo_cross_workspace() {
     let output = main_dir.run_jj(["undo"]);
     insta::assert_snapshot!(output, @"
     ------- stderr -------
-    Error: Refusing to undo operation 33cbee28d986 because it was performed in workspace second
+    Error: Refusing to undo operation b560ac028cf9 because it was performed in workspace second
     Hint: Use `--allow-cross-workspace` to undo it anyway, or use `jj op revert` to revert a specific operation
     [EOF]
     [exit status: 1]
@@ -167,8 +197,8 @@ fn test_undo_redo_cross_workspace() {
     let output = main_dir.run_jj(["undo", "--allow-cross-workspace"]);
     insta::assert_snapshot!(output, @"
     ------- stderr -------
-    Undid operation: 33cbee28d986 (2001-02-03 08:05:09) describe commit 94f41578a9e101e2c85877f3b4eaa9f5e915783f
-    Restored to operation: 9b9b7064bf7b (2001-02-03 08:05:08) create initial working-copy commit in workspace second
+    Undid operation: b560ac028cf9 (2001-02-03 08:05:09) describe commit 94f41578a9e101e2c85877f3b4eaa9f5e915783f
+    Restored to operation: ba256c651f84 (2001-02-03 08:05:08) create initial working-copy commit in workspace second
     [EOF]
     ");
 
@@ -176,7 +206,7 @@ fn test_undo_redo_cross_workspace() {
     let output = second_dir.run_jj(["redo"]);
     insta::assert_snapshot!(output, @"
     ------- stderr -------
-    Error: Refusing to redo operation 2879537879e9 because it was performed in workspace default
+    Error: Refusing to redo operation ba101dd2628e because it was performed in workspace default
     Hint: Use `--allow-cross-workspace` to redo it anyway, or use `jj op revert` to revert a specific undo operation
     [EOF]
     [exit status: 1]
@@ -186,7 +216,7 @@ fn test_undo_redo_cross_workspace() {
     let output = second_dir.run_jj(["redo", "--allow-cross-workspace"]);
     insta::assert_snapshot!(output, @"
     ------- stderr -------
-    Restored to operation: 33cbee28d986 (2001-02-03 08:05:09) describe commit 94f41578a9e101e2c85877f3b4eaa9f5e915783f
+    Restored to operation: b560ac028cf9 (2001-02-03 08:05:09) describe commit 94f41578a9e101e2c85877f3b4eaa9f5e915783f
     Working copy  (@) now at: uuqppmxq a7e048f9 (empty) second
     Parent commit (@-)      : zzzzzzzz 00000000 (empty) (no description set)
     [EOF]
@@ -218,7 +248,7 @@ fn test_jump_over_old_redo_stack() {
     // create a few normal operations
     for state in 'A'..='D' {
         work_dir.write_file("state", state.to_string());
-        work_dir.run_jj(["debug", "snapshot"]).success();
+        work_dir.run_jj(["util", "snapshot"]).success();
     }
     assert_eq!(work_dir.read_file("state"), "D");
 

@@ -116,6 +116,7 @@ pub async fn cmd_workspace_add(
     command: &CommandHelper,
     args: &WorkspaceAddArgs,
 ) -> Result<(), CommandError> {
+    check_new_workspace_operation(command)?;
     let old_workspace_command = command.workspace_helper(ui).await?;
     let source_desired = old_workspace_command
         .repo()
@@ -209,6 +210,29 @@ pub async fn cmd_workspace_add(
             name = workspace_name.as_symbol()
         )));
     }
+    // Resolve the parents before creating the workspace so an invalid revset
+    // doesn't leave a half-created workspace behind. If no parent revisions are
+    // specified, create a working-copy commit based on the parents of the current
+    // working-copy commit.
+    let parents = if args.revisions.is_empty() {
+        // Check out parents of the current workspace's working-copy commit, or the
+        // root if there is no working-copy commit in the current workspace.
+        if let Some(old_wc_commit) = old_workspace_command.get_wc_commit().await? {
+            old_wc_commit.parents().await?
+        } else {
+            vec![repo.store().root_commit()]
+        }
+    } else {
+        try_join_all(
+            old_workspace_command
+                .resolve_some_revsets(ui, &args.revisions)
+                .await?
+                .iter()
+                .map(|id| repo.store().get_commit_async(id)),
+        )
+        .await?
+    };
+
     if !destination_path.exists() {
         fs::create_dir(&destination_path).context(&destination_path)?;
     } else if !file_util::is_empty_dir(&destination_path)? {
@@ -237,6 +261,7 @@ pub async fn cmd_workspace_add(
         repo,
         working_copy_factory,
         workspace_name.clone(),
+        Some(old_workspace_command.workspace_name()),
     )
     .await?;
     writeln!(
@@ -278,35 +303,9 @@ pub async fn cmd_workspace_add(
             .set_wc_sparse_patterns(workspace_name.clone(), desired);
     }
 
-    // If no parent revisions are specified, create a working-copy commit based
-    // on the parent of the current working-copy commit.
-    let parents = if args.revisions.is_empty() {
-        // Check out parents of the current workspace's working-copy commit, or the
-        // root if there is no working-copy commit in the current workspace.
-        if let Some(old_wc_commit_id) = tx
-            .base_repo()
-            .view()
-            .get_wc_commit_id(old_workspace_command.workspace_name())
-        {
-            tx.repo()
-                .store()
-                .get_commit_async(old_wc_commit_id)
-                .await?
-                .parents()
-                .await?
-        } else {
-            vec![tx.repo().store().root_commit()]
-        }
-    } else {
-        try_join_all(
-            old_workspace_command
-                .resolve_some_revsets(ui, &args.revisions)
-                .await?
-                .iter()
-                .map(|id| tx.repo().store().get_commit_async(id)),
-        )
-        .await?
-    };
+    // Attribute the operation to the workspace the command was run in, so e.g.
+    // `jj undo` there undoes it
+    tx.set_workspace_name(old_workspace_command.workspace_name());
 
     let tree = merge_commit_trees(tx.repo(), &parents).await?;
     let parent_ids = parents.iter().ids().cloned().collect_vec();
@@ -332,5 +331,16 @@ pub async fn cmd_workspace_add(
         ),
     )
     .await?;
+    Ok(())
+}
+
+// A checkout can be deferred, but its workspace registration must be published.
+fn check_new_workspace_operation(command: &CommandHelper) -> Result<(), CommandError> {
+    if command.global_args().no_integrate_operation {
+        return Err(
+            user_error("This command must be able to update the working copy.")
+                .hinted("Don't use --no-integrate-operation."),
+        );
+    }
     Ok(())
 }

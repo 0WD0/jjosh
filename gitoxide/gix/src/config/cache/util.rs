@@ -99,7 +99,7 @@ pub(crate) fn parse_object_caches(
     mut filter_config_section: fn(&gix_config::file::Metadata) -> bool,
 ) -> Result<ObjectCaches> {
     let static_pack_cache_limit = gitoxide::Core::DEFAULT_PACK_CACHE_MEMORY_LIMIT
-        .try_into_usize(config.integer_filter("gitoxide.core.deltaBaseCacheLimit", &mut filter_config_section))
+        .try_into_usize(config.integer_filter("gitoxide.core.defaultPackCacheMemoryLimit", &mut filter_config_section))
         .with_leniency(lenient)?;
     let pack_cache_bytes = Core::DELTA_BASE_CACHE_LIMIT
         .try_into_usize(config.integer_filter("core.deltaBaseCacheLimit", &mut filter_config_section))

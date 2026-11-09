@@ -4,7 +4,7 @@ lints.workspace = true
 name = "gix-parallel"
 description = "Serial and parallel computation helpers and shared ownership primitives for gitoxide"
 repository = "https://github.com/GitoxideLabs/gitoxide"
-version = "0.50.0"
+version = "0.50.1"
 authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
 license = "MIT OR Apache-2.0"
 edition = "2024"
@@ -39,7 +39,7 @@ name = "single-threaded"
 path = "tests/parallel_shared.rs"
 
 [dependencies]
-gix-trace = { version = "^0.3.0", path = "../gix-trace" }
+gix-trace = { version = "^0.3.1", path = "../gix-trace" }
 crossbeam-channel = { version = "0.5.15", optional = true }
 parking_lot = { version = "0.12.4", default-features = false, optional = true }
 once_cell = { version = "1.21.3", optional = true }
@@ -54,3 +54,24 @@ gix-testtools = { path = "../tests/tools", default-features = false, features = 
 gix-trace = { path = "../gix-trace", features = ["tracing"] }
 insta = "1.46.3"
 tracing-subscriber = { version = "0.3.22", default-features = false, features = ["registry"] }
+
+[package.metadata.qa]
+checks = [
+    { args = ["--no-default-features"] },
+    { args = ["--all-features"] },
+    { args = ["--features", "parallel"] },
+    { args = ["--features", "once_cell"] },
+]
+tests = [
+    { args = ["--no-default-features"] },
+    { args = ["--all-features"] },
+]
+
+[package.metadata.qa.wasm]
+targets = ["wasm32-unknown-unknown", "wasm32-wasip1", "wasm32-wasip2"]
+checks = [
+    { args = ["--no-default-features", "--features", ""] },
+    { args = ["--no-default-features", "--features", "parallel"] },
+    { args = ["--no-default-features", "--features", "once_cell"] },
+    { args = ["--no-default-features", "--features", "parallel,once_cell"] },
+]

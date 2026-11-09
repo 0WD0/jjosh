@@ -17,6 +17,7 @@ use std::io::Write as _;
 use std::path::Path;
 
 use itertools::Itertools as _;
+use jj_frontend::git_util::is_colocated_git_workspace;
 use jj_lib::commit::Commit;
 use jj_lib::file_util::IoResultExt as _;
 use jj_lib::git;
@@ -32,7 +33,6 @@ use crate::command_error::CommandError;
 use crate::command_error::user_error;
 use crate::command_error::user_error_with_message;
 use crate::commands::git::maybe_add_gitignore;
-use crate::git_util::is_colocated_git_workspace;
 use crate::git_util::unlink_git_worktree;
 use crate::ui::Ui;
 
@@ -378,7 +378,13 @@ async fn set_git_head_to_wc_parent(
     let workspace_name = workspace_command.workspace_name().to_owned();
     let workspace_root = workspace_command.workspace_root().to_owned();
     let mut tx = workspace_command.start_transaction();
-    git::reset_head(tx.repo_mut(), &workspace_name, &workspace_root, wc_commit).await?;
+    git::reset_head(
+        tx.repo_mut(),
+        &workspace_name,
+        &workspace_root,
+        (None, wc_commit),
+    )
+    .await?;
     if tx.repo().has_changes() {
         tx.finish(ui, "set git head to working copy parent").await?;
     }
@@ -411,7 +417,7 @@ async fn reload_workspace_helper(
 ) -> Result<WorkspaceCommandHelper, CommandError> {
     let workspace = command.load_workspace_at(workspace_root, settings)?;
     let op = workspace.repo_loader().load_operation(op_id).await?;
-    let repo = workspace.repo_loader().load_at(&op).await?;
+    let repo = workspace.load_at(&op).await?;
     let workspace_command = command.for_workable_repo(ui, workspace, repo)?;
     Ok(workspace_command)
 }

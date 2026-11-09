@@ -272,10 +272,24 @@ pub struct RelatedCopy {
 #[error(transparent)]
 pub struct BackendInitError(pub Box<dyn std::error::Error + Send + Sync>);
 
+impl BackendInitError {
+    /// Wraps an error that occurred during backend initialization.
+    pub fn new(err: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Self {
+        Self(err.into())
+    }
+}
+
 /// Error that may occur during backend loading.
 #[derive(Debug, Error)]
 #[error(transparent)]
 pub struct BackendLoadError(pub Box<dyn std::error::Error + Send + Sync>);
+
+impl BackendLoadError {
+    /// Wraps an error that occurred during backend loading.
+    pub fn new(err: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Self {
+        Self(err.into())
+    }
+}
 
 /// Commit-backend error that may occur after the backend is loaded.
 #[derive(Debug, Error)]
@@ -816,6 +830,11 @@ pub trait Backend: Any + Send + Sync + Debug {
     async fn get_related_copies(&self, copy_id: &CopyId) -> BackendResult<Vec<RelatedCopy>>;
 
     /// Reads the tree at the given path with the given ID.
+    ///
+    /// The returned future may be polled by a different task than the one that
+    /// called this method, since `Store` shares the read between concurrent
+    /// callers. It must therefore not depend on the caller's context, such as
+    /// task-locals or the presence of a particular async runtime.
     async fn read_tree(&self, path: &RepoPath, id: &TreeId) -> BackendResult<Tree>;
 
     /// Writes the given tree at the given path to the backend and returns its
@@ -823,6 +842,11 @@ pub trait Backend: Any + Send + Sync + Debug {
     async fn write_tree(&self, path: &RepoPath, contents: &Tree) -> BackendResult<TreeId>;
 
     /// Reads the commit with the given ID.
+    ///
+    /// The returned future may be polled by a different task than the one that
+    /// called this method, since `Store` shares the read between concurrent
+    /// callers. It must therefore not depend on the caller's context, such as
+    /// task-locals or the presence of a particular async runtime.
     async fn read_commit(&self, id: &CommitId) -> BackendResult<Commit>;
 
     /// Writes a commit and returns its ID and the commit itself. The commit

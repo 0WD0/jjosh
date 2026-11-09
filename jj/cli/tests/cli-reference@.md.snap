@@ -239,6 +239,9 @@ To get started, see the tutorial at [`jj help -k tutorial`][tutorial].
    When loading the repo at an earlier operation, the working copy will be ignored, as if `--ignore-working-copy` had been specified.
 
    It is possible to run mutating commands when loading the repo at an earlier operation. Doing that is equivalent to having run concurrent commands starting at the earlier operation. There's rarely a reason to do that, but it is possible.
+* `--in-project <PROJECT>` — Interpret paths and references within this registered project
+
+   The project is resolved in the selected operation. Relative paths start at its canonical root, independently of cwd and sparse layout. Commit IDs, parent relationships, and working-copy snapshots remain repository-wide. Log defaults to project history; explicit -r expressions select canonical revisions. root: filesets keep canonical coordinates and are still bounded by the project. Commands without project semantics reject this option.
 * `--debug` — Enable debug logging
 * `--color <WHEN>` — When to colorize output
 
@@ -1384,6 +1387,8 @@ Prints each line that matches the specified pattern, prefixed by the file path. 
    [string pattern syntax]: https://docs.jj-vcs.dev/latest/revsets/#string-patterns
 * `--name-only` — Print only the paths of files that contain a match, not the matched lines
 * `-n`, `--line-number` — Prefix each matched line with its 1-based line number within the file
+* `--binary-as-text` — Treat binary files as text, matching and printing raw bytes even if they contain null bytes
+* `--skip-binary` — Skip binary files entirely
 
 
 
@@ -1965,7 +1970,7 @@ If the setting `git.colocate` has the value `false`, then new repositories will 
 
    If the specified `--git-repo` path is the same as `DESTINATION`, then a [colocated workspace] will be created, and both `jj` and `git` commands will work on the repo. The `git.colocate` setting is ignored in this case.
 
-   If the specified `--git-repo` path is outside of the given `DESTINATION`, then the Jujutsa workspace will store a reference to the external Git repository (not a colocated workspace). This option is mutually exclusive with `--collate`.
+   If the specified `--git-repo` path is outside of the given `DESTINATION`, then the Jujutsu workspace will store a reference to the external Git repository (not a colocated workspace). This option is mutually exclusive with `--colocate`.
 
    [colocated workspace]: https://docs.jj-vcs.dev/latest/git-compatibility/#colocated-jujutsugit-workspaces
 
@@ -2163,7 +2168,7 @@ Set the URL of a Git remote
 
 A restored logical remote without local configuration can be reconnected by supplying a fetch URL. Its connection identity, binding and tracking remain unchanged. Configuration belonging to a different connection is not reused.
 
-**Usage:** `jj git remote set-url [OPTIONS] <REMOTE> [URL]`
+**Usage:** `jj git remote set-url [OPTIONS] <REMOTE> <URL|--push <PUSH>|--fetch <FETCH>>`
 
 ###### **Arguments:**
 
@@ -2309,6 +2314,8 @@ The working-copy commit is indicated by a `@` symbol in the graph. [Immutable re
 * `-T`, `--template <TEMPLATE>` — Render each revision using the given template
 
    Run `jj log -T` to list the built-in templates.
+
+   For shareable bug reports, use `jj log -T builtin_log_redacted`.
 
    All 0-argument methods of the [`Commit` type][Commit] are available as keywords in the template expression. See [`jj help -k templates`][templates] for more information.
 
@@ -3587,13 +3594,13 @@ achieved with `jj new`.
 
 Move changes from a revision into another revision
 
-Without any options, moves the changes from the working-copy revision to the parent revision.
+Without any options, moves the changes from the working-copy revision to the parent revision (equivalent to `-r @`).
 
 With the `-r` option, moves the changes from the specified revision to the parent revision. Fails if there are several parent revisions (i.e., the given revision is a merge).
 
 With the `--from` and/or `--into` options, moves changes from/to the given revisions. If either is left out, it defaults to the working-copy commit. For example, `jj squash --into @--` moves changes from the working-copy commit to the grandparent.
 
-If, after moving changes out, the source revision is empty compared to its parent(s), and `--keep-emptied` is not set, it will be abandoned. Without `--interactive` or paths, the source revision will always be empty.
+If, after moving changes out, the source revision is empty compared to its parent(s), and `--keep-emptied` is not given, it will be abandoned. Without `--interactive` or paths, the source revision will always be empty.
 
 If the source was abandoned and both the source and destination had a non-empty description, you will be asked for the combined description. If either was empty, then the other one will be used.
 
@@ -3613,20 +3620,30 @@ An alternative squashing UI is available via the `-o`, `-A`, and `-B` options. U
 
 ###### **Options:**
 
-* `-r`, `--revision <REVSET>` — Revision to squash into its parent (default: @). Incompatible with the experimental `-o`/`-A`/`-B` options
-* `-f`, `--from <REVSETS>` — Revision(s) to squash from (default: @)
-* `-t`, `--into <REVSET>` [alias: `to`] — Revision to squash into (default: @)
+* `-r`, `--revision <REVSET>` — Revision to squash into its parent (default: @)
+
+   Incompatible with the experimental `-o`/`-A`/`-B` options.
+* `-f`, `--from <REVSETS>` — Revision(s) to squash from (default: @ if `-r` isn't given)
+* `-t`, `--into <REVSET>` [alias: `to`] — Revision to squash into (default: @ if `-r` isn't given)
+
+   Incompatible with the experimental `-o`/`-A`/`-B` options.
 * `-o`, `--onto <REVSETS>` [alias: `destination`] — (Experimental) The revision(s) to use as parent for the new commit (can be repeated to create a merge commit)
+
+   Incompatible with the `-r` or `--into` flags.
 * `-A`, `--insert-after <REVSETS>` [alias: `after`] — (Experimental) The revision(s) to insert the new commit after (can be repeated to create a merge commit)
+
+   Incompatible with the `-r` or `--into` flags.
 * `-B`, `--insert-before <REVSETS>` [alias: `before`] — (Experimental) The revision(s) to insert the new commit before (can be repeated to create a merge commit)
-* `-m`, `--message <MESSAGE>` — The description to use for squashed revision (don't open editor)
+
+   Incompatible with the `-r` or `--into` flags.
+* `-m`, `--message <MESSAGE>` — The description to use for the squashed revision (don't open editor)
 * `-u`, `--use-destination-message` — Use the description of the destination revision and discard the description(s) of the source revision(s)
-* `--editor` — Open an editor to edit the change description
+* `--editor` — Open an editor to edit the description of the squashed revision
 
    Forces an editor to open when using `--message` to allow the message to be edited afterwards.
 * `-i`, `--interactive` — Interactively choose which parts to squash
-* `--tool <NAME>` — Specify diff editor to be used (implies --interactive)
-* `-k`, `--keep-emptied` — The source revision will not be abandoned
+* `--tool <NAME>` — The diff editor to use (implies --interactive)
+* `-k`, `--keep-emptied` — Do not abandon source revisions that become empty
 
 
 

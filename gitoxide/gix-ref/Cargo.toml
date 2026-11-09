@@ -2,7 +2,7 @@ lints.workspace = true
 
 [package]
 name = "gix-ref"
-version = "0.69.0"
+version = "0.69.1"
 repository = "https://github.com/GitoxideLabs/gitoxide"
 license = "MIT OR Apache-2.0"
 description = "A crate to handle git references"
@@ -29,18 +29,23 @@ sha256 = ["gix-hash/sha256"]
 serde = ["dep:serde", "gix-hash/serde", "gix-actor/serde", "gix-object/serde"]
 
 [dependencies]
-gix-parallel = { version = "^0.50.0", path = "../gix-parallel" }
-gix-error = { version = "^0.5.1", path = "../gix-error", features = ["bstr"] }
-gix-fs = { version = "^0.24.0", path = "../gix-fs", features = ["walkdir"] }
-gix-path = { version = "^0.14.0", path = "../gix-path" }
-gix-hash = { version = "^0.28.0", path = "../gix-hash" }
-gix-object = { version = "^0.66.0", path = "../gix-object" }
-gix-utils = { version = "^0.5.1", path = "../gix-utils" }
-gix-validate = { version = "^0.13.0", path = "../gix-validate" }
-gix-actor = { version = "^0.44.0", path = "../gix-actor" }
-gix-lock = { version = "^26.0.0", path = "../gix-lock" }
-gix-tempfile = { version = "^26.0.0", default-features = false, path = "../gix-tempfile" }
-serde = { version = "1.0.114", optional = true, default-features = false, features = ["derive"] }
+gix-parallel = { version = "^0.50.1", path = "../gix-parallel" }
+gix-error = { version = "^0.5.2", path = "../gix-error", features = ["bstr"] }
+gix-fs = { version = "~1.0.0", path = "../gix-fs", features = [
+    "walkdir",
+    "unstable",
+] }
+gix-path = { version = "^0.14.1", path = "../gix-path" }
+gix-hash = { version = "^0.28.1", path = "../gix-hash" }
+gix-object = { version = "^0.66.1", path = "../gix-object" }
+gix-utils = { version = "^0.5.2", path = "../gix-utils" }
+gix-validate = { version = "^0.13.1", path = "../gix-validate" }
+gix-actor = { version = "^0.45.0", path = "../gix-actor" }
+gix-lock = { version = "^27.0.0", path = "../gix-lock" }
+
+serde = { version = "1.0.114", optional = true, default-features = false, features = [
+    "derive",
+] }
 
 # packed refs
 memmap2 = "0.9.11"
@@ -48,6 +53,8 @@ memmap2 = "0.9.11"
 document-features = { version = "0.2.1", optional = true }
 
 [dev-dependencies]
+gix-fs = { path = "../gix-fs", features = ["unstable"] }
+gix-lock = { path = "../gix-lock", features = ["unstable"] }
 gix-testtools = { path = "../tests/tools", default-features = false, features = ["sha1", "sha256"] }
 gix-date = { path = "../gix-date" }
 gix-hash = { path = "../gix-hash", features = ["sha1", "sha256"] }
@@ -60,3 +67,9 @@ libc = "0.2.186"
 
 [package.metadata.docs.rs]
 features = ["sha1", "document-features", "serde"]
+
+[package.metadata.qa]
+tests = [
+    { args = ["--all-features", "--features", "gix-parallel/parallel"], env = { GIX_TEST_FIXTURE_HASH = "sha1" } },
+    { args = ["--all-features", "--features", "gix-parallel/parallel"], env = { GIX_TEST_FIXTURE_HASH = "sha256" } },
+]

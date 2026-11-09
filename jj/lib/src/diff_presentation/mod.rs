@@ -12,67 +12,70 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Utilities to present file diffs to the user
-
-#![expect(missing_docs)]
+//! Utilities to present file diffs to the user.
 
 use std::borrow::Borrow;
 use std::mem;
 
 use bstr::BString;
 use itertools::Itertools as _;
+use jj_core::backend::BackendResult;
+use jj_core::conflicts::MaterializedFileValue;
+use jj_core::diff::CompareBytesExactly;
+use jj_core::diff::CompareBytesIgnoreAllWhitespace;
+use jj_core::diff::CompareBytesIgnoreWhitespaceAmount;
+use jj_core::diff::ContentDiff;
+use jj_core::diff::DiffHunk;
+use jj_core::diff::DiffHunkKind;
+use jj_core::diff::find_line_ranges;
+use jj_core::merge::Diff;
+use jj_core::repo_path::RepoPath;
+use jj_local_util::file_util;
 
-use crate::backend::BackendResult;
-use crate::conflicts::MaterializedFileValue;
-use crate::diff::CompareBytesExactly;
-use crate::diff::CompareBytesIgnoreAllWhitespace;
-use crate::diff::CompareBytesIgnoreWhitespaceAmount;
-use crate::diff::ContentDiff;
-use crate::diff::DiffHunk;
-use crate::diff::DiffHunkKind;
-use crate::diff::find_line_ranges;
-use crate::merge::Diff;
-use crate::repo_path::RepoPath;
-
+/// Unified (Git-style) diffs.
 pub mod unified;
 // TODO: colored_diffs utils should also be moved from `jj_cli::diff_utils` to
 // here.
 
+/// Whether a diff token is unchanged or changed between the sides.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DiffTokenType {
+    /// The token is the same on both sides.
     Matching,
+    /// The token differs between the sides.
     Different,
 }
 
 type DiffTokenVec<'content> = Vec<(DiffTokenType, &'content [u8])>;
 
+/// File contents prepared for diffing.
 #[derive(Clone, Debug)]
 pub struct FileContent<T> {
-    /// false if this file is likely text; true if it is likely binary.
+    /// Whether the file is likely binary.
     pub is_binary: bool,
+    /// The file contents.
     pub contents: T,
 }
 
+/// Reads the contents of `file` and detects whether it's binary.
+///
+/// The contents are converted by `map_resolved`.
 pub async fn file_content_for_diff<T>(
     path: &RepoPath,
     file: &mut MaterializedFileValue,
     map_resolved: impl FnOnce(BString) -> T,
 ) -> BackendResult<FileContent<T>> {
-    // If this is a binary file, don't show the full contents.
-    // Determine whether it's binary by whether the first 8k bytes contain a null
-    // character; this is the same heuristic used by git as of writing: https://github.com/git/git/blob/eea0e59ffbed6e33d171ace5be13cde9faa41639/xdiff-interface.c#L192-L198
-    const PEEK_SIZE: usize = 8000;
     // TODO: currently we look at the whole file, even though for binary files we
     // only need to know the file size. To change that we'd have to extend all
     // the data backends to support getting the length.
     let contents = BString::new(file.read_all(path).await?);
-    let start = &contents[..PEEK_SIZE.min(contents.len())];
     Ok(FileContent {
-        is_binary: start.contains(&b'\0'),
+        is_binary: file_util::is_binary(&contents),
         contents: map_resolved(contents),
     })
 }
 
+/// How lines are compared when diffing.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum LineCompareMode {
     /// Compares lines literally.
@@ -84,6 +87,8 @@ pub enum LineCompareMode {
     IgnoreSpaceChange,
 }
 
+/// Computes a line-by-line diff of `inputs`, comparing lines as specified by
+/// `options`.
 pub fn diff_by_line<'input, T: AsRef<[u8]> + ?Sized + 'input>(
     inputs: impl IntoIterator<Item = &'input T>,
     options: &LineCompareMode,

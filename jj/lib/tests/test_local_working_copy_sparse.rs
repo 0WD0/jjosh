@@ -14,15 +14,15 @@
 
 use futures::StreamExt as _;
 use itertools::Itertools as _;
+use jj_core::matchers::EverythingMatcher;
+use jj_core::repo_path::RepoPath;
 use jj_lib::fileset;
 use jj_lib::fileset::FilesetAliasesMap;
 use jj_lib::fileset::FilesetDiagnostics;
 use jj_lib::fileset::FilesetExpression;
 use jj_lib::fileset::FilesetParseContext;
 use jj_lib::local_working_copy::LocalWorkingCopy;
-use jj_lib::matchers::EverythingMatcher;
 use jj_lib::repo::Repo as _;
-use jj_lib::repo_path::RepoPath;
 use jj_lib::ui_path::RepoPathUiConverter;
 use jj_lib::working_copy::CheckoutStats;
 use jj_lib::working_copy::WorkingCopy as _;

@@ -1,0 +1,68 @@
+// Copyright 2022 The Jujutsu Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+use std::io::Result;
+use std::path::Path;
+
+use itertools::Itertools as _;
+
+/// Crates (as directories relative to the workspace root) with `.proto` files
+/// in their `src/protos/` directory.
+const CRATES: &[(&str, &[&str])] = &[
+    (
+        "lib",
+        &[
+            "local_working_copy.proto",
+            "secure_config.proto",
+            "simple_op_store.proto",
+            "simple_store.proto",
+            "simple_workspace_store.proto",
+        ],
+    ),
+    ("default-index", &["default_index.proto"]),
+    ("git-backend", &["git_store.proto"]),
+];
+
+fn main() -> Result<()> {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+    for (crate_dir, input) in CRATES {
+        let protos_dir = root.join(crate_dir).join("src").join("protos");
+        prost_build::Config::new()
+            .out_dir(&protos_dir)
+            .include_file("mod.rs")
+            // Use BTreeMap so map entries are serialized in deterministic order.
+            .btree_map([
+                ".simple_op_store.View.wc_commit_ids",
+                ".simple_op_store.OperationMetadata.attributes",
+            ])
+            // For old protoc versions. 3.12.4 needs this, but 3.21.12 doesn't.
+            .protoc_arg("--experimental_allow_proto3_optional")
+            .compile_protos(
+                &input.iter().map(|x| protos_dir.join(x)).collect_vec(),
+                &[&protos_dir],
+            )?;
+    }
+    let core_protos_dir = root.join("core/src/working_copy_patterns");
+    std::fs::create_dir_all(&core_protos_dir)?;
+    prost_build::Config::new()
+        .out_dir(&core_protos_dir)
+        .compile_protos(
+            &[root.join("lib/src/protos/working_copy_patterns.proto")],
+            &[root.join("lib/src/protos")],
+        )?;
+    std::fs::rename(
+        core_protos_dir.join("working_copy_patterns.rs"),
+        core_protos_dir.join("proto.rs"),
+    )
+}

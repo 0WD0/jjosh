@@ -14,6 +14,7 @@
 
 use itertools::Itertools as _;
 use testutils::TestResult;
+use testutils::git;
 
 use crate::common::CommandOutput;
 use crate::common::TestEnvironment;
@@ -230,10 +231,90 @@ fn test_concurrent_snapshot_wc_reloadable() -> TestResult {
 }
 
 #[test]
+fn test_git_export_after_reconcile() -> TestResult {
+    let test_env = TestEnvironment::default();
+    test_env
+        .run_jj_in(".", ["git", "init", "--colocate", "repo"])
+        .success();
+    let work_dir = test_env.work_dir("repo");
+    let git_repo = git::open(work_dir.root());
+
+    work_dir.run_jj(["commit", "-mold"]).success();
+    work_dir
+        .run_jj(["bookmark", "set", "-r@-", "book"])
+        .success();
+    work_dir
+        .run_jj(["describe", "--at-op=@-", "-r@-", "-mnew"])
+        .success();
+
+    insta::assert_snapshot!(
+        git_repo.find_reference("refs/heads/book")?.peel_to_id()?,
+        @"1ea04b9f537799e42deb2f9d4ce4f773cb1c8b9e");
+    let output = work_dir.run_jj(["bookmark", "list", "-a"]);
+    insta::assert_snapshot!(output, @"
+    book: qpvuntsm e2824131 (empty) new
+      @git: qpvuntsm e2824131 (empty) new
+    [EOF]
+    ------- stderr -------
+    Concurrent modification detected, resolving automatically.
+    [EOF]
+    ");
+    insta::assert_snapshot!(
+        git_repo.find_reference("refs/heads/book")?.peel_to_id()?,
+        @"e28241316d6d6409c94cec3574bb0fa39f78f486");
+    Ok(())
+}
+
+#[test]
+fn test_git_head_after_reconcile() -> TestResult {
+    let test_env = TestEnvironment::default();
+    test_env
+        .run_jj_in(".", ["git", "init", "--colocate", "repo"])
+        .success();
+    let work_dir = test_env.work_dir("repo");
+    let git_repo = git::open(work_dir.root());
+
+    work_dir.run_jj(["commit", "-mA"]).success();
+    work_dir.run_jj(["commit", "-mB"]).success();
+    work_dir.run_jj(["commit", "-mC"]).success();
+    let op_id = work_dir.current_operation_id();
+    let output = work_dir.run_jj(["new", "--at-op", &op_id, "subject(A)"]);
+    insta::assert_snapshot!(output, @"");
+    let output = work_dir.run_jj(["new", "--at-op", &op_id, "subject(B)"]);
+    insta::assert_snapshot!(output, @"");
+
+    insta::assert_compact_debug_snapshot!(
+        git_repo.head()?.try_into_peeled_id()?,
+        @"Some(Sha1(451b9ab0d2e158f25b758346375ad0b4ef213553))");
+    let output = work_dir.run_jj(["log"]);
+    insta::assert_snapshot!(output, @"
+    @  mzvwutvl test.user@example.com 2001-02-03 08:05:11 33bf3d91
+    │  (empty) (no description set)
+    │ ○  royxmykx test.user@example.com 2001-02-03 08:05:12 70546365
+    │ │  (empty) (no description set)
+    │ │ ○  kkmpptxz test.user@example.com 2001-02-03 08:05:10 451b9ab0
+    │ ├─╯  (empty) C
+    │ ○  rlvkpnrz test.user@example.com 2001-02-03 08:05:09 6a5c6978
+    ├─╯  (empty) B
+    ○  qpvuntsm test.user@example.com 2001-02-03 08:05:08 8777db25
+    │  (empty) A
+    ◆  zzzzzzzz root() 00000000
+    [EOF]
+    ------- stderr -------
+    Concurrent modification detected, resolving automatically.
+    [EOF]
+    ");
+    insta::assert_compact_debug_snapshot!(
+        git_repo.head()?.try_into_peeled_id()?,
+        @"Some(Sha1(8777db25171cace71ad014598663d5ffc4fae6b1))");
+    Ok(())
+}
+
+#[test]
 fn test_git_head_race_condition() -> TestResult {
     // Test for race condition where concurrent jj processes create divergent
     // operations when importing/exporting Git HEAD. This test spawns two
-    // processes in parallel: one running `jj debug snapshot` repeatedly
+    // processes in parallel: one running `jj util snapshot` repeatedly
     // (which imports Git HEAD) and another running `jj next/prev` repeatedly
     // (which exports Git HEAD). Without the fix, this would create divergent
     // operations.
@@ -292,12 +373,15 @@ fn test_git_head_race_condition() -> TestResult {
                 // Snapshot repeatedly without delay
                 let mut cmd = std::process::Command::new(&jj_bin);
                 cmd.current_dir(repo_path);
-                cmd.args(["debug", "snapshot"]);
+                cmd.args(["util", "snapshot"]);
                 for (key, value) in &base_env {
                     cmd.env(key, value);
                 }
                 let output = cmd.output().expect("Failed to spawn jj");
-                assert!(output.status.success(), "jj debug snapshot failed");
+                assert!(
+                    output.status.success(),
+                    "jj util snapshot failed:\n{output:?}"
+                );
             }
         });
 
@@ -313,7 +397,10 @@ fn test_git_head_race_condition() -> TestResult {
                     cmd.env(key, value);
                 }
                 let output = cmd.output().expect("Failed to spawn jj");
-                assert!(output.status.success(), "jj {direction} failed");
+                assert!(
+                    output.status.success(),
+                    "jj {direction} failed:\n{output:?}"
+                );
                 count += 1;
             }
         });

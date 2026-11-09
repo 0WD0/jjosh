@@ -31,42 +31,41 @@ use futures::StreamExt as _;
 use gix::odb::pack::FindExt as _;
 use indoc::indoc;
 use itertools::Itertools as _;
-use jj_lib::backend::CopyId;
-use jj_lib::backend::TreeValue;
-use jj_lib::conflict_labels::ConflictLabels;
-use jj_lib::conflicts::ConflictMaterializeOptions;
-use jj_lib::default_backend_factories::default_working_copy_factories;
-use jj_lib::file_util;
-use jj_lib::file_util::check_symlink_support;
-use jj_lib::file_util::symlink_dir;
-use jj_lib::file_util::symlink_file;
-use jj_lib::files::FileMergeHunkLevel;
-use jj_lib::files::MergeOptions;
+use jj_core::backend::CopyId;
+use jj_core::backend::TreeValue;
+use jj_core::conflict_labels::ConflictLabels;
+use jj_core::conflicts::ConflictMaterializeOptions;
+use jj_core::files::FileMergeHunkLevel;
+use jj_core::files::MergeOptions;
+use jj_core::matchers::FilesMatcher;
+use jj_core::merge::Merge;
+use jj_core::merge::SameChange;
+use jj_core::merged_tree::MergedTree;
+use jj_core::merged_tree_builder::MergedTreeBuilder;
+use jj_core::op_store::OperationId;
+use jj_core::ref_name::WorkspaceName;
+use jj_core::repo_path::RepoPath;
+use jj_core::repo_path::RepoPathBuf;
+use jj_git_backend::secret_backend::SecretBackend;
 use jj_lib::fsmonitor::FsmonitorSettings;
 use jj_lib::git::get_git_backend;
 use jj_lib::gitignore::GitIgnoreFile;
 use jj_lib::local_working_copy::LocalWorkingCopy;
+use jj_lib::local_working_copy::LockedLocalWorkingCopy;
 use jj_lib::local_working_copy::TreeState;
 use jj_lib::local_working_copy::TreeStateSettings;
-use jj_lib::matchers::FilesMatcher;
-use jj_lib::merge::Merge;
-use jj_lib::merge::SameChange;
-use jj_lib::merged_tree::MergedTree;
-use jj_lib::merged_tree_builder::MergedTreeBuilder;
-use jj_lib::op_store::OperationId;
 use jj_lib::protos::local_working_copy as working_copy_proto;
-use jj_lib::ref_name::WorkspaceName;
 use jj_lib::repo::ReadonlyRepo;
 use jj_lib::repo::Repo as _;
-use jj_lib::repo_path::RepoPath;
-use jj_lib::repo_path::RepoPathBuf;
 use jj_lib::rewrite::merge_commit_trees;
-use jj_lib::secret_backend::SecretBackend;
 use jj_lib::working_copy::CheckoutError;
 use jj_lib::working_copy::CheckoutStats;
 use jj_lib::working_copy::SnapshotOptions;
 use jj_lib::working_copy::UntrackedReason;
-use jj_lib::workspace::Workspace;
+use jj_local_util::file_util;
+use jj_local_util::file_util::check_symlink_support;
+use jj_local_util::file_util::symlink_dir;
+use jj_local_util::file_util::symlink_file;
 use pollster::FutureExt as _;
 use prost::Message as _;
 use test_case::test_case;
@@ -186,7 +185,7 @@ fn test_checkout_file_transitions(backend: TestRepoBackend) -> TestResult {
                 })
             }
             Kind::Executable => {
-                let id: jj_lib::backend::FileId =
+                let id: jj_core::backend::FileId =
                     testutils::write_file(store, path, "executable file contents");
                 Merge::normal(TreeValue::File {
                     id,
@@ -501,14 +500,11 @@ fn test_acl() -> TestResult {
     let commit2 = commit_with_tree(repo.store(), tree2);
     SecretBackend::adopt_git_repo(&workspace_root);
 
-    let mut ws = Workspace::load(
-        &settings,
-        &workspace_root,
-        &test_workspace.env.default_backend_factories(),
-        &default_working_copy_factories(),
-    )?;
+    let mut ws = test_workspace
+        .env
+        .load_workspace(&settings, &workspace_root)?;
     // Reload commits from the store associated with the workspace
-    let repo = ws.repo_loader().load_at(repo.operation()).block_on()?;
+    let repo = ws.load_at(repo.operation()).block_on()?;
     let commit1 = repo.store().get_commit(commit1.id())?;
     let commit2 = repo.store().get_commit(commit2.id())?;
 
@@ -1351,18 +1347,21 @@ fn test_snapshot_modified_materialized_conflict(
         .check_out(test_workspace.repo.op_id().clone(), None, &merge_commit)
         .block_on()?;
     let contents = std::fs::read(&file_disk_path)?;
-    let hunks =
-        jj_lib::conflicts::parse_conflict(&contents, 2, jj_lib::conflicts::MIN_CONFLICT_MARKER_LEN)
-            .unwrap();
+    let hunks = jj_core::conflicts::parse_conflict(
+        &contents,
+        2,
+        jj_core::conflicts::MIN_CONFLICT_MARKER_LEN,
+    )
+    .unwrap();
     let hunks = get_new_merge_hunks(hunks);
     let mut new_contents = vec![];
     for hunk in hunks {
-        jj_lib::conflicts::materialize_merge_result(
+        jj_core::conflicts::materialize_merge_result(
             &hunk,
             &ConflictLabels::unlabeled(),
             &mut new_contents,
             &ConflictMaterializeOptions {
-                marker_style: jj_lib::conflicts::ConflictMarkerStyle::Diff,
+                marker_style: jj_core::conflicts::ConflictMarkerStyle::Diff,
                 marker_len: None,
                 merge: MergeOptions {
                     hunk_level: FileMergeHunkLevel::Line,
@@ -1864,6 +1863,27 @@ fn test_dotgit_ignored() -> TestResult {
     let new_tree = test_workspace.snapshot()?;
     assert_tree_eq!(new_tree, empty_tree);
     std::fs::remove_dir_all(&foo_path)?;
+    Ok(())
+}
+
+#[test_case(".GIT", ".git"; "git")]
+#[test_case(".JJ", ".jj"; "jj")]
+fn test_nested_repo_ignored_icase_fs(marker: &str, reserved: &str) -> TestResult {
+    let mut test_workspace = TestWorkspace::init();
+    let workspace_root = test_workspace.workspace.workspace_root().to_owned();
+    let nested = workspace_root.join("nested");
+    std::fs::create_dir_all(nested.join(marker))?;
+    std::fs::write(nested.join("file"), "contents")?;
+
+    let new_tree = test_workspace.snapshot()?;
+    if nested.join(reserved).exists() {
+        assert_tree_eq!(new_tree, test_workspace.repo.store().empty_merged_tree());
+    } else {
+        assert_ne!(
+            *new_tree.tree_ids(),
+            test_workspace.repo.store().empty_merged_tree_id()
+        );
+    }
     Ok(())
 }
 
@@ -2713,6 +2733,82 @@ fn test_check_out_reserved_file_path_dot_git_symlink(file_path_str: &str) -> Tes
 
     // The existing file shouldn't be removed.
     assert!(disk_path.exists());
+    Ok(())
+}
+
+#[test]
+fn test_replace_fsmonitor_settings() -> TestResult {
+    let mut test_workspace = TestWorkspace::init();
+    let repo = test_workspace.repo.clone();
+    let workspace_root = test_workspace.workspace.workspace_root().to_owned();
+    let modified_path = repo_path("modified");
+    let deleted_path = repo_path("deleted");
+    let unreported_path = repo_path("unreported");
+    let added_path = repo_path("nested/added");
+    for path in [modified_path, deleted_path, unreported_path] {
+        testutils::write_working_copy_file(&workspace_root, path, "old\n");
+    }
+    test_workspace.snapshot()?;
+    testutils::write_working_copy_file(&workspace_root, modified_path, "modified\n");
+    std::fs::remove_file(deleted_path.to_fs_path(&workspace_root)?)?;
+    testutils::write_working_copy_file(&workspace_root, unreported_path, "unreported change\n");
+    testutils::write_working_copy_file(&workspace_root, added_path, "added\n");
+
+    let injected_settings = FsmonitorSettings::Test {
+        changed_files: [modified_path, deleted_path, added_path]
+            .map(|path| path.to_fs_path_unchecked(Path::new("")))
+            .to_vec(),
+    };
+    let mut locked_wc = test_workspace
+        .workspace
+        .working_copy()
+        .start_mutation()
+        .block_on()?;
+    let old_settings = locked_wc
+        .downcast_mut::<LockedLocalWorkingCopy>()
+        .unwrap()
+        .replace_fsmonitor_settings(injected_settings.clone());
+    assert_eq!(old_settings, FsmonitorSettings::None);
+
+    // The already-loaded tree state must use the injected list for additions,
+    // modifications, and deletions, leaving unreported changes untouched.
+    let expected_tree = create_tree(
+        &repo,
+        &[
+            (modified_path, "modified\n"),
+            (unreported_path, "old\n"),
+            (added_path, "added\n"),
+        ],
+    );
+    let (tree, _) = locked_wc.snapshot(&empty_snapshot_options()).block_on()?;
+    assert_tree_eq!(tree, expected_tree);
+
+    // Starting another mutation reloads the tree state from the working copy's
+    // settings, which must also retain the injected monitor.
+    let wc = locked_wc.finish(repo.op_id().clone()).block_on()?;
+    let mut locked_wc = wc.start_mutation().block_on()?;
+    let (tree, _) = locked_wc.snapshot(&empty_snapshot_options()).block_on()?;
+    assert_tree_eq!(tree, expected_tree);
+
+    let replaced_settings = locked_wc
+        .downcast_mut::<LockedLocalWorkingCopy>()
+        .unwrap()
+        .replace_fsmonitor_settings(old_settings);
+    assert_eq!(replaced_settings, injected_settings);
+
+    // Restoring the previous monitor resumes full scanning and picks up the
+    // change omitted from the injected list.
+    let expected_tree = create_tree(
+        &repo,
+        &[
+            (modified_path, "modified\n"),
+            (unreported_path, "unreported change\n"),
+            (added_path, "added\n"),
+        ],
+    );
+    let (tree, _) = locked_wc.snapshot(&empty_snapshot_options()).block_on()?;
+    assert_tree_eq!(tree, expected_tree);
+    locked_wc.finish(repo.op_id().clone()).block_on()?;
     Ok(())
 }
 

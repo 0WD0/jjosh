@@ -21,7 +21,10 @@ use clap_complete::ArgValueCandidates;
 use futures::StreamExt as _;
 use futures::TryStreamExt as _;
 use futures::future::try_join_all;
+use futures::stream;
 use itertools::Itertools as _;
+use jj_frontend::revset_util::default_ignored_remote_name;
+use jj_lib::backend::BackendResult;
 use jj_lib::backend::ChangeId;
 use jj_lib::backend::CommitId;
 use jj_lib::commit::Commit;
@@ -48,7 +51,6 @@ use jj_lib::settings::UserSettings;
 use crate::cli_util::CommandHelper;
 use crate::cli_util::LogContentFormat;
 use crate::cli_util::WorkspaceCommandEnvironment;
-use crate::cli_util::default_ignored_remote_name;
 use crate::cli_util::merge_operations;
 use crate::command_error::CommandError;
 use crate::command_error::config_error_with_message;
@@ -127,14 +129,13 @@ pub async fn cmd_op_diff(
     let graph_style = GraphStyle::from_settings(settings)?;
     let with_content_format = LogContentFormat::new(ui, settings)?;
 
-    let workspace_name = None;
     let transaction_description = None;
     let command_args = [];
     let merged_from_op = merge_operations(
         None,
         repo_loader,
         from_ops.clone(),
-        workspace_name,
+        Some(workspace_command.workspace().workspace_name()),
         transaction_description,
         &command_args,
     )
@@ -144,6 +145,7 @@ pub async fn cmd_op_diff(
 
     // Create a new transaction starting from `to_repo`.
     let mut tx = to_repo.start_transaction();
+    tx.set_workspace_name(workspace_command.workspace().workspace_name());
     // Merge index from `from_repo` to `to_repo`, so commits in `from_repo` are
     // accessible.
     tx.repo_mut().merge_index(&from_repo)?;
@@ -969,7 +971,9 @@ async fn compute_operation_commits_diff(
     }
 
     // For each new commit, copy/deduce predecessors based on change id.
-    let mut changes: HashMap<CommitId, ModifiedChange> = HashMap::new();
+    // For existing changes, the value is the predecessor ids. For abandoned
+    // changes, it's `None`.
+    let mut changed_ids: Vec<(CommitId, Option<&[CommitId]>)> = vec![];
     let newly_visible = newly_visible_expr
         .intersection(&to_op_diff_changes_expr)
         .evaluate(repo)?;
@@ -985,21 +989,34 @@ async fn compute_operation_commits_diff(
         for id in predecessor_ids {
             abandoned_commits.remove(id);
         }
-        let change = ModifiedChange::Existing {
-            commit: store.get_commit_async(&commit_id).await?,
-            predecessors: try_join_all(predecessor_ids.iter().map(|id| store.get_commit_async(id)))
-                .await?,
-        };
-        changes.insert(commit_id, change);
+        changed_ids.push((commit_id, Some(predecessor_ids)));
     }
 
     // Record remainders as abandoned.
-    for commit_id in abandoned_commits {
-        let change = ModifiedChange::Abandoned {
-            commit: store.get_commit_async(&commit_id).await?,
-        };
-        changes.insert(commit_id, change);
-    }
+    changed_ids.extend(abandoned_commits.into_iter().map(|id| (id, None)));
+
+    // Load the commits concurrently since there may be many of them.
+    let changes: HashMap<CommitId, ModifiedChange> = stream::iter(changed_ids)
+        .map(async |(commit_id, predecessor_ids)| -> BackendResult<_> {
+            let change = if let Some(predecessor_ids) = predecessor_ids {
+                let (commit, predecessors) = futures::try_join!(
+                    store.get_commit_async(&commit_id),
+                    try_join_all(predecessor_ids.iter().map(|id| store.get_commit_async(id))),
+                )?;
+                ModifiedChange::Existing {
+                    commit,
+                    predecessors,
+                }
+            } else {
+                ModifiedChange::Abandoned {
+                    commit: store.get_commit_async(&commit_id).await?,
+                }
+            };
+            Ok((commit_id, change))
+        })
+        .buffered(store.concurrency())
+        .try_collect()
+        .await?;
 
     Ok(OperationCommitsDiff {
         changes,

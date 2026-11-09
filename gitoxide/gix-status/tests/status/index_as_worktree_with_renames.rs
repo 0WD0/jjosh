@@ -10,65 +10,95 @@ use pretty_assertions::assert_eq;
 use crate::fixture_path;
 
 #[test]
+fn gitlink_type_changes_are_not_also_untracked() -> gix_testtools::TestResult {
+    for (name, worktree_mode) in [
+        ("type-change", gix_index::entry::Mode::FILE),
+        ("type-change-unconfigured-file", gix_index::entry::Mode::FILE),
+        ("type-change-unconfigured-symlink", gix_index::entry::Mode::SYMLINK),
+    ] {
+        let git_dir = fixture_path("status_submodule").join(name).join(".git");
+        if worktree_mode == gix_index::entry::Mode::SYMLINK && git_dir.join("symlinks-unavailable").is_file() {
+            continue;
+        }
+        if worktree_mode == gix_index::entry::Mode::FILE {
+            assert_eq!(
+                std::fs::read_to_string(git_dir.join("status.baseline"))?,
+                " T m1\n",
+                "Git reports only a type change for {name}"
+            );
+        }
+        assert_eq!(
+            std::fs::read_to_string(git_dir.join("untracked.baseline"))?,
+            "",
+            "Git does not list the replaced gitlink as untracked for {name}"
+        );
+        fixture_filtered_detailed(
+            "status_submodule.sh",
+            name,
+            &[],
+            &[Expectation::Modification {
+                rela_path: "m1",
+                status: Change::Type { worktree_mode }.into(),
+            }],
+            None,
+            Some(Default::default()),
+            Fixture::ReadOnly,
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn changed_and_untracked_and_renamed() {
     let expectations_with_dirwalk = [
-        // Not always will we match the right source to destinations, there is ambiguity.
+        // A deleted source can supply copies; its last destination is the rename.
         Expectation::Rewrite {
             source_rela_path: "dir/content",
             dest_rela_path: "content-copy",
             dest_dirwalk_status: gix_dir::entry::Status::Untracked,
-            diff: None,
-            copy: false,
+            similarity: None,
+            copy: true,
         },
-        Expectation::DirwalkEntry {
-            rela_path: "content-copy-with-rewrite",
-            status: gix_dir::entry::Status::Untracked,
-            disk_kind: Some(gix_dir::entry::Kind::File),
+        Expectation::Rewrite {
+            source_rela_path: "dir/content",
+            dest_rela_path: "content-copy-with-rewrite",
+            dest_dirwalk_status: gix_dir::entry::Status::Untracked,
+            similarity: gix_diff::rewrites::Similarity::from_score(40_000),
+            copy: true,
         },
         Expectation::Rewrite {
             source_rela_path: "dir/content2",
             dest_rela_path: "content-with-rewrite",
             dest_dirwalk_status: gix_dir::entry::Status::Untracked,
-            diff: Some(gix_diff::blob::DiffLineStats {
-                removals: 0,
-                insertions: 1,
-                before: 1,
-                after: 2,
-                similarity: 0.72,
-            }),
+            similarity: gix_diff::rewrites::Similarity::from_score(43_200),
             copy: false,
         },
         Expectation::Rewrite {
             source_rela_path: "empty",
             dest_rela_path: "dir/untracked",
             dest_dirwalk_status: gix_dir::entry::Status::Untracked,
-            diff: None,
+            similarity: None,
             copy: true,
         },
-        // This is just detected as untracked, related to how the rename-tracker matches pairs
-        Expectation::DirwalkEntry {
-            rela_path: "plainly-renamed-content",
-            status: gix_dir::entry::Status::Untracked,
-            disk_kind: Some(gix_dir::entry::Kind::File),
+        Expectation::Rewrite {
+            source_rela_path: "dir/content",
+            dest_rela_path: "plainly-renamed-content",
+            dest_dirwalk_status: gix_dir::entry::Status::Untracked,
+            similarity: None,
+            copy: false,
         },
         Expectation::Rewrite {
             source_rela_path: "executable",
             dest_rela_path: "rewritten-executable",
             dest_dirwalk_status: gix_dir::entry::Status::Untracked,
-            diff: Some(gix_diff::blob::DiffLineStats {
-                removals: 0,
-                insertions: 1,
-                before: 1,
-                after: 2,
-                similarity: 0.53333336,
-            }),
+            similarity: gix_diff::rewrites::Similarity::from_score(32_000),
             copy: false,
         },
         Expectation::Rewrite {
             source_rela_path: "empty",
             dest_rela_path: "untracked",
             dest_dirwalk_status: gix_dir::entry::Status::Untracked,
-            diff: None,
+            similarity: None,
             copy: true,
         },
     ];
@@ -94,7 +124,7 @@ fn changed_and_untracked_and_renamed() {
         out.rewrites,
         Some(gix_diff::rewrites::Outcome {
             options: rewrites,
-            num_similarity_checks: 11,
+            num_similarity_checks: 12,
             num_similarity_checks_skipped_for_rename_tracking_due_to_limit: 0,
             num_similarity_checks_skipped_for_copy_tracking_due_to_limit: 0,
         })
@@ -195,6 +225,7 @@ fn changed_and_untracked() {
         dirwalk,
         gix_dir::walk::Outcome {
             read_dir_calls: 3,
+            read_dir_errors: 0,
             returned_entries: 2,
             seen_entries: 8,
         }
@@ -242,10 +273,51 @@ fn unreadable_untracked() {
         dirwalk,
         gix_dir::walk::Outcome {
             read_dir_calls: 1,
+            read_dir_errors: 0,
             returned_entries: 1,
             seen_entries: 3,
         }
     );
+}
+
+#[test]
+fn untracked_file_removed_after_open() -> gix_testtools::TestResult {
+    untracked_file_changed_after_open("bash .git/change-untracked.sh remove")
+}
+
+#[test]
+fn untracked_file_replaced_after_open() -> gix_testtools::TestResult {
+    untracked_file_changed_after_open("bash .git/change-untracked.sh replace")
+}
+
+fn untracked_file_changed_after_open(process: &'static str) -> gix_testtools::TestResult {
+    if gix_testtools::run_in_isolated_process()? {
+        return Ok(());
+    }
+    let out = fixture_filtered_detailed(
+        "status_untracked_race.sh",
+        "",
+        &[],
+        &[Expectation::Rewrite {
+            source_rela_path: "source",
+            dest_rela_path: "renamed",
+            dest_dirwalk_status: gix_dir::entry::Status::Untracked,
+            similarity: None,
+            copy: false,
+        }],
+        Some(gix_diff::Rewrites {
+            percentage: None,
+            ..Default::default()
+        }),
+        Some(Default::default()),
+        Fixture::WritableWithFilterProcess(process),
+    );
+    assert_eq!(
+        out.rewrites.expect("rewrite tracking is enabled").num_similarity_checks,
+        0,
+        "the opened file's contents and length still identify an exact rename after its path changes"
+    );
+    Ok(())
 }
 
 enum Fixture {
@@ -253,6 +325,7 @@ enum Fixture {
     ReadOnlyNeedsArchive,
     #[cfg(unix)]
     WritableExecuted,
+    WritableWithFilterProcess(&'static str),
 }
 
 fn fixture_filtered_detailed(
@@ -272,6 +345,7 @@ fn fixture_filtered_detailed(
         out
     }
 
+    let mut filter_process = None;
     let (worktree, _tmp) = match fixture {
         Fixture::ReadOnly => {
             let dir = fixture_path(script).join(subdir);
@@ -286,6 +360,12 @@ fn fixture_filtered_detailed(
         #[cfg(unix)]
         Fixture::WritableExecuted => {
             let tmp = crate::fixture_path_rw_slow(script);
+            let dir = tmp.path().join(subdir);
+            (dir, Some(tmp))
+        }
+        Fixture::WritableWithFilterProcess(process) => {
+            filter_process = Some(process);
+            let tmp = crate::scripted_fixture_writable(script).expect("script works");
             let dir = tmp.path().join(subdir);
             (dir, Some(tmp))
         }
@@ -310,6 +390,17 @@ fn fixture_filtered_detailed(
         index.path_backing(),
     );
     let capabilities = gix_fs::Capabilities::probe(&git_dir);
+    let mut filter = gix_filter::Pipeline::new(Default::default(), object_hash, Default::default());
+    if let Some(process) = filter_process {
+        filter.driver_state_mut().context.worktree_dir = Some(worktree.clone());
+        filter.options_mut().drivers.push(gix_filter::Driver {
+            name: "race".into(),
+            clean: None,
+            smudge: None,
+            process: Some(process.into()),
+            required: true,
+        });
+    }
     let resource_cache = gix_diff::blob::Platform::new(
         Default::default(),
         gix_diff::blob::Pipeline::new(
@@ -317,7 +408,7 @@ fn fixture_filtered_detailed(
                 old_root: None,
                 new_root: Some(worktree.to_owned()),
             },
-            gix_filter::Pipeline::new(Default::default(), gix_testtools::object_hash(), Default::default()),
+            filter,
             vec![],
             gix_diff::blob::pipeline::Options {
                 large_file_threshold_bytes: 0,
@@ -416,14 +507,14 @@ fn records_to_expectations<'a>(recs: &'a [Entry<'_, (), ()>]) -> Vec<Expectation
             Entry::Rewrite {
                 source,
                 dirwalk_entry,
-                diff,
+                similarity,
                 copy,
                 ..
             } => Expectation::Rewrite {
                 source_rela_path: source.rela_path().to_str().unwrap(),
                 dest_rela_path: dirwalk_entry.rela_path.to_str().unwrap(),
                 dest_dirwalk_status: dirwalk_entry.status,
-                diff: *diff,
+                similarity: *similarity,
                 copy: *copy,
             },
         })
@@ -445,7 +536,7 @@ enum Expectation<'a> {
         source_rela_path: &'a str,
         dest_rela_path: &'a str,
         dest_dirwalk_status: gix_dir::entry::Status,
-        diff: Option<gix_diff::blob::DiffLineStats>,
+        similarity: Option<gix_diff::rewrites::Similarity>,
         copy: bool,
     },
 }

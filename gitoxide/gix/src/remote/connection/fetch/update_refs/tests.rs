@@ -132,7 +132,7 @@ mod update {
             (
                 "+refs/remotes/origin/g:refs/heads/main",
                 fetch::refs::update::Mode::RejectedCurrentlyCheckedOut {
-                    worktree_dirs: vec![repo.current_dir().join(repo.workdir().expect("present"))],
+                    worktree_dirs: vec![repo.workdir().expect("present").to_owned()],
                 },
                 None,
                 "checked out branches cannot be written, as it requires a merge of sorts which isn't done here",
@@ -220,7 +220,7 @@ mod update {
     #[test]
     fn checked_out_branches_in_worktrees_are_rejected_with_additional_information() -> TestResult {
         let root = gix_path::realpath(gix_testtools::scripted_fixture_read_only_with_args_single_archive(
-            "make_fetch_repos.sh",
+            "make_fetch_worktrees.sh",
             [base_repo_path()],
         )?)?;
         let repo = root.join("worktree-root");
@@ -654,7 +654,7 @@ mod update {
                 "refs/heads/main",
                 fetch::refs::Update {
                     mode: fetch::refs::update::Mode::RejectedCurrentlyCheckedOut {
-                        worktree_dirs: vec![repo.current_dir().join(repo.workdir().expect("present"))],
+                        worktree_dirs: vec![repo.workdir().expect("present").to_owned()],
                     },
                     type_change: None,
                     edit_index: None,
@@ -1130,9 +1130,8 @@ mod update {
         let references = remote_repo.references().unwrap();
         let mut references: Vec<_> = references.all().unwrap().map(|r| into_remote_ref(r.unwrap())).collect();
         references.push(into_remote_ref(remote_repo.find_reference("HEAD").unwrap()));
-        let null = remote_repo.object_hash().null();
         let mappings = group
-            .match_lhs(references.iter().map(|r| remote_ref_to_item(r, &null)))
+            .match_lhs(references.iter().map(remote_ref_to_item))
             .mappings
             .into_iter()
             .map(|m| fetch::refmap::Mapping {
@@ -1172,14 +1171,11 @@ mod update {
         }
     }
 
-    fn remote_ref_to_item<'a>(
-        r: &'a gix_protocol::handshake::Ref,
-        null: &'a gix_hash::oid,
-    ) -> gix_refspec::match_group::Item<'a> {
+    fn remote_ref_to_item(r: &gix_protocol::handshake::Ref) -> gix_refspec::match_group::Item<'_> {
         let (full_ref_name, target, object) = r.unpack();
         gix_refspec::match_group::Item {
             full_ref_name,
-            target: target.unwrap_or(null),
+            target,
             object,
         }
     }

@@ -36,8 +36,7 @@ fn attributes() -> gix_worktree::Stack {
 }
 
 fn platforms(object_hash: gix_hash::Kind) -> Platforms {
-    let filter =
-        || gix_filter::Pipeline::new(Default::default(), object_hash, Default::default());
+    let filter = || gix_filter::Pipeline::new(Default::default(), object_hash, Default::default());
     Platforms {
         diff: gix_diff::blob::Platform::new(
             Default::default(),
@@ -82,6 +81,7 @@ fn options(favor: Option<Favor>) -> gix_merge::tree::Options {
         ),
     };
     gix_merge::tree::Options {
+        directory_renames: Default::default(),
         rewrites: Some(Default::default()),
         blob_merge: gix_merge::blob::platform::merge::Options {
             is_virtual_ancestor: false,

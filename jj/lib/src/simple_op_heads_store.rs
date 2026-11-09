@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![expect(missing_docs)]
+//! Simple file-based implementation of [`OpHeadsStore`].
 
 use std::fmt::Debug;
 use std::fmt::Formatter;
@@ -22,18 +22,18 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use async_trait::async_trait;
+use jj_core::backend::BackendInitError;
+use jj_core::hex_util;
+use jj_core::object_id::ObjectId as _;
+use jj_core::op_store::OperationId;
+use jj_local_util::file_util::IoResultExt as _;
+use jj_local_util::file_util::PathError;
+use jj_local_util::lock::FileLock;
 use thiserror::Error;
 
-use crate::backend::BackendInitError;
-use crate::file_util::IoResultExt as _;
-use crate::file_util::PathError;
-use crate::hex_util;
-use crate::lock::FileLock;
-use crate::object_id::ObjectId as _;
 use crate::op_heads_store::OpHeadsStore;
 use crate::op_heads_store::OpHeadsStoreError;
 use crate::op_heads_store::OpHeadsStoreLock;
-use crate::op_store::OperationId;
 
 /// Error that may occur during [`SimpleOpHeadsStore`] initialization.
 #[derive(Debug, Error)]
@@ -42,10 +42,12 @@ pub struct SimpleOpHeadsStoreInitError(#[from] pub PathError);
 
 impl From<SimpleOpHeadsStoreInitError> for BackendInitError {
     fn from(err: SimpleOpHeadsStoreInitError) -> Self {
-        Self(err.into())
+        Self::new(err)
     }
 }
 
+/// [`OpHeadsStore`] that stores each op head as an empty file named by the
+/// operation ID.
 pub struct SimpleOpHeadsStore {
     dir: PathBuf,
 }
@@ -59,8 +61,11 @@ impl Debug for SimpleOpHeadsStore {
 }
 
 impl SimpleOpHeadsStore {
+    /// Name of this op heads store type.
     pub const NAME: &str = "simple_op_heads_store";
 
+    /// Initializes a new op heads store in `dir` with `root_op_id` as the only
+    /// head.
     pub fn init(dir: &Path, root_op_id: &OperationId) -> Result<Self, SimpleOpHeadsStoreInitError> {
         let op_heads_dir = dir.join("heads");
         fs::create_dir(&op_heads_dir).context(&op_heads_dir)?;
@@ -69,6 +74,7 @@ impl SimpleOpHeadsStore {
         Ok(store)
     }
 
+    /// Loads an existing op heads store from `dir`.
     pub fn load(dir: &Path) -> Self {
         let op_heads_dir = dir.join("heads");
         Self { dir: op_heads_dir }

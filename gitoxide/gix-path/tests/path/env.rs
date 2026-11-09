@@ -17,6 +17,53 @@ fn shell() {
     );
 }
 
+#[cfg(windows)]
+mod windows_installations {
+    #[test]
+    fn path_takes_precedence() -> gix_error::TestResult {
+        let fixture = gix_testtools::scripted_fixture_read_only("windows-git-installations.sh")?;
+        if gix_testtools::run_in_isolated_process()? {
+            return Ok(());
+        }
+        let mut env = gix_testtools::Env::new().set("PATH", fixture.join("path").to_str().expect("UTF-8 fixture path"));
+        for (variable, root) in [
+            ("SCOOP", "custom"),
+            ("CONDA_PREFIX", "conda"),
+            ("ChocolateyToolsLocation", "chocolatey"),
+            ("LocalAppData", "winget"),
+            ("GIT_INSTALL_ROOT", "msys"),
+        ] {
+            env = env.set(variable, fixture.join(root).to_str().expect("UTF-8 fixture path"));
+        }
+        assert_eq!(
+            gix_path::env::exe_invocation(),
+            std::path::Path::new("git.exe"),
+            "PATH takes precedence over package roots and host registrations"
+        );
+        drop(env);
+        Ok(())
+    }
+
+    #[test]
+    fn path_inside_a_package_installation_keeps_the_short_invocation() -> gix_error::TestResult {
+        let fixture = gix_testtools::scripted_fixture_read_only("windows-git-installations.sh")?;
+        if gix_testtools::run_in_isolated_process()? {
+            return Ok(());
+        }
+        let root = fixture.join("conda");
+        let bin = root.join("Library/bin");
+        let _env = gix_testtools::Env::new()
+            .set("PATH", bin.to_str().expect("UTF-8 fixture path"))
+            .set("CONDA_PREFIX", root.to_str().expect("UTF-8 fixture path"));
+        assert_eq!(
+            gix_path::env::exe_invocation(),
+            std::path::Path::new("git.exe"),
+            "PATH provenance determines the invocation without searching alternative locations"
+        );
+        Ok(())
+    }
+}
+
 #[test]
 fn shell_absolute() {
     assert!(
@@ -37,12 +84,16 @@ fn shell_unix_path() {
 }
 
 #[test]
-fn installation_config() {
-    assert_ne!(
-        gix_path::env::installation_config().map(|p| p.components().count()),
-        gix_path::env::installation_config_prefix().map(|p| p.components().count()),
-        "the prefix is a bit shorter than the installation config path itself"
+fn installation_config() -> gix_error::TestResult {
+    if gix_testtools::run_in_isolated_process()? {
+        return Ok(());
+    }
+    assert_eq!(
+        gix_path::env::installation_config().and_then(Path::parent),
+        gix_path::env::installation_config_prefix(),
+        "the prefix is the config's parent, or absent when Git reports no installation config"
     );
+    Ok(())
 }
 
 #[test]
@@ -159,6 +210,8 @@ mod windows_prefix {
         let _env =
             gix_testtools::Env::new().set("EXEPATH", installation.path().to_str().expect("UTF-8 temporary path"));
         let config = installation.path().join("etc/gitconfig");
+        std::fs::create_dir(config.parent().expect("config has a parent"))?;
+        std::fs::File::create_new(&config)?;
         assert_eq!(
             gix_path::env::installation_config(),
             Some(config.as_path()),
@@ -172,6 +225,138 @@ mod windows_prefix {
         assert!(
             gix_path::env::installation_config_is_system(),
             "the installation file has system scope"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn git_in_cmd_directory_is_located_without_running_it() -> gix_testtools::TestResult {
+        if gix_testtools::run_in_isolated_process()? {
+            return Ok(());
+        }
+        let installation = tempfile::tempdir()?;
+        let cmd = installation.path().join("cmd");
+        std::fs::create_dir(&cmd)?;
+        std::fs::create_dir(installation.path().join("ucrt64"))?;
+        // An empty file fails to launch, so any result below can't have come from running it.
+        std::fs::File::create_new(cmd.join("git.exe"))?;
+        let _env = gix_testtools::Env::new()
+            .unset("EXEPATH")
+            .unset("GIT_EXEC_PATH")
+            .set("PATH", cmd.to_str().expect("UTF-8 temporary path"));
+        let config = installation.path().join("etc/gitconfig");
+        std::fs::create_dir(config.parent().expect("config has a parent"))?;
+        std::fs::File::create_new(&config)?;
+        assert_eq!(
+            gix_path::env::system_prefix(),
+            Some(installation.path().join("ucrt64").as_path()),
+            "the only runtime directory next to `cmd` is the prefix"
+        );
+        assert_eq!(
+            gix_path::env::installation_config(),
+            Some(config.as_path()),
+            "Git for Windows keeps its installation config in the top-level etc directory"
+        );
+        assert_eq!(
+            gix_path::env::system_config(),
+            Some(config.as_path()),
+            "the same file is the system config"
+        );
+        assert!(
+            gix_path::env::installation_config_is_system(),
+            "the installation file has system scope"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn git_in_cmd_directory_without_modern_config_is_queried() -> gix_testtools::TestResult {
+        if gix_testtools::run_in_isolated_process()? {
+            return Ok(());
+        }
+        let installation = tempfile::tempdir()?;
+        let cmd = installation.path().join("cmd");
+        std::fs::create_dir(&cmd)?;
+        std::fs::create_dir_all(installation.path().join("mingw64/etc"))?;
+        std::fs::write(
+            installation.path().join("mingw64/etc/gitconfig"),
+            "[core]
+                autocrlf = true
+            ",
+        )?;
+        // A legacy runtime directory does not establish the modern configuration layout.
+        // This placeholder cannot run, so falling back to Git yields no installation config.
+        std::fs::File::create_new(cmd.join("git.exe"))?;
+        let _env = gix_testtools::Env::new()
+            .unset("EXEPATH")
+            .unset("GIT_EXEC_PATH")
+            .set("PATH", cmd.to_str().expect("UTF-8 temporary path"));
+        assert_eq!(
+            gix_path::env::installation_config(),
+            None,
+            "without a confirmed modern config file, discovery must query Git instead of inventing a path"
+        );
+        assert!(
+            !gix_path::env::installation_config_is_system(),
+            "a failed configuration query cannot establish the installation config's scope"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn prefix_is_the_one_git_reports() -> gix_testtools::TestResult {
+        let fixture = gix_testtools::scripted_fixture_read_only("windows-git-installations.sh")?;
+        if gix_testtools::run_in_isolated_process()? {
+            return Ok(());
+        }
+        let _env = gix_testtools::Env::new().unset("EXEPATH").unset("GIT_EXEC_PATH");
+        let spelled_alike = |path: &std::path::Path| path.to_string_lossy().to_lowercase().replace('/', "\\");
+        let reported = gix_testtools::git(&fixture, "--exec-path")?;
+        let core_dir = std::path::Path::new(reported.trim_end());
+        assert_eq!(
+            spelled_alike(gix_path::env::core_dir().expect("Git's core directory is found")),
+            spelled_alike(core_dir),
+            "inferred core directories must agree with an actual Git query"
+        );
+        let from_git = core_dir
+            .ancestors()
+            .nth(2)
+            .expect("Git for Windows reports `<prefix>/libexec/git-core`");
+        let prefix = gix_path::env::system_prefix().expect("a Git installation is present");
+        assert_eq!(
+            spelled_alike(prefix),
+            spelled_alike(from_git),
+            "however it is found, the prefix must be the one Git uses"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn git_in_cmd_directory_does_not_override_git_exec_path() -> gix_testtools::TestResult {
+        if gix_testtools::run_in_isolated_process()? {
+            return Ok(());
+        }
+        let installation = tempfile::tempdir()?;
+        let exec_path_root = tempfile::tempdir()?;
+        for directory in ["cmd", "ucrt64"] {
+            std::fs::create_dir(installation.path().join(directory))?;
+        }
+        std::fs::File::create_new(installation.path().join("cmd/git.exe"))?;
+        let prefix = exec_path_root.path().join("mingw64");
+        let _env = gix_testtools::Env::new()
+            .unset("EXEPATH")
+            .set(
+                "GIT_EXEC_PATH",
+                prefix.join("libexec/git-core").to_str().expect("UTF-8 temporary path"),
+            )
+            .set(
+                "PATH",
+                installation.path().join("cmd").to_str().expect("UTF-8 temporary path"),
+            );
+        assert_ne!(
+            gix_path::env::system_prefix(),
+            Some(installation.path().join("ucrt64").as_path()),
+            "GIT_EXEC_PATH takes this decision out of the shortcut's hands"
         );
         Ok(())
     }

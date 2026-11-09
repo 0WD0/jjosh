@@ -772,7 +772,7 @@ fn project_validation_collapses_excluded_equivalent_parents_but_keeps_deletions(
     let published = git(&remote, &["rev-parse", "main"]);
 
     // These distinct immutable canonical parents both project to the published base.
-    // Their empty descriptions and private status remain outside the validation range.
+    // Their empty descriptions and private status disappear with the collapsed project history.
     let excluded = ["excluded-left", "excluded-right"].map(|name| {
         jjosh(&client, &["new", &base]);
         fs::write(client.join(format!("{name}.txt")), "outside\n").unwrap();
@@ -838,9 +838,31 @@ fn project_validation_collapses_excluded_equivalent_parents_but_keeps_deletions(
     assert_eq!(git(&remote, &["rev-parse", "main"]), published);
 
     jjosh(&client, &["describe", "-m", "merge project histories"]);
-    jjosh(
+    // The deletion survives projection, so the upstream validator must check it
+    // even though a local tag makes its canonical commit immutable.
+    let rejected = jjosh_unchecked(
         &client,
         &["--config", &private, "git", "push", "--bookmark", "main#p"],
+    );
+    assert!(!rejected.status.success());
+    let stderr = String::from_utf8_lossy(&rejected.stderr);
+    assert!(
+        stderr.contains(&deleted[..12]) && stderr.contains("is private"),
+        "{stderr}"
+    );
+    assert_eq!(git(&remote, &["rev-parse", "main"]), published);
+    jjosh(
+        &client,
+        &[
+            "--config",
+            &private,
+            "git",
+            "push",
+            "--bookmark",
+            "main#p",
+            "--allow-private",
+            "--allow-empty-description",
+        ],
     );
     assert_eq!(
         git(&remote, &["show", "-s", "--format=%p", "main"])
@@ -6982,9 +7004,7 @@ fn signed_transformed_fetch_keeps_annotation_without_invalidated_signature() {
             "v1.0",
         ],
     );
-    assert!(
-        String::from_utf8_lossy(&fetched.stderr).contains("without its invalidated signature")
-    );
+    assert!(String::from_utf8_lossy(&fetched.stderr).contains("without its invalidated signature"));
     jjosh(&client, &["tag", "track", "v1.0#alpha@alpha-upstream"]);
     jjosh(&client, &["git", "export"]);
     let canonical = git(&git_dir, &["cat-file", "tag", "refs/tags/v1.0#alpha"]);

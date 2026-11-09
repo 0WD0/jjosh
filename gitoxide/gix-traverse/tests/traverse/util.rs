@@ -1,5 +1,5 @@
 use gix_hash::ObjectId;
-use std::{collections::HashMap, path::PathBuf};
+use std::{cell::Cell, collections::HashMap, path::PathBuf, rc::Rc};
 
 pub use gix_testtools::Result;
 
@@ -264,6 +264,90 @@ pub fn named_fixture(script_name: &str, repo_name: &str) -> Result<(PathBuf, gix
     Ok((repo_dir, odb))
 }
 
+/// Load a split graph with an unseen, legacy zero-generation middle layer, verifying the patched chain with Git.
+pub fn unseen_generation_fixture(repo_name: &str) -> gix_testtools::TestResult<(PathBuf, gix_odb::Handle)> {
+    use std::fmt::Write;
+
+    let (fixture_dir, ()) = gix_testtools::scripted_fixture_read_only_with_post(
+        "make_repo_for_hidden_unseen_generation.sh",
+        3,
+        |fixture| {
+            if let gix_testtools::FixtureState::Uninitialized(path) = fixture {
+                for (name, middle_commits) in [("short", 1), ("long", 2)] {
+                    let graph_dir = path.join(name).join(".git/objects/info/commit-graphs");
+                    let chain_path = graph_dir.join("commit-graph-chain");
+                    let chain = std::fs::read_to_string(&chain_path)?;
+                    let layers = chain.lines().collect::<Vec<_>>();
+                    assert_eq!(layers.len(), 3, "A, the Z commits and H have separate layers");
+                    let hash_kind = gix_testtools::object_hash();
+                    let hash_len = hash_kind.len_in_bytes();
+                    let mut base_hashes = Vec::new();
+                    let mut new_chain = String::new();
+                    for (layer, (old_hash, (generation, num_commits))) in layers
+                        .into_iter()
+                        .zip([(1_u32, 1), (0, middle_commits), (1, 1)])
+                        .enumerate()
+                    {
+                        let graph_path = graph_dir.join(format!("graph-{old_hash}.graph"));
+                        let file = gix_commitgraph::File::at(&graph_path)?;
+                        assert_eq!(
+                            file.num_commits(),
+                            num_commits,
+                            "only the middle layer can have multiple commits"
+                        );
+                        assert_eq!(usize::from(file.base_graph_count()), layer, "layers form a chain");
+                        drop(file);
+
+                        let mut data = std::fs::read(&graph_path)?;
+                        let table_end = 8 + usize::from(data[6]) * 12;
+                        let chunks = data[8..table_end].as_chunks::<12>().0.to_vec();
+                        for entry in chunks {
+                            let offset = usize::try_from(u64::from_be_bytes(entry[4..].try_into()?))?;
+                            match &entry[..4] {
+                                b"CDAT" => {
+                                    for position in 0..usize::try_from(num_commits)? {
+                                        let generation_offset = offset + position * (hash_len + 16) + hash_len + 8;
+                                        let generation_and_time =
+                                            u32::from_be_bytes(data[generation_offset..][..4].try_into()?);
+                                        // Preserve the two high timestamp bits packed below the generation.
+                                        data[generation_offset..][..4].copy_from_slice(
+                                            &((generation << 2) | (generation_and_time & 0b11)).to_be_bytes(),
+                                        );
+                                    }
+                                }
+                                b"BASE" => data[offset..][..base_hashes.len()].copy_from_slice(&base_hashes),
+                                _ => {}
+                            }
+                        }
+                        let checksum_offset = data.len() - hash_len;
+                        let mut hasher = gix_hash::hasher(hash_kind);
+                        hasher.update(&data[..checksum_offset]);
+                        let checksum = hasher.try_finalize()?;
+                        data[checksum_offset..].copy_from_slice(checksum.as_slice());
+                        if checksum != old_hash {
+                            // Replace Git's read-only file without modifying a live mapping.
+                            let replacement = graph_path.with_extension("tmp");
+                            std::fs::write(&replacement, data)?;
+                            gix_testtools::rename(replacement, &graph_path)?;
+                            gix_testtools::rename(&graph_path, graph_dir.join(format!("graph-{checksum}.graph")))?;
+                        }
+                        base_hashes.extend_from_slice(checksum.as_slice());
+                        writeln!(new_chain, "{checksum}")?;
+                    }
+                    let replacement = chain_path.with_extension("tmp");
+                    std::fs::write(&replacement, new_chain)?;
+                    gix_testtools::rename(replacement, chain_path)?;
+                }
+            }
+            Ok(())
+        },
+    )?;
+    let repo_dir = fixture_dir.join(repo_name);
+    gix_testtools::git(&repo_dir, "-c commitGraph.generationVersion=1 commit-graph verify")?;
+    let odb = odb_at(repo_dir.join(".git/objects"))?;
+    Ok((repo_dir, odb))
+}
+
 /// Load a commit graph if available for the given object store.
 pub fn commit_graph(store: &gix_odb::Store) -> Option<gix_commitgraph::Graph> {
     gix_commitgraph::at(store.path().join("info"), store.object_hash(), None).ok()
@@ -297,14 +381,12 @@ fn git_graph_internal(repo_dir: impl AsRef<std::path::Path>, with_time: bool) ->
     Ok(gix_testtools::normalize_hashes(&out.stdout.into_string_lossy()).0)
 }
 
-/// Parse commit names to IDs from git log output.
+/// Read `commit-names.baseline`, generated by `git log --all --format='%H %s'` in the fixture script.
 /// Returns a map of commit message (first word) to ObjectId.
 pub fn parse_commit_names(repo_path: &std::path::Path) -> Result<std::collections::HashMap<String, ObjectId>> {
-    let output = gix_testtools::git_command(repo_path)
-        .args(["log", "--all", "--format=%H %s"])
-        .output()?;
+    let output = std::fs::read_to_string(repo_path.join("commit-names.baseline"))?;
     let mut commits = std::collections::HashMap::new();
-    for line in String::from_utf8_lossy(&output.stdout).lines() {
+    for line in output.lines() {
         let mut parts = line.split_whitespace();
         if let (Some(hash), Some(name)) = (parts.next(), parts.next()) {
             commits.insert(name.to_string(), gix_hash::ObjectId::from_hex(hash.as_bytes())?);
@@ -313,15 +395,25 @@ pub fn parse_commit_names(repo_path: &std::path::Path) -> Result<std::collection
     Ok(commits)
 }
 
-/// Run `git rev-list` with the given arguments and return the resulting commit IDs.
-/// Useful for verifying traversal results against git's baseline behavior.
-pub fn git_rev_list(repo_path: &std::path::Path, args: &[&str]) -> Result<Vec<ObjectId>> {
-    let output = gix_testtools::git_command(repo_path)
-        .arg("rev-list")
-        .args(args)
-        .output()?;
-    Ok(String::from_utf8_lossy(&output.stdout)
+pub fn rev_list_baseline(repo_path: &std::path::Path, name: &str) -> Result<Vec<ObjectId>> {
+    std::fs::read_to_string(repo_path.join(format!("{name}.baseline")))?
         .lines()
-        .map(|s| gix_hash::ObjectId::from_hex(s.trim().as_bytes()).expect("valid hash"))
-        .collect())
+        .map(|line| Ok(ObjectId::from_hex(line.as_bytes())?))
+        .collect()
+}
+
+pub struct CountingFind<'a> {
+    pub inner: &'a gix_odb::Handle,
+    pub lookups: Rc<Cell<usize>>,
+}
+
+impl gix_object::Find for CountingFind<'_> {
+    fn try_find<'a>(
+        &self,
+        id: &gix_hash::oid,
+        buffer: &'a mut Vec<u8>,
+    ) -> gix_error::Result<Option<gix_object::Data<'a>>> {
+        self.lookups.set(self.lookups.get() + 1);
+        gix_object::Find::try_find(self.inner, id, buffer)
+    }
 }

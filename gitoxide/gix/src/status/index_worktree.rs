@@ -169,14 +169,34 @@ impl Repository {
 
 /// An implementation of a trait to use with [`Repository::index_worktree_status()`] to compute the submodule status
 /// using [Submodule::status()](crate::Submodule::status()).
-#[derive(Clone)]
 pub struct BuiltinSubmoduleStatus {
     mode: crate::status::Submodule,
     #[cfg(feature = "parallel")]
     repo: crate::ThreadSafeRepository,
     #[cfg(not(feature = "parallel"))]
     git_dir: std::path::PathBuf,
+    #[cfg(not(feature = "parallel"))]
+    open_options: crate::open::Options,
+    #[cfg(not(feature = "parallel"))]
+    work_dir: Option<std::path::PathBuf>,
     submodule_paths: Vec<BString>,
+}
+
+impl Clone for BuiltinSubmoduleStatus {
+    fn clone(&self) -> Self {
+        Self {
+            mode: self.mode,
+            #[cfg(feature = "parallel")]
+            repo: self.repo.clone(),
+            #[cfg(not(feature = "parallel"))]
+            git_dir: self.git_dir.clone(),
+            #[cfg(not(feature = "parallel"))]
+            open_options: self.open_options.clone_with_trust(),
+            #[cfg(not(feature = "parallel"))]
+            work_dir: self.work_dir.clone(),
+            submodule_paths: self.submodule_paths.clone(),
+        }
+    }
 }
 
 ///
@@ -209,6 +229,10 @@ mod submodule_status {
                 repo,
                 #[cfg(not(feature = "parallel"))]
                 git_dir: local_repo.git_dir().to_owned(),
+                #[cfg(not(feature = "parallel"))]
+                open_options: local_repo.open_options().clone_with_trust(),
+                #[cfg(not(feature = "parallel"))]
+                work_dir: local_repo.workdir().map(ToOwned::to_owned),
                 submodule_paths,
             })
         }
@@ -217,26 +241,37 @@ mod submodule_status {
     impl gix_status::index_as_worktree::traits::SubmoduleStatus for BuiltinSubmoduleStatus {
         type Output = crate::submodule::Status;
 
-        fn status(&mut self, _entry: &gix_index::Entry, rela_path: &BStr) -> Result<Option<Self::Output>> {
+        fn status(&mut self, entry: &gix_index::Entry, rela_path: &BStr) -> Result<Option<Self::Output>> {
             use bstr::ByteSlice;
-            if self
-                .submodule_paths
-                .binary_search_by(|path| path.as_bstr().cmp(rela_path))
-                .is_err()
-            {
+            if matches!(
+                self.mode,
+                Submodule::Given {
+                    ignore: crate::submodule::config::Ignore::All,
+                    ..
+                }
+            ) {
                 return Ok(None);
             }
             #[cfg(feature = "parallel")]
             let repo = self.repo.to_thread_local();
             #[cfg(not(feature = "parallel"))]
-            let Ok(repo) = crate::open(&self.git_dir) else {
+            let Ok(mut repo) = crate::open_opts(&self.git_dir, self.open_options.clone_with_trust()) else {
                 return Ok(None);
             };
-            let Ok(Some(mut submodules)) = repo.submodules() else {
-                return Ok(None);
-            };
-            let Some(sm) = submodules.find(|sm| sm.path().is_ok_and(|path| path == rela_path)) else {
-                return Ok(None);
+            #[cfg(not(feature = "parallel"))]
+            {
+                // Preserve the captured state without requiring its checkout directory to still exist.
+                repo.work_tree.clone_from(&self.work_dir);
+            }
+            let sm = if self
+                .submodule_paths
+                .binary_search_by(|path| path.as_bstr().cmp(rela_path))
+                .is_ok()
+            {
+                repo.submodules()?
+                    .and_then(|mut submodules| submodules.find(|sm| sm.path().is_ok_and(|path| path == rela_path)))
+            } else {
+                None
             };
             let (ignore, check_dirty) = match self.mode {
                 Submodule::AsConfigured { check_dirty } => {
@@ -251,13 +286,45 @@ mod submodule_status {
                         (ignore, check_dirty)
                     } else {
                         // If no global ignore is set, use the submodule's ignore setting.
-                        let ignore = sm.ignore()?.unwrap_or_default();
+                        let ignore = sm
+                            .as_ref()
+                            .map(crate::Submodule::ignore)
+                            .transpose()?
+                            .flatten()
+                            .unwrap_or_default();
                         (ignore, check_dirty)
                     }
                 }
                 Submodule::Given { ignore, check_dirty } => (ignore, check_dirty),
             };
-            let status = sm.status(ignore, check_dirty)?;
+            let status = match sm {
+                Some(sm) => sm.status(ignore, check_dirty)?,
+                None => {
+                    if ignore == crate::submodule::config::Ignore::All {
+                        return Ok(None);
+                    }
+                    let Some(worktree_gitdir) = crate::submodule::worktree_gitdir(&repo, rela_path)? else {
+                        return Ok(None);
+                    };
+                    let Some(git_dir) = crate::submodule::git_dir_from_worktree_gitdir(&worktree_gitdir, true)? else {
+                        return Ok(None);
+                    };
+                    let Some(sm_repo) = crate::submodule::open(&repo, &git_dir, rela_path)? else {
+                        return Ok(None);
+                    };
+                    crate::submodule::Status {
+                        state: crate::submodule::State {
+                            repository_exists: true,
+                            is_old_form: worktree_gitdir.is_dir(),
+                            worktree_checkout: true,
+                            superproject_configuration: false,
+                        },
+                        index_id: Some(entry.id),
+                        ..Default::default()
+                    }
+                    .with_worktree_status(&sm_repo, ignore, check_dirty, &mut |s| s)?
+                }
+            };
             Ok(status.is_dirty().and_then(|dirty| dirty.then_some(status)))
         }
     }
@@ -338,12 +405,12 @@ pub enum Item {
         /// It will also be `Some(dir_status)` if that option was [CollapsedEntriesEmissionMode::All](gix_dir::walk::CollapsedEntriesEmissionMode::All).
         dirwalk_entry_collapsed_directory_status: Option<gix_dir::entry::Status>,
         /// The object id as it would appear if the entry was written to the object database, specifically hashed in order to determine equality.
-        /// Note that it doesn't (necessarily) exist in the object database, and may be [null](gix_hash::ObjectId::null) if no hashing
-        /// was performed.
-        dirwalk_entry_id: gix_hash::ObjectId,
-        /// It's `None` if the 'source.id' is equal to `dirwalk_entry_id`, as identity made an actual diff computation unnecessary.
-        /// Otherwise, and if enabled, it's `Some(stats)` to indicate how similar both entries were.
-        diff: Option<gix_diff::blob::DiffLineStats>,
+        /// Note that it doesn't (necessarily) exist in the object database, and is `None` if hashing was not performed or the file could not be read.
+        /// Unavailable IDs do not establish identity.
+        dirwalk_entry_id: Option<gix_hash::ObjectId>,
+        /// The content similarity used to match entries with different object IDs.
+        /// It's `None` for an identity match. A score of 100% does not imply identical contents.
+        similarity: Option<gix_diff::rewrites::Similarity>,
         /// If true, this rewrite is created by copy, and 'source.id' is pointing to its source.
         /// Otherwise, it's a rename, and 'source.id' points to a deleted object,
         /// as renames are tracked as deletions and additions of the same or similar content.
@@ -380,10 +447,10 @@ pub enum RewriteSource {
         /// if [gix_dir::walk::Options::emit_collapsed] was [CollapsedEntriesEmissionMode::OnStatusMismatch](gix_dir::walk::CollapsedEntriesEmissionMode::OnStatusMismatch).
         /// It will also be `Some(dir_status)` if that option was [CollapsedEntriesEmissionMode::All](gix_dir::walk::CollapsedEntriesEmissionMode::All).
         source_dirwalk_entry_collapsed_directory_status: Option<gix_dir::entry::Status>,
-        /// The object id as it would appear if the entry was written to the object database.
-        /// It's the same as [`dirwalk_entry_id`](Item::Rewrite), or `diff` is `Some(_)` to indicate that the copy
+        /// The object ID as it would appear in the object database, or `None` if its hash is unavailable.
+        /// It's the same available ID as [`dirwalk_entry_id`](Item::Rewrite), or `similarity` is `Some(_)` to indicate that the copy
         /// was determined by similarity, not by content equality.
-        source_dirwalk_entry_id: gix_hash::ObjectId,
+        source_dirwalk_entry_id: Option<gix_hash::ObjectId>,
     },
 }
 
@@ -513,14 +580,14 @@ pub mod iter {
                     dirwalk_entry,
                     dirwalk_entry_collapsed_directory_status,
                     dirwalk_entry_id,
-                    diff,
+                    similarity,
                     copy,
                 } => Item::Rewrite {
                     source: source.into(),
                     dirwalk_entry,
                     dirwalk_entry_collapsed_directory_status,
                     dirwalk_entry_id,
-                    diff,
+                    similarity,
                     copy,
                 },
             }

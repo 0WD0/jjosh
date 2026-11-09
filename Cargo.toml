@@ -14,11 +14,11 @@ repository = "https://github.com/jj-vcs/jj"
 anyhow = "1.0"
 clap = { version = "4.6.5", features = ["derive"] }
 futures = "0.3"
-gix = { version = "0.89.0", default-features = false, features = ["sha1", "sha256", "blocking-http-transport-reqwest-rust-tls"] }
-gix-pack = { version = "0.76.0", default-features = false, features = ["sha1", "sha256"] }
-gix-hash = { version = "0.28", features = ["sha1"] }
-gix-object = "0.66.0"
-gix-validate = "0.13.0"
+gix = { version = "0.90.0", default-features = false, features = ["sha1", "sha256", "blocking-http-transport-reqwest-rust-tls"] }
+gix-pack = { version = "0.77.0", default-features = false, features = ["sha1", "sha256"] }
+gix-hash = { version = "0.28.1", features = ["sha1"] }
+gix-object = "0.66.1"
+gix-validate = "0.13.1"
 jj-cli = { path = "jj/cli", default-features = false, features = ["git"] }
 jj-lib = { path = "jj/lib", default-features = false, features = ["git"] }
 josh-core = { path = "josh/josh-core" }

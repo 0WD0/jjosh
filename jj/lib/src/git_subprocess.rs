@@ -27,6 +27,12 @@ use std::thread;
 use bstr::BStr;
 use bstr::ByteSlice as _;
 use itertools::Itertools as _;
+use jj_core::merge::Diff;
+use jj_core::ref_name::GitRefNameBuf;
+use jj_core::ref_name::RefNameBuf;
+use jj_core::ref_name::RemoteName;
+use jj_git_backend::git_backend::GitBackend;
+use jj_local_util::subprocess_util::suppress_console_window;
 use thiserror::Error;
 
 use crate::git::GitPushOptions;
@@ -35,12 +41,6 @@ use crate::git::GitSubprocessOptions;
 use crate::git::NegativeRefSpec;
 use crate::git::RefSpec;
 use crate::git::RefToPush;
-use crate::git_backend::GitBackend;
-use crate::merge::Diff;
-use crate::ref_name::GitRefNameBuf;
-use crate::ref_name::RefNameBuf;
-use crate::ref_name::RemoteName;
-use crate::subprocess_util::suppress_console_window;
 
 // * 2.29.0 introduced `git fetch --no-write-fetch-head`
 // * 2.40 still receives security patches (latest one was in Jan/2025)
@@ -238,8 +238,32 @@ impl GitSubprocessContext {
         callback: &mut dyn GitSubprocessCallback,
         options: &GitPushOptions,
     ) -> Result<GitPushStats, GitSubprocessError> {
+        if references.is_empty() {
+            // Don't attempt to push the default targets
+            return Ok(GitPushStats::default());
+        }
         let mut command = self.create_command();
         command.stdout(Stdio::piped());
+        // Exclude all fetch mappings to prevent push from updating tracking
+        // refs. An empty `-c remote.<name>.fetch=` entry doesn't disable the
+        // configured refspecs.
+        //
+        // Git checks negative refspecs by reversing positive mappings, even
+        // when querying by source. Add a dummy mapping so every source reaches
+        // the exclusion check. For refs/heads/main -> refs/remotes/origin/main,
+        // it tries to match refs/heads/main against refs/remotes/origin/* and
+        // dummy refs/*, and translates "back" to refs/jj/dummy/heads/main,
+        // which matches ^refs/*.
+        //
+        // https://github.com/git/git/blob/v2.42.0/remote.c#L891
+        command
+            .arg("-c")
+            .arg(format!(
+                "remote.{}.fetch=refs/jj/dummy/*:refs/*",
+                remote_name.as_str()
+            ))
+            .arg("-c")
+            .arg(format!("remote.{}.fetch=^refs/*", remote_name.as_str()));
         // Currently jj does not support commit hooks, so we prevent git from running
         // them
         //
@@ -1211,7 +1235,6 @@ Done";
             pushed,
             rejected,
             remote_rejected,
-            unexported_bookmarks: _,
         } = parse_ref_pushes(SAMPLE_PUSH_REFS_PORCELAIN_OUTPUT).unwrap();
         assert_eq!(
             pushed,

@@ -24,31 +24,23 @@ jobs:
         - build: linux-x86_64-gnu
           os: ubuntu-24.04
           cargo_flags: "--all-features"
-          extra_targets: ""
         - build: linux-aarch64-gnu
           os: ubuntu-24.04-arm
           cargo_flags: "--all-features"
-          extra_targets: ""
         - build: macos-x86_64
           os: macos-26
           cargo_flags: "--target x86_64-apple-darwin"
           extra_targets: "x86_64-apple-darwin"
         - build: macos-aarch64
           os: macos-15
-          cargo_flags: ""
-          extra_targets: ""
         - build: windows-x86_64
           os: windows-2022
-          cargo_flags: ""
-          extra_targets: ""
         - build: windows-aarch64
           os: windows-11-arm
-          cargo_flags: ""
-          extra_targets: ""
     runs-on: ${{ matrix.os }}
 
     # macos-x86_64 runners are inconsistent and prone to hitting the timeout
-    continue-on-error: ${{ matrix.os == 'macos-x86_64' }}
+    continue-on-error: ${{ matrix.build == 'macos-x86_64' }}
 
     # TODO FIXME (aseipp): keep the timeout limit to ~20 minutes. this is long
     # enough to give us runway for the future, but also once we hit it, we're at
@@ -84,7 +76,7 @@ jobs:
         toolchain: 1.97.1
         # comma-separated list of extra targets to install
         targets: ${{ matrix.extra_targets }}
-    - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8
+    - uses: taiki-e/install-action@68a389c788b2cd04016ce8c80ee23b80d2ab3d68
       with:
         tool: nextest
     - name: Install mold
@@ -112,6 +104,22 @@ jobs:
         RUST_BACKTRACE: 1
         CARGO_TERM_COLOR: always
 
+  check-wasi:
+    name: check (wasm32-wasip2)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        persist-credentials: false
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+      with:
+        toolchain: 1.97.1
+        targets: wasm32-wasip2
+    - name: Check
+      run: cargo check -p jj-lib --no-default-features --target wasm32-wasip2 --verbose
+
   no-git:
     name: build (no git)
     runs-on: ubuntu-24.04
@@ -131,7 +139,7 @@ jobs:
     strategy:
       fail-fast: ${{ github.event_name == 'merge_group' }}
       matrix:
-        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-14]
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-15]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
 
@@ -140,7 +148,7 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b
       - run: nix flake check -L --show-trace
 
   check-protos:
@@ -171,6 +179,21 @@ jobs:
           toolchain: nightly
           components: rustfmt
       - run: cargo +nightly fmt --all -- --check
+
+  check-markdown:
+    name: check (rumdl)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Keep the version in sync with mise and the Nix development shell.
+      - uses: rvben/rumdl@1e0f1d13c87418c31e0d59dacddd98f27a02efcc # v0.3.2
+        with:
+          version: "0.2.78"
+          config: .config/rumdl.toml
+          path: "."
+          report-type: annotations
 
   check-clippy:
     name: check (clippy)
@@ -216,11 +239,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
         with:
           python-version: 3.11
       - name: Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
         with:
           # If you bump the version, also update docs/contributing.md
           # and all other workflows that install uv
@@ -257,11 +280,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
         with:
           python-version: 3.11
       - name: Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
         with:
           # If you bump the version, also update docs/contributing.md
           # and all other workflows that install uv
@@ -278,36 +301,11 @@ jobs:
         with:
           persist-credentials: false
       - name: Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
       # 'only-managed' means that uv will always download Python, even
       # if the runner happens to provide a compatible version
       - name: Check that `mkdocs` can build the docs
         run: uv run --python-preference=only-managed -- mkdocs build --strict
-
-  check-zizmor:
-    name: check (zizmor)
-    runs-on: ubuntu-latest
-    permissions:
-      security-events: write
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          persist-credentials: false
-
-      - name: Install the latest version of uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
-
-      - name: Run zizmor
-        run: uvx zizmor --format sarif . > results.sarif
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload SARIF file
-        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d
-        with:
-          sarif_file: results.sarif
-          category: zizmor
 
   # Count the (very approximate) number of dependencies in Cargo.lock and bail at a certain limit.
   check-cargo-lock-bloat:
@@ -341,17 +339,18 @@ jobs:
     if: ${{ always() && github.event_name == 'merge_group' }}
     needs:
     - test
+    - check-wasi
     - no-git
     - build-nix
     - check-protos
     - check-rustfmt
+    - check-markdown
     - check-clippy
     - check-cargo-deny
     - check-codespell
     - check-doctests
     - check-mkdocs
     # - check-mkdocs-latest
-    # - check-zizmor
     - check-cargo-lock-bloat
     runs-on: ubuntu-latest
     steps:

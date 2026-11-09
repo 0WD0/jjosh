@@ -20,12 +20,14 @@ use std::sync::Arc;
 
 use indoc::writedoc;
 use itertools::Itertools as _;
+use jj_frontend::git_util::is_colocated_git_workspace;
 use jj_lib::file_util;
 use jj_lib::git;
 use jj_lib::git::GitImportOptions;
 use jj_lib::git::GitRefKind;
 use jj_lib::git::GitSettings;
 use jj_lib::git::parse_git_ref;
+use jj_lib::ref_name::WorkspaceName;
 use jj_lib::repo::ReadonlyRepo;
 use jj_lib::repo::Repo as _;
 use jj_lib::view::View;
@@ -45,7 +47,6 @@ use crate::command_error::user_error_with_message;
 use crate::commands::git::maybe_add_gitignore;
 use crate::config::ConfigEnv;
 use crate::formatter::FormatterExt as _;
-use crate::git_util::is_colocated_git_workspace;
 use crate::git_util::load_git_import_options;
 use crate::git_util::print_git_export_stats;
 use crate::git_util::print_git_import_stats_summary;
@@ -129,9 +130,9 @@ pub struct GitInitArgs {
     /// case.
     ///
     /// If the specified `--git-repo` path is outside of the given
-    /// `DESTINATION`, then the Jujutsa workspace will store a reference to the
+    /// `DESTINATION`, then the Jujutsu workspace will store a reference to the
     /// external Git repository (not a colocated workspace). This option is
-    /// mutually exclusive with `--collate`.
+    /// mutually exclusive with `--colocate`.
     ///
     /// [colocated workspace]:
     ///     https://docs.jj-vcs.dev/latest/git-compatibility/#colocated-jujutsugit-workspaces
@@ -173,10 +174,12 @@ pub async fn cmd_git_init(
         || command.settings().get::<ObjectHash>("git.object-hash"),
         Result::Ok,
     )?;
+
     do_init(
         ui,
         command,
         &wc_path,
+        WorkspaceName::DEFAULT,
         colocate,
         object_hash.into(),
         args.git_repo.as_deref(),
@@ -197,6 +200,7 @@ async fn do_init(
     ui: &mut Ui,
     command: &CommandHelper,
     workspace_root: &Path,
+    workspace_name: &WorkspaceName,
     colocate: bool,
     object_hash: gix::hash::Kind,
     git_repo: Option<&str>,
@@ -241,14 +245,24 @@ async fn do_init(
     let (settings, config_env) = command.settings_for_new_workspace(ui, workspace_root)?;
     match &init_mode {
         GitInitMode::Colocate => {
-            let (workspace, repo) =
-                Workspace::init_colocated_git(&settings, workspace_root, object_hash).await?;
+            let (workspace, repo) = Workspace::init_colocated_git(
+                &settings,
+                workspace_root,
+                workspace_name,
+                object_hash,
+            )
+            .await?;
             let workspace_command = command.for_workable_repo(ui, workspace, repo)?;
             maybe_add_gitignore(&workspace_command)?;
         }
         GitInitMode::External(git_repo_path) => {
-            let (workspace, repo) =
-                Workspace::init_external_git(&settings, workspace_root, git_repo_path).await?;
+            let (workspace, repo) = Workspace::init_external_git(
+                &settings,
+                workspace_root,
+                workspace_name,
+                git_repo_path,
+            )
+            .await?;
             // Import refs first so all the reachable commits are indexed in
             // chronological order.
             let colocated = is_colocated_git_workspace(&workspace)?;
@@ -281,7 +295,8 @@ async fn do_init(
             }
         }
         GitInitMode::Internal => {
-            Workspace::init_internal_git(&settings, workspace_root, object_hash).await?;
+            Workspace::init_internal_git(&settings, workspace_root, workspace_name, object_hash)
+                .await?;
         }
     }
     Ok(())

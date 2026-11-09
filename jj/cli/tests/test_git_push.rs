@@ -325,7 +325,7 @@ fn test_git_push_configured_revset() {
     insta::assert_snapshot!(output, @"
     ------- stderr -------
     Warning: No bookmarks/tags found in revsets.git-push: remote_bookmarks(remote=exact:remote)..@ (remote=origin)
-    Nothing changed.
+    Dry-run requested, not pushing.
     [EOF]
     ");
     let output = work_dir.run_jj([
@@ -939,8 +939,6 @@ fn test_git_push_multiple() {
     [EOF]
     ");
 
-    // All pushed bookmarks/tags should be committed to the operation.
-    // Therefore, the subsequent "git import" should be noop.
     let output = work_dir.run_jj(["git", "push", "--all", "--deleted"]);
     insta::assert_snapshot!(output, @"
     ------- stderr -------
@@ -958,6 +956,10 @@ fn test_git_push_multiple() {
     [EOF]
     [exit status: 1]
     ");
+    // All pushed bookmarks/tags can be exported. Therefore, the subsequent
+    // "git import" should be noop.
+    let output = work_dir.run_jj(["git", "export"]);
+    insta::assert_snapshot!(output, @"");
     let output = work_dir.run_jj(["git", "import"]);
     insta::assert_snapshot!(output, @"
     ------- stderr -------
@@ -966,17 +968,22 @@ fn test_git_push_multiple() {
     ");
     insta::assert_snapshot!(get_bookmark_output(&work_dir), @"
     bookmark2: yqosqzyt 0cb91ecd (empty) foo
+      @git: yqosqzyt 0cb91ecd (empty) foo
       @origin: yqosqzyt 0cb91ecd (empty) foo
     bookmark3: yqosqzyt 0cb91ecd (empty) foo
+      @git: yqosqzyt 0cb91ecd (empty) foo
       @origin (not created yet)
     my-bookmark: yqosqzyt 0cb91ecd (empty) foo
+      @git: yqosqzyt 0cb91ecd (empty) foo
       @origin: yqosqzyt 0cb91ecd (empty) foo
     [EOF]
     ");
     insta::assert_snapshot!(get_tag_output(&work_dir), @"
     tag1: yqosqzyt 0cb91ecd (empty) foo
+      @git: yqosqzyt 0cb91ecd (empty) foo
       @origin: yqosqzyt 0cb91ecd (empty) foo
     tag2: yqosqzyt 0cb91ecd (empty) foo
+      @git: yqosqzyt 0cb91ecd (empty) foo
       @origin: yqosqzyt 0cb91ecd (empty) foo
     [EOF]
     ");
@@ -1910,38 +1917,88 @@ fn test_git_push_no_description() {
 }
 
 #[test]
-fn test_git_push_no_description_in_immutable() {
+fn test_git_push_no_description_in_remote_tag() {
     let test_env = TestEnvironment::default();
     set_up(&test_env);
     test_env.add_config("remotes.origin.auto-track-bookmarks = '*'");
+    let origin_dir = test_env.work_dir("origin");
     let work_dir = test_env.work_dir("local");
+    origin_dir.run_jj(["new", "root()", "-m="]).success();
+    origin_dir.run_jj(["tag", "set", "-r@", "v1"]).success();
+    origin_dir.run_jj(["git", "export"]).success();
+    work_dir.run_jj(["git", "fetch"]).success();
+    test_env.add_config(r#"revset-aliases."immutable_heads()" = "none()""#);
+
+    // A commit that is already on the remote as a tag is not validated
     work_dir
-        .run_jj(["bookmark", "create", "-r@", "imm"])
+        .run_jj(["new", "remote_tags(v1)", "-m", "foo"])
         .success();
-    work_dir.run_jj(["describe", "-m="]).success();
-    work_dir.run_jj(["new", "-m", "foo"]).success();
-    work_dir.write_file("file", "contents");
     work_dir
         .run_jj(["bookmark", "create", "-r@", "my-bookmark"])
         .success();
-
-    let output = work_dir.run_jj(["git", "push", "--bookmark=my-bookmark", "--dry-run"]);
-    insta::assert_snapshot!(output, @"
-    ------- stderr -------
-    Error: Won't push commit 8d23abddc924 since it has no description
-    Hint: Rejected commit: yqosqzyt 8d23abdd imm* | (empty) (no description set)
-    [EOF]
-    [exit status: 1]
-    ");
-
-    test_env.add_config(r#"revset-aliases."immutable_heads()" = "imm""#);
     let output = work_dir.run_jj(["git", "push", "--bookmark=my-bookmark", "--dry-run"]);
     insta::assert_snapshot!(output, @"
     ------- stderr -------
     Changes to push to origin:
-      bookmark: my-bookmark [add to 240e2e89abb2]
+      bookmark: my-bookmark [add to 5ce2ed7563d1]
     Dry-run requested, not pushing.
     [EOF]
+    ");
+}
+
+#[test]
+fn test_git_push_no_description_on_remote() {
+    let test_env = TestEnvironment::default();
+    set_up(&test_env);
+    test_env.add_config("remotes.origin.auto-track-bookmarks = '*'");
+    let origin_dir = test_env.work_dir("origin");
+    let work_dir = test_env.work_dir("local");
+    origin_dir.run_jj(["new", "root()"]).success();
+    origin_dir
+        .run_jj(["bookmark", "create", "-r@", "pub"])
+        .success();
+    origin_dir.run_jj(["git", "export"]).success();
+    work_dir.run_jj(["git", "fetch"]).success();
+
+    // A commit that is already on a remote is not validated
+    work_dir
+        .run_jj(["new", "pub@origin", "-m", "foo"])
+        .success();
+    work_dir.write_file("file", "contents");
+    work_dir
+        .run_jj(["bookmark", "create", "-r@", "my-bookmark"])
+        .success();
+    let output = work_dir.run_jj(["git", "push", "--bookmark=my-bookmark", "--dry-run"]);
+    insta::assert_snapshot!(output, @"
+    ------- stderr -------
+    Changes to push to origin:
+      bookmark: my-bookmark [add to a8e53469d601]
+    Dry-run requested, not pushing.
+    [EOF]
+    ");
+
+    // A commit that is immutable but not on any remote is still validated
+    work_dir.run_jj(["new", "root()"]).success();
+    work_dir
+        .run_jj(["bookmark", "create", "-r@", "imm"])
+        .success();
+    work_dir.run_jj(["new", "-m", "bar"]).success();
+    work_dir
+        .run_jj(["bookmark", "create", "-r@", "my-bookmark2"])
+        .success();
+    let output = work_dir.run_jj([
+        "git",
+        "push",
+        "--bookmark=my-bookmark2",
+        "--dry-run",
+        "--config=revset-aliases.'immutable_heads()'='imm'",
+    ]);
+    insta::assert_snapshot!(output, @"
+    ------- stderr -------
+    Error: Won't push commit f5a334d32294 since it has no description
+    Hint: Rejected commit: kxryzmor f5a334d3 imm* | (empty) (no description set)
+    [EOF]
+    [exit status: 1]
     ");
 }
 
@@ -1979,22 +2036,27 @@ fn test_git_push_missing_author() {
 }
 
 #[test]
-fn test_git_push_missing_author_in_immutable() {
+fn test_git_push_missing_author_on_remote() {
     let test_env = TestEnvironment::default();
     set_up(&test_env);
     test_env.add_config("remotes.origin.auto-track-bookmarks = '*'");
+    let origin_dir = test_env.work_dir("origin");
     let work_dir = test_env.work_dir("local");
     let run_without_var = |var: &str, args: &[&str]| {
-        work_dir
+        origin_dir
             .run_jj_with(|cmd| cmd.args(args).env_remove(var))
             .success();
     };
     run_without_var("JJ_USER", &["new", "root()", "-m=no author name"]);
     run_without_var("JJ_EMAIL", &["new", "-m=no author email"]);
-    work_dir
-        .run_jj(["bookmark", "create", "-r@", "imm"])
+    origin_dir
+        .run_jj(["bookmark", "create", "-r@", "pub"])
         .success();
-    work_dir.run_jj(["new", "-m", "foo"]).success();
+    origin_dir.run_jj(["git", "export"]).success();
+    work_dir.run_jj(["git", "fetch"]).success();
+    work_dir
+        .run_jj(["new", "pub@origin", "-m", "foo"])
+        .success();
     work_dir.write_file("file", "contents");
     work_dir
         .run_jj(["bookmark", "create", "-r@", "my-bookmark"])
@@ -2003,18 +2065,8 @@ fn test_git_push_missing_author_in_immutable() {
     let output = work_dir.run_jj(["git", "push", "--bookmark=my-bookmark", "--dry-run"]);
     insta::assert_snapshot!(output, @"
     ------- stderr -------
-    Error: Won't push commit 5c3cc711907f since it has no author and/or committer set
-    Hint: Rejected commit: yostqsxw 5c3cc711 imm* | (empty) no author email
-    [EOF]
-    [exit status: 1]
-    ");
-
-    test_env.add_config(r#"revset-aliases."immutable_heads()" = "imm""#);
-    let output = work_dir.run_jj(["git", "push", "--bookmark=my-bookmark", "--dry-run"]);
-    insta::assert_snapshot!(output, @"
-    ------- stderr -------
     Changes to push to origin:
-      bookmark: my-bookmark [add to 96080b93b4ce]
+      bookmark: my-bookmark [add to 2105e395b822]
     Dry-run requested, not pushing.
     [EOF]
     ");
@@ -2071,23 +2123,28 @@ fn test_git_push_missing_committer() {
 }
 
 #[test]
-fn test_git_push_missing_committer_in_immutable() {
+fn test_git_push_missing_committer_on_remote() {
     let test_env = TestEnvironment::default();
     set_up(&test_env);
     test_env.add_config("remotes.origin.auto-track-bookmarks = '*'");
+    let origin_dir = test_env.work_dir("origin");
     let work_dir = test_env.work_dir("local");
     let run_without_var = |var: &str, args: &[&str]| {
-        work_dir
+        origin_dir
             .run_jj_with(|cmd| cmd.args(args).env_remove(var))
             .success();
     };
-    run_without_var("JJ_USER", &["describe", "-m=no committer name"]);
-    work_dir.run_jj(["new"]).success();
+    run_without_var("JJ_USER", &["new", "root()", "-m=no committer name"]);
+    origin_dir.run_jj(["new"]).success();
     run_without_var("JJ_EMAIL", &["describe", "-m=no committer email"]);
-    work_dir
-        .run_jj(["bookmark", "create", "-r@", "imm"])
+    origin_dir
+        .run_jj(["bookmark", "create", "-r@", "pub"])
         .success();
-    work_dir.run_jj(["new", "-m", "foo"]).success();
+    origin_dir.run_jj(["git", "export"]).success();
+    work_dir.run_jj(["git", "fetch"]).success();
+    work_dir
+        .run_jj(["new", "pub@origin", "-m", "foo"])
+        .success();
     work_dir.write_file("file", "contents");
     work_dir
         .run_jj(["bookmark", "create", "-r@", "my-bookmark"])
@@ -2096,18 +2153,8 @@ fn test_git_push_missing_committer_in_immutable() {
     let output = work_dir.run_jj(["git", "push", "--bookmark=my-bookmark", "--dry-run"]);
     insta::assert_snapshot!(output, @"
     ------- stderr -------
-    Error: Won't push commit ab230f98c812 since it has no author and/or committer set
-    Hint: Rejected commit: yostqsxw ab230f98 imm* | (empty) no committer email
-    [EOF]
-    [exit status: 1]
-    ");
-
-    test_env.add_config(r#"revset-aliases."immutable_heads()" = "imm""#);
-    let output = work_dir.run_jj(["git", "push", "--bookmark=my-bookmark", "--dry-run"]);
-    insta::assert_snapshot!(output, @"
-    ------- stderr -------
     Changes to push to origin:
-      bookmark: my-bookmark [add to e0dff9c29479]
+      bookmark: my-bookmark [add to ab32d51d3f22]
     Dry-run requested, not pushing.
     [EOF]
     ");
@@ -2187,6 +2234,7 @@ fn test_git_push_conflicting_bookmarks() -> TestResult {
       @git: qpvuntsm 9b2e76de (empty) description 1
       @origin: qpvuntsm 9b2e76de (empty) description 1
     bookmark2 (conflicted):
+      - (absent)
       + znkkpsqq 7b393945 (empty) description 3
       + zsuskuln 38a20473 (empty) description 2
       @git (behind by 1 commits): zsuskuln 38a20473 (empty) description 2
@@ -2433,7 +2481,7 @@ fn test_git_push_tracked_vs_all() {
     Hint: Push deleted bookmarks with --deleted or forget the bookmark to suppress this warning.
     Warning: Refusing to push deleted tag tag2
     Hint: Push deleted tags with --deleted.
-    Nothing changed.
+    Dry-run requested, not pushing.
     [EOF]
     ");
     let output = work_dir.run_jj(["git", "push", "--tracked", "--deleted", "--dry-run"]);
@@ -2665,6 +2713,29 @@ fn test_git_push_commits_not_ready() {
 }
 
 #[test]
+fn test_git_push_sign_on_push_deprecated_config() {
+    let test_env = TestEnvironment::default();
+    test_env.run_jj_in(".", ["git", "init", "repo"]).success();
+    let work_dir = test_env.work_dir("repo");
+    test_env.add_config("git.sign-on-push = true");
+    work_dir
+        .run_jj(["config", "set", "--repo", "git.sign-on-push", "false"])
+        .success();
+
+    // Each level holding the old setting gets its own warning, which tells the
+    // user what to write instead.
+    let output = work_dir.run_jj(["config", "get", "revsets.git-sign-on-push"]);
+    insta::assert_snapshot!(output, @r#"
+    none()
+    [EOF]
+    ------- stderr -------
+    Warning: Deprecated user-level config: replace git.sign-on-push with revsets.git-sign-on-push = "~signed() & mine()"
+    Warning: Deprecated repo-level config: replace git.sign-on-push with revsets.git-sign-on-push = "none()"
+    [EOF]
+    "#);
+}
+
+#[test]
 fn test_git_push_sign_on_push() {
     let test_env = TestEnvironment::default();
     set_up(&test_env);
@@ -2681,6 +2752,14 @@ fn test_git_push_sign_on_push() {
       )
     )
     "#;
+    test_env.add_config(
+        r#"
+    signing.backend = "test"
+    signing.key = "impeccable"
+    signing.behavior = "keep"
+    revsets.git-sign-on-push = "mine()"
+    "#,
+    );
     work_dir
         .run_jj(["new", "bookmark2", "-m", "commit to be signed 1"])
         .success();
@@ -2696,10 +2775,28 @@ fn test_git_push_sign_on_push() {
     work_dir
         .run_jj(["new", "-m", "commit which should not be signed 2"])
         .success();
+    work_dir
+        .run_jj([
+            "metaedit",
+            "--author",
+            "Test User <someone.else@example.com>",
+        ])
+        .success();
+    work_dir
+        .run_jj(["new", "-m", "commit with different author"])
+        .success();
+    work_dir
+        .run_jj([
+            "metaedit",
+            "--author",
+            "Test User <someone.else@example.com>",
+        ])
+        .success();
     // There should be no signed commits initially
     let output = work_dir.run_jj(["log", "-T", template]);
     insta::assert_snapshot!(output, @"
-    @  commit which should not be signed 2
+    @  commit with different author
+    ○  commit which should not be signed 2
     ○  commit which should not be signed 1
     ○  commit to be signed 2
     ○  commit to be signed 1
@@ -2709,13 +2806,6 @@ fn test_git_push_sign_on_push() {
     ◆
     [EOF]
     ");
-    test_env.add_config(
-        r#"
-    signing.backend = "test"
-    signing.key = "impeccable"
-    git.sign-on-push = true
-    "#,
-    );
     let output = work_dir.run_jj(["git", "push", "--dry-run"]);
     insta::assert_snapshot!(output, @"
     ------- stderr -------
@@ -2727,7 +2817,8 @@ fn test_git_push_sign_on_push() {
     // There should be no signed commits after performing a dry run
     let output = work_dir.run_jj(["log", "-T", template]);
     insta::assert_snapshot!(output, @"
-    @  commit which should not be signed 2
+    @  commit with different author
+    ○  commit which should not be signed 2
     ○  commit which should not be signed 1
     ○  commit to be signed 2
     ○  commit to be signed 1
@@ -2741,17 +2832,18 @@ fn test_git_push_sign_on_push() {
     insta::assert_snapshot!(output, @"
     ------- stderr -------
     Updated signatures of 2 commits.
-    Rebased 2 descendant commits.
-    Working copy  (@) now at: kmkuslsw 3d5a9465 (empty) commit which should not be signed 2
-    Parent commit (@-)      : kpqxywon 48ea83e9 (empty) commit which should not be signed 1
+    Rebased 3 descendant commits.
+    Working copy  (@) now at: lylxulpl e3b605c9 (empty) commit with different author
+    Parent commit (@-)      : kmkuslsw ecf25c64 (empty) commit which should not be signed 2
     Changes to push to origin:
-      bookmark: bookmark2 [move forward from 38a204733702 to d45e2adce0ad]
+      bookmark: bookmark2 [move forward from 38a204733702 to 676e1671959a]
     [EOF]
     ");
     // Only commits which are being pushed should be signed
     let output = work_dir.run_jj(["log", "-T", template]);
     insta::assert_snapshot!(output, @"
-    @  commit which should not be signed 2
+    @  commit with different author
+    ○  commit which should not be signed 2
     ○  commit which should not be signed 1
     ○  commit to be signed 2
     │  Signature: test-display, Status: good, Key: impeccable
@@ -2765,10 +2857,16 @@ fn test_git_push_sign_on_push() {
     ");
 
     // Immutable commits should not be signed
-    let output = work_dir.run_jj(["bookmark", "move", "bookmark2", "--to", "@-"]);
+    let output = work_dir.run_jj([
+        "bookmark",
+        "move",
+        "bookmark2",
+        "--to",
+        "subject('commit which should not be signed 1')",
+    ]);
     insta::assert_snapshot!(output, @"
     ------- stderr -------
-    Moved 1 bookmarks to kpqxywon 48ea83e9 bookmark2* | (empty) commit which should not be signed 1
+    Moved 1 bookmarks to kpqxywon 9cc655c4 bookmark2* | (empty) commit which should not be signed 1
     [EOF]
     ");
     test_env.add_config(r#"revset-aliases."immutable_heads()" = "bookmark2""#);
@@ -2776,14 +2874,15 @@ fn test_git_push_sign_on_push() {
     insta::assert_snapshot!(output, @"
     ------- stderr -------
     Warning: Skipped signing 1 immutable commits:
-      kpqxywon 48ea83e9 bookmark2* | (empty) commit which should not be signed 1
+      kpqxywon 9cc655c4 bookmark2* | (empty) commit which should not be signed 1
     Changes to push to origin:
-      bookmark: bookmark2 [move forward from d45e2adce0ad to 48ea83e9499c]
+      bookmark: bookmark2 [move forward from 676e1671959a to 9cc655c48ef4]
     [EOF]
     ");
     let output = work_dir.run_jj(["log", "-T", template, "-r", "::"]);
     insta::assert_snapshot!(output, @"
-    @  commit which should not be signed 2
+    @  commit with different author
+    ○  commit which should not be signed 2
     ◆  commit which should not be signed 1
     ◆  commit to be signed 2
     │  Signature: test-display, Status: good, Key: impeccable
@@ -2796,56 +2895,83 @@ fn test_git_push_sign_on_push() {
     [EOF]
     ");
 
-    // Do not sign commits from other authors or re-sign unnecessarily
-    work_dir
-        .run_jj([
-            "metaedit",
-            "--author",
-            "Test User <someone.else@example.com>",
-        ])
-        .success();
-    work_dir
-        .run_jj(["new", "-B@", "--no-edit", "-m", "pre-signed commit"])
-        .success();
-    work_dir.run_jj(["sign", "-r", "@-"]).success();
-    work_dir
-        .run_jj(["new", "-m", "commit to be signed 3"])
-        .success();
-    work_dir
-        .run_jj(["bookmark", "set", "bookmark1", "-r@", "--allow-backwards"])
-        .success();
-    let output = work_dir.run_jj(["log", "-T", template]);
+    // With `revsets.git-sign-on-push = "mine()"`, commit with different author should not
+    // be signed
+    let output = work_dir.run_jj([
+        "bookmark",
+        "set",
+        "bookmark1",
+        "--to",
+        "subject('commit with different author')",
+        "--allow-backwards",
+    ]);
     insta::assert_snapshot!(output, @"
-    @  commit to be signed 3
+    ------- stderr -------
+    Moved 1 bookmarks to lylxulpl e3b605c9 bookmark1* | (empty) commit with different author
+    [EOF]
+    ");
+    let output = work_dir.run_jj(["git", "push", "-b", "bookmark1"]);
+    insta::assert_snapshot!(output, @"
+    ------- stderr -------
+    Changes to push to origin:
+      bookmark: bookmark1 [move sideways from 9b2e76de3920 to e3b605c995a5]
+    [EOF]
+    ");
+    let output = work_dir.run_jj(["log", "-T", template, "-r", "::"]);
+    insta::assert_snapshot!(output, @"
+    @  commit with different author
     ○  commit which should not be signed 2
-    ○  pre-signed commit
-    │  Signature: test-display, Status: good, Key: impeccable
     ◆  commit which should not be signed 1
-    ~  (elided revisions)
+    ◆  commit to be signed 2
+    │  Signature: test-display, Status: good, Key: impeccable
+    ◆  commit to be signed 1
+    │  Signature: test-display, Status: good, Key: impeccable
+    ◆  description 2
     │ ○  description 1
     ├─╯
     ◆
     [EOF]
     ");
-    let output = work_dir.run_jj(["git", "push"]);
+
+    // With `revsets.git-sign-on-push = "all()"`, commit with different author is signed
+    // Rewrite the current commit so that the bookmark will need to be pushed
+    let output = work_dir.run_jj(["metaedit", "-r", "bookmark1", "--force-rewrite"]);
+    insta::assert_snapshot!(output, @"
+    ------- stderr -------
+    Modified 1 commits:
+      lylxulpl 6b134e81 bookmark1* | (empty) commit with different author
+    Working copy  (@) now at: lylxulpl 6b134e81 bookmark1* | (empty) commit with different author
+    Parent commit (@-)      : kmkuslsw ecf25c64 (empty) commit which should not be signed 2
+    [EOF]
+    ");
+    let output = work_dir.run_jj([
+        "git",
+        "push",
+        "-b",
+        "bookmark1",
+        "--config",
+        "revsets.git-sign-on-push=all()",
+    ]);
     insta::assert_snapshot!(output, @"
     ------- stderr -------
     Updated signatures of 1 commits.
-    Working copy  (@) now at: pzsxstzt 0617b681 bookmark1* | (empty) commit to be signed 3
-    Parent commit (@-)      : kmkuslsw 5114df95 (empty) commit which should not be signed 2
+    Working copy  (@) now at: lylxulpl f0df71cb bookmark1* | (empty) commit with different author
+    Parent commit (@-)      : kmkuslsw ecf25c64 (empty) commit which should not be signed 2
     Changes to push to origin:
-      bookmark: bookmark1 [move sideways from 9b2e76de3920 to 0617b6813c01]
+      bookmark: bookmark1 [move sideways from e3b605c995a5 to f0df71cb434b]
     [EOF]
     ");
-    let output = work_dir.run_jj(["log", "-T", template]);
+    let output = work_dir.run_jj(["log", "-T", template, "-r", "::"]);
     insta::assert_snapshot!(output, @"
-    @  commit to be signed 3
+    @  commit with different author
     │  Signature: test-display, Status: good, Key: impeccable
     ○  commit which should not be signed 2
-    ○  pre-signed commit
-    │  Signature: test-display, Status: good, Key: impeccable
     ◆  commit which should not be signed 1
-    ~  (elided revisions)
+    ◆  commit to be signed 2
+    │  Signature: test-display, Status: good, Key: impeccable
+    ◆  commit to be signed 1
+    │  Signature: test-display, Status: good, Key: impeccable
+    ◆  description 2
     │ ○  description 1
     ├─╯
     ◆
@@ -2855,7 +2981,7 @@ fn test_git_push_sign_on_push() {
 
 #[test]
 fn test_git_push_sign_on_push_separate_transaction() -> TestResult {
-    // Signatures recorded by git.sign-on-push survive a failed push and don't
+    // Signatures recorded by revsets.git-sign-on-push survive a failed push and don't
     // have to be recreated on retry.
     let test_env = TestEnvironment::default();
     set_up(&test_env);
@@ -2885,7 +3011,7 @@ fn test_git_push_sign_on_push_separate_transaction() -> TestResult {
         r#"
     signing.backend = "test"
     signing.key = "impeccable"
-    git.sign-on-push = true
+    revsets.git-sign-on-push = '~signed() & mine()'
     "#,
     );
 
@@ -2967,7 +3093,7 @@ fn test_git_push_sign_on_push_separate_transaction_change_bookmark() -> TestResu
         r#"
     signing.backend = "test"
     signing.key = "impeccable"
-    git.sign-on-push = true
+    revsets.git-sign-on-push = '~signed() & mine()'
     "#,
     );
 
@@ -3176,25 +3302,29 @@ fn test_git_push_unmapped_refs() {
     ------- stderr -------
     Changes to push to origin:
       bookmark: bookmark2 [add to aa5df56a071b]
-    Warning: The following bookmarks couldn't be updated locally:
+    Warning: Failed to export some bookmarks:
       bookmark2@origin: Failed to set: Could not commit reference, reference="refs/remotes/origin/bookmark2": Directory not empty: Directory not empty: Directory not empty
-    Error: Failed to push some bookmarks
+    Hint: Git doesn't allow a branch/tag name that looks like a parent directory of
+    another (e.g. `foo` and `foo/bar`). Try to rename the bookmarks/tags that failed
+    to export or their "parent" bookmarks/tags.
     [EOF]
-    [exit status: 1]
     "#);
 
-    // Since export failed, bookmark2@origin isn't created. If it were created,
-    // this command would import "deletion" of bookmark2@origin as an external
-    // change, and abandon commit2.
-    insta::assert_snapshot!(get_bookmark_output(&local_dir), @"
+    // The export failure isn't "imported" as an external change, and is
+    // reported again
+    insta::assert_snapshot!(get_bookmark_output(&local_dir), @r#"
     bookmark1: rlvkpnrz 5792bfac (empty) commit1
       @git: rlvkpnrz 5792bfac (empty) commit1
       @origin: rlvkpnrz 5792bfac (empty) commit1
     bookmark2: zsuskuln aa5df56a (empty) commit2
       @git: zsuskuln aa5df56a (empty) commit2
-      @origin (not created yet)
+      @origin: zsuskuln aa5df56a (empty) commit2
     [EOF]
-    ");
+    ------- stderr -------
+    Warning: Failed to export some bookmarks:
+      bookmark2@origin: Failed to set: Could not commit reference, reference="refs/remotes/origin/bookmark2": Directory not empty: Directory not empty: Directory not empty
+    [EOF]
+    "#);
 }
 
 fn add_remote(test_env: &TestEnvironment, work_dir: &TestWorkDir, name: &str) {
@@ -3256,7 +3386,7 @@ fn test_git_push_parse_multiple_remotes_from_args_or_config() {
 }
 
 #[test]
-fn test_git_push_named_multiple_remotes_from_config() {
+fn test_git_push_multiple_remotes() {
     let test_env = TestEnvironment::default();
     set_up(&test_env);
     let local_dir = test_env.work_dir("local");
@@ -3278,6 +3408,20 @@ fn test_git_push_named_multiple_remotes_from_config() {
     Changes to push to other_1:
       bookmark: named-bookmark [add to d7738fce4d92]
     Changes to push to other_2:
+      bookmark: named-bookmark [add to d7738fce4d92]
+    [EOF]
+    ");
+
+    // Only the remote "origin" has changes
+    local_dir
+        .run_jj(["bookmark", "track", "--remote=*", "named-bookmark"])
+        .success();
+    let output = local_dir.run_jj(["git", "push", "--remote=*", "-bnamed-bookmark"]);
+    insta::assert_snapshot!(output, @"
+    ------- stderr -------
+    Bookmark named-bookmark@other_1 already matches named-bookmark
+    Bookmark named-bookmark@other_2 already matches named-bookmark
+    Changes to push to origin:
       bookmark: named-bookmark [add to d7738fce4d92]
     [EOF]
     ");

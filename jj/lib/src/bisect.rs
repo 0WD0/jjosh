@@ -22,17 +22,17 @@ use std::pin::pin;
 use std::sync::Arc;
 
 use futures::TryStreamExt as _;
+use jj_core::backend::BackendError;
+use jj_core::backend::CommitId;
+use jj_core::commit::Commit;
+use jj_core::revset_backend::Revset;
+use jj_core::revset_backend::RevsetEvaluationError;
+use jj_core::revset_backend::RevsetStreamExt as _;
 use thiserror::Error;
 
-use crate::backend::BackendError;
-use crate::backend::CommitId;
-use crate::commit::Commit;
 use crate::repo::Repo;
 use crate::revset::ResolvedRevsetExpression;
-use crate::revset::Revset;
-use crate::revset::RevsetEvaluationError;
 use crate::revset::RevsetExpression;
-use crate::revset::RevsetStreamExt as _;
 
 /// An error that occurred while bisecting
 #[derive(Error, Debug)]

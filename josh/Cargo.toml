@@ -57,25 +57,25 @@ mime = "0.3"
 parking_lot = "0.12.5"
 form_urlencoded = "1.2.2"
 futures = "0.3.33"
-gix = { version = "0.89.0", default-features = false, features = ["sha1", "parallel", "revision"] }
-gix-actor = "^0.44"
-gix-error = "0.5.0"
-gix-parallel = "0.50.0"
-gix-utils = { version = "0.5.0", features = ["progress"] }
-gix-hash = { version = "^0.28", features = ["sha1"] }
-gix-object = "0.66.0"
-gix-odb = "0.86"
-gix-pack = { version = "0.76.0", features = ["sha1", "object-cache-dynamic"] }
-gix-command = "0.12.0"
-gix-diff = { version = "0.69.0", default-features = false, features = ["blob"] }
-gix-filter = "0.36.0"
-gix-glob = "0.29.0"
-gix-merge = { version = "0.22.0", default-features = false, features = ["sha1"] }
-gix-revwalk = "0.37.0"
-gix-worktree = { version = "0.58.0", default-features = false, features = ["attributes"] }
-gix-revision = { version = "0.51.0", default-features = false, features = ["merge_base"] }
-gix-zlib = "0.3"
-gix-config = "0.62.0"
+gix = { version = "0.90.0", default-features = false, features = ["sha1", "parallel", "revision"] }
+gix-actor = "0.45.0"
+gix-error = "0.5.2"
+gix-parallel = "0.50.1"
+gix-utils = { version = "0.5.2", features = ["progress"] }
+gix-hash = { version = "0.28.1", features = ["sha1"] }
+gix-object = "0.66.1"
+gix-odb = "0.87.0"
+gix-pack = { version = "0.77.0", features = ["sha1", "object-cache-dynamic"] }
+gix-command = "0.12.1"
+gix-diff = { version = "0.70.0", default-features = false, features = ["blob"] }
+gix-filter = "0.36.1"
+gix-glob = "0.29.1"
+gix-merge = { version = "0.23.0", default-features = false, features = ["sha1"] }
+gix-revwalk = "0.38.0"
+gix-worktree = { version = "0.59.0", default-features = false, features = ["attributes"] }
+gix-revision = { version = "0.52.0", default-features = false, features = ["merge_base"] }
+gix-zlib = "0.4.0"
+gix-config = "0.62.2"
 libc = "0.2.189"
 regex = "1.13.1"
 quick_cache = "0.7.0"

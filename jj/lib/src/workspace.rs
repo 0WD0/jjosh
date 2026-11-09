@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![expect(missing_docs)]
+//! Workspaces, which combine a repo with a working copy.
 
 use std::collections::HashMap;
 use std::fs;
@@ -21,40 +21,47 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use jj_core::backend::BackendInitError;
+use jj_core::commit::Commit;
+use jj_core::merged_tree::MergedTree;
+use jj_core::op_store::OperationId;
+use jj_core::operation::Operation;
+use jj_core::ref_name::WorkspaceName;
+use jj_core::ref_name::WorkspaceNameBuf;
+use jj_core::signing::Signer;
+use jj_core::workspace_store::WorkspaceStoreError;
+use jj_local_util::file_util;
+use jj_local_util::file_util::BadPathEncoding;
+use jj_local_util::file_util::IoResultExt as _;
+use jj_local_util::file_util::PathError;
 use thiserror::Error;
 
-use crate::backend::BackendInitError;
-use crate::commit::Commit;
+use crate::default_backend_factories::default_index_store_initializer;
+use crate::default_backend_factories::default_op_heads_store_initializer;
+use crate::default_backend_factories::default_op_store_initializer;
+use crate::default_backend_factories::default_submodule_store_initializer;
 use crate::default_backend_factories::default_working_copy_factory;
-use crate::default_backend_factories::default_workspace_loader_factory;
-use crate::file_util;
-use crate::file_util::BadPathEncoding;
-use crate::file_util::IoResultExt as _;
-use crate::file_util::PathError;
-use crate::merged_tree::MergedTree;
+use crate::default_backend_factories::default_workspace_store_initializer;
 use crate::op_heads_store::OpHeadsStoreError;
-use crate::op_store::OperationId;
-use crate::ref_name::WorkspaceName;
-use crate::ref_name::WorkspaceNameBuf;
-use crate::repo::BackendInitializer;
 use crate::repo::CheckOutCommitError;
-use crate::repo::IndexStoreInitializer;
-use crate::repo::OpHeadsStoreInitializer;
-use crate::repo::OpStoreInitializer;
 use crate::repo::ReadonlyRepo;
 use crate::repo::Repo as _;
 use crate::repo::RepoInitError;
 use crate::repo::RepoLoader;
-use crate::repo::StoreFactories;
-use crate::repo::StoreLoadError;
-use crate::repo::SubmoduleStoreInitializer;
-use crate::repo::WorkspaceStoreInitializer;
-use crate::repo::read_store_type;
+use crate::repo::RepoLoaderError;
 use crate::settings::UserSettings;
-use crate::signing::Signer;
 use crate::signing_factory::SignInitError;
 use crate::signing_factory::signer_from_settings;
 use crate::simple_backend::SimpleBackend;
+use crate::store_factories::BackendInitializer;
+use crate::store_factories::IndexStoreInitializer;
+use crate::store_factories::OpHeadsStoreInitializer;
+use crate::store_factories::OpStoreInitializer;
+use crate::store_factories::StoreFactories;
+use crate::store_factories::StoreLoadError;
+use crate::store_factories::SubmoduleStoreInitializer;
+use crate::store_factories::WorkspaceStoreInitializer;
+use crate::store_factories::read_store_type;
 use crate::transaction::TransactionCommitError;
 use crate::working_copy::CheckoutError;
 use crate::working_copy::CheckoutStats;
@@ -62,44 +69,61 @@ use crate::working_copy::LockedWorkingCopy;
 use crate::working_copy::WorkingCopy;
 use crate::working_copy::WorkingCopyFactory;
 use crate::working_copy::WorkingCopyStateError;
-use crate::workspace_store::WorkspaceStoreError;
 
+/// Error from initializing a workspace.
 #[derive(Error, Debug)]
 pub enum WorkspaceInitError {
+    /// The `.jj/` directory already exists.
     #[error("The destination repo ({0}) already exists")]
     DestinationExists(PathBuf),
+    /// The path to the repo could not be encoded.
     #[error("Repo path could not be encoded")]
     EncodeRepoPath(#[source] BadPathEncoding),
+    /// Failed to check out the root commit in the new workspace.
     #[error(transparent)]
     CheckOutCommit(#[from] CheckOutCommitError),
+    /// Error from the working copy state.
     #[error(transparent)]
     WorkingCopyState(#[from] WorkingCopyStateError),
+    /// Error from a file system operation.
     #[error(transparent)]
     Path(#[from] PathError),
+    /// Error from the operation heads store.
     #[error(transparent)]
     OpHeadsStore(OpHeadsStoreError),
+    /// Error from the workspace store.
     #[error(transparent)]
     WorkspaceStore(#[from] WorkspaceStoreError),
+    /// Error from initializing the commit backend.
     #[error(transparent)]
     Backend(#[from] BackendInitError),
+    /// Error from initializing the signing backend.
     #[error(transparent)]
     SignInit(#[from] SignInitError),
+    /// Failed to commit the transaction adding the workspace.
     #[error(transparent)]
     TransactionCommit(#[from] TransactionCommitError),
 }
 
+/// Error from loading a workspace.
 #[derive(Error, Debug)]
 pub enum WorkspaceLoadError {
+    /// The repo the workspace points to does not exist.
     #[error("The repo appears to no longer be at {0}")]
     RepoDoesNotExist(PathBuf),
+    /// There is no `.jj/` directory in the given path.
     #[error("There is no Jujutsu repo in {0}")]
     NoWorkspaceHere(PathBuf),
+    /// Error from loading the repo's stores.
     #[error("Cannot read the repo")]
     StoreLoadError(#[from] StoreLoadError),
+    /// The path to the repo could not be decoded.
     #[error("Repo path could not be decoded")]
     DecodeRepoPath(#[source] BadPathEncoding),
+    /// Error from the working copy state.
     #[error(transparent)]
     WorkingCopyState(#[from] WorkingCopyStateError),
+    /// Error from a file system operation.
     #[error(transparent)]
     Path(#[from] PathError),
 }
@@ -130,17 +154,23 @@ fn create_jj_dir(workspace_root: &Path) -> Result<PathBuf, WorkspaceInitError> {
     }
 }
 
+/// Adds the workspace to the repo view and initializes its working copy. The
+/// operation is attributed to `operation_workspace_name` if given.
 async fn init_working_copy(
     repo: &Arc<ReadonlyRepo>,
     workspace_root: &Path,
     jj_dir: &Path,
     working_copy_factory: &dyn WorkingCopyFactory,
     workspace_name: WorkspaceNameBuf,
+    operation_workspace_name: Option<&WorkspaceName>,
 ) -> Result<(Box<dyn WorkingCopy>, Arc<ReadonlyRepo>), WorkspaceInitError> {
     let working_copy_state_path = jj_dir.join("working_copy");
     std::fs::create_dir(&working_copy_state_path).context(&working_copy_state_path)?;
 
     let mut tx = repo.start_transaction();
+    if let Some(operation_workspace_name) = operation_workspace_name {
+        tx.set_workspace_name(operation_workspace_name);
+    }
     tx.repo_mut()
         .check_out(workspace_name.clone(), &repo.store().root_commit())
         .await?;
@@ -162,13 +192,14 @@ async fn init_working_copy(
 }
 
 impl Workspace {
+    /// Creates a workspace from its parts, canonicalizing `workspace_root`.
     pub fn new(
         workspace_root: &Path,
         repo_path: PathBuf,
         working_copy: Box<dyn WorkingCopy>,
         repo_loader: RepoLoader,
     ) -> Result<Self, PathError> {
-        let workspace_root = dunce::canonicalize(workspace_root).context(workspace_root)?;
+        let workspace_root = file_util::canonicalize(workspace_root).context(workspace_root)?;
         Ok(Self::new_no_canonicalize(
             workspace_root,
             repo_path,
@@ -177,6 +208,8 @@ impl Workspace {
         ))
     }
 
+    /// Creates a workspace from its parts without canonicalizing
+    /// `workspace_root`.
     pub fn new_no_canonicalize(
         workspace_root: PathBuf,
         repo_path: PathBuf,
@@ -191,14 +224,23 @@ impl Workspace {
         }
     }
 
+    /// Initializes a workspace with a new repo using the [`SimpleBackend`].
     pub async fn init_simple(
         user_settings: &UserSettings,
         workspace_root: &Path,
+        workspace_name: &WorkspaceName,
     ) -> Result<(Self, Arc<ReadonlyRepo>), WorkspaceInitError> {
         let backend_initializer: &BackendInitializer =
             &|_settings, store_path| Ok(Box::new(SimpleBackend::init(store_path)));
         let signer = signer_from_settings(user_settings)?;
-        Self::init_with_backend(user_settings, workspace_root, backend_initializer, signer).await
+        Self::init_with_backend(
+            user_settings,
+            workspace_root,
+            workspace_name,
+            backend_initializer,
+            signer,
+        )
+        .await
     }
 
     /// Initializes a workspace with a new Git backend and bare Git repo in
@@ -207,17 +249,30 @@ impl Workspace {
     pub async fn init_internal_git(
         user_settings: &UserSettings,
         workspace_root: &Path,
+        workspace_name: &WorkspaceName,
         object_hash: gix::hash::Kind,
     ) -> Result<(Self, Arc<ReadonlyRepo>), WorkspaceInitError> {
         let backend_initializer: &BackendInitializer = &|settings, store_path| {
-            Ok(Box::new(crate::git_backend::GitBackend::init_internal(
-                settings,
-                store_path,
-                object_hash,
-            )?))
+            let git_settings = settings
+                .git_backend_settings()
+                .map_err(BackendInitError::new)?;
+            Ok(Box::new(
+                jj_git_backend::git_backend::GitBackend::init_internal(
+                    &git_settings,
+                    store_path,
+                    object_hash,
+                )?,
+            ))
         };
         let signer = signer_from_settings(user_settings)?;
-        Self::init_with_backend(user_settings, workspace_root, backend_initializer, signer).await
+        Self::init_with_backend(
+            user_settings,
+            workspace_root,
+            workspace_name,
+            backend_initializer,
+            signer,
+        )
+        .await
     }
 
     /// Initializes a workspace with a new Git backend and Git repo that shares
@@ -226,22 +281,26 @@ impl Workspace {
     pub async fn init_colocated_git(
         user_settings: &UserSettings,
         workspace_root: &Path,
+        workspace_name: &WorkspaceName,
         object_hash: gix::hash::Kind,
     ) -> Result<(Self, Arc<ReadonlyRepo>), WorkspaceInitError> {
         let backend_initializer = |settings: &UserSettings,
                                    store_path: &Path|
-         -> Result<Box<dyn crate::backend::Backend>, _> {
+         -> Result<Box<dyn jj_core::backend::Backend>, _> {
             // TODO: Clean up path normalization. store_path is canonicalized by
             // ReadonlyRepo::init(). workspace_root will be canonicalized by
             // Workspace::new(), but it's not yet here.
             let store_relative_workspace_root =
-                if let Ok(workspace_root) = dunce::canonicalize(workspace_root) {
-                    crate::file_util::relative_path(store_path, &workspace_root)
+                if let Ok(workspace_root) = file_util::canonicalize(workspace_root) {
+                    file_util::relative_path(store_path, &workspace_root)
                 } else {
                     workspace_root.to_owned()
                 };
-            let backend = crate::git_backend::GitBackend::init_colocated(
-                settings,
+            let git_settings = settings
+                .git_backend_settings()
+                .map_err(BackendInitError::new)?;
+            let backend = jj_git_backend::git_backend::GitBackend::init_colocated(
+                &git_settings,
                 store_path,
                 &store_relative_workspace_root,
                 object_hash,
@@ -249,7 +308,14 @@ impl Workspace {
             Ok(Box::new(backend))
         };
         let signer = signer_from_settings(user_settings)?;
-        Self::init_with_backend(user_settings, workspace_root, &backend_initializer, signer).await
+        Self::init_with_backend(
+            user_settings,
+            workspace_root,
+            workspace_name,
+            &backend_initializer,
+            signer,
+        )
+        .await
     }
 
     /// Initializes a workspace with an existing Git repo at the specified path.
@@ -260,42 +326,56 @@ impl Workspace {
     pub async fn init_external_git(
         user_settings: &UserSettings,
         workspace_root: &Path,
+        workspace_name: &WorkspaceName,
         git_repo_path: &Path,
     ) -> Result<(Self, Arc<ReadonlyRepo>), WorkspaceInitError> {
         let backend_initializer = |settings: &UserSettings,
                                    store_path: &Path|
-         -> Result<Box<dyn crate::backend::Backend>, _> {
+         -> Result<Box<dyn jj_core::backend::Backend>, _> {
             // If the git repo is inside the workspace, use a relative path to it so the
             // whole workspace can be moved without breaking.
             // TODO: Clean up path normalization. store_path is canonicalized by
             // ReadonlyRepo::init(). workspace_root will be canonicalized by
             // Workspace::new(), but it's not yet here.
             let store_relative_git_repo_path = match (
-                dunce::canonicalize(workspace_root),
-                crate::git_backend::canonicalize_git_repo_path(git_repo_path),
+                file_util::canonicalize(workspace_root),
+                jj_git_backend::git_backend::canonicalize_git_repo_path(git_repo_path),
             ) {
                 (Ok(workspace_root), Ok(git_repo_path))
                     if git_repo_path.starts_with(&workspace_root) =>
                 {
-                    crate::file_util::relative_path(store_path, &git_repo_path)
+                    file_util::relative_path(store_path, &git_repo_path)
                 }
                 _ => git_repo_path.to_owned(),
             };
-            let backend = crate::git_backend::GitBackend::init_external(
-                settings,
+            let git_settings = settings
+                .git_backend_settings()
+                .map_err(BackendInitError::new)?;
+            let backend = jj_git_backend::git_backend::GitBackend::init_external(
+                &git_settings,
                 store_path,
                 &store_relative_git_repo_path,
             )?;
             Ok(Box::new(backend))
         };
         let signer = signer_from_settings(user_settings)?;
-        Self::init_with_backend(user_settings, workspace_root, &backend_initializer, signer).await
+        Self::init_with_backend(
+            user_settings,
+            workspace_root,
+            workspace_name,
+            &backend_initializer,
+            signer,
+        )
+        .await
     }
 
+    /// Initializes a workspace with a new repo, using the given backend and
+    /// store initializers and working-copy factory.
     #[expect(clippy::too_many_arguments)]
     pub async fn init_with_factories(
         user_settings: &UserSettings,
         workspace_root: &Path,
+        workspace_name: &WorkspaceName,
         backend_initializer: &BackendInitializer<'_>,
         signer: Signer,
         workspace_store_initializer: &WorkspaceStoreInitializer<'_>,
@@ -304,7 +384,6 @@ impl Workspace {
         index_store_initializer: &IndexStoreInitializer<'_>,
         submodule_store_initializer: &SubmoduleStoreInitializer<'_>,
         working_copy_factory: &dyn WorkingCopyFactory,
-        workspace_name: WorkspaceNameBuf,
     ) -> Result<(Self, Arc<ReadonlyRepo>), WorkspaceInitError> {
         let jj_dir = create_jj_dir(workspace_root)?;
         async {
@@ -332,11 +411,12 @@ impl Workspace {
                 workspace_root,
                 &jj_dir,
                 working_copy_factory,
-                workspace_name,
+                workspace_name.to_owned(),
+                None,
             )
             .await?;
             let repo_loader = repo.loader().clone();
-            let repo_dir = dunce::canonicalize(&repo_dir).context(&repo_dir)?;
+            let repo_dir = file_util::canonicalize(&repo_dir).context(&repo_dir)?;
             let workspace = Self::new(workspace_root, repo_dir, working_copy, repo_loader)?;
             repo.loader()
                 .workspace_store()
@@ -349,39 +429,45 @@ impl Workspace {
         })
     }
 
+    /// Initializes a workspace with a new repo using the given backend and the
+    /// default stores and working copy.
     pub async fn init_with_backend(
         user_settings: &UserSettings,
         workspace_root: &Path,
+        workspace_name: &WorkspaceName,
         backend_initializer: &BackendInitializer<'_>,
         signer: Signer,
     ) -> Result<(Self, Arc<ReadonlyRepo>), WorkspaceInitError> {
         Self::init_with_factories(
             user_settings,
             workspace_root,
+            workspace_name,
             backend_initializer,
             signer,
-            ReadonlyRepo::default_workspace_store_initializer(),
-            ReadonlyRepo::default_op_store_initializer(),
-            ReadonlyRepo::default_op_heads_store_initializer(),
-            ReadonlyRepo::default_index_store_initializer(),
-            ReadonlyRepo::default_submodule_store_initializer(),
+            default_workspace_store_initializer(),
+            default_op_store_initializer(),
+            default_op_heads_store_initializer(),
+            default_index_store_initializer(),
+            default_submodule_store_initializer(),
             &*default_working_copy_factory(),
-            WorkspaceName::DEFAULT.to_owned(),
         )
         .await
     }
 
+    /// Initializes a new workspace at `workspace_root` that shares the existing
+    /// repo at `repo_path`.
     pub async fn init_workspace_with_existing_repo(
         workspace_root: &Path,
         repo_path: &Path,
         repo: &Arc<ReadonlyRepo>,
         working_copy_factory: &dyn WorkingCopyFactory,
         workspace_name: WorkspaceNameBuf,
+        operation_workspace_name: Option<&WorkspaceName>,
     ) -> Result<(Self, Arc<ReadonlyRepo>), WorkspaceInitError> {
         let jj_dir = create_jj_dir(workspace_root)?;
 
-        let repo_dir = dunce::canonicalize(repo_path).context(repo_path)?;
-        let jj_dir_abs = dunce::canonicalize(&jj_dir).context(&jj_dir)?;
+        let repo_dir = file_util::canonicalize(repo_path).context(repo_path)?;
+        let jj_dir_abs = file_util::canonicalize(&jj_dir).context(&jj_dir)?;
         let path_to_store = file_util::relative_path(&jj_dir_abs, &repo_dir);
         let path_to_store = if path_to_store.is_relative() {
             file_util::slash_path(&path_to_store).into_owned()
@@ -400,6 +486,7 @@ impl Workspace {
             &jj_dir,
             working_copy_factory,
             workspace_name,
+            operation_workspace_name,
         )
         .await?;
         let workspace = Self::new(
@@ -412,29 +499,22 @@ impl Workspace {
         Ok((workspace, repo))
     }
 
-    pub fn load(
-        user_settings: &UserSettings,
-        workspace_path: &Path,
-        store_factories: &StoreFactories,
-        working_copy_factories: &WorkingCopyFactories,
-    ) -> Result<Self, WorkspaceLoadError> {
-        let loader = default_workspace_loader_factory().create(workspace_path)?;
-        let workspace = loader.load(user_settings, store_factories, working_copy_factories)?;
-        Ok(workspace)
-    }
-
+    /// Returns the root of the workspace, where the working-copy files live.
     pub fn workspace_root(&self) -> &Path {
         &self.workspace_root
     }
 
+    /// Returns the name of this workspace.
     pub fn workspace_name(&self) -> &WorkspaceName {
         self.working_copy.workspace_name()
     }
 
+    /// Returns the path to the repo directory (typically `.jj/repo/`).
     pub fn repo_path(&self) -> &Path {
         &self.repo_path
     }
 
+    /// Returns the loader for the repo.
     pub fn repo_loader(&self) -> &RepoLoader {
         &self.repo_loader
     }
@@ -444,10 +524,24 @@ impl Workspace {
         self.repo_loader.settings()
     }
 
+    /// Returns the working copy.
     pub fn working_copy(&self) -> &dyn WorkingCopy {
         self.working_copy.as_ref()
     }
 
+    /// Loads the repo at the current operation head(s).
+    pub async fn load_at_head(&self) -> Result<Arc<ReadonlyRepo>, RepoLoaderError> {
+        self.repo_loader()
+            .load_at_head(Some(self.workspace_name()))
+            .await
+    }
+
+    /// Loads the repo at the given operation.
+    pub async fn load_at(&self, op: &Operation) -> Result<Arc<ReadonlyRepo>, RepoLoaderError> {
+        self.repo_loader().load_at(op).await
+    }
+
+    /// Locks the working copy and returns a [`LockedWorkspace`] for mutating it.
     pub async fn start_working_copy_mutation(
         &mut self,
     ) -> Result<LockedWorkspace<'_>, WorkingCopyStateError> {
@@ -458,6 +552,11 @@ impl Workspace {
         })
     }
 
+    /// Checks out `commit` in the working copy and records `operation_id` as
+    /// the working copy's operation.
+    ///
+    /// If `old_tree` is given and doesn't match the tree currently recorded
+    /// in the working copy, [`CheckoutError::ConcurrentCheckout`] is returned.
     pub async fn check_out(
         &mut self,
         operation_id: OperationId,
@@ -526,16 +625,19 @@ impl Workspace {
     }
 }
 
+/// A [`Workspace`] whose working copy is locked for mutation.
 pub struct LockedWorkspace<'a> {
     base: &'a mut Workspace,
     locked_wc: Box<dyn LockedWorkingCopy>,
 }
 
 impl LockedWorkspace<'_> {
+    /// Returns the locked working copy.
     pub fn locked_wc(&mut self) -> &mut dyn LockedWorkingCopy {
         self.locked_wc.as_mut()
     }
 
+    /// Saves the working copy state with `operation_id` and releases the lock.
     pub async fn finish(self, operation_id: OperationId) -> Result<(), WorkingCopyStateError> {
         let new_wc = self.locked_wc.finish(operation_id).await?;
         self.base.working_copy = new_wc;
@@ -543,12 +645,14 @@ impl LockedWorkspace<'_> {
     }
 }
 
-// Factory trait to build WorkspaceLoaders given the workspace root.
+/// Factory for building [`WorkspaceLoader`]s given the workspace root.
 pub trait WorkspaceLoaderFactory {
+    /// Creates a [`WorkspaceLoader`] for the workspace at `workspace_root`.
     fn create(&self, workspace_root: &Path)
     -> Result<Box<dyn WorkspaceLoader>, WorkspaceLoadError>;
 }
 
+/// Returns the factory for the working-copy type used by the workspace.
 pub fn get_working_copy_factory<'a>(
     workspace_loader: &dyn WorkspaceLoader,
     working_copy_factories: &'a WorkingCopyFactories,
@@ -565,16 +669,16 @@ pub fn get_working_copy_factory<'a>(
     }
 }
 
-// Loader assigned to a specific workspace root that knows how to load a
-// Workspace object for that path.
+/// Loader assigned to a specific workspace root that knows how to load a
+/// [`Workspace`] object for that path.
 pub trait WorkspaceLoader {
-    // The root of the Workspace to be loaded.
+    /// Returns the root of the workspace to be loaded.
     fn workspace_root(&self) -> &Path;
 
-    // The path to the repo/ dir for this Workspace.
+    /// Returns the path to the `repo/` directory for this workspace.
     fn repo_path(&self) -> &Path;
 
-    // Loads the specified Workspace with the provided factories.
+    /// Loads the workspace with the provided factories.
     fn load(
         &self,
         user_settings: &UserSettings,
@@ -582,10 +686,11 @@ pub trait WorkspaceLoader {
         working_copy_factories: &WorkingCopyFactories,
     ) -> Result<Workspace, WorkspaceLoadError>;
 
-    // Returns the type identifier for the WorkingCopy trait in this Workspace.
+    /// Returns the type identifier of the [`WorkingCopy`] in this workspace.
     fn get_working_copy_type(&self) -> Result<String, StoreLoadError>;
 }
 
+/// Creates loaders for workspaces stored in the default on-disk format.
 pub struct DefaultWorkspaceLoaderFactory;
 
 impl WorkspaceLoaderFactory for DefaultWorkspaceLoaderFactory {
@@ -606,6 +711,7 @@ struct DefaultWorkspaceLoader {
     working_copy_state_path: PathBuf,
 }
 
+/// Map from working-copy type names to their factories.
 pub type WorkingCopyFactories = HashMap<String, Box<dyn WorkingCopyFactory>>;
 
 impl DefaultWorkspaceLoader {
@@ -623,7 +729,7 @@ impl DefaultWorkspaceLoader {
             let buf = fs::read(&repo_dir).context(&repo_dir)?;
             let repo_path =
                 file_util::path_from_bytes(&buf).map_err(WorkspaceLoadError::DecodeRepoPath)?;
-            repo_dir = dunce::canonicalize(jj_dir.join(repo_path)).context(repo_path)?;
+            repo_dir = file_util::canonicalize(jj_dir.join(repo_path)).context(repo_path)?;
             if !repo_dir.is_dir() {
                 return Err(WorkspaceLoadError::RepoDoesNotExist(repo_dir));
             }

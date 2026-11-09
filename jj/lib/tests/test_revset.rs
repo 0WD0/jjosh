@@ -22,33 +22,35 @@ use futures::StreamExt as _;
 use itertools::Itertools as _;
 use jiff::Zoned;
 use jiff::tz;
-use jj_lib::backend::ChangeId;
-use jj_lib::backend::CommitId;
-use jj_lib::backend::MillisSinceEpoch;
-use jj_lib::backend::Signature;
-use jj_lib::backend::Timestamp;
-use jj_lib::commit::Commit;
-use jj_lib::default_index::DefaultIndexStore;
+use jj_core::backend::ChangeId;
+use jj_core::backend::CommitId;
+use jj_core::backend::MillisSinceEpoch;
+use jj_core::backend::Signature;
+use jj_core::backend::Timestamp;
+use jj_core::commit::Commit;
+use jj_core::graph::GraphEdge;
+use jj_core::graph::reverse_graph;
+use jj_core::merge::Merge;
+use jj_core::merged_tree::MergedTree;
+use jj_core::object_id::ObjectId as _;
+use jj_core::op_store::RefTarget;
+use jj_core::op_store::RemoteRef;
+use jj_core::op_store::RemoteRefState;
+use jj_core::ref_name::RefName;
+use jj_core::ref_name::RemoteName;
+use jj_core::ref_name::RemoteRefSymbol;
+use jj_core::ref_name::WorkspaceName;
+use jj_core::ref_name::WorkspaceNameBuf;
+use jj_core::repo_path::RepoPath;
+use jj_core::signing::Signer;
+use jj_core::time_util;
+use jj_default_index::DefaultIndexStore;
 use jj_lib::fileset::FilesetAliasesMap;
 use jj_lib::fileset::FilesetExpression;
 use jj_lib::git;
-use jj_lib::graph::GraphEdge;
-use jj_lib::graph::reverse_graph;
 use jj_lib::id_prefix::IdPrefixContext;
-use jj_lib::merge::Merge;
-use jj_lib::merged_tree::MergedTree;
-use jj_lib::object_id::ObjectId as _;
-use jj_lib::op_store::RefTarget;
-use jj_lib::op_store::RemoteRef;
-use jj_lib::op_store::RemoteRefState;
-use jj_lib::ref_name::RefName;
-use jj_lib::ref_name::RemoteName;
-use jj_lib::ref_name::RemoteRefSymbol;
-use jj_lib::ref_name::WorkspaceName;
-use jj_lib::ref_name::WorkspaceNameBuf;
 use jj_lib::repo::ReadonlyRepo;
 use jj_lib::repo::Repo;
-use jj_lib::repo_path::RepoPath;
 use jj_lib::revset::ResolvedRevset;
 use jj_lib::revset::Revset;
 use jj_lib::revset::RevsetAliasesMap;
@@ -63,10 +65,9 @@ use jj_lib::revset::RevsetWorkspaceContext;
 use jj_lib::revset::SymbolResolver;
 use jj_lib::revset::SymbolResolverExtension;
 use jj_lib::revset::parse;
+use jj_lib::rewrite::RebaseOptions;
 use jj_lib::settings::SignBehavior;
-use jj_lib::signing::Signer;
 use jj_lib::test_signing_backend::TestSigningBackend;
-use jj_lib::time_util;
 use jj_lib::ui_path::RepoPathUiConverter;
 use jj_lib::workspace::Workspace;
 use pollster::FutureExt as _;
@@ -76,9 +77,11 @@ use testutils::TestRepo;
 use testutils::TestRepoBackend;
 use testutils::TestResult;
 use testutils::TestWorkspace;
+use testutils::assert_rebased_onto;
 use testutils::create_random_commit;
 use testutils::create_tree;
 use testutils::create_tree_with;
+use testutils::rebase_descendants_with_options_return_map;
 use testutils::repo_path;
 use testutils::write_random_commit;
 use testutils::write_random_commit_with_parents;
@@ -3489,6 +3492,116 @@ fn test_evaluate_expression_merge_point_with_descendants() {
 }
 
 #[test]
+fn test_evaluate_expression_merge_point_at_operation() -> TestResult {
+    // This is non-trivial: since it walks descendants, visibility is an issue,
+    // and merge_point() should honor the visibility at the scope of the revset.
+
+    // Rewriting change 3 at current op:
+    //
+    // At op @-   At op @ (current)
+    // 4'         4
+    // |\         |\
+    // 3'\        3 \
+    // |  \       |  \
+    // 1   2      1   2
+    //  \ /        \ /
+    //   0          0
+    let test_repo = TestRepo::init();
+    let repo = &test_repo.repo;
+
+    let mut tx = repo.start_transaction();
+    let mut_repo = tx.repo_mut();
+    let commit1 = write_random_commit(mut_repo);
+    let commit2 = write_random_commit(mut_repo);
+    let commit3prime = write_random_commit_with_parents(mut_repo, &[&commit1]);
+    let commit4prime = write_random_commit_with_parents(mut_repo, &[&commit2, &commit3prime]);
+    let repo = tx.commit("test").block_on()?;
+
+    let mut tx = repo.start_transaction();
+    let mut_repo = tx.repo_mut();
+    let commit3 = mut_repo
+        .rewrite_commit(&commit3prime)
+        .set_description("rewritten")
+        .write_unwrap();
+    let rebase_map =
+        rebase_descendants_with_options_return_map(mut_repo, &RebaseOptions::default());
+    let commit4 = assert_rebased_onto(
+        mut_repo,
+        &rebase_map,
+        &commit4prime,
+        &[commit2.id(), commit3.id()],
+    );
+    let repo = tx.commit("test").block_on()?;
+
+    let mut tx = repo.start_transaction();
+    let mut_repo = tx.repo_mut();
+
+    assert_eq!(
+        resolve_commit_ids(
+            mut_repo,
+            &format!("merge_point({} | {})", commit1.id(), commit2.id())
+        ),
+        vec![commit4.id().clone()]
+    );
+
+    assert_eq!(
+        resolve_commit_ids(
+            mut_repo,
+            &format!(
+                "at_operation(@-, merge_point({} | {}))",
+                commit1.id(),
+                commit2.id()
+            )
+        ),
+        vec![commit4prime.id().clone()]
+    );
+
+    // Bringing an older revision into the search space by direct reference makes it eligible
+    // to be a merge_point.
+    assert_eq!(
+        resolve_commit_ids(
+            mut_repo,
+            &format!(
+                "({} & none()) | merge_point({} | {})",
+                commit4prime.id(),
+                commit1.id(),
+                commit2.id()
+            )
+        ),
+        vec![commit4.id().clone(), commit4prime.id().clone()]
+    );
+
+    // But at_operation() re-restricts it.
+    assert_eq!(
+        resolve_commit_ids(
+            mut_repo,
+            &format!(
+                "({} & none()) | at_operation(@, merge_point({} | {}))",
+                commit4prime.id(),
+                commit1.id(),
+                commit2.id()
+            )
+        ),
+        vec![commit4.id().clone()]
+    );
+
+    // at_operation() makes all the commits from that operation visible in the full scope.
+    assert_eq!(
+        resolve_commit_ids(
+            mut_repo,
+            &format!(
+                "at_operation(@-, none()) | merge_point({} | {})",
+                commit1.id(),
+                commit2.id()
+            )
+        ),
+        vec![commit4.id().clone(), commit4prime.id().clone()]
+    );
+
+    Ok(())
+}
+
+#[test]
 fn test_evaluate_expression_exactly() {
     let test_repo = TestRepo::init();
     let repo = &test_repo.repo;
@@ -4226,6 +4339,13 @@ fn test_evaluate_expression_at_operation() -> TestResult {
     assert_eq!(
         resolve_commit_ids(repo2.as_ref(), "at_operation(@--, present(commit1_ref))"),
         vec![]
+    );
+    assert_eq!(
+        resolve_commit_ids(
+            repo2.as_ref(),
+            "present(at_operation(@--, commit1_ref)) | commit1_ref"
+        ),
+        vec![commit1_op2.id().clone()]
     );
 
     // Visibility resolution:

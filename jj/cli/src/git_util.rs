@@ -42,13 +42,11 @@ use jj_lib::git::GitSettings;
 use jj_lib::git::GitSidebandLineTerminator;
 use jj_lib::git::GitSubprocessCallback;
 use jj_lib::git::GitSubprocessOptions;
-use jj_lib::git_backend::GitRepoAtWorkdirError;
 use jj_lib::op_store::RemoteRefState;
 use jj_lib::repo::ReadonlyRepo;
 use jj_lib::repo::Repo;
 use jj_lib::settings::RemoteSettingsMap;
 use jj_lib::store::Store;
-use jj_lib::workspace::Workspace;
 use unicode_width::UnicodeWidthStr as _;
 
 use crate::cleanup_guard::CleanupGuard;
@@ -63,18 +61,6 @@ use crate::formatter::FormatterExt as _;
 use crate::revset_util::parse_remote_auto_track_bookmarks_map;
 use crate::ui::ProgressOutput;
 use crate::ui::Ui;
-
-pub fn is_colocated_git_workspace(workspace: &Workspace) -> Result<bool, CommandError> {
-    let Ok(git_backend) = git::get_git_backend(workspace.repo_loader().store()) else {
-        return Ok(false);
-    };
-    match git_backend.open_git_repo_at_workdir(workspace.workspace_root()) {
-        Ok(_) => Ok(true),
-        Err(GitRepoAtWorkdirError::NotFound { .. }) => Ok(false),
-        Err(GitRepoAtWorkdirError::Unrelated { .. }) => Ok(false),
-        Err(err @ GitRepoAtWorkdirError::Other(_)) => Err(user_error(err)),
-    }
-}
 
 /// Parses user-specified remote URL or path to absolute form.
 pub fn absolute_git_url(cwd: &Path, source: &str) -> Result<String, CommandError> {
@@ -266,7 +252,7 @@ fn print_imported_changes(
     Ok(())
 }
 
-fn print_failed_git_import(ui: &Ui, stats: &GitImportStats) -> Result<(), CommandError> {
+fn print_failed_git_import(ui: &Ui, stats: &GitImportStats) -> io::Result<()> {
     if !stats.failed_ref_names.is_empty() {
         writeln!(ui.warning_default(), "Failed to import some Git refs:")?;
         let mut formatter = ui.stderr_formatter();
@@ -295,7 +281,7 @@ fn print_failed_git_import(ui: &Ui, stats: &GitImportStats) -> Result<(), Comman
 
 /// Prints only the summary of git import stats (abandoned count, failed refs).
 /// Use this when a WorkspaceCommandTransaction is not available.
-pub fn print_git_import_stats_summary(ui: &Ui, stats: &GitImportStats) -> Result<(), CommandError> {
+pub fn print_git_import_stats_summary(ui: &Ui, stats: &GitImportStats) -> io::Result<()> {
     if let Some(mut formatter) = ui.status_formatter() {
         if !stats.abandoned_commits.is_empty() {
             writeln!(
@@ -493,7 +479,11 @@ pub fn print_git_export_stats(
         let mut formatter = ui.stderr_formatter();
         for (symbol, reason) in &stats.failed_tags {
             write!(formatter, "  ")?;
-            write!(formatter.labeled("tag"), "{}", view.remote_ref_symbol(symbol.as_ref()))?;
+            write!(
+                formatter.labeled("tag"),
+                "{}",
+                view.remote_ref_symbol(symbol.as_ref())
+            )?;
             for err in iter::successors(Some(reason as &dyn error::Error), |err| err.source()) {
                 write!(formatter, ": {err}")?;
             }
@@ -517,7 +507,7 @@ pub fn print_git_export_stats(
 
 pub fn print_push_stats(
     ui: &Ui,
-    view: &jj_lib::view::View,
+    _view: &jj_lib::view::View,
     stats: &GitPushStats,
 ) -> io::Result<()> {
     if !stats.rejected.is_empty() {
@@ -560,21 +550,6 @@ pub fn print_push_stats(
             ui.hint_default(),
             "Try checking if you have permission to push to all the bookmarks."
         )?;
-    }
-    if !stats.unexported_bookmarks.is_empty() {
-        writeln!(
-            ui.warning_default(),
-            "The following bookmarks couldn't be updated locally:"
-        )?;
-        let mut formatter = ui.stderr_formatter();
-        for (symbol, reason) in &stats.unexported_bookmarks {
-            write!(formatter, "  ")?;
-            write!(formatter.labeled("bookmark"), "{}", view.remote_ref_symbol(symbol.as_ref()))?;
-            for err in iter::successors(Some(reason as &dyn error::Error), |err| err.source()) {
-                write!(formatter, ": {err}")?;
-            }
-            writeln!(formatter)?;
-        }
     }
     Ok(())
 }

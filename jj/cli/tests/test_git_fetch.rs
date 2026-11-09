@@ -371,9 +371,9 @@ fn test_git_fetch_with_ignored_refspecs() {
     let output = work_dir.run_jj(["git", "fetch"]);
     insta::assert_snapshot!(output, @"
     ------- stderr -------
-    Warning: Ignored refspec `refs/heads/bar` from `origin`: fetch-only refspecs are not supported
-    Warning: Ignored refspec `+refs/heads/bar*:refs/tags/bar*` from `origin`: only refs/remotes/ is supported for fetch destinations
     Warning: Ignored refspec `+refs/heads/foo*:refs/remotes/origin/baz*` from `origin`: renaming is not supported
+    Warning: Ignored refspec `+refs/heads/bar*:refs/tags/bar*` from `origin`: only refs/remotes/ is supported for fetch destinations
+    Warning: Ignored refspec `refs/heads/bar` from `origin`: fetch-only refspecs are not supported
     Fetching from Git remotes: origin
     bookmark: main@origin    [new] untracked
     bookmark: sub/yes@origin [new] untracked
@@ -414,9 +414,9 @@ fn test_git_fetch_with_ignored_refspecs() {
     let output = work_dir.run_jj(["git", "fetch"]);
     insta::assert_snapshot!(output, @"
     ------- stderr -------
-    Warning: Ignored refspec `refs/heads/bar` from `origin`: fetch-only refspecs are not supported
-    Warning: Ignored refspec `+refs/heads/bar*:refs/tags/bar*` from `origin`: only refs/remotes/ is supported for fetch destinations
     Warning: Ignored refspec `+refs/heads/foo*:refs/remotes/origin/baz*` from `origin`: renaming is not supported
+    Warning: Ignored refspec `+refs/heads/bar*:refs/tags/bar*` from `origin`: only refs/remotes/ is supported for fetch destinations
+    Warning: Ignored refspec `refs/heads/bar` from `origin`: fetch-only refspecs are not supported
     Fetching from Git remotes: origin
     Nothing changed.
     [EOF]
@@ -772,6 +772,7 @@ fn test_git_fetch_conflicting_bookmarks() {
     // This should result in a CONFLICTED bookmark
     insta::assert_snapshot!(get_bookmark_output(&work_dir), @"
     rem1 (conflicted):
+      - (absent)
       + kkmpptxz 2b17ac71 (empty) (no description set)
       + ppspxspk 4acd0343 message
       @rem1 (behind by 1 commits): ppspxspk 4acd0343 message
@@ -809,6 +810,7 @@ fn test_git_fetch_conflicting_bookmarks_colocated() {
     // See https://github.com/jj-vcs/jj/pull/1146#discussion_r1112372340 for the bug this tests for.
     insta::assert_snapshot!(get_bookmark_output(&work_dir), @"
     rem1 (conflicted):
+      - (absent)
       + zsuskuln c2934cfb (empty) (no description set)
       + ppspxspk 4acd0343 message
       @git (behind by 1 commits): zsuskuln c2934cfb (empty) (no description set)
@@ -1695,6 +1697,7 @@ fn test_git_fetch_remove_fetch() {
     work_dir.run_jj(["git", "fetch"]).success();
     insta::assert_snapshot!(get_bookmark_output(&work_dir), @"
     origin (conflicted):
+      - (absent)
       + qpvuntsm e8849ae1 (empty) (no description set)
       + qmyrypzk ab8b299e message
       @origin (behind by 1 commits): qmyrypzk ab8b299e message
@@ -1706,6 +1709,7 @@ fn test_git_fetch_remove_fetch() {
         .success();
     insta::assert_snapshot!(get_bookmark_output(&work_dir), @"
     origin (conflicted):
+      - (absent)
       + qpvuntsm e8849ae1 (empty) (no description set)
       + qmyrypzk ab8b299e message
     [EOF]
@@ -1725,6 +1729,7 @@ fn test_git_fetch_remove_fetch() {
     ");
     insta::assert_snapshot!(get_bookmark_output(&work_dir), @"
     origin (conflicted):
+      - (absent)
       + qpvuntsm e8849ae1 (empty) (no description set)
       + qmyrypzk ab8b299e message
       @origin (behind by 1 commits): qmyrypzk ab8b299e message
@@ -1752,6 +1757,7 @@ fn test_git_fetch_rename_fetch() {
     work_dir.run_jj(["git", "fetch"]).success();
     insta::assert_snapshot!(get_bookmark_output(&work_dir), @"
     origin (conflicted):
+      - (absent)
       + qpvuntsm e8849ae1 (empty) (no description set)
       + qmyrypzk ab8b299e message
       @origin (behind by 1 commits): qmyrypzk ab8b299e message
@@ -1763,6 +1769,7 @@ fn test_git_fetch_rename_fetch() {
         .success();
     insta::assert_snapshot!(get_bookmark_output(&work_dir), @"
     origin (conflicted):
+      - (absent)
       + qpvuntsm e8849ae1 (empty) (no description set)
       + qmyrypzk ab8b299e message
       @upstream (behind by 1 commits): qmyrypzk ab8b299e message
@@ -2649,6 +2656,7 @@ fn test_git_fetch_tracked_multiple_remotes() {
     hotfix: pozyxktk e9e38ee9 upstream hotfix commit
     hotfix@upstream: pozyxktk e9e38ee9 upstream hotfix commit
     main (conflicted):
+      - (absent)
       + orvppysl 25f66480 origin main commit
       + nrlvptqt f241ccf9 upstream main commit
       @origin (behind by 1 commits): orvppysl 25f66480 origin main commit
@@ -2681,6 +2689,7 @@ fn test_git_fetch_tracked_multiple_remotes() {
     hotfix: pozyxktk e9e38ee9 upstream hotfix commit
     hotfix@upstream: pozyxktk e9e38ee9 upstream hotfix commit
     main (conflicted):
+      - (absent)
       + orvppysl 25f66480 origin main commit
       + nrlvptqt f241ccf9 upstream main commit
       @origin (behind by 1 commits): orvppysl 25f66480 origin main commit

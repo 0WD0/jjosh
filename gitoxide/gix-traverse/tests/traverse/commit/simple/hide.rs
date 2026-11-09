@@ -1,6 +1,6 @@
 use super::*;
 use crate::Result;
-use crate::util::{commit_graph, fixture, git_rev_list, odb_at};
+use crate::util::{CountingFind, commit_graph, fixture, odb_at, rev_list_baseline, unseen_generation_fixture};
 use std::{cell::Cell, rc::Rc};
 
 fn assert_simple_repo_graph(repo_dir: &std::path::Path) -> Result {
@@ -33,20 +33,14 @@ fn disjoint_hidden_and_interesting() -> gix_testtools::TestResult {
 
     let tip = hex_to_id("e07cf1277ff7c43090f1acfc85a46039e7de1272"); // b3
     let hidden = [hex_to_id("b5665181bf4c338ab16b10da0524d81b96aff209")]; // a3
-    let expected = [
-        tip,
-        hex_to_id("94cf3f3a4c782b672173423e7a4157a02957dd48"), // b2
-        hex_to_id("34e5ff5ce3d3ba9f0a00d11a7fad72551fff0861"), // b1
-    ];
-    assert_eq!(
-        git_rev_list(&repo_dir, &["disjoint", "--not", "main"])?,
-        expected,
-        "Git confirms that hiding main preserves every commit on the disjoint branch"
-    );
+    let baseline = rev_list_baseline(&repo_dir, "rev-list")?;
 
     for sorting in all_sortings() {
         let result = traverse_both([tip], &odb, sorting, Parents::All, hidden)?;
-        assert_eq!(result, expected, "sorting = {sorting:?}");
+        assert_eq!(
+            result, baseline,
+            "sorting = {sorting:?}: hiding main preserves every commit on the disjoint branch"
+        );
     }
     Ok(())
 }
@@ -120,6 +114,65 @@ fn hidden_bug_repo(name: &str) -> Result<(std::path::PathBuf, gix_odb::Handle)> 
 }
 
 #[test]
+fn skewed_dates_do_not_expose_hidden_ancestors() -> gix_testtools::TestResult {
+    let (repo_dir, odb) = hidden_bug_repo("skewed_dates")?;
+    let commits = parse_commit_names(&repo_dir)?;
+    for (visible, hidden, baseline_name) in [
+        (
+            vec![commits["visible"], commits["root"]],
+            vec![commits["hidden"]],
+            "rev-list",
+        ),
+        (
+            vec![commits["visible"], commits["root"], commits["hidden"]],
+            vec![commits["hidden"], commits["hidden"]],
+            "rev-list-repeated-exclusions",
+        ),
+    ] {
+        let baseline = rev_list_baseline(&repo_dir, baseline_name)?;
+        for sorting in all_sortings() {
+            for parents in [Parents::All, Parents::First] {
+                assert_eq!(
+                    traverse_both(visible.clone(), &odb, sorting, parents, hidden.clone())?,
+                    baseline,
+                    "{baseline_name}, {sorting:?}: dates must not limit hidden ancestry in either parent mode"
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn skewed_hidden_boundaries_match_git() -> gix_testtools::TestResult {
+    for (repo_name, visible, hidden) in [
+        ("skewed_merge", vec!["visible"], vec!["hidden"]),
+        ("skewed_lookahead", vec!["visible"], vec!["hidden"]),
+        (
+            "crossed_hidden_boundaries",
+            vec!["visible-tip", "visible-middle"],
+            vec!["hidden-base", "hidden-top"],
+        ),
+    ] {
+        let (repo_dir, odb) = hidden_bug_repo(repo_name)?;
+        let commits = parse_commit_names(&repo_dir)?;
+        let baseline = rev_list_baseline(&repo_dir, "rev-list")?;
+        let visible = visible.into_iter().map(|name| commits[name]).collect::<Vec<_>>();
+        let hidden = hidden.into_iter().map(|name| commits[name]).collect::<Vec<_>>();
+        for sorting in all_sortings() {
+            for parents in [Parents::All, Parents::First] {
+                assert_eq!(
+                    traverse_both(visible.clone(), &odb, sorting, parents, hidden.clone())?,
+                    baseline,
+                    "{repo_name}, {sorting:?}: every hidden boundary applies to every visible path"
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn hidden_tip_with_longer_path_to_shared_ancestor() -> gix_testtools::TestResult {
     // Graph:
     //   A(tip) --> shared
@@ -144,20 +197,16 @@ fn hidden_tip_with_longer_path_to_shared_ancestor() -> gix_testtools::TestResult
     let hidden_h = commits["H"];
     let shared = commits["shared"];
 
-    let expected = vec![tip_a];
+    let baseline = rev_list_baseline(&repo_path, "rev-list")?;
 
     for sorting in all_sortings() {
         let result = traverse([tip_a], &odb, sorting, Parents::All, [hidden_h])?;
         assert_eq!(
-            result, expected,
+            result, baseline,
             "sorting = {sorting:?}: 'shared' ({shared}) should NOT be returned because it's \
                      reachable from hidden tip H"
         );
     }
-
-    // Verify against git
-    let git_output = git_rev_list(&repo_path, &["main", "--not", "hidden_branch"])?;
-    assert_eq!(git_output, expected, "git rev-list should show only A");
 
     Ok(())
 }
@@ -186,20 +235,16 @@ fn interesting_tip_with_longer_path_to_shared_ancestor() -> gix_testtools::TestR
     let hidden_h = commits["H"];
     let d = commits["D"];
 
-    let expected: Vec<_> = ["A", "B", "C"].iter().map(|name| commits[*name]).collect();
+    let baseline = rev_list_baseline(&repo_path, "rev-list")?;
 
     for sorting in all_sortings() {
         let result = traverse([tip_a], &odb, sorting, Parents::All, [hidden_h])?;
         assert_eq!(
-            result, expected,
+            result, baseline,
             "sorting = {sorting:?}: 'D' ({d}) should NOT be returned because it's \
                      reachable from hidden tip H"
         );
     }
-
-    // Verify against git
-    let git_output = git_rev_list(&repo_path, &["main", "--not", "hidden_branch"])?;
-    assert_eq!(git_output, expected, "git rev-list should show A, B, C");
 
     Ok(())
 }
@@ -308,18 +353,293 @@ fn hide_and_commit_graph_call_order_do_not_matter() -> gix_testtools::TestResult
     Ok(())
 }
 
-struct CountingFind<'a> {
-    inner: &'a gix_odb::Handle,
-    lookups: Rc<Cell<usize>>,
+#[test]
+fn short_visible_range_does_not_walk_shared_history_without_commit_graph() -> gix_testtools::TestResult {
+    let (repo_dir, odb) = hidden_bug_repo("short_visible_range")?;
+    let commits = parse_commit_names(&repo_dir)?;
+    let baseline = rev_list_baseline(&repo_dir, "rev-list")?;
+    let lookups = Rc::new(Cell::new(0));
+    let actual = Simple::new(
+        [commits["visible"]],
+        CountingFind {
+            inner: &odb,
+            lookups: Rc::clone(&lookups),
+        },
+    )
+    .commit_graph(None)
+    .hide([commits["shared-63"]])?
+    .map(|item| item.map(|info| info.id))
+    .collect::<gix_error::Result<Vec<_>>>()?;
+    assert_eq!(actual, baseline, "hiding the parent matches Git without a commit graph");
+    assert!(
+        lookups.get() <= 10,
+        "a one-commit range only needs bounded lookahead beyond its hidden boundary: {} reads",
+        lookups.get()
+    );
+    Ok(())
 }
 
-impl gix_object::Find for CountingFind<'_> {
-    fn try_find<'a>(
-        &self,
-        id: &gix_hash::oid,
-        buffer: &'a mut Vec<u8>,
-    ) -> gix_error::Result<Option<gix_object::Data<'a>>> {
-        self.lookups.set(self.lookups.get() + 1);
-        gix_object::Find::try_find(self.inner, id, buffer)
+#[test]
+fn merged_visible_range_stops_near_hidden_boundaries() -> gix_testtools::TestResult {
+    let (repo_dir, odb) = hidden_bug_repo("merged_visible_range")?;
+    let commits = parse_commit_names(&repo_dir)?;
+    for (tip, baseline_prefix, max_lookups) in [("visible", "rev-list", 30), ("visible-wide", "rev-list-wide", 260)] {
+        for (parents, suffix) in [(Parents::All, ""), (Parents::First, "-first-parent")] {
+            let baseline_name = format!("{baseline_prefix}{suffix}");
+            let mut baseline = rev_list_baseline(&repo_dir, &baseline_name)?;
+            baseline.sort();
+            for sorting in all_sortings() {
+                for graph in [None, commit_graph(odb.store_ref())] {
+                    let lookups = Rc::new(Cell::new(0));
+                    let mut actual = Simple::new(
+                        [commits[tip]],
+                        CountingFind {
+                            inner: &odb,
+                            lookups: Rc::clone(&lookups),
+                        },
+                    )
+                    .sorting(sorting)?
+                    .parents(parents)
+                    .commit_graph(graph)
+                    .hide([commits["hidden"]])?
+                    .map(|item| item.map(|info| info.id))
+                    .collect::<gix_error::Result<Vec<_>>>()?;
+                    actual.sort();
+                    assert_eq!(
+                        actual, baseline,
+                        "{baseline_name}, {sorting:?}: both merge arms match Git"
+                    );
+                    assert!(
+                        lookups.get() <= max_lookups,
+                        "painting and walking {tip} must stop near the hidden merge boundaries: {} reads",
+                        lookups.get()
+                    );
+                }
+            }
+        }
     }
+    Ok(())
+}
+
+#[test]
+fn already_hidden_tips_do_not_walk_their_ancestry() -> gix_testtools::TestResult {
+    let (repo_dir, odb) = hidden_bug_repo("skewed_dates")?;
+    let commits = parse_commit_names(&repo_dir)?;
+    let tip = commits["hidden"];
+    let lookups = Rc::new(Cell::new(0));
+    let actual = Simple::new(
+        [tip],
+        CountingFind {
+            inner: &odb,
+            lookups: Rc::clone(&lookups),
+        },
+    )
+    .hide([tip])?
+    .collect::<gix_error::Result<Vec<_>>>()?;
+    assert!(actual.is_empty(), "a tip hidden from itself yields no commits");
+    assert!(
+        lookups.get() <= 2,
+        "hiding a tip from itself must not read its ancestry: {} lookups",
+        lookups.get()
+    );
+    Ok(())
+}
+
+/// Walk each range of `(tips, hidden tips, baseline prefix)` in `repo_name` in every sorting and parent mode,
+/// and expect the commits that `git rev-list` printed. Without a commit-graph, hidden painting can't use
+/// generation numbers to stop early, and [`traverse_both()`] asserts that the walk with one yields the same
+/// commits in the same order.
+fn assert_hidden_ranges_match_git(repo_name: &str, ranges: &[(&[&str], &[&str], &str)]) -> gix_testtools::TestResult {
+    let (repo_dir, odb) = hidden_bug_repo(repo_name)?;
+    let commits = parse_commit_names(&repo_dir)?;
+    for (tips, hidden, baseline_prefix) in ranges {
+        let tip_commit_ids = tips.iter().map(|name| commits[*name]).collect::<Vec<_>>();
+        let hidden_commit_ids = hidden.iter().map(|name| commits[*name]).collect::<Vec<_>>();
+        for (parents, mode) in [(Parents::All, "do-walk"), (Parents::First, "first-parent")] {
+            let baseline_name = format!("rev-list-{baseline_prefix}{mode}");
+            let mut baseline = rev_list_baseline(&repo_dir, &baseline_name)?;
+            baseline.sort();
+            for sorting in all_sortings() {
+                let mut actual = traverse_both(
+                    tip_commit_ids.clone(),
+                    &odb,
+                    sorting,
+                    parents,
+                    hidden_commit_ids.clone(),
+                )?;
+                actual.sort();
+                assert_eq!(actual, baseline, "{repo_name}, {baseline_name}, {sorting:?}");
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn unrelated_history_on_either_side_matches_git() -> gix_testtools::TestResult {
+    for repo_name in ["unrelated_history", "unrelated_history_same_date"] {
+        assert_hidden_ranges_match_git(
+            repo_name,
+            &[
+                (&["topic-1"], &["main-39"], "topic-"),
+                (&["main-39"], &["topic-1"], "main-"),
+                (&["combined"], &["main-39"], "combined-"),
+                (&["combined"], &["main-29"], "combined-base-"),
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+#[test]
+fn hidden_commits_missing_from_the_object_database_match_git() -> gix_testtools::TestResult {
+    assert_hidden_ranges_match_git(
+        "unrelated_history_missing_commit",
+        &[(&["topic-1"], &["main-39"], "topic-")],
+    )
+}
+
+#[test]
+fn criss_cross_merges_match_git() -> gix_testtools::TestResult {
+    assert_hidden_ranges_match_git(
+        "criss_cross",
+        &[
+            (&["a3"], &["b3"], "a3-b3-"),
+            (&["b3"], &["a3"], "b3-a3-"),
+            (&["both"], &["a2"], "both-a2-"),
+            (&["a3", "b3"], &["a2", "b2"], "a3-b3-a2-b2-"),
+        ],
+    )
+}
+
+#[test]
+fn skewed_commits_outside_the_commit_graph_match_git() -> gix_testtools::TestResult {
+    assert_hidden_ranges_match_git("skewed_partial_graph", &[(&["visible"], &["hidden", "base"], "")])
+}
+
+#[test]
+fn uncomputed_generations_in_the_commit_graph_match_git() -> gix_testtools::TestResult {
+    let (repo_dir, odb) = hidden_bug_repo("uncomputed_generation")?;
+    let commits = parse_commit_names(&repo_dir)?;
+    let patched = gix_testtools::tempfile::tempdir()?;
+    let graph_path = patched.path().join("commit-graph");
+    write_with_uncomputed_generation(
+        &odb.store_ref().path().join("info").join("commit-graph"),
+        &graph_path,
+        &commits["hidden"],
+    )?;
+    let load_graph = || gix_commitgraph::Graph::from_file(&graph_path, gix_testtools::object_hash());
+    let hidden_generation = load_graph()?
+        .commit_by_id(commits["hidden"])
+        .expect("the commit-graph contains the hidden tip")
+        .generation();
+    assert_eq!(hidden_generation, 0, "the hidden tip has a legacy generation");
+
+    // The legacy generation is seen on the hidden tip itself, or on the parent of one.
+    for hidden in ["hidden", "hidden-child"] {
+        let baseline = rev_list_baseline(&repo_dir, &format!("rev-list-{hidden}"))?;
+        for sorting in all_sortings() {
+            for graph in [None, Some(load_graph()?)] {
+                let with_graph = graph.is_some();
+                let actual = Simple::new([commits["visible"]], &odb)
+                    .sorting(sorting)?
+                    .commit_graph(graph)
+                    .hide([commits[hidden], commits["other"]])?
+                    .map(|item| item.map(|info| info.id))
+                    .collect::<gix_error::Result<Vec<_>>>()?;
+                assert_eq!(
+                    actual, baseline,
+                    "{hidden}, {sorting:?}, commit-graph: {with_graph}: a generation of zero doesn't order commits"
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn unseen_uncomputed_generation_in_a_split_graph_matches_git() -> gix_testtools::TestResult {
+    let (repo_dir, odb) = unseen_generation_fixture("short")?;
+
+    // Git and Simple traverse the same patched, verified chain, not the original graph.
+    let baseline = gix_testtools::git(&repo_dir, "rev-list A ^H")?;
+    assert!(
+        baseline.is_empty(),
+        "Git hides A through H -> Z -> A in the patched chain"
+    );
+    let commits = parse_commit_names(&repo_dir)?;
+    let load_graph =
+        || gix_commitgraph::Graph::from_info_dir(&repo_dir.join(".git/objects/info"), gix_testtools::object_hash());
+    let graph = load_graph()?;
+    assert!(
+        !graph.generation_numbers_available(),
+        "an uncomputed intermediate layer prevents generation-ordered stopping"
+    );
+    assert_eq!(
+        graph
+            .iter_commits()
+            .map(|commit| (commit.id().to_owned(), commit.generation()))
+            .collect::<Vec<_>>(),
+        [(commits["A"], 1), (commits["Z"], 0), (commits["H"], 1)],
+        "only the unseen middle layer has uncomputed generations"
+    );
+    assert!(
+        graph
+            .commit_by_id(commits["A"])
+            .expect("A is in the graph")
+            .committer_timestamp()
+            > graph
+                .commit_by_id(commits["H"])
+                .expect("H is in the graph")
+                .committer_timestamp(),
+        "A sorts before H while Z's zero generation is still unseen"
+    );
+
+    for with_graph in [false, true] {
+        for sorting in all_sortings() {
+            for (parents, mode) in [(Parents::All, "all"), (Parents::First, "first")] {
+                let actual = Simple::new([commits["A"]], &odb)
+                    .sorting(sorting)?
+                    .parents(parents)
+                    .commit_graph(if with_graph { Some(load_graph()?) } else { None })
+                    .hide([commits["H"]])?
+                    .map(|item| item.map(|info| info.id))
+                    .collect::<gix_error::Result<Vec<_>>>()?;
+                assert!(
+                    actual.is_empty(),
+                    "{sorting:?}, {mode}, commit-graph: {with_graph}: Git hides A through the unseen layer, got {actual:?}"
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Copy the commit-graph file at `source` to `destination` with the generation of `commit_id` set to zero,
+/// as Git wrote it before computing generation numbers. The two high bits of its commit time stay.
+fn write_with_uncomputed_generation(
+    source: &std::path::Path,
+    destination: &std::path::Path,
+    commit_id: &gix_hash::oid,
+) -> gix_testtools::TestResult {
+    let file = gix_commitgraph::File::at(source)?;
+    let position = file.lookup(commit_id).expect("the commit-graph contains the commit");
+    let hash_len = file.object_hash().len_in_bytes();
+    drop(file);
+
+    let mut data = std::fs::read(source)?;
+    let chunk_count = usize::from(data[6]);
+    let commit_data_offset = data[8..8 + 12 * chunk_count]
+        .as_chunks::<12>()
+        .0
+        .iter()
+        .find(|entry| entry[..4] == *b"CDAT")
+        .map(|entry| u64::from_be_bytes(entry[4..].try_into().expect("chunk offsets have 8 bytes")))
+        .expect("the commit-graph has commit data");
+    let generation_offset =
+        usize::try_from(commit_data_offset)? + usize::try_from(position.0)? * (hash_len + 16) + hash_len + 8;
+    let generation_and_time = u32::from_be_bytes(data[generation_offset..][..4].try_into()?);
+    data[generation_offset..][..4].copy_from_slice(&(generation_and_time & 0b11).to_be_bytes());
+    std::fs::write(destination, data)?;
+    Ok(())
 }

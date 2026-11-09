@@ -28,56 +28,67 @@ use std::sync::Arc;
 use futures::AsyncReadExt as _;
 use futures::StreamExt as _;
 use itertools::Itertools as _;
-use jj_lib::backend;
-use jj_lib::backend::Backend;
-use jj_lib::backend::BackendInitError;
-use jj_lib::backend::ChangeId;
-use jj_lib::backend::CommitId;
-use jj_lib::backend::CopyHistory;
-use jj_lib::backend::CopyId;
-use jj_lib::backend::FileId;
-use jj_lib::backend::MillisSinceEpoch;
-use jj_lib::backend::Signature;
-use jj_lib::backend::Timestamp;
-use jj_lib::backend::TreeValue;
-use jj_lib::commit::Commit;
+use jj_core::backend;
+use jj_core::backend::Backend;
+use jj_core::backend::BackendInitError;
+use jj_core::backend::BackendLoadError;
+use jj_core::backend::ChangeId;
+use jj_core::backend::CommitId;
+use jj_core::backend::CopyHistory;
+use jj_core::backend::CopyId;
+use jj_core::backend::FileId;
+use jj_core::backend::MillisSinceEpoch;
+use jj_core::backend::Signature;
+use jj_core::backend::Timestamp;
+use jj_core::backend::TreeValue;
+use jj_core::commit::Commit;
+use jj_core::conflict_labels::ConflictLabels;
+use jj_core::matchers::EverythingMatcher;
+use jj_core::matchers::NothingMatcher;
+use jj_core::merge::Merge;
+use jj_core::merged_tree::MergedTree;
+use jj_core::merged_tree_builder::MergedTreeBuilder;
+use jj_core::object_id::ObjectId as _;
+use jj_core::ref_name::WorkspaceName;
+use jj_core::repo_path::RepoPath;
+use jj_core::repo_path::RepoPathBuf;
+use jj_core::repo_path::RepoPathComponent;
+use jj_core::signing::Signer;
+use jj_core::store::Store;
+use jj_core::tree::Tree;
+use jj_git_backend::git_backend::GitBackend;
+use jj_git_backend::secret_backend::SecretBackend;
 use jj_lib::commit_builder::CommitBuilder;
 use jj_lib::config::ConfigLayer;
 use jj_lib::config::ConfigSource;
 use jj_lib::config::StackedConfig;
-use jj_lib::conflict_labels::ConflictLabels;
 use jj_lib::default_backend_factories::default_backend_factories;
-use jj_lib::git_backend::GitBackend;
+use jj_lib::default_backend_factories::default_index_store_initializer;
+use jj_lib::default_backend_factories::default_op_heads_store_initializer;
+use jj_lib::default_backend_factories::default_op_store_initializer;
+use jj_lib::default_backend_factories::default_submodule_store_initializer;
+use jj_lib::default_backend_factories::default_working_copy_factories;
+use jj_lib::default_backend_factories::default_workspace_loader_factory;
+use jj_lib::default_backend_factories::default_workspace_store_initializer;
 use jj_lib::gitignore::GitIgnoreFile;
-use jj_lib::matchers::EverythingMatcher;
-use jj_lib::matchers::NothingMatcher;
-use jj_lib::merge::Merge;
-use jj_lib::merged_tree::MergedTree;
-use jj_lib::merged_tree_builder::MergedTreeBuilder;
-use jj_lib::object_id::ObjectId as _;
 use jj_lib::repo::MutableRepo;
 use jj_lib::repo::ReadonlyRepo;
 use jj_lib::repo::Repo;
 use jj_lib::repo::RepoLoader;
-use jj_lib::repo::StoreFactories;
-use jj_lib::repo_path::RepoPath;
-use jj_lib::repo_path::RepoPathBuf;
-use jj_lib::repo_path::RepoPathComponent;
+use jj_lib::repo::RepoLoaderError;
 use jj_lib::revset::RevsetExpression;
 use jj_lib::rewrite::RebaseOptions;
 use jj_lib::rewrite::RebasedCommit;
-use jj_lib::secret_backend::SecretBackend;
 use jj_lib::settings::UserSettings;
-use jj_lib::signing::Signer;
 use jj_lib::signing_factory::signer_from_settings;
 use jj_lib::simple_backend::SimpleBackend;
-use jj_lib::store::Store;
+use jj_lib::store_factories::StoreFactories;
 use jj_lib::transaction::Transaction;
-use jj_lib::tree::Tree;
 use jj_lib::working_copy::SnapshotError;
 use jj_lib::working_copy::SnapshotOptions;
 use jj_lib::working_copy::SnapshotStats;
 use jj_lib::workspace::Workspace;
+use jj_lib::workspace::WorkspaceLoadError;
 use pollster::FutureExt as _;
 use tempfile::TempDir;
 
@@ -90,6 +101,24 @@ pub mod test_backend;
 /// Convenient return type for test functions.
 pub type TestResult<T = ()> = eyre::Result<T>;
 
+/// Path that `GIT_CONFIG_SYSTEM` and `GIT_CONFIG_GLOBAL` are pointed at so
+/// that neither `git` nor `gix` picks up the user's configuration.
+///
+/// This is `/dev/null` on Unix. On Windows, `/dev/null` is an ordinary path
+/// relative to the current drive, and `gix` would parse whatever happens to
+/// be at `\dev\null`. The `NUL` device isn't an option either, since Git for
+/// Windows 2.52 (ARM64) rejects it with "unable to access 'NUL': Invalid
+/// argument". A file that doesn't exist is skipped by both, so use a path
+/// that can't exist before this process created it.
+pub fn hermetic_git_config_path() -> PathBuf {
+    if cfg!(windows) {
+        let name = format!("jj-test-{}-no-gitconfig", std::process::id());
+        std::env::temp_dir().join(name)
+    } else {
+        PathBuf::from("/dev/null")
+    }
+}
+
 pub const HERMETIC_GIT_CONFIGS: &[(&str, &str)] = &[
     // gitoxide uses "main" as the default branch name, whereas git uses "master". This also
     // prevents git CLI from issuing the initial branch name advice.
@@ -101,11 +130,13 @@ pub const HERMETIC_GIT_CONFIGS: &[(&str, &str)] = &[
 // somewhat tricky because `gix` looks at system and user configuration, and
 // `GitBackend` also calls into `git(1)` for things like garbage collection.
 pub fn hermetic_git() {
+    let config_path = hermetic_git_config_path();
+    let config_path = config_path.to_str().unwrap();
     let mut envs = [
         // Prevent GitBackend from loading user and system configurations. For
         // gitoxide API use in tests, Config::isolated() is probably better.
-        ("GIT_CONFIG_SYSTEM", "/dev/null"),
-        ("GIT_CONFIG_GLOBAL", "/dev/null"),
+        ("GIT_CONFIG_SYSTEM", config_path),
+        ("GIT_CONFIG_GLOBAL", config_path),
     ]
     .map(|(key, value)| (key.to_string(), value.to_string()))
     .to_vec();
@@ -215,10 +246,27 @@ impl TestEnvironment {
         factories.add_backend(
             SecretBackend::NAME,
             Box::new(|settings, store_path| {
-                Ok(Box::new(SecretBackend::load(settings, store_path)?))
+                let git_settings = settings
+                    .git_backend_settings()
+                    .map_err(BackendLoadError::new)?;
+                Ok(Box::new(SecretBackend::load(&git_settings, store_path)?))
             }),
         );
         factories
+    }
+
+    pub fn load_workspace(
+        &self,
+        settings: &UserSettings,
+        workspace_root: &Path,
+    ) -> Result<Workspace, WorkspaceLoadError> {
+        let loader = default_workspace_loader_factory().create(workspace_root)?;
+        let workspace = loader.load(
+            settings,
+            &self.default_backend_factories(),
+            &default_working_copy_factories(),
+        )?;
+        Ok(workspace)
     }
 
     pub fn load_repo_at_head(
@@ -228,7 +276,7 @@ impl TestEnvironment {
     ) -> Arc<ReadonlyRepo> {
         RepoLoader::init_from_file_system(settings, repo_path, &self.default_backend_factories())
             .unwrap()
-            .load_at_head()
+            .load_at_head(Some(WorkspaceName::DEFAULT))
             .block_on()
             .unwrap()
     }
@@ -255,11 +303,16 @@ impl TestRepoBackend {
         store_path: &Path,
     ) -> Result<Box<dyn Backend>, BackendInitError> {
         match self {
-            Self::Git => Ok(Box::new(GitBackend::init_internal(
-                settings,
-                store_path,
-                gix::hash::Kind::default(),
-            )?)),
+            Self::Git => {
+                let git_settings = settings
+                    .git_backend_settings()
+                    .map_err(BackendInitError::new)?;
+                Ok(Box::new(GitBackend::init_internal(
+                    &git_settings,
+                    store_path,
+                    gix::hash::Kind::default(),
+                )?))
+            }
             Self::Simple => Ok(Box::new(SimpleBackend::init(store_path))),
             Self::Test => Ok(Box::new(env.test_backend_factory.init(store_path))),
         }
@@ -293,11 +346,11 @@ impl TestRepo {
             &repo_dir,
             &|settings, store_path| backend.init_backend(&env, settings, store_path),
             signer_from_settings(settings).unwrap(),
-            ReadonlyRepo::default_workspace_store_initializer(),
-            ReadonlyRepo::default_op_store_initializer(),
-            ReadonlyRepo::default_op_heads_store_initializer(),
-            ReadonlyRepo::default_index_store_initializer(),
-            ReadonlyRepo::default_submodule_store_initializer(),
+            default_workspace_store_initializer(),
+            default_op_store_initializer(),
+            default_op_heads_store_initializer(),
+            default_index_store_initializer(),
+            default_submodule_store_initializer(),
         )
         .block_on()
         .unwrap();
@@ -354,6 +407,7 @@ impl TestWorkspace {
         let (workspace, repo) = Workspace::init_with_backend(
             settings,
             &workspace_root,
+            WorkspaceName::DEFAULT,
             &|settings, store_path| backend.init_backend(&env, settings, store_path),
             signer,
         )
@@ -374,6 +428,7 @@ impl TestWorkspace {
         let (workspace, repo) = Workspace::init_colocated_git(
             &user_settings(),
             &workspace_root,
+            WorkspaceName::DEFAULT,
             gix::hash::Kind::default(),
         )
         .block_on()
@@ -391,6 +446,10 @@ impl TestWorkspace {
 
     pub fn repo_path(&self) -> &Path {
         self.workspace.repo_path()
+    }
+
+    pub async fn reload_at_head(&self) -> Result<Arc<ReadonlyRepo>, RepoLoaderError> {
+        self.workspace.load_at_head().await
     }
 
     /// Snapshots the working copy and returns the tree. Updates the working
@@ -428,7 +487,8 @@ pub fn commit_transactions(txs: Vec<Transaction>) -> Arc<ReadonlyRepo> {
         op_ids.push(tx.commit("test").block_on().unwrap().op_id().clone());
         std::thread::sleep(std::time::Duration::from_millis(1));
     }
-    let repo = repo_loader.load_at_head().block_on().unwrap();
+    let workspace_name = None;
+    let repo = repo_loader.load_at_head(workspace_name).block_on().unwrap();
     // Test the setup. The assumption here is that the parent order matches the
     // order in which they were merged (which currently matches the transaction
     // commit order), so we want to know make sure they appear in a certain

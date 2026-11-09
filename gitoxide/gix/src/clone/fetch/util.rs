@@ -42,14 +42,11 @@ pub fn append_remote_to_local_config_file(
 /// Existing local configuration, including the remote section written during clone setup,
 /// is preserved. Only local sections are written back to `.git/config`,
 ///
-/// The returned repository is reopened from disk so the object hash change affects all
+/// The repository is reloaded from disk so the object hash change affects all
 /// hash-dependent state. Callers that need in-memory configuration from `repo` must
-/// transfer it to the returned handle.
+/// preserve it before calling and restore it afterward.
 #[cfg(feature = "sha256")]
-pub(super) fn reinitialize_with_object_hash(
-    repo: &crate::Repository,
-    object_hash: gix_hash::Kind,
-) -> Result<crate::Repository> {
+pub(super) fn reinitialize_with_object_hash(repo: &mut crate::Repository, object_hash: gix_hash::Kind) -> Result<()> {
     let git_dir = repo.git_dir();
     let config_path = git_dir.join("config");
 
@@ -80,9 +77,9 @@ pub(super) fn reinitialize_with_object_hash(
     lock.commit()
         .or_raise(|| message("Failed to commit lock after writing repository configuration to disk"))?;
 
-    Ok(crate::ThreadSafeRepository::open_opts(git_dir, repo.options.clone())
-        .or_raise(|| message("Failed to reopen the local repository after adopting the remote's object format"))?
-        .to_thread_local())
+    repo.reload()
+        .or_raise(|| message("Failed to reopen the local repository after adopting the remote's object format"))?;
+    Ok(())
 }
 
 fn local_config_meta(repo: &Repository) -> gix_config::file::Metadata {
@@ -416,7 +413,7 @@ pub(super) fn find_custom_refname<'a>(
         .filter_map(|m| m.remote.as_name().zip(m.remote.as_id()))
         .map(|(full_ref_name, target)| gix_refspec::match_group::Item {
             full_ref_name,
-            target,
+            target: Some(target),
             object: None,
         })
         .collect();
@@ -425,17 +422,26 @@ pub(super) fn find_custom_refname<'a>(
     let find_item = |name: &BStr| filtered_items.iter().find(|item| item.full_ref_name == name).copied();
     // Preserve gix's documented full-ref support, then match git clone --branch by trying heads before tags.
     if let Some(item) = find_item(requested_name) {
-        return Ok((item.target, item.full_ref_name));
+        return Ok((
+            item.target.expect("only references with IDs were collected"),
+            item.full_ref_name,
+        ));
     }
     if !requested_name.starts_with(b"refs/") {
         let branch_name = Category::LocalBranch.to_full_name(requested_name).or_error()?;
         if let Some(item) = find_item(branch_name.as_bstr()) {
-            return Ok((item.target, item.full_ref_name));
+            return Ok((
+                item.target.expect("only references with IDs were collected"),
+                item.full_ref_name,
+            ));
         }
 
         let tag_name = Category::Tag.to_full_name(requested_name).or_error()?;
         if let Some(item) = find_item(tag_name.as_bstr()) {
-            return Ok((item.target, item.full_ref_name));
+            return Ok((
+                item.target.expect("only references with IDs were collected"),
+                item.full_ref_name,
+            ));
         }
     }
 
@@ -446,7 +452,10 @@ pub(super) fn find_custom_refname<'a>(
             let item = filtered_items[res.mappings[0]
                 .item_index
                 .expect("we map by name only and have no object-id in refspec")];
-            Ok((item.target, item.full_ref_name))
+            Ok((
+                item.target.expect("only references with IDs were collected"),
+                item.full_ref_name,
+            ))
         }
         _ => {
             let candidates = res
@@ -494,11 +503,10 @@ fn setup_branch_config(
         .find_remote(remote_name)
         .expect("remote was just created and must be visible in config");
     let group = gix_refspec::MatchGroup::from_fetch_specs(remote.fetch_specs.iter().map(gix_refspec::RefSpec::to_ref));
-    let null = gix_hash::ObjectId::null(repo.object_hash());
     let res = group.match_lhs(
         Some(gix_refspec::match_group::Item {
             full_ref_name: branch.as_bstr(),
-            target: branch_id.unwrap_or(&null),
+            target: branch_id,
             object: None,
         })
         .into_iter(),

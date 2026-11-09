@@ -124,6 +124,11 @@ The following functions are defined.
 * `try(expr: Any, fallback: Any...) -> Any`: Evaluates each expression in order
   and returns the first successful result. Suppresses preceding runtime errors,
   but lets parsing errors (such as type errors) pass through.
+* `with(values..., |names...| body) -> Any`: Binds each value expression to its
+  respective lambda parameter, returning the lambda evaluated with the new name
+  bindings. The expressions are re-evaluated at every use of bound names, so
+  this is effectively the same as defining temporary template aliases with local
+  scoping rules.
 * `coalesce(content: Template...) -> Template`: Returns the first **non-empty**
   content.
 * `concat(content: Template...) -> Template`:
@@ -341,9 +346,10 @@ The following methods are defined.
   conflicted](bookmarks.md#conflicts).
 * `.normal_target() -> Option<Commit>`: Target commit if the ref is not
   conflicted and points to a commit.
-* `.removed_targets() -> List<Commit>`: Old target commits if conflicted.
-* `.added_targets() -> List<Commit>`: New target commits. The list usually
-  contains one "normal" target.
+* `.removed_targets() -> List<Option<Commit>>`: Old target commits if
+  conflicted.
+* `.added_targets() -> List<Option<Commit>>`: New target commits. The list
+  usually contains one "normal" target.
 * `.tracked() -> Boolean`: True if the ref is tracked by a local ref. The local
   ref might have been deleted (but not pushed yet.)
 * `.tracking_present() -> Boolean`: True if the ref is tracked by a local ref,
@@ -805,6 +811,10 @@ This type cannot be printed. The following methods are defined.
 * `.normal_value() -> Option<TreeValue>`: The resolved value of the entry, or none
   if the entry is absent or conflicted. Here, "normal" means resolved, not just a
   regular file: symlinks, trees, and Git submodules are also included.
+* `.removed_values() -> List<Option<TreeValue>>`: Negative (`removes`) terms of
+  the entry if conflicted. Absent terms are `none`.
+* `.added_values() -> List<Option<TreeValue>>`: Positive (`adds`) terms of the
+  entry. The list usually contains one resolved value. Absent terms are `none`.
 * `.conflict() -> Boolean`: True if the entry is a merge conflict.
 * `.conflict_side_count() -> Integer`: Number of sides in the merge conflict (1 if not
   conflicted, 2 or more for multi-way merges).
@@ -818,7 +828,13 @@ _Conversion: `Boolean`: no, `Serialize`: no, `Template`: yes_
 
 A file, symlink, tree, or Git submodule value. Its default formatting is
 its full hexadecimal object ID. For a Git submodule, this is the recorded commit
-ID. No methods are defined.
+ID. The following methods are defined.
+
+* `.object_id() -> String`: Full hexadecimal object ID for files (`file_id`),
+  symlinks (`symlink_id`), trees (`tree_id`), or Git submodules (`commit_id`).
+* `.file_type() -> String`: One of `"file"`, `"symlink"`, `"tree"`, or
+  `"git-submodule"`.
+* `.executable() -> Boolean`: True if the value is an executable file.
 
 ### `WorkspaceRef` type
 
@@ -827,12 +843,36 @@ _Conversion: `Boolean`: no, `Serialize`: yes, `Template`: yes_
 The following methods are defined.
 
 * `.name() -> RefSymbol`: Returns the workspace name as a symbol.
+* `.current_workspace() -> Boolean`: Returns whether this is the current
+  workspace. This is slightly different than
+  `self.target().current_working_copy()` because multiple workspaces can point
+  to the same commit.
 * `.target() -> Commit`: Returns the working-copy commit of this workspace.
 * `.root() -> Option<FsPath>`: Returns the workspace root path, if the root path
   is recorded.
 
   This is optional because workspaces created before jj 0.38.0 did not record
   workspace root paths.
+
+## Redacted log output for bug reports
+
+Two built-in templates are useful for sharing log output in bug reports or
+support requests:
+
+```sh
+jj log -T builtin_log_redacted
+jj op log -T builtin_op_log_redacted
+```
+
+`builtin_log_redacted` keeps the commit graph, change IDs, commit IDs,
+timestamps, and structural labels such as empty, immutable, or conflicted, but
+replaces commit descriptions with `(redacted)`. User, bookmark, tag, and
+workspace names are replaced with stable hashed labels such as `user-0a1b` or
+`workspace-0a1b@`.
+
+`builtin_op_log_redacted` keeps the operation graph, operation IDs, operation
+descriptions, and timestamps. User and workspace names are replaced with stable
+hashed labels, and operation attributes are replaced with `(redacted)`.
 
 ## Color labels
 

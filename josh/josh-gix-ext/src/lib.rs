@@ -530,10 +530,7 @@ impl gix_object::Find for StagingOdb {
 }
 
 impl gix_object::FindHeader for StagingOdb {
-    fn try_header(
-        &self,
-        id: &gix_hash::oid,
-    ) -> gix_error::Result<Option<gix_object::Header>> {
+    fn try_header(&self, id: &gix_hash::oid) -> gix_error::Result<Option<gix_object::Header>> {
         Ok(self.pending.get(id).map(|(kind, data)| gix_object::Header {
             kind: *kind,
             size: data.len() as u64,
@@ -742,8 +739,7 @@ mod tests {
         let base = CommitData::read(&repo.objects, base_oid).unwrap();
 
         let copied_oid =
-            write_commit_with_signatures_of(&repo.objects, &base, tree, &[], "café\n")
-                .unwrap();
+            write_commit_with_signatures_of(&repo.objects, &base, tree, &[], "café\n").unwrap();
         let copied = CommitData::read(&repo.objects, copied_oid).unwrap();
         let parsed = copied.parsed().unwrap();
 
@@ -763,7 +759,13 @@ mod tests {
         // legacy message encoding.
         let output = std::process::Command::new("git")
             .current_dir(repo.path())
-            .args(["-c", "i18n.logOutputEncoding=UTF-8", "log", "-1", "--format=%B"])
+            .args([
+                "-c",
+                "i18n.logOutputEncoding=UTF-8",
+                "log",
+                "-1",
+                "--format=%B",
+            ])
             .arg(copied_oid.to_string())
             .output()
             .unwrap();

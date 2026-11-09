@@ -408,7 +408,6 @@ fn symlink_is_resolved_before_parent_component() -> TestResult {
 #[cfg(unix)]
 fn relative_symlinks_use_the_configured_current_dir() -> TestResult {
     let root = gix_testtools::scripted_fixture_read_only("make_symlinked_nested_repo.sh")?;
-    let root = std::env::current_dir()?.join(root);
 
     for (cwd, input, expected_worktree) in [
         (root.join("lexical-parent"), "link/..", std::path::Path::new("..")),
@@ -437,7 +436,6 @@ fn relative_symlinks_use_the_configured_current_dir() -> TestResult {
 #[test]
 fn from_dir_with_dot_dot() -> TestResult {
     let outer = gix_testtools::scripted_fixture_read_only("make_nested_repos.sh")?;
-    let outer = std::env::current_dir()?.join(outer);
     let inner = outer.join("inner");
     let relative = std::path::Path::new("some/very/deeply/nested/subdir/../../../../../..");
     for (input, expected) in [
@@ -544,7 +542,13 @@ fn from_existing_worktree() -> TestResult {
 
 #[test]
 fn from_existing_worktree_with_relative_linking_files() -> TestResult {
-    let fixture = gix_testtools::scripted_fixture_read_only_needs_archive("make_worktree_relative_linking.sh")?;
+    let Some(fixture) =
+        gix_testtools::scripted_fixture_read_only_with_git_version("make_worktree_relative_linking.sh", |version| {
+            version >= (2, 48, 0)
+        })?
+    else {
+        return Ok(());
+    };
     let main = fixture.join("main");
     let linked = fixture.join("linked");
     let private_git_dir = main.join(".git/worktrees/linked");
@@ -581,7 +585,13 @@ fn from_existing_worktree_with_relative_linking_files() -> TestResult {
 #[test]
 #[cfg(unix)]
 fn from_symlinked_worktree_with_relative_linking_files() -> TestResult {
-    let fixture = gix_testtools::scripted_fixture_read_only_needs_archive("make_worktree_relative_linking.sh")?;
+    let Some(fixture) =
+        gix_testtools::scripted_fixture_read_only_with_git_version("make_worktree_relative_linking.sh", |version| {
+            version >= (2, 48, 0)
+        })?
+    else {
+        return Ok(());
+    };
     let main = fixture.join("actual/main");
     let linked_symlink = fixture.join("linked-symlink");
 
@@ -688,7 +698,7 @@ fn cross_fs() -> TestResult {
 
 #[test]
 fn do_not_shorten_absolute_paths() -> TestResult {
-    let top_level_repo = repo_path()?.canonicalize()?;
+    let top_level_repo = repo_path()?;
     let (repo_path, _trust) = gix_discover::upwards(&top_level_repo)?;
 
     match repo_path {
@@ -705,7 +715,6 @@ fn do_not_shorten_absolute_paths() -> TestResult {
 #[test]
 fn preserves_symlinked_ancestor_of_absolute_paths() -> TestResult {
     let root = gix_testtools::scripted_fixture_read_only("make_symlinked_nested_repo.sh")?;
-    let root = std::env::current_dir()?.join(root);
     let worktree = root.join("linked-parent/repo");
 
     for input in ["", "nested", "nested/..", ".git/objects"] {

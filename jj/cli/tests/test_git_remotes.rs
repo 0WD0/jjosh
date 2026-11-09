@@ -405,7 +405,16 @@ fn test_git_remote_set_url() {
         "--fetch",
         "https://example.com/repo/bar2",
     ]);
-    assert_eq!(output.status.code(), Some(2));
+    insta::assert_snapshot!(output, @"
+    ------- stderr -------
+    error: the argument '[URL]' cannot be used with '--fetch <FETCH>'
+
+    Usage: jj git remote set-url <REMOTE> <URL|--push <PUSH>|--fetch <FETCH>>
+
+    For more information, try '--help'.
+    [EOF]
+    [exit status: 2]
+    ");
     assert_eq!(remote_state(), state_before);
     let output = work_dir.run_jj([
         "git",
@@ -435,6 +444,19 @@ fn test_git_remote_set_url() {
     insta::assert_snapshot!(work_dir.run_jj(["git", "remote", "list"]), @"
     foo https://example.com/repo/bar (push: git@example.com:/repo/bar)
     [EOF]
+    ");
+    // Without URL arguments
+    let output = work_dir.run_jj(["git", "remote", "set-url", "foo"]);
+    insta::assert_snapshot!(output, @"
+    ------- stderr -------
+    error: the following required arguments were not provided:
+      <URL|--push <PUSH>|--fetch <FETCH>>
+
+    Usage: jj git remote set-url <REMOTE> <URL|--push <PUSH>|--fetch <FETCH>>
+
+    For more information, try '--help'.
+    [EOF]
+    [exit status: 2]
     ");
 }
 

@@ -851,12 +851,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 
 [[package]]
-name = "core_detect"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f8f80099a98041a3d1622845c271458a2d73e688351bf3cb999266764b81d48"
-
-[[package]]
 name = "cpufeatures"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1405,20 +1399,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "edd0f118536f44f5ccd48bcb8b111bdc3de888b58c74639dfb034a357d0f206d"
 
 [[package]]
-name = "encoding_rs"
-version = "0.8.42"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e985e0451871ad22fb8d2b6b076e2028a502a0d3950998c2c5c0a4f9b5d9679"
-dependencies = [
- "cfg-if",
- "core_detect",
- "multiversion_no_op",
- "rustversion",
- "scopeguard",
- "simdutf8",
-]
-
-[[package]]
 name = "endian-type"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1845,7 +1825,7 @@ dependencies = [
 
 [[package]]
 name = "gix"
-version = "0.89.0"
+version = "0.90.0"
 dependencies = [
  "gix-actor",
  "gix-attributes",
@@ -1903,17 +1883,18 @@ dependencies = [
 
 [[package]]
 name = "gix-actor"
-version = "0.44.0"
+version = "0.45.0"
 dependencies = [
  "bstr",
  "gix-date",
  "gix-error",
+ "gix-macros",
  "serde",
 ]
 
 [[package]]
 name = "gix-attributes"
-version = "0.37.0"
+version = "0.37.1"
 dependencies = [
  "bstr",
  "gix-error",
@@ -1929,21 +1910,21 @@ dependencies = [
 
 [[package]]
 name = "gix-bitmap"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "gix-error",
 ]
 
 [[package]]
 name = "gix-chunk"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "gix-error",
 ]
 
 [[package]]
 name = "gix-command"
-version = "0.12.0"
+version = "0.12.1"
 dependencies = [
  "bstr",
  "gix-error",
@@ -1954,7 +1935,7 @@ dependencies = [
 
 [[package]]
 name = "gix-commitgraph"
-version = "0.41.0"
+version = "0.42.0"
 dependencies = [
  "bstr",
  "gix-chunk",
@@ -1967,7 +1948,7 @@ dependencies = [
 
 [[package]]
 name = "gix-config"
-version = "0.62.0"
+version = "0.62.2"
 dependencies = [
  "bstr",
  "gix-config-value",
@@ -1985,7 +1966,7 @@ dependencies = [
 
 [[package]]
 name = "gix-config-value"
-version = "0.21.0"
+version = "0.21.1"
 dependencies = [
  "bitflags 2.13.2",
  "bstr",
@@ -1997,7 +1978,7 @@ dependencies = [
 
 [[package]]
 name = "gix-credentials"
-version = "0.42.0"
+version = "0.42.1"
 dependencies = [
  "bstr",
  "gix-command",
@@ -2016,10 +1997,11 @@ dependencies = [
 
 [[package]]
 name = "gix-date"
-version = "0.18.0"
+version = "0.19.0"
 dependencies = [
  "bstr",
  "gix-error",
+ "gix-macros",
  "itoa",
  "jiff",
  "serde",
@@ -2027,7 +2009,7 @@ dependencies = [
 
 [[package]]
 name = "gix-diff"
-version = "0.69.0"
+version = "0.70.0"
 dependencies = [
  "bstr",
  "gix-attributes",
@@ -2049,7 +2031,7 @@ dependencies = [
 
 [[package]]
 name = "gix-dir"
-version = "0.31.0"
+version = "0.32.0"
 dependencies = [
  "bstr",
  "gix-discover",
@@ -2067,7 +2049,7 @@ dependencies = [
 
 [[package]]
 name = "gix-discover"
-version = "0.57.0"
+version = "0.57.1"
 dependencies = [
  "bstr",
  "dunce",
@@ -2079,20 +2061,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "gix-encoding"
+version = "0.1.0"
+dependencies = [
+ "gix-error",
+ "gix-zlib",
+]
+
+[[package]]
 name = "gix-error"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "bstr",
 ]
 
 [[package]]
 name = "gix-filter"
-version = "0.36.0"
+version = "0.36.1"
 dependencies = [
  "bstr",
- "encoding_rs",
  "gix-attributes",
  "gix-command",
+ "gix-encoding",
  "gix-error",
  "gix-hash",
  "gix-object",
@@ -2106,10 +2096,11 @@ dependencies = [
 
 [[package]]
 name = "gix-fs"
-version = "0.24.0"
+version = "1.0.0"
 dependencies = [
  "bstr",
  "gix-error",
+ "gix-macros",
  "gix-parallel",
  "gix-path",
  "gix-utils",
@@ -2119,7 +2110,7 @@ dependencies = [
 
 [[package]]
 name = "gix-glob"
-version = "0.29.0"
+version = "0.29.1"
 dependencies = [
  "bitflags 2.13.2",
  "bstr",
@@ -2132,10 +2123,11 @@ dependencies = [
 
 [[package]]
 name = "gix-hash"
-version = "0.28.0"
+version = "0.28.1"
 dependencies = [
  "faster-hex",
  "gix-error",
+ "gix-macros",
  "gix-utils",
  "serde",
  "sha1dc",
@@ -2144,7 +2136,7 @@ dependencies = [
 
 [[package]]
 name = "gix-hashtable"
-version = "0.18.0"
+version = "0.18.1"
 dependencies = [
  "gix-hash",
  "hashbrown 0.17.1",
@@ -2153,7 +2145,7 @@ dependencies = [
 
 [[package]]
 name = "gix-ignore"
-version = "0.24.0"
+version = "0.24.1"
 dependencies = [
  "bstr",
  "gix-glob",
@@ -2165,7 +2157,7 @@ dependencies = [
 
 [[package]]
 name = "gix-imara-diff"
-version = "0.3.1"
+version = "0.3.3"
 dependencies = [
  "bstr",
  "hashbrown 0.17.1",
@@ -2173,7 +2165,7 @@ dependencies = [
 
 [[package]]
 name = "gix-index"
-version = "0.57.0"
+version = "0.58.0"
 dependencies = [
  "bitflags 2.13.2",
  "bstr",
@@ -2201,17 +2193,18 @@ dependencies = [
 
 [[package]]
 name = "gix-lock"
-version = "26.0.0"
+version = "27.0.0"
 dependencies = [
  "gix-error",
  "gix-fs",
+ "gix-macros",
  "gix-tempfile",
  "gix-utils",
 ]
 
 [[package]]
 name = "gix-macros"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2220,7 +2213,7 @@ dependencies = [
 
 [[package]]
 name = "gix-mailmap"
-version = "0.36.0"
+version = "0.36.1"
 dependencies = [
  "bstr",
  "gix-actor",
@@ -2231,7 +2224,7 @@ dependencies = [
 
 [[package]]
 name = "gix-merge"
-version = "0.22.0"
+version = "0.23.0"
 dependencies = [
  "bstr",
  "gix-command",
@@ -2255,7 +2248,7 @@ dependencies = [
 
 [[package]]
 name = "gix-negotiate"
-version = "0.37.0"
+version = "0.38.0"
 dependencies = [
  "bitflags 2.13.2",
  "gix-commitgraph",
@@ -2268,7 +2261,7 @@ dependencies = [
 
 [[package]]
 name = "gix-note"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "gix-error",
  "gix-hash",
@@ -2277,7 +2270,7 @@ dependencies = [
 
 [[package]]
 name = "gix-object"
-version = "0.66.0"
+version = "0.66.1"
 dependencies = [
  "bstr",
  "gix-actor",
@@ -2297,7 +2290,7 @@ dependencies = [
 
 [[package]]
 name = "gix-odb"
-version = "0.86.0"
+version = "0.87.0"
 dependencies = [
  "arc-swap",
  "crc32fast",
@@ -2321,7 +2314,7 @@ dependencies = [
 
 [[package]]
 name = "gix-pack"
-version = "0.76.0"
+version = "0.77.0"
 dependencies = [
  "clru",
  "crc32fast",
@@ -2348,7 +2341,7 @@ dependencies = [
 
 [[package]]
 name = "gix-packetline"
-version = "0.24.0"
+version = "0.24.1"
 dependencies = [
  "bstr",
  "faster-hex",
@@ -2358,7 +2351,7 @@ dependencies = [
 
 [[package]]
 name = "gix-parallel"
-version = "0.50.0"
+version = "0.50.1"
 dependencies = [
  "crossbeam-channel",
  "gix-trace",
@@ -2368,17 +2361,18 @@ dependencies = [
 
 [[package]]
 name = "gix-path"
-version = "0.14.0"
+version = "0.14.1"
 dependencies = [
  "bstr",
  "gix-error",
  "gix-trace",
  "gix-validate",
+ "winreg",
 ]
 
 [[package]]
 name = "gix-pathspec"
-version = "0.22.0"
+version = "0.22.1"
 dependencies = [
  "bitflags 2.13.2",
  "bstr",
@@ -2391,7 +2385,7 @@ dependencies = [
 
 [[package]]
 name = "gix-prompt"
-version = "0.19.0"
+version = "0.19.1"
 dependencies = [
  "gix-command",
  "gix-config-value",
@@ -2402,7 +2396,7 @@ dependencies = [
 
 [[package]]
 name = "gix-protocol"
-version = "0.67.0"
+version = "0.68.0"
 dependencies = [
  "bstr",
  "gix-credentials",
@@ -2426,7 +2420,7 @@ dependencies = [
 
 [[package]]
 name = "gix-quote"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "bstr",
  "gix-error",
@@ -2435,7 +2429,7 @@ dependencies = [
 
 [[package]]
 name = "gix-ref"
-version = "0.69.0"
+version = "0.69.1"
 dependencies = [
  "gix-actor",
  "gix-error",
@@ -2445,7 +2439,6 @@ dependencies = [
  "gix-object",
  "gix-parallel",
  "gix-path",
- "gix-tempfile",
  "gix-utils",
  "gix-validate",
  "memmap2",
@@ -2454,7 +2447,7 @@ dependencies = [
 
 [[package]]
 name = "gix-refspec"
-version = "0.47.0"
+version = "0.47.1"
 dependencies = [
  "bstr",
  "gix-error",
@@ -2465,7 +2458,7 @@ dependencies = [
 
 [[package]]
 name = "gix-revision"
-version = "0.51.0"
+version = "0.52.0"
 dependencies = [
  "bitflags 2.13.2",
  "bstr",
@@ -2483,7 +2476,7 @@ dependencies = [
 
 [[package]]
 name = "gix-revwalk"
-version = "0.37.0"
+version = "0.38.0"
 dependencies = [
  "gix-commitgraph",
  "gix-date",
@@ -2496,7 +2489,7 @@ dependencies = [
 
 [[package]]
 name = "gix-sec"
-version = "0.16.0"
+version = "0.16.1"
 dependencies = [
  "bitflags 2.13.2",
  "gix-path",
@@ -2507,7 +2500,7 @@ dependencies = [
 
 [[package]]
 name = "gix-shallow"
-version = "0.15.0"
+version = "0.15.1"
 dependencies = [
  "bstr",
  "gix-error",
@@ -2519,7 +2512,7 @@ dependencies = [
 
 [[package]]
 name = "gix-status"
-version = "0.36.0"
+version = "0.37.0"
 dependencies = [
  "bstr",
  "filetime",
@@ -2543,7 +2536,7 @@ dependencies = [
 
 [[package]]
 name = "gix-submodule"
-version = "0.36.0"
+version = "0.36.1"
 dependencies = [
  "bstr",
  "gix-config",
@@ -2556,7 +2549,7 @@ dependencies = [
 
 [[package]]
 name = "gix-tempfile"
-version = "26.0.0"
+version = "27.0.0"
 dependencies = [
  "dashmap",
  "gix-fs",
@@ -2568,11 +2561,11 @@ dependencies = [
 
 [[package]]
 name = "gix-trace"
-version = "0.3.0"
+version = "0.3.1"
 
 [[package]]
 name = "gix-transport"
-version = "0.61.0"
+version = "0.62.0"
 dependencies = [
  "base64 0.22.1",
  "bstr",
@@ -2593,7 +2586,7 @@ dependencies = [
 
 [[package]]
 name = "gix-traverse"
-version = "0.63.0"
+version = "0.64.0"
 dependencies = [
  "bitflags 2.13.2",
  "gix-commitgraph",
@@ -2608,7 +2601,7 @@ dependencies = [
 
 [[package]]
 name = "gix-url"
-version = "0.40.0"
+version = "0.40.1"
 dependencies = [
  "bstr",
  "gix-error",
@@ -2620,7 +2613,7 @@ dependencies = [
 
 [[package]]
 name = "gix-utils"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "bstr",
  "bytes",
@@ -2633,7 +2626,7 @@ dependencies = [
 
 [[package]]
 name = "gix-validate"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "bstr",
  "gix-error",
@@ -2641,7 +2634,7 @@ dependencies = [
 
 [[package]]
 name = "gix-worktree"
-version = "0.58.0"
+version = "0.59.0"
 dependencies = [
  "bstr",
  "gix-attributes",
@@ -2659,7 +2652,7 @@ dependencies = [
 
 [[package]]
 name = "gix-worktree-stream"
-version = "0.38.0"
+version = "0.39.0"
 dependencies = [
  "gix-attributes",
  "gix-error",
@@ -2677,7 +2670,7 @@ dependencies = [
 
 [[package]]
 name = "gix-zlib"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "gix-error",
  "serde",
@@ -3368,9 +3361,10 @@ dependencies = [
 
 [[package]]
 name = "jj-cli"
-version = "0.46.0"
+version = "0.47.1"
 dependencies = [
  "ansi-to-tui",
+ "async-trait",
  "bstr",
  "clap",
  "clap-markdown",
@@ -3389,6 +3383,7 @@ dependencies = [
  "indoc",
  "itertools 0.15.0",
  "jiff",
+ "jj-frontend",
  "jj-lib",
  "libc",
  "maplit",
@@ -3426,7 +3421,7 @@ dependencies = [
 
 [[package]]
 name = "jj-core"
-version = "0.46.0"
+version = "0.47.1"
 dependencies = [
  "async-trait",
  "blake2",
@@ -3447,18 +3442,15 @@ dependencies = [
  "rand 0.10.3",
  "ref-cast",
  "regex",
- "same-file",
  "serde",
  "smallvec",
- "tempfile",
  "thiserror 2.0.21",
  "tracing",
- "winreg",
 ]
 
 [[package]]
 name = "jj-core-proc-macros"
-version = "0.46.0"
+version = "0.47.1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3466,8 +3458,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "jj-default-index"
+version = "0.47.1"
+dependencies = [
+ "async-trait",
+ "blake2",
+ "bstr",
+ "digest 0.11.3",
+ "either",
+ "futures",
+ "itertools 0.15.0",
+ "jj-core",
+ "jj-local-util",
+ "maplit",
+ "pollster",
+ "prost",
+ "ref-cast",
+ "smallvec",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tracing",
+]
+
+[[package]]
 name = "jj-dsl"
-version = "0.46.0"
+version = "0.47.1"
 dependencies = [
  "itertools 0.15.0",
  "jj-core",
@@ -3478,8 +3493,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "jj-frontend"
+version = "0.47.1"
+dependencies = [
+ "async-trait",
+ "jiff",
+ "jj-lib",
+ "thiserror 2.0.21",
+ "tracing",
+]
+
+[[package]]
+name = "jj-git-backend"
+version = "0.47.1"
+dependencies = [
+ "async-trait",
+ "blake2",
+ "dunce",
+ "futures",
+ "gix",
+ "itertools 0.15.0",
+ "jj-core",
+ "jj-local-util",
+ "once_cell",
+ "pollster",
+ "prost",
+ "smallvec",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tracing",
+]
+
+[[package]]
 name = "jj-lib"
-version = "0.46.0"
+version = "0.47.1"
 dependencies = [
  "async-trait",
  "blake2",
@@ -3495,7 +3542,10 @@ dependencies = [
  "itertools 0.15.0",
  "jiff",
  "jj-core",
+ "jj-default-index",
  "jj-dsl",
+ "jj-git-backend",
+ "jj-local-util",
  "maplit",
  "memchr",
  "once_cell",
@@ -3506,7 +3556,6 @@ dependencies = [
  "rayon",
  "ref-cast",
  "regex",
- "rustix",
  "serde",
  "serde_json",
  "smallvec",
@@ -3514,7 +3563,25 @@ dependencies = [
  "thiserror 2.0.21",
  "toml_edit",
  "tracing",
+]
+
+[[package]]
+name = "jj-local-util"
+version = "0.47.1"
+dependencies = [
+ "blake2",
+ "dunce",
+ "futures",
+ "itertools 0.15.0",
+ "jj-core",
+ "rand 0.10.3",
+ "rustix",
+ "same-file",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tracing",
  "windows-sys 0.61.2",
+ "winreg",
 ]
 
 [[package]]
@@ -4407,12 +4474,6 @@ dependencies = [
  "wasi 0.11.1+wasi-snapshot-preview1",
  "windows-sys 0.61.2",
 ]
-
-[[package]]
-name = "multiversion_no_op"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "743fb55ba31b18fb1ecef6bdc9aa2743314978ac084044301a7eee33fb99a20d"
 
 [[package]]
 name = "nibble_vec"
@@ -5447,7 +5508,6 @@ checksum = "16a1cfa75cc186dd73d5818e510e042e40927bccc9c236b061cea97e1eb08029"
 dependencies = [
  "base64 0.23.1",
  "bytes",
- "encoding_rs",
  "futures-channel",
  "futures-core",
  "futures-util",
@@ -5460,7 +5520,6 @@ dependencies = [
  "hyper-util",
  "js-sys",
  "log",
- "mime",
  "percent-encoding",
  "pin-project-lite",
  "quinn",
@@ -5691,9 +5750,9 @@ dependencies = [
 
 [[package]]
 name = "sapling-renderdag"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "edffb89cab87bd0901c5749d576f5d37a1f34e05160e936f463f4e94cc447b61"
+checksum = "32f8bbb5761950b84f34b4aadad6a4a7b38f2e752ee80ff606d4fb0a98812406"
 dependencies = [
  "bitflags 2.13.2",
 ]

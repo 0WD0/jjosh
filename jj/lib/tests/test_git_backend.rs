@@ -21,25 +21,25 @@ use std::time::SystemTime;
 
 use futures::executor::block_on_stream;
 use itertools::Itertools as _;
-use jj_lib::backend::Backend as _;
-use jj_lib::backend::CommitId;
-use jj_lib::backend::CopyRecord;
-use jj_lib::commit::Commit;
-use jj_lib::conflict_labels::ConflictLabels;
-use jj_lib::git_backend::GitBackend;
-use jj_lib::git_backend::JJ_TREES_COMMIT_HEADER;
-use jj_lib::index::Index;
-use jj_lib::merge::Merge;
-use jj_lib::merged_tree::MergedTree;
-use jj_lib::object_id::ObjectId as _;
+use jj_core::backend::Backend as _;
+use jj_core::backend::CommitId;
+use jj_core::backend::CopyRecord;
+use jj_core::commit::Commit;
+use jj_core::conflict_labels::ConflictLabels;
+use jj_core::index::Index;
+use jj_core::merge::Merge;
+use jj_core::merged_tree::MergedTree;
+use jj_core::object_id::ObjectId as _;
+use jj_core::repo_path::RepoPath;
+use jj_core::repo_path::RepoPathBuf;
+use jj_core::store::Store;
+use jj_git_backend::git_backend::GitBackend;
+use jj_git_backend::git_backend::JJ_TREES_COMMIT_HEADER;
 use jj_lib::repo::ReadonlyRepo;
 use jj_lib::repo::Repo as _;
-use jj_lib::repo_path::RepoPath;
-use jj_lib::repo_path::RepoPathBuf;
-use jj_lib::stacked_table::TableSegment as _;
-use jj_lib::stacked_table::TableStore;
-use jj_lib::store::Store;
 use jj_lib::transaction::Transaction;
+use jj_local_util::stacked_table::TableSegment as _;
+use jj_local_util::stacked_table::TableStore;
 use maplit::hashmap;
 use maplit::hashset;
 use pollster::FutureExt as _;
@@ -117,13 +117,13 @@ fn test_legacy_journal_refuses_load_and_init_without_deleting_record() -> TestRe
     let contents = b"legacy pending state requiring its original recovery implementation";
     std::fs::write(&journal, contents)?;
     assert!(matches!(
-        GitBackend::load(repo.settings(), &test_repo.repo_path().join("store")),
+        GitBackend::load(&repo.settings().git_backend_settings()?, &test_repo.repo_path().join("store")),
         Err(err) if matches!(*err, jj_lib::git_backend::GitBackendLoadError::LegacyJournal(_))
     ));
     let store = test_repo.env.root().join("new-store");
     std::fs::create_dir(&store)?;
     assert!(matches!(
-        GitBackend::init_external(repo.settings(), &store, git_repo.path()),
+        GitBackend::init_external(&repo.settings().git_backend_settings()?, &store, git_repo.path()),
         Err(err) if matches!(*err, jj_lib::git_backend::GitBackendInitError::LegacyJournal(_))
     ));
     assert_eq!(std::fs::read(&journal)?, contents);

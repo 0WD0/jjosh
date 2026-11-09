@@ -13,11 +13,11 @@
 // limitations under the License.
 
 use itertools::Itertools as _;
-use jj_lib::backend::CommitId;
-use jj_lib::commit::Commit;
-use jj_lib::default_index::DefaultReadonlyIndex;
-use jj_lib::default_index::DefaultReadonlyIndexRevset;
-use jj_lib::graph::GraphEdge;
+use jj_core::backend::CommitId;
+use jj_core::commit::Commit;
+use jj_core::graph::GraphEdge;
+use jj_default_index::DefaultReadonlyIndex;
+use jj_default_index::DefaultReadonlyIndexRevset;
 use jj_lib::repo::ReadonlyRepo;
 use jj_lib::repo::Repo as _;
 use jj_lib::revset::ResolvedExpression;
@@ -82,6 +82,48 @@ fn test_graph_iterator_linearized(skip_transitive_edges: bool, padding: u32) -> 
         .try_collect()?;
     assert_eq!(commits.len(), 2);
     assert_eq!(commits[0].0, *commit_d.id());
+    assert_eq!(commits[1].0, *commit_a.id());
+    assert_eq!(commits[0].1, vec![indirect(&commit_a)]);
+    assert_eq!(commits[1].1, vec![missing(&root_commit)]);
+    Ok(())
+}
+
+#[test_case(false, 0; "keep transitive edges")]
+#[test_case(true, 0; "skip transitive edges")]
+#[test_matrix(true, 60..64; "skip transitive edges")]
+fn test_graph_iterator_merge_of_ancestor(skip_transitive_edges: bool, padding: u32) -> TestResult {
+    let test_repo = TestRepo::init();
+    let repo = &test_repo.repo;
+
+    // Tests that a merge outside the set whose parents both lead to the same
+    // commit in the set results in a single edge:
+    // E
+    // |
+    // d
+    // |\        E
+    // c |    => :
+    // |/        A
+    // A         ~
+    // |
+    // root
+    let mut tx = repo.start_transaction();
+    // Pad commits to move interesting parts to boundary of u64 bit set
+    for _ in 0..padding {
+        write_random_commit(tx.repo_mut());
+    }
+    let commit_a = write_random_commit(tx.repo_mut());
+    let commit_c = write_random_commit_with_parents(tx.repo_mut(), &[&commit_a]);
+    let commit_d = write_random_commit_with_parents(tx.repo_mut(), &[&commit_c, &commit_a]);
+    let commit_e = write_random_commit_with_parents(tx.repo_mut(), &[&commit_d]);
+    let repo = tx.commit("test").block_on()?;
+    let root_commit = repo.store().root_commit();
+
+    let revset = revset_for_commits(repo.as_ref(), &[&commit_a, &commit_e]);
+    let commits: Vec<_> = revset
+        .iter_graph_impl(skip_transitive_edges)
+        .try_collect()?;
+    assert_eq!(commits.len(), 2);
+    assert_eq!(commits[0].0, *commit_e.id());
     assert_eq!(commits[1].0, *commit_a.id());
     assert_eq!(commits[0].1, vec![indirect(&commit_a)]);
     assert_eq!(commits[1].1, vec![missing(&root_commit)]);

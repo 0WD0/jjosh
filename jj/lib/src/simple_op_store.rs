@@ -12,8 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![expect(missing_docs)]
+//! Simple file-based implementation of [`OpStore`].
 
+use jj_core::merge::Merge;
+use jj_local_util::file_util::persist_temp_file;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -25,52 +27,49 @@ use std::io::Write as _;
 use std::path::Path;
 use std::path::PathBuf;
 use std::time::SystemTime;
+use tempfile::NamedTempFile;
 
 use async_trait::async_trait;
 use itertools::Itertools as _;
-use pollster::FutureExt as _;
+use jj_core::backend::BackendInitError;
+use jj_core::backend::CommitId;
+use jj_core::backend::MillisSinceEpoch;
+use jj_core::backend::Timestamp;
+use jj_core::content_hash::blake2b_hash;
+use jj_core::dag_walk_async;
+use jj_core::object_id::HexPrefix;
+use jj_core::object_id::ObjectId;
+use jj_core::object_id::PrefixResolution;
+use jj_core::op_store;
+use jj_core::op_store::OpStore;
+use jj_core::op_store::OpStoreError;
+use jj_core::op_store::OpStoreResult;
+use jj_core::op_store::Operation;
+use jj_core::op_store::OperationId;
+use jj_core::op_store::OperationMetadata;
+use jj_core::op_store::RefTarget;
+use jj_core::op_store::RemoteRef;
+use jj_core::op_store::RemoteRefState;
+use jj_core::op_store::RemoteView;
+use jj_core::op_store::RootOperationData;
+use jj_core::op_store::TimestampRange;
+use jj_core::op_store::View;
+use jj_core::op_store::ViewId;
+use jj_core::ref_name::GitRefNameBuf;
+use jj_core::ref_name::RefNameBuf;
+use jj_core::ref_name::RemoteNameBuf;
+use jj_core::ref_name::WorkspaceName;
+use jj_core::ref_name::WorkspaceNameBuf;
+use jj_local_util::file_util::IoResultExt as _;
+use jj_local_util::file_util::PathError;
+use jj_local_util::file_util::new_temp_file_with_default_permissions;
+use jj_local_util::file_util::persist_content_addressed_temp_file;
 use prost::Message as _;
 use smallvec::SmallVec;
-use tempfile::NamedTempFile;
 use thiserror::Error;
 
-use crate::backend::BackendInitError;
-use crate::backend::CommitId;
-use crate::backend::MillisSinceEpoch;
-use crate::backend::Timestamp;
-use crate::content_hash::blake2b_hash;
-use crate::dag_walk_async;
-use crate::file_util::IoResultExt as _;
-use crate::file_util::PathError;
-use crate::file_util::persist_content_addressed_temp_file;
-use crate::file_util::persist_temp_file;
-use crate::merge::Merge;
-use crate::object_id::HexPrefix;
-use crate::object_id::ObjectId;
-use crate::object_id::PrefixResolution;
-use crate::op_store;
-use crate::op_store::OpStore;
-use crate::op_store::OpStoreError;
-use crate::op_store::OpStoreResult;
-use crate::op_store::Operation;
-use crate::op_store::OperationId;
-use crate::op_store::OperationMetadata;
-use crate::op_store::RefTarget;
-use crate::op_store::RemoteRef;
-use crate::op_store::RemoteRefState;
-use crate::op_store::RemoteView;
-use crate::op_store::RootOperationData;
-use crate::op_store::TimestampRange;
-use crate::op_store::View;
-use crate::op_store::ViewId;
-use crate::op_store::WorkingCopyPatternsId;
-use crate::ref_name::GitRefNameBuf;
-use crate::ref_name::RefNameBuf;
-use crate::ref_name::RemoteNameBuf;
-use crate::ref_name::WorkspaceName;
-use crate::ref_name::WorkspaceNameBuf;
-use crate::working_copy_patterns::WorkingCopyPatterns;
-
+use jj_core::op_store::WorkingCopyPatternsId;
+use jj_core::working_copy_patterns::WorkingCopyPatterns;
 // BLAKE2b-512 hash length in bytes
 const OPERATION_ID_LENGTH: usize = 64;
 const VIEW_ID_LENGTH: usize = 64;
@@ -82,10 +81,11 @@ pub struct SimpleOpStoreInitError(#[from] pub PathError);
 
 impl From<SimpleOpStoreInitError> for BackendInitError {
     fn from(err: SimpleOpStoreInitError) -> Self {
-        Self(err.into())
+        Self::new(err)
     }
 }
 
+/// [`OpStore`] that stores operations and views as protobuf files on disk.
 #[derive(Debug)]
 pub struct SimpleOpStore {
     path: PathBuf,
@@ -96,6 +96,7 @@ pub struct SimpleOpStore {
 }
 
 impl SimpleOpStore {
+    /// Name of this op store type.
     pub const NAME: &str = "simple_op_store";
 
     /// Type identifier fencing off readers that discard versioned sparse state.
@@ -276,7 +277,7 @@ impl SimpleOpStore {
             let Some(id) = entry.file_name().to_str().and_then(ViewId::try_from_hex) else {
                 continue;
             };
-            let view = self.read_view(&id).await?;
+            let view = self.read_view(&id)?;
             roots.extend(
                 view.project_observations
                     .into_values()
@@ -287,19 +288,7 @@ impl SimpleOpStore {
         }
         Ok(roots)
     }
-}
-
-#[async_trait]
-impl OpStore for SimpleOpStore {
-    fn name(&self) -> &str {
-        Self::project_name()
-    }
-
-    fn root_operation_id(&self) -> &OperationId {
-        &self.root_operation_id
-    }
-
-    async fn read_view(&self, id: &ViewId) -> OpStoreResult<View> {
+    fn read_view(&self, id: &ViewId) -> OpStoreResult<View> {
         if *id == self.root_view_id {
             return Ok(View::make_root(self.root_data.root_commit_id.clone()));
         }
@@ -314,7 +303,7 @@ impl OpStore for SimpleOpStore {
         view_from_proto(proto).map_err(|err| to_read_error(err.into(), id))
     }
 
-    async fn write_view(&self, view: &View) -> OpStoreResult<ViewId> {
+    fn write_view(&self, view: &View) -> OpStoreResult<ViewId> {
         let proto = view_to_proto(view);
         crate::project_store::validate(view).map_err(|err| OpStoreError::WriteObject {
             object_type: "view",
@@ -335,12 +324,12 @@ impl OpStore for SimpleOpStore {
                 .unique()
                 .collect_vec();
             for id in ids {
-                let patterns = self.read_working_copy_patterns(id).await?;
-                self.write_working_copy_patterns(&patterns).await?;
+                let patterns = self.read_working_copy_patterns(id)?;
+                self.write_working_copy_patterns(&patterns)?;
             }
         }
         let dir = self.views_dir();
-        let temp_file = NamedTempFile::new_in(&dir)
+        let temp_file = new_temp_file_with_default_permissions(&dir)
             .context(&dir)
             .map_err(|err| io_to_write_error(err, "view"))?;
 
@@ -359,7 +348,7 @@ impl OpStore for SimpleOpStore {
         Ok(id)
     }
 
-    async fn read_working_copy_patterns(
+    fn read_working_copy_patterns(
         &self,
         id: &WorkingCopyPatternsId,
     ) -> OpStoreResult<WorkingCopyPatterns> {
@@ -378,7 +367,7 @@ impl OpStore for SimpleOpStore {
         Ok(patterns)
     }
 
-    async fn write_working_copy_patterns(
+    fn write_working_copy_patterns(
         &self,
         patterns: &WorkingCopyPatterns,
     ) -> OpStoreResult<WorkingCopyPatternsId> {
@@ -394,7 +383,7 @@ impl OpStore for SimpleOpStore {
         fs::create_dir_all(&dir)
             .context(&dir)
             .map_err(|err| io_to_write_error(err, "working_copy_patterns"))?;
-        let temp_file = NamedTempFile::new_in(&dir)
+        let temp_file = new_temp_file_with_default_permissions(&dir)
             .context(&dir)
             .map_err(|err| io_to_write_error(err, "working_copy_patterns"))?;
         temp_file
@@ -410,7 +399,7 @@ impl OpStore for SimpleOpStore {
         Ok(id)
     }
 
-    async fn read_operation(&self, id: &OperationId) -> OpStoreResult<Operation> {
+    fn read_operation(&self, id: &OperationId) -> OpStoreResult<Operation> {
         if *id == self.root_operation_id {
             return Ok(Operation::make_root(self.root_view_id.clone()));
         }
@@ -432,12 +421,12 @@ impl OpStore for SimpleOpStore {
         Ok(operation)
     }
 
-    async fn write_operation(&self, operation: &Operation) -> OpStoreResult<OperationId> {
+    fn write_operation(&self, operation: &Operation) -> OpStoreResult<OperationId> {
         self.ensure_store_type(false, false)
             .map_err(|err| io_to_write_error(err, "operation"))?;
         assert!(!operation.parents.is_empty());
         let dir = self.operations_dir();
-        let temp_file = NamedTempFile::new_in(&dir)
+        let temp_file = new_temp_file_with_default_permissions(&dir)
             .context(&dir)
             .map_err(|err| io_to_write_error(err, "operation"))?;
 
@@ -457,7 +446,7 @@ impl OpStore for SimpleOpStore {
         Ok(id)
     }
 
-    async fn resolve_operation_id_prefix(
+    fn resolve_operation_id_prefix(
         &self,
         prefix: &HexPrefix,
     ) -> OpStoreResult<PrefixResolution<OperationId>> {
@@ -503,7 +492,7 @@ impl OpStore for SimpleOpStore {
     }
 
     #[tracing::instrument(skip(self))]
-    async fn gc(&self, head_ids: &[OperationId], keep_newer: SystemTime) -> OpStoreResult<()> {
+    fn gc(&self, head_ids: &[OperationId], keep_newer: SystemTime) -> OpStoreResult<()> {
         let to_op_id = |entry: &fs::DirEntry| -> Option<OperationId> {
             let name = entry.file_name().into_string().ok()?;
             OperationId::try_from_hex(name)
@@ -530,11 +519,7 @@ impl OpStore for SimpleOpStore {
         // Reachable objects are resolved without considering the keep_newer
         // parameter. We could collect ancestors of the "new" operations here,
         // but more files can be added anyway after that.
-        let read_op = |id: &OperationId| {
-            self.read_operation(id)
-                .block_on()
-                .map(|data| (id.clone(), data))
-        };
+        let read_op = |id: &OperationId| self.read_operation(id).map(|data| (id.clone(), data));
         let reachable_ops: HashMap<OperationId, Operation> = dag_walk_async::dfs(
             head_ids.iter().map(read_op),
             |(id, _)| id.clone(),
@@ -601,7 +586,7 @@ impl OpStore for SimpleOpStore {
             let Some(id) = to_view_id(&entry) else {
                 continue;
             };
-            let view = self.read_view(&id).await?;
+            let view = self.read_view(&id)?;
             retained_patterns.extend(
                 view.wc_sparse_patterns
                     .into_values()
@@ -633,6 +618,58 @@ impl OpStore for SimpleOpStore {
         }
 
         Ok(())
+    }
+}
+
+#[async_trait]
+impl OpStore for SimpleOpStore {
+    fn name(&self) -> &str {
+        Self::project_name()
+    }
+
+    fn root_operation_id(&self) -> &OperationId {
+        &self.root_operation_id
+    }
+
+    async fn read_view(&self, id: &ViewId) -> OpStoreResult<View> {
+        Self::read_view(self, id)
+    }
+
+    async fn write_view(&self, view: &View) -> OpStoreResult<ViewId> {
+        Self::write_view(self, view)
+    }
+
+    async fn read_working_copy_patterns(
+        &self,
+        id: &WorkingCopyPatternsId,
+    ) -> OpStoreResult<WorkingCopyPatterns> {
+        Self::read_working_copy_patterns(self, id)
+    }
+
+    async fn write_working_copy_patterns(
+        &self,
+        patterns: &WorkingCopyPatterns,
+    ) -> OpStoreResult<WorkingCopyPatternsId> {
+        Self::write_working_copy_patterns(self, patterns)
+    }
+
+    async fn read_operation(&self, id: &OperationId) -> OpStoreResult<Operation> {
+        Self::read_operation(self, id)
+    }
+
+    async fn write_operation(&self, operation: &Operation) -> OpStoreResult<OperationId> {
+        Self::write_operation(self, operation)
+    }
+
+    async fn resolve_operation_id_prefix(
+        &self,
+        prefix: &HexPrefix,
+    ) -> OpStoreResult<PrefixResolution<OperationId>> {
+        Self::resolve_operation_id_prefix(self, prefix)
+    }
+
+    async fn gc(&self, head_ids: &[OperationId], keep_newer: SystemTime) -> OpStoreResult<()> {
+        Self::gc(self, head_ids, keep_newer)
     }
 }
 
@@ -1336,11 +1373,11 @@ fn remote_ref_state_from_proto(proto_value: i32) -> Result<RemoteRefState, PostD
 #[cfg(test)]
 mod tests {
     use insta::assert_snapshot;
+    use jj_core::hex_util;
     use maplit::btreemap;
     use maplit::hashset;
 
     use super::*;
-    use crate::hex_util;
     use crate::tests::TestResult;
     use crate::tests::new_temp_dir;
 
@@ -1477,8 +1514,8 @@ mod tests {
         };
         let store = SimpleOpStore::init(temp_dir.path(), root_data)?;
         let view = create_view();
-        let view_id = store.write_view(&view).block_on()?;
-        let read_view = store.read_view(&view_id).block_on()?;
+        let view_id = store.write_view(&view)?;
+        let read_view = store.read_view(&view_id)?;
         assert_eq!(read_view, view);
         Ok(())
     }
@@ -1491,15 +1528,15 @@ mod tests {
         };
         let store = SimpleOpStore::init(temp_dir.path(), root_data.clone())?;
         let view = create_view();
-        let id = store.write_view(&view).block_on()?;
+        let id = store.write_view(&view)?;
         for name in [
             SimpleOpStore::legacy_project_name(),
             SimpleOpStore::scoped_project_name(),
         ] {
             fs::write(temp_dir.path().join("type"), name)?;
             let legacy = SimpleOpStore::load(temp_dir.path(), root_data.clone());
-            assert_eq!(legacy.read_view(&id).block_on()?, view);
-            assert!(legacy.write_view(&view).block_on().is_err());
+            assert_eq!(legacy.read_view(&id)?, view);
+            assert!(legacy.write_view(&view).is_err());
             assert_eq!(fs::read(temp_dir.path().join("type"))?, name.as_bytes());
         }
         Ok(())
@@ -1518,7 +1555,7 @@ mod tests {
         )?;
         fs::write(temp_dir.path().join("type"), SimpleOpStore::sparse_name())?;
         let empty = create_view();
-        let empty_id = store.write_view(&empty).block_on()?;
+        let empty_id = store.write_view(&empty)?;
         let mut registered = empty.clone();
         let project = ProjectId::generate();
         registered.project_state.projects.insert(
@@ -1534,14 +1571,14 @@ mod tests {
             .project_state
             .labels
             .insert("lib".into(), Merge::normal(project));
-        assert!(store.write_view(&registered).block_on().is_err());
-        assert_eq!(store.write_view(&empty).block_on()?, empty_id);
+        assert!(store.write_view(&registered).is_err());
+        assert_eq!(store.write_view(&empty)?, empty_id);
         assert_eq!(
             fs::read(temp_dir.path().join("type"))?,
             SimpleOpStore::sparse_name().as_bytes()
         );
         fs::write(temp_dir.path().join("type"), "unknown_op_store")?;
-        assert!(store.write_view(&empty).block_on().is_err());
+        assert!(store.write_view(&empty).is_err());
         Ok(())
     }
 
@@ -1555,32 +1592,32 @@ mod tests {
             },
         )?;
         let mut view = create_view();
-        let legacy_id = store.write_view(&view).block_on()?;
+        let legacy_id = store.write_view(&view)?;
         let a = WorkingCopyPatterns::from(crate::fileset::FilesetExpression::prefix_path(
             crate::repo_path::RepoPathBuf::from_internal_string("a")?,
         ));
         let b = WorkingCopyPatterns::from(crate::fileset::FilesetExpression::prefix_path(
             crate::repo_path::RepoPathBuf::from_internal_string("b")?,
         ));
-        let a_id = store.write_working_copy_patterns(&a).block_on()?;
-        let b_id = store.write_working_copy_patterns(&b).block_on()?;
+        let a_id = store.write_working_copy_patterns(&a)?;
+        let b_id = store.write_working_copy_patterns(&b)?;
         let target = Merge::from_vec(vec![Some(a_id.clone()), None, Some(b_id)]);
         view.wc_sparse_patterns
             .insert(WorkspaceName::DEFAULT.to_owned(), target.clone());
-        let conflict_id = store.write_view(&view).block_on()?;
+        let conflict_id = store.write_view(&view)?;
         assert_ne!(conflict_id, legacy_id);
         view.wc_sparse_patterns.insert(
             WorkspaceName::DEFAULT.to_owned(),
             Merge::resolved(Some(a_id)),
         );
-        let resolved_id = store.write_view(&view).block_on()?;
+        let resolved_id = store.write_view(&view)?;
         assert_ne!(resolved_id, conflict_id);
-        assert_eq!(store.read_view(&legacy_id).block_on()?, create_view());
+        assert_eq!(store.read_view(&legacy_id)?, create_view());
         assert_eq!(
-            store.read_view(&conflict_id).block_on()?.wc_sparse_patterns[WorkspaceName::DEFAULT],
+            store.read_view(&conflict_id)?.wc_sparse_patterns[WorkspaceName::DEFAULT],
             target,
         );
-        assert_eq!(store.read_view(&resolved_id).block_on()?, view);
+        assert_eq!(store.read_view(&resolved_id)?, view);
         Ok(())
     }
 
@@ -1599,22 +1636,22 @@ mod tests {
                 WorkingCopyPatterns::from(crate::fileset::FilesetExpression::prefix_path(
                     crate::repo_path::RepoPathBuf::from_internal_string(name)?,
                 ));
-            ids.push(store.write_working_copy_patterns(&patterns).block_on()?);
+            ids.push(store.write_working_copy_patterns(&patterns)?);
         }
         let mut view = create_view();
         view.wc_sparse_patterns.insert(
             WorkspaceName::DEFAULT.to_owned(),
             Merge::from_vec(ids[..3].iter().cloned().map(Some).collect::<Vec<_>>()),
         );
-        let view_id = store.write_view(&view).block_on()?;
+        let view_id = store.write_view(&view)?;
         let mut op = Operation::make_root(view_id.clone());
         op.parents = vec![store.root_operation_id().clone()];
-        let op_id = store.write_operation(&op).block_on()?;
+        let op_id = store.write_operation(&op)?;
         view.wc_sparse_patterns.insert(
             WorkspaceName::DEFAULT.to_owned(),
             Merge::resolved(Some(ids[3].clone())),
         );
-        let recent_view = store.write_view(&view).block_on()?;
+        let recent_view = store.write_view(&view)?;
 
         let old = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1);
         let threshold = old + std::time::Duration::from_secs(10);
@@ -1624,12 +1661,12 @@ mod tests {
         fs::File::open(store.views_dir().join(view_id.hex()))?.set_modified(old)?;
         fs::File::open(store.views_dir().join(recent_view.hex()))?
             .set_modified(threshold + std::time::Duration::from_secs(1))?;
-        store.gc(&[op_id], threshold).block_on()?;
+        store.gc(&[op_id], threshold)?;
         for id in &ids[..4] {
-            assert_eq!(store.read_working_copy_patterns(id).block_on()?.id(), *id);
+            assert_eq!(store.read_working_copy_patterns(id)?.id(), *id);
         }
         assert!(matches!(
-            store.read_working_copy_patterns(&ids[4]).block_on(),
+            store.read_working_copy_patterns(&ids[4]),
             Err(OpStoreError::ObjectNotFound { .. })
         ));
         Ok(())
@@ -1644,15 +1681,13 @@ mod tests {
                 root_commit_id: CommitId::from_hex("000000"),
             },
         )?;
-        let id = store
-            .write_working_copy_patterns(&WorkingCopyPatterns::all())
-            .block_on()?;
+        let id = store.write_working_copy_patterns(&WorkingCopyPatterns::all())?;
         fs::write(
             store.working_copy_patterns_dir().join(id.hex()),
             WorkingCopyPatterns::none().encode(),
         )?;
         assert!(matches!(
-            store.read_working_copy_patterns(&id).block_on(),
+            store.read_working_copy_patterns(&id),
             Err(OpStoreError::ReadObject { .. })
         ));
         let mut proto = view_to_proto(&create_view());
@@ -1709,8 +1744,8 @@ mod tests {
         };
         let store = SimpleOpStore::init(temp_dir.path(), root_data)?;
         let operation = create_operation();
-        let op_id = store.write_operation(&operation).block_on()?;
-        let read_operation = store.read_operation(&op_id).block_on()?;
+        let op_id = store.write_operation(&operation)?;
+        let read_operation = store.read_operation(&op_id)?;
         assert_eq!(read_operation, operation);
         Ok(())
     }

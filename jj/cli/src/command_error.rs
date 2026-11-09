@@ -14,12 +14,17 @@
 
 use std::error;
 use std::error::Error as _;
+use std::fmt;
 use std::io;
 use std::io::Write as _;
 use std::iter;
 use std::sync::Arc;
 
 use itertools::Itertools as _;
+use jj_frontend::runner::RunnerError;
+use jj_frontend::runner::StaleWorkingCopyError;
+use jj_frontend::runner::WorkingCopyNotWritableReason;
+use jj_frontend::workspace_env::WorkspaceEnvironmentError;
 use jj_lib::absorb::AbsorbError;
 use jj_lib::backend::BackendError;
 use jj_lib::backend::CommitId;
@@ -30,6 +35,7 @@ use jj_lib::config::ConfigLoadError;
 use jj_lib::config::ConfigMigrateError;
 use jj_lib::converge::ConvergeError;
 use jj_lib::dsl_util::Diagnostics;
+use jj_lib::dsl_util::take_most_similar;
 use jj_lib::evolution::WalkPredecessorsError;
 use jj_lib::fileset::FilePatternParseError;
 use jj_lib::fileset::FilesetParseError;
@@ -41,6 +47,7 @@ use jj_lib::op_heads_store::OpHeadsStoreError;
 use jj_lib::op_store::OpStoreError;
 use jj_lib::op_walk::OpsetEvaluationError;
 use jj_lib::op_walk::OpsetResolutionError;
+use jj_lib::ref_name::RemoteRefSymbolBuf;
 use jj_lib::repo::CheckOutCommitError;
 use jj_lib::repo::EditCommitError;
 use jj_lib::repo::RepoLoaderError;
@@ -67,6 +74,7 @@ use jj_lib::workspace::WorkspaceInitError;
 use jj_lib::workspace_store::WorkspaceStoreError;
 use thiserror::Error;
 
+use crate::cli_util::CliEventHandlerError;
 use crate::cli_util::short_operation_hash;
 use crate::description_util::ParseBulkEditMessageError;
 use crate::description_util::TempTextEditError;
@@ -224,13 +232,160 @@ pub fn internal_error_with_message(
     CommandError::with_message(CommandErrorKind::Internal, message, source)
 }
 
-fn format_similarity_hint<S: AsRef<str>>(candidates: &[S]) -> Option<String> {
+/// Number of similar names to list before summarizing the rest.
+const MAX_SIMILAR_NAMES: usize = 5;
+
+fn format_similarity_hint<S: AsRef<str> + fmt::Display>(
+    name: &str,
+    candidates: &[S],
+    max: Option<usize>,
+) -> Option<String> {
     match candidates {
         [] => None,
         names => {
-            let quoted_names = names.iter().map(|s| format!("`{}`", s.as_ref())).join(", ");
-            Some(format!("Did you mean {quoted_names}?"))
+            let similar_names = match max {
+                Some(max) => take_most_similar(name, names, max),
+                None => names.iter().collect(),
+            };
+            let quoted_names = similar_names.iter().map(|s| format!("`{s}`")).join(", ");
+            match names.len() - similar_names.len() {
+                0 => Some(format!("Did you mean {quoted_names}?")),
+                n => Some(format!("Did you mean {quoted_names}, or {n} others?")),
+            }
         }
+    }
+}
+
+impl From<WorkspaceEnvironmentError> for CommandError {
+    fn from(err: WorkspaceEnvironmentError) -> Self {
+        match err {
+            WorkspaceEnvironmentError::WorkingCopyState(err) => err.into(),
+            WorkspaceEnvironmentError::ColocatedPathMappings => user_error(err),
+            WorkspaceEnvironmentError::Config(err) => err.into(),
+            WorkspaceEnvironmentError::InvalidImmutableHeads(_)
+            | WorkspaceEnvironmentError::InvalidShortPrefixes(_) => config_error(err),
+            #[cfg(feature = "git")]
+            WorkspaceEnvironmentError::GitRepoAtWorkdir(err) => err.into(),
+        }
+    }
+}
+
+impl From<RunnerError> for CommandError {
+    fn from(err: RunnerError) -> Self {
+        match err {
+            RunnerError::WorkingCopyNotWritable(reason) => {
+                let hint = match reason {
+                    WorkingCopyNotWritableReason::IgnoringWorkingCopy => {
+                        "Don't use --ignore-working-copy."
+                    }
+                    WorkingCopyNotWritableReason::NotIntegratingOperations => {
+                        "Don't use --no-integrate-operation."
+                    }
+                    WorkingCopyNotWritableReason::NotAtHeadOperation => "Don't use --at-op.",
+                };
+                user_error("This command must be able to update the working copy.").hinted(hint)
+            }
+            RunnerError::NothingCheckedOut | RunnerError::ConcurrentWorkingCopyOperation => {
+                user_error(err)
+            }
+            RunnerError::GitImportExportLock(_) => user_error(err),
+            RunnerError::InvalidImmutableHeads(_) => config_error(err),
+            RunnerError::CheckOut { .. } => internal_error(err),
+            RunnerError::StaleWorkingCopy(err) => match err {
+                StaleWorkingCopyError::Stale { wc_op_id } => user_error(format!(
+                    "The working copy is stale (not updated since operation {}).",
+                    short_operation_hash(&wc_op_id)
+                ))
+                .hinted(
+                    "Run `jj workspace update-stale` to update it.
+See https://docs.jj-vcs.dev/latest/working-copy/#stale-working-copy \
+                     for more information.",
+                ),
+                StaleWorkingCopyError::SiblingOperation {
+                    repo_op_id,
+                    wc_op_id,
+                } => internal_error(format!(
+                    "The repo was loaded at operation {}, which seems to be a sibling of the \
+                     working copy's operation {}",
+                    short_operation_hash(&repo_op_id),
+                    short_operation_hash(&wc_op_id)
+                ))
+                .hinted(format!(
+                    "Run `jj op integrate {}` to add the working copy's operation to the \
+                     operation log.",
+                    short_operation_hash(&wc_op_id)
+                )),
+                StaleWorkingCopyError::OperationNotFound(_) => {
+                    user_error("Could not read working copy's operation.").hinted(
+                        "Run `jj workspace update-stale` to recover.
+See https://docs.jj-vcs.dev/latest/working-copy/#stale-working-copy \
+                         for more information.",
+                    )
+                }
+            },
+            RunnerError::Environment(err) => err.into(),
+            RunnerError::Backend(err) => err.into(),
+            RunnerError::OpStore(err) => err.into(),
+            RunnerError::RepoLoader(err) => err.into(),
+            RunnerError::Snapshot(err) => err.into(),
+            RunnerError::WorkingCopyState(err) => err.into(),
+            RunnerError::RevsetEvaluation(err) => err.into(),
+            RunnerError::RewriteRootCommit(err) => err.into(),
+            RunnerError::CheckOutCommit(err) => err.into(),
+            RunnerError::Reset(err) => err.into(),
+            RunnerError::TransactionCommit(err) => err.into(),
+            #[cfg(feature = "git")]
+            RunnerError::GitImport(err) => err.into(),
+            #[cfg(feature = "git")]
+            RunnerError::GitExport(err) => err.into(),
+            #[cfg(feature = "git")]
+            RunnerError::GitResetHead(err) => err.into(),
+            RunnerError::EventHandling(err) => match err.downcast::<CliEventHandlerError>() {
+                Ok(err) => err.0,
+                Err(err) => internal_error(err),
+            },
+        }
+    }
+}
+
+/// Formatted symbol compared by the name it refers to, ignoring quotes and escapes.
+struct SimilarSymbol<'a> {
+    key: String,
+    symbol: &'a str,
+}
+
+impl<'a> SimilarSymbol<'a> {
+    fn new(symbol: &'a str) -> Self {
+        let key = similarity_key(symbol);
+        SimilarSymbol { key, symbol }
+    }
+}
+
+impl AsRef<str> for SimilarSymbol<'_> {
+    fn as_ref(&self) -> &str {
+        &self.key
+    }
+}
+
+impl fmt::Display for SimilarSymbol<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.symbol)
+    }
+}
+
+/// Returns the string a formatted symbol is compared by.
+///
+/// A remote symbol's name and remote are joined by NUL, which Git doesn't allow
+/// in a ref name, so the local `"a@b"` isn't taken for `a@b`.
+fn similarity_key(symbol: &str) -> String {
+    use revset::ExpressionKind;
+    match revset::parse_program(symbol).map(|node| node.kind) {
+        Ok(ExpressionKind::Identifier(name)) => name.to_owned(),
+        Ok(ExpressionKind::String(name)) => name,
+        Ok(ExpressionKind::RemoteSymbol(RemoteRefSymbolBuf { name, remote })) => {
+            format!("{}\0{}", name.as_str(), remote.as_str())
+        }
+        _ => symbol.to_owned(),
     }
 }
 
@@ -547,6 +702,7 @@ mod git {
     use jj_lib::git::GitRemoteManagementError;
     use jj_lib::git::GitResetHeadError;
     use jj_lib::git::UnexpectedGitBackendError;
+    use jj_lib::git_backend::GitRepoAtWorkdirError;
 
     use super::CommandError;
     use super::user_error;
@@ -651,6 +807,12 @@ jj currently does not support partial clones. To use jj with this repository, tr
 
     impl From<UnexpectedGitBackendError> for CommandError {
         fn from(err: UnexpectedGitBackendError) -> Self {
+            user_error(err)
+        }
+    }
+
+    impl From<GitRepoAtWorkdirError> for CommandError {
+        fn from(err: GitRepoAtWorkdirError) -> Self {
             user_error(err)
         }
     }
@@ -870,10 +1032,9 @@ fn fileset_parse_error_hint(err: &FilesetParseError) -> Option<String> {
             "See https://docs.jj-vcs.dev/latest/filesets/ or use `jj help -k filesets` for \
              filesets syntax and how to match file paths.",
         )),
-        FilesetParseErrorKind::NoSuchFunction {
-            name: _,
-            candidates,
-        } => format_similarity_hint(candidates),
+        FilesetParseErrorKind::NoSuchFunction { name, candidates } => {
+            format_similarity_hint(name, candidates, Some(MAX_SIMILAR_NAMES))
+        }
         FilesetParseErrorKind::InvalidArguments { .. } => find_source_parse_error_hint(&err),
         FilesetParseErrorKind::RedefinedFunctionParameter => None,
         FilesetParseErrorKind::Expression(_) => find_source_parse_error_hint(&err),
@@ -918,10 +1079,9 @@ pub(crate) fn revset_parse_error_hint(err: &RevsetParseError) -> Option<String> 
             similar_op,
             description,
         } => Some(format!("Did you mean `{similar_op}` for {description}?")),
-        RevsetParseErrorKind::NoSuchFunction {
-            name: _,
-            candidates,
-        } => format_similarity_hint(candidates),
+        RevsetParseErrorKind::NoSuchFunction { name, candidates } => {
+            format_similarity_hint(name, candidates, Some(MAX_SIMILAR_NAMES))
+        }
         RevsetParseErrorKind::InvalidFunctionArguments { .. }
         | RevsetParseErrorKind::Expression(_) => find_source_parse_error_hint(bottom_err),
         _ => None,
@@ -936,10 +1096,15 @@ fn revset_resolution_error_hints(err: &RevsetResolutionError) -> Vec<String> {
         )
     };
     match err {
-        RevsetResolutionError::NoSuchRevision {
-            name: _,
-            candidates,
-        } => format_similarity_hint(candidates).into_iter().collect(),
+        RevsetResolutionError::NoSuchRevision { name, candidates } => {
+            let symbols = candidates
+                .iter()
+                .map(|symbol| SimilarSymbol::new(symbol))
+                .collect_vec();
+            format_similarity_hint(&similarity_key(name), &symbols, Some(MAX_SIMILAR_NAMES))
+                .into_iter()
+                .collect()
+        }
         RevsetResolutionError::DivergentChangeId {
             symbol,
             visible_targets,
@@ -1001,11 +1166,18 @@ fn template_parse_error_hint(err: &TemplateParseError) -> Option<String> {
     // Only for the bottom error, which is usually the root cause
     let bottom_err = iter::successors(Some(err), |e| e.origin()).last().unwrap();
     match bottom_err.kind() {
-        TemplateParseErrorKind::NoSuchKeyword { candidates, .. }
-        | TemplateParseErrorKind::NoSuchFunction { candidates, .. }
-        | TemplateParseErrorKind::NoSuchMethod { candidates, .. } => {
-            format_similarity_hint(candidates)
+        // Keyword hints aren't capped or reordered. `-Tbuiltin` uses this to
+        // list every builtin_* alias, and template-aliases share the list, so a
+        // large alias set isn't truncated here either. (#9811)
+        TemplateParseErrorKind::NoSuchKeyword {
+            name, candidates, ..
+        } => format_similarity_hint(name, candidates, None),
+        TemplateParseErrorKind::NoSuchFunction {
+            name, candidates, ..
         }
+        | TemplateParseErrorKind::NoSuchMethod {
+            name, candidates, ..
+        } => format_similarity_hint(name, candidates, Some(MAX_SIMILAR_NAMES)),
         TemplateParseErrorKind::InvalidArguments { .. } | TemplateParseErrorKind::Expression(_) => {
             find_source_parse_error_hint(bottom_err)
         }

@@ -8,11 +8,36 @@
 //! Valid values are the names of hash functions supported by `gix_hash::Kind` (e.g., `sha1`, `sha256`).
 //! If not set, the default hash function via `gix_hash::Kind::default()` is used.
 //!
+//! ### `GIX_TEST_FIXTURE_CACHE` and `GIX_TEST_FIXTURE_SOURCE_ROOT`
+//!
+//! Set both to absolute paths to share generated read-only scripted fixtures across equivalent source
+//! snapshots within one owned test run.
+//!
+//! A source snapshot is a source tree kept at a fixed revision or working-tree state for testing, such
+//! as a checkout or an exported copy of the workspace. It contains the crates, fixture scripts and their
+//! inputs, not the generated fixtures. Equivalent snapshots can live at different absolute paths.
+//!
+//! - `GIX_TEST_FIXTURE_SOURCE_ROOT` names the current snapshot's workspace root, for example
+//!   `/tmp/qa-run-123/snapshot-a`, not a crate directory or its `tests/fixtures` directory.
+//!   An example fixture script would be at
+//!   `/tmp/qa-run-123/snapshot-a/gix-discover/tests/fixtures/make_nested_repos.sh`.
+//! - `GIX_TEST_FIXTURE_CACHE` names the shared output directory, for example
+//!   `/tmp/qa-run-123/fixture-cache`. Use a fresh cache namespace for each owned test run.
+//!   When shared caching applies, that script's generated test files are under
+//!   `/tmp/qa-run-123/fixture-cache/<key>/fixture-<suffix>/`, including `.git/HEAD` and
+//!   `inner/.git/HEAD`. Here `<key>` is the fixture-identity hash and `<suffix>` is a random directory suffix.
+//!
+//! Tests in a second equivalent snapshot at `/tmp/qa-run-123/snapshot-b` use that path for
+//! `GIX_TEST_FIXTURE_SOURCE_ROOT` but keep `GIX_TEST_FIXTURE_CACHE` pointing to the same
+//! `/tmp/qa-run-123/fixture-cache`. Crate and script paths are keyed relative to the source root, allowing
+//! equivalent requests from both snapshots to reuse a generated fixture despite their different roots.
+//!
 //! ## Script Isolation
 //!
 //! Fixture scripts and [`git()`] use `GIT_CONFIG_PARAMETERS` to disable signing and automatic maintenance
-//! and set `init.defaultBranch=main`. A script's own `GIT_CONFIG_COUNT` entries coexist with this configuration,
-//! with isolation taking precedence for shared keys. Explicit `git -c` options can override isolation.
+//! and set `init.defaultBranch=main` and `core.longpaths=true`. The latter lets Git for Windows use long paths
+//! without depending on external configuration. A script's own `GIT_CONFIG_COUNT` entries coexist with this
+//! configuration, with isolation taking precedence for shared keys. Explicit `git -c` options can override isolation.
 //! Bash fixtures trace commands to a separate descriptor so redirected stderr baselines remain unchanged.
 //! Bash older than 4.1 reports failed commands instead. Captured diagnostics are printed only on failure.
 //!
@@ -51,6 +76,8 @@ pub mod signature;
 
 /// Capture complete, stable repository state for integration-test assertions.
 pub mod repository;
+
+mod fixture_cache;
 
 const ARCHIVE_DIR_NAME: &str = "generated-archives";
 const BASH_FIXTURE_PRELUDE: &str = include_str!("scripted_fixture_prelude.sh");
@@ -110,9 +137,11 @@ pub fn rename(from: impl AsRef<Path>, to: impl AsRef<Path>) -> std::io::Result<(
 ///
 /// The returned executable path is stable for the lifetime of the test process and avoids races with other
 /// concurrently running tests that may cause Cargo to update the shared example binary in `target/debug/examples`.
+/// Build in the original workspace so relocated nextest runs reuse that same target directory.
 pub fn build_example_for_test(package: &str, example: &str, target_tmpdir: impl Into<PathBuf>) -> PathBuf {
     let mut cargo = std::process::Command::new(env::var_os("CARGO").unwrap_or_else(|| OsString::from(env!("CARGO"))));
     let res = cargo
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
         .args(["build", "-p", package, "--example", example])
         .status()
         .expect("cargo should run fine");
@@ -297,7 +326,10 @@ impl Drop for GitDaemon {
 static SCRIPT_IDENTITY: LazyLock<Mutex<BTreeMap<PathBuf, u32>>> = LazyLock::new(|| Mutex::new(BTreeMap::new()));
 
 #[cfg(feature = "worktree-exclusions")]
-static EXCLUDE_LUT: LazyLock<Mutex<Option<gix_worktree::Stack>>> = LazyLock::new(|| {
+type ExcludeCache = (gix_worktree::Stack, Option<gix_worktree::index::File>);
+
+#[cfg(feature = "worktree-exclusions")]
+static EXCLUDE_LUT: LazyLock<Mutex<Option<ExcludeCache>>> = LazyLock::new(|| {
     let cache = (|| {
         let (repo_path, _) = gix_discover::upwards(Path::new(".")).ok()?;
         let (gix_dir, work_tree) = repo_path.into_repository_and_work_tree_directories();
@@ -321,6 +353,12 @@ static EXCLUDE_LUT: LazyLock<Mutex<Option<gix_worktree::Stack>>> = LazyLock::new
             config.append(worktree_config).ok()?;
         }
         let ignore_case = config.boolean_by("core", None, "ignoreCase").ok()?.unwrap_or(false);
+        let object_hash = match config.string_by("extensions", None, "objectFormat") {
+            Some(format) => gix_hash::Kind::from_str(format.to_str().ok()?).ok()?,
+            None => gix_hash::Kind::from_str("sha1").ok()?,
+        };
+        let index =
+            gix_worktree::index::File::at_or_default(gix_dir.join("index"), object_hash, true, Default::default()).ok();
         let case = if ignore_case {
             gix_worktree::ignore::glob::pattern::Case::Fold
         } else {
@@ -341,13 +379,8 @@ static EXCLUDE_LUT: LazyLock<Mutex<Option<gix_worktree::Stack>>> = LazyLock::new
             gix_worktree::stack::state::ignore::Source::WorktreeThenIdMappingIfNotSkipped,
             Default::default(),
         ));
-        Some(gix_worktree::Stack::new(
-            work_tree,
-            state,
-            case,
-            buf,
-            Default::default(),
-        ))
+        let stack = gix_worktree::Stack::new(work_tree, state, case, buf, Default::default());
+        Some((stack, index))
     })();
     Mutex::new(cache)
 });
@@ -360,9 +393,16 @@ impl IsExcluded for WorktreeExclusions {
     fn is_excluded(&self, archive: &Path) -> bool {
         let mut lut = EXCLUDE_LUT.lock();
         lut.as_mut()
-            .and_then(|cache| {
+            .and_then(|(cache, index)| {
                 let archive = env::current_dir().ok()?.join(archive);
                 let relative_path = archive.strip_prefix(cache.base()).ok()?;
+                let git_path = gix_path::to_unix_separators_on_windows(gix_path::into_bstr(relative_path).ok()?);
+                if index
+                    .as_ref()
+                    .is_some_and(|index| index.entry_index_by_path(git_path.as_bstr()).is_ok())
+                {
+                    return Some(false);
+                }
                 cache
                     .at_path(
                         relative_path,
@@ -406,6 +446,7 @@ const ISOLATED_GIT_CONFIG: &[(&str, &str)] = &[
     ("commit.gpgsign", "false"),
     ("tag.gpgsign", "false"),
     ("init.defaultBranch", "main"),
+    ("core.longpaths", "true"),
     ("protocol.file.allow", "always"),
     ("maintenance.auto", "false"),
     ("gc.auto", "0"),
@@ -431,6 +472,17 @@ static GIT_CORE_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
 /// The major, minor and patch level of the git version on the system.
 pub static GIT_VERSION: LazyLock<(u8, u8, u8)> =
     LazyLock::new(|| parse_git_version().expect("git version to be parsable"));
+
+/// The major, minor and patch level of Git resolved inside [`bash_program()`], with fixture-script isolation.
+///
+/// Unlike [`GIT_VERSION`], this accounts for Git Bash adjusting `PATH` on Windows. Scripted fixture version gates
+/// use this value. It assumes fixture scripts do not select a different Git themselves.
+///
+/// # Panics
+///
+/// If Bash or Git cannot be executed, or Git's version output cannot be parsed.
+pub static GIT_BASH_VERSION: LazyLock<(u8, u8, u8)> =
+    LazyLock::new(|| parse_git_bash_version().expect("Git version inside fixture Bash to be parsable"));
 
 /// Define how [`scripted_fixture_writable_with_args()`],
 /// [`scripted_fixture_writable_with_args_with_git_version()`], and [`rust_fixture_writable()`]
@@ -463,6 +515,22 @@ pub fn should_skip_as_git_version_is_smaller_than(major: u8, minor: u8, patch: u
 
 fn parse_git_version() -> Result<(u8, u8, u8)> {
     let output = git_command(".").arg("--version").output()?;
+    git_version_from_bytes(&output.stdout)
+}
+
+fn parse_git_bash_version() -> Result<(u8, u8, u8)> {
+    let mut cmd = command_with_environment_snapshot(bash_program());
+    let output = configure_git_environment(&mut cmd, ".")
+        .args(["-c", "git --version"])
+        .output()?;
+    if !output.status.success() {
+        return Err(format!(
+            "Failed to query Git version inside fixture Bash: {}: {}",
+            output.status,
+            output.stderr.as_bstr()
+        )
+        .into());
+    }
     git_version_from_bytes(&output.stdout)
 }
 
@@ -702,7 +770,7 @@ enum ArchivePolicy {
 }
 
 fn archive_policy_for_git_version(is_git_version_compatible: impl FnOnce((u8, u8, u8)) -> bool) -> ArchivePolicy {
-    if is_git_version_compatible(*GIT_VERSION) {
+    if is_git_version_compatible(*GIT_BASH_VERSION) {
         ArchivePolicy::Normal
     } else {
         ArchivePolicy::Require
@@ -757,7 +825,9 @@ pub fn fixture_bytes(path: impl AsRef<Path>) -> Vec<u8> {
 }
 
 /// Run the executable at `script_name`, like `make_repo.sh` or `my_setup.py` to produce a read-only directory to which
-/// the path is returned.
+/// an absolute path is returned, regardless of whether it is generated, cached, or extracted from an archive.
+/// Paths passed to post-processing closures are absolute as well. Making paths absolute does not resolve symlinks
+/// or introduce Windows verbatim prefixes; callers needing canonical paths must opt into that separately.
 ///
 /// Note that it persists and the script at `script_name` will only be executed once if it ran without error.
 /// Inherited `GIT_TEMPLATE_DIR` is cleared; Git's installed templates remain available.
@@ -779,6 +849,8 @@ pub fn fixture_bytes(path: impl AsRef<Path>) -> Vec<u8> {
 /// or more specific `.gitignore` configurations in lower levels of the work tree.
 ///
 /// The latter is useful if the script's output is platform specific.
+/// With the `worktree-exclusions` feature, archives tracked in the source worktree's index remain eligible for
+/// regeneration even when ignored or missing from disk.
 ///
 /// ### Bash Symlink Preflight
 ///
@@ -849,6 +921,7 @@ pub fn fixture_has_symlinks(fixture_root: impl AsRef<Path>) -> std::io::Result<b
 /// fixtures where rerunning the producer can legitimately change
 /// without changing semantics, for example when Git writes entries in filesystem
 /// traversal order.
+/// For fixtures requiring a particular Git version, use [`scripted_fixture_read_only_with_git_version()`] instead.
 pub fn scripted_fixture_read_only_needs_archive(script_name: impl AsRef<Path>) -> Result<PathBuf> {
     scripted_fixture_read_only_with_args_inner::<fn(FixtureState<'_>) -> PostResult, ()>(
         script_name,
@@ -865,7 +938,7 @@ pub fn scripted_fixture_read_only_needs_archive(script_name: impl AsRef<Path>) -
 /// Produce a read-only scripted fixture when the installed Git version is compatible, or extract it from a matching
 /// archive otherwise.
 ///
-/// `is_git_version_compatible` receives [`GIT_VERSION`]. If it returns `true`, this behaves like
+/// `is_git_version_compatible` receives [`GIT_BASH_VERSION`]. If it returns `true`, this behaves like
 /// [`scripted_fixture_read_only()`]. Otherwise, `GIX_TEST_IGNORE_ARCHIVES` is ignored and the fixture is only made
 /// available by extracting an archive whose identity matches the fixture script. The script is never run with an
 /// incompatible Git version, and `None` is returned if no matching archive is available.
@@ -1132,6 +1205,9 @@ pub fn scripted_fixture_read_only_with_args_single_archive_with_git_version(
 /// Like [`scripted_fixture_read_only`], but runs a Rust closure after the script completes.
 ///
 /// - `version` should be incremented when the closure's behavior changes to invalidate the cache.
+///   Each version has a separate archive with a `.post-v{version}` suffix, so plain and
+///   post-processed fixtures can coexist. Use distinct versions for different post-processing
+///   variants of the same script and arguments.
 /// - The closure receives a [`FixtureState`] enum indicating whether the fixture is newly created
 ///   or was loaded from cache.
 /// - For uninitialized fixtures, the closure can modify the directory and compute values.
@@ -1400,7 +1476,10 @@ pub fn scripted_fixture_writable_with_args_single_archive_with_post_with_git_ver
     .map(|fixture| fixture.map(|(tmp, opt)| (tmp, opt.expect("post_process was provided"))))
 }
 
-/// Execute a Rust closure in a directory, returning a read-only fixture path.
+/// Execute a Rust closure in a directory, returning an absolute read-only fixture path.
+///
+/// Like [`scripted_fixture_read_only()`], the returned path and the path passed to the closure are absolute,
+/// without resolving symlinks or introducing Windows verbatim prefixes.
 ///
 /// - `version` should be incremented when the closure's behavior changes to invalidate the cache.
 /// - `name` is used to identify this fixture for caching purposes and should be unique within the crate.
@@ -1420,6 +1499,7 @@ pub fn scripted_fixture_writable_with_args_single_archive_with_post_with_git_ver
 /// Archives can be disabled by using `.gitignore` specifications,
 /// for example `generated-archives/rust-*.tar` or `generated-archives/rust-*.tar.xz`
 /// in the `tests/fixtures` directory.
+/// With the `worktree-exclusions` feature, tracked archives are regenerated despite matching ignore rules.
 ///
 /// ### Example
 ///
@@ -1545,7 +1625,7 @@ where
         object_hash,
         &script_identity,
         None,
-    );
+    )?;
     let _marker = marker_if_needed(destination_dir, archive_name)?;
 
     run_fixture_generator_with_marker_handling(
@@ -1592,8 +1672,8 @@ fn force_and_dir(
     object_hash: Option<gix_hash::Kind>,
     script_identity: &dyn std::fmt::Display,
     cache_variant: Option<&str>,
-) -> (bool, PathBuf) {
-    destination_dir.map_or_else(
+) -> std::io::Result<(bool, PathBuf)> {
+    let (force_run, dir) = destination_dir.map_or_else(
         || {
             let mut dir = fixture_base.join(
                 Path::new("generated-do-not-edit")
@@ -1607,7 +1687,8 @@ fn force_and_dir(
             (false, dir)
         },
         |d| (true, d.to_owned()),
-    )
+    );
+    Ok((force_run, std::path::absolute(dir)?))
 }
 
 #[expect(clippy::too_many_arguments)]
@@ -1783,13 +1864,15 @@ where
             }
             ArgsInHash::No => "".into(),
         };
+        // Dots are escaped in argument suffixes, keeping post-processing distinct from script arguments.
+        let post_suffix = post_version.map_or_else(String::new, |version| format!(".post-v{version}"));
         let potential_hash_suffix = if is_sha1(object_hash) {
             "".into()
         } else {
             format!("_{object_hash}")
         };
         format!(
-            "{}{suffix}{potential_hash_suffix}.{}",
+            "{}{suffix}{post_suffix}{potential_hash_suffix}.{}",
             script_basename.to_str().expect("valid UTF-8"),
             tar_extension()
         )
@@ -1801,49 +1884,48 @@ where
         Some(object_hash),
         &script_identity,
         archive_policy.cache_variant(),
-    );
-    let _marker = marker_if_needed(destination_dir, script_basename)?;
-
+    )?;
     let script_identity_for_archive = match args_in_hash {
         ArgsInHash::Yes => script_identity,
         ArgsInHash::No => 0,
     };
     let script_absolute_path = env::current_dir()?.join(&script_path);
+    let shared_cache = if !force_run
+        && archive_policy == ArchivePolicy::Normal
+        && fixture_cache::Cache::is_requested_from_env()
+        && (env::var_os("GIX_TEST_IGNORE_ARCHIVES").is_some() || !archive_file_path.try_exists()?)
+        && (should_skip_all_archive_creation() || excludes.is_excluded(&archive_file_path))
+    {
+        fixture_cache::Cache::from_env(&script_path, &args, object_hash, script_identity, post_version)?
+    } else {
+        None
+    };
     let post_process_closure = post_process.map(|(_, f)| f);
-
-    let res = run_fixture_generator_with_marker_handling(
-        &archive_file_path,
-        &script_result_directory,
-        script_identity_for_archive,
-        force_run,
-        archive_policy,
-        excludes,
-        &format!("using script \"{}\"", script_location.display()),
-        |fixture_state| {
-            if let FixtureState::Uninitialized(dir) = fixture_state {
-                // Bash 3.2 loses BASH_SOURCE after calling functions defined by `-c`. Sourcing a
-                // temporary prelude file preserves script context without exporting functions.
-                let prelude_file = if is_bash_fixture {
-                    let mut file = tempfile::NamedTempFile::new()?;
-                    std::io::Write::write_all(file.as_file_mut(), BASH_FIXTURE_PRELUDE.as_bytes())?;
-                    Some(file)
-                } else {
-                    None
-                };
-                let mut cmd = if let Some(file) = prelude_file.as_ref() {
-                    let mut cmd = command_with_environment_snapshot(bash_program());
-                    let prelude_path = gix_path::from_bstring(
-                        gix_path::to_unix_separators_on_windows(gix_path::into_bstr(file.path())?).into_owned(),
-                    )?;
-                    cmd.arg("-c")
-                        .arg("source \"$1\" || exit; shift; source \"$0\" \"$@\"")
-                        .arg(&script_absolute_path)
-                        .arg(prelude_path);
-                    cmd
-                } else {
-                    command_with_environment_snapshot(&script_absolute_path)
-                };
-                let output = match configure_command(&mut cmd, object_hash, &args, dir).output() {
+    let make_fixture = |fixture_state: FixtureState<'_>| {
+        if let FixtureState::Uninitialized(dir) = fixture_state {
+            // Bash 3.2 loses BASH_SOURCE after calling functions defined by `-c`. Sourcing a
+            // temporary prelude file preserves script context without exporting functions.
+            let prelude_file = if is_bash_fixture {
+                let mut file = tempfile::NamedTempFile::new()?;
+                std::io::Write::write_all(file.as_file_mut(), BASH_FIXTURE_PRELUDE.as_bytes())?;
+                Some(file)
+            } else {
+                None
+            };
+            let mut cmd = if let Some(file) = prelude_file.as_ref() {
+                let mut cmd = command_with_environment_snapshot(bash_program());
+                let prelude_path = gix_path::from_bstring(
+                    gix_path::to_unix_separators_on_windows(gix_path::into_bstr(file.path())?).into_owned(),
+                )?;
+                cmd.arg("-c")
+                    .arg("source \"$1\" || exit; shift; source \"$0\" \"$@\"")
+                    .arg(&script_absolute_path)
+                    .arg(prelude_path);
+                cmd
+            } else {
+                command_with_environment_snapshot(&script_absolute_path)
+            };
+            let output = match configure_command(&mut cmd, object_hash, &args, dir).output() {
                     Ok(out) => out,
                     Err(err)
                         if !is_bash_fixture
@@ -1855,18 +1937,32 @@ where
                     }
                     Err(err) => return Err(err.into()),
                 };
-                if !output.status.success() {
-                    eprintln!("stdout: {}", output.stdout.as_bstr());
-                    eprintln!("stderr: {}", output.stderr.as_bstr());
-                    return Err(format!("fixture script of {cmd:?} failed with {}", output.status).into());
-                }
+            if !output.status.success() {
+                eprintln!("stdout: {}", output.stdout.as_bstr());
+                eprintln!("stderr: {}", output.stderr.as_bstr());
+                return Err(format!("fixture script of {cmd:?} failed with {}", output.status).into());
             }
-            if let Some(mut f) = post_process_closure {
-                f(fixture_state).map(Some)
-            } else {
-                Ok(None)
-            }
-        },
+        }
+        if let Some(mut f) = post_process_closure {
+            f(fixture_state).map(Some)
+        } else {
+            Ok(None)
+        }
+    };
+
+    if let Some(cache) = shared_cache {
+        return Ok(Some(cache.obtain(make_fixture)?));
+    }
+    let _marker = marker_if_needed(destination_dir, script_basename)?;
+    let res = run_fixture_generator_with_marker_handling(
+        &archive_file_path,
+        &script_result_directory,
+        script_identity_for_archive,
+        force_run,
+        archive_policy,
+        excludes,
+        &format!("using script \"{}\"", script_location.display()),
+        make_fixture,
     )?;
 
     Ok(res.map(|res| (script_result_directory, res)))
@@ -2111,20 +2207,55 @@ pub fn normalize_debug_snapshot(value: &dyn std::fmt::Debug) -> (String, Vec<gix
 /// Platform-specific I/O messages and pretty-debug OS errors are replaced by their [`std::io::ErrorKind`].
 /// Integer conversion error messages are normalized across Rust versions.
 ///
-/// The returned value owns its text and prints it without adding quotes or escaping newlines.
+/// The returned value owns its text and implements both [`std::fmt::Debug`] and [`std::fmt::Display`]
+/// without adding quotes or escaping newlines, so either `insta` snapshot macro can be used.
+/// Use [`redact_display_snapshot()`] to format the input with `Display` instead of pretty-debug.
 pub fn redact_debug_snapshot(
     value: &dyn std::fmt::Debug,
     replacements: &[(&str, &str)],
-) -> impl std::fmt::Debug + use<> {
+) -> impl std::fmt::Debug + std::fmt::Display + use<> {
+    redact_snapshot(format!("{value:#?}"), replacements)
+}
+
+/// Prepare a display-formatted value for an `insta::assert_snapshot!` assertion.
+///
+/// Apply the same redactions as [`redact_debug_snapshot()`], but format the input with
+/// [`std::fmt::Display`]. This also accepts already-formatted strings without adding quotes or
+/// escaping newlines. The returned value owns its text and implements both `Display` and `Debug`,
+/// so either `insta` snapshot macro can be used without changing the rendered text.
+///
+/// ```
+/// let snapshot = gix_testtools::redact_display_snapshot(
+///     &"read /tmp/random/repo/config failed",
+///     &[("/tmp/random/repo", "<repo>")],
+/// );
+/// assert_eq!(snapshot.to_string(), "read <repo>/config failed");
+/// ```
+pub fn redact_display_snapshot(
+    value: &dyn std::fmt::Display,
+    replacements: &[(&str, &str)],
+) -> impl std::fmt::Debug + std::fmt::Display + use<> {
+    redact_snapshot(format!("{value}"), replacements)
+}
+
+fn redact_snapshot(
+    mut text: String,
+    replacements: &[(&str, &str)],
+) -> impl std::fmt::Debug + std::fmt::Display + use<> {
+    /// Owned redacted text rendered verbatim by both snapshot macros, without `String`'s debug quoting or escaping.
     struct Diagnostic(String);
 
-    impl std::fmt::Debug for Diagnostic {
+    impl std::fmt::Display for Diagnostic {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             f.write_str(&self.0)
         }
     }
 
-    let mut text = format!("{value:#?}");
+    impl std::fmt::Debug for Diagnostic {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            std::fmt::Display::fmt(self, f)
+        }
+    }
     for (from, to) in replacements {
         let windows_path = from.contains('\\') || (cfg!(windows) && from.contains('/'));
         let mut prefixes = vec![(*from).to_owned()];

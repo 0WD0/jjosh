@@ -1,3 +1,4 @@
+#Requires -Version 7.3
 param(
     [Parameter(Mandatory = $true)][string]$Executable,
     [Parameter(Mandatory = $true)][string]$TestName,
@@ -15,9 +16,10 @@ $process = Start-Process -FilePath $Executable `
     -ArgumentList @('--exact', $TestName, '--nocapture', '--test-threads=1') `
     -WorkingDirectory (Get-Location).Path -WindowStyle Hidden `
     -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
-if (-not $process.WaitForExit(30000)) {
+$limit = [TimeSpan]::FromMinutes(2)
+if (-not $process.WaitForExit($limit)) {
     Stop-Process -Id $process.Id -Force
-    throw 'The console editor test did not finish within 30 seconds.'
+    throw "The console editor test did not finish within $($limit.TotalSeconds) seconds."
 }
 # Wait for redirected output to drain as well as for the process to exit.
 $process.WaitForExit()

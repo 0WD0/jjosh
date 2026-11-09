@@ -23,14 +23,19 @@ use jj_cli::cli_util::CommandHelper;
 use jj_cli::command_error::CommandError;
 use jj_cli::ui::Ui;
 use jj_lib::backend::Backend;
+use jj_lib::backend::BackendInitError;
 use jj_lib::commit::Commit;
+use jj_lib::default_backend_factories::default_index_store_initializer;
+use jj_lib::default_backend_factories::default_op_heads_store_initializer;
+use jj_lib::default_backend_factories::default_op_store_initializer;
+use jj_lib::default_backend_factories::default_submodule_store_initializer;
+use jj_lib::default_backend_factories::default_workspace_store_initializer;
 use jj_lib::git_backend::GitBackend;
 use jj_lib::local_working_copy::LocalWorkingCopy;
 use jj_lib::merged_tree::MergedTree;
 use jj_lib::op_store::OperationId;
 use jj_lib::ref_name::WorkspaceName;
 use jj_lib::ref_name::WorkspaceNameBuf;
-use jj_lib::repo::ReadonlyRepo;
 use jj_lib::repo_path::RepoPath;
 use jj_lib::settings::UserSettings;
 use jj_lib::signing_factory::signer_from_settings;
@@ -66,8 +71,11 @@ async fn run_custom_command(
             let wc_path = command_helper.cwd();
             let settings = command_helper.settings_for_new_workspace(ui, wc_path)?.0;
             let backend_initializer = |settings: &UserSettings, store_path: &Path| {
+                let git_settings = settings
+                    .git_backend_settings()
+                    .map_err(BackendInitError::new)?;
                 let backend: Box<dyn Backend> = Box::new(GitBackend::init_internal(
-                    settings,
+                    &git_settings,
                     store_path,
                     gix::hash::Kind::default(),
                 )?);
@@ -76,15 +84,15 @@ async fn run_custom_command(
             Workspace::init_with_factories(
                 &settings,
                 wc_path,
+                WorkspaceName::DEFAULT,
                 &backend_initializer,
                 signer_from_settings(&settings).map_err(WorkspaceInitError::SignInit)?,
-                &ReadonlyRepo::default_workspace_store_initializer(),
-                &ReadonlyRepo::default_op_store_initializer(),
-                &ReadonlyRepo::default_op_heads_store_initializer(),
-                &ReadonlyRepo::default_index_store_initializer(),
-                &ReadonlyRepo::default_submodule_store_initializer(),
+                &default_workspace_store_initializer(),
+                &default_op_store_initializer(),
+                &default_op_heads_store_initializer(),
+                &default_index_store_initializer(),
+                &default_submodule_store_initializer(),
                 &ConflictsWorkingCopyFactory {},
-                WorkspaceName::DEFAULT.to_owned(),
             )
             .await?;
             Ok(())

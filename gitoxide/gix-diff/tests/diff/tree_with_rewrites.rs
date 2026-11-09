@@ -393,14 +393,10 @@ fn rename_by_similarity() -> TestResult {
             source_entry_mode: EntryMode(0o100644),
             source_relation: None,
             source_id: Oid(5),
-            diff: Some(
-                DiffLineStats {
-                    removals: 0,
-                    insertions: 1,
-                    before: 2,
-                    after: 3,
-                    similarity: 0.65,
-                },
+            similarity: Some(
+                Similarity(
+                    39000,
+                ),
             ),
             entry_mode: EntryMode(0o100644),
             id: Oid(6),
@@ -475,41 +471,30 @@ fn copies_by_identity() -> TestResult {
             entry_mode: EntryMode(0o40000),
             id: Oid(2),
         },
-        Rewrite {
-            source_location: "base",
-            source_entry_mode: EntryMode(0o100644),
-            source_relation: None,
-            source_id: Oid(3),
-            diff: None,
+        Modification {
+            location: "base",
+            previous_entry_mode: EntryMode(0o100644),
+            previous_id: Oid(3),
             entry_mode: EntryMode(0o100644),
-            id: Oid(3),
+            id: Oid(4),
+        },
+        Addition {
             location: "c1",
             relation: None,
-            copy: true,
-        },
-        Rewrite {
-            source_location: "base",
-            source_entry_mode: EntryMode(0o100644),
-            source_relation: None,
-            source_id: Oid(3),
-            diff: None,
             entry_mode: EntryMode(0o100644),
-            id: Oid(3),
+            id: Oid(4),
+        },
+        Addition {
             location: "c2",
             relation: None,
-            copy: true,
-        },
-        Rewrite {
-            source_location: "base",
-            source_entry_mode: EntryMode(0o100644),
-            source_relation: None,
-            source_id: Oid(3),
-            diff: None,
             entry_mode: EntryMode(0o100644),
-            id: Oid(3),
+            id: Oid(4),
+        },
+        Addition {
             location: "dir/c3",
             relation: None,
-            copy: true,
+            entry_mode: EntryMode(0o100644),
+            id: Oid(4),
         },
     ]
     "#);
@@ -549,9 +534,13 @@ fn copies_by_similarity() -> TestResult {
             source_entry_mode: EntryMode(0o100644),
             source_relation: None,
             source_id: Oid(3),
-            diff: None,
+            similarity: Some(
+                Similarity(
+                    52500,
+                ),
+            ),
             entry_mode: EntryMode(0o100644),
-            id: Oid(3),
+            id: Oid(4),
             location: "c4",
             relation: None,
             copy: true,
@@ -561,17 +550,13 @@ fn copies_by_similarity() -> TestResult {
             source_entry_mode: EntryMode(0o100644),
             source_relation: None,
             source_id: Oid(3),
-            diff: Some(
-                DiffLineStats {
-                    removals: 0,
-                    insertions: 1,
-                    before: 11,
-                    after: 12,
-                    similarity: 0.8888889,
-                },
+            similarity: Some(
+                Similarity(
+                    46666,
+                ),
             ),
             entry_mode: EntryMode(0o100644),
-            id: Oid(4),
+            id: Oid(5),
             location: "c5",
             relation: None,
             copy: true,
@@ -581,28 +566,31 @@ fn copies_by_similarity() -> TestResult {
             source_entry_mode: EntryMode(0o100644),
             source_relation: None,
             source_id: Oid(3),
-            diff: Some(
-                DiffLineStats {
-                    removals: 0,
-                    insertions: 1,
-                    before: 11,
-                    after: 12,
-                    similarity: 0.8888889,
-                },
+            similarity: Some(
+                Similarity(
+                    46666,
+                ),
             ),
             entry_mode: EntryMode(0o100644),
-            id: Oid(5),
+            id: Oid(6),
             location: "dir/c6",
             relation: None,
             copy: true,
+        },
+        Modification {
+            location: "base",
+            previous_entry_mode: EntryMode(0o100644),
+            previous_id: Oid(3),
+            entry_mode: EntryMode(0o100644),
+            id: Oid(4),
         },
     ]
     "#);
 
     let out = out.expect("tracking enabled");
     assert_eq!(
-        out.num_similarity_checks, 2,
-        "two are similar, the other one is identical"
+        out.num_similarity_checks, 3,
+        "all three copies differ from the original source"
     );
     assert_eq!(out.num_similarity_checks_skipped_for_rename_tracking_due_to_limit, 0);
     assert_eq!(out.num_similarity_checks_skipped_for_copy_tracking_due_to_limit, 0);
@@ -696,7 +684,7 @@ fn copies_in_entire_tree_by_similarity() -> TestResult {
                 source_entry_mode: EntryMode(0o100644),
                 source_relation: None,
                 source_id: Oid(1),
-                diff: None,
+                similarity: None,
                 entry_mode: EntryMode(0o100644),
                 id: Oid(1),
                 location: "c6",
@@ -708,7 +696,7 @@ fn copies_in_entire_tree_by_similarity() -> TestResult {
                 source_entry_mode: EntryMode(0o100644),
                 source_relation: None,
                 source_id: Oid(2),
-                diff: None,
+                similarity: None,
                 entry_mode: EntryMode(0o100644),
                 id: Oid(2),
                 location: "c7",
@@ -720,14 +708,10 @@ fn copies_in_entire_tree_by_similarity() -> TestResult {
                 source_entry_mode: EntryMode(0o100644),
                 source_relation: None,
                 source_id: Oid(3),
-                diff: Some(
-                    DiffLineStats {
-                        removals: 0,
-                        insertions: 3,
-                        before: 12,
-                        after: 15,
-                        similarity: 0.75,
-                    },
+                similarity: Some(
+                    Similarity(
+                        45000,
+                    ),
                 ),
                 entry_mode: EntryMode(0o100644),
                 id: Oid(4),
@@ -745,7 +729,10 @@ fn copies_in_entire_tree_by_similarity() -> TestResult {
         ]
         "#);
     let out = out.expect("tracking enabled");
-    assert_eq!(out.num_similarity_checks, 22);
+    assert_eq!(
+        out.num_similarity_checks, 13,
+        "each regular-file source is compared once"
+    );
     assert_eq!(
         out.num_similarity_checks_skipped_for_rename_tracking_due_to_limit, 0,
         "no limit configured"
@@ -781,7 +768,7 @@ fn copies_in_entire_tree_by_similarity_with_limit() -> TestResult {
             source_entry_mode: EntryMode(0o100644),
             source_relation: None,
             source_id: Oid(1),
-            diff: None,
+            similarity: None,
             entry_mode: EntryMode(0o100644),
             id: Oid(1),
             location: "c6",
@@ -793,7 +780,7 @@ fn copies_in_entire_tree_by_similarity_with_limit() -> TestResult {
             source_entry_mode: EntryMode(0o100644),
             source_relation: None,
             source_id: Oid(2),
-            diff: None,
+            similarity: None,
             entry_mode: EntryMode(0o100644),
             id: Oid(2),
             location: "c7",
@@ -817,12 +804,15 @@ fn copies_in_entire_tree_by_similarity_with_limit() -> TestResult {
     "#);
 
     let out = out.expect("tracking enabled");
-    assert_eq!(out.num_similarity_checks, 0, "similarity checks can't run");
+    assert_eq!(
+        out.num_similarity_checks, 1,
+        "the limit permits falling back to modified sources"
+    );
     assert_eq!(
         out.num_similarity_checks_skipped_for_rename_tracking_due_to_limit, 0,
         "no limit configured"
     );
-    assert_eq!(out.num_similarity_checks_skipped_for_copy_tracking_due_to_limit, 19);
+    assert_eq!(out.num_similarity_checks_skipped_for_copy_tracking_due_to_limit, 15);
 
     Ok(())
 }
@@ -852,29 +842,30 @@ fn copies_by_similarity_with_limit() -> TestResult {
             entry_mode: EntryMode(0o40000),
             id: Oid(2),
         },
-        Rewrite {
-            source_location: "base",
-            source_entry_mode: EntryMode(0o100644),
-            source_relation: None,
-            source_id: Oid(3),
-            diff: None,
+        Modification {
+            location: "base",
+            previous_entry_mode: EntryMode(0o100644),
+            previous_id: Oid(3),
             entry_mode: EntryMode(0o100644),
-            id: Oid(3),
-            location: "c4",
-            relation: None,
-            copy: true,
+            id: Oid(4),
         },
         Addition {
-            location: "c5",
+            location: "c4",
             relation: None,
             entry_mode: EntryMode(0o100644),
             id: Oid(4),
         },
         Addition {
-            location: "dir/c6",
+            location: "c5",
             relation: None,
             entry_mode: EntryMode(0o100644),
             id: Oid(5),
+        },
+        Addition {
+            location: "dir/c6",
+            relation: None,
+            entry_mode: EntryMode(0o100644),
+            id: Oid(6),
         },
     ]
     "#);
@@ -883,8 +874,8 @@ fn copies_by_similarity_with_limit() -> TestResult {
     assert_eq!(out.num_similarity_checks, 0);
     assert_eq!(out.num_similarity_checks_skipped_for_rename_tracking_due_to_limit, 0);
     assert_eq!(
-        out.num_similarity_checks_skipped_for_copy_tracking_due_to_limit, 2,
-        "limit prevents any similarity check from being performed, and identity fails in most places"
+        out.num_similarity_checks_skipped_for_copy_tracking_due_to_limit, 3,
+        "all three copies differ from the original source, exceeding the limit"
     );
 
     Ok(())
@@ -914,18 +905,24 @@ fn realistic_renames_by_identity() -> TestResult {
             source_entry_mode: EntryMode(0o100644),
             source_relation: None,
             source_id: Oid(1),
-            diff: None,
+            similarity: None,
             entry_mode: EntryMode(0o100644),
             id: Oid(1),
             location: "git-index/src/file/mod.rs",
             relation: None,
-            copy: false,
+            copy: true,
         },
-        Addition {
-            location: "git-index/tests/index/file/access.rs",
-            relation: None,
+        Rewrite {
+            source_location: "git-index/src/file.rs",
+            source_entry_mode: EntryMode(0o100644),
+            source_relation: None,
+            source_id: Oid(1),
+            similarity: None,
             entry_mode: EntryMode(0o100644),
             id: Oid(1),
+            location: "git-index/tests/index/file/access.rs",
+            relation: None,
+            copy: false,
         },
         Modification {
             location: "git-index/tests/index/file/mod.rs",
@@ -948,11 +945,12 @@ Date:   Sat Jan 1 00:00:00 2000 +0000
 
 diff --git a/git-index/src/file.rs b/git-index/src/file/mod.rs
 similarity index 100%
+copy from git-index/src/file.rs
+copy to git-index/src/file/mod.rs
+diff --git a/git-index/src/file.rs b/git-index/tests/index/file/access.rs
+similarity index 100%
 rename from git-index/src/file.rs
-rename to git-index/src/file/mod.rs
-diff --git a/git-index/tests/index/file/access.rs b/git-index/tests/index/file/access.rs
-new file mode 100644
-index 0000000..e69de29
+rename to git-index/tests/index/file/access.rs
 diff --git a/git-index/tests/index/file/mod.rs b/git-index/tests/index/file/mod.rs
 index e69de29..8ba3a16 100644
 --- a/git-index/tests/index/file/mod.rs
@@ -964,7 +962,7 @@ index e69de29..8ba3a16 100644
     }
 
     let out = out.expect("tracking enabled");
-    assert_eq!(out.num_similarity_checks, 1);
+    assert_eq!(out.num_similarity_checks, 0, "both destinations have exact sources");
     assert_eq!(out.num_similarity_checks_skipped_for_rename_tracking_due_to_limit, 0);
     assert_eq!(out.num_similarity_checks_skipped_for_copy_tracking_due_to_limit, 0);
 
@@ -1410,7 +1408,7 @@ fn realistic_renames_by_identity_3() -> TestResult {
             source_entry_mode: EntryMode(0o100644),
             source_relation: None,
             source_id: Oid(1),
-            diff: None,
+            similarity: None,
             entry_mode: EntryMode(0o100644),
             id: Oid(1),
             location: "src/ein.rs",
@@ -1422,7 +1420,7 @@ fn realistic_renames_by_identity_3() -> TestResult {
             source_entry_mode: EntryMode(0o100644),
             source_relation: None,
             source_id: Oid(1),
-            diff: None,
+            similarity: None,
             entry_mode: EntryMode(0o100644),
             id: Oid(1),
             location: "src/gix.rs",
@@ -1476,7 +1474,7 @@ fn realistic_renames_2() -> TestResult {
             rewrites: Some(Rewrites {
                 copies: Some(Copies::default()),
                 limit: 1,
-                track_empty: false,
+                track_empty: true,
                 ..Default::default()
             }),
             rewrite_destination_paths: None,
@@ -1490,26 +1488,6 @@ fn realistic_renames_2() -> TestResult {
                                      ).collect::<Vec<_>>())).0, @r#"
     [
         Rewrite {
-            source_location: "git-sec",
-            source_entry_mode: EntryMode(0o40000),
-            source_relation: Some(
-                Parent(
-                    1,
-                ),
-            ),
-            source_id: Oid(1),
-            diff: None,
-            entry_mode: EntryMode(0o40000),
-            id: Oid(1),
-            location: "gix-sec",
-            relation: Some(
-                Parent(
-                    2,
-                ),
-            ),
-            copy: false,
-        },
-        Rewrite {
             source_location: "git-sec/CHANGELOG.md",
             source_entry_mode: EntryMode(0o100644),
             source_relation: Some(
@@ -1517,10 +1495,10 @@ fn realistic_renames_2() -> TestResult {
                     1,
                 ),
             ),
-            source_id: Oid(2),
-            diff: None,
+            source_id: Oid(1),
+            similarity: None,
             entry_mode: EntryMode(0o100644),
-            id: Oid(2),
+            id: Oid(1),
             location: "gix-sec/CHANGELOG.md",
             relation: Some(
                 ChildOfParent(
@@ -1537,10 +1515,10 @@ fn realistic_renames_2() -> TestResult {
                     1,
                 ),
             ),
-            source_id: Oid(2),
-            diff: None,
+            source_id: Oid(1),
+            similarity: None,
             entry_mode: EntryMode(0o100644),
-            id: Oid(2),
+            id: Oid(1),
             location: "gix-sec/Cargo.toml",
             relation: Some(
                 ChildOfParent(
@@ -1557,10 +1535,10 @@ fn realistic_renames_2() -> TestResult {
                     1,
                 ),
             ),
-            source_id: Oid(2),
-            diff: None,
+            source_id: Oid(1),
+            similarity: None,
             entry_mode: EntryMode(0o100644),
-            id: Oid(2),
+            id: Oid(1),
             location: "gix-sec/src/identity.rs",
             relation: Some(
                 ChildOfParent(
@@ -1577,10 +1555,10 @@ fn realistic_renames_2() -> TestResult {
                     1,
                 ),
             ),
-            source_id: Oid(2),
-            diff: None,
+            source_id: Oid(1),
+            similarity: None,
             entry_mode: EntryMode(0o100644),
-            id: Oid(2),
+            id: Oid(1),
             location: "gix-sec/src/lib.rs",
             relation: Some(
                 ChildOfParent(
@@ -1597,10 +1575,10 @@ fn realistic_renames_2() -> TestResult {
                     1,
                 ),
             ),
-            source_id: Oid(2),
-            diff: None,
+            source_id: Oid(1),
+            similarity: None,
             entry_mode: EntryMode(0o100644),
-            id: Oid(2),
+            id: Oid(1),
             location: "gix-sec/src/permission.rs",
             relation: Some(
                 ChildOfParent(
@@ -1617,10 +1595,10 @@ fn realistic_renames_2() -> TestResult {
                     1,
                 ),
             ),
-            source_id: Oid(2),
-            diff: None,
+            source_id: Oid(1),
+            similarity: None,
             entry_mode: EntryMode(0o100644),
-            id: Oid(2),
+            id: Oid(1),
             location: "gix-sec/src/trust.rs",
             relation: Some(
                 ChildOfParent(
@@ -1637,10 +1615,10 @@ fn realistic_renames_2() -> TestResult {
                     1,
                 ),
             ),
-            source_id: Oid(2),
-            diff: None,
+            source_id: Oid(1),
+            similarity: None,
             entry_mode: EntryMode(0o100644),
-            id: Oid(2),
+            id: Oid(1),
             location: "gix-sec/tests/identity/mod.rs",
             relation: Some(
                 ChildOfParent(
@@ -1657,13 +1635,33 @@ fn realistic_renames_2() -> TestResult {
                     1,
                 ),
             ),
-            source_id: Oid(2),
-            diff: None,
+            source_id: Oid(1),
+            similarity: None,
             entry_mode: EntryMode(0o100644),
-            id: Oid(2),
+            id: Oid(1),
             location: "gix-sec/tests/sec.rs",
             relation: Some(
                 ChildOfParent(
+                    2,
+                ),
+            ),
+            copy: false,
+        },
+        Rewrite {
+            source_location: "git-sec",
+            source_entry_mode: EntryMode(0o40000),
+            source_relation: Some(
+                Parent(
+                    1,
+                ),
+            ),
+            source_id: Oid(2),
+            similarity: None,
+            entry_mode: EntryMode(0o40000),
+            id: Oid(2),
+            location: "gix-sec",
+            relation: Some(
+                Parent(
                     2,
                 ),
             ),
@@ -1741,200 +1739,102 @@ fn realistic_renames_3_without_identity() -> TestResult {
                 copies: None,
                 percentage: None,
                 limit: 0,
-                track_empty: false,
+                track_empty: true,
             }),
             rewrite_destination_paths: None,
         },
     )?;
 
-    // The same rewrites are found in both modes, but their emitted order follows object-id ordering.
-    match crate::fixture_hash_kind() {
-        gix_hash::Kind::Sha1 => {
-            insta::assert_snapshot!(crate::normalize_debug_snapshot(&(
-                changes
-                    .into_iter()
-                    .filter(|c| !c.entry_mode().is_tree() || c.relation().is_some_and(|r| matches!(r, Relation::Parent(_))))
-                    .collect::<Vec<_>>())).0,
-                @r#"
-            [
-                Rewrite {
-                    source_location: "src/plumbing/options.rs",
-                    source_entry_mode: EntryMode(0o100644),
-                    source_relation: Some(
-                        ChildOfParent(
-                            2,
-                        ),
-                    ),
-                    source_id: Oid(1),
-                    diff: None,
-                    entry_mode: EntryMode(0o100644),
-                    id: Oid(1),
-                    location: "src/plumbing-renamed/options/mod.rs",
-                    relation: Some(
-                        ChildOfParent(
-                            1,
-                        ),
-                    ),
-                    copy: false,
-                },
-                Rewrite {
-                    source_location: "src/plumbing/mod.rs",
-                    source_entry_mode: EntryMode(0o100644),
-                    source_relation: Some(
-                        ChildOfParent(
-                            2,
-                        ),
-                    ),
-                    source_id: Oid(2),
-                    diff: None,
-                    entry_mode: EntryMode(0o100644),
-                    id: Oid(2),
-                    location: "src/plumbing-renamed/mod.rs",
-                    relation: Some(
-                        ChildOfParent(
-                            1,
-                        ),
-                    ),
-                    copy: false,
-                },
-                Rewrite {
-                    source_location: "src/plumbing/main.rs",
-                    source_entry_mode: EntryMode(0o100644),
-                    source_relation: Some(
-                        ChildOfParent(
-                            2,
-                        ),
-                    ),
-                    source_id: Oid(3),
-                    diff: None,
-                    entry_mode: EntryMode(0o100644),
-                    id: Oid(3),
-                    location: "src/plumbing-renamed/main.rs",
-                    relation: Some(
-                        ChildOfParent(
-                            1,
-                        ),
-                    ),
-                    copy: false,
-                },
-                Rewrite {
-                    source_location: "src/plumbing",
-                    source_entry_mode: EntryMode(0o40000),
-                    source_relation: Some(
-                        Parent(
-                            2,
-                        ),
-                    ),
-                    source_id: Oid(4),
-                    diff: None,
-                    entry_mode: EntryMode(0o40000),
-                    id: Oid(5),
-                    location: "src/plumbing-renamed",
-                    relation: Some(
-                        Parent(
-                            1,
-                        ),
-                    ),
-                    copy: false,
-                },
-            ]
-            "#
-            );
-        }
-        gix_hash::Kind::Sha256 => {
-            insta::assert_snapshot!(crate::normalize_debug_snapshot(&(
-                changes
-                    .into_iter()
-                    .filter(|c| !c.entry_mode().is_tree() || c.relation().is_some_and(|r| matches!(r, Relation::Parent(_))))
-                    .collect::<Vec<_>>())).0,
-                @r#"
-            [
-                Rewrite {
-                    source_location: "src/plumbing/mod.rs",
-                    source_entry_mode: EntryMode(0o100644),
-                    source_relation: Some(
-                        ChildOfParent(
-                            2,
-                        ),
-                    ),
-                    source_id: Oid(1),
-                    diff: None,
-                    entry_mode: EntryMode(0o100644),
-                    id: Oid(1),
-                    location: "src/plumbing-renamed/mod.rs",
-                    relation: Some(
-                        ChildOfParent(
-                            1,
-                        ),
-                    ),
-                    copy: false,
-                },
-                Rewrite {
-                    source_location: "src/plumbing/main.rs",
-                    source_entry_mode: EntryMode(0o100644),
-                    source_relation: Some(
-                        ChildOfParent(
-                            2,
-                        ),
-                    ),
-                    source_id: Oid(2),
-                    diff: None,
-                    entry_mode: EntryMode(0o100644),
-                    id: Oid(2),
-                    location: "src/plumbing-renamed/main.rs",
-                    relation: Some(
-                        ChildOfParent(
-                            1,
-                        ),
-                    ),
-                    copy: false,
-                },
-                Rewrite {
-                    source_location: "src/plumbing/options.rs",
-                    source_entry_mode: EntryMode(0o100644),
-                    source_relation: Some(
-                        ChildOfParent(
-                            2,
-                        ),
-                    ),
-                    source_id: Oid(3),
-                    diff: None,
-                    entry_mode: EntryMode(0o100644),
-                    id: Oid(3),
-                    location: "src/plumbing-renamed/options/mod.rs",
-                    relation: Some(
-                        ChildOfParent(
-                            1,
-                        ),
-                    ),
-                    copy: false,
-                },
-                Rewrite {
-                    source_location: "src/plumbing",
-                    source_entry_mode: EntryMode(0o40000),
-                    source_relation: Some(
-                        Parent(
-                            2,
-                        ),
-                    ),
-                    source_id: Oid(4),
-                    diff: None,
-                    entry_mode: EntryMode(0o40000),
-                    id: Oid(5),
-                    location: "src/plumbing-renamed",
-                    relation: Some(
-                        Parent(
-                            1,
-                        ),
-                    ),
-                    copy: false,
-                },
-            ]
-            "#
-            );
-        }
-        _ => unreachable!("tests only support sha1 and sha256 fixtures"),
-    }
+    insta::assert_snapshot!(crate::normalize_debug_snapshot(&(
+        changes
+            .into_iter()
+            .filter(|c| !c.entry_mode().is_tree() || c.relation().is_some_and(|r| matches!(r, Relation::Parent(_))))
+            .collect::<Vec<_>>())).0,
+        @r#"
+    [
+        Rewrite {
+            source_location: "src/plumbing/main.rs",
+            source_entry_mode: EntryMode(0o100644),
+            source_relation: Some(
+                ChildOfParent(
+                    2,
+                ),
+            ),
+            source_id: Oid(1),
+            similarity: None,
+            entry_mode: EntryMode(0o100644),
+            id: Oid(1),
+            location: "src/plumbing-renamed/main.rs",
+            relation: Some(
+                ChildOfParent(
+                    1,
+                ),
+            ),
+            copy: false,
+        },
+        Rewrite {
+            source_location: "src/plumbing/mod.rs",
+            source_entry_mode: EntryMode(0o100644),
+            source_relation: Some(
+                ChildOfParent(
+                    2,
+                ),
+            ),
+            source_id: Oid(2),
+            similarity: None,
+            entry_mode: EntryMode(0o100644),
+            id: Oid(2),
+            location: "src/plumbing-renamed/mod.rs",
+            relation: Some(
+                ChildOfParent(
+                    1,
+                ),
+            ),
+            copy: false,
+        },
+        Rewrite {
+            source_location: "src/plumbing/options.rs",
+            source_entry_mode: EntryMode(0o100644),
+            source_relation: Some(
+                ChildOfParent(
+                    2,
+                ),
+            ),
+            source_id: Oid(3),
+            similarity: None,
+            entry_mode: EntryMode(0o100644),
+            id: Oid(3),
+            location: "src/plumbing-renamed/options/mod.rs",
+            relation: Some(
+                ChildOfParent(
+                    1,
+                ),
+            ),
+            copy: false,
+        },
+        Rewrite {
+            source_location: "src/plumbing",
+            source_entry_mode: EntryMode(0o40000),
+            source_relation: Some(
+                Parent(
+                    2,
+                ),
+            ),
+            source_id: Oid(4),
+            similarity: None,
+            entry_mode: EntryMode(0o40000),
+            id: Oid(5),
+            location: "src/plumbing-renamed",
+            relation: Some(
+                Parent(
+                    1,
+                ),
+            ),
+            copy: false,
+        },
+    ]
+    "#
+    );
 
     let out = out.expect("tracking enabled");
     assert_eq!(

@@ -506,6 +506,7 @@ pub fn process_repo_update(repo_update: RepoUpdate) -> anyhow::Result<String> {
                 &transaction,
                 filter,
                 josh_core::objects::CommitData::read(transaction.odb(), push_ref.oid)?.tree_id()?,
+                Some(push_ref.oid),
             );
 
             if !warnings.is_empty() {

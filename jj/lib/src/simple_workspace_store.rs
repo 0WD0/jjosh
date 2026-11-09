@@ -21,25 +21,25 @@ use std::path::PathBuf;
 
 use jj_core::backend::BackendInitError;
 use jj_core::backend::BackendLoadError;
+use jj_core::ref_name::WorkspaceName;
+use jj_core::workspace_store::WorkspaceStore;
+use jj_core::workspace_store::WorkspaceStoreError;
+use jj_local_util::file_util::BadPathEncoding;
+use jj_local_util::file_util::IoResultExt as _;
+use jj_local_util::file_util::PathError;
+use jj_local_util::file_util::new_temp_file_with_default_permissions;
+use jj_local_util::file_util::normalize_path;
+use jj_local_util::file_util::path_from_bytes;
+use jj_local_util::file_util::path_to_bytes;
+use jj_local_util::file_util::persist_temp_file;
+use jj_local_util::file_util::relative_path;
+use jj_local_util::file_util::slash_path;
+use jj_local_util::lock::FileLock;
+use jj_local_util::lock::FileLockError;
 use prost::Message as _;
-use tempfile::NamedTempFile;
 use thiserror::Error;
 
-use crate::file_util::BadPathEncoding;
-use crate::file_util::IoResultExt as _;
-use crate::file_util::PathError;
-use crate::file_util::normalize_path;
-use crate::file_util::path_from_bytes;
-use crate::file_util::path_to_bytes;
-use crate::file_util::persist_temp_file;
-use crate::file_util::relative_path;
-use crate::file_util::slash_path;
-use crate::lock::FileLock;
-use crate::lock::FileLockError;
 use crate::protos::simple_workspace_store;
-use crate::ref_name::WorkspaceName;
-use crate::workspace_store::WorkspaceStore;
-use crate::workspace_store::WorkspaceStoreError;
 
 /// Errors specific to the `SimpleWorkspaceStore` implementation.
 #[derive(Error, Debug)]
@@ -92,9 +92,7 @@ impl SimpleWorkspaceStore {
         let store = Self::new(store_dir);
         if !store.store_file.exists() {
             // TODO: Remove this in jj 0.57+: older repos do not have a workspace store index so we initialize it here.
-            store
-                .initialize()
-                .map_err(|err| BackendLoadError(err.into()))?;
+            store.initialize().map_err(BackendLoadError::new)?;
         }
         Ok(store)
     }
@@ -107,9 +105,9 @@ impl SimpleWorkspaceStore {
     }
 
     fn initialize(&self) -> Result<(), BackendInitError> {
-        let _lock = self.lock().map_err(|err| BackendInitError(err.into()))?;
+        let _lock = self.lock().map_err(BackendInitError::new)?;
         self.write_store(simple_workspace_store::Workspaces::default())
-            .map_err(|err| BackendInitError(err.into()))?;
+            .map_err(BackendInitError::new)?;
         Ok(())
     }
 
@@ -137,7 +135,8 @@ impl SimpleWorkspaceStore {
     ) -> Result<(), SimpleWorkspaceStoreError> {
         // We had created the store dir in load(), so parent() must exist.
         let store_file_parent = self.store_file.parent().unwrap();
-        let temp_file = NamedTempFile::new_in(store_file_parent).context(store_file_parent)?;
+        let temp_file =
+            new_temp_file_with_default_permissions(store_file_parent).context(store_file_parent)?;
 
         temp_file
             .as_file()

@@ -2,6 +2,41 @@ use gix_testtools::{Result, TestResult};
 use std::path::Path;
 
 #[test]
+fn encoding_feature_groups() -> TestResult {
+    use gix::filter::plumbing::worktree::{self, encode_to_git::RoundTripCheck};
+
+    for (label, text, expected) in [
+        ("ASCII", "A", b"A".as_slice()),
+        ("UTF-8", "é", b"\xc3\xa9".as_slice()),
+        ("UTF-16BE", "é", b"\0\xe9".as_slice()),
+        ("UTF-32BE", "é", b"\0\0\0\xe9".as_slice()),
+        ("ISO-8859-1", "é", b"\xe9".as_slice()),
+        #[cfg(feature = "encoding-western")]
+        ("WINDOWS-1252", "€", b"\x80".as_slice()),
+        #[cfg(feature = "encoding-western")]
+        ("ISO-8859-15", "€", b"\xa4".as_slice()),
+        #[cfg(feature = "encoding-legacy")]
+        ("WINDOWS-1251", "Ж", b"\xc6".as_slice()),
+        #[cfg(feature = "encoding-asian")]
+        ("SHIFT-JIS", "あ", b"\x82\xa0".as_slice()),
+        #[cfg(feature = "encoding-asian")]
+        ("EUC-KR", "가", b"\xb0\xa1".as_slice()),
+        #[cfg(feature = "encoding-asian")]
+        ("GBK", "中", b"\xd6\xd0".as_slice()),
+    ] {
+        let encoding = worktree::encoding::for_label(label)?;
+        let mut encoded = Vec::new();
+        worktree::encode_to_worktree(text.as_bytes(), encoding, &mut encoded)?;
+        assert_eq!(encoded, expected, "{label} produces the expected worktree bytes");
+
+        let mut decoded = Vec::new();
+        worktree::encode_to_git(&encoded, encoding, &mut decoded, RoundTripCheck::Fail)?;
+        assert_eq!(decoded, text.as_bytes(), "{label} round-trips through UTF-8");
+    }
+    Ok(())
+}
+
+#[test]
 fn pipeline_in_nonbare_repo_without_index() -> TestResult {
     let repo = named_subrepo_opts("make_basic_repo.sh", "all-untracked", Default::default())?;
     let _ = repo.filter_pipeline(None)?;
@@ -59,9 +94,79 @@ fn repo_local_filter_driver_configuration_overrides_global_configuration() -> Te
 }
 
 #[test]
+#[cfg(all(feature = "blob-diff", feature = "merge"))]
+fn legacy_driver_names_are_canonical() -> TestResult {
+    let repo = named_repo("make_legacy_config_consumers.sh")?;
+    let filters = gix::filter::Pipeline::options(&repo)?.drivers;
+    assert_eq!(
+        filters.len(),
+        2,
+        r#"[filter.Legacy] folds to legacy and merges with quoted "legacy"; quoted "Legacy" stays distinct"#
+    );
+    let filter = filters
+        .iter()
+        .find(|driver| driver.name == "legacy")
+        .expect(r#"[filter.Legacy] and [filter "legacy"] both identify the lowercase legacy filter"#);
+    assert_eq!(
+        filter.clean.as_deref().map(Vec::as_slice),
+        Some(b"legacy-clean".as_slice()),
+        r#"[filter.Legacy] supplies clean for legacy; quoted "Legacy" is distinct and cannot override it"#
+    );
+    assert_eq!(
+        filter.smudge.as_deref().map(Vec::as_slice),
+        Some(b"quoted-smudge".as_slice()),
+        r#"[filter "legacy"] supplies smudge for the same driver as the lowercased [filter.Legacy]"#
+    );
+
+    let diff = repo.diff_resource_cache(Default::default(), Default::default())?;
+    let diffs = diff.filter.drivers();
+    assert_eq!(
+        diffs.len(),
+        2,
+        r#"[diff.Legacy] folds to legacy and merges with quoted "legacy"; quoted "Legacy" stays distinct"#
+    );
+    let diff = diffs
+        .iter()
+        .find(|driver| driver.name == "legacy")
+        .expect(r#"[diff.Legacy] and [diff "legacy"] both identify the lowercase legacy diff driver"#);
+    assert_eq!(
+        diff.command.as_ref().map(|value| value.as_bstr()),
+        Some("legacy-diff".into()),
+        r#"[diff.Legacy] supplies command for legacy; quoted "Legacy" configures a separate driver"#
+    );
+    assert_eq!(
+        diff.binary_to_text_command.as_ref().map(|value| value.as_bstr()),
+        Some("quoted-textconv".into()),
+        r#"[diff "legacy"] supplies textconv for the same driver as the lowercased [diff.Legacy]"#
+    );
+
+    let merge = repo.merge_resource_cache(Default::default())?;
+    let merges = merge.drivers();
+    assert_eq!(
+        merges.len(),
+        2,
+        r#"[merge.Legacy] folds to legacy and merges with quoted "legacy"; quoted "Legacy" stays distinct"#
+    );
+    let merge = merges
+        .iter()
+        .find(|driver| driver.name == "legacy")
+        .expect(r#"[merge.Legacy] and [merge "legacy"] both identify the lowercase legacy merge driver"#);
+    assert_eq!(
+        merge.command, "legacy-merge",
+        r#"[merge.Legacy] supplies driver for legacy; quoted "Legacy" is distinct and cannot override it"#
+    );
+    assert_eq!(
+        merge.recursive.as_ref().map(|value| value.as_bstr()),
+        Some("binary".into()),
+        r#"[merge "legacy"] supplies recursive for the same driver as the lowercased [merge.Legacy]"#
+    );
+    Ok(())
+}
+
+#[test]
 #[cfg(unix)]
 fn pipeline_worktree_file_to_object() -> TestResult {
-    let repo = named_repo("repo_with_untracked_files.sh")?;
+    let repo = named_repo("repo_with_untracked_files.sh")?.with_object_memory();
     let work_dir = repo.workdir().expect("non-bare");
     let (mut pipe, index) = repo.filter_pipeline(None)?;
     fn take_two<A, B, C>(t: Option<(A, B, C)>) -> Option<(A, B)> {
@@ -75,10 +180,13 @@ fn pipeline_worktree_file_to_object() -> TestResult {
         take_two(pipe.worktree_file_to_object("embedded-repository".into(), &index)?),
         Some((submodule_id, gix::object::tree::EntryKind::Commit))
     );
-    assert_eq!(
-        take_two(pipe.worktree_file_to_object("submodule".into(), &index)?),
-        Some((submodule_id, gix::object::tree::EntryKind::Commit))
-    );
+    for path in ["submodule", "submodule/", "submodule/.", "empty-dir/../submodule"] {
+        assert_eq!(
+            take_two(pipe.worktree_file_to_object(path.into(), &index)?),
+            Some((submodule_id, gix::object::tree::EntryKind::Commit)),
+            "directory validation preserves safe path spellings: {path}"
+        );
+    }
     assert_eq!(
         take_two(pipe.worktree_file_to_object("uninitialized-embedded-repository".into(), &index)?),
         None,
@@ -115,6 +223,67 @@ fn pipeline_worktree_file_to_object() -> TestResult {
         take_two(pipe.worktree_file_to_object("fifo".into(), &index)?),
         None,
         "untrackable entries are just ignored as if they didn't exist"
+    );
+    for path in [
+        "directory-link/embedded-repository",
+        "directory-link/submodule",
+        "directory-link/file",
+        "directory-link/link",
+        "directory-link/",
+        "directory-link/.",
+        "empty-dir/../directory-link/",
+        "empty-dir/../directory-link/.",
+        "directory-link/../file",
+        "../file",
+    ] {
+        let err = pipe
+            .worktree_file_to_object(path.into(), &index)
+            .expect_err("object creation must not traverse a symlink");
+        assert!(err.is_validation(), "the unsafe path is rejected: {path}: {err:?}");
+    }
+    for path in ["", ".", "..", "empty-dir/.."] {
+        let err = pipe
+            .worktree_file_to_object(path.into(), &index)
+            .expect_err("a path without a file name must not be added, even if it has a parent");
+        assert!(err.is_validation(), "the path without a file name is rejected: {path}");
+        assert_eq!(
+            err.metadata().next().expect("the validation error retains its input")["input"],
+            gix_error::MetadataValue::from(path.as_bytes()),
+            "the original path bytes remain available in the validation error"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+#[cfg(unix)]
+fn worktree_file_to_object_recomputes_submodule_trust() -> TestResult {
+    fn check_submodule_trust(meta: &gix_config::file::Metadata) -> bool {
+        if meta
+            .path
+            .as_ref()
+            .is_some_and(|path| path.ends_with(Path::new("modules/submodule/config")))
+        {
+            assert_eq!(
+                meta.trust,
+                gix_sec::Trust::Full,
+                "the fixture submodule is owned by this user, regardless of the parent's forced trust"
+            );
+        }
+        true
+    }
+    let repo = named_subrepo_opts(
+        "repo_with_untracked_files.sh",
+        ".",
+        gix::open::Options::isolated()
+            .with_trust(gix_sec::Trust::Reduced)
+            .filter_config_section(check_submodule_trust),
+    )?;
+    assert_eq!(repo.git_dir_trust(), gix_sec::Trust::Reduced, "parent trust is forced");
+    let (mut pipe, index) = repo.filter_pipeline(None)?;
+    assert!(
+        pipe.worktree_file_to_object("submodule".into(), &index)?.is_some(),
+        "opening the submodule consults its local core.worktree configuration"
     );
     Ok(())
 }

@@ -14,7 +14,9 @@
 
 //! Domain-specific language helpers.
 
+use std::cmp;
 use std::collections::HashMap;
+use std::convert::Infallible;
 use std::fmt;
 use std::slice;
 
@@ -432,6 +434,89 @@ where
     })
 }
 
+/// How a grammar rule contributes to the estimated AST depth.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DepthRole {
+    /// Does not contribute to depth.
+    Ignore,
+    /// Contributes one level of depth.
+    Nest,
+    /// Separates independent operands of a flattened operator chain.
+    ///
+    /// The operator must have the lowest precedence in the expression.
+    Separate,
+}
+
+/// Estimates AST depth from the grammar's parse tree.
+///
+/// Counts nesting rules, including siblings that may become nested operators
+/// during AST construction. Separators split siblings into independent
+/// operands: their maximum nesting count contributes to depth, plus one level
+/// for the flattened operator chain.
+pub fn estimate_tree_depth<R: RuleType>(
+    pair: Pair<R>,
+    depth_role: impl Fn(R) -> DepthRole,
+) -> usize {
+    let mut max_depth = 0;
+    Ok(()) = visit_tree_depth_estimates(pair, depth_role, |_, depth| {
+        max_depth = cmp::max(max_depth, depth);
+        Ok::<_, Infallible>(())
+    });
+    max_depth
+}
+
+/// Checks that the estimated AST depth does not exceed `max_depth`.
+pub fn validate_tree_depth<R: RuleType>(
+    pair: Pair<R>,
+    max_depth: usize,
+    depth_role: impl Fn(R) -> DepthRole,
+) -> Result<(), Pair<R>> {
+    visit_tree_depth_estimates(pair, depth_role, |pair, depth| {
+        if depth <= max_depth {
+            Ok(())
+        } else {
+            Err(pair.clone())
+        }
+    })
+}
+
+fn visit_tree_depth_estimates<'i, R: RuleType, E>(
+    pair: Pair<'i, R>,
+    depth_role: impl Fn(R) -> DepthRole,
+    mut check_depth: impl FnMut(&Pair<'i, R>, usize) -> Result<(), E>,
+) -> Result<(), E> {
+    let local_depth = |pairs: Pairs<R>| {
+        let mut has_separator = false;
+        let max_depth = pairs
+            .map(|pair| depth_role(pair.as_rule()))
+            .chunk_by(|&role| role == DepthRole::Separate)
+            .into_iter()
+            .map(|(is_separator, roles)| {
+                has_separator |= is_separator;
+                roles.filter(|&role| role == DepthRole::Nest).count()
+            })
+            .max()
+            .unwrap_or(0);
+        max_depth + usize::from(has_separator)
+    };
+
+    let depth = usize::from(depth_role(pair.as_rule()) != DepthRole::Ignore);
+    let child_depth = depth + local_depth(pair.clone().into_inner());
+    check_depth(&pair, child_depth)?;
+    let mut stack = vec![(pair.into_inner(), child_depth)];
+    while let Some((pairs, depth)) = stack.last_mut() {
+        let Some(pair) = pairs.next() else {
+            stack.pop();
+            continue;
+        };
+        // Sibling nodes may contribute to the depth of the current node.
+        let child_depth = *depth + local_depth(pair.clone().into_inner());
+        check_depth(&pair, child_depth)?;
+        stack.push((pair.into_inner(), child_depth));
+    }
+    Ok(())
+}
+
 /// Helper to parse string literal.
 #[derive(Debug)]
 pub struct StringLiteralParser<R> {
@@ -465,8 +550,8 @@ pub struct FunctionCallParser<R> {
     pub function_name_rule: R,
     /// List of positional and keyword arguments.
     pub function_arguments_rule: R,
-    /// Pair of parameter name and value.
-    pub keyword_argument_rule: R,
+    /// Pair of optional parameter name and value.
+    pub argument_rule: R,
     /// Parameter name.
     pub argument_name_rule: R,
     /// Value expression.
@@ -492,8 +577,11 @@ impl<R: RuleType> FunctionCallParser<R> {
         let mut args = Vec::new();
         let mut keyword_args = Vec::new();
         for pair in args_pair.into_inner() {
+            assert_eq!(pair.as_rule(), self.argument_rule);
             let span = pair.as_span();
-            if pair.as_rule() == self.argument_value_rule {
+            let pairs = pair.into_inner();
+            if pairs.peek().unwrap().as_rule() == self.argument_value_rule {
+                let [value_pair] = pairs.collect_array().unwrap();
                 if !keyword_args.is_empty() {
                     return Err(InvalidArguments {
                         name: function_name,
@@ -502,9 +590,9 @@ impl<R: RuleType> FunctionCallParser<R> {
                     }
                     .into());
                 }
-                args.push(parse_value(pair)?);
-            } else if pair.as_rule() == self.keyword_argument_rule {
-                let [name_pair, value_pair] = pair.into_inner().collect_array().unwrap();
+                args.push(parse_value(value_pair)?);
+            } else {
+                let [name_pair, value_pair] = pairs.collect_array().unwrap();
                 assert_eq!(name_pair.as_rule(), self.argument_name_rule);
                 assert_eq!(value_pair.as_rule(), self.argument_value_rule);
                 let name_span = name_pair.as_span();
@@ -514,8 +602,6 @@ impl<R: RuleType> FunctionCallParser<R> {
                     value: parse_value(value_pair)?,
                 };
                 keyword_args.push(arg);
-            } else {
-                panic!("unexpected argument rule {pair:?}");
             }
         }
         Ok(FunctionCallNode {
@@ -945,9 +1031,45 @@ where
         .collect()
 }
 
+/// Picks at most `max` names most similar to `name`, best match first.
+///
+/// Equally similar names keep the order of the `candidates` list.
+pub fn take_most_similar<'a, S: AsRef<str>>(
+    name: &str,
+    candidates: &'a [S],
+    max: usize,
+) -> Vec<&'a S> {
+    let mut scored = candidates
+        .iter()
+        .enumerate()
+        .map(|(index, cand)| (index, cand, strsim::jaro(name, cand.as_ref())))
+        .collect_vec();
+    scored.sort_unstable_by(|(index1, _, score1), (index2, _, score2)| {
+        score2.total_cmp(score1).then(index1.cmp(index2))
+    });
+    scored.truncate(max);
+    scored.into_iter().map(|(_, cand, _)| cand).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_take_most_similar() {
+        // Sorted by name, as collect_similar() returns them.
+        let candidates = ["feature-1", "feature-2", "feature-3", "feature-9"].map(String::from);
+        // "feature-9" sorts last, but it's the most similar name.
+        assert_eq!(
+            take_most_similar("feature-9x", &candidates, 4),
+            ["feature-9", "feature-1", "feature-2", "feature-3"]
+        );
+        // Equally similar names are picked in the input order.
+        assert_eq!(
+            take_most_similar("feature-9x", &candidates, 3),
+            ["feature-9", "feature-1", "feature-2"]
+        );
+    }
 
     #[test]
     fn test_expect_arguments() {

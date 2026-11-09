@@ -329,6 +329,12 @@ pub mod status {
         /// Define how to show untracked files. If set without a value, show all individual untracked files.
         #[clap(long, short = 'u', require_equals = true)]
         pub untracked: Option<Option<Untracked>>,
+        /// Show exact ahead/behind commit counts relative to the current branch's fetch upstream.
+        ///
+        /// This uses locally available history without fetching, and can be expensive for large histories.
+        /// No counts are shown for detached or unborn HEADs, or branches without an upstream.
+        #[clap(long)]
+        pub ahead_behind: bool,
         /// Define how to display the submodule status. Defaults to git configuration if unset.
         #[clap(long)]
         pub submodules: Option<Submodules>,
@@ -479,7 +485,7 @@ pub mod merge {
     use gix::bstr::BString;
 
     #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum)]
-    pub enum ResolveWith {
+    pub(crate) enum ResolveWith {
         /// Use ours then theirs in case of conflict.
         Union,
         /// Use only ours in case of conflict.
@@ -499,7 +505,7 @@ pub mod merge {
     }
 
     #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum)]
-    pub enum FileFavor {
+    pub(crate) enum FileFavor {
         /// Use only ours in case of conflict.
         Ours,
         /// Use only theirs in case of conflict.
@@ -507,7 +513,7 @@ pub mod merge {
     }
 
     #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum)]
-    pub enum TreeFavor {
+    pub(crate) enum TreeFavor {
         /// Use only the previous tree entry in case of conflict.
         Ancestor,
         /// Use only ours tree entry in case of conflict.
@@ -649,12 +655,49 @@ pub mod diff {
 pub mod log {
     use gix::bstr::BString;
 
-    /// List all commits in a repository, optionally limited to those that change a given path.
+    #[derive(Debug, Copy, Clone, clap::ValueEnum)]
+    pub(crate) enum Sorting {
+        /// Visit commits breadth-first, without guaranteeing children precede parents.
+        BreadthFirst,
+        /// Prioritize the newest queued commits, without guaranteeing children precede parents.
+        NewestFirst,
+        /// Prioritize the oldest queued commits, starting with the tips rather than the oldest ancestors.
+        OldestFirst,
+        /// Show children before parents without intermixing branches.
+        TopoOrder,
+        /// Show children before parents, otherwise prioritizing newer commit dates.
+        DateOrder,
+    }
+
+    impl From<Sorting> for gix::revision::walk::Sorting {
+        fn from(value: Sorting) -> Self {
+            use gix::revision::walk::CommitTimeOrder;
+
+            match value {
+                Sorting::BreadthFirst => Self::BreadthFirst,
+                Sorting::NewestFirst => Self::ByCommitTime(CommitTimeOrder::NewestFirst),
+                Sorting::OldestFirst => Self::ByCommitTime(CommitTimeOrder::OldestFirst),
+                Sorting::TopoOrder => Self::TopoOrder,
+                Sorting::DateOrder => Self::DateOrder,
+            }
+        }
+    }
+
+    /// List reachable commits in the chosen order, optionally excluding hidden ancestry.
     #[derive(Debug, clap::Parser)]
     pub struct Platform {
-        /// The git path specification to show a log for.
-        #[clap(value_parser = crate::shared::AsBString)]
-        pub pathspec: Option<BString>,
+        /// The order in which to return commits.
+        #[clap(long, value_enum, default_value = "date-order")]
+        pub sort: Sorting,
+        /// Follow only the first parent of visible commits; hidden ancestry follows all parents.
+        #[clap(long)]
+        pub first_parent: bool,
+        /// Revision expressions such as HEAD, main..topic, main...topic, or ^main. Defaults to HEAD if omitted.
+        #[clap(value_name = "REVISION", value_parser = crate::shared::AsBString)]
+        pub revisions: Vec<BString>,
+        /// Git pathspecs limiting the history, separated from revisions by -- (currently unsupported).
+        #[clap(last = true, value_name = "PATHSPEC", value_parser = crate::shared::AsBString)]
+        pub pathspecs: Vec<BString>,
     }
 }
 
@@ -741,7 +784,7 @@ pub mod fetch {
     }
 
     #[derive(Debug, clap::Parser)]
-    pub struct ShallowOptions {
+    pub(crate) struct ShallowOptions {
         /// Fetch with the history truncated to the given number of commits as seen from the remote.
         #[clap(long, help_heading = Some("SHALLOW"), conflicts_with_all = ["shallow_since", "shallow_exclude", "deepen", "unshallow"])]
         pub depth: Option<NonZeroU32>,
@@ -829,7 +872,7 @@ pub mod clone {
     }
 
     #[derive(Debug, clap::Parser)]
-    pub struct ShallowOptions {
+    pub(crate) struct ShallowOptions {
         /// Create a shallow clone with the history truncated to the given number of commits.
         #[clap(long, help_heading = Some("SHALLOW"), conflicts_with_all = ["shallow_since", "shallow_exclude"])]
         pub depth: Option<NonZeroU32>,
@@ -928,7 +971,7 @@ pub mod clean {
     use crate::shared::CheckPathSpec;
 
     #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum)]
-    pub enum FindRepository {
+    pub(crate) enum FindRepository {
         All,
         #[default]
         NonBare,

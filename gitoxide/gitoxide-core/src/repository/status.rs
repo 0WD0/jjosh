@@ -3,10 +3,10 @@ use std::{io, path::Path};
 use gix::{
     Result,
     bstr::{BStr, BString, ByteSlice},
-    error::{ResultExt, bail, unsupported},
+    error::{ResultExt, bail, message, unsupported},
     status::{self, index_worktree},
 };
-use gix_status::index_as_worktree::{Change, Conflict, EntryStatus};
+use gix_status::index_as_worktree::{Change, EntryStatus};
 
 use crate::OutputFormat;
 
@@ -40,6 +40,8 @@ pub struct Options {
     pub submodules: Option<Submodules>,
     pub thread_limit: Option<usize>,
     pub statistics: bool,
+    /// Show exact commit counts relative to the current branch's locally available fetch upstream.
+    pub ahead_behind: bool,
     pub allow_write: bool,
     pub index_worktree_renames: Option<f32>,
     pub untracked: Option<gix::status::UntrackedFiles>,
@@ -59,6 +61,7 @@ pub fn show(
         thread_limit,
         allow_write,
         statistics,
+        ahead_behind,
         index_worktree_renames,
         untracked,
     }: Options,
@@ -71,6 +74,9 @@ pub fn show(
     }
 
     let start = std::time::Instant::now();
+    if ahead_behind {
+        print_ahead_behind(&repo, &mut out)?;
+    }
     let prefix = repo.prefix()?.unwrap_or(Path::new(""));
     let index_progress = progress.add_child("traverse index");
     let mut status = repo
@@ -125,7 +131,7 @@ pub fn show(
         let item = item?;
         match item {
             status::Item::TreeIndex(change) => {
-                let (location, _, _, _) = change.fields();
+                let location = change.location();
                 let status = match change {
                     gix::diff::index::Change::Addition { .. } => "A",
                     gix::diff::index::Change::Deletion { .. } => "D",
@@ -220,6 +226,49 @@ pub fn show(
     Ok(())
 }
 
+fn print_ahead_behind(repo: &gix::Repository, out: &mut dyn io::Write) -> Result<()> {
+    let Some(mut branch) = repo.head()?.try_into_referent() else {
+        return Ok(());
+    };
+    let direction = gix::remote::Direction::Fetch;
+    let upstream_name = if branch.remote_name(direction).is_some_and(|name| name == ".") {
+        // A local upstream uses branch.<name>.merge directly, without a fetch refspec mapping.
+        branch.remote_ref_name(direction)
+    } else {
+        branch.remote_tracking_ref_name(direction)
+    };
+    let Some(upstream_name) = upstream_name
+        .transpose()
+        .or_raise(|| message("Could not resolve the current branch's upstream"))?
+    else {
+        return Ok(());
+    };
+    let Some(mut upstream) = repo.try_find_reference(upstream_name.as_ref())? else {
+        writeln!(
+            out,
+            "## {}...{} [gone]",
+            branch.name().shorten(),
+            upstream_name.shorten()
+        )
+        .or_error()?;
+        return Ok(());
+    };
+    let tip_commit_id = branch.peel_to_id()?;
+    let base_commit_id = upstream.peel_to_id()?;
+    let counts = repo
+        .ahead_behind_counts(tip_commit_id, base_commit_id)
+        .or_raise(|| message("Could not count commits ahead of and behind the current branch's upstream"))?;
+    writeln!(
+        out,
+        "## {}...{} [ahead {}, behind {}]",
+        branch.name().shorten(),
+        upstream_name.shorten(),
+        counts.ahead,
+        counts.behind
+    )
+    .or_error()
+}
+
 fn print_index_entry_status(
     out: &mut dyn std::io::Write,
     prefix: &Path,
@@ -228,7 +277,7 @@ fn print_index_entry_status(
 ) -> std::io::Result<()> {
     let char_storage;
     let status = match status {
-        EntryStatus::Conflict { summary, entries: _ } => as_str(summary),
+        EntryStatus::Conflict { summary, entries: _ } => summary.as_str(),
         EntryStatus::Change(change) => {
             char_storage = change_to_char(&change);
             std::str::from_utf8(std::slice::from_ref(&char_storage)).expect("valid ASCII")
@@ -242,18 +291,6 @@ fn print_index_entry_status(
     let rela_path = gix::path::from_bstr(rela_path).map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?;
     let display_path = gix::path::relativize_with_prefix(&rela_path, prefix);
     writeln!(out, "{status: >3} {}", display_path.display())
-}
-
-fn as_str(c: Conflict) -> &'static str {
-    match c {
-        Conflict::BothDeleted => "DD",
-        Conflict::AddedByUs => "AU",
-        Conflict::DeletedByThem => "UD",
-        Conflict::AddedByThem => "UA",
-        Conflict::DeletedByUs => "DU",
-        Conflict::BothAdded => "AA",
-        Conflict::BothModified => "UU",
-    }
 }
 
 fn change_to_char(change: &Change<(), gix::submodule::Status>) -> u8 {

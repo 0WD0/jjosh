@@ -278,6 +278,49 @@ fn multi_index_keep_open() -> gix_testtools::TestResult {
 }
 
 #[test]
+fn a_reader_open_before_fetch_can_resolve_the_updated_remote_ref() -> gix_testtools::TestResult {
+    use gix_pack::Find;
+
+    let dir = crate::scripted_fixture_writable("make_remote_pack_update.sh")?;
+    let client = dir.path().join("client");
+    let mut handle = gix_odb::at_opts(
+        client.join(".git/objects"),
+        gix_testtools::object_hash(),
+        [],
+        store::init::Options {
+            slots: store::init::Slots::AsNeededByDiskState {
+                multiplier: 1.0,
+                minimum: 1,
+            },
+            ..Default::default()
+        },
+    )?;
+    let git = |args| gix_testtools::git(&client, args);
+    let old_id = hex_to_id(git("rev-parse refs/remotes/origin/to-delete")?.trim());
+    let mut buf = Vec::new();
+    handle.prevent_pack_unload();
+    let old_location = handle
+        .location_by_oid(&old_id, &mut buf)?
+        .expect("the first fetch made a pack");
+
+    git("fetch --prune origin")?;
+    let new_id = hex_to_id(git("rev-parse refs/remotes/origin/main")?.trim());
+    assert_ne!(old_id, new_id, "the fetch advanced the surviving branch");
+    assert_eq!(
+        git("for-each-ref refs/remotes/origin/to-delete")?,
+        "",
+        "fetch pruned the branch deleted on the remote"
+    );
+    let commit = handle.find_commit(&new_id, &mut buf)?;
+    assert_eq!(commit.message, "second\n", "the open reader can import the new tip");
+    assert!(
+        handle.entry_by_location(&old_location).is_some(),
+        "adding a pack preserves the location returned before the fetch"
+    );
+    Ok(())
+}
+
+#[test]
 fn an_object_in_a_pack_moved_by_an_external_process_can_be_found_from_a_stale_handle() -> gix_testtools::TestResult {
     let tmp = gix_testtools::tempfile::tempdir()?;
     let pack_dir = tmp.path().join("objects/pack");
@@ -840,6 +883,30 @@ mod lookup_prefix {
         store::dynamic::all_orderings,
         store::dynamic::{assert_all_indices_loaded, db_with_all_object_sources},
     };
+
+    #[test]
+    fn mixed_packed_and_loose_ambiguity_matches_git() -> gix_testtools::TestResult {
+        let fixture = gix_testtools::scripted_fixture_read_only("make_prefix_lookup_repos.sh")?;
+        for object_hash in [gix_hash::Kind::Sha1, gix_hash::Kind::Sha256] {
+            let root = fixture.join(object_hash.to_string());
+            let handle = gix_odb::at(root.join(".git/objects"), object_hash)?;
+            let expected: HashSet<_> = std::fs::read_to_string(root.join("mixed.git"))?
+                .lines()
+                .map(|line| gix_hash::ObjectId::from_hex(line.as_bytes()))
+                .collect::<Result<_, _>>()?;
+            for mut candidates in [None, Some(HashSet::default())] {
+                assert_eq!(
+                    handle.lookup_prefix(gix_hash::Prefix::from_hex("dead")?, candidates.as_mut())?,
+                    Some(Err(())),
+                    "{object_hash}: a packed candidate must not hide a loose candidate"
+                );
+                if let Some(candidates) = candidates {
+                    assert_eq!(candidates, expected, "all packed and loose candidates match Git");
+                }
+            }
+        }
+        Ok(())
+    }
 
     #[test]
     fn returns_none_for_prefixes_without_any_match() {

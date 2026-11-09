@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![expect(missing_docs)]
+//! Working copy backed by files on the local filesystem.
 
 use std::borrow::Cow;
 use std::cmp::Ordering;
@@ -41,6 +41,7 @@ use std::sync::OnceLock;
 use std::sync::mpsc::Sender;
 use std::sync::mpsc::channel;
 use std::time::SystemTime;
+use tempfile::NamedTempFile;
 
 use async_trait::async_trait;
 use either::Either;
@@ -51,44 +52,65 @@ use futures::TryStreamExt as _;
 use futures::io::AllowStdIo;
 use itertools::EitherOrBoth;
 use itertools::Itertools as _;
+use jj_core::backend::BackendError;
+use jj_core::backend::CopyId;
+use jj_core::backend::FileId;
+use jj_core::backend::MergedTreeValue;
+use jj_core::backend::MergedTreeValueExt as _;
+use jj_core::backend::MillisSinceEpoch;
+use jj_core::backend::SymlinkId;
+use jj_core::backend::TreeId;
+use jj_core::backend::TreeValue;
+use jj_core::commit::Commit;
+use jj_core::conflict_labels::ConflictLabels;
+use jj_core::conflicts;
+use jj_core::conflicts::ConflictMarkerStyle;
+use jj_core::conflicts::ConflictMaterializeOptions;
+use jj_core::conflicts::MIN_CONFLICT_MARKER_LEN;
+use jj_core::conflicts::MaterializedTreeValue;
+use jj_core::conflicts::choose_materialized_conflict_marker_len;
+use jj_core::conflicts::materialize_merge_result_to_bytes;
+use jj_core::conflicts::materialize_tree_value;
+use jj_core::matchers::EverythingMatcher;
+use jj_core::matchers::FilesMatcher;
+use jj_core::matchers::IntersectionMatcher;
+use jj_core::matchers::Matcher;
+use jj_core::matchers::PrefixMatcher;
+use jj_core::matchers::UnionMatcher;
+use jj_core::merge::Merge;
+use jj_core::merge::MergeBuilder;
+use jj_core::merge::SameChange;
+use jj_core::merged_tree::MergedTree;
+use jj_core::merged_tree::TreeDiffEntry;
+use jj_core::merged_tree_builder::MergedTreeBuilder;
+use jj_core::object_id::ObjectId as _;
+use jj_core::op_store::OperationId;
+use jj_core::ref_name::WorkspaceName;
+use jj_core::ref_name::WorkspaceNameBuf;
+use jj_core::repo_path::RepoPath;
+use jj_core::repo_path::RepoPathBuf;
+use jj_core::repo_path::RepoPathComponent;
+use jj_core::store::Store;
+use jj_local_util::file_util::FileIdentity;
+use jj_local_util::file_util::check_symlink_support;
+use jj_local_util::file_util::copy_async_to_sync;
+use jj_local_util::file_util::new_temp_file_with_default_permissions;
+use jj_local_util::file_util::persist_temp_file;
+use jj_local_util::file_util::symlink_file;
+use jj_local_util::lock::FileLock;
 use once_cell::unsync::OnceCell;
 use pollster::FutureExt as _;
 use prost::Message as _;
 use rayon::iter::IntoParallelIterator as _;
 use rayon::prelude::IndexedParallelIterator as _;
 use rayon::prelude::ParallelIterator as _;
-use tempfile::NamedTempFile;
 use thiserror::Error;
 use tracing::instrument;
 use tracing::trace_span;
 
-use crate::backend::BackendError;
-use crate::backend::CopyId;
-use crate::backend::FileId;
-use crate::backend::MergedTreeValue;
-use crate::backend::MergedTreeValueExt as _;
-use crate::backend::MillisSinceEpoch;
-use crate::backend::SymlinkId;
-use crate::backend::TreeId;
-use crate::backend::TreeValue;
-use crate::commit::Commit;
 use crate::config::ConfigGetError;
-use crate::conflict_labels::ConflictLabels;
-use crate::conflicts;
-use crate::conflicts::ConflictMarkerStyle;
-use crate::conflicts::ConflictMaterializeOptions;
-use crate::conflicts::MIN_CONFLICT_MARKER_LEN;
-use crate::conflicts::MaterializedTreeValue;
-use crate::conflicts::choose_materialized_conflict_marker_len;
-use crate::conflicts::materialize_merge_result_to_bytes;
-use crate::conflicts::materialize_tree_value;
 pub use crate::eol::EolConversionMode;
 use crate::eol::TargetEolStrategy;
-use crate::file_util::FileIdentity;
-use crate::file_util::check_symlink_support;
-use crate::file_util::copy_async_to_sync;
-use crate::file_util::persist_temp_file;
-use crate::file_util::symlink_file;
 use crate::fileset;
 use crate::fileset::FilesetAliasesMap;
 use crate::fileset::FilesetDiagnostics;
@@ -100,31 +122,7 @@ use crate::fsmonitor::WatchmanConfig;
 #[cfg(feature = "watchman")]
 use crate::fsmonitor::watchman;
 use crate::gitignore::GitIgnoreFile;
-use crate::lock::FileLock;
-use crate::matchers::EverythingMatcher;
-use crate::matchers::FilesMatcher;
-use crate::matchers::IntersectionMatcher;
-use crate::matchers::Matcher;
-use crate::matchers::PrefixMatcher;
-use crate::matchers::UnionMatcher;
-use crate::matchers::Visit;
-use crate::matchers::VisitDirs;
-use crate::matchers::VisitFiles;
-use crate::merge::Merge;
-use crate::merge::MergeBuilder;
-use crate::merge::SameChange;
-use crate::merged_tree::MergedTree;
-use crate::merged_tree::TreeDiffEntry;
-use crate::merged_tree_builder::MergedTreeBuilder;
-use crate::object_id::ObjectId as _;
-use crate::op_store::OperationId;
-use crate::ref_name::WorkspaceName;
-use crate::ref_name::WorkspaceNameBuf;
-use crate::repo_path::RepoPath;
-use crate::repo_path::RepoPathBuf;
-use crate::repo_path::RepoPathComponent;
 use crate::settings::UserSettings;
-use crate::store::Store;
 use crate::ui_path::RepoPathUiConverter;
 use crate::working_copy::CheckoutError;
 use crate::working_copy::CheckoutStats;
@@ -140,6 +138,7 @@ use crate::working_copy::WorkingCopyFactory;
 use crate::working_copy::WorkingCopyStateError;
 use crate::working_copy_patterns::WorkingCopyPathBuf;
 use crate::working_copy_patterns::WorkingCopyPatterns;
+use jj_core::matchers::{Visit, VisitDirs, VisitFiles};
 
 fn symlink_target_convert_to_store(path: &Path) -> Option<Cow<'_, str>> {
     let path = path.to_str()?;
@@ -176,7 +175,7 @@ fn symlink_target_convert_to_disk(path: &str) -> PathBuf {
 #[derive(Clone, Copy, Debug)]
 enum ExecChangePolicy {
     Ignore,
-    #[cfg_attr(windows, expect(dead_code))]
+    #[cfg_attr(not(unix), expect(dead_code))]
     Respect,
 }
 
@@ -184,8 +183,12 @@ enum ExecChangePolicy {
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ExecChangeSetting {
+    /// Ignores executable bits on disk and preserves the ones in the repo.
     Ignore,
+    /// Records executable bit changes from disk and applies them on checkout.
     Respect,
+    /// Respects executable bits if the filesystem supports them, otherwise
+    /// ignores them.
     #[default]
     Auto,
 }
@@ -196,16 +199,16 @@ impl ExecChangePolicy {
     ///
     /// On Unix we check whether executable bits are supported in the working
     /// copy to determine respect/ignorance, but we default to respect.
-    #[cfg_attr(windows, expect(unused_variables))]
+    #[cfg_attr(not(unix), expect(unused_variables))]
     fn new(exec_change_setting: ExecChangeSetting, state_path: &Path) -> Self {
-        #[cfg(windows)]
+        #[cfg(not(unix))]
         return Self::Ignore;
         #[cfg(unix)]
         return match exec_change_setting {
             ExecChangeSetting::Ignore => Self::Ignore,
             ExecChangeSetting::Respect => Self::Respect,
             ExecChangeSetting::Auto => {
-                match crate::file_util::check_executable_bit_support(state_path) {
+                match jj_local_util::file_util::check_executable_bit_support(state_path) {
                     Ok(false) => Self::Ignore,
                     Ok(true) => Self::Respect,
                     Err(err) => {
@@ -266,11 +269,11 @@ impl ExecBit {
     }
 
     /// Load the on-disk executable bit from file metadata.
-    #[cfg_attr(windows, expect(unused_variables))]
+    #[cfg_attr(not(unix), expect(unused_variables))]
     fn new_from_disk(metadata: &Metadata) -> Self {
         #[cfg(unix)]
         return Self(metadata.permissions().mode() & 0o111 != 0);
-        #[cfg(windows)]
+        #[cfg(not(unix))]
         return Self(false);
     }
 }
@@ -280,7 +283,7 @@ impl ExecBit {
 /// On Unix, we manually set the executable bit to the previous value on-disk.
 /// This is necessary because we write all files by creating them new, so files
 /// won't preserve their permissions naturally.
-#[cfg_attr(windows, expect(unused_variables))]
+#[cfg_attr(not(unix), expect(unused_variables))]
 fn set_executable(exec_bit: ExecBit, disk_path: &Path) -> Result<(), io::Error> {
     #[cfg(unix)]
     {
@@ -290,27 +293,41 @@ fn set_executable(exec_bit: ExecBit, disk_path: &Path) -> Result<(), io::Error> 
     Ok(())
 }
 
+/// Type of a file tracked in the working copy.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum FileType {
-    Normal { exec_bit: ExecBit },
+    /// Regular file.
+    Normal {
+        /// Whether the file is executable.
+        exec_bit: ExecBit,
+    },
+    /// Symbolic link.
     Symlink,
+    /// Git submodule.
     GitSubmodule,
 }
 
+/// Information about a conflict that was materialized in a file on disk.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct MaterializedConflictData {
+    /// Length of the conflict markers written to the file.
     pub conflict_marker_len: u32,
 }
 
+/// Recorded state of a file in the working copy, used for detecting changes.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct FileState {
+    /// Type of the file.
     pub file_type: FileType,
+    /// Modification time of the file.
     pub mtime: MillisSinceEpoch,
+    /// Size of the file in bytes.
     pub size: u64,
+    /// Materialized conflict markers in the file, if any.
     pub materialized_conflict_data: Option<MaterializedConflictData>,
-    /* TODO: What else do we need here? Git stores a lot of fields.
-     * TODO: Could possibly handle case-insensitive file systems keeping an
-     *       Option<PathBuf> with the actual path here. */
+    // TODO: What else do we need here? Git stores a lot of fields.
+    // TODO: Could possibly handle case-insensitive file systems keeping an
+    //       Option<PathBuf> with the actual path here.
 }
 
 impl FileState {
@@ -1171,6 +1188,7 @@ impl TreeStateSettings {
     }
 }
 
+/// State of the files in a working copy, stored in the `tree_state` file.
 pub struct TreeState {
     store: Arc<Store>,
     working_copy_path: PathBuf,
@@ -1192,38 +1210,67 @@ pub struct TreeState {
     target_eol_strategy: TargetEolStrategy,
 }
 
+/// Error when reading or writing the [`TreeState`].
 #[derive(Debug, Error)]
 pub enum TreeStateError {
+    /// Failed to read the `tree_state` file.
     #[error("Reading tree state from {path}")]
-    ReadTreeState { path: PathBuf, source: io::Error },
+    ReadTreeState {
+        /// Path to the `tree_state` file.
+        path: PathBuf,
+        /// Underlying I/O error.
+        source: io::Error,
+    },
+    /// Failed to decode the `tree_state` file.
     #[error("Decoding tree state from {path}")]
     DecodeTreeState {
+        /// Path to the `tree_state` file.
         path: PathBuf,
+        /// Underlying decoding error.
         source: prost::DecodeError,
     },
+    /// Failed to write the tree state to a temporary file.
     #[error("Writing tree state to temporary file {path}")]
-    WriteTreeState { path: PathBuf, source: io::Error },
+    WriteTreeState {
+        /// Path to the state directory.
+        path: PathBuf,
+        /// Underlying I/O error.
+        source: io::Error,
+    },
+    /// Failed to move the temporary file to the `tree_state` file.
     #[error("Persisting tree state to file {path}")]
-    PersistTreeState { path: PathBuf, source: io::Error },
+    PersistTreeState {
+        /// Path to the `tree_state` file.
+        path: PathBuf,
+        /// Underlying I/O error.
+        source: io::Error,
+    },
+    /// Failed to record the working-copy layout capability.
     #[error("Updating working copy type at {path}")]
     UpdateWorkingCopyType { path: PathBuf, source: io::Error },
+    /// Error from the filesystem monitor.
     #[error("Filesystem monitor error")]
     Fsmonitor(#[source] Box<dyn Error + Send + Sync>),
 }
 
 impl TreeState {
+    /// Returns the root directory of the working copy.
     pub fn working_copy_path(&self) -> &Path {
         &self.working_copy_path
     }
 
+    /// Returns the tree that the working copy was last checked out at or
+    /// snapshotted to.
     pub fn current_tree(&self) -> &MergedTree {
         &self.tree
     }
 
+    /// Returns the recorded states of all tracked files.
     pub fn file_states(&self) -> FileStates<'_> {
         self.file_states.all()
     }
 
+    /// Returns the working-copy selection and path mappings.
     pub fn sparse_patterns(&self) -> &WorkingCopyPatterns {
         &self.sparse_patterns
     }
@@ -1248,6 +1295,7 @@ impl TreeState {
         }
     }
 
+    /// Creates an empty tree state and saves it in `state_path`.
     pub fn init(
         store: Arc<Store>,
         working_copy_path: PathBuf,
@@ -1301,6 +1349,8 @@ impl TreeState {
         }
     }
 
+    /// Loads the tree state from `state_path`, initializing a new one if it
+    /// doesn't exist.
     pub fn load(
         store: Arc<Store>,
         working_copy_path: PathBuf,
@@ -1412,6 +1462,7 @@ impl TreeState {
         Ok(())
     }
 
+    /// Writes the tree state to the `tree_state` file in the state directory.
     #[expect(clippy::assigning_clones, clippy::field_reassign_with_default)]
     pub fn save(&mut self) -> Result<(), TreeStateError> {
         let mut proto: crate::protos::local_working_copy::TreeState = Default::default();
@@ -1433,7 +1484,8 @@ impl TreeState {
             path: self.state_path.clone(),
             source,
         };
-        let mut temp_file = NamedTempFile::new_in(&self.state_path).map_err(wrap_write_err)?;
+        let mut temp_file =
+            new_temp_file_with_default_permissions(&self.state_path).map_err(wrap_write_err)?;
         temp_file
             .as_file_mut()
             .write_all(&proto.encode_to_vec())
@@ -1441,8 +1493,6 @@ impl TreeState {
         // update own write time while we before we rename it, so we know
         // there is no unknown data in it
         self.update_own_mtime();
-        // TODO: Retry if persisting fails (it will on Windows if the file happened to
-        // be open for read).
         let target_path = self.state_path.join("tree_state");
         persist_temp_file(temp_file, &target_path).map_err(|source| {
             TreeStateError::PersistTreeState {
@@ -1491,6 +1541,11 @@ impl TreeState {
         self.watchman_clock.take();
     }
 
+    /// Queries Watchman for files changed since the last recorded clock.
+    ///
+    /// Returns the new clock and the changed paths relative to the working
+    /// copy root. If the paths are `None`, the whole working copy must be
+    /// scanned.
     #[cfg(feature = "watchman")]
     #[instrument(skip(self))]
     pub async fn query_watchman(
@@ -1521,6 +1576,7 @@ impl TreeState {
         }
     }
 
+    /// Returns whether a Watchman trigger is registered for the working copy.
     #[cfg(feature = "watchman")]
     #[instrument(skip(self))]
     pub async fn is_watchman_trigger_registered(
@@ -2629,6 +2685,7 @@ impl TreeState {
             .map_err(|err| checkout_error_for_mtime_out_of_range(err, disk_path))
     }
 
+    /// Updates the files on disk to match `new_tree`.
     pub async fn check_out(
         &mut self,
         new_tree: &MergedTree,
@@ -2641,6 +2698,7 @@ impl TreeState {
         Ok(stats)
     }
 
+    /// Changes the sparse patterns and updates the files on disk accordingly.
     pub async fn set_sparse_patterns(
         &mut self,
         sparse_patterns: WorkingCopyPatterns,
@@ -3151,6 +3209,11 @@ impl TreeState {
         Ok(stats)
     }
 
+    /// Sets the current tree to `new_tree` without touching the files on
+    /// disk.
+    ///
+    /// Changed files get a zero mtime so they will be rechecked on the next
+    /// snapshot.
     pub async fn reset(&mut self, new_tree: &MergedTree) -> Result<(), ResetError> {
         let matcher = self.sparse_matcher();
         let mut changed_file_states = Vec::new();
@@ -3217,6 +3280,8 @@ impl TreeState {
         Ok(())
     }
 
+    /// Like [`Self::reset()`], but discards all recorded file states first so
+    /// that all files will be rechecked on the next snapshot.
     pub async fn recover(&mut self, new_tree: &MergedTree) -> Result<(), ResetError> {
         self.file_states.clear();
         self.tree = self.store.empty_merged_tree();
@@ -3276,8 +3341,8 @@ impl CheckoutState {
             operation_id: self.operation_id.to_bytes(),
             workspace_name: (*self.workspace_name).into(),
         };
-        let mut temp_file =
-            NamedTempFile::new_in(state_path).map_err(|err| wrap_err(err.into()))?;
+        let mut temp_file = new_temp_file_with_default_permissions(state_path)
+            .map_err(|err| wrap_err(err.into()))?;
         temp_file
             .as_file_mut()
             .write_all(&proto.encode_to_vec())
@@ -3290,6 +3355,7 @@ impl CheckoutState {
     }
 }
 
+/// Working copy stored as files on the local filesystem.
 pub struct LocalWorkingCopy {
     store: Arc<Store>,
     working_copy_path: PathBuf,
@@ -3380,6 +3446,7 @@ impl WorkingCopy for LocalWorkingCopy {
 }
 
 impl LocalWorkingCopy {
+    /// Name of this working copy implementation.
     pub const NAME: &str = "local";
 
     /// Type identifier that prevents older binaries from reading sparse filesets.
@@ -3433,6 +3500,7 @@ impl LocalWorkingCopy {
         })
     }
 
+    /// Loads an existing working copy. The tree state is loaded lazily.
     pub fn load(
         store: Arc<Store>,
         working_copy_path: PathBuf,
@@ -3455,6 +3523,7 @@ impl LocalWorkingCopy {
         })
     }
 
+    /// Returns the directory where the working copy state is stored.
     pub fn state_path(&self) -> &Path {
         &self.state_path
     }
@@ -3480,10 +3549,12 @@ impl LocalWorkingCopy {
         Ok(self.tree_state.get_mut().unwrap())
     }
 
+    /// Returns the recorded states of all tracked files.
     pub fn file_states(&self) -> Result<FileStates<'_>, WorkingCopyStateError> {
         Ok(self.tree_state()?.file_states())
     }
 
+    /// Queries Watchman for changed files. See [`TreeState::query_watchman()`].
     #[cfg(feature = "watchman")]
     pub async fn query_watchman(
         &self,
@@ -3498,6 +3569,7 @@ impl LocalWorkingCopy {
             })
     }
 
+    /// Returns whether a Watchman trigger is registered for the working copy.
     #[cfg(feature = "watchman")]
     pub async fn is_watchman_trigger_registered(
         &self,
@@ -3513,6 +3585,7 @@ impl LocalWorkingCopy {
     }
 }
 
+/// Factory for [`LocalWorkingCopy`].
 pub struct LocalWorkingCopyFactory {}
 
 impl WorkingCopyFactory for LocalWorkingCopyFactory {
@@ -3562,6 +3635,24 @@ pub struct LockedLocalWorkingCopy {
     sparse_update_completed: bool,
     new_workspace_name: Option<WorkspaceNameBuf>,
     _lock: FileLock,
+}
+
+impl LockedLocalWorkingCopy {
+    /// Replaces the filesystem monitor setting used by snapshots and returns
+    /// the previous setting.
+    pub fn replace_fsmonitor_settings(
+        &mut self,
+        fsmonitor_settings: FsmonitorSettings,
+    ) -> FsmonitorSettings {
+        let old_settings = std::mem::replace(
+            &mut self.wc.tree_state_settings.fsmonitor_settings,
+            fsmonitor_settings.clone(),
+        );
+        if let Some(tree_state) = self.wc.tree_state.get_mut() {
+            tree_state.fsmonitor_settings = fsmonitor_settings;
+        }
+        old_settings
+    }
 }
 
 #[async_trait]
@@ -3776,6 +3867,8 @@ impl LockedLocalWorkingCopy {
         Ok(stats)
     }
 
+    /// Clears the recorded Watchman clock so that the next snapshot scans the
+    /// whole working copy.
     pub fn reset_watchman(&mut self) -> Result<(), SnapshotError> {
         self.wc.tree_state_mut()?.reset_watchman();
         self.tree_state_dirty = true;
