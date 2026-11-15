@@ -25,6 +25,7 @@ did in one of the sides that has the line.  Findings are classified:
     inactive  the whole line stopped resolving, typically behind a new cfg
     gained    unresolved in the sides, resolved in the merged tree
     local     a local variable now refers to a different definition
+    vague     a trait method no longer resolves to a concrete impl
 """
 
 import argparse
@@ -129,11 +130,16 @@ def tree_digest(root):
 
 
 def toolchain():
-    """The monorepo's pinned rust-analyzer, usable from checkouts outside it."""
-    binary = subprocess.run(
+    """The monorepo's pinned rust-analyzer and an environment that runs its cargo.
+
+    Checkouts live outside the monorepo, where rustup would pick another
+    toolchain and version-manager shims refuse the checkout's own config.
+    """
+    binary = Path(subprocess.run(
         ["rustup", "which", "rust-analyzer"], cwd=Path(__file__).parent,
-        check=True, capture_output=True, text=True).stdout.strip()
-    return binary, Path(binary).parents[1].name
+        check=True, capture_output=True, text=True).stdout.strip())
+    path = f"{binary.parent}{os.pathsep}{os.environ['PATH']}"
+    return str(binary), {**os.environ, "PATH": path, "RUSTUP_TOOLCHAIN": binary.parents[1].name}
 
 
 def index(root, inputs=None):
@@ -145,14 +151,15 @@ def index(root, inputs=None):
         config = CACHE / "ra-config.json"
         config.write_text(json.dumps(RA_CONFIG))
         partial = out.with_suffix(".partial")
-        analyzer, channel = toolchain()
+        analyzer, environment = toolchain()
         run = subprocess.run(
             [analyzer, "scip", ".", "--output", str(partial), "--config-path", str(config)],
             cwd=root, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
-            env={**os.environ, "RUSTUP_TOOLCHAIN": channel},
+            env=environment,
         )
         if run.returncode:
-            reason = [l.strip() for l in run.stderr.splitlines() if "rror" in l or "ailed" in l]
+            reason = [l.strip() for l in run.stderr.splitlines()
+                      if ("rror" in l or "ailed" in l) and "Config Error" not in l]
             raise RuntimeError("rust-analyzer scip: " + " / ".join(reason[:3]))
         partial.rename(out)
     return World(root, load_index(out))
@@ -273,12 +280,29 @@ def classify(got, wanted, merged):
     if isinstance(got, tuple) or any(isinstance(w, tuple) for w in wanted):
         return "local"
     olds = [w for w in wanted if w is not None]
+    # Same item path under another package: the crate was renamed or split.
+    if any(old.split(" ", 4)[-1] == got.split(" ", 4)[-1] for old in olds):
+        return "moved"
+    if any(through_impl(old, got) for old in olds):
+        return "vague"
     workspace_prefixes = {d.rsplit(" ", 1)[0] for d in merged.defined}
     for old in olds:
         external = old.rsplit(" ", 1)[0] not in workspace_prefixes
         if old in merged.defined or external:
             return "rebind"
     return "moved"
+
+
+TRAIT_METHOD = re.compile(r"(\w+)#(\w+)\(\)\.$")
+
+
+def through_impl(old, got):
+    """`impl#[T][Trait]m()` became `Trait#m()`: inference lost the receiver type, not the method."""
+    declared = TRAIT_METHOD.search(got)
+    if not declared:
+        return False
+    trait, method = declared.groups()
+    return bool(re.search(rf"\[`?{trait}\b[^\]]*\]{method}\(\)\.$", old))
 
 
 def report(findings, out=sys.stdout):
