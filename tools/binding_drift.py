@@ -7,11 +7,13 @@ glob import), the other adds or keeps a use of the old one.  Both sides
 compile, the result compiles, and the call goes somewhere neither author saw.
 
     binding_drift.py compare --merged DIR --side DIR [--side DIR]
-    binding_drift.py replay  --repo DIR --workspace SUBDIR [--limit N]
+    binding_drift.py replay  --workspace SUBDIR [--merges] [--scan] [--limit N]
 
 `compare` takes checkouts of one Cargo workspace.  `replay` walks the
-rebases recorded in a jjosh operation log and compares, for every rebased
-commit, the old commit and the new parent against the rebased result.
+rebases recorded in the jjosh operation log and compares, for every
+rebased commit, the old commit and the new parent against the rebased
+result; with `--merges` it walks the merge commits of the history instead
+and compares both parents against the merge.
 
 Bindings come from `rust-analyzer scip`.  Every reference in the merged
 tree that sits on a line also present in a side is expected to bind as it
@@ -29,6 +31,7 @@ import difflib
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -131,20 +134,24 @@ def toolchain():
     return binary, Path(binary).parents[1].name
 
 
-def index(root):
+def index(root, inputs=None):
+    """Index the workspace at `root`; `inputs` is the directory holding everything it reads."""
     root = Path(root).resolve()
     CACHE.mkdir(parents=True, exist_ok=True)
-    out = CACHE / f"{tree_digest(root)}.scip"
+    out = CACHE / f"{tree_digest(inputs or root)}.scip"
     if not out.exists():
         config = CACHE / "ra-config.json"
         config.write_text(json.dumps(RA_CONFIG))
         partial = out.with_suffix(".partial")
         analyzer, channel = toolchain()
-        subprocess.run(
+        run = subprocess.run(
             [analyzer, "scip", ".", "--output", str(partial), "--config-path", str(config)],
-            cwd=root, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            env={**os.environ, "CARGO_NET_OFFLINE": "true", "RUSTUP_TOOLCHAIN": channel},
+            cwd=root, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
+            env={**os.environ, "RUSTUP_TOOLCHAIN": channel},
         )
+        if run.returncode:
+            reason = [l.strip() for l in run.stderr.splitlines() if "rror" in l or "ailed" in l]
+            raise RuntimeError("rust-analyzer scip: " + " / ".join(reason[:3]))
         partial.rename(out)
     return World(root, load_index(out))
 
@@ -297,77 +304,154 @@ def rebase_operations(repo):
             yield op
 
 
+ROW = 'change_id ++ " " ++ commit_id ++ " " ++ parents.map(|p| p.commit_id()).join(",") ++ " " ++ conflict ++ "\\n"'
+
+
 def rebased_commits(repo, op):
-    """(old commit, new commit) for every commit the operation rewrote."""
-    template = 'commit_id ++ " " ++ predecessors.map(|p| p.commit_id()).join(",") ++ "\\n"'
+    """(old commit, old parents, new commit, new parents) per rewritten, unconflicted change."""
     try:
-        before = set(jj(repo, "log", "--no-graph", "--at-op", f"{op}-", "-r", "all()", "-T", 'commit_id ++ "\\n"').split())
-        rows = jj(repo, "log", "--no-graph", "--at-op", op, "-r", "mutable()", "-T", template).splitlines()
+        after = jj(repo, "log", "--no-graph", "--at-op", op, "-T", ROW,
+                   "-r", f"mutable() & ~at_operation({op}-, all())")
+        before = jj(repo, "log", "--no-graph", "--at-op", f"{op}-", "-T", ROW, "-r", "mutable()")
     except subprocess.CalledProcessError:
         return
-    for row in rows:
-        new, _, olds = row.partition(" ")
-        if new in before:
-            continue
-        for old in filter(None, olds.split(",")):
-            if old in before:
-                yield old, new
+    old = {}
+    for row in before.splitlines():
+        change, commit, parents, _ = row.split(" ")
+        old[change] = (commit, parents.split(","))
+    for row in after.splitlines():
+        change, commit, parents, conflict = row.split(" ")
+        if change in old and conflict == "false":
+            yield (*old[change], commit, parents.split(","))
 
 
-def changed_rust(repo, a, b, workspace):
+def is_rust(path):
+    return path.endswith(".rs") or path.endswith("Cargo.toml")
+
+
+def own_changes(repo, commits, workspace):
+    """{commit: rust files it changed in the workspace}, one query per batch."""
+    template = f'commit_id ++ " " ++ self.diff("{workspace}").files().map(|f| f.path()).join(",") ++ "\\n"'
+    changed = {}
+    for start in range(0, len(commits), 200):
+        rows = jj(repo, "log", "--no-graph", "-T", template, "-r", "|".join(commits[start:start + 200]))
+        for row in rows.splitlines():
+            commit, _, files = row.partition(" ")
+            changed[commit] = {f for f in files.split(",") if is_rust(f)}
+    return changed
+
+
+def changed_between(repo, a, b, workspace):
     out = jj(repo, "diff", "--from", a, "--to", b, "--name-only", workspace)
-    return {p for p in out.splitlines() if p.endswith(".rs") or p.endswith("Cargo.toml")}
+    return {p for p in out.splitlines() if is_rust(p)}
+
+
+PATH_DEPENDENCY = re.compile(r'\bpath\s*=\s*"([^"]+)"')
 
 
 def checkout(repo, commit, workspace, into):
-    """Materialise one workspace of a commit through the git backend."""
+    """Materialise a workspace of a commit, with the directories it depends on by path."""
     git_dir = jj(repo, "git", "root").strip()
     into.mkdir(parents=True)
-    archive = subprocess.Popen(
-        ["git", "--git-dir", git_dir, "archive", commit, workspace], stdout=subprocess.PIPE)
-    subprocess.run(["tar", "-x", "-C", str(into)], stdin=archive.stdout, check=True)
-    if archive.wait():
-        raise RuntimeError(f"git archive {commit} {workspace}")
-    return into / workspace
+    wanted, present = [workspace], set()
+    while wanted:
+        directory = wanted.pop()
+        if any(directory == p or directory.startswith(p + "/") for p in present):
+            continue
+        archive = subprocess.Popen(
+            ["git", "--git-dir", git_dir, "archive", commit, directory],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        subprocess.run(["tar", "-x", "-C", str(into)], stdin=archive.stdout, check=True)
+        if archive.wait():
+            if directory == workspace:
+                raise RuntimeError(f"{workspace} does not exist in {commit[:12]}")
+            continue
+        present.add(directory)
+        for manifest in (into / directory).rglob("Cargo.toml"):
+            for target in PATH_DEPENDENCY.findall(manifest.read_text(errors="replace")):
+                relative = os.path.relpath(os.path.normpath(manifest.parent / target), into)
+                if not relative.startswith("..") and not (into / relative).exists():
+                    wanted.append(workspace_root(git_dir, commit, relative))
+    return into
 
 
-def replay(repo, workspace, limit, log):
-    seen, done = set(), 0
+def workspace_root(git_dir, commit, package):
+    """The enclosing Cargo workspace of a package directory, or the package itself."""
+    parts = package.split("/")
+    for depth in range(len(parts) - 1, 0, -1):
+        manifest = subprocess.run(
+            ["git", "--git-dir", git_dir, "show", f"{commit}:{'/'.join(parts[:depth])}/Cargo.toml"],
+            capture_output=True, text=True)
+        if manifest.returncode == 0 and "[workspace]" in manifest.stdout:
+            return "/".join(parts[:depth])
+    return package
+
+
+def candidates(repo, workspace):
+    """Rebased commits where both the commit and its new base changed the workspace."""
+    seen = set()
     for op in rebase_operations(repo):
-        for old, new in rebased_commits(repo, op):
-            if (old, new) in seen:
+        rows = [row for row in rebased_commits(repo, op)
+                if len(row[1]) == 1 and len(row[3]) == 1 and row[1] != row[3]]
+        try:
+            mine = own_changes(repo, [row[0] for row in rows], workspace)
+        except subprocess.CalledProcessError:
+            continue
+        for old, (old_parent,), new, (new_parent,) in rows:
+            if not mine.get(old) or (old, new_parent) in seen:
                 continue
-            seen.add((old, new))
+            seen.add((old, new_parent))
             try:
-                old_parent = jj(repo, "log", "--no-graph", "--at-op", f"{op}-", "-r", f"{old}-", "-T", 'commit_id ++ "\\n"').split()
-                new_parent = jj(repo, "log", "--no-graph", "--at-op", op, "-r", f"{new}-", "-T", 'commit_id ++ "\\n"').split()
-                conflicted = jj(repo, "log", "--no-graph", "--at-op", op, "-r", new, "-T", "conflict").strip() == "true"
-                if len(old_parent) != 1 or len(new_parent) != 1 or old_parent == new_parent or conflicted:
-                    continue
-                mine = changed_rust(repo, old_parent[0], old, workspace)
-                theirs = changed_rust(repo, old_parent[0], new_parent[0], workspace)
+                theirs = changed_between(repo, old_parent, new_parent, workspace)
             except subprocess.CalledProcessError:
                 continue
-            if not mine or not theirs:
-                continue
-            record = {"op": op, "old": old, "new": new, "parent": new_parent[0],
-                      "mine": len(mine), "theirs": len(theirs), "overlap": len(mine & theirs)}
+            if theirs:
+                yield {"op": op, "old": old, "new": new, "parent": new_parent, "mine": len(mine[old]),
+                       "theirs": len(theirs), "overlap": len(mine[old] & theirs)}
+
+
+def merge_candidates(repo, workspace):
+    """Two-parent merge commits where both parents contributed Rust changes."""
+    git_dir = jj(repo, "git", "root").strip()
+
+    def git(*args):
+        return subprocess.run(["git", "--git-dir", git_dir, *args],
+                              check=True, capture_output=True, text=True).stdout
+
+    for row in git("log", "--merges", "--all", "--format=%H %P", "--", workspace).splitlines():
+        merge, *parents = row.split()
+        if len(parents) != 2:
+            continue
+        sides = [{p for p in git("diff", "--name-only", parent, merge, "--", workspace).splitlines() if is_rust(p)}
+                 for parent in parents]
+        # What differs from the second parent is what the first side brought, and vice versa.
+        theirs, mine = sides
+        if mine and theirs:
+            yield {"op": "merge", "old": parents[0], "new": merge, "parent": parents[1],
+                   "mine": len(mine), "theirs": len(theirs), "overlap": len(mine & theirs)}
+
+
+def replay(repo, workspace, limit, log, scan, merges):
+    source = merge_candidates if merges else candidates
+    for done, record in enumerate(source(repo, workspace), 1):
+        if not scan:
             with tempfile.TemporaryDirectory(dir=CACHE) as tmp:
                 try:
-                    worlds = [index(checkout(repo, c, workspace, Path(tmp) / tag))
-                              for tag, c in (("merged", new), ("mine", old), ("theirs", new_parent[0]))]
+                    trees = [checkout(repo, record[tag], workspace, Path(tmp) / tag)
+                             for tag in ("new", "old", "parent")]
+                    worlds = [index(tree / workspace, tree) for tree in trees]
                     record["findings"] = compare(worlds[0], worlds[1:])
                 except (subprocess.CalledProcessError, RuntimeError) as error:
-                    record["error"] = str(error)[:200]
-            log.write(json.dumps(record, ensure_ascii=False) + "\n")
-            log.flush()
-            kinds = Counter(f["kind"] for f in record.get("findings", ()))
-            print(f"{op} {old[:12]} -> {new[:12]}  mine {len(mine)} theirs {len(theirs)}  "
-                  + (record.get("error") or ", ".join(f"{k} {v}" for k, v in sorted(kinds.items())) or "clean"),
-                  flush=True)
-            done += 1
-            if limit and done >= limit:
-                return
+                    record["error"] = str(error)[:300]
+        log.write(json.dumps(record, ensure_ascii=False) + "\n")
+        log.flush()
+        kinds = Counter(f["kind"] for f in record.get("findings", ()))
+        print(f"{record['op']} {record['old'][:12]} -> {record['new'][:12]}  "
+              f"mine {record['mine']} theirs {record['theirs']} overlap {record['overlap']}  "
+              + (record.get("error") or ", ".join(f"{k} {v}" for k, v in sorted(kinds.items()))
+                 or ("" if scan else "clean")), flush=True)
+        if limit and done >= limit:
+            return
 
 
 def main():
@@ -381,13 +465,16 @@ def main():
     r.add_argument("--workspace", required=True)
     r.add_argument("--limit", type=int, default=0)
     r.add_argument("--log", default="binding-drift.jsonl")
+    r.add_argument("--merges", action="store_true",
+                   help="replay merge commits in the history instead of rebases in the operation log")
+    r.add_argument("--scan", action="store_true", help="list candidates without indexing")
     args = parser.parse_args()
     if args.command == "compare":
         findings = compare(index(args.merged), [index(side) for side in args.side])
         report(findings)
         sys.exit(1 if findings else 0)
     with open(args.log, "a") as log:
-        replay(Path(args.repo).resolve(), args.workspace, args.limit, log)
+        replay(Path(args.repo).resolve(), args.workspace, args.limit, log, args.scan, args.merges)
 
 
 if __name__ == "__main__":
