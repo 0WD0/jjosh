@@ -241,19 +241,23 @@ def compare(merged, sides):
             continue
         m_refs, m_locals = merged.bindings(name)
         identity = {i: i for i in range(len(text))}
-        expected = {}  # position in merged -> [binding per side that has the line]
+        views = []
         for side in sides:
             side_text = side.lines(name)
-            if side_text is None:
-                continue
-            forward = line_map(text, side_text)
-            backward = {s: m for m, s in forward.items()}
-            s_refs, s_locals = side.bindings(name)
-            positions = {key for key in m_refs if key[0] in forward}
+            if side_text is not None:
+                forward = line_map(text, side_text)
+                views.append((forward, {s: m for m, s in forward.items()}, *side.bindings(name)))
+        # Every position that resolves anywhere, in merged coordinates.
+        positions = set(m_refs)
+        for forward, backward, s_refs, _ in views:
             positions |= {(backward[l], c, e) for (l, c, e) in s_refs if l in backward}
+        # A side that has the line is a witness even when the name does not resolve there.
+        expected = {}
+        for forward, backward, s_refs, s_locals in views:
             for line, col, end in positions:
-                raw = s_refs.get((forward[line], col, end))
-                expected.setdefault((line, col, end), []).append(normalise(raw, s_locals, backward))
+                if line in forward:
+                    raw = s_refs.get((forward[line], col, end))
+                    expected.setdefault((line, col, end), []).append(normalise(raw, s_locals, backward))
         live = {line for line, _, _ in m_refs}
         for position, wanted in sorted(expected.items()):
             got = normalise(m_refs.get(position), m_locals, identity)
@@ -450,10 +454,14 @@ def merge_candidates(repo, workspace):
                                capture_output=True, text=True)
         return found.stdout.strip()
 
+    def conflicted(commit):
+        # jj stores an unresolved commit as a git tree with its terms in `.jjconflict-*`.
+        return ".jjconflict-" in git("ls-tree", "--name-only", commit)
+
     seen = set()
     for row in git("log", "--merges", "--all", "--format=%H %P", "--", workspace).splitlines():
         merge, *parents = row.split()
-        if len(parents) != 2:
+        if len(parents) != 2 or any(conflicted(commit) for commit in (merge, *parents)):
             continue
         # An upstream merge can be reachable through several imports of the same history.
         trees = tuple(subtree(commit) for commit in (merge, *parents))
