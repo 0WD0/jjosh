@@ -22,6 +22,7 @@ did in one of the sides that has the line.  Findings are classified:
     rebind    the old target still exists in the merged tree
     moved     the old target is gone (rename or move on the other side)
     lost      resolved in the sides, unresolved in the merged tree
+    inactive  the whole line stopped resolving, typically behind a new cfg
     gained    unresolved in the sides, resolved in the merged tree
     local     a local variable now refers to a different definition
 """
@@ -36,6 +37,7 @@ import subprocess
 import sys
 import tempfile
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 CACHE = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "binding-drift"
@@ -245,13 +247,14 @@ def compare(merged, sides):
             for line, col, end in positions:
                 raw = s_refs.get((forward[line], col, end))
                 expected.setdefault((line, col, end), []).append(normalise(raw, s_locals, backward))
+        live = {line for line, _, _ in m_refs}
         for position, wanted in sorted(expected.items()):
             got = normalise(m_refs.get(position), m_locals, identity)
             if got is UNKNOWN or UNKNOWN in wanted or got in wanted:
                 continue
             line, col, end = position
             findings.append({
-                "kind": classify(got, wanted, merged),
+                "kind": "inactive" if line not in live else classify(got, wanted, merged),
                 "file": name,
                 "line": line + 1,
                 "text": text[line].strip(),
@@ -361,8 +364,8 @@ def checkout(repo, commit, workspace, into):
         archive = subprocess.Popen(
             ["git", "--git-dir", git_dir, "archive", commit, directory],
             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-        subprocess.run(["tar", "-x", "-C", str(into)], stdin=archive.stdout, check=True)
-        if archive.wait():
+        unpack = subprocess.run(["tar", "-x", "-C", str(into)], stdin=archive.stdout, stderr=subprocess.DEVNULL)
+        if archive.wait() or unpack.returncode:
             if directory == workspace:
                 raise RuntimeError(f"{workspace} does not exist in {commit[:12]}")
             continue
@@ -418,10 +421,21 @@ def merge_candidates(repo, workspace):
         return subprocess.run(["git", "--git-dir", git_dir, *args],
                               check=True, capture_output=True, text=True).stdout
 
+    def subtree(commit):
+        found = subprocess.run(["git", "--git-dir", git_dir, "rev-parse", "--verify", "-q", f"{commit}:{workspace}"],
+                               capture_output=True, text=True)
+        return found.stdout.strip()
+
+    seen = set()
     for row in git("log", "--merges", "--all", "--format=%H %P", "--", workspace).splitlines():
         merge, *parents = row.split()
         if len(parents) != 2:
             continue
+        # An upstream merge can be reachable through several imports of the same history.
+        trees = tuple(subtree(commit) for commit in (merge, *parents))
+        if not all(trees) or trees in seen:
+            continue
+        seen.add(trees)
         sides = [{p for p in git("diff", "--name-only", parent, merge, "--", workspace).splitlines() if is_rust(p)}
                  for parent in parents]
         # What differs from the second parent is what the first side brought, and vice versa.
@@ -439,7 +453,8 @@ def replay(repo, workspace, limit, log, scan, merges):
                 try:
                     trees = [checkout(repo, record[tag], workspace, Path(tmp) / tag)
                              for tag in ("new", "old", "parent")]
-                    worlds = [index(tree / workspace, tree) for tree in trees]
+                    with ThreadPoolExecutor() as pool:
+                        worlds = list(pool.map(lambda tree: index(tree / workspace, tree), trees))
                     record["findings"] = compare(worlds[0], worlds[1:])
                 except (subprocess.CalledProcessError, RuntimeError) as error:
                     record["error"] = str(error)[:300]
