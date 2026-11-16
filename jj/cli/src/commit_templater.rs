@@ -14,6 +14,8 @@
 
 //! Template environment for `jj log`, `jj evolog` and similar.
 
+mod project;
+
 use std::any::Any;
 use std::cmp::Ordering;
 use std::cmp::max;
@@ -98,6 +100,9 @@ use once_cell::unsync::OnceCell;
 use pollster::FutureExt as _;
 use serde::Serialize as _;
 
+pub use self::project::ProjectIndex;
+pub use self::project::ProjectRef;
+pub use self::project::ProjectRemote;
 use crate::diff_util;
 use crate::diff_util::DiffStatEntry;
 use crate::diff_util::DiffStatOptions;
@@ -312,6 +317,34 @@ impl<'repo> TemplateLanguage<'repo> for CommitTemplateLanguage<'repo> {
                 let build = template_parser::lookup_method(type_name, table, function)?;
                 build(self, diagnostics, build_ctx, property, function)
             }
+            CommitTemplatePropertyKind::ProjectRef(property) => {
+                let table = &self.build_fn_table.project_ref_methods;
+                let build = template_parser::lookup_method(type_name, table, function)?;
+                build(self, diagnostics, build_ctx, property, function)
+            }
+            CommitTemplatePropertyKind::ProjectRefOpt(property) => {
+                let inner_property = property.try_unwrap(type_name).into_dyn_wrapped();
+                self.build_method(diagnostics, build_ctx, inner_property, function)
+            }
+            CommitTemplatePropertyKind::ProjectRefList(property) => {
+                let table = &self.build_fn_table.project_ref_list_methods;
+                let build = template_parser::lookup_method(type_name, table, function)?;
+                build(self, diagnostics, build_ctx, property, function)
+            }
+            CommitTemplatePropertyKind::ProjectRemote(property) => {
+                let table = &self.build_fn_table.project_remote_methods;
+                let build = template_parser::lookup_method(type_name, table, function)?;
+                build(self, diagnostics, build_ctx, property, function)
+            }
+            CommitTemplatePropertyKind::ProjectRemoteOpt(property) => {
+                let inner_property = property.try_unwrap(type_name).into_dyn_wrapped();
+                self.build_method(diagnostics, build_ctx, inner_property, function)
+            }
+            CommitTemplatePropertyKind::ProjectRemoteList(property) => {
+                let table = &self.build_fn_table.project_remote_list_methods;
+                let build = template_parser::lookup_method(type_name, table, function)?;
+                build(self, diagnostics, build_ctx, property, function)
+            }
             CommitTemplatePropertyKind::RefSymbol(property) => {
                 // Forward to String methods, but the type_name is "RefSymbol"
                 let table = &self.build_fn_table.core.string_methods;
@@ -488,6 +521,8 @@ impl NoTemplateBooleanCast for Commit {}
 impl NoTemplateBooleanCast for CommitEvolutionEntry {}
 impl NoTemplateBooleanCast for Rc<CommitRef> {}
 impl NoTemplateBooleanCast for WorkspaceRef {}
+impl NoTemplateBooleanCast for Rc<ProjectRef> {}
+impl NoTemplateBooleanCast for ProjectRemote {}
 impl NoTemplateBooleanCast for RefSymbolBuf {}
 impl NoTemplateBooleanCast for RepoPathBuf {}
 impl NoTemplateBooleanCast for ChangeId {}
@@ -517,6 +552,12 @@ pub enum CommitTemplatePropertyKind<'repo> {
     WorkspaceRef(BoxedTemplateProperty<'repo, WorkspaceRef>),
     WorkspaceRefOpt(BoxedTemplateProperty<'repo, Option<WorkspaceRef>>),
     WorkspaceRefList(BoxedTemplateProperty<'repo, Vec<WorkspaceRef>>),
+    ProjectRef(BoxedTemplateProperty<'repo, Rc<ProjectRef>>),
+    ProjectRefOpt(BoxedTemplateProperty<'repo, Option<Rc<ProjectRef>>>),
+    ProjectRefList(BoxedTemplateProperty<'repo, Vec<Rc<ProjectRef>>>),
+    ProjectRemote(BoxedTemplateProperty<'repo, ProjectRemote>),
+    ProjectRemoteOpt(BoxedTemplateProperty<'repo, Option<ProjectRemote>>),
+    ProjectRemoteList(BoxedTemplateProperty<'repo, Vec<ProjectRemote>>),
     RefSymbol(BoxedTemplateProperty<'repo, RefSymbolBuf>),
     RefSymbolOpt(BoxedTemplateProperty<'repo, Option<RefSymbolBuf>>),
     RepoPath(BoxedTemplateProperty<'repo, RepoPathBuf>),
@@ -560,6 +601,12 @@ template_builder::impl_property_wrappers!(<'repo> CommitTemplatePropertyKind<'re
     WorkspaceRef(WorkspaceRef),
     WorkspaceRefOpt(Option<WorkspaceRef>),
     WorkspaceRefList(Vec<WorkspaceRef>),
+    ProjectRef(Rc<ProjectRef>),
+    ProjectRefOpt(Option<Rc<ProjectRef>>),
+    ProjectRefList(Vec<Rc<ProjectRef>>),
+    ProjectRemote(ProjectRemote),
+    ProjectRemoteOpt(Option<ProjectRemote>),
+    ProjectRemoteList(Vec<ProjectRemote>),
     RefSymbol(RefSymbolBuf),
     RefSymbolOpt(Option<RefSymbolBuf>),
     RepoPath(RepoPathBuf),
@@ -617,6 +664,12 @@ impl<'repo> CoreTemplatePropertyVar<'repo> for CommitTemplatePropertyKind<'repo>
             Self::WorkspaceRef(_) => "WorkspaceRef",
             Self::WorkspaceRefOpt(_) => "Option<WorkspaceRef>",
             Self::WorkspaceRefList(_) => "List<WorkspaceRef>",
+            Self::ProjectRef(_) => "ProjectRef",
+            Self::ProjectRefOpt(_) => "Option<ProjectRef>",
+            Self::ProjectRefList(_) => "List<ProjectRef>",
+            Self::ProjectRemote(_) => "ProjectRemote",
+            Self::ProjectRemoteOpt(_) => "Option<ProjectRemote>",
+            Self::ProjectRemoteList(_) => "List<ProjectRemote>",
             Self::RefSymbol(_) => "RefSymbol",
             Self::RefSymbolOpt(_) => "Option<RefSymbol>",
             Self::RepoPath(_) => "RepoPath",
@@ -682,6 +735,12 @@ impl<'repo> CoreTemplatePropertyVar<'repo> for CommitTemplatePropertyKind<'repo>
             Self::WorkspaceRef(_) => Err(self),
             Self::WorkspaceRefOpt(property) => Ok(option_to_boolean(property)),
             Self::WorkspaceRefList(property) => Ok(list_to_boolean(property)),
+            Self::ProjectRef(_) => Err(self),
+            Self::ProjectRefOpt(property) => Ok(option_to_boolean(property)),
+            Self::ProjectRefList(property) => Ok(list_to_boolean(property)),
+            Self::ProjectRemote(_) => Err(self),
+            Self::ProjectRemoteOpt(property) => Ok(option_to_boolean(property)),
+            Self::ProjectRemoteList(property) => Ok(list_to_boolean(property)),
             Self::RefSymbol(_) => Err(self),
             Self::RefSymbolOpt(property) => Ok(option_to_boolean(property)),
             Self::RepoPath(_) => Err(self),
@@ -745,6 +804,12 @@ impl<'repo> CoreTemplatePropertyVar<'repo> for CommitTemplatePropertyKind<'repo>
             Self::WorkspaceRef(property) => Some(property.into_serialize()),
             Self::WorkspaceRefOpt(property) => Some(property.into_serialize()),
             Self::WorkspaceRefList(property) => Some(property.into_serialize()),
+            Self::ProjectRef(property) => Some(property.into_serialize()),
+            Self::ProjectRefOpt(property) => Some(property.into_serialize()),
+            Self::ProjectRefList(property) => Some(property.into_serialize()),
+            Self::ProjectRemote(property) => Some(property.into_serialize()),
+            Self::ProjectRemoteOpt(property) => Some(property.into_serialize()),
+            Self::ProjectRemoteList(property) => Some(property.into_serialize()),
             Self::RefSymbol(property) => Some(property.into_serialize()),
             Self::RefSymbolOpt(property) => Some(property.into_serialize()),
             Self::RepoPath(property) => Some(property.into_serialize()),
@@ -790,6 +855,12 @@ impl<'repo> CoreTemplatePropertyVar<'repo> for CommitTemplatePropertyKind<'repo>
             Self::WorkspaceRef(property) => Some(property.into_template()),
             Self::WorkspaceRefOpt(property) => Some(property.into_template()),
             Self::WorkspaceRefList(property) => Some(property.into_template()),
+            Self::ProjectRef(property) => Some(property.into_template()),
+            Self::ProjectRefOpt(property) => Some(property.into_template()),
+            Self::ProjectRefList(property) => Some(property.into_template()),
+            Self::ProjectRemote(property) => Some(property.into_template()),
+            Self::ProjectRemoteOpt(property) => Some(property.into_template()),
+            Self::ProjectRemoteList(property) => Some(property.into_template()),
             Self::RefSymbol(property) => Some(property.into_template()),
             Self::RefSymbolOpt(property) => Some(property.into_template()),
             Self::RepoPath(property) => Some(property.into_template()),
@@ -868,6 +939,12 @@ impl<'repo> CoreTemplatePropertyVar<'repo> for CommitTemplatePropertyKind<'repo>
             (Self::WorkspaceRef(_), _) => None,
             (Self::WorkspaceRefOpt(_), _) => None,
             (Self::WorkspaceRefList(_), _) => None,
+            (Self::ProjectRef(_), _) => None,
+            (Self::ProjectRefOpt(_), _) => None,
+            (Self::ProjectRefList(_), _) => None,
+            (Self::ProjectRemote(_), _) => None,
+            (Self::ProjectRemoteOpt(_), _) => None,
+            (Self::ProjectRemoteList(_), _) => None,
             (Self::RefSymbol(_), _) => None,
             (Self::RefSymbolOpt(_), _) => None,
             (Self::RepoPath(_), _) => None,
@@ -919,6 +996,12 @@ impl<'repo> CoreTemplatePropertyVar<'repo> for CommitTemplatePropertyKind<'repo>
             (Self::WorkspaceRef(_), _) => None,
             (Self::WorkspaceRefOpt(_), _) => None,
             (Self::WorkspaceRefList(_), _) => None,
+            (Self::ProjectRef(_), _) => None,
+            (Self::ProjectRefOpt(_), _) => None,
+            (Self::ProjectRefList(_), _) => None,
+            (Self::ProjectRemote(_), _) => None,
+            (Self::ProjectRemoteOpt(_), _) => None,
+            (Self::ProjectRemoteList(_), _) => None,
             (Self::RefSymbol(_), _) => None,
             (Self::RefSymbolOpt(_), _) => None,
             (Self::RepoPath(_), _) => None,
@@ -968,6 +1051,10 @@ pub struct CommitTemplateBuildFnTable<'repo> {
     pub commit_ref_list_methods: CommitTemplateBuildMethodFnMap<'repo, Vec<Rc<CommitRef>>>,
     pub workspace_ref_methods: CommitTemplateBuildMethodFnMap<'repo, WorkspaceRef>,
     pub workspace_ref_list_methods: CommitTemplateBuildMethodFnMap<'repo, Vec<WorkspaceRef>>,
+    pub project_ref_methods: CommitTemplateBuildMethodFnMap<'repo, Rc<ProjectRef>>,
+    pub project_ref_list_methods: CommitTemplateBuildMethodFnMap<'repo, Vec<Rc<ProjectRef>>>,
+    pub project_remote_methods: CommitTemplateBuildMethodFnMap<'repo, ProjectRemote>,
+    pub project_remote_list_methods: CommitTemplateBuildMethodFnMap<'repo, Vec<ProjectRemote>>,
     pub repo_path_methods: CommitTemplateBuildMethodFnMap<'repo, RepoPathBuf>,
     pub change_id_methods: CommitTemplateBuildMethodFnMap<'repo, ChangeId>,
     pub commit_id_methods: CommitTemplateBuildMethodFnMap<'repo, CommitId>,
@@ -1002,6 +1089,10 @@ impl CommitTemplateBuildFnTable<'_> {
             commit_ref_list_methods: HashMap::new(),
             workspace_ref_methods: HashMap::new(),
             workspace_ref_list_methods: HashMap::new(),
+            project_ref_methods: HashMap::new(),
+            project_ref_list_methods: HashMap::new(),
+            project_remote_methods: HashMap::new(),
+            project_remote_list_methods: HashMap::new(),
             repo_path_methods: HashMap::new(),
             change_id_methods: HashMap::new(),
             commit_id_methods: HashMap::new(),
@@ -1035,6 +1126,10 @@ impl CommitTemplateBuildFnTable<'_> {
             commit_ref_list_methods,
             workspace_ref_methods,
             workspace_ref_list_methods,
+            project_ref_methods,
+            project_ref_list_methods,
+            project_remote_methods,
+            project_remote_list_methods,
             repo_path_methods,
             change_id_methods,
             commit_id_methods,
@@ -1067,9 +1162,16 @@ impl CommitTemplateBuildFnTable<'_> {
         merge_fn_map(&mut self.commit_ref_methods, commit_ref_methods);
         merge_fn_map(&mut self.commit_ref_list_methods, commit_ref_list_methods);
         merge_fn_map(&mut self.workspace_ref_methods, workspace_ref_methods);
+        merge_fn_map(&mut self.project_ref_methods, project_ref_methods);
+        merge_fn_map(&mut self.project_remote_methods, project_remote_methods);
         merge_fn_map(
             &mut self.workspace_ref_list_methods,
             workspace_ref_list_methods,
+        );
+        merge_fn_map(&mut self.project_ref_list_methods, project_ref_list_methods);
+        merge_fn_map(
+            &mut self.project_remote_list_methods,
+            project_remote_list_methods,
         );
         merge_fn_map(&mut self.repo_path_methods, repo_path_methods);
         merge_fn_map(&mut self.change_id_methods, change_id_methods);
@@ -1121,6 +1223,10 @@ impl CommitTemplateBuildFnTable<'_> {
             commit_ref_list_methods: template_builder::builtin_formattable_list_methods(),
             workspace_ref_methods: builtin_workspace_ref_methods(),
             workspace_ref_list_methods: template_builder::builtin_formattable_list_methods(),
+            project_ref_methods: project::builtin_project_ref_methods(),
+            project_ref_list_methods: template_builder::builtin_formattable_list_methods(),
+            project_remote_methods: project::builtin_project_remote_methods(),
+            project_remote_list_methods: template_builder::builtin_formattable_list_methods(),
             repo_path_methods: builtin_repo_path_methods(),
             change_id_methods: builtin_change_id_methods(),
             commit_id_methods: builtin_commit_id_methods(),
@@ -1145,6 +1251,7 @@ impl CommitTemplateBuildFnTable<'_> {
 
 #[derive(Default)]
 pub struct CommitKeywordCache {
+    projects: OnceCell<Rc<ProjectIndex>>,
     // Build index lazily, and Rc to get away from &self lifetime.
     bookmarks_index: OnceCell<Rc<CommitRefsIndex>>,
     tags_index: OnceCell<Rc<CommitRefsIndex>>,
@@ -1153,6 +1260,11 @@ pub struct CommitKeywordCache {
 }
 
 impl CommitKeywordCache {
+    pub fn projects(&self, repo: &dyn Repo) -> &Rc<ProjectIndex> {
+        self.projects
+            .get_or_init(|| Rc::new(ProjectIndex::load(repo)))
+    }
+
     pub fn bookmarks_index(&self, repo: &dyn Repo) -> Result<&Rc<CommitRefsIndex>, String> {
         self.bookmarks_index.get_or_try_init(|| {
             build_local_remote_refs_index(repo.view(), repo.view().bookmarks()).map(Rc::new)
@@ -2372,6 +2484,7 @@ fn builtin_commit_ref_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, 
             Ok(out_property.into_dyn_wrapped())
         },
     );
+    project::add_commit_ref_methods(&mut map);
     map
 }
 
