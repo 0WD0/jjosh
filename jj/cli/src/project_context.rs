@@ -2,16 +2,20 @@
 
 use std::collections::{HashMap, HashSet};
 
+use futures::TryStreamExt as _;
 use jj_lib::backend::{CommitId, TreeValue};
-use jj_lib::commit::Commit;
+use jj_lib::fileset::FilesetExpression;
 use jj_lib::merge::Merge;
 use jj_lib::project::ProjectId;
 use jj_lib::ref_name::RefName;
 use jj_lib::repo::Repo;
 use jj_lib::repo_path::RepoPathBuf;
+use jj_lib::revset::{ResolvedRevsetExpression, RevsetFilterPredicate};
 
 use crate::cli_util::CommandHelper;
 use crate::command_error::{CommandError, user_error};
+
+type Subtree = Merge<Option<TreeValue>>;
 
 #[derive(Clone, Debug)]
 pub struct ProjectContext {
@@ -34,6 +38,20 @@ impl ProjectContext {
         })
     }
 
+    /// The project directory of one commit; anything but a directory is no project.
+    async fn subtree(&self, repo: &dyn Repo, id: &CommitId) -> Result<Subtree, CommandError> {
+        let commit = repo.store().get_commit_async(id).await?;
+        Ok(commit
+            .tree()
+            .path_value(&self.root)
+            .await?
+            .map(|value| match value {
+                Some(TreeValue::Tree(_)) => value.clone(),
+                _ => None,
+            })
+            .simplify())
+    }
+
     pub fn contains_ref(&self, repo: &dyn Repo, name: &RefName) -> bool {
         jj_lib::revset::remote_ref_project(repo.view(), name)
             .is_ok_and(|id| id.as_ref() == Some(&self.id))
@@ -43,65 +61,80 @@ impl ProjectContext {
     /// Equal single-parent subtrees collapse; distinct project merge parents survive.
     /// Native conflicts remain signed values, so querying a conflict never requires
     /// resolving it or converting it to a Git transport representation.
+    ///
+    /// Every ancestor takes part, because a commit's project version is the one its
+    /// parents carry. The index supplies the graph and the commits that change a
+    /// file below the project root; trees are read only for those commits and for
+    /// merges that join project history with history lacking the project.
     pub async fn history(
         &self,
         repo: &dyn Repo,
         heads: Vec<CommitId>,
     ) -> Result<HashSet<CommitId>, CommandError> {
-        type Entry = (Option<CommitId>, Merge<Option<TreeValue>>);
-        enum Visit {
-            Read(CommitId),
-            Write(Commit),
-        }
-        let root = repo.store().root_commit_id().clone();
-        let mut mapped: HashMap<CommitId, Entry> =
-            HashMap::from([(root, (None, Merge::resolved(None)))]);
-        let mut pending: Vec<_> = heads.into_iter().map(Visit::Read).collect();
+        let store = repo.store();
+        let ancestors = ResolvedRevsetExpression::commits(heads).ancestors();
+        let changed: HashSet<CommitId> = ancestors
+            .filtered(RevsetFilterPredicate::File(FilesetExpression::prefix_path(
+                self.root.clone(),
+            )))
+            .evaluate(repo)?
+            .stream()
+            .try_collect()
+            .await?;
+        let graph: Vec<_> = ancestors
+            .evaluate(repo)?
+            .stream_graph()
+            .try_collect()
+            .await?;
+
+        // The commit whose project subtree a commit carries, if it has one. A
+        // commit without one never had the project anywhere below it.
+        let mut representatives: HashMap<CommitId, Option<CommitId>> =
+            HashMap::with_capacity(graph.len());
+        representatives.insert(store.root_commit_id().clone(), None);
+        let mut subtrees: HashMap<CommitId, Subtree> = HashMap::new();
         let mut retained = HashSet::new();
-        while let Some(visit) = pending.pop() {
-            match visit {
-                Visit::Read(id) => {
-                    if mapped.contains_key(&id) {
-                        continue;
-                    }
-                    let commit = repo.store().get_commit_async(&id).await?;
-                    let parents = commit.parent_ids().to_vec();
-                    pending.push(Visit::Write(commit));
-                    pending.extend(parents.into_iter().map(Visit::Read));
-                }
-                Visit::Write(commit) => {
-                    let value = commit
-                        .tree()
-                        .path_value(&self.root)
-                        .await?
-                        .map(|value| match value {
-                            Some(TreeValue::Tree(_)) => value.clone(),
-                            _ => None,
-                        })
-                        .simplify();
-                    let parents: HashSet<_> = commit
-                        .parent_ids()
-                        .iter()
-                        .filter_map(|id| mapped[id].0.as_ref())
-                        .collect();
-                    let equivalent = if parents.len() <= 1 {
-                        commit.parent_ids().iter().find(|id| {
-                            (parents.is_empty()
-                                || mapped[*id].0.as_ref().is_some_and(|p| parents.contains(p)))
-                                && mapped[*id].1 == value
-                        })
-                    } else {
-                        None
-                    };
-                    let representative = if let Some(parent) = equivalent {
-                        mapped[parent].0.clone()
-                    } else {
-                        retained.insert(commit.id().clone());
-                        Some(commit.id().clone())
-                    };
-                    mapped.insert(commit.id().clone(), (representative, value));
-                }
+        for (id, edges) in graph.into_iter().rev() {
+            if representatives.contains_key(&id) {
+                continue;
             }
+            let mut carried: Vec<&Option<CommitId>> = edges
+                .iter()
+                .map(|edge| &representatives[&edge.target])
+                .collect();
+            let uniform = carried.iter().all(|parent| *parent == carried[0]);
+            carried.retain(|parent| parent.is_some());
+            carried.sort_unstable();
+            carried.dedup();
+            let representative = match carried.as_slice() {
+                [] | [_] => {
+                    let version = carried.first().copied().cloned().flatten();
+                    // An unchanged commit carries the merge of its parents'
+                    // subtrees, which is the common one when they all agree.
+                    let unchanged = if uniform && !changed.contains(&id) {
+                        true
+                    } else {
+                        let expected = match &version {
+                            Some(version) => match subtrees.get(version) {
+                                Some(subtree) => subtree.clone(),
+                                None => {
+                                    let subtree = self.subtree(repo, version).await?;
+                                    subtrees.insert(version.clone(), subtree.clone());
+                                    subtree
+                                }
+                            },
+                            None => Merge::resolved(None),
+                        };
+                        self.subtree(repo, &id).await? == expected
+                    };
+                    if unchanged { version } else { Some(id.clone()) }
+                }
+                _ => Some(id.clone()),
+            };
+            if representative.as_ref() == Some(&id) {
+                retained.insert(id.clone());
+            }
+            representatives.insert(id, representative);
         }
         // Empty changes still matter when explicitly named or checked out.
         retained.extend(repo.view().wc_commit_ids().values().cloned());
