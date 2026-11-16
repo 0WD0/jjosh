@@ -609,3 +609,49 @@ fn project_context_preserves_repository_publication_policy() {
             .success()
     );
 }
+
+#[test]
+fn reference_templates_expose_scope_and_delivered_content() {
+    let f = Fixture::new();
+    let api = f.remote("api");
+    f.project(&["git", "push", "--bookmark", "main"]);
+    assert_eq!(
+        f.jj(&["project", "list"]),
+        format!(
+            "api: packages/api (origin {})\nother: other\n",
+            api.display()
+        )
+    );
+    assert_eq!(
+        f.jj(&[
+            "project",
+            "list",
+            "-T",
+            r#"self.label() ++ remotes.map(|r| " " ++ r.qualified_name() ++ " " ++ r.representation()).join("") ++ "\n""#,
+        ]),
+        "api origin#api whole\nother\n"
+    );
+
+    let origin = || {
+        let rows = f.jj(&[
+            "bookmark",
+            "list",
+            "--all-remotes",
+            "-T",
+            r#"separate("|", name, unscoped_name, remote, if(project, project.name(), "(root)"), synced, tracking_content_synced) ++ "\n""#,
+        ]);
+        assert!(rows.contains("base|base|(root)|"), "{rows}");
+        rows.lines()
+            .find(|row| row.contains("|origin|"))
+            .unwrap()
+            .to_owned()
+    };
+    assert_eq!(origin(), "main#api|main|origin|api|true|true");
+    // Repository history outside the project moves the reference, not its content.
+    f.jj(&["new"]);
+    f.write("other/b", "outside\n");
+    f.jj(&["bookmark", "set", "main#api", "-r", "@"]);
+    assert_eq!(origin(), "main#api|main|origin|api|false|true");
+    f.write("packages/api/a", "inside\n");
+    assert_eq!(origin(), "main#api|main|origin|api|false|false");
+}

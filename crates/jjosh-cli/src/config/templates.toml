@@ -1,6 +1,17 @@
 # jjosh owns this layout; upstream helpers and user template overrides remain intact.
 [templates]
 log = 'jjosh_log_compact'
+project_list = '''
+if(conflict,
+  label("conflict", id ++ " (unresolved)"),
+  separate(" ",
+    label("name", name) ++ ":",
+    path,
+    if(self.label() != name, "#" ++ self.label()),
+    surround("(", ")", remotes.map(|remote| separate(" ", remote.name(), remote.url())).join(", ")),
+  ),
+) ++ "\n"
+'''
 
 [template-aliases]
 'format_touched_projects(commit)' = '''

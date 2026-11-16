@@ -1,10 +1,14 @@
 use std::io::Write as _;
+use std::rc::Rc;
 
 use jj_cli::cli_util::CommandHelper;
 use jj_cli::cli_util::RevisionArg;
 use jj_cli::cli_util::WorkspaceCommandHelper;
 use jj_cli::command_error::CommandError;
 use jj_cli::command_error::user_error;
+use jj_cli::commit_templater::ProjectIndex;
+use jj_cli::commit_templater::ProjectRef;
+use jj_cli::templater::TemplateRenderer;
 use jj_cli::ui::Ui;
 use jj_lib::merge::Merge;
 use jj_lib::object_id::ObjectId as _;
@@ -23,8 +27,8 @@ pub(crate) struct Args {
 enum Command {
     /// Register a canonical directory offline, without changing files or commits.
     Add(AddArgs),
-    /// List operation-owned projects, stable labels, bindings and diagnostics.
-    List(OutputArgs),
+    /// List operation-owned projects and metadata problems.
+    List(ListArgs),
     /// Show one project, including unresolved definition candidates.
     Show(ShowArgs),
     /// Diagnose metadata offline, optionally limited to one project.
@@ -49,6 +53,18 @@ struct AddArgs {
     /// The directory may be absent in recorded @; files and symlinks are rejected.
     #[arg(long)]
     path: String,
+}
+
+#[derive(clap::Args, Clone, Debug)]
+struct ListArgs {
+    /// Print every definition candidate, binding and connection as JSON.
+    #[arg(long, conflicts_with = "template")]
+    json: bool,
+    /// Render each project using the given template.
+    ///
+    /// All 0-argument methods of the `ProjectRef` type are available as keywords.
+    #[arg(long, short = 'T')]
+    template: Option<String>,
 }
 
 #[derive(clap::Args, Clone, Debug)]
@@ -132,7 +148,8 @@ pub(crate) async fn run(
 ) -> Result<(), CommandError> {
     match args.command {
         Command::Import(args) => crate::project_import::run_import(ui, command, args).await,
-        Command::List(args) => inspect(ui, command, None, args.json, false).await,
+        Command::List(args) if args.json => inspect(ui, command, None, true, false).await,
+        Command::List(args) => list(ui, command, args.template).await,
         Command::Show(args) => {
             inspect(ui, command, Some(args.project), args.output.json, false).await
         }
@@ -513,6 +530,39 @@ fn resolve(
         } else {
             view.project_state.labels.remove(&label);
         }
+    }
+    Ok(())
+}
+
+async fn list(
+    ui: &mut Ui,
+    command: &CommandHelper,
+    template: Option<String>,
+) -> Result<(), CommandError> {
+    let workspace = recorded_workspace(ui, command).await?;
+    let repo = workspace.repo();
+    let template: TemplateRenderer<Rc<ProjectRef>> = {
+        let language = workspace.commit_template_language();
+        let text = match template {
+            Some(text) => text,
+            None => workspace.settings().get("templates.project_list")?,
+        };
+        workspace
+            .parse_template(ui, &language, &text)?
+            .labeled(["project_list"])
+    };
+    let projects = ProjectIndex::load(repo.as_ref()).sorted();
+    let mut diagnostics = repo.view().project_diagnostics();
+    local_diagnostics(repo.as_ref(), &mut diagnostics);
+    let mut formatter = ui.stdout_formatter();
+    for project in &projects {
+        template.format(project, formatter.as_mut())?;
+    }
+    for diagnostic in &diagnostics {
+        writeln!(formatter, "Problem: {diagnostic}")?;
+    }
+    if projects.is_empty() && diagnostics.is_empty() {
+        writeln!(formatter, "No projects registered.")?;
     }
     Ok(())
 }

@@ -258,6 +258,33 @@ jjosh log -T 'json(touched_projects) ++ "\n"'
 项目定义有歧义时按正项候选路径匹配，显示 =project:短ID?= ，不猜名字；断开的 remote 不影响分类。
 用户配置的 =templates.log= 和显式 =-T= 优先；=builtin_log_compact= 仍提供不带项目列表的上游布局。
 
+** 列出项目与引用的归属
+
+=jjosh project list= 每行一个项目：显示名、目录和各 remote 的地址；定义有歧义的项目显示 ID。
+完整的候选、绑定和连接仍用 =project show= 或 =--json= 查看。
+=-T= 以 =ProjectRef= 渲染每个项目，默认模板是 =templates.project_list=：
+
+| 方法 | 含义 |
+|------+------|
+| =name= =path= =id= | 显示名、canonical 目录、ProjectId；定义未解决时前两者报错 |
+| =label= | 引用后缀；没有唯一 label 时报错 |
+| =conflict= | 定义是否未解决 |
+| =remotes= | 当前逻辑 remote 的列表 |
+
+remote 的方法是 =name=（项目内名字）、=qualified_name=（根范围的写法，如 =origin#parser=）、
+=url=、=push_url= 和 =representation=；本地没有配置的连接地址为空。
+
+bookmark 与 tag 的列表模板可以直接询问引用的归属，不必自己拆 =#=：
+
+#+begin_src sh
+jjosh bookmark list --all-remotes \
+  -T 'separate(" ", unscoped_name, if(project, project.name()), remote, tracking_content_synced) ++ "\n"'
+#+end_src
+
+=project= 是登记的项目，根引用和未登记的后缀没有项目；=unscoped_name= 去掉已登记的 label。
+=tracking_content_synced= 回答已跟踪的 remote 引用与本地引用交付的内容是否相同：项目引用只比较项目目录。
+仓库中其他项目的历史被重写后，=synced= 为假而它仍为真；它不表示 push 无事可做，历史不同仍会更新远端。
+
 ** fetch 与 tracking
 
 #+begin_src sh
