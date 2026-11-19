@@ -14,6 +14,8 @@
 
 #![expect(missing_docs)]
 
+use std::borrow::Cow;
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::fmt::Debug;
@@ -211,6 +213,32 @@ pub struct GitBackend {
     git_executable: PathBuf,
     write_change_id_header: bool,
     lazy_commit_imports_allowed: AtomicBool,
+    pending_commits: Mutex<Option<PendingCommits>>,
+}
+
+/// The bookkeeping of the commits written under a [`CommitBatch`].
+#[derive(Default)]
+struct PendingCommits {
+    extras: HashMap<CommitId, Vec<u8>>,
+    parents: HashSet<CommitId>,
+}
+
+/// Commits written under [`GitBackend::commit_batch()`].
+pub struct CommitBatch<'a> {
+    backend: &'a GitBackend,
+}
+
+impl CommitBatch<'_> {
+    /// Saves the extra metadata and no-gc refs of the batch's commits.
+    pub fn finish(self) -> BackendResult<()> {
+        self.backend.finish_commit_batch()
+    }
+}
+
+impl Drop for CommitBatch<'_> {
+    fn drop(&mut self) {
+        self.backend.pending_commits.lock().unwrap().take();
+    }
 }
 
 impl GitBackend {
@@ -238,6 +266,7 @@ impl GitBackend {
             git_executable: settings.git_executable.clone(),
             write_change_id_header: settings.write_change_id_header,
             lazy_commit_imports_allowed: AtomicBool::new(true),
+            pending_commits: Mutex::new(None),
         }
     }
 
@@ -535,6 +564,66 @@ impl GitBackend {
     pub fn disable_lazy_commit_imports(&self) {
         self.lazy_commit_imports_allowed
             .store(false, Ordering::Relaxed);
+    }
+
+    /// Defers the bookkeeping of the commits written until the returned batch
+    /// finishes: their extra metadata goes into one table segment then, and
+    /// only the batch's heads get no-gc refs, which keep their ancestors too.
+    /// Otherwise each commit takes the table lock, saves and syncs a segment
+    /// of its own and adds a ref, which dominates writing many commits at
+    /// once.  Dropping the batch unfinished forgets the deferred metadata.
+    pub fn commit_batch(&self) -> CommitBatch<'_> {
+        let mut pending = self.pending_commits.lock().unwrap();
+        assert!(pending.is_none(), "commit batches do not nest");
+        *pending = Some(PendingCommits::default());
+        CommitBatch { backend: self }
+    }
+
+    fn pending_extras(&self, id: &CommitId) -> Option<Vec<u8>> {
+        self.pending_commits
+            .lock()
+            .unwrap()
+            .as_ref()?
+            .extras
+            .get(id)
+            .cloned()
+    }
+
+    fn finish_commit_batch(&self) -> BackendResult<()> {
+        let Some(pending) = self.pending_commits.lock().unwrap().take() else {
+            return Ok(());
+        };
+        if pending.extras.is_empty() {
+            return Ok(());
+        }
+        let locked_repo = self.lock_git_repo();
+        locked_repo
+            .edit_references(
+                pending
+                    .extras
+                    .keys()
+                    .filter(|id| !pending.parents.contains(*id))
+                    .map(to_no_gc_ref_update),
+            )
+            .map_err(|err| BackendError::Other(Box::new(err)))?;
+        let (table, table_lock) = self.read_extra_metadata_table_locked()?;
+        let mut mut_table = table.start_mutation();
+        for (id, extras) in pending.extras {
+            match table.get_value(id.as_bytes()) {
+                Some(existing) if existing != extras => {
+                    return Err(BackendError::Other(
+                        format!(
+                            "commit {} was written meanwhile with other metadata",
+                            id.hex()
+                        )
+                        .into(),
+                    ));
+                }
+                Some(_) => {}
+                None => mut_table.add_entry(id.to_bytes(), extras),
+            }
+        }
+        self.save_extra_metadata_table(mut_table, &table_lock)
     }
 
     /// Imports the given commits and ancestors from the backing Git repo.
@@ -1373,6 +1462,10 @@ impl Backend for GitBackend {
             commit.parents.push(self.root_commit_id.clone());
         }
 
+        if let Some(extras) = self.pending_extras(id) {
+            deserialize_extras(&mut commit, &extras);
+            return Ok(commit);
+        }
         let table = self.cached_extra_metadata_table()?;
         if let Some(extras) = table.get_value(id.as_bytes()) {
             deserialize_extras(&mut commit, extras);
@@ -1619,8 +1712,14 @@ impl GitBackend {
         // To prevent such race condition locally, we extend the scope covered by the
         // table lock. This is still racy if multiple machines are involved and the
         // repository is rsync-ed.
-        let metadata = retain
+        let batched = retain && self.pending_commits.lock().unwrap().is_some();
+        let metadata = (retain && !batched)
             .then(|| self.read_extra_metadata_table_locked())
+            .transpose()?;
+        // A batch looks for an existing entry without the lock, and looks
+        // again under it when it finishes.
+        let batch_table = batched
+            .then(|| self.cached_extra_metadata_table())
             .transpose()?;
         let id = loop {
             let mut commit = gix::objs::Commit {
@@ -1657,10 +1756,15 @@ impl GitBackend {
                         source: Box::new(err),
                     })?;
 
-            match metadata
-                .as_ref()
-                .and_then(|(table, _)| table.get_value(git_id.as_bytes()))
-            {
+            let existing = match &metadata {
+                Some((table, _)) => table.get_value(git_id.as_bytes()).map(Cow::Borrowed),
+                None => batch_table.as_ref().and_then(|table| {
+                    self.pending_extras(&CommitId::from_bytes(git_id.as_bytes()))
+                        .map(Cow::Owned)
+                        .or_else(|| table.get_value(git_id.as_bytes()).map(Cow::Borrowed))
+                }),
+            };
+            match existing.as_deref() {
                 Some(existing_extras) if existing_extras != extras.as_deref().unwrap() => {
                     // It's possible a commit already exists with the same
                     // commit id but different change id. Adjust the timestamp
@@ -1691,6 +1795,11 @@ impl GitBackend {
             let mut mut_table = table.start_mutation();
             mut_table.add_entry(id.to_bytes(), extras.unwrap());
             self.save_extra_metadata_table(mut_table, &table_lock)?;
+        } else if batched {
+            let mut pending = self.pending_commits.lock().unwrap();
+            let pending = pending.as_mut().expect("commit batch is open");
+            pending.parents.extend(contents.parents.iter().cloned());
+            pending.extras.insert(id.clone(), extras.unwrap());
         }
         Ok((id, contents))
     }
@@ -2716,6 +2825,64 @@ mod tests {
         // The rest of the commit should be the same
         actual_commit2.committer.timestamp.timestamp = commit2.committer.timestamp.timestamp;
         assert_eq!(actual_commit2, commit2);
+        Ok(())
+    }
+
+    #[test]
+    fn commit_batch_saves_bookkeeping_once() -> TestResult {
+        let settings = backend_settings();
+        let temp_dir = new_temp_dir();
+        let backend = GitBackend::init_internal(&settings, temp_dir.path(), gix::hash::Kind::Sha1)?;
+        let commit = |parent: &CommitId, change_id: &'static str| Commit {
+            parents: vec![parent.clone()],
+            predecessors: vec![],
+            root_tree: Merge::resolved(backend.empty_tree_id().clone()),
+            conflict_labels: Merge::resolved(String::new()),
+            change_id: ChangeId::from_hex(change_id),
+            description: "batched".to_string(),
+            author: create_signature(),
+            committer: create_signature(),
+            secure_sig: None,
+        };
+        let segments = || {
+            std::fs::read_dir(temp_dir.path().join("extra"))
+                .unwrap()
+                .count()
+        };
+        let keep_refs = || -> TestResult<Vec<gix::ObjectId>> {
+            Ok(backend
+                .git_repo()
+                .references()?
+                .prefixed("refs/jj/keep/")?
+                .map(|git_ref| git_ref.unwrap().id().detach())
+                .collect())
+        };
+        // A new store makes its first, empty segment when first read.
+        backend.cached_extra_metadata_table()?;
+        let before = segments();
+
+        let batch = backend.commit_batch();
+        let (id1, written1) = backend
+            .write_commit(
+                commit(backend.root_commit_id(), "11111111111111111111111111111111"),
+                None,
+            )
+            .block_on()?;
+        let (id2, written2) = backend
+            .write_commit(commit(&id1, "22222222222222222222222222222222"), None)
+            .block_on()?;
+        // Until the batch finishes, its commits read back from memory alone.
+        assert_eq!(backend.read_commit(&id2).block_on()?, written2);
+        assert_eq!(segments(), before);
+        assert!(keep_refs()?.is_empty());
+        batch.finish()?;
+
+        // One more segment, and a no-gc ref for the head alone.
+        assert_eq!(segments(), before + 1);
+        assert_eq!(keep_refs()?, vec![git_id(&id2)]);
+        let reloaded = GitBackend::load(&settings, temp_dir.path())?;
+        assert_eq!(reloaded.read_commit(&id1).block_on()?, written1);
+        assert_eq!(reloaded.read_commit(&id2).block_on()?, written2);
         Ok(())
     }
 

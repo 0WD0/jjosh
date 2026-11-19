@@ -9,6 +9,7 @@ use std::sync::Arc;
 use anyhow::Context as _;
 use anyhow::Result;
 use anyhow::ensure;
+use jj_lib::backend::ChangeId;
 use jj_lib::backend::CommitId;
 use jj_lib::backend::Tree;
 use jj_lib::backend::TreeId;
@@ -16,11 +17,13 @@ use jj_lib::backend::TreeValue;
 use jj_lib::backend::{self};
 use jj_lib::commit::Commit;
 use jj_lib::conflict_labels::ConflictLabels;
-use jj_lib::index::ResolvedChangeState;
 use jj_lib::merge::Merge;
 use jj_lib::merged_tree::MergedTree;
+use jj_lib::object_id::HexPrefix;
 use jj_lib::object_id::ObjectId as _;
+use jj_lib::object_id::PrefixResolution;
 use jj_lib::project::BindingId;
+use jj_lib::repo::MutableRepo;
 use jj_lib::repo::Repo;
 use jj_lib::repo_path::RepoPath;
 use jj_lib::repo_path::RepoPathBuf;
@@ -440,19 +443,44 @@ pub(crate) async fn anchors(
 
 /// After prefix/filter, a dest commit is the same version iff the project tree
 /// and preserved metadata match. Parents are remapped, so they are not compared.
+/// Return the visible commits of each of CHANGE_IDS that has any, found with
+/// one change-ID index: building one visits every visible head, so an index
+/// per lookup would cost that for each commit of a large import.
+pub(crate) async fn visible_versions<'a>(
+    repo: &MutableRepo,
+    change_ids: impl IntoIterator<Item = &'a ChangeId>,
+) -> Result<HashMap<ChangeId, Vec<CommitId>>> {
+    let index = repo
+        .mutable_index()
+        .change_id_index(&mut repo.view().heads().iter())?;
+    let mut versions = HashMap::new();
+    for change_id in change_ids.into_iter().collect::<HashSet<_>>() {
+        let PrefixResolution::SingleMatch(targets) =
+            index.resolve_prefix(&HexPrefix::from_id(change_id)).await?
+        else {
+            continue;
+        };
+        let visible: Vec<_> = targets
+            .visible_with_offsets()
+            .map(|(_, id)| id.clone())
+            .collect();
+        if !visible.is_empty() {
+            versions.insert(change_id.clone(), visible);
+        }
+    }
+    Ok(versions)
+}
+
+/// Return the one of VISIBLE, the visible commits of SOURCE's change, that
+/// is SOURCE at MOUNT.
 pub(crate) async fn existing_same_project_version(
     repo: &dyn Repo,
     mount: &RepoPath,
     source: &backend::Commit,
+    visible: &[CommitId],
 ) -> Result<Option<CommitId>> {
-    let Some(targets) = repo.resolve_change_id(&source.change_id).await? else {
-        return Ok(None);
-    };
     let mut matched: Option<CommitId> = None;
-    for (id, state) in &targets.targets {
-        if *state != ResolvedChangeState::Visible {
-            continue;
-        }
+    for id in visible {
         let commit = repo.store().get_commit_async(id).await?;
         if !commit_has_project_tree(&commit, mount).await? {
             continue;

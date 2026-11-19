@@ -186,8 +186,15 @@ pub(crate) async fn rewrite_graph(
             .any(|name| name.as_str().contains("jjosh-native-")),
         "Source contains unsupported legacy native correspondence bookmarks"
     );
-    source.copy_objects_to(jj_lib::git::get_git_backend(&dest_store)?)?;
+    let dest_git = jj_lib::git::get_git_backend(&dest_store)?;
+    source.copy_objects_to(dest_git)?;
     let existing_versions = index_existing_project_versions(source, dest, mount, &ids).await?;
+    let visible_versions = crate::native_project::visible_versions(
+        dest,
+        source.commits.values().map(|commit| &commit.change_id),
+    )
+    .await?;
+    let batch = dest_git.commit_batch();
 
     // A captured source may also retain hidden canonical versions referenced
     // only by private conversion anchors. Rewrite those without exposing heads.
@@ -217,9 +224,11 @@ pub(crate) async fn rewrite_graph(
                     .commits
                     .get(&id)
                     .with_context(|| format!("missing source {scope} native commit {id}"))?;
-                if let Some(existing) =
-                    crate::native_project::existing_same_project_version(dest, mount, commit)
-                        .await?
+                if let Some(visible) = visible_versions.get(&commit.change_id)
+                    && let Some(existing) = crate::native_project::existing_same_project_version(
+                        dest, mount, commit, visible,
+                    )
+                    .await?
                 {
                     ids.insert(id.clone(), existing.clone());
                     grafts.push((id, existing));
@@ -310,6 +319,7 @@ pub(crate) async fn rewrite_graph(
         }
     }
 
+    batch.finish()?;
     Ok(Imported {
         commits,
         stripped_signatures,
