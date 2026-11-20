@@ -1,4 +1,14 @@
 exports_files(
-    [".cargo/config.toml"],
+    [
+        ".cargo/config.toml",
+        "Cargo.lock",
+        "Cargo.toml",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "jjosh",
+    actual = "//jjosh/crates/jjosh-cli:jjosh",
     visibility = ["//visibility:public"],
 )

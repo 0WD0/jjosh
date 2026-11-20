@@ -1,5 +1,5 @@
-load("@josh_crates//:data.bzl", "DEP_DATA")
-load("@josh_crates//:defs.bzl", "aliases", "all_crate_deps", "all_crate_features")
+load("@jjosh_crates//:data.bzl", "DEP_DATA")
+load("@jjosh_crates//:defs.bzl", "aliases", "all_crate_deps", "all_crate_features")
 load("@rules_rust//rust:defs.bzl", "rust_test")
 
 _SERDE_PACKAGE = "jjosh/josh/josh-git-serde"
