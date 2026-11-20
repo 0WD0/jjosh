@@ -1,8 +1,4 @@
-load("@jjosh_crates//:data.bzl", "DEP_DATA")
-load("@jjosh_crates//:defs.bzl", "aliases", "all_crate_deps", "all_crate_features")
 load("@rules_rust//rust:defs.bzl", "rust_test")
-
-_SERDE_PACKAGE = "jjosh/josh/josh-git-serde"
 
 exports_files(
     [
@@ -13,38 +9,26 @@ exports_files(
 )
 
 # Unmodified upstream serialization tests.
-rust_test(
-    name = "josh_serde_ser_test",
-    size = "small",
-    srcs = ["//jjosh/josh/josh-git-serde:tests/ser.rs"],
-    aliases = aliases(package_name = _SERDE_PACKAGE),
-    crate_features = all_crate_features(package_name = _SERDE_PACKAGE),
-    crate_root = "//jjosh/josh/josh-git-serde:tests/ser.rs",
-    edition = DEP_DATA[_SERDE_PACKAGE]["edition"],
-    target_compatible_with = [
-        "@platforms//os:linux",
-        "@platforms//cpu:x86_64",
-    ],
-    deps = ["//jjosh/josh/josh-git-serde"] + all_crate_deps(
-        package_name = _SERDE_PACKAGE,
-        normal = True,
-    ),
-)
-
-rust_test(
-    name = "josh_serde_de_test",
-    size = "small",
-    srcs = ["//jjosh/josh/josh-git-serde:tests/de.rs"],
-    aliases = aliases(package_name = _SERDE_PACKAGE),
-    crate_features = all_crate_features(package_name = _SERDE_PACKAGE),
-    crate_root = "//jjosh/josh/josh-git-serde:tests/de.rs",
-    edition = DEP_DATA[_SERDE_PACKAGE]["edition"],
-    target_compatible_with = [
-        "@platforms//os:linux",
-        "@platforms//cpu:x86_64",
-    ],
-    deps = ["//jjosh/josh/josh-git-serde"] + all_crate_deps(
-        package_name = _SERDE_PACKAGE,
-        normal = True,
-    ),
-)
+[
+    rust_test(
+        name = "josh_serde_%s_test" % name,
+        size = "small",
+        srcs = ["josh-git-serde/tests/%s.rs" % name],
+        edition = "2024",
+        target_compatible_with = [
+            "@platforms//os:linux",
+            "@platforms//cpu:x86_64",
+        ],
+        deps = [
+            "@jjosh_crates//anyhow",
+            "@jjosh_crates//gix-hash",
+            "@jjosh_crates//gix-object",
+            "@jjosh_crates//josh-git-serde-26.8.28",
+            "@jjosh_crates//serde",
+        ],
+    )
+    for name in [
+        "ser",
+        "de",
+    ]
+]

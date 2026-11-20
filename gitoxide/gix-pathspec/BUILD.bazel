@@ -1,5 +1,0 @@
-load("//jjosh:crate.bzl", "jjosh_crate")
-
-exports_files(["Cargo.toml"], visibility = ["//visibility:public"])
-
-jjosh_crate(package = "gix-pathspec")
