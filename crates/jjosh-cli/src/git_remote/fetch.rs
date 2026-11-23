@@ -20,6 +20,7 @@ use jj_lib::merge::Merge;
 use jj_lib::object_id::ObjectId as _;
 use jj_lib::op_store::RefTarget;
 use jj_lib::op_store::View;
+use jj_lib::project::BindingTarget;
 use jj_lib::project::ConversionTerm;
 use jj_lib::project::ObservationKey;
 use jj_lib::project::ObservationKind;
@@ -95,6 +96,27 @@ impl Converted {
             .map_err(user_error)?;
         Ok(Self { target, mirror })
     }
+}
+
+/// The commit a raw tip names, when its object is present locally.
+fn negotiation_tip(
+    git: &gix::Repository,
+    id: gix::ObjectId,
+) -> Result<Option<gix::ObjectId>, CommandError> {
+    let Some(header) = git.try_find_header(id).map_err(user_error)? else {
+        return Ok(None);
+    };
+    Ok(match header.kind() {
+        gix::object::Kind::Commit => Some(id),
+        gix::object::Kind::Tag => {
+            let object = git
+                .find_object(id)
+                .and_then(|object| object.peel_tags_to_end())
+                .map_err(user_error)?;
+            (object.kind == gix::object::Kind::Commit).then_some(object.id)
+        }
+        _ => None,
+    })
 }
 
 fn refs_prefixed(
@@ -518,19 +540,7 @@ pub(super) async fn run(
         let mut old_raw = BTreeMap::new();
         let mut negotiation_tips = Vec::new();
         for (name, id) in refs_prefixed(raw_git, &raw_prefix)? {
-            match raw_git.find_header(id).map_err(user_error)?.kind() {
-                gix::object::Kind::Commit => negotiation_tips.push(id),
-                gix::object::Kind::Tag => {
-                    let object = raw_git
-                        .find_object(id)
-                        .and_then(|object| object.peel_tags_to_end())
-                        .map_err(user_error)?;
-                    if object.kind == gix::object::Kind::Commit {
-                        negotiation_tips.push(object.id);
-                    }
-                }
-                _ => {}
-            }
+            negotiation_tips.extend(negotiation_tip(raw_git, id)?);
             let source = &name[raw_prefix.len()..];
             if source_ref(source).is_some_and(|(kind, name)| selected(kind, name))
                 || source.strip_prefix("pins/").is_some_and(|pin| {
@@ -544,6 +554,29 @@ pub(super) async fn run(
                 converted
                     .entry(source.to_owned())
                     .or_insert_with(Converted::absent);
+            }
+        }
+        // Raw commits are upstream identities, the same under every URL of a
+        // project. Without these, the first fetch after a remote moves (or
+        // after an import from a local clone) offers nothing and receives the
+        // whole history again.
+        if let Some(project) = &session.project {
+            for evidence in repo
+                .view()
+                .store_view()
+                .project_observations
+                .values()
+                .flat_map(|values| values.iter().flatten())
+            {
+                if evidence.endpoint == endpoint
+                    || !matches!(&evidence.binding.target, BindingTarget::Project(id) if *id == project.id)
+                {
+                    continue;
+                }
+                for raw in evidence.terms.iter().filter_map(|term| term.raw.as_deref()) {
+                    let id = gix::ObjectId::from_hex(raw.as_bytes()).map_err(user_error)?;
+                    negotiation_tips.extend(negotiation_tip(raw_git, id)?);
+                }
             }
         }
         negotiation_tips.sort_unstable();

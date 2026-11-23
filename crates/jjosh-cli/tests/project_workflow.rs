@@ -264,6 +264,44 @@ fn project_fetch_negotiates_only_retained_endpoint_history() {
             .stdout,
             b"scoped-fetch-v2\n"
         );
+
+        // The same upstream at a new URL: the raw tip observed under the old
+        // endpoint is still the server's commit, so negotiation offers it.
+        let moved = root.join("moved.git");
+        git(
+            root,
+            &["clone", "--bare", "-q", remote.to_str().unwrap(), moved.to_str().unwrap()],
+        );
+        fs::write(work.join("src/value.txt"), "scoped-fetch-v3\n").unwrap();
+        git(&work, &["add", "."]);
+        git(&work, &["commit", "-m", "advance moved source"]);
+        git(&work, &["push", moved.to_str().unwrap(), "main"]);
+        let moved_url = format!("file://{}", moved.display());
+        jjosh(
+            &client,
+            &["git", "remote", "set-url", "upstream#p", &moved_url],
+        );
+        let moved_fetch = fetch();
+        let haves: Vec<_> = moved_fetch
+            .lines()
+            .filter_map(|line| line.split_once("have ").map(|(_, id)| id.trim()))
+            .collect();
+        // A filtered source keeps raw objects in its endpoint's own repository,
+        // so a new endpoint starts empty and needs the whole raw history anyway.
+        if !filtered {
+            assert!(
+                haves.contains(&next_tip.as_str()),
+                "a moved endpoint must negotiate the project's observed raw tip: {moved_fetch}"
+            );
+        }
+        assert_eq!(
+            jjosh(
+                &client,
+                &["file", "show", "-r", "main#p@upstream", value_path]
+            )
+            .stdout,
+            b"scoped-fetch-v3\n"
+        );
     }
 }
 
