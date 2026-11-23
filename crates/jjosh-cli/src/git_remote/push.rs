@@ -60,7 +60,8 @@ fn source_destination(
     };
     let (source, scope) = match local.rsplit_once('#') {
         Some((source, label)) => match session
-            .view.projects()
+            .view
+            .projects()
             .resolve_label(label)
             .map_err(anyhow::Error::msg)?
         {

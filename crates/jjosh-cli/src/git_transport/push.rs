@@ -133,8 +133,7 @@ pub(crate) fn prepare(
     )?;
     let credentials = repo.configured_credentials_for_current_url();
     if let Some(config) = transport_options {
-        transport
-            .configure(&*config)?;
+        transport.configure(&*config)?;
     }
     let handshake = protocol::handshake(
         &mut transport,
@@ -487,18 +486,19 @@ fn prepare_pack(
     let mut file = tempfile::tempfile().context("creating push pack spool")?;
     // One base entry is compressed at a time. Every dependency not already
     // owned by the destination is included; no thin-pack deltas are generated.
-    let entries = visited
-        .into_keys()
-        .map(|id| -> gix::Result<Vec<gix_pack::data::output::Entry>> {
-            let data = checked_object(objects, id, &mut buffer)
-                .map_err(|err| gix::Error::from_boxed(err.into()))?;
-            let entry = gix_pack::data::output::Entry::from_data(
-                &gix_pack::data::output::Count::from_data(id, None),
-                &data,
-                gix::zlib::Compression::DEFAULT,
-            )?;
-            Ok(vec![entry])
-        });
+    let entries =
+        visited
+            .into_keys()
+            .map(|id| -> gix::Result<Vec<gix_pack::data::output::Entry>> {
+                let data = checked_object(objects, id, &mut buffer)
+                    .map_err(|err| gix::Error::from_boxed(err.into()))?;
+                let entry = gix_pack::data::output::Entry::from_data(
+                    &gix_pack::data::output::Count::from_data(id, None),
+                    &data,
+                    gix::zlib::Compression::DEFAULT,
+                )?;
+                Ok(vec![entry])
+            });
     let mut writer = gix_pack::data::output::bytes::FromEntriesIter::new(
         entries,
         &mut file,

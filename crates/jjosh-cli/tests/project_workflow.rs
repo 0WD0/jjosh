@@ -270,7 +270,13 @@ fn project_fetch_negotiates_only_retained_endpoint_history() {
         let moved = root.join("moved.git");
         git(
             root,
-            &["clone", "--bare", "-q", remote.to_str().unwrap(), moved.to_str().unwrap()],
+            &[
+                "clone",
+                "--bare",
+                "-q",
+                remote.to_str().unwrap(),
+                moved.to_str().unwrap(),
+            ],
         );
         fs::write(work.join("src/value.txt"), "scoped-fetch-v3\n").unwrap();
         git(&work, &["add", "."]);

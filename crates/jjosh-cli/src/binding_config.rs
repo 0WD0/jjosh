@@ -76,4 +76,3 @@ pub(crate) fn filter(representation: &Representation) -> Result<Filter> {
         }
     }
 }
-

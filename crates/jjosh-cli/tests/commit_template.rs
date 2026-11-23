@@ -339,4 +339,3 @@ fn nested_summaries_include_every_touched_scope_without_hiding_parent_edits() {
         "bundle,zeta"
     );
 }
-

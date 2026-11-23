@@ -387,7 +387,8 @@ fn validate_source(source: &View) -> Result<()> {
         let BindingTarget::Project(project) = &binding.target else {
             unreachable!()
         };
-        source_view.projects()
+        source_view
+            .projects()
             .validate_project(project)
             .map_err(anyhow::Error::msg)
             .with_context(|| {

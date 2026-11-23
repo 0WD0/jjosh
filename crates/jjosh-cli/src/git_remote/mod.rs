@@ -180,7 +180,11 @@ impl Session {
         }
         let binding = connection
             .as_ref()
-            .map(|id| view.projects().binding_for_connection(id).map_err(user_error))
+            .map(|id| {
+                view.projects()
+                    .binding_for_connection(id)
+                    .map_err(user_error)
+            })
             .transpose()?
             .flatten()
             .map(|(id, record)| (id, record.clone()));
@@ -226,7 +230,9 @@ impl Session {
         endpoint: String,
     ) -> Result<Self, CommandError> {
         view.remote_identity(name).map_err(user_error)?;
-        let (id, record) = view.projects().binding_for_connection(&connection)
+        let (id, record) = view
+            .projects()
+            .binding_for_connection(&connection)
             .map_err(user_error)?
             .ok_or_else(|| user_error("Imported connection has no active binding"))?;
         // Parse and apply the destination's URL rules without saving any config.
@@ -483,7 +489,14 @@ impl GitRemoteSession for Session {
         local
             .as_str()
             .rsplit_once('#')
-            .filter(|(_, label)| self.view.projects().resolve_label(label).ok().flatten().is_some())
+            .filter(|(_, label)| {
+                self.view
+                    .projects()
+                    .resolve_label(label)
+                    .ok()
+                    .flatten()
+                    .is_some()
+            })
             .map_or(local.as_str(), |(name, _)| name)
     }
     fn push_validation_commits<'a>(

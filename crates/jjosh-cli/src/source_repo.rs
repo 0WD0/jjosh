@@ -1012,18 +1012,22 @@ mod tests {
         let main = gix::init_bare(temporary.path().join("main.git"))?;
         let source = SourceRepo::open(&main, "test-source")?;
         let tree = source.git.write_buf(gix_object::Kind::Tree, b"")?;
-        let parent = source.git.write_buf(gix_object::Kind::Commit,
-        format!(
-            "tree {tree}\nauthor A <a@example.org> 1 +0000\ncommitter A <a@example.org> 1 \
+        let parent = source.git.write_buf(
+            gix_object::Kind::Commit,
+            format!(
+                "tree {tree}\nauthor A <a@example.org> 1 +0000\ncommitter A <a@example.org> 1 \
              +0000\n\nparent\n"
-        )
-        .as_bytes(),)?;
-        let raw = source.git.write_buf(gix_object::Kind::Commit,
-        format!(
-            "tree {tree}\nparent {parent}\nauthor A <a@example.org> 2 +0000\ncommitter A \
+            )
+            .as_bytes(),
+        )?;
+        let raw = source.git.write_buf(
+            gix_object::Kind::Commit,
+            format!(
+                "tree {tree}\nparent {parent}\nauthor A <a@example.org> 2 +0000\ncommitter A \
              <a@example.org> 2 +0000\ngpgsig retained signature\n\nraw\n"
-        )
-        .as_bytes(),)?;
+            )
+            .as_bytes(),
+        )?;
         fs::write(source.path().join("shallow"), format!("{raw}\n"))?;
         let tx = crate::interop::open_josh_transaction(source.path(), false)
             .map_err(|error| anyhow::anyhow!(error.error))?;
@@ -1180,7 +1184,11 @@ mod tests {
         )?;
         assert!(source.git.edit_references(edits).is_err());
         assert_eq!(
-            source.git.find_reference(counterpart.as_str())?.id().detach(),
+            source
+                .git
+                .find_reference(counterpart.as_str())?
+                .id()
+                .detach(),
             raw
         );
         Ok(())
@@ -1213,18 +1221,22 @@ mod tests {
             .into_commit()
             .tree_id()?
             .detach();
-        let child = source.git.write_buf(gix_object::Kind::Commit,
-        format!(
-            "tree {tree}\nparent {boundary_input}\nauthor A <a@example.org> 3 \
+        let child = source.git.write_buf(
+            gix_object::Kind::Commit,
+            format!(
+                "tree {tree}\nparent {boundary_input}\nauthor A <a@example.org> 3 \
              +0000\ncommitter A <a@example.org> 3 +0000\ngpgsig export signature\n\nchild\n"
-        )
-        .as_bytes(),)?;
-        let tip = source.git.write_buf(gix_object::Kind::Commit,
-        format!(
-            "tree {tree}\nparent {child}\nauthor A <a@example.org> 4 +0000\ncommitter A \
+            )
+            .as_bytes(),
+        )?;
+        let tip = source.git.write_buf(
+            gix_object::Kind::Commit,
+            format!(
+                "tree {tree}\nparent {child}\nauthor A <a@example.org> 4 +0000\ncommitter A \
              <a@example.org> 4 +0000\n\ntip\n"
-        )
-        .as_bytes(),)?;
+            )
+            .as_bytes(),
+        )?;
         let tx = crate::interop::open_josh_transaction(source.path(), false)
             .map_err(|error| anyhow::anyhow!(error.error))?;
         let publication = source.denormalize(&tx, tip, &Normalized::default())?;

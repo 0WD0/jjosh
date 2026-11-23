@@ -125,7 +125,10 @@ fn draw(mut output: ProgressOutput<Stderr>, root: &Root, stop: &AtomicBool) {
             .join(", ");
         if let Some(width) = output.term_width() {
             // Leave the last column free so the terminal never wraps the line.
-            if let Some((cut, _)) = line.char_indices().nth(usize::from(width).saturating_sub(1)) {
+            if let Some((cut, _)) = line
+                .char_indices()
+                .nth(usize::from(width).saturating_sub(1))
+            {
                 line.truncate(cut);
             }
         }

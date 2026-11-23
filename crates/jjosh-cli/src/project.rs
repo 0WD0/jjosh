@@ -183,7 +183,8 @@ pub(crate) async fn run(
                     format!("register project {name}")
                 }
                 Command::Rename(args) => {
-                    let (id, record) = jj_lib::view::ProjectView::new(&view.project_state).project_by_name(&args.old)
+                    let (id, record) = jj_lib::view::ProjectView::new(&view.project_state)
+                        .project_by_name(&args.old)
                         .map_err(user_error)?;
                     let mut record = record.clone();
                     record.name =
@@ -191,12 +192,14 @@ pub(crate) async fn run(
                     view.project_state
                         .projects
                         .insert(id.clone(), Merge::resolved(Some(record)));
-                    jj_lib::view::ProjectView::new(&view.project_state).validate_project(&id)
+                    jj_lib::view::ProjectView::new(&view.project_state)
+                        .validate_project(&id)
                         .map_err(user_error)?;
                     format!("rename project {} to {}", args.old, args.new)
                 }
                 Command::Remove(args) => {
-                    let (id, _) = jj_lib::view::ProjectView::new(&view.project_state).project_by_name(&args.name)
+                    let (id, _) = jj_lib::view::ProjectView::new(&view.project_state)
+                        .project_by_name(&args.name)
                         .map_err(user_error)?;
                     remove_project(&mut view, &id)?;
                     format!("remove project {}", args.name)
@@ -282,7 +285,8 @@ fn resolve(
                 }
                 first.project.clone()
             } else {
-                let (_, binding) = jj_lib::view::ProjectView::new(&view.project_state).binding_for_connection(&connection)
+                let (_, binding) = jj_lib::view::ProjectView::new(&view.project_state)
+                    .binding_for_connection(&connection)
                     .map_err(user_error)?
                     .ok_or_else(|| {
                         user_error("A missing remote name requires an active project binding")
