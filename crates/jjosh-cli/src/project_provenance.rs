@@ -213,7 +213,7 @@ impl Cache {
             destination.path().join("shallow"),
             gix::lock::acquire::Fail::Immediately,
             None,
-            0,
+            Default::default(),
         )
         .context("Locking destination source cache shallow boundaries")?;
         // An initialized cache with no refs or shallow file has no history to
