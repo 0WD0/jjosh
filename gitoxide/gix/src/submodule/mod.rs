@@ -2,6 +2,7 @@
 //!
 use std::{
     cell::{Ref, RefCell, RefMut},
+    ops::ControlFlow,
     path::{Path, PathBuf},
 };
 
@@ -12,6 +13,7 @@ use crate::{
     Repository, Result, Submodule,
     bstr::{BStr, BString},
     is_dir_to_mode,
+    open::RelatedRepositoryKind,
     worktree::IndexPersistedOrInMemory,
 };
 
@@ -26,7 +28,7 @@ mod url;
 
 /// A platform maintaining state needed to interact with submodules, created by [`Repository::submodules()].
 pub(crate) struct SharedState<'repo> {
-    pub repo: &'repo Repository,
+    repo: &'repo Repository,
     pub(crate) modules: ModulesSnapshot,
     is_active: RefCell<Option<IsActiveState>>,
     index: RefCell<Option<IndexPersistedOrInMemory>>,
@@ -42,6 +44,10 @@ impl<'repo> SharedState<'repo> {
         }
     }
 
+    fn repo(&self) -> &'repo Repository {
+        self.repo
+    }
+
     fn index(&self) -> Result<Ref<'_, IndexPersistedOrInMemory>> {
         {
             let mut state = self.index.borrow_mut();
@@ -54,12 +60,13 @@ impl<'repo> SharedState<'repo> {
         }))
     }
 
-    fn active_state_mut(&self) -> Result<(RefMut<'_, IsActivePlatform>, RefMut<'_, gix_worktree::Stack>)> {
+    fn active_state_mut(&self) -> Result<RefMut<'_, IsActiveState>> {
         let mut state = self.is_active.borrow_mut();
         if state.is_none() {
+            let config = self.repo.trusted_submodule_config()?;
             let platform = self
                 .modules
-                .is_active_platform(&self.repo.config.resolved, self.repo.config.pathspec_defaults()?)?;
+                .is_active_platform(&config, self.repo.config.pathspec_defaults()?)?;
             let index = self.index()?;
             let attributes = self
                 .repo
@@ -69,16 +76,18 @@ impl<'repo> SharedState<'repo> {
                         .adjust_for_bare(self.repo.is_bare()),
                 )?
                 .detach();
-            *state = Some(IsActiveState { platform, attributes });
+            *state = Some(IsActiveState {
+                config,
+                platform,
+                attributes,
+            });
         }
-        Ok(RefMut::map_split(state, |opt| {
-            let state = opt.as_mut().expect("populated above");
-            (&mut state.platform, &mut state.attributes)
-        }))
+        Ok(RefMut::map(state, |opt| opt.as_mut().expect("populated above")))
     }
 }
 
 struct IsActiveState {
+    config: gix_config::File,
     platform: IsActivePlatform,
     attributes: gix_worktree::Stack,
 }
@@ -101,9 +110,17 @@ impl Submodule<'_> {
     }
     /// Return the path at which the submodule can be found, relative to the repository.
     ///
+    /// Use [`try_path()`](Self::try_path()) if the path field is optional.
     /// For details, see [gix_submodule::File::path()].
     pub fn path(&self) -> Result<BString> {
         self.state.modules.path(self.name())
+    }
+
+    /// Return the submodule's path relative to the repository, or `None` if its path field is missing.
+    ///
+    /// A present but empty or invalid path remains an error. For details, see [gix_submodule::File::try_path()].
+    pub fn try_path(&self) -> Result<Option<BString>> {
+        self.state.modules.try_path(self.name())
     }
 
     /// Return the raw configured URL of the submodule, parsed as a Git URL.
@@ -134,8 +151,11 @@ impl Submodule<'_> {
     pub fn fetch_recurse(&self) -> Result<Option<config::FetchRecurse>> {
         Ok(match self.state.modules.fetch_recurse(self.name())? {
             Some(val) => Some(val),
-            None => crate::config::tree::Fetch::RECURSE_SUBMODULES
-                .try_into_recurse_submodules(self.state.repo.config.resolved.boolean("fetch.recurseSubmodules"))?,
+            None => {
+                let repo = self.state.repo();
+                let key = &crate::config::tree::Fetch::RECURSE_SUBMODULES;
+                key.try_into_recurse_submodules(repo.config.resolved.boolean_filter(key, repo.filter_config_section()))?
+            }
         })
     }
 
@@ -157,17 +177,17 @@ impl Submodule<'_> {
     ///
     /// Please see the [plumbing crate documentation](gix_submodule::IsActivePlatform::is_active()) for details.
     pub fn is_active(&self) -> Result<bool> {
-        let (mut platform, mut attributes) = self.state.active_state_mut()?;
-        let is_active = platform.is_active(
-            &self.state.repo.config.resolved,
-            self.name.as_ref(),
-            &mut |relative_path, case, is_dir, out| {
-                attributes
-                    .set_case(case)
-                    .at_entry(relative_path, Some(is_dir_to_mode(is_dir)), &self.state.repo.objects)
-                    .is_ok_and(|platform| platform.matching_attributes(out))
-            },
-        )?;
+        let IsActiveState {
+            config,
+            platform,
+            attributes,
+        } = &mut *self.state.active_state_mut()?;
+        let is_active = platform.is_active(config, self.name.as_ref(), &mut |relative_path, case, is_dir, out| {
+            attributes
+                .set_case(case)
+                .at_entry(relative_path, Some(is_dir_to_mode(is_dir)), &self.state.repo().objects)
+                .is_ok_and(|platform| platform.matching_attributes(out))
+        })?;
         Ok(is_active)
     }
 
@@ -195,7 +215,7 @@ impl Submodule<'_> {
         let path = self.path()?;
         Ok(self
             .state
-            .repo
+            .repo()
             .head_commit()?
             .tree()?
             .peel_to_entry_by_path(gix_path::from_bstring(path)?)?
@@ -207,7 +227,7 @@ impl Submodule<'_> {
     /// Linked superprojects keep submodule repositories in their private Git directory.
     /// The returned directory might not exist yet.
     pub fn git_dir(&self) -> Result<PathBuf> {
-        git_dir_from_name(self.state.repo.git_dir(), self.validated_name()?)
+        git_dir_from_name(self.state.repo().git_dir(), self.validated_name()?)
     }
 
     /// Return the submodule's checkout location, or `None` if the superproject has no working directory.
@@ -215,7 +235,7 @@ impl Submodule<'_> {
     /// The returned directory might not exist yet. Use [`path()`](Self::path()) to obtain the configured
     /// relative path regardless of whether the superproject has a working directory.
     pub fn work_dir(&self) -> Result<Option<PathBuf>> {
-        let Some(work_dir) = self.state.repo.workdir() else {
+        let Some(work_dir) = self.state.repo().workdir() else {
             return Ok(None);
         };
         work_dir_from_relative_path(work_dir, self.path()?.as_ref()).map(Some)
@@ -262,12 +282,11 @@ impl Submodule<'_> {
     fn state_inner(&self, validate_gitdir_file_target: bool) -> Result<State> {
         let maybe_old_path = self.git_dir_try_old_form_inner(validate_gitdir_file_target)?;
         let worktree_git = self.worktree_gitdir()?;
-        let superproject_configuration = self
-            .state
-            .repo
+        let repo = self.state.repo();
+        let superproject_configuration = repo
             .config
             .resolved
-            .sections_by_name("submodule")
+            .sections_by_name_and_filter("submodule", repo.filter_config_section())
             .into_iter()
             .flatten()
             .any(|section| section.header().subsection_name() == Some(self.name.as_ref()));
@@ -285,7 +304,8 @@ impl Submodule<'_> {
         self.state_inner(true)
     }
 
-    /// Open the submodule as repository, or `None` if the submodule wasn't initialized yet.
+    /// Open the submodule as repository, or `None` if it wasn't initialized yet or opening was
+    /// skipped by the [configured callback](crate::open::Options::configure_related_repository).
     ///
     /// More states can be derived here:
     ///
@@ -297,7 +317,14 @@ impl Submodule<'_> {
     /// The repository can also be used to learn about the submodule `HEAD`, i.e. where its working tree is at,
     /// which may differ compared to the superproject's index or `HEAD` commit.
     pub fn open(&self) -> Result<Option<Repository>> {
-        open(self.state.repo, &self.git_dir_try_old_form()?, self.path()?.as_ref())
+        Ok(match self.open_inner()? {
+            ControlFlow::Continue(repo) => repo,
+            ControlFlow::Break(_) => None,
+        })
+    }
+
+    fn open_inner(&self) -> Result<ControlFlow<PathBuf, Option<Repository>>> {
+        open(self.state.repo(), &self.git_dir_try_old_form()?, self.path()?.as_ref())
     }
 
     /// Return the location of the submodule checkout's `.git` entry, or `None` if the superproject has no worktree.
@@ -305,7 +332,7 @@ impl Submodule<'_> {
     /// This is usually a file containing a `gitdir:` pointer to the submodule's repository, but is a directory
     /// in old-form submodules.
     fn worktree_gitdir(&self) -> Result<Option<PathBuf>> {
-        worktree_gitdir(self.state.repo, self.path()?.as_ref())
+        worktree_gitdir(self.state.repo(), self.path()?.as_ref())
     }
 }
 
@@ -362,7 +389,11 @@ pub(crate) fn git_dir_from_worktree_gitdir(
 /// or trust from `superproject`. Infer its checkout from `relative_path` below `superproject`'s worktree,
 /// preserving path spelling and configuration precedence.
 /// Include the checkout's `.git` entry in trust checks while opening the resolved repository path.
-pub(crate) fn open(superproject: &Repository, git_dir: &Path, relative_path: &BStr) -> Result<Option<Repository>> {
+pub(crate) fn open(
+    superproject: &Repository,
+    git_dir: &Path,
+    relative_path: &BStr,
+) -> Result<ControlFlow<PathBuf, Option<Repository>>> {
     let work_dir = superproject
         .workdir()
         .map(|work_dir| work_dir_from_relative_path(work_dir, relative_path))
@@ -374,7 +405,7 @@ pub(crate) fn open(superproject: &Repository, git_dir: &Path, relative_path: &BS
         .unwrap_or(git_dir);
     let kind = match gix_discover::is_git(git_dir) {
         Ok(kind) => kind,
-        Err(_) => return Ok(None),
+        Err(_) => return Ok(ControlFlow::Continue(None)),
     };
     let cwd = superproject.current_dir();
     let (git_dir, work_dir) = match work_dir {
@@ -389,8 +420,17 @@ pub(crate) fn open(superproject: &Repository, git_dir: &Path, relative_path: &BS
 
     options.current_dir = Some(cwd.to_owned());
     options.retain_inferred_worktree_when_bare = superproject.workdir().is_some();
+    let ControlFlow::Continue(options) = options.configure_related_open(
+        superproject,
+        RelatedRepositoryKind::Submodule,
+        &git_dir,
+        work_dir.as_deref(),
+    )?
+    else {
+        return Ok(ControlFlow::Break(cwd.join(git_dir)));
+    };
     match crate::ThreadSafeRepository::open_from_paths(git_dir, work_dir, options, None) {
-        Ok(repo) => Ok(Some(repo.into())),
+        Ok(repo) => Ok(ControlFlow::Continue(Some(repo.into()))),
         Err(err)
             if err
                 .error()
@@ -398,7 +438,7 @@ pub(crate) fn open(superproject: &Repository, git_dir: &Path, relative_path: &BS
                 .downcast_ref::<gix_error::Message>()
                 .is_some_and(|error| error.class == Some(gix_error::Class::NotFound)) =>
         {
-            Ok(None)
+            Ok(ControlFlow::Continue(None))
         }
         Err(err) => Err(err),
     }
@@ -451,6 +491,8 @@ mod tests {
 ///
 #[cfg(feature = "status")]
 pub mod status {
+    use std::ops::ControlFlow;
+
     use gix_submodule::config;
 
     use super::Status;
@@ -510,8 +552,9 @@ pub mod status {
                     ..Default::default()
                 });
             }
-            let sm_repo = match self.open()? {
-                None => {
+            let sm_repo = match self.open_inner()? {
+                ControlFlow::Break(git_dir) => return Err(crate::open::related_repository_skipped(&git_dir)),
+                ControlFlow::Continue(None) => {
                     state.repository_exists = false;
                     return Ok(Status {
                         state,
@@ -519,7 +562,7 @@ pub mod status {
                         ..Default::default()
                     });
                 }
-                Some(repo) => repo,
+                ControlFlow::Continue(Some(repo)) => repo,
             };
 
             Status {
@@ -629,7 +672,7 @@ pub struct State {
     pub is_old_form: bool,
     /// if the worktree is checked out.
     pub worktree_checkout: bool,
-    /// If submodule configuration was found in the superproject's `.git/config` file.
+    /// If submodule configuration was found in an eligible section of the superproject's configuration.
     /// Note that the presence of a single section is enough, independently of the actual values.
     pub superproject_configuration: bool,
 }

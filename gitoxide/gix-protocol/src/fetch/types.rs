@@ -2,13 +2,15 @@ use std::path::PathBuf;
 
 use crate::fetch::response::{Acknowledgement, ShallowUpdate, WantedRef};
 
-/// Options for use in [`fetch()`](`crate::fetch()`)
+/// Options for [fetching a pack](mod@crate::fetch).
 #[derive(Debug, Clone)]
 pub struct Options<'a> {
     /// The path to the file containing the shallow commit boundary.
     ///
     /// When needed, it will be locked in preparation for being modified.
     pub shallow_file: PathBuf,
+    /// The parsed `core.sharedRepository` policy to apply when writing the shallow boundary.
+    pub shared_repository_permissions: gix_fs::SharedPermissions,
     /// How to deal with shallow repositories. It does affect how negotiations are performed.
     pub shallow: &'a Shallow,
     /// Describe how to handle tags when fetching.

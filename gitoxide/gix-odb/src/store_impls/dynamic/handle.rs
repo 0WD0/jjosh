@@ -267,6 +267,7 @@ impl super::Store {
             refresh: RefreshMode::default(),
             ignore_replacements: false,
             loose_compression: self.loose_compression,
+            shared_repository_permissions: self.shared_repository_permissions,
             token: Some(token),
             inflate: RefCell::new(Default::default()),
             snapshot: RefCell::new(self.collect_snapshot()),
@@ -285,6 +286,7 @@ impl super::Store {
             refresh: Default::default(),
             ignore_replacements: false,
             loose_compression: self.loose_compression,
+            shared_repository_permissions: self.shared_repository_permissions,
             token: Some(token),
             inflate: RefCell::new(Default::default()),
             snapshot: RefCell::new(self.collect_snapshot()),
@@ -375,6 +377,7 @@ impl TryFrom<&super::Store> for super::Store {
                 alloc_limit_bytes: s.alloc_limit_bytes,
                 current_dir: s.current_dir.clone().into(),
                 loose_compression: s.loose_compression,
+                shared_repository_permissions: s.shared_repository_permissions,
             },
         )
     }
@@ -383,12 +386,28 @@ impl TryFrom<&super::Store> for super::Store {
 impl super::Handle<Rc<super::Store>> {
     /// Convert a ref counted store into one that is ref-counted and thread-safe, by creating a new Store.
     pub fn into_arc(self) -> std::io::Result<super::Handle<Arc<super::Store>>> {
-        let loose_compression = self.loose_compression;
-        let store = Arc::new(super::Store::try_from(self.store_ref())?);
+        let Self {
+            store,
+            refresh,
+            max_recursion_depth,
+            ignore_replacements,
+            loose_compression,
+            shared_repository_permissions,
+            token,
+            snapshot: _,
+            inflate: _,
+            packed_object_count: _,
+        } = &self;
+        let store = Arc::new(super::Store::try_from(store.as_ref())?);
         let mut cache = store.to_handle_arc();
-        cache.refresh = self.refresh;
-        cache.max_recursion_depth = self.max_recursion_depth;
-        cache.loose_compression = loose_compression;
+        cache.refresh = *refresh;
+        cache.ignore_replacements = *ignore_replacements;
+        cache.max_recursion_depth = *max_recursion_depth;
+        cache.loose_compression = *loose_compression;
+        cache.shared_repository_permissions = *shared_repository_permissions;
+        if matches!(token.as_ref(), Some(Mode::KeepDeletedPacksAvailable)) {
+            cache.prevent_pack_unload();
+        }
         Ok(cache)
     }
 }
@@ -410,6 +429,7 @@ where
             refresh: self.refresh,
             ignore_replacements: self.ignore_replacements,
             loose_compression: self.loose_compression,
+            shared_repository_permissions: self.shared_repository_permissions,
             token: {
                 let token = self.store.register_handle();
                 match self.token.as_ref().expect("token is always set here ") {

@@ -1,6 +1,68 @@
 use gix_ref::bstr;
 use gix_testtools::{Result, TestResult};
 
+#[cfg(all(feature = "notify", target_os = "macos"))]
+#[test]
+fn linked_worktree_removal_notifies_through_shared_metadata() -> TestResult {
+    use std::time::{Duration, Instant};
+
+    let (repo, _fixture) = crate::basic_rw_repo()?;
+    let destinations = gix_testtools::tempfile::tempdir()?;
+    let linked = destinations.path().join("linked");
+    let main = repo.workdir().expect("the fixture has a main worktree");
+    let output = gix_testtools::git_command(main)
+        .args(["worktree", "add", "--detach"])
+        .arg(&linked)
+        .output()?;
+    assert!(
+        output.status.success(),
+        "the disposable linked worktree is created: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let mut monitor = repo.monitor(gix::notify::Options {
+        worktree_coverage: None,
+        ..Default::default()
+    })?;
+    let opener = || gix::open_opts(main, crate::restricted());
+    for _ in 0..2 {
+        let outcome = monitor.service(Instant::now(), opener);
+        assert!(outcome.errors.is_empty(), "startup succeeds: {:?}", outcome.errors);
+    }
+    // The removed worktree lies outside the watched roots; its shared metadata must report it.
+    let output = gix_testtools::git_command(main)
+        .args(["worktree", "remove"])
+        .arg(&linked)
+        .output()?;
+    assert!(
+        output.status.success(),
+        "Git removes the linked worktree: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let (mut references, mut layout, mut removed) = (false, false, 0);
+    loop {
+        let outcome = monitor.service(Instant::now(), opener);
+        assert!(
+            outcome.errors.is_empty(),
+            "event-driven reconciliation succeeds: {:?}",
+            outcome.errors
+        );
+        references |= outcome.changes.references;
+        layout |= outcome.changes.layout;
+        removed += outcome.statistics.removed;
+        if references && layout && removed != 0 {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "shared administrative events must invalidate references/layout and remove obsolete subscriptions"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(!linked.exists(), "Git also removed the working directory");
+    Ok(())
+}
+
 #[cfg(feature = "worktree-mutation")]
 mod lock {
     use gix::bstr::ByteSlice;
@@ -101,6 +163,36 @@ mod lock {
 
 #[cfg(feature = "worktree-mutation")]
 mod add {
+    #[test]
+    fn configure_related_repository_skip_rolls_back_worktree_registration() -> gix_testtools::TestResult {
+        use gix::{open::RelatedRepositoryKind, worktree::add::Head};
+        use std::{ops::ControlFlow, sync::atomic::AtomicBool};
+
+        let (repo, _fixture) = crate::basic_rw_repo()?;
+        let destinations = gix_testtools::tempfile::TempDir::new()?;
+        let destination = destinations.path().join("skipped");
+        let repo = crate::restricted()
+            .configure_related_repository(|related, _| {
+                assert_eq!(related.kind, RelatedRepositoryKind::LinkedWorktree);
+                Ok(ControlFlow::Break(()))
+            })
+            .open(repo.git_dir())?;
+        let err = repo
+            .prepare_add_worktree(
+                &destination,
+                Head::Detached(repo.head_id()?.detach()),
+                &AtomicBool::default(),
+            )
+            .expect_err("the callback skipped the new worktree");
+        assert!(
+            err.to_string().contains("Could not open a worktree repository"),
+            "{err}"
+        );
+        assert!(!destination.exists(), "the skipped checkout is rolled back");
+        assert!(repo.worktrees()?.is_empty(), "the skipped registration is rolled back");
+        Ok(())
+    }
+
     #[test]
     fn returned_repositories_and_preparation_have_absolute_paths() -> gix_testtools::TestResult {
         let (source, _fixture) = crate::basic_rw_repo()?;
@@ -451,6 +543,109 @@ mod add {
     use gix::bstr::ByteSlice;
     use gix::refs::{FullName, transaction::PreviousValue};
     use gix_path::{into_bstr, to_unix_separators_on_windows};
+
+    #[test]
+    #[cfg(unix)]
+    fn shared_repository_permissions_match_git_with_shared_linking_files() -> gix_error::TestResult {
+        for umask in [0o022, 0o077] {
+            if gix_testtools::run_with_umask(umask)? {
+                check_shared_repository_permissions()?;
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    fn check_shared_repository_permissions() -> gix_error::TestResult {
+        use std::{fs, os::unix::fs::PermissionsExt};
+
+        let mode =
+            |path: &std::path::Path| -> std::io::Result<u32> { Ok(fs::metadata(path)?.permissions().mode() & 0o7777) };
+        for (shared, worktree_config) in [("group", false), ("0640", false), ("false", false), ("0640", true)] {
+            let fixture = gix_testtools::scripted_fixture_writable_with_args(
+                "make_shared_repository.sh",
+                [shared, if worktree_config { "worktree" } else { "common" }],
+                gix_testtools::Creation::CopyFromReadOnly,
+            )?;
+            let source = gix::open_opts(fixture.path(), crate::restricted())?;
+            let work_dir = source.workdir().expect("source checkout").to_owned();
+            for attached in [true, false] {
+                let suffix = if attached { "attached" } else { "detached" };
+                let commit_id = source.head_id()?.detach();
+                let head = if attached {
+                    let topic = branch("gix-topic");
+                    source.reference(topic.clone(), commit_id, PreviousValue::MustNotExist, "create topic")?;
+                    gix::worktree::add::Head::Attached(topic)
+                } else {
+                    gix::worktree::add::Head::Detached(commit_id)
+                };
+                let parent = work_dir.join(format!("gix-{suffix}"));
+                let destination = parent.join("worktree");
+                let (created, _) =
+                    source.add_worktree(&destination, head, gix::progress::Discard, &AtomicBool::default())?;
+                gix_testtools::git(
+                    &work_dir,
+                    &format!(
+                        "worktree add {} git-{suffix}/worktree HEAD",
+                        if attached { "-b git-topic" } else { "--detach" }
+                    ),
+                )?;
+                let git_parent = work_dir.join(format!("git-{suffix}"));
+                let git_destination = git_parent.join("worktree");
+                let git_repo = gix::open_opts(&git_destination, crate::restricted())?;
+                for (actual, expected) in [
+                    (source.common_dir().join("worktrees"), git_parent.clone()),
+                    (parent, git_parent),
+                    (destination.clone(), git_destination.clone()),
+                    (created.git_dir().to_owned(), git_repo.git_dir().to_owned()),
+                ] {
+                    assert_eq!(
+                        mode(&actual)?,
+                        mode(&expected)?,
+                        "shared={shared}: worktree directories follow Git's directory policy"
+                    );
+                }
+                for name in ["HEAD", "logs", "logs/HEAD", "index"] {
+                    assert_eq!(
+                        mode(&created.git_dir().join(name))?,
+                        mode(&git_repo.git_dir().join(name))?,
+                        "shared={shared}: {name} follows Git's metadata policy"
+                    );
+                }
+                if worktree_config {
+                    assert_eq!(
+                        mode(&created.git_dir().join("config.worktree"))?,
+                        mode(&git_repo.git_dir().join("config.worktree"))?,
+                        "copied worktree configuration uses the source repository's sharing policy"
+                    );
+                }
+                for path in [
+                    destination.join(".git"),
+                    created.git_dir().join("gitdir"),
+                    created.git_dir().join("commondir"),
+                ] {
+                    assert_eq!(
+                        mode(&path)?,
+                        mode(&git_repo.git_dir().join("HEAD"))?,
+                        "shared={shared}: linking files deliberately use the repository metadata policy"
+                    );
+                }
+                for name in ["this", "some-with-file"] {
+                    assert_eq!(
+                        mode(&destination.join(name))?,
+                        mode(&git_destination.join(name))?,
+                        "shared={shared}: checked-out {name} retains Git's ordinary filesystem permissions"
+                    );
+                }
+                assert_eq!(
+                    gix_testtools::git(&destination, "status --porcelain")?,
+                    "",
+                    "permissions do not change checkout contents"
+                );
+            }
+        }
+        Ok(())
+    }
 
     #[test]
     fn initial_head_reflog_respects_configuration_like_git() -> gix_testtools::TestResult {
@@ -2553,8 +2748,12 @@ mod with_core_worktree_config {
     }
 
     #[test]
-    fn non_existing_relative() {
-        let repo = repo("relative-nonexisting-worktree");
+    fn non_existing_relative() -> TestResult {
+        let repo = crate::util::named_subrepo_opts(
+            "make_core_worktree_repo.sh",
+            "relative-nonexisting-worktree",
+            crate::restricted().filter_config_section(|_| true),
+        )?;
         assert_eq!(
             count_deleted(repo.git_dir()),
             0,
@@ -2563,9 +2762,9 @@ mod with_core_worktree_config {
 
         assert!(
             !repo.workdir().expect("configured").exists(),
-            "non-existing or invalid worktrees (this one is a file) are taken verbatim and \
-            may lead to errors later - just like in `git` and we explicitly do not try to be smart about it"
+            "an eligible relative core.worktree value may resolve to a missing path"
         );
+        Ok(())
     }
 
     #[test]
@@ -2747,6 +2946,53 @@ fn worktree_listing_errors_preserve_io_errors() -> TestResult {
             "both listing APIs preserve the directory traversal failure"
         );
     }
+    Ok(())
+}
+
+#[test]
+fn configure_related_repository_applies_to_linked_and_main_opens() -> TestResult {
+    use std::ops::ControlFlow::{Break, Continue};
+
+    use gix::open::RelatedRepositoryKind;
+
+    let Some(dir) = gix_testtools::scripted_fixture_read_only_with_git_version("make_worktree_repo.sh", |version| {
+        version >= (2, 31, 0)
+    })?
+    else {
+        return Ok(());
+    };
+    let repo = crate::restricted()
+        .configure_related_repository(|related, _| {
+            assert!(related.git_dir.is_absolute(), "the target path can be used directly");
+            match related.kind {
+                RelatedRepositoryKind::LinkedWorktree if related.git_dir.ends_with("wt-a") => Ok(Continue(
+                    gix::open::Options::isolated().config_overrides(["core.abbrev=12"]),
+                )),
+                RelatedRepositoryKind::MainRepository => {
+                    assert!(
+                        related.parent.git_dir().ends_with("wt-a"),
+                        "the linked worktree is the parent"
+                    );
+                    Ok(Break(()))
+                }
+                _ => Ok(Break(())),
+            }
+        })
+        .open(dir.join("repo"))?;
+    let linked = repo.worktree_proxy_by_id("wt-a")?.expect("worktree wt-a").into_repo()?;
+    assert_eq!(
+        linked.config_snapshot().integer("core.abbrev"),
+        Some(12),
+        "the linked worktree sees the override"
+    );
+    let err = linked
+        .main_repo()
+        .expect_err("the inherited callback skipped the main repository");
+    assert!(err.to_string().contains(&repo.git_dir().display().to_string()), "{err}");
+    assert!(
+        repo.worktrees_including_main()?.any(|result| result.is_err()),
+        "traversal surfaces skips so callers know they did not see all worktrees"
+    );
     Ok(())
 }
 

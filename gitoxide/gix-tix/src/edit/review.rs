@@ -163,11 +163,10 @@ pub(crate) fn start(
         .workdir()
         .ok_or_raise(|| message("review requires a worktree"))?
         .to_owned();
-    let head = repo.head().or_raise(|| message("could not read HEAD before review"))?;
-    let restore = (
-        head.referent_name().map(ToOwned::to_owned),
-        head.id().map(gix::Id::detach),
-    );
+    let head = repo
+        .head()
+        .or_raise(|| message("could not read HEAD before review"))?
+        .detach_repo();
     if tip == base || !graph.is_ancestor(base, tip) {
         bail!("the review base must be an ancestor of the reviewed commit");
     }
@@ -182,9 +181,12 @@ pub(crate) fn start(
         }
     }
     let name = next_reference(&repo)?;
-    let departure_pin = match restore.1 {
+    let departure_pin = match head.id() {
         Some(id) => {
-            let target = restore.0.clone().map_or(Target::Object(id), Target::Symbolic);
+            let target = match head {
+                gix::HeadOwned::Symbolic(reference) => Target::Symbolic(reference.name),
+                _ => Target::Object(id),
+            };
             let pin_name = return_pin_reference(name.as_bstr())?;
             Some(super::time_travel::create_named_pin(
                 &repo,
@@ -1662,9 +1664,8 @@ mod tests {
         super::super::time_travel::checkout_without_replay(fixture.path(), false, combined, &[], false)?;
 
         let repo = open()?;
-        let mut return_ref = repo.find_reference(return_name.as_ref())?;
         assert_eq!(
-            return_ref.peel_to_id()?.detach(),
+            repo.find_reference(return_name.as_ref())?.into_fully_peeled_id()?,
             combined,
             "checking out a rewritten destination preserves the review's return pin"
         );

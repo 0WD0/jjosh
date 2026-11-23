@@ -1,4 +1,4 @@
-use gix_testtools::TestResult;
+use gix_testtools::{TestResult, tempfile};
 
 #[test]
 fn repository_sources_respect_the_section_filter() -> TestResult {
@@ -12,6 +12,8 @@ fn repository_sources_respect_the_section_filter() -> TestResult {
     }
 
     let fixture = gix_testtools::scripted_fixture_read_only("make_path_protection_repos.sh")?;
+    let probe_dir = tempfile::tempdir_in(fixture.parent().expect("the fixture has a cache directory"))?;
+    let symlinks_supported = gix_fs::Capabilities::probe_symlink(probe_dir.path())?;
     for source in ["local", "worktree"] {
         for value in ["false", "true", "invalid"] {
             for (options, use_config) in [
@@ -31,10 +33,19 @@ fn repository_sources_respect_the_section_filter() -> TestResult {
                 ),
             ] {
                 let repo = gix::open_opts(fixture.join(format!("{source}-{value}")), options)?;
-                let validate = repo
-                    .checkout_options(gix::worktree::stack::state::attributes::Source::IdMapping)?
-                    .validate;
+                let checkout = repo.checkout_options(gix::worktree::stack::state::attributes::Source::IdMapping)?;
+                let validate = checkout.validate;
                 let configured = (use_config && value != "invalid").then_some(value == "true");
+                let fallback = if repo.git_dir_trust() == Trust::Full && use_config {
+                    gix_fs::Capabilities::default().symlink
+                } else {
+                    symlinks_supported
+                };
+                assert_eq!(
+                    checkout.fs.symlink,
+                    configured.unwrap_or(fallback),
+                    "{source}-{value}: checkout uses the fallback when no eligible value supplies symlink support"
+                );
                 let expected = Protections {
                     windows: configured.unwrap_or(cfg!(windows)),
                     hfs: configured.unwrap_or(cfg!(target_os = "macos")),
@@ -74,6 +85,7 @@ fn repository_sources_respect_the_section_filter() -> TestResult {
         }
         for value in ["false", "true"] {
             let overrides = [
+                format!("core.symlinks={value}"),
                 format!("core.protectHFS={value}"),
                 format!("core.protectNTFS={value}"),
                 format!("gitoxide.core.protectWindows={value}"),
@@ -85,9 +97,13 @@ fn repository_sources_respect_the_section_filter() -> TestResult {
                     .strict_config(true)
                     .config_overrides(overrides),
             )?;
-            let validate = repo
-                .checkout_options(gix::worktree::stack::state::attributes::Source::IdMapping)?
-                .validate;
+            let checkout = repo.checkout_options(gix::worktree::stack::state::attributes::Source::IdMapping)?;
+            let validate = checkout.validate;
+            assert_eq!(
+                checkout.fs.symlink,
+                value == "true",
+                "{source}: trusted overrides control symlink checkout"
+            );
             assert_eq!(
                 (validate.protect_windows, validate.protect_hfs, validate.protect_ntfs),
                 (value == "true", value == "true", value == "true"),
@@ -104,7 +120,35 @@ fn repository_sources_respect_the_section_filter() -> TestResult {
 }
 
 #[test]
-fn safe_directory_promotion_updates_reference_protection() -> TestResult {
+fn symlink_fallback_uses_the_effective_checkout() -> TestResult {
+    let fixture = gix_testtools::scripted_fixture_read_only("make_path_protection_repos.sh")?;
+    let worktree = fixture.join("unavailable-checkout");
+    let mut options = crate::restricted()
+        .with_trust(gix::sec::Trust::Reduced)
+        .system_config_path(worktree.join(".git/checkout.config"));
+    options.permissions.config.system = true;
+    let repo = gix::open_opts(worktree, options)?;
+    assert_eq!(
+        repo.workdir(),
+        Some(repo.git_dir().join("checkout-file").as_path()),
+        "protected configuration supplies the effective checkout"
+    );
+    assert!(
+        !repo.filesystem_options()?.symlink,
+        "filesystem options fall back to plain files where links cannot be created"
+    );
+    assert!(
+        !repo
+            .checkout_options(gix::worktree::stack::state::attributes::Source::IdMapping)?
+            .fs
+            .symlink,
+        "checkout uses the same symlink fallback"
+    );
+    Ok(())
+}
+
+#[test]
+fn safe_directory_promotion_updates_reference_protection_and_sharing() -> TestResult {
     let fixture = gix_testtools::scripted_fixture_read_only("make_path_protection_repos.sh")?;
     let mut permissions = gix::open::Permissions::isolated();
     permissions.config.system = true;
@@ -127,6 +171,11 @@ fn safe_directory_promotion_updates_reference_protection() -> TestResult {
                 value == "true",
                 "{source}: reference protection uses the final section trust"
             );
+            assert_eq!(
+                repo.refs.shared_repository_permissions,
+                gix::fs::SharedPermissions::Group,
+                "{source}: reference sharing uses the final section trust"
+            );
         }
     }
     Ok(())
@@ -143,7 +192,12 @@ fn invalid_values_are_checked_only_in_eligible_sections() -> TestResult {
                 .strict_config(true),
         )?;
         repo.checkout_options(gix::worktree::stack::state::attributes::Source::IdMapping)?;
-        for key in ["core.protectHFS", "core.protectNTFS", "gitoxide.core.protectWindows"] {
+        for key in [
+            "core.symlinks",
+            "core.protectHFS",
+            "core.protectNTFS",
+            "gitoxide.core.protectWindows",
+        ] {
             let err = gix::open_opts(
                 fixture.join(format!("{source}-true")),
                 crate::restricted()

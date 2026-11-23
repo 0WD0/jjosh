@@ -7,9 +7,9 @@ repository = "https://github.com/GitoxideLabs/gitoxide"
 authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
 edition = "2024"
 license = "MIT OR Apache-2.0"
-version = "0.61.0"
-# Rust 1.91 is required by the interactive commit graph (`gix-tix`).
-rust-version = "1.91"
+version = "0.62.0"
+# Rust 1.95 is required by the synchronization and hexadecimal dependencies.
+rust-version = "1.95"
 default-run = "gix"
 include = ["/src/**/*", "/build.rs", "/LICENSE-*", "/README.md"]
 resolver = "2"
@@ -143,12 +143,12 @@ sha1 = ["gix/sha1", "gix-tix?/sha1"]
 ## Enable support for the SHA-256 hash throughout the `gix` crate.
 sha256 = ["gix/sha256", "gix-tix?/sha256"]
 
-## Enable the interactive commit graph. This requires Rust 1.91 or newer.
+## Enable the interactive commit graph. This requires Rust 1.95 or newer.
 tix = ["dep:gix-tix"]
 
 ## Makes the crate execute as fast as possible by supporting parallel computation of otherwise long-running functions.
 ## If disabled, the binary will be visibly smaller.
-## Objects are decompressed and compressed with `sirocco`, which requires Rust 1.89 or newer.
+## Objects are decompressed and compressed with `sirocco`.
 fast = ["gix/max-performance", "gix/comfort", "gix/zlib-sirocco"]
 
 ## Deprecated: identical to `fast`, as all zlib backends are now pure Rust.
@@ -244,11 +244,12 @@ http-client-reqwest = ["gix/blocking-http-transport-reqwest-rust-tls"]
 gitoxide-core-async-client = ["gitoxide-core/async-client", "futures-lite"]
 
 [dependencies]
-gitoxide-core = { version = "^0.64.0", path = "gitoxide-core" }
-gix = { version = "^0.90.0", path = "gix", default-features = false, features = [
+gitoxide-core = { version = "^0.65.0", path = "gitoxide-core" }
+gix = { version = "^0.91.0", path = "gix", default-features = false, features = [
+    "unstable",
     "error-print-location",
 ] }
-gix-tix = { version = "^0.6.0", path = "gix-tix", default-features = false, optional = true }
+gix-tix = { version = "^0.7.0", path = "gix-tix", default-features = false, optional = true }
 
 clap = { version = "4.5.42", features = ["derive", "cargo"] }
 clap_complete = "4.5.55"
@@ -354,6 +355,9 @@ members = [
     "gix-mailmap",
     "gix-macros",
     "gix-note",
+    "gix-notify",
+    "gix-fsmonitor",
+    "gix-fsmonitor-daemon",
     "gix-negotiate",
     "gix-fetchhead",
     "gix-prompt",

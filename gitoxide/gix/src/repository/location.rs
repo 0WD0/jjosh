@@ -60,6 +60,7 @@ impl crate::Repository {
                 None => crate::RefStore::at_opts(git_dir, self.object_hash(), options),
             };
             refs.namespace.clone_from(&self.refs.namespace);
+            refs.shared_repository_permissions = self.refs.shared_repository_permissions;
             let threshold = self.refs.clone().set_packed_buffer_mmap_threshold(0);
             refs.set_packed_buffer_mmap_threshold(threshold);
             Some(refs)
@@ -78,6 +79,7 @@ impl crate::Repository {
                     alloc_limit_bytes: self.config.alloc_limit_bytes,
                     current_dir: Some(current_dir.to_owned()),
                     loose_compression: self.objects.loose_compression,
+                    shared_repository_permissions: self.objects.shared_repository_permissions,
                 },
             )
             .or_raise(|| message("Could not reopen the object database with an absolute path"))?
@@ -132,9 +134,9 @@ impl crate::Repository {
     }
 
     /// The trust we place in the git-dir, with lower amounts of trust causing access to configuration to be limited.
-    /// Note that if the git-dir is trusted but the worktree is not, the result is that the git-dir is also less trusted.
+    /// With automatic trust, an untrusted worktree can also reduce trust in the Git directory.
     pub fn git_dir_trust(&self) -> gix_sec::Trust {
-        self.options.git_dir_trust.expect("definitely set by now")
+        self.options.git_dir_trust.expect("definitely set by now").level()
     }
 
     /// Return the current working directory as present during the instantiation of this repository.

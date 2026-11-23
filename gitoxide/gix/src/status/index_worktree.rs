@@ -10,7 +10,7 @@ use crate::{
 use gix_status::index_as_worktree::traits::{CompareBlobs, SubmoduleStatus};
 
 /// Options for use with [Repository::index_worktree_status()].
-#[derive(Default, Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Options {
     /// The way all output should be sorted.
     ///
@@ -35,10 +35,24 @@ pub struct Options {
     /// Note that there is no git-configuration specific to index-worktree rename tracking.
     /// When rewrite tracking is enabled, there will be a delay for some entries as they partake in the rename-analysis.
     pub rewrites: Option<gix_diff::Rewrites>,
-    /// If set, don't use more than this amount of threads for the tracked modification check.
-    /// Otherwise, usually use as many threads as there are logical cores.
-    /// A value of 0 is interpreted as no-limit
+    /// The maximum number of threads for the tracked modification check. `None` and `Some(0)` use
+    /// the available logical cores.
+    ///
+    /// Defaults to `Some(3)` on macOS, where more threads mostly add system time to `lstat` calls,
+    /// and `None` elsewhere. This cap can increase elapsed time when many worktree files need to be read
+    /// and hashed. In those cases, a higher limit or `None`/`Some(0)` can improve performance.
     pub thread_limit: Option<usize>,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Options {
+            sorting: None,
+            dirwalk_options: None,
+            rewrites: None,
+            thread_limit: gix_status::index_as_worktree::Options::default().thread_limit,
+        }
+    }
 }
 
 impl Repository {
@@ -201,6 +215,7 @@ impl Clone for BuiltinSubmoduleStatus {
 
 ///
 mod submodule_status {
+    use std::ops::ControlFlow;
 
     use crate::{Result, config::cache::util::ApplyLeniency};
     use crate::{
@@ -216,7 +231,7 @@ mod submodule_status {
             let local_repo = repo.to_thread_local();
             let submodule_paths = match local_repo.submodules() {
                 Ok(Some(sm)) => {
-                    let mut v: Vec<_> = sm.filter_map(|sm| sm.path().ok()).collect();
+                    let mut v: Vec<_> = sm.filter_map(|sm| sm.try_path().transpose()).collect::<Result<_>>()?;
                     v.sort();
                     v
                 }
@@ -268,17 +283,26 @@ mod submodule_status {
                 .binary_search_by(|path| path.as_bstr().cmp(rela_path))
                 .is_ok()
             {
-                repo.submodules()?
-                    .and_then(|mut submodules| submodules.find(|sm| sm.path().is_ok_and(|path| path == rela_path)))
+                let mut found = None;
+                if let Some(submodules) = repo.submodules()? {
+                    for sm in submodules {
+                        if sm.try_path()?.is_some_and(|path| path == rela_path) {
+                            found = Some(sm);
+                            break;
+                        }
+                    }
+                }
+                found
             } else {
                 None
             };
             let (ignore, check_dirty) = match self.mode {
                 Submodule::AsConfigured { check_dirty } => {
-                    // diff.ignoreSubmodules is the global setting, and if it exists, it overrides the submodule's own ignore setting.
+                    // An eligible diff.ignoreSubmodules setting overrides the submodule's own ignore setting.
                     let global_ignore = repo
-                        .config_snapshot()
-                        .string(config::tree::Diff::IGNORE_SUBMODULES)
+                        .config
+                        .resolved
+                        .string_filter(config::tree::Diff::IGNORE_SUBMODULES, repo.filter_config_section())
                         .map(|value| config::tree::Diff::IGNORE_SUBMODULES.try_into_ignore(value))
                         .transpose()
                         .with_leniency(repo.config.lenient_config)?;
@@ -309,8 +333,10 @@ mod submodule_status {
                     let Some(git_dir) = crate::submodule::git_dir_from_worktree_gitdir(&worktree_gitdir, true)? else {
                         return Ok(None);
                     };
-                    let Some(sm_repo) = crate::submodule::open(&repo, &git_dir, rela_path)? else {
-                        return Ok(None);
+                    let sm_repo = match crate::submodule::open(&repo, &git_dir, rela_path)? {
+                        ControlFlow::Break(git_dir) => return Err(crate::open::related_repository_skipped(&git_dir)),
+                        ControlFlow::Continue(None) => return Ok(None),
+                        ControlFlow::Continue(Some(repo)) => repo,
                     };
                     crate::submodule::Status {
                         state: crate::submodule::State {

@@ -22,14 +22,19 @@
 //!
 //! ### The Trust Model
 //!
-//! It is very simple - based on the ownership of the repository compared to the user of the current process [Trust](sec::Trust)
-//! is assigned. This can be [overridden](open::Options::with_trust()) as well. Further, git configuration files track their trust level
-//! per section based on and sensitive values like paths to executables or certain values will be skipped if they are from a source
-//! that isn't [fully](sec::Trust::Full) trusted.
+//! By default, `gix` determines the initial [trust level](sec::Trust) by checking whether the repository
+//! is owned by the current user. When opening a repository directly, use [`open::Options::with_trust()`]
+//! to supply a trust level you have already determined. This skips the initial ownership check but still
+//! considers `safe.directory` and the ownership of the final worktree. Pass `None` to use the default.
 //!
-//! That way, data can safely be obtained without risking to execute untrusted executables.
+//! Use [`open::Options::with_enforced_trust()`] only as an I/O optimization when you already know that
+//! the repository and its configured worktree are trustworthy. It sets the final trust level, skipping
+//! repository and worktree ownership checks as well as `safe.directory` approval.
 //!
-//! Note that it's possible to let `gix` act like `git` or `git2` by setting the [open::Options::bail_if_untrusted()] option.
+//! Configuration sections carry their own trust level. Sensitive configuration reads, such as lookups
+//! of executable paths, can filter out untrusted sources without rejecting the repository outright.
+//! To reject repositories whose final trust level is [`Reduced`](sec::Trust::Reduced), set
+//! [`open::Options::bail_if_untrusted()`] to `true`.
 //!
 //! ### The prelude and extensions
 //!
@@ -139,7 +144,13 @@ pub use gix_date as date;
 #[cfg(feature = "dirwalk")]
 pub use gix_dir as dir;
 pub use gix_error as error;
+/// Filesystem utilities re-exported from `gix-fs`.
+#[gix_macros::unstable(since = "2023-04-16")]
 pub use gix_fs as fs;
+#[cfg(feature = "fsck")]
+pub use gix_fsck as fsck;
+#[cfg(feature = "fsmonitor")]
+pub use gix_fsmonitor as fsmonitor;
 pub use gix_glob as glob;
 pub use gix_hash as hash;
 pub use gix_hashtable as hashtable;
@@ -204,8 +215,8 @@ mod types;
 #[cfg(any(feature = "excludes", feature = "attributes"))]
 pub use types::AttributeStack;
 pub use types::{
-    Blob, Commit, Head, Id, Object, ObjectDetached, Reference, Remote, Repository, Tag, ThreadSafeRepository, Tree,
-    Worktree,
+    Blob, Commit, Head, HeadOwned, Id, Object, ObjectDetached, Reference, Remote, Repository, Tag,
+    ThreadSafeRepository, Tree, Worktree,
 };
 #[cfg(feature = "attributes")]
 pub use types::{Pathspec, PathspecDetached, Submodule};
@@ -272,23 +283,20 @@ pub fn discover(directory: impl AsRef<std::path::Path>) -> Result<Repository> {
     ThreadSafeRepository::discover(directory).map(Into::into)
 }
 
-/// Try to open a git repository in `directory` and search upwards through its parents until one is found,
-/// using `open_options` regardless of the trust level of the discovered repository.
-/// The detected trust level is retained, so repositories with reduced trust still restrict their behavior accordingly.
+/// Search upwards from `directory` for a Git repository and open it with `open_options`, regardless of its trust level.
+/// The search does not apply environment overrides to discovery.
+///
+/// [`discover::upwards::Options::trust`] determines whether a repository meets the search's trust requirements.
+/// Use [`discover::upwards::TrustPolicy::Assume`] to skip ownership checks during the search.
+/// Once a repository is found, its discovered trust is used as initial trust for opening unless overridden by
+/// [`open::Options::with_trust()`] or [`open::Options::with_enforced_trust()`]. Unless trust is enforced,
+/// opening still considers `safe.directory` and the ownership of the final worktree.
 pub fn discover_opts(
     directory: impl AsRef<std::path::Path>,
     options: discover::upwards::Options<'_>,
     open_options: open::Options,
 ) -> Result<Repository> {
-    ThreadSafeRepository::discover_opts(
-        directory,
-        options,
-        sec::trust::Mapping {
-            full: open_options.clone_with_trust(),
-            reduced: open_options,
-        },
-    )
-    .map(Into::into)
+    discover::discover_with_open_options(directory.as_ref(), options, open_options, false)
 }
 
 /// Try to discover a git repository directly from the environment.
@@ -298,11 +306,25 @@ pub fn discover_with_environment_overrides(directory: impl AsRef<std::path::Path
     ThreadSafeRepository::discover_with_environment_overrides(directory).map(Into::into)
 }
 
+/// Open the repository selected by `GIT_DIR`, or search upwards from `directory`, using `open_options` in either case.
+///
+/// This honors the environment overrides described in [`ThreadSafeRepository::discover_with_environment_overrides_opts()`].
+/// If `GIT_DIR` is set, there is no upward search and `options` do not apply. The selected repository is opened
+/// using ownership-derived trust unless `open_options` supplies trust explicitly. Otherwise, trust follows the
+/// same policy as [`discover_opts()`].
+pub fn discover_with_environment_overrides_opts(
+    directory: impl AsRef<std::path::Path>,
+    options: discover::upwards::Options<'_>,
+    open_options: open::Options,
+) -> Result<Repository> {
+    discover::discover_with_open_options(directory.as_ref(), options, open_options, true)
+}
+
 /// Try to open a git repository directly from the environment.
 ///
 /// See [`ThreadSafeRepository::open_with_environment_overrides()`].
 pub fn open_with_environment_overrides(directory: impl Into<std::path::PathBuf>) -> Result<Repository> {
-    ThreadSafeRepository::open_with_environment_overrides(directory, Default::default()).map(Into::into)
+    ThreadSafeRepository::open_with_environment_overrides(directory, |options, _| options).map(Into::into)
 }
 
 /// See [`ThreadSafeRepository::init()`], but returns a [`Repository`] instead.
@@ -334,8 +356,7 @@ pub fn init_bare(directory: impl AsRef<std::path::Path>) -> Result<Repository> {
 ///
 /// Like `git clone --bare`, branches are stored in `refs/heads/`, with no default fetch refspec,
 /// remote-tracking `HEAD`, or branch upstream configuration. For a non-bare clone without checkout
-/// (like `git clone --no-checkout`), use [`prepare_clone()`] followed by
-/// [`fetch_only()`][clone::PrepareFetch::fetch_only()]
+/// (like `git clone --no-checkout`), use [`prepare_clone()`] followed by `PrepareFetch::fetch_only()`
 /// with the `blocking-network-client` or `async-network-client-async-std` feature enabled.
 /// This creates `path/.git` and fetches the repository without populating the working tree.
 ///
@@ -373,7 +394,6 @@ where
 }
 
 fn open_opts_with_git_binary_config() -> open::Options {
-    use gix_sec::trust::DefaultForLevel;
     let mut opts = open::Options::default_for_level(gix_sec::Trust::Full);
     opts.permissions.config.git_binary = true;
     opts
@@ -428,6 +448,7 @@ pub fn config(git_dir: Option<&std::path::Path>, options: &open::Options) -> Res
         &options.api_config_overrides,
         &options.cli_config_overrides,
         options.use_repository_local_environment,
+        &mut |_| {},
     )
 }
 
@@ -545,6 +566,10 @@ pub mod state;
 ///
 #[cfg(feature = "status")]
 pub mod status;
+
+/// Filesystem notifications interpreted using repository layout and ignore rules.
+#[cfg(feature = "notify")]
+pub mod notify;
 
 ///
 pub mod shallow;

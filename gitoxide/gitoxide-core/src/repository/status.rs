@@ -4,9 +4,11 @@ use gix::{
     Result,
     bstr::{BStr, BString, ByteSlice},
     error::{ResultExt, bail, message, unsupported},
-    status::{self, index_worktree},
+    status::{
+        self, index_worktree,
+        plumbing::index_as_worktree::{Change, EntryStatus},
+    },
 };
-use gix_status::index_as_worktree::{Change, EntryStatus};
 
 use crate::OutputFormat;
 
@@ -107,7 +109,7 @@ pub fn show(
                     }
                 });
             }
-            opts.thread_limit = thread_limit;
+            opts.thread_limit = thread_limit.or(opts.thread_limit);
             opts.sorting = Some(gix::status::plumbing::index_as_worktree_with_renames::Sorting::ByPathCaseSensitive);
         })
         .index_worktree_submodules(match submodules {

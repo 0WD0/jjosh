@@ -20,6 +20,20 @@ This repository contains `gitoxide` - a pure Rust implementation of Git. These d
 - AI assistance that does not replace the person as the speaker, such as proofreading or wording polish, does not require identification.
 - Attributing AI assistance in commit metadata, for example with an `Assisted-by:` or `Co-authored-by:` trailer, is welcome but not required.
 
+### Worktrees
+
+Use a `tmp/` branch prefix for temporary worktrees. From the starting worktree,
+run `tix wt switch --new-branch tmp/<task>`. Tix starts the new worktree at the
+current Tix branch tip and makes its commits visible from the starting worktree.
+If you pass `--path`, prefix the directory name with `tmp-`.
+
+After verifying that the receiving branch contains all the work, return to the
+starting worktree and run `tix wt remove <worktree-path>` to remove the clean
+temporary worktree. Tix only deletes the temporary branch automatically if its
+tip is merged into the inferred default branch. To remove both together after
+reintegrating into a topic branch, use
+`tix wt remove --force-delete <worktree-path>`.
+
 ### Test-First Development
 
 - Protect against regression and make implementing features easy
@@ -115,7 +129,7 @@ Follow "purposeful conventional commits" style:
 - No `.unwrap()` - use `.expect("context")` if you are sure this can't fail.
 - Prefer references in plumbing crates to avoid expensive clones
 - Avoid calling `.detach()` unless an owned value is explicitly required. Many `gix` APIs accept attached ids and references directly, so prefer keeping repository-backed handles like `gix::Id` when possible.
-- Name variables holding untyped Git object IDs `<type>_id` or `*_<type>_id` (for example, `commit_id`, `root_tree_id`, or `note_blob_id`) so the object kind is always explicit.
+- When the object kind is known, name variables holding untyped Git object IDs `<type>_id` or `*_<type>_id` (for example, `commit_id`, `root_tree_id`, or `note_blob_id`) so the object kind is explicit. Use `id` when the object kind is unknown or unclear.
 - Use `gix_parallel::*` for interior mutability primitives
 
 ### Path Handling

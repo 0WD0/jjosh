@@ -17,6 +17,25 @@ pub fn repo(name: &str) -> Result<gix::Repository> {
     )?)
 }
 
+#[test]
+fn default_thread_limit() -> gix_error::TestResult {
+    let expected = cfg!(target_os = "macos").then_some(3);
+    assert_eq!(
+        gix::status::index_worktree::Options::default().thread_limit,
+        expected,
+        "the default caps threads at three on macOS and leaves them unlimited elsewhere"
+    );
+    repo("untracked-only")?
+        .status(gix::progress::Discard)?
+        .index_worktree_options_mut(|opts| {
+            assert_eq!(
+                opts.thread_limit, expected,
+                "the status platform preserves the default thread limit"
+            );
+        });
+    Ok(())
+}
+
 mod into_iter {
     use gix::status::{Item, Submodule, tree_index::TrackRenames};
     use gix_diff::Rewrites;
@@ -24,6 +43,41 @@ mod into_iter {
     use gix_testtools::size_ok;
 
     use crate::status::{repo, submodule_repo};
+
+    #[test]
+    fn index_writes_respect_checksum_configuration_trust() -> TestResult {
+        for trust in [gix_sec::Trust::Reduced, gix_sec::Trust::Full] {
+            let (mut repo, _fixture) = crate::basic_rw_repo()?;
+            repo.config_snapshot_mut()
+                .append_config(["index.skipHash=false"], gix_config::Source::User)?;
+            repo.config_snapshot_mut()
+                .append(gix_config::File::from_bytes_no_includes(
+                    b"[index]
+                        skipHash = true
+                    ",
+                    gix_config::file::Metadata::from(gix_config::Source::Local).with(trust),
+                    Default::default(),
+                )?)?;
+            let mut index = repo.open_index()?;
+            index.entries_mut()[0].stat = Default::default();
+            let mut status = repo
+                .status(gix::progress::Discard)?
+                .index(gix::worktree::IndexPersistedOrInMemory::InMemory(index))
+                .into_iter(None)?;
+            for item in status.by_ref() {
+                item?;
+            }
+            let mut outcome = status.into_outcome().expect("status completed");
+            assert!(outcome.has_changes(), "status refreshes the cleared index stat");
+            outcome.write_changes().expect("the refreshed index can be written")?;
+            assert_eq!(
+                repo.open_index()?.checksum().is_none(),
+                trust == gix_sec::Trust::Full,
+                "only trusted configuration can omit checksums from refreshed indexes"
+            );
+        }
+        Ok(())
+    }
 
     #[test]
     fn conflict_paths_are_reported_once_like_git() -> TestResult {
@@ -77,6 +131,45 @@ mod into_iter {
                 );
             }
         }
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn writing_stat_updates_honors_shared_repository_permissions() -> TestResult {
+        use std::{fs, os::unix::fs::PermissionsExt};
+
+        let fixture = gix_testtools::scripted_fixture_writable_with_args(
+            "make_shared_repository.sh",
+            ["0640", "common"],
+            gix_testtools::Creation::CopyFromReadOnly,
+        )?;
+        let mut repo = gix::open_opts(fixture.path(), crate::restricted().strict_config(true))?;
+        let mut config = repo.config_snapshot_mut();
+        config.set_raw_value("core.sharedRepository", "0664")?;
+        config.set_raw_value("core.deltaBaseCacheLimit", "invalid")?;
+        let err = config.commit().expect_err("the object cache limit is invalid");
+        assert!(
+            err.to_string().contains("core.deltaBaseCacheLimit"),
+            "the object cache limit causes the update to fail: {err}"
+        );
+        let mut index = repo.open_index()?;
+        index.entries_mut()[0].stat = Default::default();
+        index.write(Default::default(), gix::fs::SharedPermissions::Explicit(0o640))?;
+        let mut status = repo.status(gix::progress::Discard)?.into_iter(None)?;
+        for item in status.by_ref() {
+            item?;
+        }
+        status
+            .into_outcome()
+            .expect("status iteration is complete")
+            .write_changes()
+            .expect("the stale stat data needs to be refreshed")?;
+        assert_eq!(
+            fs::metadata(repo.index_path())?.permissions().mode() & 0o777,
+            0o640,
+            "refreshing index stat data uses the sharing policy from before the failed update"
+        );
         Ok(())
     }
 
@@ -461,14 +554,37 @@ mod into_iter {
     }
 
     #[test]
+    fn submodule_discovery_skips_missing_paths_but_propagates_invalid_ones() -> TestResult {
+        for case in ["missing", "implicit", "empty", "absolute", "escaping"] {
+            let repo = submodule_repo(&format!("path-{case}"))?;
+            let status = gix::status::index_worktree::BuiltinSubmoduleStatus::new(
+                repo.into_sync(),
+                Submodule::AsConfigured { check_dirty: false },
+            );
+            if case == "missing" {
+                status?;
+            } else {
+                let err = status.err().expect("invalid paths must fail discovery");
+                assert!(err.is_validation(), "{case}: status preserves path-validation errors");
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
     fn submodule_status_preserves_missing_configured_worktree() -> TestResult {
         use gix::status::plumbing::index_as_worktree::traits::SubmoduleStatus;
 
         let root = gix_testtools::scripted_fixture_read_only("make_unlisted_gitlinks.sh")?;
-        let repo = gix::open_opts(root.join("missing-worktree"), gix::open::Options::isolated())?;
+        let repo = gix::open_opts(
+            root.join("missing-worktree"),
+            gix::open::Options::isolated()
+                .filter_config_section(|_| true)
+                .config_overrides(["diff.ignoreSubmodules=all"]),
+        )?;
         assert!(
             !repo.workdir().expect("core.worktree is configured").exists(),
-            "opening a repository permits a missing configured checkout"
+            "an eligible configuration section can select a missing checkout"
         );
         let index = repo.index()?;
         let entry = index.entry_by_path("d".into()).expect("the fixture has a gitlink");
@@ -594,6 +710,19 @@ mod into_iter {
         assert!(
             !repo.is_dirty()?,
             "the global ignore setting applies to unlisted gitlinks"
+        );
+        let reduced = || gix::open::Options::isolated().with_trust(gix::sec::Trust::Reduced);
+        assert!(
+            gix::open_opts(root.join("global-ignore"), reduced())?.is_dirty()?,
+            "a reduced-trust ignore setting cannot hide a dirty gitlink"
+        );
+        assert!(
+            !gix::open_opts(
+                root.join("global-ignore"),
+                reduced().config_overrides(["diff.ignoreSubmodules=all"]),
+            )?
+            .is_dirty()?,
+            "an API ignore setting still applies to a reduced-trust repository"
         );
         for modules in ["absent", "listed"] {
             let repo = gix::open_opts(

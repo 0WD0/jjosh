@@ -59,7 +59,10 @@ where
         };
 
         let skip_hash = crate::config::tree::Index::SKIP_HASH
-            .enrich_error(self.repo.config.resolved.boolean(crate::config::tree::Index::SKIP_HASH))
+            .enrich_error(self.repo.config.resolved.boolean_filter(
+                crate::config::tree::Index::SKIP_HASH,
+                &mut self.repo.filter_config_section(),
+            ))
             .with_lenient_default(self.repo.config.lenient_config)?
             .unwrap_or_default();
         let should_interrupt = self.should_interrupt.clone().unwrap_or_default();
@@ -138,6 +141,7 @@ where
                             worktree_index: index,
                             changes: None,
                             skip_hash,
+                            shared_repository_permissions: repo.config.shared_repository_permissions,
                         })
                     }
                 }))
@@ -206,6 +210,7 @@ where
                 tree_index,
                 changes: None,
                 skip_hash,
+                shared_repository_permissions: self.repo.config.shared_repository_permissions,
             };
             items.extend(
                 collect

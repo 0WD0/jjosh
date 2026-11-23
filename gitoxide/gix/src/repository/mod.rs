@@ -108,6 +108,8 @@ mod dirwalk;
 pub mod filter;
 ///
 pub mod freelist;
+#[cfg(feature = "fsmonitor-server")]
+mod fsmonitor;
 mod graph;
 pub(crate) mod identity;
 mod impls;
@@ -120,6 +122,7 @@ mod mailmap;
 ///
 #[cfg(feature = "merge")]
 mod merge;
+
 #[cfg(feature = "notes")]
 mod note;
 mod object;

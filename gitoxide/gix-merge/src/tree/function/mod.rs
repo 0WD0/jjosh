@@ -1,4 +1,8 @@
 mod change;
-mod resolve;
+mod directories;
+mod entry;
+mod normalize;
+mod path;
+mod pipeline;
 
-pub use resolve::tree;
+pub use pipeline::tree;

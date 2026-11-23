@@ -72,7 +72,6 @@ pub fn main() -> Result<()> {
     let repository = {
         let config = config.clone();
         move |mut mode: Mode| -> Result<gix::Repository> {
-            let mut mapping: gix::sec::trust::Mapping<gix::open::Options> = Default::default();
             if !config.is_empty() {
                 mode = match mode {
                     Mode::Lenient => Mode::Strict,
@@ -81,29 +80,33 @@ pub fn main() -> Result<()> {
                 };
             }
             let strict_toggle = matches!(mode, Mode::Strict | Mode::StrictWithGitInstallConfig) || args.strict;
-            mapping.full = mapping.full.strict_config(strict_toggle);
-            mapping.reduced = mapping.reduced.strict_config(strict_toggle);
             let git_installation = matches!(
                 mode,
                 Mode::StrictWithGitInstallConfig | Mode::LenientWithGitInstallConfig
             );
-            let to_match_settings = |mut opts: gix::open::Options| {
-                opts.permissions.config.git_binary = git_installation;
-                opts.permissions.attributes.git_binary = git_installation;
+            let configure_open_options = |options: gix::open::Options| {
+                let mut options = options.strict_config(strict_toggle);
+                options.permissions.config.git_binary = git_installation;
+                options.permissions.attributes.git_binary = git_installation;
                 if config.is_empty() {
-                    opts
+                    options
                 } else {
-                    opts.cli_overrides(config.clone())
+                    options.cli_overrides(config.clone())
                 }
             };
-            mapping.full.modify(to_match_settings);
-            mapping.reduced.modify(to_match_settings);
-            let mut repo = gix::ThreadSafeRepository::discover_with_environment_overrides_opts(
-                repository,
-                Default::default(),
-                mapping,
-            )
-            .map(gix::Repository::from)?;
+            let mut repo = match args.repo_trust {
+                Some(trust) => trust
+                    .apply(configure_open_options(gix::open::Options::default_for_level(
+                        trust.level(),
+                    )))
+                    .discover_with_environment_overrides(&repository),
+                None => gix::ThreadSafeRepository::discover_with_environment_overrides_opts(
+                    &repository,
+                    Default::default(),
+                    |options, _| configure_open_options(options),
+                )
+                .map(Into::into),
+            }?;
             if !config.is_empty() {
                 repo.config_snapshot_mut()
                     .append_config(config.iter(), gix::config::Source::Cli)
@@ -136,12 +139,53 @@ pub fn main() -> Result<()> {
     }
 
     match cmd {
+        Subcommands::Notify(command) => core::notify::function(
+            &command.paths,
+            !command.non_recursive,
+            gix::notify::plumbing::Options {
+                max_events: command.max_events.get(),
+                max_bytes: command.max_bytes.get(),
+                root_check_interval: (command.root_check_ms != 0)
+                    .then(|| std::time::Duration::from_millis(command.root_check_ms)),
+            },
+            gix::notify::plumbing::Budget {
+                max_events: command.batch_events.get(),
+                max_bytes: command.batch_bytes.get(),
+            },
+            std::io::stdout().lock(),
+            std::io::stderr().lock(),
+            &should_interrupt,
+        ),
+        Subcommands::Watch(command) => {
+            let (options, poll_interval) = command.into_options()?;
+            let monitor = repository(Mode::Lenient)?.monitor(options)?;
+            core::repository::watch::function(
+                monitor,
+                poll_interval,
+                || repository(Mode::Lenient),
+                std::io::stdout().lock(),
+                std::io::stderr().lock(),
+                &should_interrupt,
+            )
+        }
+        Subcommands::Fsmonitor(command) => core::repository::fsmonitor::execute(
+            repository(Mode::Strict)?,
+            command.into_command(),
+            config,
+            std::io::stdout().lock(),
+            &should_interrupt,
+        ),
         #[cfg(feature = "tix")]
         Subcommands::Tix(command) => command.run_as(
             repository(Mode::Lenient)?.into_sync(),
             gix_tix::command::Invocation::GixTix,
         ),
-        Subcommands::Env => prepare_and_run("env", verbose, None, move |_progress, out, _err| core::env(out, format)),
+        Subcommands::Env => prepare_and_run("env", verbose, None, move |_progress, out, _err| {
+            let repo_trust = repository(Mode::LenientWithGitInstallConfig)
+                .ok()
+                .map(|repo| repo.git_dir_trust());
+            core::env(repo_trust, out, format)
+        }),
         Subcommands::Editor { paths } => core::repository::editor(repository(Mode::Lenient)?, paths),
         Subcommands::Merge(merge::Platform { cmd }) => match cmd {
             merge::SubCommands::File {
@@ -379,7 +423,7 @@ pub fn main() -> Result<()> {
                     output_format: format,
                     statistics,
                     ahead_behind,
-                    thread_limit: thread_limit.or(cfg!(target_os = "macos").then_some(3)), // TODO: make this a configurable when in `gix`, this seems to be optimal on MacOS, linux scales though! MacOS also scales if reading a lot of files for refresh index
+                    thread_limit,
                     allow_write: !no_write,
                     index_worktree_renames: index_worktree_renames.map(|percentage| percentage.unwrap_or(0.5)),
                     submodules: submodules.map(|submodules| match submodules {
@@ -975,12 +1019,31 @@ pub fn main() -> Result<()> {
                             verbose,
                             core::pack::multi_index::PROGRESS_RANGE,
                             move |progress, _out, _err| {
+                                let repo = (multi_index_path
+                                    == std::path::Path::new(".git/objects/pack/multi-pack-index"))
+                                .then(|| repository(Mode::Lenient));
+                                let shared_repository_permissions = match repo {
+                                    Some(Ok(repo)) => {
+                                        let repository_index =
+                                            repo.objects.store_ref().path().join("pack/multi-pack-index");
+                                        if gix::path::realpath(&multi_index_path)?
+                                            == gix::path::realpath(repository_index)?
+                                        {
+                                            repo.refs.shared_repository_permissions
+                                        } else {
+                                            gix::fs::SharedPermissions::Umask
+                                        }
+                                    }
+                                    Some(Err(err)) if !err.is_not_found() => return Err(err),
+                                    _ => gix::fs::SharedPermissions::Umask,
+                                };
                                 core::pack::multi_index::create(
                                     index_paths,
                                     multi_index_path,
                                     progress,
                                     &should_interrupt,
                                     object_hash,
+                                    shared_repository_permissions,
                                 )
                             },
                         ),
@@ -1436,7 +1499,122 @@ fn verify_mode(decode: bool, re_encode: bool) -> verify::Mode {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn notification_and_monitor_arguments_are_available() -> gix::error::TestResult {
+        use clap::Parser;
+
+        for arguments in [
+            vec!["gix", "notify"],
+            vec![
+                "gix",
+                "notify",
+                "directory",
+                "another",
+                "--non-recursive",
+                "--max-events",
+                "1",
+                "--batch-events",
+                "1",
+                "--root-check-ms",
+                "0",
+            ],
+            vec![
+                "gix",
+                "-r",
+                "repository",
+                "watch",
+                "--worktree-coverage",
+                "all",
+                "--poll-ms",
+                "10",
+            ],
+            vec!["gix", "fsmonitor", "start", "--idle-timeout", "3"],
+            vec!["gix", "fsmonitor", "hook", "2", "token", "--idle-timeout", "3"],
+            vec!["gix", "fsmonitor", "query", "-opaque-token"],
+        ] {
+            Args::try_parse_from(arguments)?;
+        }
+        for arguments in [
+            vec!["gix", "notify", "--max-events", "0"],
+            vec!["gix", "notify", "--max-bytes", "0"],
+            vec!["gix", "notify", "--batch-events", "0"],
+            vec!["gix", "notify", "--batch-bytes", "0"],
+            vec!["gix", "watch", "--all-worktrees", "--no-metadata"],
+            vec!["gix", "watch", "--retry-ms", "0"],
+            vec!["gix", "watch", "--poll-ms", "0"],
+            vec!["gix", "fsmonitor", "hook", "1", "token"],
+            vec!["gix", "fsmonitor", "status", "--idle-timeout", "3"],
+        ] {
+            assert!(
+                Args::try_parse_from(&arguments).is_err(),
+                "invalid coverage, scheduling, or protocol arguments are rejected: {arguments:?}"
+            );
+        }
+        Ok(())
+    }
     use super::*;
+
+    #[test]
+    fn watch_arguments_configure_application_paths_and_worktree_selection() -> gix::error::TestResult {
+        use clap::Parser;
+        use gix::notify::{Changes, Scope};
+
+        let args = Args::try_parse_from([
+            "gix",
+            "watch",
+            "--all-worktrees",
+            "--worktree-filter",
+            "repo/.git/worktrees/one",
+            "--worktree-filter",
+            "repo/.git/worktrees/two",
+            "--additional-path",
+            "application/state",
+            "--additional-path",
+            "application/events",
+        ])?;
+        let Subcommands::Watch(platform) = args.cmd else {
+            panic!("watch arguments select the repository monitor")
+        };
+        let (options, _) = platform.into_options()?;
+        assert_eq!(
+            options.worktree_filter,
+            Some(vec!["repo/.git/worktrees/one".into(), "repo/.git/worktrees/two".into()]),
+            "private Git directories filter native coverage"
+        );
+        assert_eq!(
+            options
+                .additional_paths
+                .iter()
+                .map(|path| path.path.as_path())
+                .collect::<Vec<_>>(),
+            [
+                std::path::Path::new("application/state"),
+                std::path::Path::new("application/events")
+            ],
+            "every application path reaches the monitor"
+        );
+        for path in options.additional_paths {
+            assert_eq!(
+                path.changes,
+                Changes {
+                    references: true,
+                    index: true,
+                    configuration: true,
+                    ignores: true,
+                    attributes: true,
+                    operations: true,
+                    layout: true,
+                    worktree: Some(Scope::All)
+                },
+                "application changes conservatively invalidate every cache"
+            );
+        }
+        assert!(
+            Args::try_parse_from(["gix", "watch", "--worktree-filter", "repo/.git/worktrees/one"]).is_err(),
+            "worktree filtering requires linked-worktree coverage"
+        );
+        Ok(())
+    }
 
     #[test]
     fn clap() {

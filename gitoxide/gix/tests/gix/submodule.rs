@@ -8,6 +8,38 @@ pub fn repo(name: &str) -> Result<gix::Repository> {
     )?)
 }
 
+#[test]
+fn nul_in_submodule_name_fails_at_git_dir_lookup() -> gix_testtools::TestResult {
+    use gix::bstr::ByteSlice;
+    use gix_validate::submodule::name::Error;
+
+    let fixture = gix_testtools::scripted_fixture_read_only("make_submodule_name_with_nul.sh")?;
+    let repo = gix::open_opts(fixture, gix::open::Options::isolated())?;
+    let module = repo
+        .submodules()?
+        .expect("the fixture has submodules")
+        .next()
+        .expect("one submodule");
+    assert_eq!(
+        module.name(),
+        b"library\0name".as_bstr(),
+        "enumeration preserves the raw name"
+    );
+    assert_eq!(
+        module.url()?.to_bstring(),
+        "../library.git",
+        "lookup uses the name only as a config key"
+    );
+    let err = module
+        .git_dir()
+        .expect_err("the name cannot be used to build a Git directory path");
+    assert!(
+        matches!(err.downcast_any_ref::<Error>(), Some(Error::NulByte)),
+        "Git directory lookup reports the invalid name"
+    );
+    Ok(())
+}
+
 mod url {
     use std::path::{Path, PathBuf};
 
@@ -278,6 +310,63 @@ mod open {
     use crate::{submodule::repo, util::named_subrepo_opts};
 
     #[test]
+    #[cfg(all(windows, feature = "status"))]
+    fn long_gitdir_paths_support_open_discovery_and_status() -> TestResult {
+        use std::os::windows::ffi::OsStrExt;
+
+        let fixture = gix_testtools::scripted_fixture_read_only("make_submodule_long_paths.sh")?;
+        let worktree = fixture.join("parent");
+        let repo = gix::open_opts(&worktree, gix::open::Options::isolated())?;
+        let sm = repo
+            .submodules()?
+            .expect("fixture configures a submodule")
+            .next()
+            .expect("fixture contains one submodule");
+        let joined_git_dir = sm.git_dir_try_old_form()?;
+        assert!(
+            joined_git_dir.as_os_str().encode_wide().count() > 260,
+            "the gitdir spelling exceeds Windows MAX_PATH"
+        );
+        assert!(
+            std::path::absolute(&joined_git_dir)?.as_os_str().encode_wide().count() < 260,
+            "the actual Git directory fits within Windows MAX_PATH"
+        );
+        let submodule_repo = sm.open()?.expect("the initialized submodule opens");
+        let discovered = gix::discover_opts(
+            worktree.join("module"),
+            Default::default(),
+            gix::open::Options::isolated(),
+        )?;
+        assert_eq!(
+            submodule_repo.head_id()?,
+            discovered.head_id()?,
+            "opening and discovery reach the same submodule"
+        );
+        assert_eq!(
+            std::fs::read_to_string(fixture.join("git-status"))?,
+            " M module\n",
+            "Git reports the submodule's modified worktree"
+        );
+        let items = repo
+            .status(gix::progress::Discard)?
+            .index_worktree_submodules(gix::status::Submodule::AsConfigured { check_dirty: true })
+            .into_index_worktree_iter(None)?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        assert_eq!(items.len(), 1, "the modified submodule is the only status entry");
+        assert_eq!(
+            items[0].rela_path(),
+            "module",
+            "status identifies the modified submodule"
+        );
+        assert_eq!(
+            sm.status(gix::submodule::config::Ignore::None, true)?.is_dirty(),
+            Some(true),
+            "the submodule's worktree modification is detected"
+        );
+        Ok(())
+    }
+
+    #[test]
     #[cfg(unix)]
     fn configured_paths_reject_symlinks() -> TestResult {
         let fixture = gix_testtools::scripted_fixture_read_only("make_submodule_symlink_paths.sh")?;
@@ -469,6 +558,84 @@ mod open {
             main_sm.state()?.worktree_checkout,
             "the main submodule remains populated"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn configure_related_repository_can_modify_or_skip_submodule_opens() -> TestResult {
+        use std::ops::ControlFlow::{Break, Continue};
+
+        use gix::{error::ErrorExt, open::RelatedRepositoryKind, sec::Trust};
+
+        let fixture = gix_testtools::scripted_fixture_read_only("make_unlisted_gitlinks.sh")?;
+        let root = fixture.join("listed-clean");
+        let parent_dir = root.join(".git");
+        let checkout = root.join("d");
+        let repo = gix::open::Options::isolated()
+            .with_enforced_trust(Trust::Reduced)
+            .configure_related_repository(move |related, options| {
+                assert_eq!(related.kind, RelatedRepositoryKind::Submodule, "old-form submodule");
+                assert_eq!(related.git_dir, checkout.join(".git"), "the resolved Git directory");
+                assert_eq!(related.inferred_worktree, Some(checkout.as_path()), "the checkout");
+                assert_eq!(related.parent.git_dir(), parent_dir, "the superproject's Git directory");
+                assert_eq!(
+                    related.parent.git_dir_trust(),
+                    Trust::Reduced,
+                    "the parent's effective trust"
+                );
+                assert_eq!(related.initial_trust, Trust::Full, "the child's ownership trust");
+                Ok(Continue(options.config_overrides(["core.abbrev=12"])))
+            })
+            .open(&root)?
+            .clone();
+        let submodule = repo
+            .submodules()?
+            .expect("registered submodules")
+            .next()
+            .expect("submodule d");
+        let opened = submodule.open()?.expect("the callback allowed opening");
+        assert_eq!(
+            opened.kind(),
+            gix::repository::Kind::Common,
+            "the old-form layout is ordinary"
+        );
+        assert_eq!(
+            opened.config_snapshot().integer("core.abbrev"),
+            Some(12),
+            "the child sees the override"
+        );
+
+        let root = fixture.join("listed-gitfile-empty-worktree-config");
+        let repo = gix::open::Options::isolated()
+            .configure_related_repository(|_, _| Ok(Break(())))
+            .open(&root)?;
+        let submodule = repo
+            .submodules()?
+            .expect("registered submodules")
+            .next()
+            .expect("submodule d");
+        assert!(
+            submodule.open()?.is_none(),
+            "skip takes effect before reading the invalid config"
+        );
+        #[cfg(feature = "status")]
+        assert!(
+            submodule.status(gix::submodule::config::Ignore::None, false).is_err(),
+            "status reports that inspection was skipped"
+        );
+
+        let repo = gix::open::Options::isolated()
+            .configure_related_repository(|_, _| Err(gix::error::not_found("callback error").raise()))
+            .open(&root)?;
+        let submodule = repo
+            .submodules()?
+            .expect("registered submodules")
+            .next()
+            .expect("submodule d");
+        let err = submodule
+            .open()
+            .expect_err("callback errors propagate even when classified as not found");
+        assert_eq!(err.to_string(), "callback error");
         Ok(())
     }
 
@@ -760,7 +927,7 @@ mod open {
         let repo = named_subrepo_opts(
             "make_submodules.sh",
             "with-submodules",
-            crate::restricted().with_trust(Trust::Reduced),
+            crate::restricted().with_enforced_trust(Trust::Reduced),
         )?;
         assert_eq!(
             repo.git_dir_trust(),

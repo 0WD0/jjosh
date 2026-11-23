@@ -16,6 +16,8 @@ pub(crate) mod config;
 mod excludes;
 #[cfg(feature = "attributes")]
 mod filter;
+#[cfg(feature = "fsmonitor-server")]
+mod fsmonitor;
 mod location;
 #[cfg(feature = "mailmap")]
 mod mailmap;
@@ -23,6 +25,8 @@ mod mailmap;
 mod merge;
 #[cfg(feature = "notes")]
 mod note;
+#[cfg(feature = "notify")]
+mod notify;
 mod object;
 mod open;
 #[cfg(feature = "attributes")]
@@ -33,6 +37,10 @@ mod shallow;
 mod state;
 #[cfg(feature = "attributes")]
 mod submodule;
+#[cfg(feature = "merge")]
+mod submodule_merge;
+#[cfg(feature = "merge")]
+mod submodule_merge_provider;
 mod worktree;
 
 mod format_version {
@@ -116,6 +124,53 @@ mod revision;
 #[cfg(feature = "index")]
 mod index {
     use gix_testtools::TestResult;
+
+    #[test]
+    fn checksum_verification_respects_configuration_trust() -> TestResult {
+        use gix_sec::Trust;
+
+        let (fixture, ()) = gix_testtools::scripted_fixture_read_only_with_post("make_basic_repo.sh", 1, |fixture| {
+            if let gix_testtools::FixtureState::Uninitialized(path) = fixture {
+                let index_path = path.join(".git/index");
+                let mut index = std::fs::read(&index_path)?;
+                *index.last_mut().expect("the index has a checksum") ^= 1;
+                std::fs::write(index_path, index)?;
+            }
+            Ok(())
+        })?;
+        for (trust, options, use_config) in [
+            (Trust::Reduced, crate::restricted(), false),
+            (Trust::Full, crate::restricted(), true),
+            (
+                Trust::Full,
+                crate::restricted().filter_config_section(|meta| meta.source != gix_config::Source::Local),
+                false,
+            ),
+            (
+                Trust::Reduced,
+                crate::restricted().filter_config_section(|_| true),
+                true,
+            ),
+        ] {
+            let mut repo = gix::open_opts(&fixture, options.strict_config(true))?;
+            repo.config_snapshot_mut()
+                .append_config(["index.skipHash=false"], gix_config::Source::User)?;
+            repo.config_snapshot_mut()
+                .append(gix_config::File::from_bytes_no_includes(
+                    b"[index]
+                        skipHash = true
+                    ",
+                    gix_config::file::Metadata::from(gix_config::Source::Local).with(trust),
+                    Default::default(),
+                )?)?;
+            assert_eq!(
+                repo.open_index().is_ok(),
+                use_config,
+                "only eligible configuration can disable index checksum verification"
+            );
+        }
+        Ok(())
+    }
 
     #[test]
     fn missing_shared_index_is_an_error() -> TestResult {
@@ -259,10 +314,12 @@ fn size_in_memory() {
     // The selected index path adds one `PathBuf` to the repository.
     // Network-client features add protocol permission caching to `Repository::config`,
     // which grows the type by one more cached cell.
-    let limit = 1500;
+    // The ODB handle's sharing policy brings the Windows workspace layout to 1504 bytes.
+    // The related-repository callback in `open::Options` brings the limit to 1512 bytes.
+    let limit = 1512;
     assert!(
         actual_size <= limit,
-        "size of Repository shouldn't change without us noticing, it's meant to be cloned: should have been below {limit:?}, was {actual_size}"
+        "size of Repository shouldn't change without us noticing, it's meant to be cloned: should have been at most {limit:?}, was {actual_size}"
     );
 }
 

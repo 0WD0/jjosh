@@ -7,7 +7,9 @@ use gix_ref::{
 };
 
 use crate::error::{ResultExt, message, validation};
-use crate::{Result, ThreadSafeRepository, bstr::ByteSlice, config::tree::Init};
+use crate::{
+    Result, ThreadSafeRepository, bstr::ByteSlice, config::cache::util::ApplyLeniencyDefault, config::tree::Init,
+};
 
 /// The name of the branch to use if non is configured via git configuration.
 ///
@@ -28,12 +30,12 @@ impl ThreadSafeRepository {
         kind: crate::create::Kind,
         options: crate::create::Options,
     ) -> Result<Self> {
-        use gix_sec::trust::DefaultForLevel;
         let open_options = crate::open::Options::default_for_level(gix_sec::Trust::Full);
         Self::init_opts(directory, kind, options, open_options)
     }
 
     /// Similar to [`init`][Self::init()], but allows to determine how exactly to open the newly created repository.
+    /// A newly created repository starts with [`Full`][gix_sec::Trust::Full] trust and undergoes the usual worktree checks.
     /// Invalid `init.defaultBranch` values include their bytes as `input` [metadata](gix_error::Error::metadata()).
     ///
     /// # Deviation
@@ -60,12 +62,25 @@ impl ThreadSafeRepository {
         create_options: crate::create::Options,
         mut open_options: crate::open::Options,
     ) -> Result<Self> {
-        let (path, capabilities) = crate::create::into_with_capabilities(directory, kind, create_options)?;
+        let git_dir = match kind {
+            crate::create::Kind::WithWorktree => directory.join(gix_discover::DOT_GIT_DIR),
+            crate::create::Kind::Bare => directory.to_owned(),
+        };
+        let config = crate::config(Some(&git_dir), &open_options)
+            .or_raise(|| gix_error::message("Could not load configuration before initializing the repository"))?;
+        let filter = open_options
+            .filter_config_section
+            .unwrap_or(crate::config::section::is_trusted);
+        let shared_repository_permissions = crate::config::file_mut::shared_repository_permissions(&config, filter)
+            .with_lenient_default(open_options.lenient_config)
+            .or_raise(|| gix_error::message("Could not load configuration before initializing the repository"))?;
+        let (path, capabilities) =
+            crate::create::into_with_capabilities(directory, kind, create_options, shared_repository_permissions)?;
         if !capabilities.symlink {
             open_options.api_config_overrides.push("core.symlinks=false".into());
         }
         let (git_dir, worktree_dir) = path.into_repository_and_work_tree_directories();
-        open_options.git_dir_trust = Some(gix_sec::Trust::Full);
+        open_options = open_options.with_trust(gix_sec::Trust::Full);
         // The repo will use `core.precomposeUnicode` to adjust the value as needed.
         open_options.current_dir = gix_fs::current_dir(false)
             .or_raise(|| message("Could not obtain the current directory"))?

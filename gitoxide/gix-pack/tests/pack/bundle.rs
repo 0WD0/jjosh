@@ -158,6 +158,107 @@ mod write_to_directory {
         Ok(())
     }
 
+    #[test]
+    #[cfg(unix)]
+    fn immutable_bundle_permissions_match_git_after_umask() -> gix_testtools::TestResult {
+        use std::os::unix::fs::PermissionsExt;
+
+        static SHOULD_INTERRUPT: AtomicBool = AtomicBool::new(false);
+        for mask in [0o022, 0o077] {
+            if !gix_testtools::run_with_umask(mask)? {
+                continue;
+            }
+            for (setting, permissions) in [
+                ("false", gix_fs::SharedPermissions::Umask),
+                ("group", gix_fs::SharedPermissions::Group),
+                ("all", gix_fs::SharedPermissions::Everybody),
+                ("0640", gix_fs::SharedPermissions::Explicit(0o640)),
+            ] {
+                let git_pack_dir = gix_testtools::scripted_fixture_read_only_with_args(
+                    "make_shared_repository_pack.sh",
+                    [format!("{mask:04o}"), setting.into(), SMALL_PACK.into()],
+                )?
+                .join("git/objects/pack");
+                let dir = TempDir::new()?;
+                for eager in [false, true] {
+                    let actual_dir = dir.path().join(format!("actual-{eager}"));
+                    let options = pack::bundle::write::Options {
+                        thread_limit: Some(1),
+                        shared_repository_permissions: permissions,
+                        ..Default::default()
+                    };
+                    let input = fs::read(fixture_path(SMALL_PACK))?;
+                    let outcome = if eager {
+                        pack::Bundle::write_to_directory_eagerly(
+                            Box::new(Cursor::new(input)),
+                            None,
+                            Some(actual_dir.clone()),
+                            &mut progress::Discard,
+                            &SHOULD_INTERRUPT,
+                            None::<gix_object::find::Never>,
+                            gix_hash::Kind::Sha1,
+                            options,
+                        )?
+                    } else {
+                        pack::Bundle::write_to_directory(
+                            &mut Cursor::new(input),
+                            Some(&actual_dir),
+                            &mut progress::Discard,
+                            &SHOULD_INTERRUPT,
+                            None::<gix_object::find::Never>,
+                            gix_hash::Kind::Sha1,
+                            options,
+                        )?
+                    };
+                    let actual = outcome.data_path.as_ref().expect("the pack contains objects");
+                    let expected = git_pack_dir.join(actual.file_name().expect("pack filename"));
+                    assert_eq!(
+                        fs::metadata(&actual_dir)?.permissions().mode() & 0o7777,
+                        fs::metadata(&git_pack_dir)?.permissions().mode() & 0o7777,
+                        "shared={setting}, umask={mask:o}, eager={eager}: newly created pack directories follow Git"
+                    );
+                    for extension in ["pack", "idx", "keep"] {
+                        assert_eq!(
+                            fs::metadata(actual.with_extension(extension))?.permissions().mode() & 0o7777,
+                            fs::metadata(expected.with_extension(extension))?.permissions().mode() & 0o7777,
+                            "shared={setting}, umask={mask:o}, eager={eager}: {extension} permissions follow Git"
+                        );
+                    }
+                    assert!(
+                        outcome.to_bundle().transpose()?.is_some(),
+                        "the published pack and index can be opened"
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn an_existing_keep_marker_is_preserved_and_not_owned_by_the_receiver() -> Result {
+        let dir = TempDir::new()?;
+        let original = write_pack(Some(&dir), SMALL_PACK)?;
+        let keep_path = original.keep_path.expect("new packs are protected");
+        fs::remove_file(original.data_path.expect("nonempty pack"))?;
+        fs::remove_file(original.index_path.expect("index was written"))?;
+        fs::write(&keep_path, b"another operation")?;
+        let received = write_pack(Some(&dir), SMALL_PACK)?;
+        assert_eq!(
+            received.keep_path, None,
+            "the caller must not remove another operation's marker"
+        );
+        assert_eq!(
+            fs::read(&keep_path)?,
+            b"another operation",
+            "existing keep markers are not truncated"
+        );
+        assert!(
+            received.to_bundle().transpose()?.is_some(),
+            "receiving the pack still succeeds"
+        );
+        Ok(())
+    }
+
     /// A forward reference is a `REF_DELTA` stored before the object named as its base.
     /// Unlike `OFS_DELTA`, its object ID can name an object at any position in the pack.
     ///
@@ -188,6 +289,7 @@ mod write_to_directory {
                             index_version: pack::index::Version::V2,
                             alloc_limit_bytes: None,
                             compression: gix_zlib::Compression::BEST_SPEED,
+                            shared_repository_permissions: gix_fs::SharedPermissions::Umask,
                         },
                     )?;
                     assert_eq!(
@@ -274,11 +376,130 @@ mod write_to_directory {
                 index_version: pack::index::Version::V2,
                 alloc_limit_bytes: None,
                 compression: gix_zlib::Compression::BEST_SPEED,
+                shared_repository_permissions: gix_fs::SharedPermissions::Umask,
             },
         )
         .expect_err("a ref-delta without an in-pack or external base cannot be indexed");
         assert!(err.is_not_found(), "an unresolved base is classified as not found");
         insta::assert_debug_snapshot!(gix_testtools::redact_debug_snapshot(&(err), &[]), "the missing base id is retained in the error chain", @"The ref-delta base object Oid(1) could not be found");
+        Ok(())
+    }
+
+    #[test]
+    fn many_small_objects_fit_under_the_object_allocation_limit() -> gix_testtools::TestResult {
+        let object_hash = gix_hash::Kind::Sha1;
+        let num_objects = 5102u32;
+        let limit = 16 * 1024;
+        let mut pack_data = pack::data::header::encode(pack::data::Version::V2, num_objects).to_vec();
+        for index in 0..num_objects {
+            let blob = index.to_le_bytes();
+            pack::data::entry::Header::Blob.write_to(blob.len() as u64, &mut pack_data)?;
+            pack_data.extend(deflate(&blob)?);
+        }
+        let mut hasher = gix_hash::hasher(object_hash);
+        hasher.update(&pack_data);
+        pack_data.extend_from_slice(hasher.try_finalize()?.as_slice());
+
+        let directory = TempDir::new()?;
+        let outcome = pack::Bundle::write_to_directory(
+            &mut Cursor::new(pack_data),
+            Some(directory.path()),
+            &mut progress::Discard,
+            &AtomicBool::new(false),
+            None::<gix_object::find::Never>,
+            object_hash,
+            pack::bundle::write::Options {
+                alloc_limit_bytes: Some(limit),
+                ..Default::default()
+            },
+        )?;
+        assert_eq!(outcome.index.num_objects, num_objects, "all small blobs are indexed");
+        let mut bundle = outcome.to_bundle().expect("the index was written to the directory")?;
+        bundle.pack.alloc_limit_bytes = Some(limit);
+        for traversal in [
+            pack::index::traverse::Algorithm::Lookup,
+            pack::index::traverse::Algorithm::DeltaTreeLookup,
+        ] {
+            let outcome = bundle.index.traverse(
+                &bundle.pack,
+                &mut progress::Discard,
+                &AtomicBool::new(false),
+                |_, bytes, _, _| {
+                    assert_eq!(bytes.len(), 4, "every decoded blob fits the original limit");
+                    Ok(())
+                },
+                pack::index::traverse::Options {
+                    traversal,
+                    alloc_limit_bytes: Some(limit),
+                    ..Default::default()
+                },
+            )?;
+            assert_eq!(
+                outcome.statistics.num_blobs, num_objects,
+                "both algorithms visit all blobs"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn metadata_headroom_does_not_raise_the_object_buffer_limit() -> gix_testtools::TestResult {
+        let limit = 1024;
+        let object_hash = gix_hash::Kind::Sha1;
+        let pack_data = ref_delta_pack(object_hash, &[&[0; 1025]], pack::data::Version::V2)?;
+        let directory = TempDir::new()?;
+        let mut bundle = None;
+        for alloc_limit_bytes in [Some(limit), None] {
+            let result = pack::Bundle::write_to_directory(
+                &mut Cursor::new(&pack_data),
+                Some(directory.path()),
+                &mut progress::Discard,
+                &AtomicBool::new(false),
+                None::<gix_object::find::Never>,
+                object_hash,
+                pack::bundle::write::Options {
+                    alloc_limit_bytes,
+                    ..Default::default()
+                },
+            );
+            if alloc_limit_bytes.is_some() {
+                let err = result.expect_err("indexing rejects a blob one byte over the original limit");
+                assert!(
+                    err.classify().any(|classification| classification.class()
+                        == gix_error::Class::ResourceExhaustion(gix_error::ResourceExhaustionKind::AllocationLimit)),
+                    "metadata headroom does not relax object inflation limits"
+                );
+            } else {
+                bundle = result?.to_bundle().transpose()?;
+            }
+        }
+        let mut bundle = bundle.expect("unlimited indexing wrote the bundle");
+        bundle.pack.alloc_limit_bytes = Some(limit);
+        for traversal in [
+            pack::index::traverse::Algorithm::Lookup,
+            pack::index::traverse::Algorithm::DeltaTreeLookup,
+        ] {
+            let err = bundle
+                .index
+                .traverse(
+                    &bundle.pack,
+                    &mut progress::Discard,
+                    &AtomicBool::new(false),
+                    |_, _, _, _| Ok(()),
+                    pack::index::traverse::Options {
+                        traversal,
+                        alloc_limit_bytes: Some(limit),
+                        ..Default::default()
+                    },
+                )
+                .err()
+                .expect("both traversal algorithms reject the oversized blob");
+            assert!(
+                err.classify().any(|classification| classification.class()
+                    == gix_error::Class::ResourceExhaustion(gix_error::ResourceExhaustionKind::AllocationLimit)),
+                "traversal retains the original object buffer limit"
+            );
+        }
         Ok(())
     }
 
@@ -302,6 +523,7 @@ mod write_to_directory {
                 index_version: pack::index::Version::V2,
                 alloc_limit_bytes: prevent_allocation,
                 compression: gix_zlib::Compression::BEST_SPEED,
+                shared_repository_permissions: gix_fs::SharedPermissions::Umask,
             },
         )
         .expect_err("a zero allocation limit rejects non-empty delta-tree storage");
@@ -331,6 +553,7 @@ mod write_to_directory {
                 index_version: pack::index::Version::V2,
                 alloc_limit_bytes: None,
                 compression: gix_zlib::Compression::BEST_SPEED,
+                shared_repository_permissions: gix_fs::SharedPermissions::Umask,
             },
         )?)
     }

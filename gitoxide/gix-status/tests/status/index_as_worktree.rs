@@ -38,6 +38,15 @@ type Change = WorktreeChange<(), ()>;
 type EntryStatus = WorktreeEntryStatus<(), ()>;
 type Expectation<'a> = (&'a BStr, usize, EntryStatus);
 
+#[test]
+fn default_thread_limit() {
+    assert_eq!(
+        Options::default().thread_limit,
+        cfg!(target_os = "macos").then_some(3),
+        "the default caps threads at three on macOS and leaves them unlimited elsewhere"
+    );
+}
+
 fn attributes_stack(worktree: &std::path::Path, index: &gix_index::State) -> gix_worktree::Stack {
     gix_worktree::Stack::from_state_and_ignore_case(
         worktree,
@@ -1803,7 +1812,7 @@ mod windows {
             BStr::new("file"),
         );
         index.set_timestamp(FileTime::from_system_time(
-            std::time::SystemTime::now() + std::time::Duration::from_secs(60),
+            std::time::SystemTime::now() + std::time::Duration::from_mins(1),
         ));
         for executable_bit in [false, true] {
             let options = Options {

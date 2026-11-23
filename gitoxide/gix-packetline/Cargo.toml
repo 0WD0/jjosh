@@ -2,14 +2,14 @@ lints.workspace = true
 
 [package]
 name = "gix-packetline"
-version = "0.24.1"
+version = "0.24.2"
 repository = "https://github.com/GitoxideLabs/gitoxide"
 license = "MIT OR Apache-2.0"
 description = "A crate of the gitoxide project implementing the pkt-line serialization format"
 authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
 edition = "2024"
 include = ["/src/**/*", "/LICENSE-*"]
-rust-version = "1.88"
+rust-version = "1.95"
 
 [lib]
 doctest = true
@@ -39,11 +39,11 @@ path = "tests/packetline/main-blocking.rs"
 required-features = ["blocking-io"]
 
 [dependencies]
-gix-trace = { version = "^0.3.1", path = "../gix-trace" }
-gix-error = { version = "^0.5.2", path = "../gix-error" }
+gix-trace = { version = "^0.3.2", path = "../gix-trace" }
+gix-error = { version = "^0.5.3", path = "../gix-error" }
 
 serde = { version = "1.0.114", optional = true, default-features = false, features = ["std", "derive"] }
-faster-hex = { version = "0.10.1", default-features = false, features = ["std"] }
+faster-hex = { version = "2.0.0", default-features = false, features = ["std"] }
 bstr = { version = "1.12.0", default-features = false, features = ["std"] }
 # async support
 futures-io = { version = "0.3.32", optional = true }

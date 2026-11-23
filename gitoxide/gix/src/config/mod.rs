@@ -30,8 +30,7 @@ pub struct FileTransaction {
 ///
 /// Note that these values won't update even if the underlying file(s) change.
 pub struct Snapshot<'repo> {
-    /// The owning repository.
-    pub repo: &'repo Repository,
+    pub(crate) repo: &'repo Repository,
 }
 
 /// A platform to access configuration values and modify them in memory, while making them available when this platform is dropped
@@ -197,6 +196,9 @@ pub(crate) mod key {
 #[derive(Clone)]
 pub(crate) struct Cache {
     pub resolved: crate::Config,
+    /// Files considered while opening configuration, including missing roots and active includes.
+    #[cfg(feature = "notify")]
+    pub(crate) source_paths: Vec<std::path::PathBuf>,
     /// The hex-length to assume when shortening object ids. If `None`, it should be computed based on the approximate object count.
     pub hex_len: Option<usize>,
     /// `true` if the repository is designated as 'bare', without work tree. If `None`, the value wasn't configured.
@@ -207,6 +209,8 @@ pub(crate) struct Cache {
     pub use_multi_pack_index: bool,
     /// The representation of `core.logallrefupdates`, or `None` if the variable wasn't set.
     pub reflog: Option<gix_ref::store::WriteReflog>,
+    /// The parsed `core.sharedRepository` policy for repository metadata.
+    pub shared_repository_permissions: gix_fs::SharedPermissions,
     /// The representation of `gitoxide.core.refsNamespace`, or `None` if the variable wasn't set.
     pub refs_namespace: Option<gix_ref::Namespace>,
     /// The configured user agent for presentation to servers.

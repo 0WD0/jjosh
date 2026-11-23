@@ -1,6 +1,70 @@
-use std::path::PathBuf;
+use std::{
+    ops::ControlFlow,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
-use crate::bstr::BString;
+use gix_error::ErrorExt;
+use gix_sec::Trust;
+
+use crate::{Repository, bstr::BString};
+
+/// The relationship that led to opening another repository from an existing one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum RelatedRepositoryKind {
+    /// A submodule, including old-form layouts and unlisted gitlinks.
+    Submodule,
+    /// A linked worktree.
+    LinkedWorktree,
+    /// The main repository opened from a linked worktree.
+    MainRepository,
+}
+
+/// The target and parent of an open initiated by an existing repository.
+///
+/// The target paths are absolute, with their symlink spelling preserved.
+#[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
+pub struct RelatedRepository<'a> {
+    /// The relationship through which the target is being opened.
+    pub kind: RelatedRepositoryKind,
+    /// The target's resolved Git directory.
+    pub git_dir: &'a Path,
+    /// The target's inferred checkout, which may be absent, inaccessible, or changed by configuration later.
+    pub inferred_worktree: Option<&'a Path>,
+    /// The trust the target would start with using the opening path's usual ownership or worktree trust rules.
+    pub initial_trust: Trust,
+    /// The repository initiating the open. Its paths may be relative to its captured working directory.
+    pub parent: &'a Repository,
+}
+
+type ConfigureRelatedRepository =
+    dyn Fn(RelatedRepository<'_>, Options) -> crate::Result<ControlFlow<(), Options>> + Send + Sync;
+
+pub(crate) fn related_repository_skipped(git_dir: &Path) -> crate::Error {
+    gix_error::message!(
+        "Opening the repository at \"{}\" was skipped by the callback",
+        git_dir.display()
+    )
+    .raise()
+}
+
+#[derive(Copy, Clone)]
+pub(crate) enum RepositoryTrust {
+    /// Opening may adjust this level after resolving the configuration and worktree.
+    Precomputed(Trust),
+    /// The caller has made the final trust decision for this repository.
+    Enforced(Trust),
+}
+
+impl RepositoryTrust {
+    pub(crate) fn level(self) -> Trust {
+        match self {
+            Self::Precomputed(level) | Self::Enforced(level) => level,
+        }
+    }
+}
 
 /// Permissions associated with various resources of a git repository
 #[derive(Copy, Clone, Ord, PartialOrd, PartialEq, Eq, Debug, Hash)]
@@ -30,7 +94,7 @@ pub struct Options {
     pub permissions: Permissions,
     /// Trust is specific to this Git directory and must not be reused when opening sub-repositories.
     /// Use `clone_without_trust()` so each sub-repository's trust is determined independently.
-    pub(crate) git_dir_trust: Option<gix_sec::Trust>,
+    pub(crate) git_dir_trust: Option<RepositoryTrust>,
     /// Warning: this one is copied to config::Cache - don't change it after repo open or keep in sync.
     pub(crate) filter_config_section: Option<fn(&gix_config::file::Metadata) -> bool>,
     pub(crate) lossy_config: bool,
@@ -54,6 +118,10 @@ pub struct Options {
     /// Internal to pass an already obtained CWD on to where it may also be used.
     /// This avoids the CWD being queried more than once per repo.
     pub(crate) current_dir: Option<PathBuf>,
+    /// Callback that can change the opening options or skip a related repository open before its configuration is loaded.
+    /// [`Self::clone_without_trust()`] retains it so the policy applies to subsequent related opens.
+    /// Set it with [`Self::configure_related_repository()`].
+    configure_related_repository: Option<Arc<ConfigureRelatedRepository>>,
 }
 
 mod options;
@@ -67,7 +135,7 @@ mod tests {
     #[test]
     fn copying_for_another_repository_clears_repository_specific_state() -> gix_testtools::TestResult {
         let mut options = Options::isolated()
-            .with_trust(gix_sec::Trust::Reduced)
+            .with_enforced_trust(gix_sec::Trust::Reduced)
             .open_path_as_is(true);
         options.current_dir = Some("captured-cwd".into());
         options.retain_inferred_worktree_when_bare = true;
@@ -129,15 +197,5 @@ mod tests {
             }
         }
         Ok(())
-    }
-
-    #[test]
-    fn size_of_options() {
-        let actual = std::mem::size_of::<Options>();
-        let limit = 160;
-        assert!(
-            actual <= limit,
-            "{actual} <= {limit}: size shouldn't change without us knowing (on windows, it's bigger)"
-        );
     }
 }

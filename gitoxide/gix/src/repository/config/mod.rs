@@ -24,6 +24,21 @@ impl crate::Repository {
         config::Snapshot { repo: self }
     }
 
+    /// Interpolate a Git configuration path supplied as a string, byte string, or [`config::Path`].
+    ///
+    /// Expand `~` and `~/` using the home directory permitted by this repository's environment
+    /// permissions, `~user` using the platform's user lookup, and `%(prefix)/` using
+    /// [`install_dir()`](Self::install_dir). Return an error for empty paths or unavailable expansion
+    /// inputs, or if the resulting path cannot be represented natively.
+    ///
+    /// Relative paths remain relative; no canonicalization or filesystem existence checks are
+    /// performed. A `:(optional)` prefix is stripped, but does not suppress errors or missing paths.
+    /// To read a trusted configuration value and honor optional paths, use
+    /// [`config_snapshot()`](Self::config_snapshot) and [`trusted_path()`](config::Snapshot::trusted_path).
+    pub fn interpolate_path(&self, path: impl Into<config::Path>) -> Result<std::path::PathBuf> {
+        config::cache::util::interpolate_path(path.into(), self.options.permissions.env)
+    }
+
     /// Return the path at which a configuration file is expected, selected by its source.
     ///
     /// [`Local`](config::Source::Local) selects `config` in the [`common_dir()`](Self::common_dir), and
@@ -154,12 +169,14 @@ impl crate::Repository {
     ///
     /// The returned plumbing options may be adjusted before use, for example to disable GPG pinentry by adding
     /// `--pinentry-mode=error` to `program_arguments`.
+    /// `gpg.format`, `user.signingKey`, signing programs, and the fallback committer identity are read only from sections
+    /// accepted by the configuration filter.
     #[cfg(feature = "command")]
     pub fn commit_signing_options(&self) -> Result<gix_object::signature::sign::Options> {
         crate::commit::sign::signing_options(self)
     }
 
-    /// Resolve all Git configuration needed to sign a commit if `commit.gpgSign` enables signing.
+    /// Resolve all Git configuration needed to sign a commit if trusted `commit.gpgSign` enables signing.
     ///
     /// If signing is disabled, signer-specific configuration isn't resolved or validated.
     #[cfg(feature = "command")]
@@ -188,9 +205,12 @@ impl crate::Repository {
 
     /// Return filesystem options as retrieved from the repository configuration.
     ///
-    /// Note that these values have not been [probed](gix_fs::Capabilities::probe()).
+    /// When `core.symlinks` has no usable value, try a temporary link in the worktree if
+    /// repository trust is reduced or a custom section filter is in use. If the probe is skipped
+    /// or cannot inspect or remove the link, use the platform default. If it cannot create
+    /// the link, report that symlinks are not supported.
     pub fn filesystem_options(&self) -> Result<gix_fs::Capabilities> {
-        self.config.fs_capabilities()
+        self.config.fs_capabilities(Some(self))
     }
 
     /// Return filesystem options on how to perform stat-checks, typically in relation to the index.
@@ -260,8 +280,12 @@ impl crate::Repository {
         use crate::config::{cache::util::ApplyLeniency, tree::gitoxide};
 
         let pathspec_boolean = |key: &'static config::tree::keys::Boolean| {
-            key.enrich_error(self.config.resolved.boolean(key))
-                .with_leniency(self.config.lenient_config)
+            key.enrich_error(
+                self.config
+                    .resolved
+                    .boolean_filter(key, &mut self.filter_config_section()),
+            )
+            .with_leniency(self.config.lenient_config)
         };
 
         Ok(gix_command::Context {

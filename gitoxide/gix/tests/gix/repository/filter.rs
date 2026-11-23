@@ -1,4 +1,4 @@
-use gix_testtools::{Result, TestResult};
+use gix_testtools::TestResult;
 use std::path::Path;
 
 #[test]
@@ -46,7 +46,6 @@ fn pipeline_in_nonbare_repo_without_index() -> TestResult {
 use gix::bstr::ByteSlice;
 use gix_filter::pipeline::convert::to_worktree;
 
-use super::blob_id;
 use crate::util::{named_repo, named_subrepo_opts};
 
 #[test]
@@ -90,6 +89,90 @@ fn repo_local_filter_driver_configuration_overrides_global_configuration() -> Te
         Some(b"global-smudge".as_slice()),
         "properties not overridden locally are inherited"
     );
+    Ok(())
+}
+
+#[test]
+fn conversion_safety_respects_configuration_trust() -> TestResult {
+    use gix_filter::pipeline::CrlfRoundTripCheck;
+    use gix_sec::Trust;
+
+    for (trust, options, use_config) in [
+        (Trust::Reduced, crate::restricted(), false),
+        (Trust::Full, crate::restricted(), true),
+        (
+            Trust::Full,
+            crate::restricted().filter_config_section(|meta| meta.source != gix_config::Source::Local),
+            false,
+        ),
+        (
+            Trust::Reduced,
+            crate::restricted().filter_config_section(|_| true),
+            true,
+        ),
+    ] {
+        let mut repo = crate::util::repo_opts("make_basic_repo.sh", options.strict_config(true))?.to_thread_local();
+        repo.config_snapshot_mut().append_config(
+            [
+                "core.safecrlf=true",
+                "core.autocrlf=true",
+                "core.checkRoundtripEncoding=UTF-16",
+            ],
+            gix_config::Source::User,
+        )?;
+        repo.config_snapshot_mut()
+            .append(gix_config::File::from_bytes_no_includes(
+                b"[core]
+                    safecrlf = false
+                    checkRoundtripEncoding =
+                ",
+                gix_config::file::Metadata::from(gix_config::Source::Local).with(trust),
+                Default::default(),
+            )?)?;
+
+        let options = gix::filter::Pipeline::options(&repo)?;
+        assert_eq!(
+            options.crlf_roundtrip_check,
+            if use_config {
+                CrlfRoundTripCheck::Skip
+            } else {
+                CrlfRoundTripCheck::Fail
+            },
+            "only eligible configuration can disable CRLF safety"
+        );
+        assert_eq!(
+            options.encodings_with_roundtrip_check,
+            if use_config {
+                Vec::new()
+            } else {
+                vec![gix::bstr::BString::from("UTF-16")]
+            },
+            "only eligible configuration can remove encoding round-trip checks"
+        );
+        let (mut pipeline, index) = repo.filter_pipeline(None)?;
+        assert_eq!(
+            pipeline
+                .convert_to_git(b"mixed\nend\r\n".as_slice(), Path::new("mixed"), &index)
+                .is_err(),
+            !use_config,
+            "untrusted configuration must not permit irreversible line-ending conversion"
+        );
+        drop(pipeline);
+
+        repo.config_snapshot_mut()
+            .append(gix_config::File::from_bytes_no_includes(
+                b"[core]
+                    safecrlf = invalid
+                ",
+                gix_config::file::Metadata::from(gix_config::Source::Local).with(trust),
+                Default::default(),
+            )?)?;
+        assert_eq!(
+            gix::filter::Pipeline::options(&repo).is_err(),
+            use_config,
+            "ineligible safety configuration is ignored before parsing"
+        );
+    }
     Ok(())
 }
 
@@ -166,6 +249,8 @@ fn legacy_driver_names_are_canonical() -> TestResult {
 #[test]
 #[cfg(unix)]
 fn pipeline_worktree_file_to_object() -> TestResult {
+    use super::blob_id;
+
     let repo = named_repo("repo_with_untracked_files.sh")?.with_object_memory();
     let work_dir = repo.workdir().expect("non-bare");
     let (mut pipe, index) = repo.filter_pipeline(None)?;
@@ -291,6 +376,8 @@ fn worktree_file_to_object_recomputes_submodule_trust() -> TestResult {
 #[test]
 #[cfg(unix)]
 fn worktree_file_to_object_opens_submodules_after_path_options_were_consumed() -> TestResult {
+    use gix_testtools::Result;
+
     let repo = named_repo("repo_with_untracked_files.sh")?;
     let submodule = gix::open_opts(
         repo.workdir().expect("non-bare").join("submodule"),

@@ -2,14 +2,14 @@ lints.workspace = true
 
 [package]
 name = "gix-pack"
-version = "0.77.0"
+version = "0.78.0"
 repository = "https://github.com/GitoxideLabs/gitoxide"
 authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
 license = "MIT OR Apache-2.0"
 description = "Implements git packs and related data structures"
 edition = "2024"
 include = ["/src/**/*", "/LICENSE-*"]
-rust-version = "1.88"
+rust-version = "1.95"
 
 [lib]
 doctest = false
@@ -27,7 +27,7 @@ sha256 = ["gix-hash/sha256"]
 ## generate new packs from a set of objects.
 generate = ["dep:gix-traverse", "dep:gix-diff", "dep:parking_lot", "dep:gix-hashtable"]
 ## Receive a pack as datastream and resolve it
-streaming-input = ["dep:parking_lot", "dep:gix-tempfile"]
+streaming-input = ["dep:parking_lot", "dep:gix-tempfile", "dep:gix-fs"]
 ## Provide a fixed-size allocation-free LRU cache for packs. It's useful if caching is desired while keeping the memory footprint
 ## for the LRU-cache itself low.
 pack-cache-lru-static = ["dep:uluru"]
@@ -46,24 +46,24 @@ testing = []
 
 [dependencies]
 crc32fast = "1.5.0"
-gix-trace = { version = "^0.3.1", path = "../gix-trace" }
-gix-utils = { version = "^0.5.2", path = "../gix-utils", features = ["interrupt", "progress"] }
-gix-parallel = { version = "^0.50.1", path = "../gix-parallel" }
-gix-zlib = { version = "^0.4.0", path = "../gix-zlib" }
-gix-path = { version = "^0.14.1", path = "../gix-path" }
-gix-hash = { version = "^0.28.1", path = "../gix-hash" }
-gix-chunk = { version = "^0.10.1", path = "../gix-chunk" }
-gix-error = { version = "^0.5.2", path = "../gix-error" }
-gix-object = { version = "^0.66.1", path = "../gix-object" }
-gix-hashtable = { version = "^0.18.1", path = "../gix-hashtable", optional = true }
+gix-trace = { version = "^0.3.2", path = "../gix-trace" }
+gix-utils = { version = "^0.5.3", path = "../gix-utils", features = ["interrupt", "progress"] }
+gix-parallel = { version = "^0.50.2", path = "../gix-parallel" }
+gix-zlib = { version = "^0.4.1", path = "../gix-zlib" }
+gix-path = { version = "^0.14.2", path = "../gix-path" }
+gix-hash = { version = "^0.29.0", path = "../gix-hash" }
+gix-chunk = { version = "^0.10.2", path = "../gix-chunk" }
+gix-error = { version = "^0.5.3", path = "../gix-error" }
+gix-object = { version = "^0.67.0", path = "../gix-object" }
+gix-hashtable = { version = "^0.19.0", path = "../gix-hashtable", optional = true }
 
 # for streaming of packs (input, output)
-gix-traverse = { version = "^0.64.0", path = "../gix-traverse", optional = true }
-gix-diff = { version = "^0.70.0", path = "../gix-diff", default-features = false, optional = true }
+gix-traverse = { version = "^0.65.0", path = "../gix-traverse", optional = true }
+gix-diff = { version = "^0.71.0", path = "../gix-diff", default-features = false, optional = true }
 
 memmap2 = "0.9.11"
 smallvec = "1.15.1"
-parking_lot = { version = "0.12.4", default-features = false, optional = true }
+parking_lot = { version = "0.13.0", default-features = false, optional = true }
 crossbeam-deque = { version = "0.8.6", optional = true }
 
 # for caching
@@ -77,6 +77,7 @@ document-features = { version = "0.2.0", optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 gix-tempfile = { version = "^27.0.0", default-features = false, path = "../gix-tempfile", optional = true }
+gix-fs = { version = "^1.0.0", path = "../gix-fs", optional = true }
 
 [dev-dependencies]
 gix-pack = { path = ".", features = ["sha1", "sha256", "pack-cache-lru-dynamic", "pack-cache-lru-static", "object-cache-dynamic", "serde", "testing"] }

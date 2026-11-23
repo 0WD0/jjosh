@@ -518,14 +518,17 @@ fn worktree_transitions(
         if !seen.insert(worktree_repo.git_dir().to_owned()) {
             continue;
         }
-        let head = worktree_repo
+        let old_id = worktree_repo
             .head()
-            .or_raise(|| message("could not inspect a worktree HEAD"))?;
-        let old_id = head.id().map(gix::Id::detach);
-        let raw_head = worktree_repo
-            .find_reference("HEAD")
-            .or_raise(|| message("could not read a worktree HEAD reference"))?;
-        let raw_head = state_from_target_ref(raw_head.target());
+            .or_raise(|| message("could not inspect a worktree HEAD"))?
+            .id()
+            .map(gix::Id::detach);
+        let raw_head = state_from_target_ref(
+            worktree_repo
+                .find_reference("HEAD")
+                .or_raise(|| message("could not read a worktree HEAD reference"))?
+                .target(),
+        );
         let current = gix::path::realpath(worktree_repo.git_dir())
             .or_raise(|| message("could not resolve an affected worktree Git directory"))?
             == current_git_dir;

@@ -257,7 +257,7 @@ fn renames_by_identity() -> TestResult {
         ),
     ] {
         for percentage in [None, Some(0.5)] {
-            let (changes, out) = collect_changes_opts(
+            let (changes, _out) = collect_changes_opts(
                 from,
                 to,
                 Options {
@@ -290,7 +290,7 @@ fn renames_by_identity() -> TestResult {
             assert_eq!(actual, expected, "{assert_msg}");
             #[cfg(not(windows))]
             assert_eq!(
-                out.expect("present as rewrites are configured").num_similarity_checks,
+                _out.expect("present as rewrites are configured").num_similarity_checks,
                 0,
                 "there are no fuzzy checks in if everything was resolved by identity only"
             );
@@ -1937,4 +1937,6 @@ mod util {
         Ok(buf)
     }
 }
-use util::{collect_changes, collect_changes_opts, repo_with_trees, repo_workdir};
+#[cfg(not(windows))]
+use util::repo_workdir;
+use util::{collect_changes, collect_changes_opts, repo_with_trees};

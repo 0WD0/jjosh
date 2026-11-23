@@ -6,11 +6,17 @@ use std::{
 /// A buffer that is returned to the free-list after usage.
 #[derive(Clone)]
 pub struct Buffer<'repo> {
-    /// The buffer that would be returned to the freelist of `repo`.
+    /// The buffer that would be returned to the freelist of [`Self::repo()`].
     /// Note that buffers without capacity (i.e. without allocation) aren't returned.
     pub inner: Vec<u8>,
-    /// The repository from whose free-list the `inner` buffer was taken, and to which it will be returned.
-    pub repo: &'repo crate::Repository,
+    repo: &'repo crate::Repository,
+}
+
+impl<'repo> Buffer<'repo> {
+    /// Return the repository whose freelist the buffer was taken from and will be returned to.
+    pub fn repo(&self) -> &'repo crate::Repository {
+        self.repo
+    }
 }
 
 impl From<Buffer<'_>> for Vec<u8> {
@@ -62,19 +68,32 @@ impl crate::Repository {
             bufs.borrow_mut().push(std::mem::take(data));
         }
     }
+
+    pub(crate) fn reuse_ref_name(&self, name: gix_ref::FullName, from_freelist: bool) {
+        if let Some(bufs) = &self.bufs {
+            let mut bufs = bufs.borrow_mut();
+            // Return borrowed buffers and limit newly cached names when a collection of references is dropped.
+            if from_freelist || bufs.len() < 2 {
+                bufs.push(name.into_inner().into());
+            }
+        }
+    }
 }
 
 /// Freelist configuration
 ///
 /// The free-list is an internal and 'transparent' mechanism for obtaining and re-using memory buffers when
-/// reading objects. That way, trashing is avoided as buffers are re-used and re-written.
+/// reading objects and iterating references. That way, trashing is avoided as buffers are re-used and re-written.
 ///
 /// However, there are circumstances when releasing memory early is preferred, for instance on the server side.
 ///
 /// Also note that the free-list isn't cloned, so each clone of this instance starts with an empty one.
 impl crate::Repository {
-    /// Return an empty buffer which is tied to this repository instance, and reuse its memory allocation by
-    /// keeping it around even after it drops.
+    /// Return a buffer with zero length, reusing capacity from this repository's freelist if available.
+    ///
+    /// The freelist is enabled by default and starts empty. If it is empty or [disabled](Self::set_freelist),
+    /// the returned buffer has zero capacity. When the buffer is dropped, any allocated capacity is
+    /// returned to the freelist if it is enabled, so later calls can reuse it without explicit setup.
     pub fn empty_reusable_buffer(&self) -> Buffer<'_> {
         let mut inner = self.free_buf();
         inner.clear();
