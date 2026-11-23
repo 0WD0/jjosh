@@ -89,7 +89,6 @@ use jj_local_util::stacked_table::TableSegment as _;
 use jj_local_util::stacked_table::TableStore;
 use jj_local_util::stacked_table::TableStoreError;
 use once_cell::sync::OnceCell as OnceLock;
-use pollster::FutureExt as _;
 use prost::Message as _;
 use smallvec::SmallVec;
 use thiserror::Error;
@@ -713,7 +712,7 @@ impl GitBackend {
         repo: &'repo gix::Repository,
         id: &CommitId,
     ) -> BackendResult<gix::Tree<'repo>> {
-        let tree = self.read_commit(id).block_on()?.root_tree;
+        let tree = self.read_commit_impl(id)?.root_tree;
         // TODO(kfm): probably want to do something here if it is a merge
         let tree_id = tree.first();
         let gix_id = validate_git_object_id(repo, tree_id)?;
@@ -755,6 +754,53 @@ impl GitBackend {
             assert!(oid == write_oid);
         }
         Ok(oid)
+    }
+
+    #[tracing::instrument(skip(self))]
+    fn read_commit_impl(&self, id: &CommitId) -> BackendResult<Commit> {
+        if *id == self.root_commit_id {
+            return Ok(make_root_commit(
+                self.root_change_id().clone(),
+                self.empty_tree_id.clone(),
+            ));
+        }
+
+        let mut commit = {
+            let locked_repo = self.lock_git_repo();
+            let git_commit_id = validate_git_object_id(&locked_repo, id)?;
+            let git_object = locked_repo
+                .try_find_object(git_commit_id)
+                .map_err(|err| to_read_object_err(err, id))?
+                .ok_or_else(|| not_found_err(id))?;
+            let is_shallow = self.shallow_root_ids(&locked_repo)?.contains(id);
+            commit_from_git_without_root_parent(id, &git_object, is_shallow)?
+        };
+        if commit.parents.is_empty() {
+            commit.parents.push(self.root_commit_id.clone());
+        }
+
+        if let Some(extras) = self.pending_extras(id) {
+            deserialize_extras(&mut commit, &extras);
+            return Ok(commit);
+        }
+        let table = self.cached_extra_metadata_table()?;
+        if let Some(extras) = table.get_value(id.as_bytes()) {
+            deserialize_extras(&mut commit, extras);
+        } else {
+            if !self.lazy_commit_imports_allowed.load(Ordering::Relaxed) {
+                return Err(GitBackendError::LazyImportDisabled(id.clone()).into());
+            }
+            // TODO: Remove this hack and map to ObjectNotFound error if we're sure that
+            // there are no reachable ancestor commits without extras metadata. Git commits
+            // imported by jj < 0.8.0 might not have extras (#924).
+            // https://github.com/jj-vcs/jj/issues/2343
+            tracing::info!("unimported Git commit found");
+            self.import_head_commits([id])?;
+            let table = self.cached_extra_metadata_table()?;
+            let extras = table.get_value(id.as_bytes()).unwrap();
+            deserialize_extras(&mut commit, extras);
+        }
+        Ok(commit)
     }
 }
 
@@ -1439,51 +1485,8 @@ impl Backend for GitBackend {
         Ok(TreeId::from_bytes(oid.as_bytes()))
     }
 
-    #[tracing::instrument(skip(self))]
     async fn read_commit(&self, id: &CommitId) -> BackendResult<Commit> {
-        if *id == self.root_commit_id {
-            return Ok(make_root_commit(
-                self.root_change_id().clone(),
-                self.empty_tree_id.clone(),
-            ));
-        }
-
-        let mut commit = {
-            let locked_repo = self.lock_git_repo();
-            let git_commit_id = validate_git_object_id(&locked_repo, id)?;
-            let git_object = locked_repo
-                .try_find_object(git_commit_id)
-                .map_err(|err| to_read_object_err(err, id))?
-                .ok_or_else(|| not_found_err(id))?;
-            let is_shallow = self.shallow_root_ids(&locked_repo)?.contains(id);
-            commit_from_git_without_root_parent(id, &git_object, is_shallow)?
-        };
-        if commit.parents.is_empty() {
-            commit.parents.push(self.root_commit_id.clone());
-        }
-
-        if let Some(extras) = self.pending_extras(id) {
-            deserialize_extras(&mut commit, &extras);
-            return Ok(commit);
-        }
-        let table = self.cached_extra_metadata_table()?;
-        if let Some(extras) = table.get_value(id.as_bytes()) {
-            deserialize_extras(&mut commit, extras);
-        } else {
-            if !self.lazy_commit_imports_allowed.load(Ordering::Relaxed) {
-                return Err(GitBackendError::LazyImportDisabled(id.clone()).into());
-            }
-            // TODO: Remove this hack and map to ObjectNotFound error if we're sure that
-            // there are no reachable ancestor commits without extras metadata. Git commits
-            // imported by jj < 0.8.0 might not have extras (#924).
-            // https://github.com/jj-vcs/jj/issues/2343
-            tracing::info!("unimported Git commit found");
-            self.import_head_commits([id])?;
-            let table = self.cached_extra_metadata_table()?;
-            let extras = table.get_value(id.as_bytes()).unwrap();
-            deserialize_extras(&mut commit, extras);
-        }
-        Ok(commit)
+        self.read_commit_impl(id)
     }
 
     async fn write_commit(
@@ -1886,6 +1889,7 @@ mod tests {
     use indoc::indoc;
     use jj_core::content_hash::blake2b_hash;
     use jj_core::hex_util;
+    use pollster::FutureExt as _;
     use test_case::test_case;
 
     use super::*;

@@ -19,11 +19,17 @@ jobs:
     strategy:
       fail-fast: ${{ github.event_name == 'merge_group' }}
       matrix:
-        build: [linux-x86_64-gnu, linux-aarch64-gnu, macos-x86_64, macos-aarch64, windows-x86_64, windows-aarch64]
+        build: [linux-x86_64-gnu, linux-x86_64-gnu-sha256, linux-aarch64-gnu, macos-x86_64, macos-aarch64, windows-x86_64, windows-aarch64]
         include:
         - build: linux-x86_64-gnu
           os: ubuntu-24.04
           cargo_flags: "--all-features"
+        # Run the jj-lib tests again with SHA-256 Git repositories.
+        - build: linux-x86_64-gnu-sha256
+          os: ubuntu-24.04
+          cargo_flags: "--all-features"
+          test_scope: "--package jj-lib"
+          git_object_hash: sha256
         - build: linux-aarch64-gnu
           os: ubuntu-24.04-arm
           cargo_flags: "--all-features"
@@ -59,8 +65,8 @@ jobs:
     # 2025-10-06 (aseipp): x86 macos runners consistently slower, bump 20m -> 25m
     # 2026-08-28 (slerpy): x86 macos & arm windows are timing out, bump 25m -> 30m
     #
-    # The "nix flake" jobs below use the same timeout, so update there too if
-    # you update here.
+    # The "nix flake" jobs in `nix.yml` use the same timeout, so update there
+    # too if you update here.
     timeout-minutes: 30
 
     steps:
@@ -76,7 +82,7 @@ jobs:
         toolchain: 1.97.1
         # comma-separated list of extra targets to install
         targets: ${{ matrix.extra_targets }}
-    - uses: taiki-e/install-action@68a389c788b2cd04016ce8c80ee23b80d2ab3d68
+    - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39
       with:
         tool: nextest
     - name: Install mold
@@ -87,7 +93,7 @@ jobs:
       run: >-
         cargo build
         --config .cargo/config-ci.toml
-        --workspace
+        ${{ matrix.test_scope || '--workspace' }}
         --all-targets
         --verbose
         ${{ matrix.cargo_flags }}
@@ -95,12 +101,13 @@ jobs:
       run: >-
         cargo nextest run
         --config .cargo/config-ci.toml
-        --workspace
+        ${{ matrix.test_scope || '--workspace' }}
         --all-targets
         --verbose
         --profile ci
         ${{ matrix.cargo_flags }}
       env:
+        JJ_TEST_GIT_OBJECT_HASH: ${{ matrix.git_object_hash }}
         RUST_BACKTRACE: 1
         CARGO_TERM_COLOR: always
 
@@ -133,23 +140,6 @@ jobs:
         toolchain: 1.97.1
     - name: Build
       run: cargo build -p jj-cli --no-default-features --verbose
-
-  build-nix:
-    name: nix flake
-    strategy:
-      fail-fast: ${{ github.event_name == 'merge_group' }}
-      matrix:
-        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-15]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
-
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b
-      - run: nix flake check -L --show-trace
 
   check-protos:
     name: check (protos)
@@ -341,7 +331,6 @@ jobs:
     - test
     - check-wasi
     - no-git
-    - build-nix
     - check-protos
     - check-rustfmt
     - check-markdown

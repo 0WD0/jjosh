@@ -15,54 +15,38 @@
 //! Template environment for `jj op log`.
 
 use std::any::Any;
-use std::cmp::Ordering;
-use std::collections::HashMap;
 use std::io;
 use std::path::Path;
 use std::path::PathBuf;
 
-use bstr::BString;
 use itertools::Itertools as _;
-use jj_lib::backend::Timestamp;
 use jj_lib::extensions_map::ExtensionsMap;
 use jj_lib::object_id::ObjectId as _;
 use jj_lib::op_store::OperationId;
 use jj_lib::operation::Operation;
 use jj_lib::repo::RepoLoader;
 use jj_lib::settings::UserSettings;
-use jj_lib::template_parser;
-use jj_lib::template_parser::FunctionCallNode;
-use jj_lib::template_parser::TemplateDiagnostics;
 use jj_lib::template_parser::TemplateParseError;
-use jj_lib::template_parser::TemplateParseResult;
 use pollster::FutureExt as _;
 
 use crate::template_builder;
-use crate::template_builder::BuildContext;
-use crate::template_builder::CoreTemplateBuildFnTable;
-use crate::template_builder::CoreTemplatePropertyKind;
-use crate::template_builder::CoreTemplatePropertyVar;
-use crate::template_builder::TemplateBuildMethodFnMap;
 use crate::template_builder::TemplateLanguage;
-use crate::template_builder::merge_fn_map;
-use crate::templater::BoxedAnyProperty;
-use crate::templater::BoxedSerializeProperty;
-use crate::templater::BoxedTemplateProperty;
+use crate::template_builder::TemplateSymbolTable;
+use crate::template_builder::register_unformattable_list_methods;
+use crate::template_value::OpaqueTemplateValue;
+use crate::template_value::TemplateTypeRegistry;
 use crate::templater::NoTemplateBooleanCast;
 use crate::templater::Template;
 use crate::templater::TemplateFormatter;
 use crate::templater::TemplatePropertyExt as _;
-use crate::templater::WrapTemplateProperty;
-use crate::templater::list_to_boolean;
-use crate::templater::option_to_boolean;
 
 pub trait OperationTemplateLanguageExtension {
-    fn build_fn_table(&self) -> OperationTemplateLanguageBuildFnTable;
+    fn register_symbols(&self, table: &mut TemplateSymbolTable<'static, OperationTemplateLanguage>);
 
     fn build_cache_extensions(&self, extensions: &mut ExtensionsMap);
 }
 
-/// Global resources needed by [`OperationTemplatePropertyKind`] methods.
+/// Global resources needed by operation template methods.
 pub trait OperationTemplateEnvironment {
     fn repo_loader(&self) -> &RepoLoader;
     fn current_op_id(&self) -> Option<&OperationId>;
@@ -73,7 +57,8 @@ pub struct OperationTemplateLanguage {
     repo_loader: RepoLoader,
     current_op_id: Option<OperationId>,
     current_dir: PathBuf,
-    build_fn_table: OperationTemplateLanguageBuildFnTable,
+    type_registry: TemplateTypeRegistry,
+    symbol_table: TemplateSymbolTable<'static, Self>,
     cache_extensions: ExtensionsMap,
 }
 
@@ -86,14 +71,16 @@ impl OperationTemplateLanguage {
         current_dir: &Path,
         extensions: &[impl AsRef<dyn OperationTemplateLanguageExtension>],
     ) -> Self {
-        let mut build_fn_table = OperationTemplateLanguageBuildFnTable::builtin();
-        let mut cache_extensions = ExtensionsMap::empty();
+        let mut type_registry = template_builder::new_core_type_registry();
+        register_types(&mut type_registry);
+        let mut symbol_table = TemplateSymbolTable::builtin();
+        register_symbols(&mut symbol_table);
 
+        let mut cache_extensions = ExtensionsMap::empty();
         for extension in extensions {
-            build_fn_table.merge(extension.as_ref().build_fn_table());
-            extension
-                .as_ref()
-                .build_cache_extensions(&mut cache_extensions);
+            let extension = extension.as_ref();
+            extension.register_symbols(&mut symbol_table);
+            extension.build_cache_extensions(&mut cache_extensions);
         }
 
         Self {
@@ -101,15 +88,14 @@ impl OperationTemplateLanguage {
             repo_loader: repo_loader.clone(),
             current_op_id: current_op_id.cloned(),
             current_dir: current_dir.to_owned(),
-            build_fn_table,
+            type_registry,
+            symbol_table,
             cache_extensions,
         }
     }
 }
 
 impl TemplateLanguage<'static> for OperationTemplateLanguage {
-    type Property = OperationTemplateLanguagePropertyKind;
-
     fn settings(&self) -> &UserSettings {
         self.repo_loader.settings()
     }
@@ -118,33 +104,12 @@ impl TemplateLanguage<'static> for OperationTemplateLanguage {
         &self.current_dir
     }
 
-    fn build_function(
-        &self,
-        diagnostics: &mut TemplateDiagnostics,
-        build_ctx: &BuildContext<Self::Property>,
-        function: &FunctionCallNode,
-    ) -> TemplateParseResult<Self::Property> {
-        let table = &self.build_fn_table.core;
-        table.build_function(self, diagnostics, build_ctx, function)
+    fn type_registry(&self) -> &TemplateTypeRegistry {
+        &self.type_registry
     }
 
-    fn build_method(
-        &self,
-        diagnostics: &mut TemplateDiagnostics,
-        build_ctx: &BuildContext<Self::Property>,
-        property: Self::Property,
-        function: &FunctionCallNode,
-    ) -> TemplateParseResult<Self::Property> {
-        match property {
-            OperationTemplateLanguagePropertyKind::Core(property) => {
-                let table = &self.build_fn_table.core;
-                table.build_method(self, diagnostics, build_ctx, property, function)
-            }
-            OperationTemplateLanguagePropertyKind::Operation(property) => {
-                let table = &self.build_fn_table.operation;
-                table.build_method(self, diagnostics, build_ctx, property, function)
-            }
-        }
+    fn symbol_table(&self) -> &TemplateSymbolTable<'static, Self> {
+        &self.symbol_table
     }
 }
 
@@ -164,360 +129,43 @@ impl OperationTemplateLanguage {
     }
 }
 
-/// Wrapper for the operation template property types.
-pub trait OperationTemplatePropertyVar<'a>
-where
-    Self: WrapTemplateProperty<'a, Operation>,
-    Self: WrapTemplateProperty<'a, Option<Operation>>,
-    Self: WrapTemplateProperty<'a, Vec<Operation>>,
-    Self: WrapTemplateProperty<'a, OperationId>,
-{
-}
+impl OpaqueTemplateValue for Operation {}
+impl OpaqueTemplateValue for OperationId {}
 
 impl NoTemplateBooleanCast for Operation {}
 impl NoTemplateBooleanCast for OperationId {}
 
-/// Tagged union of the operation template property types.
-pub enum OperationTemplatePropertyKind<'a> {
-    Operation(BoxedTemplateProperty<'a, Operation>),
-    OperationOpt(BoxedTemplateProperty<'a, Option<Operation>>),
-    OperationList(BoxedTemplateProperty<'a, Vec<Operation>>),
-    OperationId(BoxedTemplateProperty<'a, OperationId>),
+pub fn register_types(registry: &mut TemplateTypeRegistry) {
+    registry.register::<Operation>("Operation").serializable();
+    registry
+        .register::<Option<Operation>>("Option<Operation>")
+        .conditionable()
+        .serializable();
+    registry
+        .register::<Vec<Operation>>("List<Operation>")
+        .conditionable()
+        .serializable();
+    registry
+        .register::<OperationId>("OperationId")
+        .formattable()
+        .serializable();
 }
 
-/// Implements `WrapTemplateProperty<type>` for operation property types.
-///
-/// Use `impl_operation_property_wrappers!(<'a> Kind<'a> => Operation);` to
-/// implement forwarding conversion.
-macro_rules! impl_operation_property_wrappers {
-    ($($head:tt)+) => {
-        $crate::template_builder::impl_property_wrappers!($($head)+ {
-            Operation(jj_lib::operation::Operation),
-            OperationOpt(Option<jj_lib::operation::Operation>),
-            OperationList(Vec<jj_lib::operation::Operation>),
-            OperationId(jj_lib::op_store::OperationId),
-        });
-    };
-}
-
-pub(crate) use impl_operation_property_wrappers;
-
-impl_operation_property_wrappers!(<'a> OperationTemplatePropertyKind<'a>);
-
-impl<'a> OperationTemplatePropertyKind<'a> {
-    pub fn type_name(&self) -> &'static str {
-        match self {
-            Self::Operation(_) => "Operation",
-            Self::OperationOpt(_) => "Option<Operation>",
-            Self::OperationList(_) => "List<Operation>",
-            Self::OperationId(_) => "OperationId",
-        }
-    }
-
-    pub fn try_into_byte_string(self) -> Result<BoxedTemplateProperty<'a, BString>, Self> {
-        Err(self)
-    }
-
-    pub fn try_into_string(self) -> Result<BoxedTemplateProperty<'a, String>, Self> {
-        Err(self)
-    }
-
-    pub fn try_into_boolean(self) -> Result<BoxedTemplateProperty<'a, bool>, Self> {
-        match self {
-            Self::Operation(_) => Err(self),
-            Self::OperationOpt(property) => Ok(option_to_boolean(property)),
-            Self::OperationList(property) => Ok(list_to_boolean(property)),
-            Self::OperationId(_) => Err(self),
-        }
-    }
-
-    pub fn try_into_integer(self) -> Result<BoxedTemplateProperty<'a, i64>, Self> {
-        Err(self)
-    }
-
-    pub fn try_into_timestamp(self) -> Result<BoxedTemplateProperty<'a, Timestamp>, Self> {
-        Err(self)
-    }
-
-    pub fn try_into_serialize(self) -> Option<BoxedSerializeProperty<'a>> {
-        match self {
-            Self::Operation(property) => Some(property.into_serialize()),
-            Self::OperationOpt(property) => Some(property.into_serialize()),
-            Self::OperationList(property) => Some(property.into_serialize()),
-            Self::OperationId(property) => Some(property.into_serialize()),
-        }
-    }
-
-    pub fn try_into_template(self) -> Option<Box<dyn Template + 'a>> {
-        match self {
-            Self::Operation(_) => None,
-            Self::OperationOpt(_) => None,
-            Self::OperationList(_) => None,
-            Self::OperationId(property) => Some(property.into_template()),
-        }
-    }
-
-    pub fn try_into_eq(self, other: Self) -> Option<BoxedTemplateProperty<'a, bool>> {
-        match (self, other) {
-            (Self::Operation(_), _) => None,
-            (Self::OperationOpt(_), _) => None,
-            (Self::OperationList(_), _) => None,
-            (Self::OperationId(_), _) => None,
-        }
-    }
-
-    pub fn try_into_eq_core(
-        self,
-        other: CoreTemplatePropertyKind<'a>,
-    ) -> Option<BoxedTemplateProperty<'a, bool>> {
-        match (self, other) {
-            (Self::Operation(_), _) => None,
-            (Self::OperationOpt(_), _) => None,
-            (Self::OperationList(_), _) => None,
-            (Self::OperationId(_), _) => None,
-        }
-    }
-
-    pub fn try_into_cmp(self, other: Self) -> Option<BoxedTemplateProperty<'a, Ordering>> {
-        match (self, other) {
-            (Self::Operation(_), _) => None,
-            (Self::OperationOpt(_), _) => None,
-            (Self::OperationList(_), _) => None,
-            (Self::OperationId(_), _) => None,
-        }
-    }
-
-    pub fn try_into_cmp_core(
-        self,
-        other: CoreTemplatePropertyKind<'a>,
-    ) -> Option<BoxedTemplateProperty<'a, Ordering>> {
-        match (self, other) {
-            (Self::Operation(_), _) => None,
-            (Self::OperationOpt(_), _) => None,
-            (Self::OperationList(_), _) => None,
-            (Self::OperationId(_), _) => None,
-        }
-    }
-}
-
-/// Tagged property types available in [`OperationTemplateLanguage`].
-pub enum OperationTemplateLanguagePropertyKind {
-    Core(CoreTemplatePropertyKind<'static>),
-    Operation(OperationTemplatePropertyKind<'static>),
-}
-
-template_builder::impl_core_property_wrappers!(OperationTemplateLanguagePropertyKind => Core);
-impl_operation_property_wrappers!(OperationTemplateLanguagePropertyKind => Operation);
-
-impl CoreTemplatePropertyVar<'static> for OperationTemplateLanguagePropertyKind {
-    fn wrap_template(template: Box<dyn Template>) -> Self {
-        Self::Core(CoreTemplatePropertyKind::wrap_template(template))
-    }
-
-    fn wrap_any(property: BoxedAnyProperty<'static>) -> Self {
-        Self::Core(CoreTemplatePropertyKind::wrap_any(property))
-    }
-
-    fn wrap_any_list(property: BoxedAnyProperty<'static>) -> Self {
-        Self::Core(CoreTemplatePropertyKind::wrap_any_list(property))
-    }
-
-    fn type_name(&self) -> &'static str {
-        match self {
-            Self::Core(property) => property.type_name(),
-            Self::Operation(property) => property.type_name(),
-        }
-    }
-
-    fn try_into_byte_string(self) -> Result<BoxedTemplateProperty<'static, BString>, Self> {
-        match self {
-            Self::Core(property) => property.try_into_byte_string().map_err(Self::Core),
-            Self::Operation(property) => property.try_into_byte_string().map_err(Self::Operation),
-        }
-    }
-
-    fn try_into_string(self) -> Result<BoxedTemplateProperty<'static, String>, Self> {
-        match self {
-            Self::Core(property) => property.try_into_string().map_err(Self::Core),
-            Self::Operation(property) => property.try_into_string().map_err(Self::Operation),
-        }
-    }
-
-    fn try_into_boolean(self) -> Result<BoxedTemplateProperty<'static, bool>, Self> {
-        match self {
-            Self::Core(property) => property.try_into_boolean().map_err(Self::Core),
-            Self::Operation(property) => property.try_into_boolean().map_err(Self::Operation),
-        }
-    }
-
-    fn try_into_integer(self) -> Result<BoxedTemplateProperty<'static, i64>, Self> {
-        match self {
-            Self::Core(property) => property.try_into_integer().map_err(Self::Core),
-            Self::Operation(property) => property.try_into_integer().map_err(Self::Operation),
-        }
-    }
-
-    fn try_into_timestamp(self) -> Result<BoxedTemplateProperty<'static, Timestamp>, Self> {
-        match self {
-            Self::Core(property) => property.try_into_timestamp().map_err(Self::Core),
-            Self::Operation(property) => property.try_into_timestamp().map_err(Self::Operation),
-        }
-    }
-
-    fn try_into_serialize(self) -> Option<BoxedSerializeProperty<'static>> {
-        match self {
-            Self::Core(property) => property.try_into_serialize(),
-            Self::Operation(property) => property.try_into_serialize(),
-        }
-    }
-
-    fn try_into_template(self) -> Option<Box<dyn Template>> {
-        match self {
-            Self::Core(property) => property.try_into_template(),
-            Self::Operation(property) => property.try_into_template(),
-        }
-    }
-
-    fn try_into_eq(self, other: Self) -> Option<BoxedTemplateProperty<'static, bool>> {
-        match (self, other) {
-            (Self::Core(lhs), Self::Core(rhs)) => lhs.try_into_eq(rhs),
-            (Self::Core(lhs), Self::Operation(rhs)) => rhs.try_into_eq_core(lhs),
-            (Self::Operation(lhs), Self::Core(rhs)) => lhs.try_into_eq_core(rhs),
-            (Self::Operation(lhs), Self::Operation(rhs)) => lhs.try_into_eq(rhs),
-        }
-    }
-
-    fn try_into_cmp(self, other: Self) -> Option<BoxedTemplateProperty<'static, Ordering>> {
-        match (self, other) {
-            (Self::Core(lhs), Self::Core(rhs)) => lhs.try_into_cmp(rhs),
-            (Self::Core(lhs), Self::Operation(rhs)) => rhs
-                .try_into_cmp_core(lhs)
-                .map(|property| property.map(Ordering::reverse).into_dyn()),
-            (Self::Operation(lhs), Self::Core(rhs)) => lhs.try_into_cmp_core(rhs),
-            (Self::Operation(lhs), Self::Operation(rhs)) => lhs.try_into_cmp(rhs),
-        }
-    }
-}
-
-impl OperationTemplatePropertyVar<'static> for OperationTemplateLanguagePropertyKind {}
-
-/// Symbol table for the operation template property types.
-pub struct OperationTemplateBuildFnTable<'a, L: ?Sized, P = <L as TemplateLanguage<'a>>::Property> {
-    pub operation_methods: TemplateBuildMethodFnMap<'a, L, Operation, P>,
-    pub operation_list_methods: TemplateBuildMethodFnMap<'a, L, Vec<Operation>, P>,
-    pub operation_id_methods: TemplateBuildMethodFnMap<'a, L, OperationId, P>,
-}
-
-impl<L: ?Sized, P> OperationTemplateBuildFnTable<'_, L, P> {
-    pub fn empty() -> Self {
-        Self {
-            operation_methods: HashMap::new(),
-            operation_list_methods: HashMap::new(),
-            operation_id_methods: HashMap::new(),
-        }
-    }
-
-    pub fn merge(&mut self, other: Self) {
-        let Self {
-            operation_methods,
-            operation_list_methods,
-            operation_id_methods,
-        } = other;
-
-        merge_fn_map(&mut self.operation_methods, operation_methods);
-        merge_fn_map(&mut self.operation_list_methods, operation_list_methods);
-        merge_fn_map(&mut self.operation_id_methods, operation_id_methods);
-    }
-}
-
-impl<'a, L> OperationTemplateBuildFnTable<'a, L, L::Property>
+pub fn register_symbols<'a, L>(table: &mut TemplateSymbolTable<'a, L>)
 where
     L: TemplateLanguage<'a> + OperationTemplateEnvironment + ?Sized,
-    L::Property: OperationTemplatePropertyVar<'a>,
 {
-    /// Creates new symbol table containing the builtin methods.
-    pub fn builtin() -> Self {
-        Self {
-            operation_methods: builtin_operation_methods(),
-            operation_list_methods: template_builder::builtin_unformattable_list_methods(),
-            operation_id_methods: builtin_operation_id_methods(),
-        }
-    }
-
-    /// Applies the method call node `function` to the given `property` by using
-    /// this symbol table.
-    pub fn build_method(
-        &self,
-        language: &L,
-        diagnostics: &mut TemplateDiagnostics,
-        build_ctx: &BuildContext<L::Property>,
-        property: OperationTemplatePropertyKind<'a>,
-        function: &FunctionCallNode,
-    ) -> TemplateParseResult<L::Property> {
-        let type_name = property.type_name();
-        match property {
-            OperationTemplatePropertyKind::Operation(property) => {
-                let table = &self.operation_methods;
-                let build = template_parser::lookup_method(type_name, table, function)?;
-                build(language, diagnostics, build_ctx, property, function)
-            }
-            OperationTemplatePropertyKind::OperationOpt(property) => {
-                let inner_property = property.try_unwrap(type_name).into_dyn_wrapped();
-                self.build_method(language, diagnostics, build_ctx, inner_property, function)
-            }
-            OperationTemplatePropertyKind::OperationList(property) => {
-                let table = &self.operation_list_methods;
-                let build = template_parser::lookup_method(type_name, table, function)?;
-                build(language, diagnostics, build_ctx, property, function)
-            }
-            OperationTemplatePropertyKind::OperationId(property) => {
-                let table = &self.operation_id_methods;
-                let build = template_parser::lookup_method(type_name, table, function)?;
-                build(language, diagnostics, build_ctx, property, function)
-            }
-        }
-    }
+    register_operation_methods(table);
+    register_unformattable_list_methods::<_, Operation>(table);
+    register_operation_id_methods(table);
 }
 
-/// Symbol table of methods available in [`OperationTemplateLanguage`].
-pub struct OperationTemplateLanguageBuildFnTable {
-    pub core: CoreTemplateBuildFnTable<'static, OperationTemplateLanguage>,
-    pub operation: OperationTemplateBuildFnTable<'static, OperationTemplateLanguage>,
-}
-
-impl OperationTemplateLanguageBuildFnTable {
-    pub fn empty() -> Self {
-        Self {
-            core: CoreTemplateBuildFnTable::empty(),
-            operation: OperationTemplateBuildFnTable::empty(),
-        }
-    }
-
-    fn merge(&mut self, other: Self) {
-        let Self { core, operation } = other;
-
-        self.core.merge(core);
-        self.operation.merge(operation);
-    }
-
-    /// Creates new symbol table containing the builtin methods.
-    fn builtin() -> Self {
-        Self {
-            core: CoreTemplateBuildFnTable::builtin(),
-            operation: OperationTemplateBuildFnTable::builtin(),
-        }
-    }
-}
-
-fn builtin_operation_methods<'a, L>() -> TemplateBuildMethodFnMap<'a, L, Operation>
+fn register_operation_methods<'a, L>(table: &mut TemplateSymbolTable<'a, L>)
 where
     L: TemplateLanguage<'a> + OperationTemplateEnvironment + ?Sized,
-    L::Property: OperationTemplatePropertyVar<'a>,
 {
-    // Not using maplit::hashmap!{} or custom declarative macro here because
-    // code completion inside macro is quite restricted.
-    let mut map = TemplateBuildMethodFnMap::<L, Operation>::new();
-    map.insert(
+    let mut methods = table.register_methods::<Operation>();
+    methods.insert(
         "current_operation",
         |language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -526,7 +174,7 @@ where
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "description",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -534,7 +182,7 @@ where
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "id",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -542,7 +190,7 @@ where
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "attributes",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -558,7 +206,7 @@ where
         },
     );
     // TODO: Remove in jj 0.47+
-    map.insert(
+    methods.insert(
         "tags",
         |_language, diagnostics, _build_ctx, self_property, function| {
             diagnostics.add_warning(TemplateParseError::expression(
@@ -577,7 +225,7 @@ where
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "snapshot",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -585,7 +233,7 @@ where
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "workspace_name",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -599,7 +247,7 @@ where
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "time",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -607,7 +255,7 @@ where
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "user",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -618,7 +266,7 @@ where
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "root",
         |language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -628,7 +276,7 @@ where
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "parents",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -639,7 +287,6 @@ where
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map
 }
 
 impl Template for OperationId {
@@ -648,15 +295,12 @@ impl Template for OperationId {
     }
 }
 
-fn builtin_operation_id_methods<'a, L>() -> TemplateBuildMethodFnMap<'a, L, OperationId>
+fn register_operation_id_methods<'a, L>(table: &mut TemplateSymbolTable<'a, L>)
 where
     L: TemplateLanguage<'a> + OperationTemplateEnvironment + ?Sized,
-    L::Property: OperationTemplatePropertyVar<'a>,
 {
-    // Not using maplit::hashmap!{} or custom declarative macro here because
-    // code completion inside macro is quite restricted.
-    let mut map = TemplateBuildMethodFnMap::<L, OperationId>::new();
-    map.insert(
+    let mut methods = table.register_methods::<OperationId>();
+    methods.insert(
         "short",
         |language, diagnostics, build_ctx, self_property, function| {
             let ([], [len_node]) = function.expect_arguments()?;
@@ -678,5 +322,4 @@ where
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map
 }

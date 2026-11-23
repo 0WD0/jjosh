@@ -33,8 +33,9 @@ use jj_lib::view::View;
 use pollster::FutureExt as _;
 
 use super::CommitRef;
-use super::CommitTemplateBuildMethodFnMap;
+use super::CommitTemplateSymbolTable;
 use super::RefSymbolBuf;
+use crate::template_builder::register_formattable_list_methods;
 use crate::templater;
 use crate::templater::Template;
 use crate::templater::TemplateFormatter;
@@ -262,9 +263,16 @@ fn tracking_content_synced(
     })
 }
 
-pub(super) fn add_commit_ref_methods<'repo>(
-    map: &mut CommitTemplateBuildMethodFnMap<'repo, Rc<CommitRef>>,
-) {
+pub(super) fn register_symbols(table: &mut CommitTemplateSymbolTable<'_>) {
+    register_commit_ref_methods(table);
+    register_project_ref_methods(table);
+    register_formattable_list_methods::<_, Rc<ProjectRef>>(table);
+    register_project_remote_methods(table);
+    register_formattable_list_methods::<_, ProjectRemote>(table);
+}
+
+fn register_commit_ref_methods(table: &mut CommitTemplateSymbolTable<'_>) {
+    let mut map = table.register_methods::<Rc<CommitRef>>();
     map.insert(
         "project",
         |language, _diagnostics, _build_ctx, self_property, function| {
@@ -304,9 +312,8 @@ pub(super) fn add_commit_ref_methods<'repo>(
     );
 }
 
-pub(super) fn builtin_project_ref_methods<'repo>()
--> CommitTemplateBuildMethodFnMap<'repo, Rc<ProjectRef>> {
-    let mut map = CommitTemplateBuildMethodFnMap::<Rc<ProjectRef>>::new();
+fn register_project_ref_methods(table: &mut CommitTemplateSymbolTable<'_>) {
+    let mut map = table.register_methods::<Rc<ProjectRef>>();
     map.insert(
         "id",
         |_language, _diagnostics, _build_ctx, self_property, function| {
@@ -362,16 +369,14 @@ pub(super) fn builtin_project_ref_methods<'repo>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map
 }
 
 fn unresolved_definition() -> TemplatePropertyError {
     TemplatePropertyError("Project definition is unresolved".into())
 }
 
-pub(super) fn builtin_project_remote_methods<'repo>()
--> CommitTemplateBuildMethodFnMap<'repo, ProjectRemote> {
-    let mut map = CommitTemplateBuildMethodFnMap::<ProjectRemote>::new();
+fn register_project_remote_methods(table: &mut CommitTemplateSymbolTable<'_>) {
+    let mut map = table.register_methods::<ProjectRemote>();
     map.insert(
         "name",
         |_language, _diagnostics, _build_ctx, self_property, function| {
@@ -413,5 +418,4 @@ pub(super) fn builtin_project_remote_methods<'repo>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map
 }

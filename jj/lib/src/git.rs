@@ -43,7 +43,6 @@ use bstr::BString;
 use futures::StreamExt as _;
 use futures::TryStreamExt as _;
 use futures::stream;
-use gix::refs::transaction::RefEdit;
 use gix::refspec::Instruction;
 use itertools::Itertools as _;
 use jj_core::backend::BackendError;
@@ -65,6 +64,7 @@ use jj_core::op_store::RemoteRef;
 use jj_core::op_store::RemoteRefState;
 use jj_core::ref_name::GitRefName;
 use jj_core::ref_name::GitRefNameBuf;
+pub use jj_core::ref_name::REMOTE_NAME_FOR_LOCAL_GIT_REPO;
 use jj_core::ref_name::RefName;
 use jj_core::ref_name::RefNameBuf;
 use jj_core::ref_name::RemoteName;
@@ -81,6 +81,7 @@ use jj_core::str_util::StringMatcher;
 use jj_core::str_util::StringPattern;
 use jj_core::view::View;
 use jj_git_backend::git_backend::GitBackend;
+use jj_git_backend::git_backend::GitRepoAtWorkdirError;
 use jj_local_util::file_util::IoResultExt as _;
 use jj_local_util::file_util::PathError;
 use jj_local_util::file_util::is_empty_dir;
@@ -106,8 +107,6 @@ use jj_core::project::ConversionObservation;
 use jj_core::project::ObservationKey;
 use jj_core::project::ObservationKind;
 
-/// Reserved remote name for the backing Git repo.
-pub use jj_core::ref_name::REMOTE_NAME_FOR_LOCAL_GIT_REPO;
 /// Git ref prefix that would conflict with the reserved "git" remote.
 pub const RESERVED_REMOTE_REF_NAMESPACE: &str = "refs/remotes/git/";
 /// Git ref prefix where remote bookmarks are stored.
@@ -794,7 +793,7 @@ fn resolve_git_ref_to_commit_id(
 
     // Try fast path if we have a candidate id which is known to be a commit object.
     if let Some(known_oid) = known_commit_oid {
-        let raw_ref = &git_ref.inner;
+        let raw_ref = git_ref.inner();
         if let Some(oid) = raw_ref.target.try_id()
             && oid == known_oid
         {
@@ -823,7 +822,7 @@ fn resolve_git_ref_to_commit_id(
                 }
                 // Unknown id. Recurse from the current state. A tag may point to
                 // non-commit object.
-                peeling_ref.to_mut().inner.target = gix::refs::Target::Object(oid);
+                peeling_ref.to_mut().inner_mut().target = gix::refs::Target::Object(oid);
             }
         }
     }
@@ -872,16 +871,13 @@ pub enum GitImportError {
     RevsetEvaluation(#[from] RevsetEvaluationError),
     /// Error from the Git repo.
     #[error(transparent)]
-    Git(Box<dyn std::error::Error + Send + Sync>),
+    Git(#[from] gix::Error),
+    /// Error opening the worktree repository.
+    #[error(transparent)]
+    GitRepoAtWorkdir(#[from] GitRepoAtWorkdirError),
     /// The repo is not backed by a [`GitBackend`].
     #[error(transparent)]
     UnexpectedBackend(#[from] UnexpectedGitBackendError),
-}
-
-impl GitImportError {
-    fn from_git(source: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Self {
-        Self::Git(source.into())
-    }
 }
 
 /// Options for [`import_refs()`].
@@ -1056,7 +1052,7 @@ pub async fn import_remote_observations(
 ) -> Result<GitImportStats, GitImportError> {
     let mut git_repo = get_git_repo(mut_repo.store())?;
     // A project import may install its connection config in this operation.
-    git_repo.reload().map_err(GitImportError::from_git)?;
+    git_repo.reload()?;
     let observations: Vec<_> = observations.into_iter().collect();
     for (key, values) in &mut_repo.view().store_view().project_observations {
         let kind = match key.kind {
@@ -1535,23 +1531,23 @@ fn diff_refs_to_import(
 
     let mut changed_git_refs = Vec::new();
     let mut failed_ref_names = Vec::new();
-    let actual = git_repo.references().map_err(GitImportError::from_git)?;
+    let actual = git_repo.references()?;
     collect_changed_git_refs_to_import(
-        actual.local_branches().map_err(GitImportError::from_git)?,
+        actual.local_branches()?,
         &mut known_git_refs,
         &mut changed_git_refs,
         &mut failed_ref_names,
         &git_ref_filter,
     )?;
     collect_changed_git_refs_to_import(
-        actual.remote_branches().map_err(GitImportError::from_git)?,
+        actual.remote_branches()?,
         &mut known_git_refs,
         &mut changed_git_refs,
         &mut failed_ref_names,
         &git_ref_filter,
     )?;
     collect_changed_git_refs_to_import(
-        actual.tags().map_err(GitImportError::from_git)?,
+        actual.tags()?,
         &mut known_git_refs,
         &mut changed_git_refs,
         &mut failed_ref_names,
@@ -1721,20 +1717,16 @@ fn diff_fetched_refs_to_import(
     let mut changed_remote_bookmarks = Vec::new();
     let mut changed_remote_tags = Vec::new();
     let mut failed_ref_names = Vec::new();
-    let actual = git_repo.references().map_err(GitImportError::from_git)?;
+    let actual = git_repo.references()?;
     collect_changed_fetched_refs_to_import(
-        actual
-            .prefixed(FETCH_BOOKMARK_REF_NAMESPACE)
-            .map_err(GitImportError::from_git)?,
+        actual.prefixed(FETCH_BOOKMARK_REF_NAMESPACE)?,
         &mut known_remote_bookmarks,
         &mut changed_remote_bookmarks,
         &mut failed_ref_names,
         &git_ref_filter,
     )?;
     collect_changed_fetched_refs_to_import(
-        actual
-            .prefixed(REMOTE_TAG_REF_NAMESPACE)
-            .map_err(GitImportError::from_git)?,
+        actual.prefixed(REMOTE_TAG_REF_NAMESPACE)?,
         &mut known_remote_tags,
         &mut changed_remote_tags,
         &mut failed_ref_names,
@@ -1780,7 +1772,7 @@ fn collect_changed_git_refs_to_import(
     git_ref_filter: impl Fn(GitRefKind, RemoteRefSymbol<'_>) -> bool,
 ) -> Result<(), GitImportError> {
     for git_ref in actual_git_refs {
-        let git_ref = git_ref.map_err(GitImportError::from_git)?;
+        let git_ref = git_ref?;
         let full_name_bytes = git_ref.name().as_bstr();
         let Ok(full_name) = str::from_utf8(full_name_bytes) else {
             // Non-utf8 refs cannot be imported.
@@ -1824,7 +1816,7 @@ fn collect_changed_fetched_refs_to_import(
     git_ref_filter: impl Fn(GitRefKind, RemoteRefSymbol<'_>) -> bool,
 ) -> Result<(), GitImportError> {
     for git_ref in actual_git_refs {
-        let git_ref = git_ref.map_err(GitImportError::from_git)?;
+        let git_ref = git_ref?;
         let full_name_bytes = git_ref.name().as_bstr();
         let Ok(full_name) = str::from_utf8(full_name_bytes) else {
             // Non-utf8 refs cannot be imported.
@@ -1925,16 +1917,13 @@ pub async fn import_head(
 ) -> Result<(), GitImportError> {
     let store = mut_repo.store();
     let git_backend = get_git_backend(store)?;
-    let git_repo = git_backend
-        .open_git_repo_at_workdir(workspace_root)
-        .map_err(GitImportError::from_git)?;
+    let git_repo = git_backend.open_git_repo_at_workdir(workspace_root)?;
 
     let old_git_head = mut_repo.view().git_head(workspace_name);
-    let new_git_head_id = if let Ok(oid) = git_repo.head_id() {
-        Some(CommitId::from_bytes(oid.as_bytes()))
-    } else {
-        None
-    };
+    let new_git_head_id = git_repo
+        .head()?
+        .try_into_peeled_id()?
+        .map(|oid| CommitId::from_bytes(oid.as_bytes()));
     if old_git_head.as_resolved() == Some(&new_git_head_id) {
         return Ok(());
     }
@@ -1968,7 +1957,7 @@ pub async fn import_head_commit(
     let git_backend = get_git_backend(store)?;
     let git_repo = git_backend.git_repo();
 
-    let Ok(oid) = git_repo.head_id() else {
+    let Some(oid) = git_repo.head()?.try_into_peeled_id()? else {
         return Ok(None);
     };
     let head_id = CommitId::from_bytes(oid.as_bytes());
@@ -1994,16 +1983,10 @@ pub async fn import_head_commit(
 pub enum GitExportError {
     /// Error from the Git repo.
     #[error(transparent)]
-    Git(Box<dyn std::error::Error + Send + Sync>),
+    Git(#[from] gix::Error),
     /// The repo is not backed by a [`GitBackend`].
     #[error(transparent)]
     UnexpectedBackend(#[from] UnexpectedGitBackendError),
-}
-
-impl GitExportError {
-    fn from_git(source: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Self {
-        Self::Git(source.into())
-    }
 }
 
 /// The reason we failed to export a ref to Git.
@@ -2097,22 +2080,19 @@ pub fn export_some_refs(
     );
 
     let check_and_detach_head = |git_repo: &gix::Repository| -> Result<(), GitExportError> {
-        let Ok(head_ref) = git_repo.find_reference("HEAD") else {
+        let Some(head_ref) = git_repo.try_find_reference("HEAD")? else {
             return Ok(());
         };
-        let old_target = head_ref.inner.target;
+        let old_target = head_ref.inner().target.clone();
         if let Some(target_name) = old_target.try_name()
             && let Ok(target_name_str) = str::from_utf8(target_name.as_bstr())
             && let Some((kind, symbol)) = parse_git_ref(target_name_str.as_ref())
         {
             // Unborn ref is mapped to None (= absent)
-            let maybe_target_ref = git_repo
-                .try_find_reference(target_name)
-                .map_err(GitExportError::from_git)?;
+            let maybe_target_ref = git_repo.try_find_reference(target_name)?;
             let current_oid = maybe_target_ref
                 .map(|target_ref| target_ref.into_fully_peeled_id())
-                .transpose()
-                .map_err(GitExportError::from_git)?
+                .transpose()?
                 .map(|id| id.detach());
             let refs = match kind {
                 GitRefKind::Bookmark => &bookmarks,
@@ -2130,8 +2110,7 @@ pub fn export_some_refs(
                     git_repo,
                     gix::refs::transaction::PreviousValue::MustExistAndMatch(old_target),
                     current_oid,
-                )
-                .map_err(GitExportError::from_git)?;
+                )?;
             }
         }
         Ok(())
@@ -2140,7 +2119,7 @@ pub fn export_some_refs(
     let git_repo = get_git_repo(mut_repo.store())?;
 
     check_and_detach_head(&git_repo)?;
-    for worktree in git_repo.worktrees().map_err(GitExportError::from_git)? {
+    for worktree in git_repo.worktrees()? {
         if let Ok(worktree_repo) = worktree.into_repo_with_possibly_inaccessible_worktree() {
             check_and_detach_head(&worktree_repo)?;
         }
@@ -2175,39 +2154,29 @@ fn export_refs_to_git(
     refs: RefsToExport,
 ) -> Vec<(RemoteRefSymbolBuf, FailedRefExportReason)> {
     let mut failed = refs.failed;
+    let mut edits = Vec::with_capacity(refs.to_delete.len() + refs.to_update.len());
 
-    let to_delete = delete_git_refs(git_repo, kind, refs.to_delete);
-    failed.extend(to_delete.failed);
-
-    {
-        let edits = to_delete
-            .to_apply
-            .iter()
-            .filter_map(|(.., edit)| edit.clone());
-        if git_repo.edit_references(edits).is_ok() {
-            for (_, git_ref_name, _) in &to_delete.to_apply {
-                mut_repo.set_git_ref_target(git_ref_name, RefTarget::absent());
-            }
-        } else {
-            // Fall back to deleting one by one
-            for (symbol, git_ref_name, edit) in &to_delete.to_apply {
-                if let Some(edit) = edit
-                    && let Err(reason) = git_repo.edit_reference(edit.clone())
-                {
-                    failed.push((
-                        symbol.clone(),
-                        FailedRefExportReason::FailedToDelete(reason),
-                    ));
-                } else {
-                    mut_repo.set_git_ref_target(git_ref_name, RefTarget::absent());
-                }
-            }
-        }
+    let mut to_delete = Vec::with_capacity(refs.to_delete.len());
+    for (symbol, old_oid) in refs.to_delete {
+        let Some(git_ref_name) = to_git_ref_name(kind, symbol.as_ref()) else {
+            failed.push((symbol, FailedRefExportReason::InvalidGitName));
+            continue;
+        };
+        let Ok(git_full_name) = git_ref_name.as_str().try_into() else {
+            failed.push((symbol, FailedRefExportReason::InvalidGitName));
+            continue;
+        };
+        edits.push(ref_edit_for_delete(git_full_name, old_oid));
+        to_delete.push((symbol, git_ref_name, old_oid));
     }
 
-    // TODO: batch updates similarly to deletes
+    let mut to_update = Vec::with_capacity(refs.to_update.len());
     for (symbol, (old_commit_oid, new_commit_oid)) in refs.to_update {
         let Some(git_ref_name) = to_git_ref_name(kind, symbol.as_ref()) else {
+            failed.push((symbol, FailedRefExportReason::InvalidGitName));
+            continue;
+        };
+        let Ok(git_full_name) = git_ref_name.as_str().try_into() else {
             failed.push((symbol, FailedRefExportReason::InvalidGitName));
             continue;
         };
@@ -2225,18 +2194,43 @@ fn export_refs_to_git(
                 )
             }
         };
-        if let Err(reason) = update_git_ref(
-            git_repo,
-            &git_ref_name,
+        let new_oid = new_ref_oid.unwrap_or(new_commit_oid);
+        edits.push(ref_edit_for_update(git_full_name, old_commit_oid, new_oid));
+        to_update.push((
+            symbol,
+            git_ref_name,
             old_commit_oid,
             new_commit_oid,
             new_ref_oid,
-        ) {
-            failed.push((symbol, reason));
-        } else {
-            let new_target = RefTarget::normal(CommitId::from_bytes(new_commit_oid.as_bytes()));
-            mut_repo.set_git_ref_target(&git_ref_name, new_target);
+        ));
+    }
+
+    let bulk_edited = git_repo
+        .edit_references(edits)
+        .inspect_err(|err| tracing::warn!(?err, "failed to update multiple refs"))
+        .is_ok();
+    for (symbol, git_ref_name, old_oid) in to_delete {
+        if !bulk_edited {
+            let name = git_ref_name.as_str().try_into().expect("validated above");
+            if let Err(reason) = delete_git_ref(git_repo, name, old_oid) {
+                failed.push((symbol, reason));
+                continue;
+            }
         }
+        mut_repo.set_git_ref_target(&git_ref_name, RefTarget::absent());
+    }
+    for (symbol, git_ref_name, old_commit_oid, new_commit_oid, new_ref_oid) in to_update {
+        if !bulk_edited {
+            let name = git_ref_name.as_str().try_into().expect("validated above");
+            if let Err(reason) =
+                update_git_ref(git_repo, name, old_commit_oid, new_commit_oid, new_ref_oid)
+            {
+                failed.push((symbol, reason));
+                continue;
+            }
+        }
+        let new_target = RefTarget::normal(CommitId::from_bytes(new_commit_oid.as_bytes()));
+        mut_repo.set_git_ref_target(&git_ref_name, new_target);
     }
 
     // Stabilize output, allow binary search.
@@ -2432,91 +2426,74 @@ fn find_git_tag_oid_to_copy(
         .filter(|git_ref| {
             resolve_git_ref_to_commit_id(git_ref, Some(commit_oid)).as_deref() == Some(commit_oid)
         })
-        .find_map(|git_ref| git_ref.inner.target.try_into_id().ok())
+        .find_map(|git_ref| git_ref.detach().target.try_into_id().ok())
 }
 
-fn edit_exported_git_ref(
+/// Returns an edit for deleting the ref.
+fn ref_edit_for_delete(
+    name: &gix::refs::FullNameRef,
+    old_oid: gix::ObjectId,
+) -> gix::refs::transaction::RefEdit {
+    let constraint = gix::refs::transaction::PreviousValue::MustExistAndMatch(old_oid.into());
+    gix::refs::transaction::RefEdit::delete(name.into(), constraint)
+}
+
+/// Returns an edit for creating or moving the ref to `new_oid`.
+fn ref_edit_for_update(
+    name: &gix::refs::FullNameRef,
+    old_oid: Option<gix::ObjectId>,
+    new_oid: gix::ObjectId,
+) -> gix::refs::transaction::RefEdit {
+    let constraint = match old_oid {
+        Some(oid) => gix::refs::transaction::PreviousValue::MustExistAndMatch(oid.into()),
+        None => gix::refs::transaction::PreviousValue::MustNotExist,
+    };
+    gix::refs::transaction::RefEdit::update(name.into(), new_oid, constraint, "export from jj")
+}
+
+/// Deletes an existing ref pointing to `old_oid` or the peeled oid.
+fn delete_git_ref(
     git_repo: &gix::Repository,
-    edit: gix::refs::transaction::RefEdit,
-) -> gix::Result<()> {
-    git_repo.edit_reference(edit)?;
-    Ok(())
-}
-
-struct EditsForDelete {
-    failed: Vec<(RemoteRefSymbolBuf, FailedRefExportReason)>,
-    to_apply: Vec<(RemoteRefSymbolBuf, GitRefNameBuf, Option<RefEdit>)>,
-}
-
-/// Gather [`RefEdit`]s to delete.
-fn delete_git_refs(
-    git_repo: &gix::Repository,
-    kind: GitRefKind,
-    refs: Vec<(RemoteRefSymbolBuf, gix::ObjectId)>,
-) -> EditsForDelete {
-    let mut failed = vec![];
-
-    let mut to_apply = vec![];
-
-    for (symbol, old_oid) in refs {
-        let Some(git_ref_name) = to_git_ref_name(kind, symbol.as_ref()) else {
-            failed.push((symbol, FailedRefExportReason::InvalidGitName));
-            continue;
-        };
-        let git_ref = match git_repo.try_find_reference(git_ref_name.as_str()) {
-            Err(err) => {
-                failed.push((symbol, FailedRefExportReason::FailedToDelete(err)));
-                continue;
-            }
-            Ok(None) => {
-                // The ref is already deleted in git
-                to_apply.push((symbol, git_ref_name, None));
-                continue;
-            }
-            Ok(Some(git_ref)) => git_ref,
-        };
-        if resolve_git_ref_to_commit_id(&git_ref, Some(&old_oid)).as_deref() == Some(&old_oid) {
-            // The ref has not been updated by git, so go ahead and delete it
-            let edit = remove_ref(git_ref.clone());
-            to_apply.push((symbol, git_ref_name, Some(edit)));
-        } else {
-            // The ref was updated by git
-            failed.push((symbol, FailedRefExportReason::DeletedInJjModifiedInGit));
-        }
+    name: &gix::refs::FullNameRef,
+    old_oid: gix::ObjectId,
+) -> Result<(), FailedRefExportReason> {
+    let edit = ref_edit_for_delete(name, old_oid);
+    if git_repo.edit_reference(edit).is_ok() {
+        return Ok(());
     }
-
-    EditsForDelete { failed, to_apply }
+    let Some(git_ref) = git_repo
+        .try_find_reference(name)
+        .map_err(FailedRefExportReason::FailedToDelete)?
+    else {
+        // The ref is already deleted
+        return Ok(());
+    };
+    let git_commit_oid = resolve_git_ref_to_commit_id(&git_ref, Some(&old_oid));
+    if git_commit_oid == Some(old_oid) {
+        // The reference would point to annotated tag, try again
+        git_ref
+            .delete()
+            .map_err(FailedRefExportReason::FailedToDelete)
+    } else {
+        // The ref was updated by git
+        Err(FailedRefExportReason::DeletedInJjModifiedInGit)
+    }
 }
 
 /// Creates new ref pointing to `new_ref_oid` or (peeled) `new_commit_oid`.
 fn create_git_ref(
     git_repo: &gix::Repository,
-    git_ref_name: &GitRefName,
+    name: &gix::refs::FullNameRef,
     new_commit_oid: gix::ObjectId,
     new_ref_oid: Option<gix::ObjectId>,
 ) -> Result<(), FailedRefExportReason> {
     let new_oid = new_ref_oid.unwrap_or(new_commit_oid);
-    let constraint = gix::refs::transaction::PreviousValue::MustNotExist;
-    let full_ref_name: gix::refs::FullName = git_ref_name.as_str().try_into().map_err(
-        |err: gix::validate::reference::name::Error| {
-            use gix::error::ErrorExt as _;
-            FailedRefExportReason::FailedToSet(err.and_raise(gix::error::message(
-                "The ref name or path is not a valid ref name",
-            )))
-        },
-    )?;
-    let edit = gix::refs::transaction::RefEdit::update(
-        full_ref_name,
-        new_oid,
-        constraint,
-        "export from jj",
-    );
-    let Err(set_err) = edit_exported_git_ref(git_repo, edit) else {
-        // The ref was added in jj but still doesn't exist in git
+    let edit = ref_edit_for_update(name, None, new_oid);
+    let Err(set_err) = git_repo.edit_reference(edit) else {
         return Ok(());
     };
     let Some(git_ref) = git_repo
-        .try_find_reference(git_ref_name.as_str())
+        .try_find_reference(name)
         .map_err(FailedRefExportReason::FailedToSet)?
     else {
         return Err(FailedRefExportReason::FailedToSet(set_err));
@@ -2533,35 +2510,19 @@ fn create_git_ref(
 /// Updates existing ref to point to `new_ref_oid` or (peeled) `new_commit_oid`.
 fn move_git_ref(
     git_repo: &gix::Repository,
-    git_ref_name: &GitRefName,
+    name: &gix::refs::FullNameRef,
     old_commit_oid: gix::ObjectId,
     new_commit_oid: gix::ObjectId,
     new_ref_oid: Option<gix::ObjectId>,
 ) -> Result<(), FailedRefExportReason> {
     let new_oid = new_ref_oid.unwrap_or(new_commit_oid);
-    let constraint =
-        gix::refs::transaction::PreviousValue::MustExistAndMatch(old_commit_oid.into());
-    let full_ref_name: gix::refs::FullName = git_ref_name.as_str().try_into().map_err(
-        |err: gix::validate::reference::name::Error| {
-            use gix::error::ErrorExt as _;
-            FailedRefExportReason::FailedToSet(err.and_raise(gix::error::message(
-                "The ref name or path is not a valid ref name",
-            )))
-        },
-    )?;
-    let edit = gix::refs::transaction::RefEdit::update(
-        full_ref_name,
-        new_oid,
-        constraint,
-        "export from jj",
-    );
-    let Err(set_err) = edit_exported_git_ref(git_repo, edit) else {
-        // Successfully updated from old_oid to new_oid (unchanged in git)
+    let edit = ref_edit_for_update(name, Some(old_commit_oid), new_oid);
+    let Err(set_err) = git_repo.edit_reference(edit) else {
         return Ok(());
     };
     // The reference was probably updated in git
     let Some(git_ref) = git_repo
-        .try_find_reference(git_ref_name.as_str())
+        .try_find_reference(name)
         .map_err(FailedRefExportReason::FailedToSet)?
     else {
         // The reference was deleted in git and moved in jj
@@ -2574,14 +2535,16 @@ fn move_git_ref(
     } else if git_commit_oid == Some(old_commit_oid) {
         // The reference would point to annotated tag, try again
         let constraint =
-            gix::refs::transaction::PreviousValue::MustExistAndMatch(git_ref.inner.target);
+            gix::refs::transaction::PreviousValue::MustExistAndMatch(git_ref.inner().target.clone());
         let edit = gix::refs::transaction::RefEdit::update(
-            git_ref.inner.name,
+            git_ref.inner().name.clone(),
             new_oid,
             constraint,
             "export from jj",
         );
-        edit_exported_git_ref(git_repo, edit).map_err(FailedRefExportReason::FailedToSet)?;
+        git_repo
+            .edit_reference(edit)
+            .map_err(FailedRefExportReason::FailedToSet)?;
         Ok(())
     } else {
         Err(FailedRefExportReason::FailedToSet(set_err))
@@ -2590,14 +2553,14 @@ fn move_git_ref(
 
 fn update_git_ref(
     git_repo: &gix::Repository,
-    git_ref_name: &GitRefName,
+    name: &gix::refs::FullNameRef,
     old_commit_oid: Option<gix::ObjectId>,
     new_commit_oid: gix::ObjectId,
     new_ref_oid: Option<gix::ObjectId>,
 ) -> Result<(), FailedRefExportReason> {
     match old_commit_oid {
-        None => create_git_ref(git_repo, git_ref_name, new_commit_oid, new_ref_oid),
-        Some(old_oid) => move_git_ref(git_repo, git_ref_name, old_oid, new_commit_oid, new_ref_oid),
+        None => create_git_ref(git_repo, name, new_commit_oid, new_ref_oid),
+        Some(old_oid) => move_git_ref(git_repo, name, old_oid, new_commit_oid, new_ref_oid),
     }
 }
 
@@ -2662,16 +2625,13 @@ pub enum GitCreateWorktreeError {
     MoveGitLink(#[source] PathError),
     /// Error from the Git repo.
     #[error(transparent)]
-    Git(Box<dyn std::error::Error + Send + Sync>),
+    Git(#[from] gix::Error),
+    /// Error opening the worktree repository.
+    #[error(transparent)]
+    GitRepoAtWorkdir(#[from] GitRepoAtWorkdirError),
     /// The repo is not backed by a [`GitBackend`].
     #[error(transparent)]
     UnexpectedBackend(#[from] UnexpectedGitBackendError),
-}
-
-impl GitCreateWorktreeError {
-    fn from_git(source: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Self {
-        Self::Git(source.into())
-    }
 }
 
 /// Creates a Git worktree at `destination` to back a jj workspace.
@@ -2714,9 +2674,7 @@ pub fn create_worktree(
     // worktree can't materialize the branch nobody asked for. If the
     // working-copy commit turns out to have a real parent, the HEAD export
     // replaces this with a detached HEAD.
-    let git_repo = git_backend
-        .open_git_repo_at_workdir(destination)
-        .map_err(GitCreateWorktreeError::from_git)?;
+    let git_repo = git_backend.open_git_repo_at_workdir(destination)?;
     let unborn_branch = gix::refs::Target::Symbolic(
         format!("refs/heads/{branch_name}")
             .try_into()
@@ -2726,8 +2684,8 @@ pub fn create_worktree(
         &git_repo,
         gix::refs::transaction::PreviousValue::MustExistAndMatch(unborn_branch),
         None,
-    )
-    .map_err(GitCreateWorktreeError::from_git)
+    )?;
+    Ok(())
 }
 
 /// Adds a worktree for a directory that already has contents.
@@ -2815,19 +2773,19 @@ pub enum GitResetHeadError {
     Backend(#[from] BackendError),
     /// Error from the Git repo.
     #[error(transparent)]
-    Git(Box<dyn std::error::Error + Send + Sync>),
+    Git(#[from] gix::Error),
+    /// Error opening the worktree repository.
+    #[error(transparent)]
+    GitRepoAtWorkdir(#[from] GitRepoAtWorkdirError),
+    /// Error accessing files.
+    #[error(transparent)]
+    Path(#[from] PathError),
     /// Failed to update the Git HEAD ref.
     #[error("Failed to update Git HEAD ref")]
     UpdateHeadRef(#[source] gix::Error),
     /// The repo is not backed by a [`GitBackend`].
     #[error(transparent)]
     UnexpectedBackend(#[from] UnexpectedGitBackendError),
-}
-
-impl GitResetHeadError {
-    fn from_git(source: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Self {
-        Self::Git(source.into())
-    }
 }
 
 /// Sets Git HEAD to the first parent of `new_wc_commit`.
@@ -2846,9 +2804,7 @@ pub async fn reset_head(
     (old_wc_commit, new_wc_commit): (Option<&Commit>, &Commit),
 ) -> Result<(), GitResetHeadError> {
     let git_backend = get_git_backend(mut_repo.store())?;
-    let git_repo = git_backend
-        .open_git_repo_at_workdir(workspace_root)
-        .map_err(GitResetHeadError::from_git)?;
+    let git_repo = git_backend.open_git_repo_at_workdir(workspace_root)?;
 
     let first_parent_id = &new_wc_commit.parent_ids()[0];
     let new_head_target = if first_parent_id != mut_repo.store().root_commit_id() {
@@ -2864,7 +2820,7 @@ pub async fn reset_head(
         let expected_ref = if let Some(id) = old_head_target.as_normal() {
             // We have to check the actual HEAD state because we don't record a
             // symbolic ref as such.
-            let actual_head = git_repo.head().map_err(GitResetHeadError::from_git)?;
+            let actual_head = git_repo.head()?;
             if actual_head.is_detached() {
                 let id = owned_oid_from_commit_id(id);
                 gix::refs::transaction::PreviousValue::MustExistAndMatch(id.into())
@@ -2922,7 +2878,7 @@ fn clear_operation_state(git_repo: &gix::Repository) -> Result<(), GitResetHeadE
     const STATE_DIR_NAMES: &[&str] = &["rebase-merge", "rebase-apply", "sequencer"];
     let handle_err = |err: PathError| match err.source.kind() {
         std::io::ErrorKind::NotFound => Ok(()),
-        _ => Err(GitResetHeadError::from_git(err)),
+        _ => Err(err),
     };
     for file_name in STATE_FILE_NAMES {
         let path = git_repo.path().join(file_name);
@@ -2960,9 +2916,7 @@ async fn reset_index(
         } else {
             // If the parent tree is resolved, we can use gix's `index_from_tree` method.
             // This is more efficient than iterating over the tree and adding each entry.
-            git_repo
-                .index_from_tree(&gix::ObjectId::from_bytes_or_panic(tree_id.as_bytes()))
-                .map_err(GitResetHeadError::from_git)?
+            git_repo.index_from_tree(&gix::ObjectId::from_bytes_or_panic(tree_id.as_bytes()))?
         }
     } else {
         build_index_from_merged_tree(git_repo, &parent_tree).await?
@@ -3087,11 +3041,9 @@ async fn build_index_from_merged_tree(
             .entry_index_by_path(INDEX_DUMMY_CONFLICT_FILE.into())
             .is_err()
     {
-        let file_blob = git_repo
-            .write_blob(
-                b"The working copy commit contains conflicts which cannot be resolved using Git.\n",
-            )
-            .map_err(GitResetHeadError::from_git)?;
+        let file_blob = git_repo.write_blob(
+            b"The working copy commit contains conflicts which cannot be resolved using Git.\n",
+        )?;
         index.dangerously_push_entry(
             gix::index::entry::Stat::default(),
             file_blob.detach(),
@@ -3120,9 +3072,7 @@ pub async fn update_intent_to_add(
     new_tree: &MergedTree,
 ) -> Result<(), GitResetHeadError> {
     let git_backend = get_git_backend(repo.store())?;
-    let git_repo = git_backend
-        .open_git_repo_at_workdir(workspace_root)
-        .map_err(GitResetHeadError::from_git)?;
+    let git_repo = git_backend.open_git_repo_at_workdir(workspace_root)?;
     let lock = lock_index(&git_repo)?;
     let mut index = open_index_or_empty(&git_repo)?;
     update_intent_to_add_impl(&git_repo, &mut index, old_tree, new_tree).await?;
@@ -3144,13 +3094,13 @@ const INDEX_LOCK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1
 /// `git status`, which IDEs often run in the background, briefly take the lock
 /// to refresh stat information.
 fn lock_index(git_repo: &gix::Repository) -> Result<gix::lock::File, GitResetHeadError> {
-    gix::lock::File::acquire_to_update_resource(
+    let lock = gix::lock::File::acquire_to_update_resource(
         git_repo.index_path(),
         gix::lock::acquire::Fail::AfterDurationWithBackoff(INDEX_LOCK_TIMEOUT),
         None,
-        0,
-    )
-    .map_err(GitResetHeadError::from_git)
+        git_repo.refs.shared_repository_permissions,
+    )?;
+    Ok(lock)
 }
 
 /// Writes `index` to the lock file and atomically replaces the Git index with
@@ -3161,14 +3111,15 @@ fn write_locked_index(
 ) -> Result<(), GitResetHeadError> {
     debug_assert_eq!(lock.resource_path(), index.path());
     let mut out = std::io::BufWriter::new(lock);
-    index
-        .write_to(&mut out, gix::index::write::Options::default())
-        .map_err(GitResetHeadError::from_git)?;
-    let lock = out
-        .into_inner()
-        .map_err(|err| GitResetHeadError::from_git(err.into_error()))?;
+    index.write_to(&mut out, gix::index::write::Options::default())?;
+    let lock = out.into_inner().map_err(|err| {
+        let (source, out) = err.into_parts();
+        let path = out.get_ref().lock_path().to_owned();
+        PathError { path, source }
+    })?;
     lock.commit()
-        .map_err(|err| GitResetHeadError::from_git(err.error))?;
+        .map_err(|err| err.error)
+        .context(index.path())?;
     Ok(())
 }
 
@@ -3198,7 +3149,7 @@ pub fn open_index_or_empty(
                 git_repo.index_path(),
             ))
         }
-        Err(err) => Err(GitResetHeadError::from_git(err)),
+        Err(err) => Err(err.into()),
     }
 }
 
@@ -3242,10 +3193,7 @@ async fn update_intent_to_add_impl(
 
     if !added_paths.is_empty() {
         // We need to write the empty blob, otherwise `jj util gc` will report an error.
-        let empty_blob = git_repo
-            .write_blob(b"")
-            .map_err(GitResetHeadError::from_git)?
-            .detach();
+        let empty_blob = git_repo.write_blob(b"")?.detach();
         for (path, executable) in added_paths {
             // We have checked that the index doesn't have this entry
             index.dangerously_push_entry(
@@ -3460,7 +3408,7 @@ pub fn save_git_config(config: &gix::config::File) -> std::io::Result<()> {
         path,
         gix::lock::acquire::Fail::Immediately,
         None,
-        0,
+        Default::default(),
         Some(&gix::lock::acquire::resolve_symlink),
     )
     .map_err(std::io::Error::other)?;
@@ -4685,6 +4633,17 @@ pub enum GitFetchError {
     Subprocess(#[from] GitSubprocessError),
 }
 
+impl GitFetchError {
+    /// Returns true if the fetch failed because the remote repository uses a
+    /// different object format.
+    pub fn is_object_format_mismatch(&self) -> bool {
+        matches!(
+            self,
+            Self::Subprocess(GitSubprocessError::ObjectFormatMismatch)
+        )
+    }
+}
+
 /// Error from [`load_default_fetch_bookmarks()`].
 #[derive(Error, Debug)]
 pub enum GitDefaultRefspecError {
@@ -5194,6 +5153,17 @@ pub enum GitPushError {
     /// The repo is not backed by a [`GitBackend`].
     #[error(transparent)]
     UnexpectedBackend(#[from] UnexpectedGitBackendError),
+}
+
+impl GitPushError {
+    /// Returns true if the push failed because the remote repository uses a
+    /// different object format.
+    pub fn is_object_format_mismatch(&self) -> bool {
+        matches!(
+            self,
+            Self::Subprocess(GitSubprocessError::ObjectFormatMismatch)
+        )
+    }
 }
 
 /// Bookmarks and tags to push, as expected and new targets.

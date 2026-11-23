@@ -55,7 +55,7 @@ fn test_diff() {
     let output = work_dir.run_jj(["diff", "--summary"]);
     insta::assert_snapshot!(output.normalize_backslash(), @"
     M a-first
-    C {a-first => added-secret}
+    A added-secret
     D deleted-secret
     M dir/secret
     M modified-secret
@@ -65,7 +65,7 @@ fn test_diff() {
     let output = work_dir.run_jj(["diff", "--types"]);
     insta::assert_snapshot!(output.normalize_backslash(), @"
     FF a-first
-    FF {a-first => added-secret}
+    -F added-secret
     F- deleted-secret
     FF dir/secret
     FF modified-secret
@@ -74,13 +74,13 @@ fn test_diff() {
     ");
     let output = work_dir.run_jj(["diff", "--stat"]);
     insta::assert_snapshot!(output.normalize_backslash(), @"
-    a-first                   | 2 +-
-    {a-first => added-secret} | 2 +-
-    deleted-secret            | 1 -
-    dir/secret                | 0
-    modified-secret           | 0
-    z-last                    | 2 +-
-    6 files changed, 3 insertions(+), 4 deletions(-)
+    a-first         | 2 +-
+    added-secret    | 1 +
+    deleted-secret  | 1 -
+    dir/secret      | 0
+    modified-secret | 0
+    z-last          | 2 +-
+    6 files changed, 3 insertions(+), 3 deletions(-)
     [EOF]
     ");
     let output = work_dir.run_jj(["diff", "--git"]);

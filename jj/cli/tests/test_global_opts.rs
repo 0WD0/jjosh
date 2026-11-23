@@ -1383,6 +1383,7 @@ fn test_help() {
           --no-integrate-operation       Run the command as usual but don't integrate any operations
           --ignore-immutable             Allow rewriting immutable commits
           --at-operation <AT_OPERATION>  Operation to load the repo at [alias: --at-op]
+          --in-project <PROJECT>         Interpret paths and references within this registered project
           --debug                        Enable debug logging
           --color <WHEN>                 When to colorize output [possible values: always, never, debug,
                                          auto]

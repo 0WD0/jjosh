@@ -31,7 +31,6 @@ use std::thread;
 use gix::remote::Direction;
 use itertools::Itertools as _;
 use jj_core::backend::BackendError;
-use jj_core::backend::BackendInitError;
 use jj_core::backend::ChangeId;
 use jj_core::backend::CommitId;
 use jj_core::backend::MillisSinceEpoch;
@@ -58,12 +57,9 @@ use jj_git_backend::git_backend::GitBackend;
 use jj_lib::commit_builder::CommitBuilder;
 use jj_lib::config::ConfigLayer;
 use jj_lib::config::ConfigSource;
-use jj_lib::default_backend_factories::default_index_store_initializer;
-use jj_lib::default_backend_factories::default_op_heads_store_initializer;
-use jj_lib::default_backend_factories::default_op_store_initializer;
-use jj_lib::default_backend_factories::default_submodule_store_initializer;
+use jj_lib::default_backend_factories::default_store_initializers;
 use jj_lib::default_backend_factories::default_working_copy_factory;
-use jj_lib::default_backend_factories::default_workspace_store_initializer;
+use jj_lib::default_backend_factories::git_backend_initializer;
 use jj_lib::git;
 use jj_lib::git::FailedRefExportReason;
 use jj_lib::git::GitFetch;
@@ -91,6 +87,7 @@ use jj_lib::repo::ReadonlyRepo;
 use jj_lib::repo::Repo as _;
 use jj_lib::settings::UserSettings;
 use jj_lib::signing_factory::signer_from_settings;
+use jj_lib::store_factories::StoreInitializers;
 use jj_lib::workspace::Workspace;
 use maplit::btreemap;
 use maplit::hashset;
@@ -187,24 +184,15 @@ fn init_external_git_repo(test_repo: &TestRepo, name: &Path) -> TestResult<Arc<R
     let git_repo_path = get_git_backend(&test_repo.repo).git_repo_path();
     let repo_dir = test_repo.env.root().join(name);
     fs::create_dir(&repo_dir)?;
-    let repo = ReadonlyRepo::init(
-        settings,
-        &repo_dir,
-        &|settings, store_path| {
-            let git_settings = settings
-                .git_backend_settings()
-                .map_err(BackendInitError::new)?;
-            let backend = GitBackend::init_external(&git_settings, store_path, git_repo_path)?;
-            Ok(Box::new(backend))
-        },
-        signer_from_settings(settings).unwrap(),
-        default_workspace_store_initializer(),
-        default_op_store_initializer(),
-        default_op_heads_store_initializer(),
-        default_index_store_initializer(),
-        default_submodule_store_initializer(),
-    )
-    .block_on()?;
+    let store_initializers = StoreInitializers {
+        backend: &git_backend_initializer(|git_settings, store_path| {
+            GitBackend::init_external(git_settings, store_path, git_repo_path)
+        }),
+        ..default_store_initializers()
+    };
+    let repo = store_initializers
+        .init_repo(settings, &repo_dir, signer_from_settings(settings).unwrap())
+        .block_on()?;
     Ok(repo)
 }
 
@@ -2730,28 +2718,21 @@ impl GitRepoData {
             testutils::git::clone(&git_repo_dir, origin_repo_dir.to_str().unwrap(), None);
         let jj_repo_dir = temp_dir.path().join("jj");
         std::fs::create_dir(&jj_repo_dir).unwrap();
-        let repo = ReadonlyRepo::init(
-            &settings,
-            &jj_repo_dir,
-            &|settings, store_path| {
-                let git_settings = settings
-                    .git_backend_settings()
-                    .map_err(BackendInitError::new)?;
-                Ok(Box::new(GitBackend::init_external(
-                    &git_settings,
-                    store_path,
-                    git_repo.path(),
-                )?))
-            },
-            signer_from_settings(&settings).unwrap(),
-            default_workspace_store_initializer(),
-            default_op_store_initializer(),
-            default_op_heads_store_initializer(),
-            default_index_store_initializer(),
-            default_submodule_store_initializer(),
-        )
-        .block_on()
-        .unwrap();
+        let git_repo_path = git_repo.path().to_owned();
+        let store_initializers = StoreInitializers {
+            backend: &git_backend_initializer(|git_settings, store_path| {
+                GitBackend::init_external(git_settings, store_path, &git_repo_path)
+            }),
+            ..default_store_initializers()
+        };
+        let repo = store_initializers
+            .init_repo(
+                &settings,
+                &jj_repo_dir,
+                signer_from_settings(&settings).unwrap(),
+            )
+            .block_on()
+            .unwrap();
         Self {
             _temp_dir: temp_dir,
             origin_repo,
@@ -2835,15 +2816,14 @@ fn test_import_refs_missing_git_commit() -> TestResult {
     let result = git::import_refs(tx.repo_mut(), &import_options).block_on();
     assert!(result.is_ok());
 
-    // Missing commit is pointed to by HEAD: the ref is ignored as we don't know
-    // if the missing object is a commit or not.
+    // Missing commit is pointed to by HEAD
     fs::rename(&backup_object_file, &object_file)?;
     git_repo.find_reference("refs/heads/main")?.delete()?;
     testutils::git::set_head_to_id(&git_repo, commit1);
     fs::rename(&object_file, &backup_object_file)?;
     let mut tx = repo.start_transaction();
     let result = import_head(tx.repo_mut(), &test_workspace.workspace);
-    assert!(result.is_ok());
+    assert_matches!(result, Err(GitImportError::Git(_)));
     Ok(())
 }
 
@@ -4670,27 +4650,15 @@ fn test_init() -> TestResult {
     let git_repo = testutils::git::init_bare(git_repo_dir);
     let initial_git_commit = empty_git_commit(&git_repo, "refs/heads/main", &[]);
     std::fs::create_dir(&jj_repo_dir)?;
-    let repo = &ReadonlyRepo::init(
-        &settings,
-        &jj_repo_dir,
-        &|settings, store_path| {
-            let git_settings = settings
-                .git_backend_settings()
-                .map_err(BackendInitError::new)?;
-            Ok(Box::new(GitBackend::init_external(
-                &git_settings,
-                store_path,
-                git_repo.path(),
-            )?))
-        },
-        signer_from_settings(&settings)?,
-        default_workspace_store_initializer(),
-        default_op_store_initializer(),
-        default_op_heads_store_initializer(),
-        default_index_store_initializer(),
-        default_submodule_store_initializer(),
-    )
-    .block_on()?;
+    let store_initializers = StoreInitializers {
+        backend: &git_backend_initializer(|git_settings, store_path| {
+            GitBackend::init_external(git_settings, store_path, git_repo.path())
+        }),
+        ..default_store_initializers()
+    };
+    let repo = &store_initializers
+        .init_repo(&settings, &jj_repo_dir, signer_from_settings(&settings)?)
+        .block_on()?;
     // The refs were *not* imported -- it's the caller's responsibility to import
     // any refs they care about.
     assert!(!repo.view().heads().contains(&jj_id(initial_git_commit)));
@@ -5063,28 +5031,28 @@ fn test_load_default_fetch_bookmarks() -> TestResult {
     }
 
     insta::assert_snapshot!(warnings, @"
-    fetch-only refspecs are not supported: refs/heads/non-forced
     fetch-only refspecs are not supported: refs/heads/src-only
-    only refs/heads/ is supported for refspec sources: ^refs/tags/unsupported
+    fetch-only refspecs are not supported: refs/heads/non-forced
     non-forced refspecs are not supported: refs/heads/non-forced:refs/remotes/origin/non-forced
     remote renaming not supported: +refs/heads/wrong-dst:refs/remotes/tags/wrong-dst
     remote renaming not supported: +refs/heads/wrong-remote:refs/remotes/origin2/wrong-remote
     only refs/heads/ is supported for refspec sources: +refs/tags/wrong-src:refs/remotes/origin/wrong-src
+    only refs/heads/ is supported for refspec sources: ^refs/tags/unsupported
     ");
 
     insta::assert_debug_snapshot!(bookmark_expr, @r#"
     Intersection(
         Union(
             Pattern(
+                Exact(
+                    "main",
+                ),
+            ),
+            Pattern(
                 Glob(
                     GlobPattern(
                         "foo*",
                     ),
-                ),
-            ),
-            Pattern(
-                Exact(
-                    "main",
                 ),
             ),
         ),
@@ -5795,28 +5763,20 @@ fn set_up_push_repos(settings: &UserSettings, temp_dir: &TempDir) -> PushTestSet
     let clone_repo =
         testutils::git::clone(&clone_repo_dir, source_repo_dir.to_str().unwrap(), None);
     std::fs::create_dir(&jj_repo_dir).unwrap();
-    let jj_repo = ReadonlyRepo::init(
-        settings,
-        &jj_repo_dir,
-        &|settings, store_path| {
-            let git_settings = settings
-                .git_backend_settings()
-                .map_err(BackendInitError::new)?;
-            Ok(Box::new(GitBackend::init_external(
-                &git_settings,
-                store_path,
-                clone_repo.path(),
-            )?))
-        },
-        signer_from_settings(settings).unwrap(),
-        default_workspace_store_initializer(),
-        default_op_store_initializer(),
-        default_op_heads_store_initializer(),
-        default_index_store_initializer(),
-        default_submodule_store_initializer(),
-    )
-    .block_on()
-    .unwrap();
+    let store_initializers = StoreInitializers {
+        backend: &git_backend_initializer(|git_settings, store_path| {
+            GitBackend::init_external(git_settings, store_path, clone_repo.path())
+        }),
+        ..default_store_initializers()
+    };
+    let jj_repo = store_initializers
+        .init_repo(
+            settings,
+            &jj_repo_dir,
+            signer_from_settings(settings).unwrap(),
+        )
+        .block_on()
+        .unwrap();
     get_git_backend(&jj_repo)
         .import_head_commits(&[jj_id(initial_git_commit)])
         .unwrap();
@@ -7371,7 +7331,8 @@ fn test_concurrent_write_commit() -> TestResult {
 #[cfg_attr(windows, ignore)]
 fn test_concurrent_read_write_commit() -> TestResult {
     let settings = user_settings_without_change_id();
-    let test_repo = TestRepo::init_with_backend(TestRepoBackend::Git);
+    // The expected commit ids below are SHA-1
+    let test_repo = TestRepo::init_with_backend(TestRepoBackend::GitSha1);
     let test_env = &test_repo.env;
     let repo = &test_repo.repo;
 

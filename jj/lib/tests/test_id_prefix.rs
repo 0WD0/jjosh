@@ -51,7 +51,7 @@ fn stable_settings() -> UserSettings {
 
 #[test]
 fn test_id_prefix() -> TestResult {
-    let test_repo = TestRepo::init_with_backend(TestRepoBackend::Git);
+    let test_repo = TestRepo::init_with_backend(TestRepoBackend::GitSha1);
     let repo = &test_repo.repo;
     let root_commit_id = repo.store().root_commit_id();
     let root_change_id = repo.store().root_change_id();
@@ -152,10 +152,14 @@ fn test_id_prefix() -> TestResult {
     let shortest_commit_prefix_len = |index: &IdPrefixIndex, commit_id| {
         index
             .shortest_commit_prefix_len(repo.as_ref(), commit_id)
+            .block_on()
             .unwrap()
     };
     let resolve_commit_prefix = |index: &IdPrefixIndex, prefix: HexPrefix| {
-        index.resolve_commit_prefix(repo.as_ref(), &prefix).unwrap()
+        index
+            .resolve_commit_prefix(repo.as_ref(), &prefix)
+            .block_on()
+            .unwrap()
     };
     let shortest_change_prefix_len = |index: &IdPrefixIndex, change_id| {
         index
@@ -174,7 +178,7 @@ fn test_id_prefix() -> TestResult {
     // Without a disambiguation revset
     // ---------------------------------------------------------------------------------------------
     let context = IdPrefixContext::default();
-    let index = context.populate(repo.as_ref())?;
+    let index = context.populate(repo.as_ref()).block_on()?;
 
     assert_eq!(shortest_commit_prefix_len(&index, commits[7].id()), 2);
     assert_eq!(shortest_commit_prefix_len(&index, commits[16].id()), 1);
@@ -206,7 +210,7 @@ fn test_id_prefix() -> TestResult {
     let expression =
         RevsetExpression::commits(vec![commits[7].id().clone(), commits[2].id().clone()]);
     let context = context.disambiguate_within(expression);
-    let index = context.populate(repo.as_ref())?;
+    let index = context.populate(repo.as_ref()).block_on()?;
     // The prefix is now shorter
     assert_eq!(shortest_commit_prefix_len(&index, commits[7].id()), 1);
     // Shorter prefix within the set can be used
@@ -233,7 +237,7 @@ fn test_id_prefix() -> TestResult {
     // ---------------------------------------------------------------------------------------------
     let expression = RevsetExpression::commit(root_commit_id.clone());
     let context = context.disambiguate_within(expression);
-    let index = context.populate(repo.as_ref())?;
+    let index = context.populate(repo.as_ref()).block_on()?;
     assert_eq!(shortest_commit_prefix_len(&index, root_commit_id), 1);
     assert_eq!(resolve_commit_prefix(&index, prefix("")), AmbiguousMatch);
     assert_eq!(
@@ -251,13 +255,13 @@ fn test_id_prefix() -> TestResult {
     // ---------------------------------------------------------------------------------------------
     let expression = RevsetExpression::symbol("nonexistent".to_string());
     let context = context.disambiguate_within(expression);
-    assert!(context.populate(repo.as_ref()).is_err());
+    assert!(context.populate(repo.as_ref()).block_on().is_err());
     Ok(())
 }
 
 #[test]
 fn test_id_prefix_divergent() -> TestResult {
-    let test_repo = TestRepo::init_with_backend(TestRepoBackend::Git);
+    let test_repo = TestRepo::init_with_backend(TestRepoBackend::GitSha1);
     let repo = &test_repo.repo;
     let root_commit_id = repo.store().root_commit_id();
 
@@ -336,7 +340,7 @@ fn test_id_prefix_divergent() -> TestResult {
     // Without a disambiguation revset
     // --------------------------------
     let context = IdPrefixContext::default();
-    let index = context.populate(repo.as_ref())?;
+    let index = context.populate(repo.as_ref()).block_on()?;
     assert_eq!(
         shortest_change_prefix_len(&index, commits[0].change_id()),
         3
@@ -366,7 +370,7 @@ fn test_id_prefix_divergent() -> TestResult {
     // ----------------------------------------------------------------------
     let expression = RevsetExpression::commits(vec![second_commit.id().clone()]);
     let context = context.disambiguate_within(expression);
-    let index = context.populate(repo.as_ref())?;
+    let index = context.populate(repo.as_ref()).block_on()?;
     // The prefix is now shorter
     assert_eq!(
         shortest_change_prefix_len(&index, second_commit.change_id()),
@@ -401,7 +405,7 @@ fn test_id_prefix_divergent() -> TestResult {
 
 #[test]
 fn test_id_prefix_hidden() -> TestResult {
-    let test_repo = TestRepo::init_with_backend(TestRepoBackend::Git);
+    let test_repo = TestRepo::init_with_backend(TestRepoBackend::GitSha1);
     let repo = &test_repo.repo;
     let root_commit_id = repo.store().root_commit_id();
 
@@ -475,10 +479,14 @@ fn test_id_prefix_hidden() -> TestResult {
     let shortest_commit_prefix_len = |index: &IdPrefixIndex, commit_id| {
         index
             .shortest_commit_prefix_len(repo.as_ref(), commit_id)
+            .block_on()
             .unwrap()
     };
     let resolve_commit_prefix = |index: &IdPrefixIndex, prefix: HexPrefix| {
-        index.resolve_commit_prefix(repo.as_ref(), &prefix).unwrap()
+        index
+            .resolve_commit_prefix(repo.as_ref(), &prefix)
+            .block_on()
+            .unwrap()
     };
     let shortest_change_prefix_len = |index: &IdPrefixIndex, change_id| {
         index
@@ -497,7 +505,7 @@ fn test_id_prefix_hidden() -> TestResult {
     // Without a disambiguation revset
     // --------------------------------
     let context = IdPrefixContext::default();
-    let index = context.populate(repo.as_ref())?;
+    let index = context.populate(repo.as_ref()).block_on()?;
     assert_eq!(shortest_commit_prefix_len(&index, hidden_commit.id()), 2);
     assert_eq!(
         shortest_change_prefix_len(&index, hidden_commit.change_id()),
@@ -524,7 +532,7 @@ fn test_id_prefix_hidden() -> TestResult {
     // --------------------------
     let expression = RevsetExpression::commit(hidden_commit.id().clone());
     let context = context.disambiguate_within(expression);
-    let index = context.populate(repo.as_ref())?;
+    let index = context.populate(repo.as_ref()).block_on()?;
     assert_eq!(shortest_commit_prefix_len(&index, hidden_commit.id()), 1);
     assert_eq!(
         shortest_change_prefix_len(&index, hidden_commit.change_id()),
@@ -571,9 +579,13 @@ fn test_id_prefix_shadowed_by_ref() {
     insta::assert_snapshot!(change_id_sym, @"sryyqqkqmuumyrlruupspprvnulvovzm");
 
     let context = IdPrefixContext::default();
-    let index = context.populate(tx.repo()).unwrap();
-    let shortest_commit_prefix_len =
-        |repo: &MutableRepo, commit_id| index.shortest_commit_prefix_len(repo, commit_id).unwrap();
+    let index = context.populate(tx.repo()).block_on().unwrap();
+    let shortest_commit_prefix_len = |repo: &MutableRepo, commit_id| {
+        index
+            .shortest_commit_prefix_len(repo, commit_id)
+            .block_on()
+            .unwrap()
+    };
     let shortest_change_prefix_len = |repo: &MutableRepo, change_id| {
         index
             .shortest_change_prefix_len(repo, change_id)

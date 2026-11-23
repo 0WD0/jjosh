@@ -12,10 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::assert_matches;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::io;
 use std::iter;
+use std::marker::PhantomData;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -26,7 +28,6 @@ use jj_lib::backend::Signature;
 use jj_lib::backend::Timestamp;
 use jj_lib::config::ConfigGetResultExt as _;
 use jj_lib::config::ConfigNamePathBuf;
-use jj_lib::config::ConfigValue;
 use jj_lib::content_hash::blake2b_hash;
 use jj_lib::file_util;
 use jj_lib::hex_util;
@@ -46,12 +47,15 @@ use jj_lib::template_parser::TemplateParseErrorKind;
 use jj_lib::template_parser::TemplateParseResult;
 use jj_lib::template_parser::UnaryOp;
 use jj_lib::time_util::DatePattern;
-use serde::Deserialize;
-use serde::de::IntoDeserializer as _;
 
-use crate::config;
 use crate::formatter::FormatRecorder;
 use crate::formatter::Formatter;
+use crate::template_value::OpaqueTemplateValue;
+use crate::template_value::TemplateTypeRegistry;
+use crate::template_value::TemplateValue;
+use crate::template_value::TemplateValueExtractionError;
+use crate::template_value::TemplateValueRepr;
+use crate::template_value::TemplateValueType;
 use crate::templater::AnyTemplateProperty;
 use crate::templater::BoxedAnyProperty;
 use crate::templater::BoxedSerializeProperty;
@@ -59,6 +63,7 @@ use crate::templater::BoxedTemplateProperty;
 use crate::templater::CoalesceTemplate;
 use crate::templater::ConcatTemplate;
 use crate::templater::ConditionalProperty;
+use crate::templater::ConfigValueWrapper;
 use crate::templater::Email;
 use crate::templater::HyperlinkTemplate;
 use crate::templater::JoinTemplate;
@@ -83,9 +88,6 @@ use crate::templater::TemplatePropertyError;
 use crate::templater::TemplatePropertyExt as _;
 use crate::templater::TemplateRenderer;
 use crate::templater::TryList;
-use crate::templater::WrapTemplateProperty;
-use crate::templater::list_to_boolean;
-use crate::templater::option_to_boolean;
 use crate::text_util;
 use crate::text_util::write_replaced;
 use crate::time_util;
@@ -96,137 +98,26 @@ use crate::time_util;
 /// globally available functions in the template language depending on the
 /// context in which it is invoked.
 pub trait TemplateLanguage<'a> {
-    type Property: CoreTemplatePropertyVar<'a> + 'a;
-
     fn settings(&self) -> &UserSettings;
 
     /// Returns the working directory for filesystem path template methods.
     fn current_dir(&self) -> &Path;
 
-    /// Translates the given global `function` call to a property.
-    ///
-    /// This should be delegated to
-    /// `CoreTemplateBuildFnTable::build_function()`.
-    fn build_function(
-        &self,
-        diagnostics: &mut TemplateDiagnostics,
-        build_ctx: &BuildContext<Self::Property>,
-        function: &FunctionCallNode,
-    ) -> TemplateParseResult<Self::Property>;
-
-    /// Creates a method call thunk for the given `function` of the given
-    /// `property`.
-    fn build_method(
-        &self,
-        diagnostics: &mut TemplateDiagnostics,
-        build_ctx: &BuildContext<Self::Property>,
-        property: Self::Property,
-        function: &FunctionCallNode,
-    ) -> TemplateParseResult<Self::Property>;
+    fn type_registry(&self) -> &TemplateTypeRegistry;
+    fn symbol_table(&self) -> &TemplateSymbolTable<'a, Self>;
 }
 
-/// Implements [`WrapTemplateProperty<'a, O>`] for property types.
-///
-/// - `impl_property_wrappers!(Kind { Foo(Foo), FooList(Vec<Foo>), .. });` to
-///   implement conversion from types `Foo`, `Vec<Foo>`, ...
-/// - `impl_property_wrappers!(<'a> Kind<'a> { .. });` for types with lifetime.
-/// - `impl_property_wrappers!(Kind => Core { .. });` to forward conversion to
-///   `Kind::Core(_)`.
-macro_rules! impl_property_wrappers {
-    ($kind:path $(=> $var:ident)? { $($body:tt)* }) => {
-        $crate::template_builder::_impl_property_wrappers_many!(
-            [], 'static, $kind $(=> $var)?, { $($body)* });
-    };
-    // capture the first lifetime as the lifetime of template objects.
-    (<$a:lifetime $(, $p:lifetime)* $(, $q:ident)*>
-     $kind:path $(=> $var:ident)? { $($body:tt)* }) => {
-        $crate::template_builder::_impl_property_wrappers_many!(
-            [$a, $($p,)* $($q,)*], $a, $kind $(=> $var)?, { $($body)* });
-    };
-}
-
-macro_rules! _impl_property_wrappers_many {
-    // lifetime/type parameters are packed in order to disable zipping.
-    // https://github.com/rust-lang/rust/issues/96184#issuecomment-1294999418
-    ($ps:tt, $a:lifetime, $kind:path, { $( $var:ident($ty:ty), )* }) => {
-        $(
-            $crate::template_builder::_impl_property_wrappers_one!(
-                $ps, $a, $kind, $var, $ty, std::convert::identity);
-        )*
-    };
-    // variant part in body is ignored so the same body can be reused for
-    // implementing forwarding conversion.
-    ($ps:tt, $a:lifetime, $kind:path => $var:ident, { $( $ignored_var:ident($ty:ty), )* }) => {
-        $(
-            $crate::template_builder::_impl_property_wrappers_one!(
-                $ps, $a, $kind, $var, $ty, $crate::templater::WrapTemplateProperty::wrap_property);
-        )*
-    };
-}
-
-macro_rules! _impl_property_wrappers_one {
-    ([$($p:tt)*], $a:lifetime, $kind:path, $var:ident, $ty:ty, $inner:path) => {
-        impl<$($p)*> $crate::templater::WrapTemplateProperty<$a, $ty> for $kind {
-            fn wrap_property(property: $crate::templater::BoxedTemplateProperty<$a, $ty>) -> Self {
-                Self::$var($inner(property))
-            }
-        }
-    };
-}
-
-pub(crate) use _impl_property_wrappers_many;
-pub(crate) use _impl_property_wrappers_one;
-pub(crate) use impl_property_wrappers;
-
-/// Wrapper for the core template property types.
-pub trait CoreTemplatePropertyVar<'a>
-where
-    Self: WrapTemplateProperty<'a, BString>,
-    Self: WrapTemplateProperty<'a, Vec<BString>>,
-    Self: WrapTemplateProperty<'a, String>,
-    Self: WrapTemplateProperty<'a, Vec<String>>,
-    Self: WrapTemplateProperty<'a, bool>,
-    Self: WrapTemplateProperty<'a, i64>,
-    Self: WrapTemplateProperty<'a, Option<i64>>,
-    Self: WrapTemplateProperty<'a, ConfigValue>,
-    Self: WrapTemplateProperty<'a, Option<ConfigValue>>,
-    Self: WrapTemplateProperty<'a, PathBuf>,
-    Self: WrapTemplateProperty<'a, Option<PathBuf>>,
-    Self: WrapTemplateProperty<'a, Signature>,
-    Self: WrapTemplateProperty<'a, Email>,
-    Self: WrapTemplateProperty<'a, SizeHint>,
-    Self: WrapTemplateProperty<'a, RegexCaptures>,
-    Self: WrapTemplateProperty<'a, Timestamp>,
-    Self: WrapTemplateProperty<'a, TimestampRange>,
-{
-    fn wrap_template(template: Box<dyn Template + 'a>) -> Self;
-    fn wrap_any(property: BoxedAnyProperty<'a>) -> Self;
-    fn wrap_any_list(property: BoxedAnyProperty<'a>) -> Self;
-
-    /// Type name of the property output.
-    fn type_name(&self) -> &'static str;
-
-    /// Extracts property of `ByteString` type or newtype.
-    fn try_into_byte_string(self) -> Result<BoxedTemplateProperty<'a, BString>, Self>;
-    /// Extracts property of `String` type or newtype.
-    fn try_into_string(self) -> Result<BoxedTemplateProperty<'a, String>, Self>;
-    // TODO: rename try_into_boolean() because it isn't a pure extraction fn?
-    fn try_into_boolean(self) -> Result<BoxedTemplateProperty<'a, bool>, Self>;
-    fn try_into_integer(self) -> Result<BoxedTemplateProperty<'a, i64>, Self>;
-    fn try_into_timestamp(self) -> Result<BoxedTemplateProperty<'a, Timestamp>, Self>;
-
-    fn try_into_serialize(self) -> Option<BoxedSerializeProperty<'a>>;
-    fn try_into_template(self) -> Option<Box<dyn Template + 'a>>;
-
-    /// Transforms into a property that will evaluate to `self == other`.
-    fn try_into_eq(self, other: Self) -> Option<BoxedTemplateProperty<'a, bool>>;
-
-    /// Transforms into a property that will evaluate to an [`Ordering`].
-    fn try_into_cmp(self, other: Self) -> Option<BoxedTemplateProperty<'a, Ordering>>;
-}
+impl OpaqueTemplateValue for ConfigValueWrapper {}
+impl OpaqueTemplateValue for PathBuf {}
+impl OpaqueTemplateValue for Signature {}
+impl OpaqueTemplateValue for Email {}
+impl OpaqueTemplateValue for SizeHint {}
+impl OpaqueTemplateValue for RegexCaptures {}
+impl OpaqueTemplateValue for Timestamp {}
+impl OpaqueTemplateValue for TimestampRange {}
 
 impl NoTemplateBooleanCast for i64 {}
-impl NoTemplateBooleanCast for ConfigValue {}
+impl NoTemplateBooleanCast for ConfigValueWrapper {}
 impl NoTemplateBooleanCast for PathBuf {}
 impl NoTemplateBooleanCast for Signature {}
 impl NoTemplateBooleanCast for SizeHint {}
@@ -234,24 +125,11 @@ impl NoTemplateBooleanCast for RegexCaptures {}
 impl NoTemplateBooleanCast for Timestamp {}
 impl NoTemplateBooleanCast for TimestampRange {}
 
-pub enum CoreTemplatePropertyKind<'a> {
-    ByteString(BoxedTemplateProperty<'a, BString>),
-    ByteStringList(BoxedTemplateProperty<'a, Vec<BString>>),
-    String(BoxedTemplateProperty<'a, String>),
-    StringList(BoxedTemplateProperty<'a, Vec<String>>),
-    Boolean(BoxedTemplateProperty<'a, bool>),
-    Integer(BoxedTemplateProperty<'a, i64>),
-    IntegerOpt(BoxedTemplateProperty<'a, Option<i64>>),
-    ConfigValue(BoxedTemplateProperty<'a, ConfigValue>),
-    ConfigValueOpt(BoxedTemplateProperty<'a, Option<ConfigValue>>),
-    FsPath(BoxedTemplateProperty<'a, PathBuf>),
-    FsPathOpt(BoxedTemplateProperty<'a, Option<PathBuf>>),
-    Signature(BoxedTemplateProperty<'a, Signature>),
-    Email(BoxedTemplateProperty<'a, Email>),
-    SizeHint(BoxedTemplateProperty<'a, SizeHint>),
-    RegexCaptures(BoxedTemplateProperty<'a, RegexCaptures>),
-    Timestamp(BoxedTemplateProperty<'a, Timestamp>),
-    TimestampRange(BoxedTemplateProperty<'a, TimestampRange>),
+pub enum TemplatePropertyKind<'a> {
+    Value {
+        ty: TemplateValueType,
+        property: BoxedTemplateProperty<'a, TemplateValueRepr>,
+    },
 
     // Both TemplateProperty and Template can represent a value to be evaluated
     // dynamically, which suggests that `Box<dyn Template + 'a>` could be
@@ -268,109 +146,76 @@ pub enum CoreTemplatePropertyKind<'a> {
     AnyList(BoxedAnyProperty<'a>),
 }
 
-/// Implements `WrapTemplateProperty<type>` for core property types.
-///
-/// Use `impl_core_property_wrappers!(<'a> Kind<'a> => Core);` to implement
-/// forwarding conversion.
-macro_rules! impl_core_property_wrappers {
-    ($($head:tt)+) => {
-        $crate::template_builder::impl_property_wrappers!($($head)+ {
-            ByteString(bstr::BString),
-            ByteStringList(Vec<bstr::BString>),
-            String(String),
-            StringList(Vec<String>),
-            Boolean(bool),
-            Integer(i64),
-            IntegerOpt(Option<i64>),
-            ConfigValue(jj_lib::config::ConfigValue),
-            ConfigValueOpt(Option<jj_lib::config::ConfigValue>),
-            FsPath(std::path::PathBuf),
-            FsPathOpt(Option<std::path::PathBuf>),
-            Signature(jj_lib::backend::Signature),
-            Email($crate::templater::Email),
-            SizeHint($crate::templater::SizeHint),
-            RegexCaptures($crate::templater::RegexCaptures),
-            Timestamp(jj_lib::backend::Timestamp),
-            TimestampRange(jj_lib::op_store::TimestampRange),
-        });
-    };
-}
+impl<'a> TemplatePropertyKind<'a> {
+    pub fn wrap_property<O: TemplateValue>(
+        property: impl TemplateProperty<Output = O> + 'a,
+    ) -> Self {
+        Self::Value {
+            ty: O::value_type(),
+            property: property.map(O::into_repr).into_dyn(),
+        }
+    }
 
-pub(crate) use impl_core_property_wrappers;
-
-impl_core_property_wrappers!(<'a> CoreTemplatePropertyKind<'a>);
-
-impl<'a> CoreTemplatePropertyVar<'a> for CoreTemplatePropertyKind<'a> {
-    fn wrap_template(template: Box<dyn Template + 'a>) -> Self {
+    pub fn wrap_template(template: Box<dyn Template + 'a>) -> Self {
         Self::Template(template)
     }
 
-    fn wrap_any(property: BoxedAnyProperty<'a>) -> Self {
+    pub fn wrap_any(property: BoxedAnyProperty<'a>) -> Self {
         Self::Any(property)
     }
 
-    fn wrap_any_list(property: BoxedAnyProperty<'a>) -> Self {
+    pub fn wrap_any_list(property: BoxedAnyProperty<'a>) -> Self {
         Self::AnyList(property)
     }
 
-    fn type_name(&self) -> &'static str {
+    /// Type name of the property output.
+    pub fn type_name(&self, registry: &TemplateTypeRegistry) -> &'static str {
         match self {
-            Self::ByteString(_) => "ByteString",
-            Self::ByteStringList(_) => "List<ByteString>",
-            Self::String(_) => "String",
-            Self::StringList(_) => "List<String>",
-            Self::Boolean(_) => "Boolean",
-            Self::Integer(_) => "Integer",
-            Self::IntegerOpt(_) => "Option<Integer>",
-            Self::ConfigValue(_) => "ConfigValue",
-            Self::ConfigValueOpt(_) => "Option<ConfigValue>",
-            Self::FsPath(_) => "FsPath",
-            Self::FsPathOpt(_) => "Option<FsPath>",
-            Self::Signature(_) => "Signature",
-            Self::Email(_) => "Email",
-            Self::SizeHint(_) => "SizeHint",
-            Self::RegexCaptures(_) => "RegexCaptures",
-            Self::Timestamp(_) => "Timestamp",
-            Self::TimestampRange(_) => "TimestampRange",
+            Self::Value { ty, property: _ } => registry.get_type_name(ty).expect("registered type"),
             Self::Template(_) => "Template",
             Self::Any(_) => "Any",
             Self::AnyList(_) => "AnyList",
         }
     }
 
-    fn try_into_byte_string(self) -> Result<BoxedTemplateProperty<'a, BString>, Self> {
+    /// Extracts property of `ByteString` type or newtype.
+    fn try_into_byte_string(
+        self,
+        registry: &TemplateTypeRegistry,
+    ) -> Result<BoxedTemplateProperty<'a, BString>, Self> {
         match self {
-            Self::ByteString(property) => Ok(property),
+            Self::Value { ty, property } => {
+                try_unwrap_value_property_or_default::<BString>(&ty, property, registry)
+                    .map_err(|property| Self::Value { ty, property })
+            }
             _ => Err(self),
         }
     }
 
-    fn try_into_string(self) -> Result<BoxedTemplateProperty<'a, String>, Self> {
+    /// Extracts property of `String` type or newtype.
+    fn try_into_string(
+        self,
+        registry: &TemplateTypeRegistry,
+    ) -> Result<BoxedTemplateProperty<'a, String>, Self> {
         match self {
-            Self::String(property) => Ok(property),
+            Self::Value { ty, property } => {
+                try_unwrap_value_property_or_default::<String>(&ty, property, registry)
+                    .map_err(|property| Self::Value { ty, property })
+            }
             _ => Err(self),
         }
     }
 
-    fn try_into_boolean(self) -> Result<BoxedTemplateProperty<'a, bool>, Self> {
+    fn try_into_boolean(
+        self,
+        registry: &TemplateTypeRegistry,
+    ) -> Result<BoxedTemplateProperty<'a, bool>, Self> {
         match self {
-            Self::ByteString(property) => Ok(property.map(|s| !s.is_empty()).into_dyn()),
-            Self::ByteStringList(property) => Ok(list_to_boolean(property)),
-            Self::String(property) => Ok(property.map(|s| !s.is_empty()).into_dyn()),
-            Self::StringList(property) => Ok(list_to_boolean(property)),
-            Self::Boolean(property) => Ok(property),
-            Self::Integer(_) => Err(self),
-            Self::IntegerOpt(property) => Ok(option_to_boolean(property)),
-            Self::ConfigValue(_) => Err(self),
-            Self::ConfigValueOpt(property) => Ok(option_to_boolean(property)),
-            Self::FsPath(_) => Err(self),
-            Self::FsPathOpt(property) => Ok(option_to_boolean(property)),
-            Self::Signature(_) => Err(self),
-            Self::Email(property) => Ok(property.map(|e| !e.0.is_empty()).into_dyn()),
-            Self::SizeHint(_) => Err(self),
-            Self::RegexCaptures(_) => Err(self),
-            Self::Timestamp(_) => Err(self),
-            Self::TimestampRange(_) => Err(self),
+            Self::Value { ty, property } if let Some(cast) = registry.get_to_condition_fn(&ty) => {
+                let out_property = property.map(move |repr| cast(repr).expect("valid type"));
+                Ok(out_property.into_dyn())
+            }
+            Self::Value { .. } => Err(self),
             // Template and AnyList types could also be evaluated to boolean,
             // but it's less likely to apply label() or .map() and use the
             // result as conditional.
@@ -380,175 +225,278 @@ impl<'a> CoreTemplatePropertyVar<'a> for CoreTemplatePropertyKind<'a> {
         }
     }
 
-    fn try_into_integer(self) -> Result<BoxedTemplateProperty<'a, i64>, Self> {
-        let type_name = self.type_name();
+    fn try_into_integer(
+        self,
+        registry: &TemplateTypeRegistry,
+    ) -> Result<BoxedTemplateProperty<'a, i64>, Self> {
         match self {
-            Self::Integer(property) => Ok(property),
-            Self::IntegerOpt(property) => Ok(property.try_unwrap(type_name).into_dyn()),
-            _ => Err(self),
-        }
-    }
-
-    fn try_into_timestamp(self) -> Result<BoxedTemplateProperty<'a, Timestamp>, Self> {
-        match self {
-            Self::Timestamp(property) => Ok(property),
-            _ => Err(self),
-        }
-    }
-
-    fn try_into_serialize(self) -> Option<BoxedSerializeProperty<'a>> {
-        match self {
-            Self::ByteString(property) => Some(property.into_serialize()),
-            Self::ByteStringList(property) => Some(property.into_serialize()),
-            Self::String(property) => Some(property.into_serialize()),
-            Self::StringList(property) => Some(property.into_serialize()),
-            Self::Boolean(property) => Some(property.into_serialize()),
-            Self::Integer(property) => Some(property.into_serialize()),
-            Self::IntegerOpt(property) => Some(property.into_serialize()),
-            Self::ConfigValue(property) => {
-                Some(property.map(config::to_serializable_value).into_serialize())
+            Self::Value { ty, property } => {
+                try_unwrap_value_property::<i64>(&ty, property, registry)
+                    .map_err(|property| Self::Value { ty, property })
             }
-            Self::ConfigValueOpt(property) => Some(
-                property
-                    .map(|opt| opt.map(config::to_serializable_value))
-                    .into_serialize(),
-            ),
-            Self::FsPath(property) => Some(property.into_serialize()),
-            Self::FsPathOpt(property) => Some(property.into_serialize()),
-            Self::Signature(property) => Some(property.into_serialize()),
-            Self::Email(property) => Some(property.into_serialize()),
-            Self::SizeHint(property) => Some(property.into_serialize()),
-            Self::RegexCaptures(_) => None,
-            Self::Timestamp(property) => Some(property.into_serialize()),
-            Self::TimestampRange(property) => Some(property.into_serialize()),
+            _ => Err(self),
+        }
+    }
+
+    fn try_into_timestamp(
+        self,
+        registry: &TemplateTypeRegistry,
+    ) -> Result<BoxedTemplateProperty<'a, Timestamp>, Self> {
+        match self {
+            Self::Value { ty, property } => {
+                try_unwrap_value_property::<Timestamp>(&ty, property, registry)
+                    .map_err(|property| Self::Value { ty, property })
+            }
+            _ => Err(self),
+        }
+    }
+
+    fn try_into_serialize(
+        self,
+        registry: &TemplateTypeRegistry,
+    ) -> Option<BoxedSerializeProperty<'a>> {
+        match self {
+            Self::Value { ty, property } => {
+                let cast = registry.get_to_serialize_fn(&ty)?;
+                let out_property = property.map(move |repr| cast(repr).expect("valid type"));
+                Some(out_property.into_dyn())
+            }
             Self::Template(_) => None,
-            Self::Any(property) => property.try_into_serialize(),
-            Self::AnyList(property) => property.try_into_serialize(),
+            Self::Any(property) => property.try_into_serialize(registry),
+            Self::AnyList(property) => property.try_into_serialize(registry),
         }
     }
 
-    fn try_into_template(self) -> Option<Box<dyn Template + 'a>> {
+    fn try_into_template(self, registry: &TemplateTypeRegistry) -> Option<Box<dyn Template + 'a>> {
         match self {
-            Self::ByteString(property) => Some(property.into_template()),
-            Self::ByteStringList(property) => Some(property.into_template()),
-            Self::String(property) => Some(property.into_template()),
-            Self::StringList(property) => Some(property.into_template()),
-            Self::Boolean(property) => Some(property.into_template()),
-            Self::Integer(property) => Some(property.into_template()),
-            Self::IntegerOpt(property) => Some(property.into_template()),
-            Self::ConfigValue(property) => Some(property.into_template()),
-            Self::ConfigValueOpt(property) => Some(property.into_template()),
-            Self::FsPath(property) => Some(property.into_template()),
-            Self::FsPathOpt(property) => Some(property.into_template()),
-            Self::Signature(property) => Some(property.into_template()),
-            Self::Email(property) => Some(property.into_template()),
-            Self::SizeHint(_) => None,
-            Self::RegexCaptures(_) => None,
-            Self::Timestamp(property) => Some(property.into_template()),
-            Self::TimestampRange(property) => Some(property.into_template()),
+            Self::Value { ty, property } => {
+                let cast = registry.get_to_template_fn(&ty)?;
+                let out_property = property.map(move |repr| cast(repr).expect("valid type"));
+                Some(out_property.into_template())
+            }
             Self::Template(template) => Some(template),
-            Self::Any(property) => property.try_into_template(),
-            Self::AnyList(property) => property.try_into_template(),
+            Self::Any(property) => property.try_into_template(registry),
+            Self::AnyList(property) => property.try_into_template(registry),
         }
     }
 
-    fn try_into_eq(self, other: Self) -> Option<BoxedTemplateProperty<'a, bool>> {
+    fn try_into_eq(
+        self,
+        other: Self,
+        registry: &TemplateTypeRegistry,
+    ) -> Option<BoxedTemplateProperty<'a, bool>> {
         match (self, other) {
-            (Self::ByteString(lhs), Self::ByteString(rhs)) => {
-                Some((lhs, rhs).map(|(l, r)| l == r).into_dyn())
+            (
+                Self::Value {
+                    ty: lty,
+                    property: lhs,
+                },
+                Self::Value {
+                    ty: rty,
+                    property: rhs,
+                },
+            ) if let Some(eq) = registry.get_eq_fn(&lty, &rty) => {
+                let out_property = (lhs, rhs).map(move |(l, r)| eq(l, r).expect("valid type"));
+                Some(out_property.into_dyn())
             }
-            (Self::ByteString(lhs), Self::String(rhs)) => {
-                Some((lhs, rhs).map(|(l, r)| l == r).into_dyn())
+            // Comparison between T and Option<U> doesn't fail, and returns
+            // false if either side is None. This is more capable than comparing
+            // Option<T> and Option<U> because PartialEq isn't implemented for
+            // different types wrapped in Option.
+            (
+                Self::Value {
+                    ty: lty @ TemplateValueType::Scalar(_),
+                    property: lhs,
+                },
+                Self::Value {
+                    ty: TemplateValueType::Option(rid),
+                    property: rhs,
+                },
+            ) if let Some(eq) = registry.get_eq_fn(&lty, &TemplateValueType::Scalar(rid)) => {
+                let out_property = (lhs, rhs).map(move |(l, r)| ignore_missing_value(eq(l, r)));
+                Some(out_property.into_dyn())
             }
-            (Self::String(lhs), Self::ByteString(rhs)) => {
-                Some((lhs, rhs).map(|(l, r)| l == r).into_dyn())
+            (
+                Self::Value {
+                    ty: TemplateValueType::Option(lid),
+                    property: lhs,
+                },
+                Self::Value {
+                    ty: rty @ TemplateValueType::Scalar(_),
+                    property: rhs,
+                },
+            ) if let Some(eq) = registry.get_eq_fn(&TemplateValueType::Scalar(lid), &rty) => {
+                let out_property = (lhs, rhs).map(move |(l, r)| ignore_missing_value(eq(l, r)));
+                Some(out_property.into_dyn())
             }
-            (Self::String(lhs), Self::String(rhs)) => {
-                Some((lhs, rhs).map(|(l, r)| l == r).into_dyn())
-            }
-            (Self::String(lhs), Self::Email(rhs)) => {
-                Some((lhs, rhs).map(|(l, r)| l == r.0).into_dyn())
-            }
-            (Self::Boolean(lhs), Self::Boolean(rhs)) => {
-                Some((lhs, rhs).map(|(l, r)| l == r).into_dyn())
-            }
-            (Self::Integer(lhs), Self::Integer(rhs)) => {
-                Some((lhs, rhs).map(|(l, r)| l == r).into_dyn())
-            }
-            (Self::Integer(lhs), Self::IntegerOpt(rhs)) => {
-                Some((lhs, rhs).map(|(l, r)| Some(l) == r).into_dyn())
-            }
-            (Self::IntegerOpt(lhs), Self::Integer(rhs)) => {
-                Some((lhs, rhs).map(|(l, r)| l == Some(r)).into_dyn())
-            }
-            (Self::IntegerOpt(lhs), Self::IntegerOpt(rhs)) => {
-                Some((lhs, rhs).map(|(l, r)| l == r).into_dyn())
-            }
-            (Self::Email(lhs), Self::Email(rhs)) => {
-                Some((lhs, rhs).map(|(l, r)| l == r).into_dyn())
-            }
-            (Self::Email(lhs), Self::String(rhs)) => {
-                Some((lhs, rhs).map(|(l, r)| l.0 == r).into_dyn())
-            }
-            (Self::ByteString(_), _) => None,
-            (Self::ByteStringList(_), _) => None,
-            (Self::String(_), _) => None,
-            (Self::StringList(_), _) => None,
-            (Self::Boolean(_), _) => None,
-            (Self::Integer(_), _) => None,
-            (Self::IntegerOpt(_), _) => None,
-            (Self::ConfigValue(_), _) => None,
-            (Self::ConfigValueOpt(_), _) => None,
-            (Self::FsPath(_), _) => None,
-            (Self::FsPathOpt(_), _) => None,
-            (Self::Signature(_), _) => None,
-            (Self::Email(_), _) => None,
-            (Self::SizeHint(_), _) => None,
-            (Self::RegexCaptures(_), _) => None,
-            (Self::Timestamp(_), _) => None,
-            (Self::TimestampRange(_), _) => None,
+            (Self::Value { .. }, _) => None,
             (Self::Template(_), _) => None,
             (Self::Any(_), _) => None,
             (Self::AnyList(_), _) => None,
         }
     }
 
-    fn try_into_cmp(self, other: Self) -> Option<BoxedTemplateProperty<'a, Ordering>> {
+    fn try_into_cmp(
+        self,
+        other: Self,
+        registry: &TemplateTypeRegistry,
+    ) -> Option<BoxedTemplateProperty<'a, Ordering>> {
         match (self, other) {
-            (Self::Integer(lhs), Self::Integer(rhs)) => {
-                Some((lhs, rhs).map(|(l, r)| l.cmp(&r)).into_dyn())
+            (
+                Self::Value {
+                    ty: lty,
+                    property: lhs,
+                },
+                Self::Value {
+                    ty: rty,
+                    property: rhs,
+                },
+            ) if let Some(cmp) = registry.get_cmp_fn(&lty, &rty) => {
+                let out_property = (lhs, rhs).map(move |(l, r)| cmp(l, r).expect("valid type"));
+                Some(out_property.into_dyn())
             }
-            (Self::Integer(lhs), Self::IntegerOpt(rhs)) => {
-                Some((lhs, rhs).map(|(l, r)| Some(l).cmp(&r)).into_dyn())
+            // To compare T and Option<U>, T is wrapped in Option. This is fine
+            // for now since we only support total ordering.
+            (
+                Self::Value {
+                    ty: TemplateValueType::Scalar(lid),
+                    property: lhs,
+                },
+                Self::Value {
+                    ty: rty @ TemplateValueType::Option(_),
+                    property: rhs,
+                },
+            ) if let Some(cmp) = registry.get_cmp_fn(&TemplateValueType::Option(lid), &rty) => {
+                let out_property = (lhs, rhs).map(move |(l, r)| cmp(l, r).expect("valid type"));
+                Some(out_property.into_dyn())
             }
-            (Self::IntegerOpt(lhs), Self::Integer(rhs)) => {
-                Some((lhs, rhs).map(|(l, r)| l.cmp(&Some(r))).into_dyn())
+            (
+                Self::Value {
+                    ty: lty @ TemplateValueType::Option(_),
+                    property: lhs,
+                },
+                Self::Value {
+                    ty: TemplateValueType::Scalar(rid),
+                    property: rhs,
+                },
+            ) if let Some(cmp) = registry.get_cmp_fn(&lty, &TemplateValueType::Option(rid)) => {
+                let out_property = (lhs, rhs).map(move |(l, r)| cmp(l, r).expect("valid type"));
+                Some(out_property.into_dyn())
             }
-            (Self::IntegerOpt(lhs), Self::IntegerOpt(rhs)) => {
-                Some((lhs, rhs).map(|(l, r)| l.cmp(&r)).into_dyn())
-            }
-            (Self::ByteString(_), _) => None,
-            (Self::ByteStringList(_), _) => None,
-            (Self::String(_), _) => None,
-            (Self::StringList(_), _) => None,
-            (Self::Boolean(_), _) => None,
-            (Self::Integer(_), _) => None,
-            (Self::IntegerOpt(_), _) => None,
-            (Self::ConfigValue(_), _) => None,
-            (Self::ConfigValueOpt(_), _) => None,
-            (Self::FsPath(_), _) => None,
-            (Self::FsPathOpt(_), _) => None,
-            (Self::Signature(_), _) => None,
-            (Self::Email(_), _) => None,
-            (Self::SizeHint(_), _) => None,
-            (Self::RegexCaptures(_), _) => None,
-            (Self::Timestamp(_), _) => None,
-            (Self::TimestampRange(_), _) => None,
+            (Self::Value { .. }, _) => None,
             (Self::Template(_), _) => None,
             (Self::Any(_), _) => None,
             (Self::AnyList(_), _) => None,
         }
     }
+}
+
+/// Creates the registry of types available to a template language.
+pub fn new_core_type_registry() -> TemplateTypeRegistry {
+    let mut registry = TemplateTypeRegistry::empty();
+    registry
+        .register::<BString>("ByteString")
+        .conditionable()
+        .formattable()
+        .serializable()
+        .equatable();
+    registry
+        .register::<Vec<BString>>("List<ByteString>")
+        .conditionable()
+        .formattable()
+        .serializable();
+    registry
+        .register::<String>("String")
+        .conditionable()
+        .formattable()
+        .serializable()
+        .equatable()
+        .equatable_with::<BString>();
+    registry
+        .register::<Vec<String>>("List<String>")
+        .conditionable()
+        .formattable()
+        .serializable();
+    registry
+        .register::<bool>("Boolean")
+        .conditionable()
+        .formattable()
+        .serializable()
+        .equatable();
+    registry
+        .register::<i64>("Integer")
+        .formattable()
+        .serializable()
+        .equatable()
+        .comparable();
+    registry
+        .register::<Option<i64>>("Option<Integer>")
+        .conditionable()
+        .formattable()
+        .serializable()
+        .equatable()
+        .comparable();
+    registry
+        .register::<ConfigValueWrapper>("ConfigValue")
+        .formattable()
+        .serializable();
+    registry
+        .register::<Option<ConfigValueWrapper>>("Option<ConfigValue>")
+        .conditionable()
+        .formattable()
+        .serializable();
+    registry
+        .register::<PathBuf>("FsPath")
+        .formattable()
+        .serializable();
+    registry
+        .register::<Option<PathBuf>>("Option<FsPath>")
+        .conditionable()
+        .formattable()
+        .serializable();
+    registry
+        .register::<Signature>("Signature")
+        .formattable()
+        .serializable();
+    registry
+        .register::<Email>("Email")
+        .conditionable()
+        .formattable()
+        .serializable()
+        .equatable()
+        .equatable_with::<String>();
+    registry.register::<SizeHint>("SizeHint").serializable();
+    registry.register::<RegexCaptures>("RegexCaptures");
+    registry
+        .register::<Timestamp>("Timestamp")
+        .formattable()
+        .serializable();
+    registry
+        .register::<TimestampRange>("TimestampRange")
+        .formattable()
+        .serializable();
+    registry
+}
+
+fn register_symbols<'a, L>(table: &mut TemplateSymbolTable<'a, L>)
+where
+    L: TemplateLanguage<'a> + ?Sized,
+{
+    register_functions(table);
+    register_byte_string_methods(table);
+    register_formattable_list_methods::<_, BString>(table);
+    register_string_methods(table);
+    register_formattable_list_methods::<_, String>(table);
+    table.register_methods::<bool>();
+    table.register_methods::<i64>();
+    register_config_value_methods(table);
+    register_fs_path_methods(table);
+    register_signature_methods(table);
+    register_email_methods(table);
+    register_size_hint_methods(table);
+    register_regex_captures_methods(table);
+    register_timestamp_methods(table);
+    register_timestamp_range_methods(table);
 }
 
 /// Function that translates global function call node.
@@ -557,164 +505,231 @@ impl<'a> CoreTemplatePropertyVar<'a> for CoreTemplatePropertyKind<'a> {
 // couldn't find an easy way to expand that to the core template methods, which
 // are defined for L: TemplateLanguage<'a>. That's why the build fn table is
 // bound to a named lifetime, and therefore can't be cached statically.
-pub type TemplateBuildFunctionFn<'a, L, P> =
-    fn(&L, &mut TemplateDiagnostics, &BuildContext<P>, &FunctionCallNode) -> TemplateParseResult<P>;
-
-type BuildMethodFn<'a, L, T, P> = fn(
+type BuildFunctionFn<'a, L> = dyn Fn(
     &L,
     &mut TemplateDiagnostics,
-    &BuildContext<P>,
+    &BuildContext<'a, '_>,
+    &FunctionCallNode,
+) -> TemplateParseResult<TemplatePropertyKind<'a>>;
+
+type BuildMethodFn<'a, L, T> = fn(
+    &L,
+    &mut TemplateDiagnostics,
+    &BuildContext<'a, '_>,
     T,
     &FunctionCallNode,
-) -> TemplateParseResult<P>;
-
-/// Function that translates method call node of self type `T`.
-pub type TemplateBuildMethodFn<'a, L, T, P> = BuildMethodFn<'a, L, BoxedTemplateProperty<'a, T>, P>;
+) -> TemplateParseResult<TemplatePropertyKind<'a>>;
 
 /// Function that translates method call node of `Template`.
-pub type BuildTemplateMethodFn<'a, L, P> = BuildMethodFn<'a, L, Box<dyn Template + 'a>, P>;
+type BuildTemplateMethodFn<'a, L> = BuildMethodFn<'a, L, Box<dyn Template + 'a>>;
 
 /// Function that translates method call node of `Any*`.
-pub type BuildAnyMethodFn<'a, L, P> = BuildMethodFn<'a, L, BoxedAnyProperty<'a>, P>;
+type BuildAnyMethodFn<'a, L> = BuildMethodFn<'a, L, BoxedAnyProperty<'a>>;
 
 /// Table of functions that translate global function call node.
-pub type TemplateBuildFunctionFnMap<'a, L, P = <L as TemplateLanguage<'a>>::Property> =
-    HashMap<&'static str, TemplateBuildFunctionFn<'a, L, P>>;
+type BuildFunctionFnMap<'a, L> = HashMap<&'static str, Box<BuildFunctionFn<'a, L>>>;
 
-/// Table of functions that translate method call node of self type `T`.
-pub type TemplateBuildMethodFnMap<'a, L, T, P = <L as TemplateLanguage<'a>>::Property> =
-    HashMap<&'static str, TemplateBuildMethodFn<'a, L, T, P>>;
-
-/// Table of functions that translate method call node of `Template`.
-pub type BuildTemplateMethodFnMap<'a, L, P = <L as TemplateLanguage<'a>>::Property> =
-    HashMap<&'static str, BuildTemplateMethodFn<'a, L, P>>;
-
-/// Table of functions that translate method call node of `Any*`.
-pub type BuildAnyMethodFnMap<'a, L, P = <L as TemplateLanguage<'a>>::Property> =
-    HashMap<&'static str, BuildAnyMethodFn<'a, L, P>>;
-
-/// Symbol table of functions and methods available in the core template.
-pub struct CoreTemplateBuildFnTable<'a, L: ?Sized, P = <L as TemplateLanguage<'a>>::Property> {
-    pub functions: TemplateBuildFunctionFnMap<'a, L, P>,
-    pub byte_string_methods: TemplateBuildMethodFnMap<'a, L, BString, P>,
-    pub byte_string_list_methods: TemplateBuildMethodFnMap<'a, L, Vec<BString>, P>,
-    pub string_methods: TemplateBuildMethodFnMap<'a, L, String, P>,
-    pub string_list_methods: TemplateBuildMethodFnMap<'a, L, Vec<String>, P>,
-    pub boolean_methods: TemplateBuildMethodFnMap<'a, L, bool, P>,
-    pub integer_methods: TemplateBuildMethodFnMap<'a, L, i64, P>,
-    pub config_value_methods: TemplateBuildMethodFnMap<'a, L, ConfigValue, P>,
-    pub fs_path_methods: TemplateBuildMethodFnMap<'a, L, PathBuf, P>,
-    pub email_methods: TemplateBuildMethodFnMap<'a, L, Email, P>,
-    pub signature_methods: TemplateBuildMethodFnMap<'a, L, Signature, P>,
-    pub size_hint_methods: TemplateBuildMethodFnMap<'a, L, SizeHint, P>,
-    pub regex_captures_methods: TemplateBuildMethodFnMap<'a, L, RegexCaptures, P>,
-    pub timestamp_methods: TemplateBuildMethodFnMap<'a, L, Timestamp, P>,
-    pub timestamp_range_methods: TemplateBuildMethodFnMap<'a, L, TimestampRange, P>,
-    pub template_methods: BuildTemplateMethodFnMap<'a, L, P>,
-    pub any_methods: BuildAnyMethodFnMap<'a, L, P>,
-    pub any_list_methods: BuildAnyMethodFnMap<'a, L, P>,
+/// Translates a method call node on a type-erased value type.
+trait BuildValueMethod<'a, L: ?Sized> {
+    fn build(
+        &self,
+        language: &L,
+        diagnostics: &mut TemplateDiagnostics,
+        build_ctx: &BuildContext<'a, '_>,
+        self_property: BoxedTemplateProperty<'a, TemplateValueRepr>,
+        function: &FunctionCallNode,
+    ) -> TemplateParseResult<TemplatePropertyKind<'a>>;
 }
 
-pub fn merge_fn_map<'s, F>(base: &mut HashMap<&'s str, F>, extension: HashMap<&'s str, F>) {
-    for (name, function) in extension {
-        if base.insert(name, function).is_some() {
-            panic!("Conflicting template definitions for '{name}' function");
-        }
+/// Table of functions that translate method call node of type-erased value types.
+type BuildValueMethodMap<'a, L> = HashMap<&'static str, Box<dyn BuildValueMethod<'a, L>>>;
+
+/// Translates a method call node on `T`.
+///
+/// If `F` is a zero-sized type, this wrapper is also ZST and can be boxed
+/// without heap allocation.
+struct TypedValueMethod<T, F> {
+    build_fn: F,
+    signature: PhantomData<fn(T)>,
+}
+
+impl<'a, L, T, F> BuildValueMethod<'a, L> for TypedValueMethod<T, F>
+where
+    L: TemplateLanguage<'a> + ?Sized,
+    T: TemplateValue,
+    F: Fn(
+        &L,
+        &mut TemplateDiagnostics,
+        &BuildContext<'a, '_>,
+        BoxedTemplateProperty<'a, T>,
+        &FunctionCallNode,
+    ) -> TemplateParseResult<TemplatePropertyKind<'a>>,
+{
+    fn build(
+        &self,
+        language: &L,
+        diagnostics: &mut TemplateDiagnostics,
+        build_ctx: &BuildContext<'a, '_>,
+        self_property: BoxedTemplateProperty<'a, TemplateValueRepr>,
+        function: &FunctionCallNode,
+    ) -> TemplateParseResult<TemplatePropertyKind<'a>> {
+        // Boxing here because the converted self_property type can't be named
+        let self_property =
+            cast_value_property::<T>(self_property, language.type_registry()).into_dyn();
+        (self.build_fn)(language, diagnostics, build_ctx, self_property, function)
     }
 }
 
-impl<L: ?Sized, P> CoreTemplateBuildFnTable<'_, L, P> {
+/// Table of functions that translate method call node of `Template`.
+type BuildTemplateMethodFnMap<'a, L> = HashMap<&'static str, BuildTemplateMethodFn<'a, L>>;
+
+/// Table of functions that translate method call node of `Any*`.
+type BuildAnyMethodFnMap<'a, L> = HashMap<&'static str, BuildAnyMethodFn<'a, L>>;
+
+/// Symbol table of functions and methods.
+pub struct TemplateSymbolTable<'a, L: ?Sized> {
+    functions: BuildFunctionFnMap<'a, L>,
+    methods: HashMap<TemplateValueType, BuildValueMethodMap<'a, L>>,
+    template_methods: BuildTemplateMethodFnMap<'a, L>,
+    any_methods: BuildAnyMethodFnMap<'a, L>,
+    any_list_methods: BuildAnyMethodFnMap<'a, L>,
+}
+
+/// Converts a type-erased property back to the concrete type.
+fn cast_value_property<'a, T: TemplateValue>(
+    property: BoxedTemplateProperty<'a, TemplateValueRepr>,
+    registry: &TemplateTypeRegistry,
+) -> impl TemplateProperty<Output = T> + use<'a, T> {
+    let ty = T::value_type();
+    let type_name = registry.get_type_name(&ty).expect("registered type");
+    property.and_then(move |repr| reject_missing_value(T::try_from_repr(repr), type_name))
+}
+
+/// Coerces a type-erased property of type `ty` to `T` if its inner type
+/// matches.
+fn try_unwrap_value_property<'a, T: TemplateValue>(
+    ty: &TemplateValueType,
+    property: BoxedTemplateProperty<'a, TemplateValueRepr>,
+    registry: &TemplateTypeRegistry,
+) -> Result<BoxedTemplateProperty<'a, T>, BoxedTemplateProperty<'a, TemplateValueRepr>> {
+    try_unwrap_value_property_with(ty, property, registry, reject_missing_value)
+}
+
+/// Coerces a type-erased property of type `ty` to `T` if its inner type
+/// matches, falling back to a default value if the value is missing.
+///
+/// For example, a `None` value of a string newtype can be converted to `""`.
+fn try_unwrap_value_property_or_default<'a, T: Default + TemplateValue>(
+    ty: &TemplateValueType,
+    property: BoxedTemplateProperty<'a, TemplateValueRepr>,
+    registry: &TemplateTypeRegistry,
+) -> Result<BoxedTemplateProperty<'a, T>, BoxedTemplateProperty<'a, TemplateValueRepr>> {
+    try_unwrap_value_property_with(ty, property, registry, |r, _| Ok(ignore_missing_value(r)))
+}
+
+fn try_unwrap_value_property_with<'a, T, F>(
+    ty: &TemplateValueType,
+    property: BoxedTemplateProperty<'a, TemplateValueRepr>,
+    registry: &TemplateTypeRegistry,
+    process: F,
+) -> Result<BoxedTemplateProperty<'a, T>, BoxedTemplateProperty<'a, TemplateValueRepr>>
+where
+    T: TemplateValue,
+    F: Fn(Result<T, TemplateValueExtractionError>, &str) -> Result<T, TemplatePropertyError> + 'a,
+{
+    let unwrapped_ty = match ty {
+        TemplateValueType::Scalar(_) => ty,
+        TemplateValueType::Option(id) => &TemplateValueType::Scalar(*id),
+    };
+    let type_name = registry
+        .get_type_name(unwrapped_ty)
+        .expect("registered type");
+    if *unwrapped_ty == T::value_type() {
+        let inner_property =
+            property.and_then(move |repr| process(T::try_from_repr(repr), type_name));
+        Ok(inner_property.into_dyn())
+    } else if let Some((inner_ty, cast)) = registry.get_newtype(unwrapped_ty)
+        && *inner_ty == T::value_type()
+    {
+        let inner_property = property
+            .and_then(move |repr| process(cast(repr).and_then(T::try_from_repr), type_name));
+        Ok(inner_property.into_dyn())
+    } else {
+        Err(property)
+    }
+}
+
+fn reject_missing_value<T>(
+    result: Result<T, TemplateValueExtractionError>,
+    type_name: &str,
+) -> Result<T, TemplatePropertyError> {
+    result.map_err(|err| match err {
+        TemplateValueExtractionError::UnexpectedType(ty) => panic!("unexpected type: {ty:?}"),
+        TemplateValueExtractionError::MissingValue => {
+            TemplatePropertyError(format!("No value set to Option<{type_name}>").into())
+        }
+    })
+}
+
+fn ignore_missing_value<T: Default>(result: Result<T, TemplateValueExtractionError>) -> T {
+    result.unwrap_or_else(|err| match err {
+        TemplateValueExtractionError::UnexpectedType(ty) => {
+            panic!("unexpected type: {ty:?}")
+        }
+        TemplateValueExtractionError::MissingValue => T::default(),
+    })
+}
+
+impl<L: ?Sized> TemplateSymbolTable<'_, L> {
     pub fn empty() -> Self {
         Self {
             functions: HashMap::new(),
-            byte_string_methods: HashMap::new(),
-            byte_string_list_methods: HashMap::new(),
-            string_methods: HashMap::new(),
-            string_list_methods: HashMap::new(),
-            boolean_methods: HashMap::new(),
-            integer_methods: HashMap::new(),
-            config_value_methods: HashMap::new(),
-            fs_path_methods: HashMap::new(),
-            signature_methods: HashMap::new(),
-            email_methods: HashMap::new(),
-            size_hint_methods: HashMap::new(),
-            regex_captures_methods: HashMap::new(),
-            timestamp_methods: HashMap::new(),
-            timestamp_range_methods: HashMap::new(),
+            methods: HashMap::new(),
             template_methods: HashMap::new(),
             any_methods: HashMap::new(),
             any_list_methods: HashMap::new(),
         }
     }
-
-    pub fn merge(&mut self, other: Self) {
-        let Self {
-            functions,
-            byte_string_methods,
-            byte_string_list_methods,
-            string_methods,
-            string_list_methods,
-            boolean_methods,
-            integer_methods,
-            config_value_methods,
-            fs_path_methods,
-            signature_methods,
-            email_methods,
-            size_hint_methods,
-            regex_captures_methods,
-            timestamp_methods,
-            timestamp_range_methods,
-            template_methods,
-            any_methods,
-            any_list_methods,
-        } = other;
-
-        merge_fn_map(&mut self.functions, functions);
-        merge_fn_map(&mut self.byte_string_methods, byte_string_methods);
-        merge_fn_map(&mut self.byte_string_list_methods, byte_string_list_methods);
-        merge_fn_map(&mut self.string_methods, string_methods);
-        merge_fn_map(&mut self.string_list_methods, string_list_methods);
-        merge_fn_map(&mut self.boolean_methods, boolean_methods);
-        merge_fn_map(&mut self.integer_methods, integer_methods);
-        merge_fn_map(&mut self.config_value_methods, config_value_methods);
-        merge_fn_map(&mut self.fs_path_methods, fs_path_methods);
-        merge_fn_map(&mut self.signature_methods, signature_methods);
-        merge_fn_map(&mut self.email_methods, email_methods);
-        merge_fn_map(&mut self.size_hint_methods, size_hint_methods);
-        merge_fn_map(&mut self.regex_captures_methods, regex_captures_methods);
-        merge_fn_map(&mut self.timestamp_methods, timestamp_methods);
-        merge_fn_map(&mut self.timestamp_range_methods, timestamp_range_methods);
-        merge_fn_map(&mut self.template_methods, template_methods);
-        merge_fn_map(&mut self.any_methods, any_methods);
-        merge_fn_map(&mut self.any_list_methods, any_list_methods);
-    }
 }
 
-impl<'a, L> CoreTemplateBuildFnTable<'a, L, L::Property>
+impl<'a, L> TemplateSymbolTable<'a, L>
 where
     L: TemplateLanguage<'a> + ?Sized,
 {
     /// Creates new symbol table containing the builtin functions and methods.
     pub fn builtin() -> Self {
-        Self {
-            functions: builtin_functions(),
-            byte_string_methods: builtin_byte_string_methods(),
-            byte_string_list_methods: builtin_formattable_list_methods(),
-            string_methods: builtin_string_methods(),
-            string_list_methods: builtin_formattable_list_methods(),
-            boolean_methods: HashMap::new(),
-            integer_methods: HashMap::new(),
-            config_value_methods: builtin_config_value_methods(),
-            fs_path_methods: builtin_fs_path_methods(),
-            signature_methods: builtin_signature_methods(),
-            email_methods: builtin_email_methods(),
-            size_hint_methods: builtin_size_hint_methods(),
-            regex_captures_methods: builtin_regex_captures_methods(),
-            timestamp_methods: builtin_timestamp_methods(),
-            timestamp_range_methods: builtin_timestamp_range_methods(),
+        let mut table = Self {
+            functions: HashMap::new(),
+            methods: HashMap::new(),
             template_methods: HashMap::new(),
             any_methods: HashMap::new(),
             any_list_methods: builtin_any_list_methods(),
+        };
+        register_symbols(&mut table);
+        table
+    }
+
+    /// Registers global functions.
+    pub fn register_functions(&mut self) -> TemplateFunctionTableRegistration<'a, '_, L> {
+        TemplateFunctionTableRegistration {
+            map: &mut self.functions,
+        }
+    }
+
+    /// Registers methods on `T`. Inserts a new empty method table as needed.
+    ///
+    /// Since optional values are implicitly unwrapped, the receiver type must
+    /// not be `Option`.
+    #[track_caller]
+    pub fn register_methods<T: TemplateValue>(
+        &mut self,
+    ) -> TemplateMethodTableRegistration<'a, '_, L, T> {
+        let ty = T::value_type();
+        assert_matches!(ty, TemplateValueType::Scalar(_));
+        let map = self.methods.entry(ty).or_default();
+        TemplateMethodTableRegistration {
+            map,
+            signature: PhantomData,
         }
     }
 
@@ -723,9 +738,9 @@ where
         &self,
         language: &L,
         diagnostics: &mut TemplateDiagnostics,
-        build_ctx: &BuildContext<L::Property>,
+        build_ctx: &BuildContext<'a, '_>,
         function: &FunctionCallNode,
-    ) -> TemplateParseResult<L::Property> {
+    ) -> TemplateParseResult<TemplatePropertyKind<'a>> {
         let table = &self.functions;
         let build = template_parser::lookup_function(table, function)?;
         build(language, diagnostics, build_ctx, function)
@@ -737,105 +752,48 @@ where
         &self,
         language: &L,
         diagnostics: &mut TemplateDiagnostics,
-        build_ctx: &BuildContext<L::Property>,
-        property: CoreTemplatePropertyKind<'a>,
+        build_ctx: &BuildContext<'a, '_>,
+        property: TemplatePropertyKind<'a>,
         function: &FunctionCallNode,
-    ) -> TemplateParseResult<L::Property> {
-        let type_name = property.type_name();
+    ) -> TemplateParseResult<TemplatePropertyKind<'a>> {
+        let registry = language.type_registry();
+        let type_name = property.type_name(registry);
         match property {
-            CoreTemplatePropertyKind::ByteString(property) => {
-                let table = &self.byte_string_methods;
-                let build = template_parser::lookup_method(type_name, table, function)?;
-                build(language, diagnostics, build_ctx, property, function)
+            TemplatePropertyKind::Value { ty, property } => {
+                let unwrapped_ty = match ty {
+                    TemplateValueType::Scalar(_) => ty,
+                    TemplateValueType::Option(id) => TemplateValueType::Scalar(id),
+                };
+                let type_name = registry
+                    .get_type_name(&unwrapped_ty)
+                    .expect("registered type");
+                if let Some(table) = self.methods.get(&unwrapped_ty) {
+                    let method = template_parser::lookup_method(type_name, table, function)?;
+                    method.build(language, diagnostics, build_ctx, property, function)
+                } else if let Some((inner_ty, cast)) = registry.get_newtype(&unwrapped_ty)
+                    && let Some(table) = self.methods.get(inner_ty)
+                {
+                    // Use the original type name for error
+                    let method = template_parser::lookup_method(type_name, table, function)?;
+                    let inner_property = property
+                        .and_then(move |repr| reject_missing_value(cast(repr), type_name))
+                        .into_dyn();
+                    method.build(language, diagnostics, build_ctx, inner_property, function)
+                } else {
+                    panic!("no method table registered for type: {unwrapped_ty:?}");
+                }
             }
-            CoreTemplatePropertyKind::ByteStringList(property) => {
-                let table = &self.byte_string_list_methods;
-                let build = template_parser::lookup_method(type_name, table, function)?;
-                build(language, diagnostics, build_ctx, property, function)
-            }
-            CoreTemplatePropertyKind::String(property) => {
-                let table = &self.string_methods;
-                let build = template_parser::lookup_method(type_name, table, function)?;
-                build(language, diagnostics, build_ctx, property, function)
-            }
-            CoreTemplatePropertyKind::StringList(property) => {
-                let table = &self.string_list_methods;
-                let build = template_parser::lookup_method(type_name, table, function)?;
-                build(language, diagnostics, build_ctx, property, function)
-            }
-            CoreTemplatePropertyKind::Boolean(property) => {
-                let table = &self.boolean_methods;
-                let build = template_parser::lookup_method(type_name, table, function)?;
-                build(language, diagnostics, build_ctx, property, function)
-            }
-            CoreTemplatePropertyKind::Integer(property) => {
-                let table = &self.integer_methods;
-                let build = template_parser::lookup_method(type_name, table, function)?;
-                build(language, diagnostics, build_ctx, property, function)
-            }
-            CoreTemplatePropertyKind::IntegerOpt(property) => {
-                let inner_property = property.try_unwrap(type_name).into_dyn_wrapped();
-                self.build_method(language, diagnostics, build_ctx, inner_property, function)
-            }
-            CoreTemplatePropertyKind::ConfigValue(property) => {
-                let table = &self.config_value_methods;
-                let build = template_parser::lookup_method(type_name, table, function)?;
-                build(language, diagnostics, build_ctx, property, function)
-            }
-            CoreTemplatePropertyKind::ConfigValueOpt(property) => {
-                let inner_property = property.try_unwrap(type_name).into_dyn_wrapped();
-                self.build_method(language, diagnostics, build_ctx, inner_property, function)
-            }
-            CoreTemplatePropertyKind::FsPath(property) => {
-                let table = &self.fs_path_methods;
-                let build = template_parser::lookup_method(type_name, table, function)?;
-                build(language, diagnostics, build_ctx, property, function)
-            }
-            CoreTemplatePropertyKind::FsPathOpt(property) => {
-                let inner_property = property.try_unwrap(type_name).into_dyn_wrapped();
-                self.build_method(language, diagnostics, build_ctx, inner_property, function)
-            }
-            CoreTemplatePropertyKind::Signature(property) => {
-                let table = &self.signature_methods;
-                let build = template_parser::lookup_method(type_name, table, function)?;
-                build(language, diagnostics, build_ctx, property, function)
-            }
-            CoreTemplatePropertyKind::Email(property) => {
-                let table = &self.email_methods;
-                let build = template_parser::lookup_method(type_name, table, function)?;
-                build(language, diagnostics, build_ctx, property, function)
-            }
-            CoreTemplatePropertyKind::SizeHint(property) => {
-                let table = &self.size_hint_methods;
-                let build = template_parser::lookup_method(type_name, table, function)?;
-                build(language, diagnostics, build_ctx, property, function)
-            }
-            CoreTemplatePropertyKind::RegexCaptures(property) => {
-                let table = &self.regex_captures_methods;
-                let build = template_parser::lookup_method(type_name, table, function)?;
-                build(language, diagnostics, build_ctx, property, function)
-            }
-            CoreTemplatePropertyKind::Timestamp(property) => {
-                let table = &self.timestamp_methods;
-                let build = template_parser::lookup_method(type_name, table, function)?;
-                build(language, diagnostics, build_ctx, property, function)
-            }
-            CoreTemplatePropertyKind::TimestampRange(property) => {
-                let table = &self.timestamp_range_methods;
-                let build = template_parser::lookup_method(type_name, table, function)?;
-                build(language, diagnostics, build_ctx, property, function)
-            }
-            CoreTemplatePropertyKind::Template(template) => {
+            TemplatePropertyKind::Template(template) => {
                 let table = &self.template_methods;
                 let build = template_parser::lookup_method(type_name, table, function)?;
                 build(language, diagnostics, build_ctx, template, function)
             }
-            CoreTemplatePropertyKind::Any(property) => {
+            TemplatePropertyKind::Any(property) => {
                 let table = &self.any_methods;
                 let build = template_parser::lookup_method(type_name, table, function)?;
                 build(language, diagnostics, build_ctx, property, function)
             }
-            CoreTemplatePropertyKind::AnyList(property) => {
+            TemplatePropertyKind::AnyList(property) => {
                 let table = &self.any_list_methods;
                 let build = template_parser::lookup_method(type_name, table, function)?;
                 build(language, diagnostics, build_ctx, property, function)
@@ -844,69 +802,144 @@ where
     }
 }
 
+/// Registers global functions.
+pub struct TemplateFunctionTableRegistration<'a, 'b, L: ?Sized> {
+    map: &'b mut BuildFunctionFnMap<'a, L>,
+}
+
+impl<'a, L> TemplateFunctionTableRegistration<'a, '_, L>
+where
+    L: TemplateLanguage<'a> + ?Sized,
+{
+    /// Registers a new global function builder.
+    #[track_caller]
+    pub fn insert<F>(&mut self, name: &'static str, build_fn: F)
+    where
+        F: Fn(
+            &L,
+            &mut TemplateDiagnostics,
+            &BuildContext<'a, '_>,
+            &FunctionCallNode,
+        ) -> TemplateParseResult<TemplatePropertyKind<'a>>,
+        F: 'static,
+    {
+        let old = self.map.insert(name, Box::new(build_fn));
+        assert!(old.is_none(), "function already registered: {name}");
+    }
+}
+
+/// Registers methods on `T`.
+pub struct TemplateMethodTableRegistration<'a, 'b, L: ?Sized, T> {
+    map: &'b mut BuildValueMethodMap<'a, L>,
+    signature: PhantomData<fn(T)>,
+}
+
+impl<'a, L, T> TemplateMethodTableRegistration<'a, '_, L, T>
+where
+    L: TemplateLanguage<'a> + ?Sized,
+    T: TemplateValue,
+{
+    /// Registers a new method builder.
+    #[track_caller]
+    pub fn insert<F>(&mut self, name: &'static str, build_fn: F)
+    where
+        F: Fn(
+            &L,
+            &mut TemplateDiagnostics,
+            &BuildContext<'a, '_>,
+            BoxedTemplateProperty<'a, T>,
+            &FunctionCallNode,
+        ) -> TemplateParseResult<TemplatePropertyKind<'a>>,
+        F: 'static,
+    {
+        let wrapper = TypedValueMethod {
+            build_fn,
+            signature: PhantomData,
+        };
+        let old = self.map.insert(name, Box::new(wrapper));
+        assert!(old.is_none(), "method already registered: {name}");
+    }
+}
+
 /// Opaque struct that represents a template value.
-pub struct Expression<P> {
-    property: P,
+pub struct Expression<'a> {
+    property: TemplatePropertyKind<'a>,
     labels: Vec<String>,
 }
 
-impl<P> Expression<P> {
-    fn unlabeled(property: P) -> Self {
+impl<'a> Expression<'a> {
+    fn unlabeled(property: TemplatePropertyKind<'a>) -> Self {
         let labels = vec![];
         Self { property, labels }
     }
 
-    fn with_label(property: P, label: impl Into<String>) -> Self {
+    fn with_label(property: TemplatePropertyKind<'a>, label: impl Into<String>) -> Self {
         let labels = vec![label.into()];
         Self { property, labels }
     }
 }
 
-impl<'a, P: CoreTemplatePropertyVar<'a>> Expression<P> {
-    pub fn type_name(&self) -> &'static str {
-        self.property.type_name()
+impl<'a> Expression<'a> {
+    pub fn type_name(&self, registry: &TemplateTypeRegistry) -> &'static str {
+        self.property.type_name(registry)
     }
 
-    pub fn try_into_boolean(self) -> Option<BoxedTemplateProperty<'a, bool>> {
-        self.property.try_into_boolean().ok()
+    // TODO: rename try_into_boolean() because it isn't a pure extraction fn?
+    pub fn try_into_boolean(
+        self,
+        registry: &TemplateTypeRegistry,
+    ) -> Option<BoxedTemplateProperty<'a, bool>> {
+        self.property.try_into_boolean(registry).ok()
     }
 
-    pub fn try_into_integer(self) -> Option<BoxedTemplateProperty<'a, i64>> {
-        self.property.try_into_integer().ok()
+    pub fn try_into_integer(
+        self,
+        registry: &TemplateTypeRegistry,
+    ) -> Option<BoxedTemplateProperty<'a, i64>> {
+        self.property.try_into_integer(registry).ok()
     }
 
-    pub fn try_into_timestamp(self) -> Option<BoxedTemplateProperty<'a, Timestamp>> {
-        self.property.try_into_timestamp().ok()
+    pub fn try_into_timestamp(
+        self,
+        registry: &TemplateTypeRegistry,
+    ) -> Option<BoxedTemplateProperty<'a, Timestamp>> {
+        self.property.try_into_timestamp(registry).ok()
     }
 
     /// Transforms into a byte string property by formatting the value if
     /// needed.
-    pub fn try_into_byte_stringify(self) -> Option<BoxedTemplateProperty<'a, BString>> {
-        let property = match self.property.try_into_byte_string() {
+    pub fn try_into_byte_stringify(
+        self,
+        registry: &TemplateTypeRegistry,
+    ) -> Option<BoxedTemplateProperty<'a, BString>> {
+        let property = match self.property.try_into_byte_string(registry) {
             Ok(bytes_property) => return Some(bytes_property),
             Err(property) => property,
         };
-        let property = match property.try_into_string() {
+        let property = match property.try_into_string(registry) {
             Ok(string_property) => return Some(string_property.map(BString::from).into_dyn()),
             Err(property) => property,
         };
-        let template = property.try_into_template()?;
+        let template = property.try_into_template(registry)?;
         Some(PlainTextFormattedProperty::new(template).into_dyn())
     }
 
     /// Transforms into a string property by formatting the value if needed.
-    pub fn try_into_stringify(self) -> Option<BoxedTemplateProperty<'a, String>> {
+    pub fn try_into_stringify(
+        self,
+        registry: &TemplateTypeRegistry,
+    ) -> Option<BoxedTemplateProperty<'a, String>> {
         let from_bytes =
             |s: BString| Ok(String::from_utf8(s.into()).map_err(|err| err.utf8_error())?);
-        let property = match self.property.try_into_string() {
+        let property = match self.property.try_into_string(registry) {
             Ok(string_property) => return Some(string_property),
             Err(property) => property,
         };
-        let property = match property.try_into_byte_string() {
+        let property = match property.try_into_byte_string(registry) {
             Ok(bytes_property) => return Some(bytes_property.and_then(from_bytes).into_dyn()),
             Err(property) => property,
         };
-        let template = property.try_into_template()?;
+        let template = property.try_into_template(registry)?;
         Some(
             PlainTextFormattedProperty::new(template)
                 .and_then(from_bytes)
@@ -914,12 +947,18 @@ impl<'a, P: CoreTemplatePropertyVar<'a>> Expression<P> {
         )
     }
 
-    pub fn try_into_serialize(self) -> Option<BoxedSerializeProperty<'a>> {
-        self.property.try_into_serialize()
+    pub fn try_into_serialize(
+        self,
+        registry: &TemplateTypeRegistry,
+    ) -> Option<BoxedSerializeProperty<'a>> {
+        self.property.try_into_serialize(registry)
     }
 
-    pub fn try_into_template(self) -> Option<Box<dyn Template + 'a>> {
-        let template = self.property.try_into_template()?;
+    pub fn try_into_template(
+        self,
+        registry: &TemplateTypeRegistry,
+    ) -> Option<Box<dyn Template + 'a>> {
+        let template = self.property.try_into_template(registry)?;
         if self.labels.is_empty() {
             Some(template)
         } else {
@@ -927,48 +966,68 @@ impl<'a, P: CoreTemplatePropertyVar<'a>> Expression<P> {
         }
     }
 
-    pub fn try_into_eq(self, other: Self) -> Option<BoxedTemplateProperty<'a, bool>> {
-        self.property.try_into_eq(other.property)
+    /// Transforms into a property that will evaluate to `self == other`.
+    pub fn try_into_eq(
+        self,
+        other: Self,
+        registry: &TemplateTypeRegistry,
+    ) -> Option<BoxedTemplateProperty<'a, bool>> {
+        self.property.try_into_eq(other.property, registry)
     }
 
-    pub fn try_into_cmp(self, other: Self) -> Option<BoxedTemplateProperty<'a, Ordering>> {
-        self.property.try_into_cmp(other.property)
+    pub fn try_into_cmp(
+        self,
+        other: Self,
+        registry: &TemplateTypeRegistry,
+    ) -> Option<BoxedTemplateProperty<'a, Ordering>> {
+        self.property.try_into_cmp(other.property, registry)
     }
 }
 
-impl<'a, P: CoreTemplatePropertyVar<'a>> AnyTemplateProperty<'a> for Expression<P> {
-    fn try_into_serialize(self: Box<Self>) -> Option<BoxedSerializeProperty<'a>> {
-        (*self).try_into_serialize()
+impl<'a> AnyTemplateProperty<'a> for Expression<'a> {
+    fn try_into_serialize(
+        self: Box<Self>,
+        registry: &TemplateTypeRegistry,
+    ) -> Option<BoxedSerializeProperty<'a>> {
+        (*self).try_into_serialize(registry)
     }
 
-    fn try_into_template(self: Box<Self>) -> Option<Box<dyn Template + 'a>> {
-        (*self).try_into_template()
+    fn try_into_template(
+        self: Box<Self>,
+        registry: &TemplateTypeRegistry,
+    ) -> Option<Box<dyn Template + 'a>> {
+        (*self).try_into_template(registry)
     }
 
-    fn try_join(self: Box<Self>, _: Box<dyn Template + 'a>) -> Option<Box<dyn Template + 'a>> {
+    fn try_join(
+        self: Box<Self>,
+        _: Box<dyn Template + 'a>,
+        _: &TemplateTypeRegistry,
+    ) -> Option<Box<dyn Template + 'a>> {
         None
     }
 }
 
 /// Environment (locals and self) in a stack frame.
-pub struct BuildContext<'i, P> {
-    /// Map of functions to create `Expression<L::Property>`.
-    local_variables: HashMap<&'i str, &'i dyn Fn() -> Expression<P>>,
-    /// Function to create `L::Property` representing `self`.
+pub struct BuildContext<'a, 'i> {
+    /// Map of functions to create `Expression`.
+    local_variables: HashMap<&'i str, &'i dyn Fn() -> Expression<'a>>,
+    /// Function to create a `self` property.
     ///
     /// This could be `local_variables["self"]`, but keyword lookup shouldn't be
     /// overridden by a user-defined `self` variable.
-    self_variable: &'i dyn Fn() -> P,
+    self_variable: &'i dyn Fn() -> TemplatePropertyKind<'a>,
 }
 
 fn build_keyword<'a, L: TemplateLanguage<'a> + ?Sized>(
     language: &L,
     diagnostics: &mut TemplateDiagnostics,
-    build_ctx: &BuildContext<L::Property>,
+    build_ctx: &BuildContext<'a, '_>,
     name: &str,
     name_span: pest::Span<'_>,
-) -> TemplateParseResult<L::Property> {
+) -> TemplateParseResult<TemplatePropertyKind<'a>> {
     // Keyword is a 0-ary method on the "self" property
+    let table = language.symbol_table();
     let self_property = (build_ctx.self_variable)();
     let function = FunctionCallNode {
         name,
@@ -977,8 +1036,8 @@ fn build_keyword<'a, L: TemplateLanguage<'a> + ?Sized>(
         keyword_args: vec![],
         args_span: name_span.end_pos().span(&name_span.end_pos()),
     };
-    language
-        .build_method(diagnostics, build_ctx, self_property, &function)
+    table
+        .build_method(language, diagnostics, build_ctx, self_property, &function)
         .map_err(|err| match err.kind() {
             TemplateParseErrorKind::NoSuchMethod { candidates, .. } => {
                 let kind = TemplateParseErrorKind::NoSuchKeyword {
@@ -1006,10 +1065,10 @@ fn build_keyword<'a, L: TemplateLanguage<'a> + ?Sized>(
 fn build_unary_operation<'a, L: TemplateLanguage<'a> + ?Sized>(
     language: &L,
     diagnostics: &mut TemplateDiagnostics,
-    build_ctx: &BuildContext<L::Property>,
+    build_ctx: &BuildContext<'a, '_>,
     op: UnaryOp,
     arg_node: &ExpressionNode,
-) -> TemplateParseResult<L::Property> {
+) -> TemplateParseResult<TemplatePropertyKind<'a>> {
     match op {
         UnaryOp::LogicalNot => {
             let arg = expect_boolean_expression(language, diagnostics, build_ctx, arg_node)?;
@@ -1029,12 +1088,13 @@ fn build_unary_operation<'a, L: TemplateLanguage<'a> + ?Sized>(
 fn build_binary_operation<'a, L: TemplateLanguage<'a> + ?Sized>(
     language: &L,
     diagnostics: &mut TemplateDiagnostics,
-    build_ctx: &BuildContext<L::Property>,
+    build_ctx: &BuildContext<'a, '_>,
     op: BinaryOp,
     lhs_node: &ExpressionNode,
     rhs_node: &ExpressionNode,
     span: pest::Span<'_>,
-) -> TemplateParseResult<L::Property> {
+) -> TemplateParseResult<TemplatePropertyKind<'a>> {
+    type P<'a> = TemplatePropertyKind<'a>;
     match op {
         BinaryOp::LogicalOr => {
             let lhs = expect_boolean_expression(language, diagnostics, build_ctx, lhs_node)?;
@@ -1051,28 +1111,32 @@ fn build_binary_operation<'a, L: TemplateLanguage<'a> + ?Sized>(
         BinaryOp::Eq | BinaryOp::Ne => {
             let lhs = build_expression(language, diagnostics, build_ctx, lhs_node)?;
             let rhs = build_expression(language, diagnostics, build_ctx, rhs_node)?;
-            let lty = lhs.type_name();
-            let rty = rhs.type_name();
-            let eq = lhs.try_into_eq(rhs).ok_or_else(|| {
-                let message = format!("Cannot compare expressions of type `{lty}` and `{rty}`");
-                TemplateParseError::expression(message, span)
-            })?;
+            let lty = lhs.type_name(language.type_registry());
+            let rty = rhs.type_name(language.type_registry());
+            let eq = lhs
+                .try_into_eq(rhs, language.type_registry())
+                .ok_or_else(|| {
+                    let message = format!("Cannot compare expressions of type `{lty}` and `{rty}`");
+                    TemplateParseError::expression(message, span)
+                })?;
             let out = match op {
                 BinaryOp::Eq => eq.into_dyn(),
                 BinaryOp::Ne => eq.map(|eq| !eq).into_dyn(),
                 _ => unreachable!(),
             };
-            Ok(L::Property::wrap_property(out))
+            Ok(P::wrap_property(out))
         }
         BinaryOp::Ge | BinaryOp::Gt | BinaryOp::Le | BinaryOp::Lt => {
             let lhs = build_expression(language, diagnostics, build_ctx, lhs_node)?;
             let rhs = build_expression(language, diagnostics, build_ctx, rhs_node)?;
-            let lty = lhs.type_name();
-            let rty = rhs.type_name();
-            let cmp = lhs.try_into_cmp(rhs).ok_or_else(|| {
-                let message = format!("Cannot compare expressions of type `{lty}` and `{rty}`");
-                TemplateParseError::expression(message, span)
-            })?;
+            let lty = lhs.type_name(language.type_registry());
+            let rty = rhs.type_name(language.type_registry());
+            let cmp = lhs
+                .try_into_cmp(rhs, language.type_registry())
+                .ok_or_else(|| {
+                    let message = format!("Cannot compare expressions of type `{lty}` and `{rty}`");
+                    TemplateParseError::expression(message, span)
+                })?;
             let out = match op {
                 BinaryOp::Ge => cmp.map(|ordering| ordering.is_ge()).into_dyn(),
                 BinaryOp::Gt => cmp.map(|ordering| ordering.is_gt()).into_dyn(),
@@ -1080,7 +1144,7 @@ fn build_binary_operation<'a, L: TemplateLanguage<'a> + ?Sized>(
                 BinaryOp::Lt => cmp.map(|ordering| ordering.is_lt()).into_dyn(),
                 _ => unreachable!(),
             };
-            Ok(L::Property::wrap_property(out))
+            Ok(P::wrap_property(out))
         }
         BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem => {
             let lhs = expect_integer_expression(language, diagnostics, build_ctx, lhs_node)?;
@@ -1115,12 +1179,12 @@ fn build_binary_operation<'a, L: TemplateLanguage<'a> + ?Sized>(
     }
 }
 
-fn builtin_byte_string_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
--> TemplateBuildMethodFnMap<'a, L, BString> {
-    // Not using maplit::hashmap!{} or custom declarative macro here because
-    // code completion inside macro is quite restricted.
-    let mut map = TemplateBuildMethodFnMap::<L, BString>::new();
-    map.insert(
+fn register_byte_string_methods<'a, L>(table: &mut TemplateSymbolTable<'a, L>)
+where
+    L: TemplateLanguage<'a> + ?Sized,
+{
+    let mut methods = table.register_methods::<BString>();
+    methods.insert(
         "len",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1128,7 +1192,7 @@ fn builtin_byte_string_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "contains",
         |language, diagnostics, build_ctx, self_property, function| {
             let [needle_node] = function.expect_exact_arguments()?;
@@ -1140,7 +1204,7 @@ fn builtin_byte_string_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "match",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             let [needle_node] = function.expect_exact_arguments()?;
@@ -1149,7 +1213,7 @@ fn builtin_byte_string_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "starts_with",
         |language, diagnostics, build_ctx, self_property, function| {
             let [needle_node] = function.expect_exact_arguments()?;
@@ -1160,7 +1224,7 @@ fn builtin_byte_string_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "ends_with",
         |language, diagnostics, build_ctx, self_property, function| {
             let [needle_node] = function.expect_exact_arguments()?;
@@ -1171,7 +1235,7 @@ fn builtin_byte_string_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "remove_prefix",
         |language, diagnostics, build_ctx, self_property, function| {
             let [needle_node] = function.expect_exact_arguments()?;
@@ -1186,7 +1250,7 @@ fn builtin_byte_string_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "remove_suffix",
         |language, diagnostics, build_ctx, self_property, function| {
             let [needle_node] = function.expect_exact_arguments()?;
@@ -1201,7 +1265,7 @@ fn builtin_byte_string_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "trim",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1209,7 +1273,7 @@ fn builtin_byte_string_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "trim_start",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1217,7 +1281,7 @@ fn builtin_byte_string_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "trim_end",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1225,7 +1289,7 @@ fn builtin_byte_string_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "substr",
         |language, diagnostics, build_ctx, self_property, function| {
             let ([start_idx_node], [end_idx_node]) = function.expect_arguments()?;
@@ -1244,7 +1308,7 @@ fn builtin_byte_string_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "first_line",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1253,7 +1317,7 @@ fn builtin_byte_string_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "lines",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1261,7 +1325,7 @@ fn builtin_byte_string_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "split",
         |language, diagnostics, build_ctx, self_property, function| {
             let ([separator_node], [limit_node]) = function.expect_arguments()?;
@@ -1277,7 +1341,7 @@ fn builtin_byte_string_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             }
         },
     );
-    map.insert(
+    methods.insert(
         "replace",
         |language, diagnostics, build_ctx, self_property, function| {
             let ([pattern_node, replacement_node], [limit_node]) = function.expect_arguments()?;
@@ -1305,7 +1369,7 @@ fn builtin_byte_string_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             }
         },
     );
-    map.insert(
+    methods.insert(
         "upper",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1313,7 +1377,7 @@ fn builtin_byte_string_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "lower",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1321,15 +1385,14 @@ fn builtin_byte_string_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map
 }
 
-fn builtin_string_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
--> TemplateBuildMethodFnMap<'a, L, String> {
-    // Not using maplit::hashmap!{} or custom declarative macro here because
-    // code completion inside macro is quite restricted.
-    let mut map = TemplateBuildMethodFnMap::<L, String>::new();
-    map.insert(
+fn register_string_methods<'a, L>(table: &mut TemplateSymbolTable<'a, L>)
+where
+    L: TemplateLanguage<'a> + ?Sized,
+{
+    let mut methods = table.register_methods::<String>();
+    methods.insert(
         "len",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1337,7 +1400,7 @@ fn builtin_string_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "contains",
         |language, diagnostics, build_ctx, self_property, function| {
             let [needle_node] = function.expect_exact_arguments()?;
@@ -1349,7 +1412,7 @@ fn builtin_string_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "match",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             let [needle_node] = function.expect_exact_arguments()?;
@@ -1358,7 +1421,7 @@ fn builtin_string_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "starts_with",
         |language, diagnostics, build_ctx, self_property, function| {
             let [needle_node] = function.expect_exact_arguments()?;
@@ -1369,7 +1432,7 @@ fn builtin_string_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "ends_with",
         |language, diagnostics, build_ctx, self_property, function| {
             let [needle_node] = function.expect_exact_arguments()?;
@@ -1380,7 +1443,7 @@ fn builtin_string_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "remove_prefix",
         |language, diagnostics, build_ctx, self_property, function| {
             let [needle_node] = function.expect_exact_arguments()?;
@@ -1395,7 +1458,7 @@ fn builtin_string_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "remove_suffix",
         |language, diagnostics, build_ctx, self_property, function| {
             let [needle_node] = function.expect_exact_arguments()?;
@@ -1410,7 +1473,7 @@ fn builtin_string_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "trim",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1418,7 +1481,7 @@ fn builtin_string_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "trim_start",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1426,7 +1489,7 @@ fn builtin_string_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "trim_end",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1434,7 +1497,7 @@ fn builtin_string_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "substr",
         |language, diagnostics, build_ctx, self_property, function| {
             let ([start_idx_node], [end_idx_node]) = function.expect_arguments()?;
@@ -1454,7 +1517,7 @@ fn builtin_string_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "first_line",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1463,7 +1526,7 @@ fn builtin_string_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "lines",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1471,7 +1534,7 @@ fn builtin_string_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "split",
         |language, diagnostics, build_ctx, self_property, function| {
             let ([separator_node], [limit_node]) = function.expect_arguments()?;
@@ -1487,7 +1550,7 @@ fn builtin_string_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             }
         },
     );
-    map.insert(
+    methods.insert(
         "replace",
         |language, diagnostics, build_ctx, self_property, function| {
             let ([pattern_node, replacement_node], [limit_node]) = function.expect_arguments()?;
@@ -1511,7 +1574,7 @@ fn builtin_string_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             }
         },
     );
-    map.insert(
+    methods.insert(
         "upper",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1519,7 +1582,7 @@ fn builtin_string_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "lower",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1527,7 +1590,7 @@ fn builtin_string_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "escape_json",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1535,7 +1598,6 @@ fn builtin_string_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map
 }
 
 trait StringLike: AsRef<[u8]> + Sized {
@@ -1643,64 +1705,57 @@ fn string_index_to_char_boundary(s: &str, i: isize) -> usize {
     }
 }
 
-fn builtin_config_value_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
--> TemplateBuildMethodFnMap<'a, L, ConfigValue> {
-    fn extract<'de, T: Deserialize<'de>>(value: ConfigValue) -> Result<T, TemplatePropertyError> {
-        T::deserialize(value.into_deserializer())
-            // map to err.message() because TomlError appends newline to it
-            .map_err(|err| TemplatePropertyError(err.message().into()))
-    }
-
-    // Not using maplit::hashmap!{} or custom declarative macro here because
-    // code completion inside macro is quite restricted.
-    let mut map = TemplateBuildMethodFnMap::<L, ConfigValue>::new();
+fn register_config_value_methods<'a, L>(table: &mut TemplateSymbolTable<'a, L>)
+where
+    L: TemplateLanguage<'a> + ?Sized,
+{
+    let mut methods = table.register_methods::<ConfigValueWrapper>();
     // These methods are called "as_<type>", not "to_<type>" to clarify that
     // they'll never convert types (e.g. integer to string.) Since templater
     // doesn't provide binding syntax, there's no need to distinguish between
     // reference and consuming access.
-    map.insert(
+    methods.insert(
         "as_boolean",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
-            let out_property = self_property.and_then(extract::<bool>);
+            let out_property = self_property.and_then(ConfigValueWrapper::extract::<bool>);
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "as_integer",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
-            let out_property = self_property.and_then(extract::<i64>);
+            let out_property = self_property.and_then(ConfigValueWrapper::extract::<i64>);
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "as_string",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
-            let out_property = self_property.and_then(extract::<String>);
+            let out_property = self_property.and_then(ConfigValueWrapper::extract::<String>);
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "as_string_list",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
-            let out_property = self_property.and_then(extract::<Vec<String>>);
+            let out_property = self_property.and_then(ConfigValueWrapper::extract::<Vec<String>>);
             Ok(out_property.into_dyn_wrapped())
         },
     );
     // TODO: add is_<type>() -> Boolean?
     // TODO: add .get(key) -> ConfigValue or Option<ConfigValue>?
-    map
 }
 
-fn builtin_fs_path_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
--> TemplateBuildMethodFnMap<'a, L, PathBuf> {
-    // Not using maplit::hashmap!{} or custom declarative macro here because
-    // code completion inside macro is quite restricted.
-    let mut map = TemplateBuildMethodFnMap::<L, PathBuf>::new();
-    map.insert(
+fn register_fs_path_methods<'a, L>(table: &mut TemplateSymbolTable<'a, L>)
+where
+    L: TemplateLanguage<'a> + ?Sized,
+{
+    let mut methods = table.register_methods::<PathBuf>();
+    methods.insert(
         "absolute",
         |language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1709,7 +1764,7 @@ fn builtin_fs_path_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "relative",
         |language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1718,15 +1773,14 @@ fn builtin_fs_path_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map
 }
 
-fn builtin_signature_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
--> TemplateBuildMethodFnMap<'a, L, Signature> {
-    // Not using maplit::hashmap!{} or custom declarative macro here because
-    // code completion inside macro is quite restricted.
-    let mut map = TemplateBuildMethodFnMap::<L, Signature>::new();
-    map.insert(
+fn register_signature_methods<'a, L>(table: &mut TemplateSymbolTable<'a, L>)
+where
+    L: TemplateLanguage<'a> + ?Sized,
+{
+    let mut methods = table.register_methods::<Signature>();
+    methods.insert(
         "name",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1734,7 +1788,7 @@ fn builtin_signature_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "email",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1742,7 +1796,7 @@ fn builtin_signature_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "timestamp",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1750,15 +1804,14 @@ fn builtin_signature_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map
 }
 
-fn builtin_email_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
--> TemplateBuildMethodFnMap<'a, L, Email> {
-    // Not using maplit::hashmap!{} or custom declarative macro here because
-    // code completion inside macro is quite restricted.
-    let mut map = TemplateBuildMethodFnMap::<L, Email>::new();
-    map.insert(
+fn register_email_methods<'a, L>(table: &mut TemplateSymbolTable<'a, L>)
+where
+    L: TemplateLanguage<'a> + ?Sized,
+{
+    let mut methods = table.register_methods::<Email>();
+    methods.insert(
         "local",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1769,7 +1822,7 @@ fn builtin_email_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "domain",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1780,15 +1833,14 @@ fn builtin_email_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map
 }
 
-fn builtin_size_hint_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
--> TemplateBuildMethodFnMap<'a, L, SizeHint> {
-    // Not using maplit::hashmap!{} or custom declarative macro here because
-    // code completion inside macro is quite restricted.
-    let mut map = TemplateBuildMethodFnMap::<L, SizeHint>::new();
-    map.insert(
+fn register_size_hint_methods<'a, L>(table: &mut TemplateSymbolTable<'a, L>)
+where
+    L: TemplateLanguage<'a> + ?Sized,
+{
+    let mut methods = table.register_methods::<SizeHint>();
+    methods.insert(
         "lower",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1796,7 +1848,7 @@ fn builtin_size_hint_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "upper",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1805,7 +1857,7 @@ fn builtin_size_hint_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "exact",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1816,7 +1868,7 @@ fn builtin_size_hint_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "zero",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1824,15 +1876,14 @@ fn builtin_size_hint_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map
 }
 
-fn builtin_regex_captures_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
--> TemplateBuildMethodFnMap<'a, L, RegexCaptures> {
-    // Not using maplit::hashmap!{} or custom declarative macro here because
-    // code completion inside macro is quite restricted.
-    let mut map = TemplateBuildMethodFnMap::<L, RegexCaptures>::new();
-    map.insert(
+fn register_regex_captures_methods<'a, L>(table: &mut TemplateSymbolTable<'a, L>)
+where
+    L: TemplateLanguage<'a> + ?Sized,
+{
+    let mut methods = table.register_methods::<RegexCaptures>();
+    methods.insert(
         "len",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1841,7 +1892,7 @@ fn builtin_regex_captures_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "get",
         |language, diagnostics, build_ctx, self_property, function| {
             let [index_node] = function.expect_exact_arguments()?;
@@ -1856,7 +1907,7 @@ fn builtin_regex_captures_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "name",
         |language, diagnostics, build_ctx, self_property, function| {
             let [name_node] = function.expect_exact_arguments()?;
@@ -1871,15 +1922,14 @@ fn builtin_regex_captures_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map
 }
 
-fn builtin_timestamp_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
--> TemplateBuildMethodFnMap<'a, L, Timestamp> {
-    // Not using maplit::hashmap!{} or custom declarative macro here because
-    // code completion inside macro is quite restricted.
-    let mut map = TemplateBuildMethodFnMap::<L, Timestamp>::new();
-    map.insert(
+fn register_timestamp_methods<'a, L>(table: &mut TemplateSymbolTable<'a, L>)
+where
+    L: TemplateLanguage<'a> + ?Sized,
+{
+    let mut methods = table.register_methods::<Timestamp>();
+    methods.insert(
         "ago",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1891,7 +1941,7 @@ fn builtin_timestamp_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "format",
         |language, diagnostics, build_ctx, self_property, function| {
             let [format_node] = function.expect_exact_arguments()?;
@@ -1922,7 +1972,7 @@ fn builtin_timestamp_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             }
         },
     );
-    map.insert(
+    methods.insert(
         "utc",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1933,7 +1983,7 @@ fn builtin_timestamp_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "local",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1948,28 +1998,32 @@ fn builtin_timestamp_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
-        "after",
-        |_language, diagnostics, _build_ctx, self_property, function| {
-            let [date_pattern_node] = function.expect_exact_arguments()?;
-            let now = jiff::Zoned::now();
-            let date_pattern = template_parser::catch_aliases(
-                diagnostics,
-                date_pattern_node,
-                |_diagnostics, node| {
-                    let date_pattern = template_parser::expect_string_literal(node)?;
-                    DatePattern::from_str_kind(date_pattern, function.name, now).map_err(|err| {
-                        TemplateParseError::expression("Invalid date pattern", node.span)
-                            .with_source(err)
-                    })
-                },
-            )?;
-            let out_property = self_property.map(move |timestamp| date_pattern.matches(&timestamp));
-            Ok(out_property.into_dyn_wrapped())
-        },
-    );
-    map.insert("before", map["after"]);
-    map.insert(
+    for name in ["after", "before"] {
+        methods.insert(
+            name,
+            |_language, diagnostics, _build_ctx, self_property, function| {
+                let [date_pattern_node] = function.expect_exact_arguments()?;
+                let now = jiff::Zoned::now();
+                let date_pattern = template_parser::catch_aliases(
+                    diagnostics,
+                    date_pattern_node,
+                    |_diagnostics, node| {
+                        let date_pattern = template_parser::expect_string_literal(node)?;
+                        DatePattern::from_str_kind(date_pattern, function.name, now).map_err(
+                            |err| {
+                                TemplateParseError::expression("Invalid date pattern", node.span)
+                                    .with_source(err)
+                            },
+                        )
+                    },
+                )?;
+                let out_property =
+                    self_property.map(move |timestamp| date_pattern.matches(&timestamp));
+                Ok(out_property.into_dyn_wrapped())
+            },
+        );
+    }
+    methods.insert(
         "since",
         |language, diagnostics, build_ctx, self_property, function| {
             let [date_node] = function.expect_exact_arguments()?;
@@ -1985,15 +2039,14 @@ fn builtin_timestamp_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map
 }
 
-fn builtin_timestamp_range_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
--> TemplateBuildMethodFnMap<'a, L, TimestampRange> {
-    // Not using maplit::hashmap!{} or custom declarative macro here because
-    // code completion inside macro is quite restricted.
-    let mut map = TemplateBuildMethodFnMap::<L, TimestampRange>::new();
-    map.insert(
+fn register_timestamp_range_methods<'a, L>(table: &mut TemplateSymbolTable<'a, L>)
+where
+    L: TemplateLanguage<'a> + ?Sized,
+{
+    let mut methods = table.register_methods::<TimestampRange>();
+    methods.insert(
         "start",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -2001,7 +2054,7 @@ fn builtin_timestamp_range_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "end",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -2009,7 +2062,7 @@ fn builtin_timestamp_range_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "duration",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -2027,7 +2080,6 @@ fn builtin_timestamp_range_methods<'a, L: TemplateLanguage<'a> + ?Sized>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map
 }
 
 fn builtin_any_list_methods<'a, L: TemplateLanguage<'a> + ?Sized>() -> BuildAnyMethodFnMap<'a, L> {
@@ -2040,29 +2092,31 @@ fn builtin_any_list_methods<'a, L: TemplateLanguage<'a> + ?Sized>() -> BuildAnyM
             let [separator_node] = function.expect_exact_arguments()?;
             let separator =
                 expect_template_expression(language, diagnostics, build_ctx, separator_node)?;
-            Ok(L::Property::wrap_template(
-                self_template.try_join(separator).ok_or_else(|| {
-                    // FIXME: This error should probably be reported on the type
-                    // within the AnyListTemplateProperty.
-                    TemplateParseError::expected_type("Template", "AnyList", function.name_span)
-                })?,
+            Ok(TemplatePropertyKind::wrap_template(
+                self_template
+                    .try_join(separator, language.type_registry())
+                    .ok_or_else(|| {
+                        // FIXME: This error should probably be reported on the type
+                        // within the AnyListTemplateProperty.
+                        TemplateParseError::expected_type("Template", "AnyList", function.name_span)
+                    })?,
             ))
         },
     );
     map
 }
 
-/// Creates new symbol table for printable list property.
-pub fn builtin_formattable_list_methods<'a, L, O>() -> TemplateBuildMethodFnMap<'a, L, Vec<O>>
+/// Registers list methods for formattable values.
+pub fn register_formattable_list_methods<'a, L, O>(table: &mut TemplateSymbolTable<'a, L>)
 where
     L: TemplateLanguage<'a> + ?Sized,
-    L::Property: WrapTemplateProperty<'a, O>,
-    L::Property: WrapTemplateProperty<'a, Vec<O>>,
-    L::Property: WrapTemplateProperty<'a, O::Optional>,
-    O: OptionalTemplateValue + Template + Clone + 'a,
+    O: OptionalTemplateValue + TemplateValue + Template + Clone,
+    O::Optional: TemplateValue,
+    Vec<O>: TemplateValue,
 {
-    let mut map = builtin_unformattable_list_methods::<L, O>();
-    map.insert(
+    register_unformattable_list_methods::<L, O>(table);
+    let mut methods = table.register_methods::<Vec<O>>();
+    methods.insert(
         "join",
         |language, diagnostics, build_ctx, self_property, function| {
             let [separator_node] = function.expect_exact_arguments()?;
@@ -2072,25 +2126,22 @@ where
                 ListPropertyTemplate::new(self_property, separator, |formatter, item| {
                     item.format(formatter)
                 });
-            Ok(L::Property::wrap_template(Box::new(template)))
+            Ok(TemplatePropertyKind::wrap_template(Box::new(template)))
         },
     );
-    map
 }
 
-/// Creates new symbol table for unprintable list property.
-pub fn builtin_unformattable_list_methods<'a, L, O>() -> TemplateBuildMethodFnMap<'a, L, Vec<O>>
+/// Registers list methods for unformattable values.
+pub fn register_unformattable_list_methods<'a, L, O>(table: &mut TemplateSymbolTable<'a, L>)
 where
     L: TemplateLanguage<'a> + ?Sized,
-    L::Property: WrapTemplateProperty<'a, O>,
-    L::Property: WrapTemplateProperty<'a, Vec<O>>,
-    L::Property: WrapTemplateProperty<'a, O::Optional>,
-    O: OptionalTemplateValue + Clone + 'a,
+    O: OptionalTemplateValue + TemplateValue + Clone,
+    O::Optional: TemplateValue,
+    Vec<O>: TemplateValue,
 {
-    // Not using maplit::hashmap!{} or custom declarative macro here because
-    // code completion inside macro is quite restricted.
-    let mut map = TemplateBuildMethodFnMap::<L, Vec<O>>::new();
-    map.insert(
+    let mut methods = table.register_methods::<Vec<O>>();
+    type P<'a> = TemplatePropertyKind<'a>;
+    methods.insert(
         "len",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -2098,23 +2149,23 @@ where
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "filter",
         |language, diagnostics, build_ctx, self_property, function| {
             let out_property: BoxedTemplateProperty<'a, Vec<O>> =
                 build_filter_operation(language, diagnostics, build_ctx, self_property, function)?;
-            Ok(L::Property::wrap_property(out_property))
+            Ok(P::wrap_property(out_property))
         },
     );
-    map.insert(
+    methods.insert(
         "map",
         |language, diagnostics, build_ctx, self_property, function| {
             let map_result =
                 build_map_operation(language, diagnostics, build_ctx, self_property, function)?;
-            Ok(L::Property::wrap_any_list(map_result))
+            Ok(P::wrap_any_list(map_result))
         },
     );
-    map.insert(
+    methods.insert(
         "any",
         |language, diagnostics, build_ctx, self_property, function| {
             let out_property =
@@ -2122,7 +2173,7 @@ where
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "all",
         |language, diagnostics, build_ctx, self_property, function| {
             let out_property =
@@ -2130,23 +2181,23 @@ where
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "first",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
             let out_property = self_property.map(|items| O::from_option(items.into_iter().next()));
-            Ok(L::Property::wrap_property(out_property.into_dyn()))
+            Ok(P::wrap_property(out_property.into_dyn()))
         },
     );
-    map.insert(
+    methods.insert(
         "last",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
             let out_property = self_property.map(|mut items| O::from_option(items.pop()));
-            Ok(L::Property::wrap_property(out_property.into_dyn()))
+            Ok(P::wrap_property(out_property.into_dyn()))
         },
     );
-    map.insert(
+    methods.insert(
         "get",
         |language, diagnostics, build_ctx, self_property, function| {
             let [index_node] = function.expect_exact_arguments()?;
@@ -2154,10 +2205,10 @@ where
             let out_property = (self_property, index).map(|(mut items, index)| {
                 O::from_option((index < items.len()).then(|| items.remove(index)))
             });
-            Ok(L::Property::wrap_property(out_property.into_dyn()))
+            Ok(P::wrap_property(out_property.into_dyn()))
         },
     );
-    map.insert(
+    methods.insert(
         "reverse",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -2165,46 +2216,44 @@ where
                 items.reverse();
                 items
             });
-            Ok(L::Property::wrap_property(out_property.into_dyn()))
+            Ok(P::wrap_property(out_property.into_dyn()))
         },
     );
-    map.insert(
+    methods.insert(
         "skip",
         |language, diagnostics, build_ctx, self_property, function| {
             let [count_node] = function.expect_exact_arguments()?;
             let count = expect_usize_expression(language, diagnostics, build_ctx, count_node)?;
             let out_property = (self_property, count)
                 .map(|(items, count)| items.into_iter().skip(count).collect_vec());
-            Ok(L::Property::wrap_property(out_property.into_dyn()))
+            Ok(P::wrap_property(out_property.into_dyn()))
         },
     );
-    map.insert(
+    methods.insert(
         "take",
         |language, diagnostics, build_ctx, self_property, function| {
             let [count_node] = function.expect_exact_arguments()?;
             let count = expect_usize_expression(language, diagnostics, build_ctx, count_node)?;
             let out_property = (self_property, count)
                 .map(|(items, count)| items.into_iter().take(count).collect_vec());
-            Ok(L::Property::wrap_property(out_property.into_dyn()))
+            Ok(P::wrap_property(out_property.into_dyn()))
         },
     );
-    map
 }
 
 /// Builds expression that extracts iterable property and filters its items.
 fn build_filter_operation<'a, L, O, P, B>(
     language: &L,
     diagnostics: &mut TemplateDiagnostics,
-    build_ctx: &BuildContext<L::Property>,
+    build_ctx: &BuildContext<'a, '_>,
     self_property: P,
     function: &FunctionCallNode,
 ) -> TemplateParseResult<BoxedTemplateProperty<'a, B>>
 where
     L: TemplateLanguage<'a> + ?Sized,
-    L::Property: WrapTemplateProperty<'a, O>,
+    O: TemplateValue + Clone,
     P: TemplateProperty + 'a,
     P::Output: IntoIterator<Item = O>,
-    O: Clone + 'a,
     B: FromIterator<O>,
 {
     let [lambda_node] = function.expect_exact_arguments()?;
@@ -2239,16 +2288,15 @@ where
 fn build_map_operation<'a, L, O, P>(
     language: &L,
     diagnostics: &mut TemplateDiagnostics,
-    build_ctx: &BuildContext<L::Property>,
+    build_ctx: &BuildContext<'a, '_>,
     self_property: P,
     function: &FunctionCallNode,
 ) -> TemplateParseResult<BoxedAnyProperty<'a>>
 where
     L: TemplateLanguage<'a> + ?Sized,
-    L::Property: WrapTemplateProperty<'a, O>,
+    O: TemplateValue + Clone,
     P: TemplateProperty + 'a,
     P::Output: IntoIterator<Item = O>,
-    O: Clone + 'a,
 {
     let [lambda_node] = function.expect_exact_arguments()?;
     let item_placeholder = PropertyPlaceholder::new();
@@ -2271,16 +2319,15 @@ where
 fn build_any_operation<'a, L, O, P>(
     language: &L,
     diagnostics: &mut TemplateDiagnostics,
-    build_ctx: &BuildContext<L::Property>,
+    build_ctx: &BuildContext<'a, '_>,
     self_property: P,
     function: &FunctionCallNode,
 ) -> TemplateParseResult<BoxedTemplateProperty<'a, bool>>
 where
     L: TemplateLanguage<'a> + ?Sized,
-    L::Property: WrapTemplateProperty<'a, O>,
+    O: TemplateValue + Clone,
     P: TemplateProperty + 'a,
     P::Output: IntoIterator<Item = O>,
-    O: Clone + 'a,
 {
     let [lambda_node] = function.expect_exact_arguments()?;
     let item_placeholder = PropertyPlaceholder::new();
@@ -2309,16 +2356,15 @@ where
 fn build_all_operation<'a, L, O, P>(
     language: &L,
     diagnostics: &mut TemplateDiagnostics,
-    build_ctx: &BuildContext<L::Property>,
+    build_ctx: &BuildContext<'a, '_>,
     self_property: P,
     function: &FunctionCallNode,
 ) -> TemplateParseResult<BoxedTemplateProperty<'a, bool>>
 where
     L: TemplateLanguage<'a> + ?Sized,
-    L::Property: WrapTemplateProperty<'a, O>,
+    O: TemplateValue + Clone,
     P: TemplateProperty + 'a,
     P::Output: IntoIterator<Item = O>,
-    O: Clone + 'a,
 {
     let [lambda_node] = function.expect_exact_arguments()?;
     let item_placeholder = PropertyPlaceholder::new();
@@ -2344,11 +2390,11 @@ where
 
 /// Builds lambda expression to be evaluated with the provided arguments.
 /// `arg_fns` is usually an array of wrapped [`PropertyPlaceholder`]s.
-fn build_lambda_expression<'i, P, T>(
-    build_ctx: &BuildContext<'i, P>,
+fn build_lambda_expression<'a, 'i, T>(
+    build_ctx: &BuildContext<'a, 'i>,
     lambda: &LambdaNode<'i>,
-    arg_fns: &[&'i dyn Fn() -> Expression<P>],
-    build_body: impl FnOnce(&BuildContext<'i, P>, &ExpressionNode<'i>) -> TemplateParseResult<T>,
+    arg_fns: &[&'i dyn Fn() -> Expression<'a>],
+    build_body: impl FnOnce(&BuildContext<'a, 'i>, &ExpressionNode<'i>) -> TemplateParseResult<T>,
 ) -> TemplateParseResult<T> {
     if lambda.params.len() != arg_fns.len() {
         return Err(TemplateParseError::expression(
@@ -2365,11 +2411,13 @@ fn build_lambda_expression<'i, P, T>(
     build_body(&inner_build_ctx, &lambda.body)
 }
 
-fn builtin_functions<'a, L: TemplateLanguage<'a> + ?Sized>() -> TemplateBuildFunctionFnMap<'a, L> {
-    // Not using maplit::hashmap!{} or custom declarative macro here because
-    // code completion inside macro is quite restricted.
-    let mut map = TemplateBuildFunctionFnMap::<L>::new();
-    map.insert("fill", |language, diagnostics, build_ctx, function| {
+fn register_functions<'a, L>(table: &mut TemplateSymbolTable<'a, L>)
+where
+    L: TemplateLanguage<'a> + ?Sized,
+{
+    type P<'a> = TemplatePropertyKind<'a>;
+    let mut functions = table.register_functions();
+    functions.insert("fill", |language, diagnostics, build_ctx, function| {
         let ([width_node, content_node], [break_words_node]) =
             function.expect_named_arguments(&["", "", "break_words"])?;
         let width = expect_usize_expression(language, diagnostics, build_ctx, width_node)?;
@@ -2388,9 +2436,9 @@ fn builtin_functions<'a, L: TemplateLanguage<'a> + ?Sized>() -> TemplateBuildFun
                 (Err(err), _) | (_, Err(err)) => formatter.handle_error(err),
             }
         });
-        Ok(L::Property::wrap_template(Box::new(template)))
+        Ok(P::wrap_template(Box::new(template)))
     });
-    map.insert("indent", |language, diagnostics, build_ctx, function| {
+    functions.insert("indent", |language, diagnostics, build_ctx, function| {
         let [prefix_node, content_node] = function.expect_exact_arguments()?;
         let prefix = expect_template_expression(language, diagnostics, build_ctx, prefix_node)?;
         let content = expect_template_expression(language, diagnostics, build_ctx, content_node)?;
@@ -2400,9 +2448,9 @@ fn builtin_functions<'a, L: TemplateLanguage<'a> + ?Sized>() -> TemplateBuildFun
                 prefix.format(&mut rewrap(formatter))
             })
         });
-        Ok(L::Property::wrap_template(Box::new(template)))
+        Ok(P::wrap_template(Box::new(template)))
     });
-    map.insert("pad_start", |language, diagnostics, build_ctx, function| {
+    functions.insert("pad_start", |language, diagnostics, build_ctx, function| {
         let ([width_node, content_node], [fill_char_node]) =
             function.expect_named_arguments(&["", "", "fill_char"])?;
         let width = expect_usize_expression(language, diagnostics, build_ctx, width_node)?;
@@ -2411,9 +2459,9 @@ fn builtin_functions<'a, L: TemplateLanguage<'a> + ?Sized>() -> TemplateBuildFun
             .map(|node| expect_template_expression(language, diagnostics, build_ctx, node))
             .transpose()?;
         let template = new_pad_template(content, fill_char, width, text_util::write_padded_start);
-        Ok(L::Property::wrap_template(template))
+        Ok(P::wrap_template(template))
     });
-    map.insert("pad_end", |language, diagnostics, build_ctx, function| {
+    functions.insert("pad_end", |language, diagnostics, build_ctx, function| {
         let ([width_node, content_node], [fill_char_node]) =
             function.expect_named_arguments(&["", "", "fill_char"])?;
         let width = expect_usize_expression(language, diagnostics, build_ctx, width_node)?;
@@ -2422,9 +2470,9 @@ fn builtin_functions<'a, L: TemplateLanguage<'a> + ?Sized>() -> TemplateBuildFun
             .map(|node| expect_template_expression(language, diagnostics, build_ctx, node))
             .transpose()?;
         let template = new_pad_template(content, fill_char, width, text_util::write_padded_end);
-        Ok(L::Property::wrap_template(template))
+        Ok(P::wrap_template(template))
     });
-    map.insert(
+    functions.insert(
         "pad_centered",
         |language, diagnostics, build_ctx, function| {
             let ([width_node, content_node], [fill_char_node]) =
@@ -2437,10 +2485,10 @@ fn builtin_functions<'a, L: TemplateLanguage<'a> + ?Sized>() -> TemplateBuildFun
                 .transpose()?;
             let template =
                 new_pad_template(content, fill_char, width, text_util::write_padded_centered);
-            Ok(L::Property::wrap_template(template))
+            Ok(P::wrap_template(template))
         },
     );
-    map.insert(
+    functions.insert(
         "truncate_start",
         |language, diagnostics, build_ctx, function| {
             let ([width_node, content_node], [ellipsis_node]) =
@@ -2453,10 +2501,10 @@ fn builtin_functions<'a, L: TemplateLanguage<'a> + ?Sized>() -> TemplateBuildFun
                 .transpose()?;
             let template =
                 new_truncate_template(content, ellipsis, width, text_util::write_truncated_start);
-            Ok(L::Property::wrap_template(template))
+            Ok(P::wrap_template(template))
         },
     );
-    map.insert(
+    functions.insert(
         "truncate_end",
         |language, diagnostics, build_ctx, function| {
             let ([width_node, content_node], [ellipsis_node]) =
@@ -2469,49 +2517,49 @@ fn builtin_functions<'a, L: TemplateLanguage<'a> + ?Sized>() -> TemplateBuildFun
                 .transpose()?;
             let template =
                 new_truncate_template(content, ellipsis, width, text_util::write_truncated_end);
-            Ok(L::Property::wrap_template(template))
+            Ok(P::wrap_template(template))
         },
     );
-    map.insert("hash", |language, diagnostics, build_ctx, function| {
+    functions.insert("hash", |language, diagnostics, build_ctx, function| {
         let [content_node] = function.expect_exact_arguments()?;
         let content = expect_stringify_expression(language, diagnostics, build_ctx, content_node)?;
         let result = content.map(|c| hex_util::encode_hex(blake2b_hash(&c).as_ref()));
         Ok(result.into_dyn_wrapped())
     });
-    map.insert("label", |language, diagnostics, build_ctx, function| {
+    functions.insert("label", |language, diagnostics, build_ctx, function| {
         let [label_node, content_node] = function.expect_exact_arguments()?;
         let label_property =
             expect_stringify_expression(language, diagnostics, build_ctx, label_node)?;
         let content = expect_template_expression(language, diagnostics, build_ctx, content_node)?;
         let labels =
             label_property.map(|s| s.split_whitespace().map(ToString::to_string).collect());
-        Ok(L::Property::wrap_template(Box::new(LabelTemplate::new(
+        Ok(P::wrap_template(Box::new(LabelTemplate::new(
             content, labels,
         ))))
     });
-    map.insert(
+    functions.insert(
         "raw_escape_sequence",
         |language, diagnostics, build_ctx, function| {
             let [content_node] = function.expect_exact_arguments()?;
             let content =
                 expect_template_expression(language, diagnostics, build_ctx, content_node)?;
-            Ok(L::Property::wrap_template(Box::new(
-                RawEscapeSequenceTemplate(content),
-            )))
+            Ok(P::wrap_template(Box::new(RawEscapeSequenceTemplate(
+                content,
+            ))))
         },
     );
-    map.insert("hyperlink", |language, diagnostics, build_ctx, function| {
+    functions.insert("hyperlink", |language, diagnostics, build_ctx, function| {
         let ([url_node, text_node], [fallback_node]) = function.expect_arguments()?;
         let url = expect_stringify_expression(language, diagnostics, build_ctx, url_node)?;
         let text = expect_template_expression(language, diagnostics, build_ctx, text_node)?;
         let fallback = fallback_node
             .map(|node| expect_template_expression(language, diagnostics, build_ctx, node))
             .transpose()?;
-        Ok(L::Property::wrap_template(Box::new(
-            HyperlinkTemplate::new(url, text, fallback),
-        )))
+        Ok(P::wrap_template(Box::new(HyperlinkTemplate::new(
+            url, text, fallback,
+        ))))
     });
-    map.insert("replace", |language, diagnostics, build_ctx, function| {
+    functions.insert("replace", |language, diagnostics, build_ctx, function| {
         let ([pattern_node, content_node, replacement_lambda_node], []) =
             function.expect_arguments()?;
         let content = expect_template_expression(language, diagnostics, build_ctx, content_node)?;
@@ -2542,21 +2590,21 @@ fn builtin_functions<'a, L: TemplateLanguage<'a> + ?Sized>() -> TemplateBuildFun
             captures_placeholder.clone(),
             move |formatter| replacement_template.format(formatter),
         );
-        Ok(L::Property::wrap_template(template))
+        Ok(P::wrap_template(template))
     });
-    map.insert("stringify", |language, diagnostics, build_ctx, function| {
+    functions.insert("stringify", |language, diagnostics, build_ctx, function| {
         let [content_node] = function.expect_exact_arguments()?;
         let content = expect_stringify_expression(language, diagnostics, build_ctx, content_node)?;
-        Ok(L::Property::wrap_property(content))
+        Ok(P::wrap_property(content))
     });
-    map.insert("json", |language, diagnostics, build_ctx, function| {
+    functions.insert("json", |language, diagnostics, build_ctx, function| {
         // TODO: Add pretty=true|false?
         let [value_node] = function.expect_exact_arguments()?;
         let value = expect_serialize_expression(language, diagnostics, build_ctx, value_node)?;
         let out_property = value.and_then(|v| Ok(serde_json::to_string(&v)?));
         Ok(out_property.into_dyn_wrapped())
     });
-    map.insert("if", |language, diagnostics, build_ctx, function| {
+    functions.insert("if", |language, diagnostics, build_ctx, function| {
         let ([condition_node, true_node], [false_node]) = function.expect_arguments()?;
         let condition =
             expect_boolean_expression(language, diagnostics, build_ctx, condition_node)?;
@@ -2565,16 +2613,16 @@ fn builtin_functions<'a, L: TemplateLanguage<'a> + ?Sized>() -> TemplateBuildFun
             .map(|node| expect_any_expression(language, diagnostics, build_ctx, node))
             .transpose()?;
         let property = ConditionalProperty::new(condition, true_any, false_any);
-        Ok(L::Property::wrap_any(Box::new(property)))
+        Ok(P::wrap_any(Box::new(property)))
     });
-    map.insert("try", |language, diagnostics, build_ctx, function| {
+    functions.insert("try", |language, diagnostics, build_ctx, function| {
         let ([node], nodes) = function.expect_some_arguments()?;
         let properties = itertools::chain([node], nodes)
             .map(|node| expect_any_expression(language, diagnostics, build_ctx, node))
             .try_collect()?;
-        Ok(L::Property::wrap_any(Box::new(TryList::new(properties))))
+        Ok(P::wrap_any(Box::new(TryList::new(properties))))
     });
-    map.insert("with", |language, diagnostics, build_ctx, function| {
+    functions.insert("with", |language, diagnostics, build_ctx, function| {
         let ([_, _], _) = function.expect_some_arguments()?;
         let (lambda_node, value_nodes) = function.args.split_last().unwrap();
         // Eagerly validate each argument expression once so errors/diagnostics are reported, even
@@ -2608,7 +2656,7 @@ fn builtin_functions<'a, L: TemplateLanguage<'a> + ?Sized>() -> TemplateBuildFun
             .collect_vec();
         let arg_fns = arg_closures
             .iter()
-            .map(|f| f as &dyn Fn() -> Expression<L::Property>)
+            .map(|f| f as &dyn Fn() -> Expression<'a>)
             .collect_vec();
         let body =
             template_parser::catch_aliases(diagnostics, lambda_node, |diagnostics, node| {
@@ -2617,29 +2665,25 @@ fn builtin_functions<'a, L: TemplateLanguage<'a> + ?Sized>() -> TemplateBuildFun
                     expect_any_expression(language, diagnostics, build_ctx, body)
                 })
             })?;
-        Ok(L::Property::wrap_any(body))
+        Ok(P::wrap_any(body))
     });
-    map.insert("coalesce", |language, diagnostics, build_ctx, function| {
+    functions.insert("coalesce", |language, diagnostics, build_ctx, function| {
         let ([], content_nodes) = function.expect_some_arguments()?;
         let contents = content_nodes
             .iter()
             .map(|node| expect_template_expression(language, diagnostics, build_ctx, node))
             .try_collect()?;
-        Ok(L::Property::wrap_template(Box::new(CoalesceTemplate(
-            contents,
-        ))))
+        Ok(P::wrap_template(Box::new(CoalesceTemplate(contents))))
     });
-    map.insert("concat", |language, diagnostics, build_ctx, function| {
+    functions.insert("concat", |language, diagnostics, build_ctx, function| {
         let ([], content_nodes) = function.expect_some_arguments()?;
         let contents = content_nodes
             .iter()
             .map(|node| expect_template_expression(language, diagnostics, build_ctx, node))
             .try_collect()?;
-        Ok(L::Property::wrap_template(Box::new(ConcatTemplate(
-            contents,
-        ))))
+        Ok(P::wrap_template(Box::new(ConcatTemplate(contents))))
     });
-    map.insert("join", |language, diagnostics, build_ctx, function| {
+    functions.insert("join", |language, diagnostics, build_ctx, function| {
         let ([separator_node], content_nodes) = function.expect_some_arguments()?;
         let separator =
             expect_template_expression(language, diagnostics, build_ctx, separator_node)?;
@@ -2647,11 +2691,11 @@ fn builtin_functions<'a, L: TemplateLanguage<'a> + ?Sized>() -> TemplateBuildFun
             .iter()
             .map(|node| expect_template_expression(language, diagnostics, build_ctx, node))
             .try_collect()?;
-        Ok(L::Property::wrap_template(Box::new(JoinTemplate::new(
+        Ok(P::wrap_template(Box::new(JoinTemplate::new(
             separator, contents,
         ))))
     });
-    map.insert("separate", |language, diagnostics, build_ctx, function| {
+    functions.insert("separate", |language, diagnostics, build_ctx, function| {
         let ([separator_node], content_nodes) = function.expect_some_arguments()?;
         let separator =
             expect_template_expression(language, diagnostics, build_ctx, separator_node)?;
@@ -2659,11 +2703,11 @@ fn builtin_functions<'a, L: TemplateLanguage<'a> + ?Sized>() -> TemplateBuildFun
             .iter()
             .map(|node| expect_template_expression(language, diagnostics, build_ctx, node))
             .try_collect()?;
-        Ok(L::Property::wrap_template(Box::new(SeparateTemplate::new(
+        Ok(P::wrap_template(Box::new(SeparateTemplate::new(
             separator, contents,
         ))))
     });
-    map.insert("surround", |language, diagnostics, build_ctx, function| {
+    functions.insert("surround", |language, diagnostics, build_ctx, function| {
         let [prefix_node, suffix_node, content_node] = function.expect_exact_arguments()?;
         let prefix = expect_template_expression(language, diagnostics, build_ctx, prefix_node)?;
         let suffix = expect_template_expression(language, diagnostics, build_ctx, suffix_node)?;
@@ -2677,9 +2721,9 @@ fn builtin_functions<'a, L: TemplateLanguage<'a> + ?Sized>() -> TemplateBuildFun
             suffix.format(formatter)?;
             Ok(())
         });
-        Ok(L::Property::wrap_template(Box::new(template)))
+        Ok(P::wrap_template(Box::new(template)))
     });
-    map.insert("config", |language, diagnostics, build_ctx, function| {
+    functions.insert("config", |language, diagnostics, build_ctx, function| {
         let [name_node] = function.expect_exact_arguments()?;
         let name_expression =
             expect_stringify_expression(language, diagnostics, build_ctx, name_node)?;
@@ -2699,19 +2743,17 @@ fn builtin_functions<'a, L: TemplateLanguage<'a> + ?Sized>() -> TemplateBuildFun
                     TemplateParseError::expression("Failed to get config value", function.name_span)
                         .with_source(err)
                 })?;
-            // .decorated("", "") to trim leading/trailing whitespace
-            Ok(Literal(value.map(|v| v.decorated("", ""))).into_dyn_wrapped())
+            Ok(Literal(value.map(ConfigValueWrapper::new)).into_dyn_wrapped())
         } else {
             let settings = language.settings().clone();
             let out_property = name_expression.and_then(move |name| {
                 let config_path: ConfigNamePathBuf = name.parse()?;
                 let value = settings.get_value(config_path).optional()?;
-                Ok(value.map(|v| v.decorated("", "")))
+                Ok(value.map(ConfigValueWrapper::new))
             });
             Ok(out_property.into_dyn_wrapped())
         }
     });
-    map
 }
 
 fn new_pad_template<'a, W>(
@@ -2831,9 +2873,9 @@ where
 pub fn build_expression<'a, L: TemplateLanguage<'a> + ?Sized>(
     language: &L,
     diagnostics: &mut TemplateDiagnostics,
-    build_ctx: &BuildContext<L::Property>,
+    build_ctx: &BuildContext<'a, '_>,
     node: &ExpressionNode,
-) -> TemplateParseResult<Expression<L::Property>> {
+) -> TemplateParseResult<Expression<'a>> {
     template_parser::catch_aliases(diagnostics, node, |diagnostics, node| match &node.kind {
         ExpressionKind::Identifier(name) => {
             if let Some(make) = build_ctx.local_variables.get(name) {
@@ -2890,17 +2932,20 @@ pub fn build_expression<'a, L: TemplateLanguage<'a> + ?Sized>(
                 .iter()
                 .map(|node| expect_template_expression(language, diagnostics, build_ctx, node))
                 .try_collect()?;
-            let property = L::Property::wrap_template(Box::new(ConcatTemplate(templates)));
+            let property = TemplatePropertyKind::wrap_template(Box::new(ConcatTemplate(templates)));
             Ok(Expression::unlabeled(property))
         }
         ExpressionKind::FunctionCall(function) => {
-            let property = language.build_function(diagnostics, build_ctx, function)?;
+            let table = language.symbol_table();
+            let property = table.build_function(language, diagnostics, build_ctx, function)?;
             Ok(Expression::unlabeled(property))
         }
         ExpressionKind::MethodCall(method) => {
+            let table = language.symbol_table();
             let mut expression =
                 build_expression(language, diagnostics, build_ctx, &method.object)?;
-            expression.property = language.build_method(
+            expression.property = table.build_method(
+                language,
                 diagnostics,
                 build_ctx,
                 expression.property,
@@ -2928,9 +2973,8 @@ pub fn build<'a, C, L>(
     node: &ExpressionNode,
 ) -> TemplateParseResult<TemplateRenderer<'a, C>>
 where
-    C: Clone + 'a,
+    C: Clone + TemplateValue,
     L: TemplateLanguage<'a> + ?Sized,
-    L::Property: WrapTemplateProperty<'a, C>,
 {
     let self_placeholder = PropertyPlaceholder::new();
     let build_ctx = BuildContext {
@@ -2949,9 +2993,8 @@ pub fn parse<'a, C, L>(
     aliases_map: &TemplateAliasesMap,
 ) -> TemplateParseResult<TemplateRenderer<'a, C>>
 where
-    C: Clone + 'a,
+    C: Clone + TemplateValue,
     L: TemplateLanguage<'a> + ?Sized,
-    L::Property: WrapTemplateProperty<'a, C>,
 {
     let node = template_parser::parse(template_text, aliases_map)?;
     build(language, diagnostics, &node).map_err(|err| err.extend_alias_candidates(aliases_map))
@@ -2960,7 +3003,7 @@ where
 pub fn expect_boolean_expression<'a, L: TemplateLanguage<'a> + ?Sized>(
     language: &L,
     diagnostics: &mut TemplateDiagnostics,
-    build_ctx: &BuildContext<L::Property>,
+    build_ctx: &BuildContext<'a, '_>,
     node: &ExpressionNode,
 ) -> TemplateParseResult<BoxedTemplateProperty<'a, bool>> {
     expect_expression_of_type(
@@ -2969,14 +3012,14 @@ pub fn expect_boolean_expression<'a, L: TemplateLanguage<'a> + ?Sized>(
         build_ctx,
         node,
         "Boolean",
-        |expression| expression.try_into_boolean(),
+        |expression| expression.try_into_boolean(language.type_registry()),
     )
 }
 
 pub fn expect_integer_expression<'a, L: TemplateLanguage<'a> + ?Sized>(
     language: &L,
     diagnostics: &mut TemplateDiagnostics,
-    build_ctx: &BuildContext<L::Property>,
+    build_ctx: &BuildContext<'a, '_>,
     node: &ExpressionNode,
 ) -> TemplateParseResult<BoxedTemplateProperty<'a, i64>> {
     expect_expression_of_type(
@@ -2985,7 +3028,7 @@ pub fn expect_integer_expression<'a, L: TemplateLanguage<'a> + ?Sized>(
         build_ctx,
         node,
         "Integer",
-        |expression| expression.try_into_integer(),
+        |expression| expression.try_into_integer(language.type_registry()),
     )
 }
 
@@ -2993,7 +3036,7 @@ pub fn expect_integer_expression<'a, L: TemplateLanguage<'a> + ?Sized>(
 pub fn expect_isize_expression<'a, L: TemplateLanguage<'a> + ?Sized>(
     language: &L,
     diagnostics: &mut TemplateDiagnostics,
-    build_ctx: &BuildContext<L::Property>,
+    build_ctx: &BuildContext<'a, '_>,
     node: &ExpressionNode,
 ) -> TemplateParseResult<BoxedTemplateProperty<'a, isize>> {
     let i64_property = expect_integer_expression(language, diagnostics, build_ctx, node)?;
@@ -3009,7 +3052,7 @@ pub fn expect_isize_expression<'a, L: TemplateLanguage<'a> + ?Sized>(
 pub fn expect_usize_expression<'a, L: TemplateLanguage<'a> + ?Sized>(
     language: &L,
     diagnostics: &mut TemplateDiagnostics,
-    build_ctx: &BuildContext<L::Property>,
+    build_ctx: &BuildContext<'a, '_>,
     node: &ExpressionNode,
 ) -> TemplateParseResult<BoxedTemplateProperty<'a, usize>> {
     let i64_property = expect_integer_expression(language, diagnostics, build_ctx, node)?;
@@ -3024,7 +3067,7 @@ pub fn expect_usize_expression<'a, L: TemplateLanguage<'a> + ?Sized>(
 pub fn expect_byte_stringify_expression<'a, L: TemplateLanguage<'a> + ?Sized>(
     language: &L,
     diagnostics: &mut TemplateDiagnostics,
-    build_ctx: &BuildContext<L::Property>,
+    build_ctx: &BuildContext<'a, '_>,
     node: &ExpressionNode,
 ) -> TemplateParseResult<BoxedTemplateProperty<'a, BString>> {
     // Since any formattable type can be converted to a string property, the
@@ -3035,14 +3078,14 @@ pub fn expect_byte_stringify_expression<'a, L: TemplateLanguage<'a> + ?Sized>(
         build_ctx,
         node,
         "ByteStringify",
-        |expression| expression.try_into_byte_stringify(),
+        |expression| expression.try_into_byte_stringify(language.type_registry()),
     )
 }
 
 pub fn expect_stringify_expression<'a, L: TemplateLanguage<'a> + ?Sized>(
     language: &L,
     diagnostics: &mut TemplateDiagnostics,
-    build_ctx: &BuildContext<L::Property>,
+    build_ctx: &BuildContext<'a, '_>,
     node: &ExpressionNode,
 ) -> TemplateParseResult<BoxedTemplateProperty<'a, String>> {
     // Since any formattable type can be converted to a string property, the
@@ -3053,14 +3096,14 @@ pub fn expect_stringify_expression<'a, L: TemplateLanguage<'a> + ?Sized>(
         build_ctx,
         node,
         "Stringify",
-        |expression| expression.try_into_stringify(),
+        |expression| expression.try_into_stringify(language.type_registry()),
     )
 }
 
 pub fn expect_timestamp_expression<'a, L: TemplateLanguage<'a> + ?Sized>(
     language: &L,
     diagnostics: &mut TemplateDiagnostics,
-    build_ctx: &BuildContext<L::Property>,
+    build_ctx: &BuildContext<'a, '_>,
     node: &ExpressionNode,
 ) -> TemplateParseResult<BoxedTemplateProperty<'a, Timestamp>> {
     expect_expression_of_type(
@@ -3069,14 +3112,14 @@ pub fn expect_timestamp_expression<'a, L: TemplateLanguage<'a> + ?Sized>(
         build_ctx,
         node,
         "Timestamp",
-        |expression| expression.try_into_timestamp(),
+        |expression| expression.try_into_timestamp(language.type_registry()),
     )
 }
 
 pub fn expect_serialize_expression<'a, L: TemplateLanguage<'a> + ?Sized>(
     language: &L,
     diagnostics: &mut TemplateDiagnostics,
-    build_ctx: &BuildContext<L::Property>,
+    build_ctx: &BuildContext<'a, '_>,
     node: &ExpressionNode,
 ) -> TemplateParseResult<BoxedSerializeProperty<'a>> {
     template_parser::catch_aliases(diagnostics, node, |diagnostics, node| match &node.kind {
@@ -3095,10 +3138,12 @@ pub fn expect_serialize_expression<'a, L: TemplateLanguage<'a> + ?Sized>(
         }
         _ => {
             let expression = build_expression(language, diagnostics, build_ctx, node)?;
-            let actual_type = expression.type_name();
-            expression.try_into_serialize().ok_or_else(|| {
-                TemplateParseError::expected_type("Serialize", actual_type, node.span)
-            })
+            let actual_type = expression.type_name(language.type_registry());
+            expression
+                .try_into_serialize(language.type_registry())
+                .ok_or_else(|| {
+                    TemplateParseError::expected_type("Serialize", actual_type, node.span)
+                })
         }
     })
 }
@@ -3106,7 +3151,7 @@ pub fn expect_serialize_expression<'a, L: TemplateLanguage<'a> + ?Sized>(
 pub fn expect_template_expression<'a, L: TemplateLanguage<'a> + ?Sized>(
     language: &L,
     diagnostics: &mut TemplateDiagnostics,
-    build_ctx: &BuildContext<L::Property>,
+    build_ctx: &BuildContext<'a, '_>,
     node: &ExpressionNode,
 ) -> TemplateParseResult<Box<dyn Template + 'a>> {
     expect_expression_of_type(
@@ -3115,14 +3160,14 @@ pub fn expect_template_expression<'a, L: TemplateLanguage<'a> + ?Sized>(
         build_ctx,
         node,
         "Template",
-        |expression| expression.try_into_template(),
+        |expression| expression.try_into_template(language.type_registry()),
     )
 }
 
 pub fn expect_any_expression<'a, L: TemplateLanguage<'a> + ?Sized>(
     language: &L,
     diagnostics: &mut TemplateDiagnostics,
-    build_ctx: &BuildContext<L::Property>,
+    build_ctx: &BuildContext<'a, '_>,
     node: &ExpressionNode,
 ) -> TemplateParseResult<BoxedAnyProperty<'a>> {
     template_parser::catch_aliases(diagnostics, node, |diagnostics, node| {
@@ -3136,14 +3181,14 @@ pub fn expect_any_expression<'a, L: TemplateLanguage<'a> + ?Sized>(
 fn expect_expression_of_type<'a, L: TemplateLanguage<'a> + ?Sized, T>(
     language: &L,
     diagnostics: &mut TemplateDiagnostics,
-    build_ctx: &BuildContext<L::Property>,
+    build_ctx: &BuildContext<'a, '_>,
     node: &ExpressionNode,
     expected_type: &str,
-    f: impl FnOnce(Expression<L::Property>) -> Option<T>,
+    f: impl FnOnce(Expression<'a>) -> Option<T>,
 ) -> TemplateParseResult<T> {
     template_parser::catch_aliases(diagnostics, node, |diagnostics, node| {
         let expression = build_expression(language, diagnostics, build_ctx, node)?;
-        let actual_type = expression.type_name();
+        let actual_type = expression.type_name(language.type_registry());
         f(expression)
             .ok_or_else(|| TemplateParseError::expected_type(expected_type, actual_type, node.span))
     })
@@ -3151,29 +3196,25 @@ fn expect_expression_of_type<'a, L: TemplateLanguage<'a> + ?Sized, T>(
 
 #[cfg(test)]
 mod tests {
-    use std::assert_matches;
     use std::path::Component;
 
     use jj_lib::backend::MillisSinceEpoch;
+    use jj_lib::config::ConfigValue;
     use jj_lib::config::StackedConfig;
 
     use super::*;
     use crate::formatter;
     use crate::formatter::ColorFormatter;
-    use crate::generic_templater;
     use crate::generic_templater::GenericTemplateLanguage;
 
     #[derive(Clone, Debug, serde::Serialize)]
     struct Context;
 
-    type TestTemplateLanguage = GenericTemplateLanguage<'static, Context>;
-    type TestTemplatePropertyKind = <TestTemplateLanguage as TemplateLanguage<'static>>::Property;
-
-    generic_templater::impl_self_property_wrapper!(Context);
+    impl OpaqueTemplateValue for Context {}
 
     /// Helper to set up template evaluation environment.
     struct TestTemplateEnv {
-        language: TestTemplateLanguage,
+        language: GenericTemplateLanguage,
         aliases_map: TemplateAliasesMap,
         color_rules: Vec<(Vec<String>, formatter::Style)>,
     }
@@ -3189,8 +3230,11 @@ mod tests {
 
         fn with_config_and_current_dir(config: StackedConfig, current_dir: PathBuf) -> Self {
             let settings = testutils::user_settings_from_config(config);
+            let mut language = GenericTemplateLanguage::new(&settings, &current_dir);
+            language.register_type::<Context>("Context").serializable();
+            language.register_methods::<Context>();
             Self {
-                language: TestTemplateLanguage::new(&settings, &current_dir),
+                language,
                 aliases_map: TemplateAliasesMap::new(),
                 color_rules: Vec::new(),
             }
@@ -3204,23 +3248,34 @@ mod tests {
     impl TestTemplateEnv {
         fn add_keyword<F>(&mut self, name: &'static str, build: F)
         where
-            F: Fn() -> TestTemplatePropertyKind + 'static,
+            F: Fn() -> TemplatePropertyKind<'static> + 'static,
         {
-            self.language.add_keyword(name, move |_| Ok(build()));
+            let mut methods = self.language.register_methods::<Context>();
+            methods.insert(
+                name,
+                move |_language, _diagnostics, _build_ctx, _self_property, function| {
+                    function.expect_no_arguments()?;
+                    Ok(build())
+                },
+            );
         }
 
         /// Like `add_keyword`, but the value depends on the `self` context
         /// property, making it not statically extractable.
         fn add_dynamic_keyword<O, F>(&mut self, name: &'static str, build: F)
         where
-            O: 'static,
+            O: TemplateValue,
             F: Fn() -> O + Clone + 'static,
-            TestTemplatePropertyKind: WrapTemplateProperty<'static, O>,
         {
-            self.language.add_keyword(name, move |self_property| {
-                let build = build.clone();
-                Ok(self_property.map(move |_| build()).into_dyn_wrapped())
-            });
+            let mut methods = self.language.register_methods::<Context>();
+            methods.insert(
+                name,
+                move |_language, _diagnostics, _build_ctx, self_property, function| {
+                    function.expect_no_arguments()?;
+                    let build = build.clone();
+                    Ok(self_property.map(move |_| build()).into_dyn_wrapped())
+                },
+            );
         }
 
         fn add_alias(&mut self, decl: impl AsRef<str>, defn: impl Into<String>) {
@@ -3245,6 +3300,7 @@ mod tests {
             )
         }
 
+        #[track_caller]
         fn parse_err(&self, template: &str) -> String {
             let err = self
                 .parse(template)
@@ -3254,6 +3310,7 @@ mod tests {
             iter::successors(Some(&err as &dyn std::error::Error), |e| e.source()).join("\n")
         }
 
+        #[track_caller]
         fn parse_err_kind(&self, template: &str) -> TemplateParseErrorKind {
             self.parse(template)
                 .err()
@@ -3262,6 +3319,7 @@ mod tests {
                 .clone()
         }
 
+        #[track_caller]
         fn render_ok(&self, template: &str) -> BString {
             let template = self.parse(template).unwrap();
             let mut output = Vec::new();
@@ -3272,27 +3330,51 @@ mod tests {
             output.into()
         }
 
+        #[track_caller]
         fn render_plain(&self, template: &str) -> BString {
             let template = self.parse(template).unwrap();
             template.format_plain_text(&Context).into()
         }
     }
 
-    fn literal<'a, O>(value: O) -> TestTemplatePropertyKind
+    fn literal<O>(value: O) -> TemplatePropertyKind<'static>
     where
-        O: Clone + 'a,
-        TestTemplatePropertyKind: WrapTemplateProperty<'a, O>,
+        O: Clone + TemplateValue,
     {
         Literal(value).into_dyn_wrapped()
     }
 
-    fn new_error_property<'a, O>(message: &'a str) -> TestTemplatePropertyKind
+    fn new_error_property<O>(message: &str) -> TemplatePropertyKind<'_>
     where
-        TestTemplatePropertyKind: WrapTemplateProperty<'a, O>,
+        O: TemplateValue,
     {
         Literal(())
-            .and_then(|()| Err(TemplatePropertyError(message.into())))
+            .and_then(|()| Err::<O, _>(TemplatePropertyError(message.into())))
             .into_dyn_wrapped()
+    }
+
+    fn new_config_value<T>(value: T) -> ConfigValueWrapper
+    where
+        T: Into<ConfigValue>,
+    {
+        ConfigValueWrapper::new(value.into())
+    }
+
+    fn new_config_array<I, V>(values: I) -> ConfigValueWrapper
+    where
+        I: IntoIterator<Item = V>,
+        V: Into<ConfigValue>,
+    {
+        ConfigValueWrapper::new(values.into_iter().collect())
+    }
+
+    fn new_config_table<I, K, V>(values: I) -> ConfigValueWrapper
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: Into<toml_edit::Key>,
+        V: Into<ConfigValue>,
+    {
+        ConfigValueWrapper::new(values.into_iter().collect())
     }
 
     fn new_signature(name: &str, email: &str) -> Signature {
@@ -3347,6 +3429,7 @@ mod tests {
         let mut env = TestTemplateEnv::new();
         env.add_keyword("description", || literal("".to_owned()));
         env.add_keyword("empty", || literal(true));
+        env.add_keyword("none_i64", || literal(None::<i64>));
 
         insta::assert_snapshot!(env.parse_err(r#"foo bar"#), @"
          --> 1:5
@@ -3506,6 +3589,14 @@ mod tests {
           |
           = Method `foo` doesn't exist for type `Integer`
         ");
+        insta::assert_snapshot!(env.parse_err(r#"none_i64.foo()"#), @"
+         --> 1:10
+          |
+        1 | none_i64.foo()
+          |          ^-^
+          |
+          = Method `foo` doesn't exist for type `Integer`
+        ");
         insta::assert_snapshot!(env.parse_err(r#"(-empty)"#), @"
          --> 1:3
           |
@@ -3616,7 +3707,7 @@ mod tests {
         1 | self
           | ^--^
           |
-          = Expected expression of type `Template`, but actual type is `Self`
+          = Expected expression of type `Template`, but actual type is `Context`
         ");
     }
 
@@ -3706,7 +3797,7 @@ mod tests {
         insta::assert_snapshot!(env.render_ok(r#"if(nonempty_email, true, false)"#), @"true");
 
         // even boolean config values must be extracted
-        env.add_keyword("config_bool", || literal(ConfigValue::from(true)));
+        env.add_keyword("config_bool", || literal(new_config_value(true)));
         insta::assert_snapshot!(env.parse_err("if(config_bool, true, false)"), @"
          --> 1:4
           |
@@ -3937,10 +4028,8 @@ mod tests {
         env.add_keyword("str_list", || {
             literal(vec!["foo".to_owned(), "bar".to_owned()])
         });
-        env.add_keyword("cfg_val", || {
-            literal(ConfigValue::from_iter([("foo", "bar")]))
-        });
-        env.add_keyword("some_cfg", || literal(Some(ConfigValue::from(1))));
+        env.add_keyword("cfg_val", || literal(new_config_table([("foo", "bar")])));
+        env.add_keyword("some_cfg", || literal(Some(new_config_value(1))));
         env.add_keyword("signature", || {
             literal(new_signature("User", "user@example.com"))
         });
@@ -4076,10 +4165,8 @@ mod tests {
         env.add_keyword("str_list", || {
             literal(vec!["foo".to_owned(), "bar".to_owned()])
         });
-        env.add_keyword("cfg_val", || {
-            literal(ConfigValue::from_iter([("foo", "bar")]))
-        });
-        env.add_keyword("some_cfg", || literal(Some(ConfigValue::from(true))));
+        env.add_keyword("cfg_val", || literal(new_config_table([("foo", "bar")])));
+        env.add_keyword("some_cfg", || literal(Some(new_config_value(true))));
         env.add_keyword("signature", || {
             literal(new_signature("User", "user@example.com"))
         });
@@ -4692,12 +4779,10 @@ mod tests {
     #[test]
     fn test_config_value_method() {
         let mut env = TestTemplateEnv::new();
-        env.add_keyword("boolean", || literal(ConfigValue::from(true)));
-        env.add_keyword("integer", || literal(ConfigValue::from(42)));
-        env.add_keyword("string", || literal(ConfigValue::from("foo")));
-        env.add_keyword("string_list", || {
-            literal(ConfigValue::from_iter(["foo", "bar"]))
-        });
+        env.add_keyword("boolean", || literal(new_config_value(true)));
+        env.add_keyword("integer", || literal(new_config_value(42)));
+        env.add_keyword("string", || literal(new_config_value("foo")));
+        env.add_keyword("string_list", || literal(new_config_array(["foo", "bar"])));
 
         insta::assert_snapshot!(env.render_ok("boolean"), @"true");
         insta::assert_snapshot!(env.render_ok("integer"), @"42");
@@ -4737,6 +4822,7 @@ mod tests {
         insta::assert_snapshot!(env.render_ok("author.email().domain()"), @"example.com");
         insta::assert_snapshot!(env.render_ok("author.timestamp()"), @"1970-01-01 00:00:00.000 +00:00");
 
+        let mut env = TestTemplateEnv::new();
         env.add_keyword("author", || {
             literal(new_signature("Another Test User", "test.user@example.com"))
         });
@@ -4744,6 +4830,7 @@ mod tests {
         insta::assert_snapshot!(env.render_ok(r#"author.name()"#), @"Another Test User");
         insta::assert_snapshot!(env.render_ok(r#"author.email()"#), @"test.user@example.com");
 
+        let mut env = TestTemplateEnv::new();
         env.add_keyword("author", || {
             literal(new_signature("Test User", "test.user@invalid@example.com"))
         });
@@ -4753,6 +4840,7 @@ mod tests {
         insta::assert_snapshot!(env.render_ok("author.email().local()"), @"test.user");
         insta::assert_snapshot!(env.render_ok("author.email().domain()"), @"invalid@example.com");
 
+        let mut env = TestTemplateEnv::new();
         env.add_keyword("author", || {
             literal(new_signature("Test User", "test.user"))
         });
@@ -4761,6 +4849,7 @@ mod tests {
         insta::assert_snapshot!(env.render_ok("author.email().local()"), @"test.user");
         insta::assert_snapshot!(env.render_ok("author.email().domain()"), @"");
 
+        let mut env = TestTemplateEnv::new();
         env.add_keyword("author", || {
             literal(new_signature("Test User", "test.user+tag@example.com"))
         });
@@ -4769,12 +4858,14 @@ mod tests {
         insta::assert_snapshot!(env.render_ok("author.email().local()"), @"test.user+tag");
         insta::assert_snapshot!(env.render_ok("author.email().domain()"), @"example.com");
 
+        let mut env = TestTemplateEnv::new();
         env.add_keyword("author", || literal(new_signature("Test User", "x@y")));
         insta::assert_snapshot!(env.render_ok(r#"author"#), @"Test User <x@y>");
         insta::assert_snapshot!(env.render_ok(r#"author.email()"#), @"x@y");
         insta::assert_snapshot!(env.render_ok("author.email().local()"), @"x");
         insta::assert_snapshot!(env.render_ok("author.email().domain()"), @"y");
 
+        let mut env = TestTemplateEnv::new();
         env.add_keyword("author", || {
             literal(new_signature("", "test.user@example.com"))
         });
@@ -4782,6 +4873,7 @@ mod tests {
         insta::assert_snapshot!(env.render_ok(r#"author.name()"#), @"");
         insta::assert_snapshot!(env.render_ok(r#"author.email()"#), @"test.user@example.com");
 
+        let mut env = TestTemplateEnv::new();
         env.add_keyword("author", || literal(new_signature("Test User", "")));
         insta::assert_snapshot!(env.render_ok(r#"author"#), @"Test User");
         insta::assert_snapshot!(env.render_ok(r#"author.name()"#), @"Test User");
@@ -4789,6 +4881,7 @@ mod tests {
         insta::assert_snapshot!(env.render_ok("author.email().local()"), @"");
         insta::assert_snapshot!(env.render_ok("author.email().domain()"), @"");
 
+        let mut env = TestTemplateEnv::new();
         env.add_keyword("author", || literal(new_signature("", "")));
         insta::assert_snapshot!(env.render_ok(r#"author"#), @"");
         insta::assert_snapshot!(env.render_ok(r#"author.name()"#), @"");
@@ -4891,7 +4984,7 @@ mod tests {
           |           ^-------^
           |
           = Invalid date pattern
-        expected unsupported identifier as position 0..7
+        expected a weekday, month name, or relative time unit at position 0..7
         ");
         insta::assert_snapshot!(env.parse_err("t0.before('invalid')"), @"
          --> 1:11
@@ -4900,7 +4993,7 @@ mod tests {
           |           ^-------^
           |
           = Invalid date pattern
-        expected unsupported identifier as position 0..7
+        expected a weekday, month name, or relative time unit at position 0..7
         ");
 
         // Can only compare timestamps against string literals
@@ -5446,10 +5539,10 @@ mod tests {
             literal(vec!["foo".to_owned(), "bar".to_owned()])
         });
         env.add_keyword("config_value_table", || {
-            literal(ConfigValue::from_iter([("foo", "bar")]))
+            literal(new_config_table([("foo", "bar")]))
         });
-        env.add_keyword("some_cfgval", || literal(Some(ConfigValue::from(1))));
-        env.add_keyword("none_cfgval", || literal(None::<ConfigValue>));
+        env.add_keyword("some_cfgval", || literal(Some(new_config_value(1))));
+        env.add_keyword("none_cfgval", || literal(None::<ConfigValueWrapper>));
         env.add_keyword("signature", || {
             literal(Signature {
                 name: "Test User".to_owned(),
@@ -5769,9 +5862,7 @@ mod tests {
         });
         env.add_keyword("none_int", || literal(None::<i64>));
         env.add_keyword("some_int", || literal(Some(67)));
-        env.add_keyword("cfg_val", || {
-            literal(ConfigValue::from_iter([("foo", "bar")]))
-        });
+        env.add_keyword("cfg_val", || literal(new_config_table([("foo", "bar")])));
         env.add_keyword("email", || literal(Email("me@example.com".to_owned())));
         env.add_keyword("signature", || {
             literal(new_signature("User", "user@example.com"))

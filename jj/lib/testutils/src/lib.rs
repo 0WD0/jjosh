@@ -63,40 +63,36 @@ use jj_lib::config::ConfigLayer;
 use jj_lib::config::ConfigSource;
 use jj_lib::config::StackedConfig;
 use jj_lib::default_backend_factories::default_backend_factories;
-use jj_lib::default_backend_factories::default_index_store_initializer;
-use jj_lib::default_backend_factories::default_op_heads_store_initializer;
-use jj_lib::default_backend_factories::default_op_store_initializer;
-use jj_lib::default_backend_factories::default_submodule_store_initializer;
+use jj_lib::default_backend_factories::default_store_initializers;
 use jj_lib::default_backend_factories::default_working_copy_factories;
 use jj_lib::default_backend_factories::default_workspace_loader_factory;
-use jj_lib::default_backend_factories::default_workspace_store_initializer;
 use jj_lib::gitignore::GitIgnoreFile;
 use jj_lib::repo::MutableRepo;
 use jj_lib::repo::ReadonlyRepo;
 use jj_lib::repo::Repo;
-use jj_lib::repo::RepoLoader;
 use jj_lib::repo::RepoLoaderError;
 use jj_lib::revset::RevsetExpression;
 use jj_lib::rewrite::RebaseOptions;
 use jj_lib::rewrite::RebasedCommit;
 use jj_lib::settings::UserSettings;
 use jj_lib::signing_factory::signer_from_settings;
-use jj_lib::simple_backend::SimpleBackend;
 use jj_lib::store_factories::StoreFactories;
+use jj_lib::store_factories::StoreInitializers;
 use jj_lib::transaction::Transaction;
 use jj_lib::working_copy::SnapshotError;
 use jj_lib::working_copy::SnapshotOptions;
 use jj_lib::working_copy::SnapshotStats;
 use jj_lib::workspace::Workspace;
 use jj_lib::workspace::WorkspaceLoadError;
+use jj_simple_stores::simple_backend::SimpleBackend;
 use pollster::FutureExt as _;
 use tempfile::TempDir;
 
 use crate::test_backend::TestBackendFactory;
 
 pub mod git;
-pub mod proptest;
 pub mod test_backend;
+pub mod working_copy;
 
 /// Convenient return type for test functions.
 pub type TestResult<T = ()> = eyre::Result<T>;
@@ -274,7 +270,8 @@ impl TestEnvironment {
         settings: &UserSettings,
         repo_path: &Path,
     ) -> Arc<ReadonlyRepo> {
-        RepoLoader::init_from_file_system(settings, repo_path, &self.default_backend_factories())
+        self.default_backend_factories()
+            .load_repo(settings, repo_path)
             .unwrap()
             .load_at_head(Some(WorkspaceName::DEFAULT))
             .block_on()
@@ -290,7 +287,11 @@ pub struct TestRepo {
 
 #[derive(PartialEq, Eq, Copy, Clone)]
 pub enum TestRepoBackend {
+    /// Git backend using the object format from [`git::object_hash()`].
     Git,
+    /// Git backend that always uses SHA-1, for tests that depend on specific
+    /// commit ids.
+    GitSha1,
     Simple,
     Test,
 }
@@ -303,20 +304,27 @@ impl TestRepoBackend {
         store_path: &Path,
     ) -> Result<Box<dyn Backend>, BackendInitError> {
         match self {
-            Self::Git => {
-                let git_settings = settings
-                    .git_backend_settings()
-                    .map_err(BackendInitError::new)?;
-                Ok(Box::new(GitBackend::init_internal(
-                    &git_settings,
-                    store_path,
-                    gix::hash::Kind::default(),
-                )?))
-            }
+            Self::Git => init_git_backend(settings, store_path, git::object_hash()),
+            Self::GitSha1 => init_git_backend(settings, store_path, gix::hash::Kind::Sha1),
             Self::Simple => Ok(Box::new(SimpleBackend::init(store_path))),
             Self::Test => Ok(Box::new(env.test_backend_factory.init(store_path))),
         }
     }
+}
+
+fn init_git_backend(
+    settings: &UserSettings,
+    store_path: &Path,
+    object_hash: gix::hash::Kind,
+) -> Result<Box<dyn Backend>, BackendInitError> {
+    let git_settings = settings
+        .git_backend_settings()
+        .map_err(BackendInitError::new)?;
+    Ok(Box::new(GitBackend::init_internal(
+        &git_settings,
+        store_path,
+        object_hash,
+    )?))
 }
 
 impl TestRepo {
@@ -341,19 +349,14 @@ impl TestRepo {
         let repo_dir = env.root().join("repo");
         fs::create_dir(&repo_dir).unwrap();
 
-        let repo = ReadonlyRepo::init(
-            settings,
-            &repo_dir,
-            &|settings, store_path| backend.init_backend(&env, settings, store_path),
-            signer_from_settings(settings).unwrap(),
-            default_workspace_store_initializer(),
-            default_op_store_initializer(),
-            default_op_heads_store_initializer(),
-            default_index_store_initializer(),
-            default_submodule_store_initializer(),
-        )
-        .block_on()
-        .unwrap();
+        let store_initializers = StoreInitializers {
+            backend: &|settings, store_path| backend.init_backend(&env, settings, store_path),
+            ..default_store_initializers()
+        };
+        let repo = store_initializers
+            .init_repo(settings, &repo_dir, signer_from_settings(settings).unwrap())
+            .block_on()
+            .unwrap();
 
         Self {
             env,
@@ -429,7 +432,7 @@ impl TestWorkspace {
             &user_settings(),
             &workspace_root,
             WorkspaceName::DEFAULT,
-            gix::hash::Kind::default(),
+            git::object_hash(),
         )
         .block_on()
         .unwrap();
@@ -789,13 +792,13 @@ pub fn dump_tree(merged_tree: &MergedTree) -> String {
     use std::fmt::Write as _;
     let store = merged_tree.store();
     let mut buf = String::new();
-    let trees = merged_tree.trees().block_on().unwrap();
-    writeln!(&mut buf, "merged tree (sides: {})", trees.num_sides()).unwrap();
-    for tree in &trees {
-        writeln!(&mut buf, "  tree {}", tree.id()).unwrap();
-        let entries: Vec<_> = tree
-            .entries_matching(&EverythingMatcher)
-            .map(|(path, entry)| (path, entry.unwrap()))
+    let tree_ids = merged_tree.tree_ids();
+    writeln!(&mut buf, "merged tree (sides: {})", tree_ids.num_sides()).unwrap();
+    for tree_id in tree_ids {
+        writeln!(&mut buf, "  tree {tree_id}").unwrap();
+        let entries: Vec<_> = MergedTree::resolved(store.clone(), tree_id.clone())
+            .entries()
+            .map(|(path, entry)| (path, entry.unwrap().into_resolved().unwrap().unwrap()))
             .collect()
             .block_on();
         for (path, entry) in entries {

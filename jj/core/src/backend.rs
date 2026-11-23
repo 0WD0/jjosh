@@ -446,18 +446,29 @@ pub trait MergedTreeValueExt {
     /// Whether this merge is present and not a tree
     fn is_file_like(&self) -> bool;
 
-    /// If this merge contains only files or absent entries, returns a merge of
-    /// the `FileId`s. The executable bits and copy IDs will be ignored. Use
+    /// If this merge is a tree merge as defined by [`Self::is_tree()`], returns
+    /// a merge of the `TreeId`s, with `None` in place of absent terms. If the
+    /// merge contains non-tree terms that cancel out, all canceled terms are
+    /// replaced by `None`.
+    fn to_tree_id_merge(&self) -> Option<Merge<Option<TreeId>>>;
+
+    /// If this merge contains only files or absent entries, ignoring non-file
+    /// terms that cancel out against each other, returns a merge of the
+    /// `FileId`s, with `None` in place of absent terms and canceled terms. The
+    /// executable bits and copy IDs will be ignored. Use
     /// `Merge::with_new_file_ids()` to produce a new merge with the original
     /// executable bits preserved.
-    fn to_file_merge(&self) -> Option<Merge<Option<FileId>>>;
+    fn to_file_id_merge(&self) -> Option<Merge<Option<FileId>>>;
 
-    /// If this merge contains only files or absent entries, returns a merge of
-    /// the files' executable bits.
+    /// If this merge contains only files or absent entries, ignoring non-file
+    /// terms that cancel out against each other, returns a merge of the files'
+    /// executable bits, with `None` in place of absent terms and canceled
+    /// terms.
     fn to_executable_merge(&self) -> Option<Merge<Option<bool>>>;
 
-    /// If this merge contains only files or absent entries, returns a merge of
-    /// the files' copy IDs.
+    /// If this merge contains only files or absent entries, ignoring non-file
+    /// terms that cancel out against each other, returns a merge of the files'
+    /// copy IDs, with `None` in place of absent terms and canceled terms.
     fn to_copy_id_merge(&self) -> Option<Merge<Option<CopyId>>>;
 
     /// Creates a new merge with the file ids from the given merge. In other
@@ -476,59 +487,48 @@ where
     T: Borrow<TreeValue>,
 {
     fn is_tree(&self) -> bool {
-        self.is_present()
-            && self.iter().all(|value| {
-                matches!(
-                    borrow_tree_value(value.as_ref()),
-                    Some(TreeValue::Tree(_)) | None
-                )
-            })
+        self.is_present() && borrow_tree_id_merge(self).is_some()
     }
 
     fn is_file_like(&self) -> bool {
         self.is_present() && !self.is_tree()
     }
 
-    fn to_file_merge(&self) -> Option<Merge<Option<FileId>>> {
-        let file_ids = self
-            .try_map(|term| match borrow_tree_value(term.as_ref()) {
-                None => Ok(None),
-                Some(TreeValue::File {
-                    id,
-                    executable: _,
-                    copy_id: _,
-                }) => Ok(Some(id.clone())),
-                _ => Err(()),
-            })
-            .ok()?;
+    fn to_tree_id_merge(&self) -> Option<Merge<Option<TreeId>>> {
+        borrow_tree_id_merge(self).map(|ids| ids.map(|id| id.cloned()))
+    }
 
-        Some(file_ids)
+    fn to_file_id_merge(&self) -> Option<Merge<Option<FileId>>> {
+        convert_terms_ignoring_canceled(self, |value| match value {
+            TreeValue::File {
+                id,
+                executable: _,
+                copy_id: _,
+            } => Some(id.clone()),
+            _ => None,
+        })
     }
 
     fn to_executable_merge(&self) -> Option<Merge<Option<bool>>> {
-        self.try_map(|term| match borrow_tree_value(term.as_ref()) {
-            None => Ok(None),
-            Some(TreeValue::File {
+        convert_terms_ignoring_canceled(self, |value| match value {
+            TreeValue::File {
                 id: _,
                 executable,
                 copy_id: _,
-            }) => Ok(Some(*executable)),
-            _ => Err(()),
+            } => Some(*executable),
+            _ => None,
         })
-        .ok()
     }
 
     fn to_copy_id_merge(&self) -> Option<Merge<Option<CopyId>>> {
-        self.try_map(|term| match borrow_tree_value(term.as_ref()) {
-            None => Ok(None),
-            Some(TreeValue::File {
+        convert_terms_ignoring_canceled(self, |value| match value {
+            TreeValue::File {
                 id: _,
                 executable: _,
                 copy_id,
-            }) => Ok(Some(copy_id.clone())),
-            _ => Err(()),
+            } => Some(copy_id.clone()),
+            _ => None,
         })
-        .ok()
     }
 
     fn with_new_file_ids(&self, file_ids: &Merge<Option<FileId>>) -> Merge<Option<TreeValue>> {
@@ -549,6 +549,8 @@ where
                         copy_id: copy_id.clone(),
                     }),
                     (None, None) => None,
+                    // Non-file terms that cancel out have no file ID.
+                    (Some(old), None) if !matches!(old, TreeValue::File { .. }) => None,
                     // New files are populated to preserve the materialized conflict. The file won't
                     // be checked out to the disk. So the metadata is not important, and we will
                     // just use the default values.
@@ -591,6 +593,49 @@ where
         }
         buf
     }
+}
+
+/// Like [`MergedTreeValueExt::to_tree_id_merge()`], but borrows the tree IDs.
+fn borrow_tree_id_merge<T: Borrow<TreeValue>>(
+    merge: &Merge<Option<T>>,
+) -> Option<Merge<Option<&TreeId>>> {
+    convert_terms_ignoring_canceled(merge, |value| match value {
+        TreeValue::Tree(id) => Some(id),
+        _ => None,
+    })
+}
+
+/// Converts the present terms of `merge` using `convert`, with `None` in place
+/// of absent terms. If some terms can't be converted, but they cancel out,
+/// all canceled terms are replaced by `None`, which preserves the meaning of
+/// the merge as well as its arity. Returns `None` if there are terms that
+/// can't be converted and don't cancel out, or if no term can be converted.
+fn convert_terms_ignoring_canceled<'a, T: Borrow<TreeValue>, U>(
+    merge: &'a Merge<Option<T>>,
+    convert: impl Fn(&'a TreeValue) -> Option<U>,
+) -> Option<Merge<Option<U>>> {
+    let convert_term = |value: &Option<&'a TreeValue>| match value {
+        None => Ok(None),
+        Some(value) => convert(value).map(Some).ok_or(()),
+    };
+
+    let values = merge.map(|term| borrow_tree_value(term.as_ref()));
+    if let Ok(converted) = values.try_map(convert_term) {
+        return Some(converted);
+    }
+    // Only a mix of convertible and non-convertible terms can become
+    // convertible by canceling out terms.
+    if !values
+        .iter()
+        .flatten()
+        .any(|value| convert(value).is_some())
+    {
+        return None;
+    }
+    values
+        .replace_canceled_terms(None)
+        .try_map(convert_term)
+        .ok()
 }
 
 /// Borrow the Option's `TreeValue` if it exists.
@@ -915,5 +960,56 @@ mod tests {
         let change_id = ChangeId::from_hex("deadbeef0123");
         assert_eq!(format!("{change_id}"), "mlpmollkzyxw");
         assert_eq!(format!("{change_id:.6}"), "mlpmol");
+    }
+
+    #[test]
+    fn test_to_tree_id_merge() {
+        let tree_id = |hex| Some(TreeId::from_hex(hex));
+        let tree = |hex| Some(TreeValue::Tree(TreeId::from_hex(hex)));
+        let file = |hex| {
+            Some(TreeValue::File {
+                id: FileId::from_hex(hex),
+                executable: false,
+                copy_id: CopyId::placeholder(),
+            })
+        };
+
+        // Trees and absent terms
+        let merge = Merge::from_vec(vec![tree("01"), None, tree("02")]);
+        assert!(merge.is_tree());
+        assert_eq!(
+            merge.to_tree_id_merge(),
+            Some(Merge::from_vec(vec![tree_id("01"), None, tree_id("02"),]))
+        );
+
+        // Only files
+        let merge = Merge::from_vec(vec![file("01"), None, file("02")]);
+        assert!(!merge.is_tree());
+        assert_eq!(merge.to_tree_id_merge(), None);
+
+        // A file that doesn't cancel out
+        let merge = Merge::from_vec(vec![tree("01"), None, file("02")]);
+        assert!(!merge.is_tree());
+        assert_eq!(merge.to_tree_id_merge(), None);
+
+        // Files that cancel out are replaced by `None`
+        let merge = Merge::from_vec(vec![tree("01"), file("02"), file("02"), None, tree("03")]);
+        assert!(merge.is_tree());
+        assert_eq!(
+            merge.to_tree_id_merge(),
+            Some(Merge::from_vec(vec![
+                tree_id("01"),
+                None,
+                None,
+                None,
+                tree_id("03"),
+            ]))
+        );
+
+        // Files that are equal but don't cancel out because they have the same
+        // sign
+        let merge = Merge::from_vec(vec![tree("01"), None, file("02"), None, file("02")]);
+        assert!(!merge.is_tree());
+        assert_eq!(merge.to_tree_id_merge(), None);
     }
 }

@@ -426,7 +426,7 @@ async fn apply_diff_builtin(
                     executable,
                     copy_id,
                 })
-            } else if let Some(old_file_ids) = old_value.to_file_merge() {
+            } else if let Some(old_file_ids) = old_value.to_file_id_merge() {
                 // TODO: should error out if conflicts couldn't be parsed?
                 let new_file_ids = conflicts::update_from_content(
                     &old_file_ids,
@@ -808,25 +808,20 @@ async fn apply_merge_builtin(
 mod tests {
     use std::collections::BTreeSet;
 
+    use hegel::generators;
     use jj_lib::backend::FileId;
     use jj_lib::conflict_labels::ConflictLabels;
     use jj_lib::conflicts::extract_as_single_hunk;
     use jj_lib::matchers::EverythingMatcher;
     use jj_lib::repo::Repo as _;
     use pollster::FutureExt as _;
-    use proptest::prelude::*;
-    use proptest_state_machine::ReferenceStateMachine;
-    use proptest_state_machine::StateMachineTest;
-    use proptest_state_machine::prop_state_machine;
     use test_case::test_matrix;
     use testutils::TestRepo;
     use testutils::TestResult;
     use testutils::assert_tree_eq;
-    use testutils::dump_tree;
-    use testutils::proptest::Transition;
-    use testutils::proptest::WorkingCopyReferenceStateMachine;
     use testutils::repo_path;
     use testutils::repo_path_component;
+    use testutils::working_copy::WorkingCopyModel;
 
     use super::*;
 
@@ -2182,65 +2177,40 @@ mod tests {
         Ok(())
     }
 
-    prop_state_machine! {
-        #[test]
-        fn test_edit_diff_builtin_all_or_nothing_proptest(
-            sequential 1..20 => EditDiffBuiltinAllOrNothingPropTest
-        );
-
-        #[test]
-        fn test_edit_diff_builtin_partial_selection_proptest(
-            sequential 1..20 => EditDiffBuiltinPartialSelectionPropTest
-        );
-    }
-
-    /// SUT for property-based test to check that selecting all or none of the
-    /// changes in the diff between two working copy states reproduces the right
-    /// or the left tree, respectively.
+    /// State machine for property-based test to check that selecting all or
+    /// none of the changes in the diff between two working copy states
+    /// reproduces the right or the left tree, respectively.
     struct EditDiffBuiltinAllOrNothingPropTest {
         test_repo: TestRepo,
+        model: WorkingCopyModel,
         prev_tree: MergedTree,
     }
 
-    impl StateMachineTest for EditDiffBuiltinAllOrNothingPropTest {
-        type SystemUnderTest = Self;
-
-        type Reference = WorkingCopyReferenceStateMachine;
-
-        fn init_test(ref_state: &Self::Reference) -> Self::SystemUnderTest {
-            let test_repo = TestRepo::init();
-            let initial_tree = ref_state.create_tree(&test_repo.repo);
-            Self {
-                test_repo,
-                prev_tree: initial_tree,
-            }
+    #[hegel::state_machine]
+    impl EditDiffBuiltinAllOrNothingPropTest {
+        #[rule]
+        fn commit(&mut self, _: hegel::TestCase) {
+            self.prev_tree = self.model.create_tree(&self.test_repo.repo);
         }
 
-        fn apply(
-            state: Self::SystemUnderTest,
-            ref_state: &Self::Reference,
-            transition: <Self::Reference as ReferenceStateMachine>::Transition,
-        ) -> Self::SystemUnderTest {
-            match transition {
-                Transition::Commit => {
-                    let prev_tree = ref_state.create_tree(&state.test_repo.repo);
-                    Self {
-                        test_repo: state.test_repo,
-                        prev_tree,
-                    }
-                }
-
-                Transition::SetDirEntry { .. } => {
-                    // Do nothing; this is handled by the reference state machine.
-                    state
-                }
-            }
+        #[rule]
+        fn create_entry(&mut self, tc: hegel::TestCase) {
+            let transition = self.model.draw_create_transition(&tc);
+            self.model.apply(&transition);
         }
 
-        fn check_invariants(state: &Self::SystemUnderTest, ref_state: &Self::Reference) {
-            let store = state.test_repo.repo.store();
-            let left_tree = &state.prev_tree;
-            let right_tree = ref_state.create_tree(&state.test_repo.repo);
+        #[rule]
+        fn modify_entry(&mut self, tc: hegel::TestCase) {
+            tc.assume(!self.model.is_empty());
+            let transition = self.model.draw_modify_transition(&tc);
+            self.model.apply(&transition);
+        }
+
+        #[invariant(always_run)]
+        fn all_or_nothing(&self, _: hegel::TestCase) {
+            let store = self.test_repo.repo.store();
+            let left_tree = &self.prev_tree;
+            let right_tree = self.model.create_tree(&self.test_repo.repo);
 
             let (changed_files, files) = make_diff(store, left_tree, &right_tree);
             let no_changes_tree = apply_diff(store, left_tree, &right_tree, &changed_files, &files);
@@ -2260,9 +2230,22 @@ mod tests {
         }
     }
 
-    /// SUT for property-based test to check that after selecting some of the
-    /// changes in a diff, applying the remaining changes to the intermediate
-    /// tree reproduces the right tree.
+    #[hegel::test]
+    fn test_edit_diff_builtin_all_or_nothing_hegel(tc: hegel::TestCase) {
+        let test_repo = TestRepo::init();
+        let model = WorkingCopyModel::default();
+        let prev_tree = model.create_tree(&test_repo.repo);
+        hegel::stateful::machine(EditDiffBuiltinAllOrNothingPropTest {
+            test_repo,
+            model,
+            prev_tree,
+        })
+        .run(tc);
+    }
+
+    /// State machine for property-based test to check that after selecting
+    /// some of the changes in a diff, applying the remaining changes to the
+    /// intermediate tree reproduces the right tree.
     ///
     /// This "roundtrip" property only holds if none of the selected changes
     /// implicitly incurs changes that would conflict with the unselected
@@ -2279,77 +2262,65 @@ mod tests {
     /// "a" directory. scm_record currently does not group or enforce selections
     /// of changes in a way to prevent this.
     ///
-    /// This test does not allow selections of changes that violate the
-    /// "roundtrip" property for the above reasons. Otherwise, it sources its
-    /// selection from a bit mask that is part of the reference state and is
-    /// subject to random generation and shrinking but otherwise does not affect
-    /// the state machine's transition, nor is it affected by any of the
-    /// transitions.
+    /// This test draws a fresh selection for each diff and adjusts it to respect
+    /// the dependencies described above.
     struct EditDiffBuiltinPartialSelectionPropTest {
         test_repo: TestRepo,
+        model: WorkingCopyModel,
         prev_tree: MergedTree,
         prev_file_list: BTreeSet<RepoPathBuf>,
     }
 
-    impl StateMachineTest for EditDiffBuiltinPartialSelectionPropTest {
-        type SystemUnderTest = Self;
-        type Reference = WorkingCopyWithSelectionStateMachine;
-
-        fn init_test(ref_state: &Self::Reference) -> Self::SystemUnderTest {
-            let test_repo = TestRepo::init();
-            let initial_tree = ref_state.working_copy.create_tree(&test_repo.repo);
-            Self {
-                test_repo,
-                prev_tree: initial_tree,
-                prev_file_list: BTreeSet::new(),
-            }
+    #[hegel::state_machine]
+    impl EditDiffBuiltinPartialSelectionPropTest {
+        #[rule]
+        fn commit(&mut self, _: hegel::TestCase) {
+            self.prev_tree = self.model.create_tree(&self.test_repo.repo);
+            self.prev_file_list = self.model.paths().map(ToOwned::to_owned).collect();
         }
 
-        fn apply(
-            state: Self::SystemUnderTest,
-            ref_state: &Self::Reference,
-            transition: <Self::Reference as ReferenceStateMachine>::Transition,
-        ) -> Self::SystemUnderTest {
-            match transition {
-                Transition::Commit => {
-                    let prev_tree = ref_state.working_copy.create_tree(&state.test_repo.repo);
-                    let prev_file_list = ref_state
-                        .working_copy
-                        .paths()
-                        .map(ToOwned::to_owned)
-                        .collect();
-                    Self {
-                        test_repo: state.test_repo,
-                        prev_tree,
-                        prev_file_list,
-                    }
-                }
-
-                Transition::SetDirEntry { .. } => {
-                    // Do nothing; this is handled by the reference state machine.
-                    state
-                }
-            }
+        #[rule]
+        fn create_entry(&mut self, tc: hegel::TestCase) {
+            let transition = self.model.draw_create_transition(&tc);
+            self.model.apply(&transition);
         }
 
-        fn check_invariants(state: &Self::SystemUnderTest, ref_state: &Self::Reference) {
-            let store = state.test_repo.repo.store();
-            let left_tree = &state.prev_tree;
-            let right_tree = ref_state.working_copy.create_tree(&state.test_repo.repo);
+        #[rule]
+        fn modify_entry(&mut self, tc: hegel::TestCase) {
+            tc.assume(!self.model.is_empty());
+            let transition = self.model.draw_modify_transition(&tc);
+            self.model.apply(&transition);
+        }
 
-            let (changed_files, files) = make_diff(store, left_tree, &right_tree);
+        #[invariant(always_run)]
+        fn partial_selection_roundtrips(&self, tc: hegel::TestCase) {
+            let store = self.test_repo.repo.store();
+            let left_tree = &self.prev_tree;
+            let right_tree = self.model.create_tree(&self.test_repo.repo);
 
-            let mut files = files;
+            let (changed_files, mut files) = make_diff(store, left_tree, &right_tree);
+
             for (path, file) in changed_files.iter().zip(&mut files) {
-                for (section, selected) in file.sections.iter_mut().zip(&ref_state.selection_mask) {
-                    section.set_checked(*selected);
+                for section in &mut file.sections {
+                    match section {
+                        scm_record::Section::Changed { lines } => {
+                            for line in lines {
+                                line.is_checked = tc.draw(generators::booleans());
+                            }
+                        }
+                        scm_record::Section::FileMode { is_checked, .. }
+                        | scm_record::Section::Binary { is_checked, .. } => {
+                            *is_checked = tc.draw(generators::booleans());
+                        }
+                        scm_record::Section::Unchanged { .. } => {}
+                    }
                 }
 
                 // Sanity checks: Does the partial selection make sense on its own?
                 if let Some(scm_record::Section::FileMode { is_checked, mode }) =
                     file.sections.first()
                 {
-                    let did_file_exist = state.prev_file_list.contains(path);
+                    let did_file_exist = self.prev_file_list.contains(path);
                     let is_anything_selected = file.sections.iter().any(|sec| match sec {
                         scm_record::Section::FileMode { is_checked, .. }
                         | scm_record::Section::Binary { is_checked, .. } => *is_checked,
@@ -2370,7 +2341,7 @@ mod tests {
                     }
                 }
 
-                if state
+                if self
                     .prev_file_list
                     .iter()
                     .any(|f| f.ancestors().skip(1).contains(path.as_ref()))
@@ -2382,22 +2353,15 @@ mod tests {
                 if path
                     .ancestors()
                     .skip(1)
-                    .any(|dir| state.prev_file_list.contains(dir))
+                    .any(|dir| self.prev_file_list.contains(dir))
                 {
                     // Do not create files which would create directories overwriting files.
                     file.set_checked(false);
                 }
             }
 
-            eprintln!("selected changes: {files:#?}");
-
             let selected_changes_tree =
                 apply_diff(store, left_tree, &right_tree, &changed_files, &files);
-
-            eprintln!(
-                "selected changes intermediate tree:\n{}",
-                dump_tree(&selected_changes_tree)
-            );
 
             // Transform `files` to create the complementary set of changes:
             for file in &mut files {
@@ -2466,8 +2430,6 @@ mod tests {
                 file.set_checked(true);
             }
 
-            eprintln!("remaining changes: {files:#?}");
-
             let all_changes_tree = apply_diff(
                 store,
                 &selected_changes_tree,
@@ -2478,41 +2440,77 @@ mod tests {
             assert_tree_eq!(
                 right_tree,
                 all_changes_tree,
-                "all-changes tree was different",
+                "applying the remaining changes produced a different tree: {files:#?}",
             );
         }
     }
 
-    #[derive(Debug, Clone, Default)]
-    struct WorkingCopyWithSelectionStateMachine {
-        working_copy: WorkingCopyReferenceStateMachine,
-        selection_mask: Vec<bool>,
+    #[hegel::test]
+    fn test_edit_diff_builtin_partial_selection_hegel(tc: hegel::TestCase) {
+        let test_repo = TestRepo::init();
+        let model = WorkingCopyModel::default();
+        let prev_tree = model.create_tree(&test_repo.repo);
+        hegel::stateful::machine(EditDiffBuiltinPartialSelectionPropTest {
+            test_repo,
+            model,
+            prev_tree,
+            prev_file_list: BTreeSet::new(),
+        })
+        .run(tc);
     }
 
-    impl ReferenceStateMachine for WorkingCopyWithSelectionStateMachine {
-        type State = Self;
-        type Transition = <WorkingCopyReferenceStateMachine as ReferenceStateMachine>::Transition;
+    #[hegel::test]
+    fn test_edit_diff_builtin_partial_text_selection(tc: hegel::TestCase) {
+        let test_repo = TestRepo::init();
+        let store = test_repo.repo.store();
+        let path = repo_path("file");
 
-        fn init_state() -> BoxedStrategy<Self::State> {
-            (
-                WorkingCopyReferenceStateMachine::init_state(),
-                proptest::collection::vec(any::<bool>(), 20),
-            )
-                .prop_map(|(working_copy, selection_mask)| Self {
-                    working_copy,
-                    selection_mask,
-                })
-                .boxed()
+        // Generate one replacement hunk with distinct old and new lines. Build the expected
+        // contents from the input lines and choices before asking the diff editor for sections.
+        let draw_selection = || tc.draw(generators::vecs(generators::booleans()).max_size(8));
+        let removed = draw_selection();
+        let added = draw_selection();
+        let mut left = String::from("start\n");
+        let mut right = left.clone();
+        let mut expected = left.clone();
+        let mut selected = BTreeSet::new();
+        for (index, checked) in removed.into_iter().enumerate() {
+            let line = format!("old {index}\n");
+            left.push_str(&line);
+            if checked {
+                selected.insert(line);
+            } else {
+                expected.push_str(&line);
+            }
         }
+        for (index, checked) in added.into_iter().enumerate() {
+            let line = format!("new {index}\n");
+            right.push_str(&line);
+            if checked {
+                expected.push_str(&line);
+                selected.insert(line);
+            }
+        }
+        for contents in [&mut left, &mut right, &mut expected] {
+            contents.push_str("end\n");
+        }
+        let make_tree =
+            |contents: &str| testutils::create_tree(&test_repo.repo, &[(path, contents)]);
+        let left_tree = make_tree(&left);
+        let right_tree = make_tree(&right);
+        let expected_tree = make_tree(&expected);
 
-        fn transitions(state: &Self::State) -> BoxedStrategy<Self::Transition> {
-            WorkingCopyReferenceStateMachine::transitions(&state.working_copy)
+        let (changed_files, mut files) = make_diff(store, &left_tree, &right_tree);
+        for file in &mut files {
+            for section in &mut file.sections {
+                if let scm_record::Section::Changed { lines } = section {
+                    for line in lines {
+                        line.is_checked = selected.contains(line.line.as_ref());
+                    }
+                }
+            }
         }
-
-        fn apply(mut state: Self::State, transition: &Self::Transition) -> Self::State {
-            state.working_copy =
-                WorkingCopyReferenceStateMachine::apply(state.working_copy, transition);
-            state
-        }
+        let actual_tree = apply_diff(store, &left_tree, &right_tree, &changed_files, &files);
+        assert_tree_eq!(expected_tree, actual_tree, "selected lines: {selected:?}");
     }
 }

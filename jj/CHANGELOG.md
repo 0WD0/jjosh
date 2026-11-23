@@ -17,10 +17,22 @@ and this project adheres to
   (`git.private-commits`). Commits that are already on the remote being pushed
   to are still not checked.
 
+* `jj gerrit upload` now uploads the ancestors of the given revisions that are
+  not on the remote instead of their mutable ancestors. It fails if any of them
+  are immutable, since they need to be rewritten to add a `Change-Id` trailer.
+  Revisions that are already on the remote are no longer rejected as immutable.
+
 * Deleted `jj debug snapshot`. It was deprecated in 0.39.0. Use `jj util snapshot`
   instead.
 
+* `jj bookmark set` and `jj bookmark move` now move bookmarks backwards or
+  sideways with a warning instead of failing. `--allow-backwards` is deprecated.
+  [#8808](https://github.com/jj-vcs/jj/issues/8808)
+
 ### Deprecations
+
+* The `--allow-backwards` flag for `jj bookmark set` and `jj bookmark move` is
+  now a no-op.
 
 ### New features
 
@@ -29,6 +41,21 @@ and this project adheres to
   for each use, so this is effectively the same as defining temporary template
   aliases for each expression (currently no performance benefit).
 
+* `jj interdiff`'s `--from` and `--to` options now accept revsets that resolve
+  to multiple revisions; each side is treated as if its revisions were
+  squashed into a single revision first.
+  [#8281](https://github.com/jj-vcs/jj/issues/8281)
+
+* `jj git clone` now uses the object format (SHA-1 or SHA-256) of the remote
+  repository, unless `--object-hash` is given. The format of an empty remote
+  can't be detected yet, so `git.object-hash` is still used in that case.
+  [#3813](https://github.com/jj-vcs/jj/issues/3813)
+
+* Using the `json` template function with `ui.log-word-wrap` set to `true` now
+  emits a warning that the output may be broken due to potential wrapping in the
+  middle of JSON output. Users should set the config option to `false` to avoid
+  receiving invalid JSON objects on small terminals.
+
 ### Fixed bugs
 
 * In colocated workspaces, `--ignore-working-copy` and `--at-op` now prevent
@@ -36,6 +63,19 @@ and this project adheres to
 
 * Fixed `jj git push` failure when pushing to multiple remotes with empty
   updates. [#10647](https://github.com/jj-vcs/jj/issues/10647)
+
+* A conflict where a path is a directory in some terms and a file in others is
+  now treated as a directory when the non-directory terms cancel out. Such a
+  path is also no longer listed as a directory/file conflict, and its
+  conflicted files are listed instead.
+
+* A conflict where a path is a directory in some terms and a file in others is
+  now treated as a file conflict when the directory terms cancel out, so it is
+  materialized with conflict markers.
+
+* `jj converge` no longer prompts for an author when divergent commits have
+  the same author name and email but different timestamps.
+  [#10261](https://github.com/jj-vcs/jj/issues/10261)
 
 ## [0.47.1] - 2026-11-04
 

@@ -171,19 +171,12 @@ fn test_gerrit_upload_default_revision_already_in_trunk() {
     local_dir.run_jj(["describe", "-m="]).success();
 
     let output = local_dir.run_jj(["gerrit", "upload", "--dry-run"]);
-    insta::assert_snapshot!(output, @r#"
+    insta::assert_snapshot!(output, @"
     ------- stderr -------
     No revision provided and @ has no description. Defaulting to @-
-    Error: Commit 57df4838fd85 is immutable
-    Hint: Could not modify commit: rlvkpnrz 57df4838 main@origin | main
-    Hint: Immutable commits are used to protect shared history.
-    Hint: For more information, see:
-          - https://docs.jj-vcs.dev/latest/config/#set-of-immutable-commits
-          - `jj help -k config`, "Set of immutable commits"
-    Hint: This operation would rewrite 1 immutable commits.
+    No revisions to upload.
     [EOF]
-    [exit status: 1]
-    "#);
+    ");
 }
 
 #[test]
@@ -304,6 +297,36 @@ fn test_gerrit_upload_failure() {
 }
 
 #[test]
+fn test_gerrit_upload_object_format_mismatch() {
+    let test_env = TestEnvironment::default();
+    test_env
+        .run_jj_in(".", ["git", "init", "--colocate", "remote"])
+        .success();
+    let remote_dir = test_env.work_dir("remote");
+    create_commit(&remote_dir, "a", &[]);
+
+    test_env
+        .run_jj_in(".", ["git", "init", "--object-hash=sha256", "local"])
+        .success();
+    let local_dir = test_env.work_dir("local");
+    local_dir
+        .run_jj(["git", "remote", "add", "origin", "../remote"])
+        .success();
+    create_commit(&local_dir, "b", &[]);
+
+    let output = local_dir.run_jj(["gerrit", "upload", "-r", "b", "--remote-branch=main"]);
+    insta::assert_snapshot!(output, @"
+    ------- stderr -------
+    Found 1 heads to push to Gerrit (remote 'origin'), target branch 'main'.
+    Pushing royxmykx 00398bf1 b | b
+    Error: The remote repository uses a different object format
+    Hint: jj cannot convert between object formats. To use this remote, clone it into a new repository with `jj git clone`.
+    [EOF]
+    [exit status: 1]
+    ");
+}
+
+#[test]
 fn test_gerrit_upload_local_implicit_change_ids() {
     let test_env = TestEnvironment::default();
     test_env
@@ -393,6 +416,39 @@ fn test_gerrit_upload_local_implicit_change_ids() {
         a
     [EOF]
     ");
+}
+
+#[test]
+fn test_gerrit_upload_immutable_ancestor_not_on_remote() {
+    let test_env = TestEnvironment::default();
+    test_env
+        .run_jj_in(".", ["git", "init", "--colocate", "remote"])
+        .success();
+    let remote_dir = test_env.work_dir("remote");
+    create_commit(&remote_dir, "a", &[]);
+
+    test_env
+        .run_jj_in(".", ["git", "clone", "remote", "local"])
+        .success();
+    let local_dir = test_env.work_dir("local");
+    create_commit(&local_dir, "b", &["a@origin"]);
+    create_commit(&local_dir, "c", &["b"]);
+    test_env.add_config(r#"revset-aliases."immutable_heads()" = "builtin_immutable_heads() | b""#);
+
+    // `b` is immutable but not on the remote
+    let output = local_dir.run_jj(["gerrit", "upload", "-r", "c", "--remote-branch=main"]);
+    insta::assert_snapshot!(output, @r#"
+    ------- stderr -------
+    Error: Commit 3bcb28c476e3 is immutable
+    Hint: Could not modify commit: mzvwutvl 3bcb28c4 b | b
+    Hint: Immutable commits are used to protect shared history.
+    Hint: For more information, see:
+          - https://docs.jj-vcs.dev/latest/config/#set-of-immutable-commits
+          - `jj help -k config`, "Set of immutable commits"
+    Hint: This operation would rewrite 1 immutable commits.
+    [EOF]
+    [exit status: 1]
+    "#);
 }
 
 #[test]

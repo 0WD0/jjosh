@@ -37,8 +37,8 @@ You can enable JSON Schema validation in your editor by adding a `#:schema`
 reference at the top of your TOML config files. See [JSON Schema Support] for
 details.
 
-See the [TOML site] and the [syntax guide] for a detailed description of the
-syntax. We cover some of the basics below.
+See the [TOML site] and the [syntax guide (v1.1.0)][TOML syntax pinned] for a
+detailed description of the syntax. We cover some of the basics below.
 
 The first thing to remember is that the value of a setting (the part to the
 right of the `=` sign) should be surrounded in quotes if it's a string.
@@ -46,9 +46,9 @@ right of the `=` sign) should be surrounded in quotes if it's a string.
 [config dir]: https://github.com/jj-vcs/jj/blob/main/cli/src/config/
 [JSON Schema Support]: #json-schema-support
 [specified on the command-line]: #specifying-config-on-the-command-line
-[syntax guide]: https://toml.io/en/latest
 [the user config files]: #user-config-files
 [TOML site]: https://toml.io/en/
+[TOML syntax pinned]: https://toml.io/en/v1.1.0
 
 ### Dotted style and headings
 
@@ -139,7 +139,7 @@ email = "YOUR_EMAIL@example.com"
 Don't forget to change these to your own details!
 
 These can also be set with environment variables (handy with tools like
-[direnv](https://direenv.net/)):
+[direnv](https://direnv.net/)):
 
 ```bash
 export JJ_USER="Your Name"
@@ -817,13 +817,13 @@ Can be customized by the `format_short_id()` template alias.
 
 ```toml
 [template-aliases]
-# Highlight unique prefix and show at least 12 characters (default)
+# Highlight unique prefix and show at least 12 characters (default config uses 8).
 'format_short_id(id)' = 'id.shortest(12)'
-# Just the shortest possible unique prefix
+# Just the shortest possible unique prefix.
 'format_short_id(id)' = 'id.shortest()'
-# Show unique prefix and the rest surrounded by brackets
+# Show unique prefix and the rest of a 12-character prefix surrounded by brackets.
 'format_short_id(id)' = 'id.shortest(12).prefix() ++ "[" ++ id.shortest(12).rest() ++ "]"'
-# Always show 12 characters
+# Always show 12 characters without highlighting the unique prefix.
 'format_short_id(id)' = 'id.short(12)'
 ```
 
@@ -1080,10 +1080,12 @@ l.definition = ["log", "-r", "(main..@):: | (main..@)-"]
 l.doc = "Log pending changes"
 ```
 
-This alias syntax can only run a single jj command. However, you may want to
-execute multiple jj commands with a single alias, or run arbitrary scripts that
-complement your version control workflow. This can be done, but be aware of the
-danger:
+### Alias arbitrary commands
+
+The alias syntax above can only run a single jj command. However, you may want
+to execute multiple jj commands with a single alias, or run arbitrary scripts
+that complement your version control workflow. This can be done, but be aware of
+the danger:
 
 !!! warning
 
@@ -1884,7 +1886,8 @@ namely SHA-256.
 
 Currently, the object hash function can only be set when initializing a new Git
 repository. The setting `git.object-hash` controls the default choice for that
-purpose. It can take the values `sha1` (default) and `sha256`.
+purpose. It can take the values `sha1` (default) and `sha256`. `jj git clone`
+uses the object hash function of the remote repository instead.
 
 Note that at the moment there is no interopability between the formats, and not
 all code forges support SHA-256 repositories yet.

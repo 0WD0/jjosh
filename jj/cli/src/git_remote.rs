@@ -168,7 +168,7 @@ pub fn commit_repo_config_update(
         updated.path(),
         gix::lock::acquire::Fail::Immediately,
         None,
-        0,
+        Default::default(),
     )
     .map_err(user_error)?;
     check_repo_config_unchanged(raw_config)?;

@@ -30,7 +30,6 @@ async-trait = { workspace = true }
 blake2 = { workspace = true }
 bstr = { workspace = true }
 digest = { workspace = true }
-dunce = { workspace = true }
 either = { workspace = true }
 futures = { workspace = true }
 gix = { workspace = true, optional = true, features = ["serde"] }
@@ -44,6 +43,7 @@ jj-default-index = { workspace = true }
 jj-dsl = { workspace = true }
 jj-git-backend = { workspace = true, optional = true }
 jj-local-util = { workspace = true }
+jj-simple-stores = { workspace = true }
 maplit = { workspace = true }
 memchr = { workspace = true }
 once_cell = { workspace = true }
@@ -65,12 +65,13 @@ tracing = { workspace = true }
 watchman_client = { workspace = true, optional = true }
 
 [dev-dependencies]
+dunce = { workspace = true }
 eyre = { workspace = true }
+hegeltest = { workspace = true }
 indoc = { workspace = true }
 insta = { workspace = true }
 num_cpus = { workspace = true }
 pretty_assertions = { workspace = true }
-proptest = { workspace = true }
 rustversion = { workspace = true }
 test-case = { workspace = true }
 testutils = { workspace = true }
@@ -81,7 +82,7 @@ nix = { workspace = true, features = [ "fs" ] }
 
 [features]
 default = ["git"]
-git = ["dep:gix", "dep:jj-git-backend"]
+git = ["dep:gix", "jj-simple-stores/git", "dep:jj-git-backend"]
 watchman = ["dep:watchman_client", "dep:tokio"]
 testing = ["git", "jj-default-index/testing", "jj-git-backend/testing"]
 

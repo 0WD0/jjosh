@@ -16,18 +16,22 @@
 //! (if the `git` feature is enabled), `SimpleOpStore`, `LocalWorkingCopy`, etc.
 
 use jj_default_index::DefaultIndexStore;
+#[cfg(feature = "testing")]
+use jj_git_backend::secret_backend::SecretBackend;
+use jj_simple_stores::simple_backend::SimpleBackend;
+use jj_simple_stores::simple_op_heads_store::SimpleOpHeadsStore;
+use jj_simple_stores::simple_op_store::SimpleOpStore;
 
 use crate::default_submodule_store::DefaultSubmoduleStore;
 use crate::local_working_copy::LocalWorkingCopy;
 use crate::local_working_copy::LocalWorkingCopyFactory;
-use crate::simple_backend::SimpleBackend;
-use crate::simple_op_heads_store::SimpleOpHeadsStore;
-use crate::simple_op_store::SimpleOpStore;
 use crate::simple_workspace_store::SimpleWorkspaceStore;
+use crate::store_factories::BackendInitializer;
 use crate::store_factories::IndexStoreInitializer;
 use crate::store_factories::OpHeadsStoreInitializer;
 use crate::store_factories::OpStoreInitializer;
 use crate::store_factories::StoreFactories;
+use crate::store_factories::StoreInitializers;
 use crate::store_factories::SubmoduleStoreInitializer;
 use crate::store_factories::WorkspaceStoreInitializer;
 use crate::working_copy::WorkingCopyFactory;
@@ -59,14 +63,12 @@ pub fn default_backend_factories() -> StoreFactories {
     );
     #[cfg(feature = "testing")]
     factories.add_backend(
-        jj_git_backend::secret_backend::SecretBackend::NAME,
+        SecretBackend::NAME,
         Box::new(|settings, store_path| {
             let git_settings = settings
                 .git_backend_settings()
                 .map_err(jj_core::backend::BackendLoadError::new)?;
-            Ok(Box::new(
-                jj_git_backend::secret_backend::SecretBackend::load(&git_settings, store_path)?,
-            ))
+            Ok(Box::new(SecretBackend::load(&git_settings, store_path)?))
         }),
     );
 
@@ -129,6 +131,26 @@ pub fn default_backend_factories() -> StoreFactories {
     factories
 }
 
+/// Returns the default store initializers.
+pub fn default_store_initializers() -> StoreInitializers<'static> {
+    StoreInitializers {
+        backend: default_backend_initializer(),
+        workspace_store: default_workspace_store_initializer(),
+        op_store: default_op_store_initializer(),
+        op_heads_store: default_op_heads_store_initializer(),
+        index_store: default_index_store_initializer(),
+        submodule_store: default_submodule_store_initializer(),
+    }
+}
+
+/// Returns the initializer for the default backend.
+pub fn default_backend_initializer() -> &'static BackendInitializer<'static> {
+    &|_settings, store_path| Ok(Box::new(SimpleBackend::init(store_path)))
+}
+
+#[cfg(feature = "git")]
+pub use git::git_backend_initializer;
+
 /// Returns the initializer for the default workspace store.
 pub fn default_workspace_store_initializer() -> &'static WorkspaceStoreInitializer<'static> {
     &|_settings, store_path| Ok(Box::new(SimpleWorkspaceStore::init(store_path)?))
@@ -182,4 +204,33 @@ pub fn default_working_copy_factory() -> Box<dyn WorkingCopyFactory> {
 /// Returns the default workspace loader factory.
 pub fn default_workspace_loader_factory() -> Box<dyn WorkspaceLoaderFactory> {
     Box::new(DefaultWorkspaceLoaderFactory)
+}
+
+#[cfg(feature = "git")]
+mod git {
+    use std::path::Path;
+
+    use jj_core::backend::Backend;
+    use jj_core::backend::BackendInitError;
+    use jj_git_backend::git_backend::GitBackend;
+    use jj_git_backend::git_backend::GitBackendInitError;
+    use jj_git_backend::git_backend::GitBackendSettings;
+
+    use crate::settings::UserSettings;
+
+    /// Returns a backend initializer that creates a `GitBackend` by calling `init`
+    /// with the Git backend settings from the user settings.
+    pub fn git_backend_initializer<'a, F>(
+        init: F,
+    ) -> impl Fn(&UserSettings, &Path) -> Result<Box<dyn Backend>, BackendInitError> + 'a
+    where
+        F: Fn(&GitBackendSettings, &Path) -> Result<GitBackend, Box<GitBackendInitError>> + 'a,
+    {
+        move |settings, store_path| {
+            let git_settings = settings
+                .git_backend_settings()
+                .map_err(BackendInitError::new)?;
+            Ok(Box::new(init(&git_settings, store_path)?))
+        }
+    }
 }

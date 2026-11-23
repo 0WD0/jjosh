@@ -17,7 +17,6 @@
 mod project;
 
 use std::any::Any;
-use std::cmp::Ordering;
 use std::cmp::max;
 use std::collections::HashMap;
 use std::fmt;
@@ -37,7 +36,6 @@ use jj_lib::backend::ChangeId;
 use jj_lib::backend::CommitId;
 use jj_lib::backend::MergedTreeValue;
 use jj_lib::backend::MergedTreeValueExt as _;
-use jj_lib::backend::Timestamp;
 use jj_lib::backend::TreeValue;
 use jj_lib::commit::Commit;
 use jj_lib::conflict_labels::ConflictLabels;
@@ -88,7 +86,6 @@ use jj_lib::signing::Verification;
 use jj_lib::store::Store;
 use jj_lib::template_parser;
 use jj_lib::template_parser::ExpressionNode;
-use jj_lib::template_parser::FunctionCallNode;
 use jj_lib::template_parser::TemplateDiagnostics;
 use jj_lib::template_parser::TemplateParseError;
 use jj_lib::template_parser::TemplateParseResult;
@@ -109,25 +106,20 @@ use crate::diff_util::DiffStatOptions;
 use crate::diff_util::DiffStats;
 use crate::formatter::Formatter;
 use crate::operation_templater;
-use crate::operation_templater::OperationTemplateBuildFnTable;
 use crate::operation_templater::OperationTemplateEnvironment;
-use crate::operation_templater::OperationTemplatePropertyKind;
-use crate::operation_templater::OperationTemplatePropertyVar;
 use crate::revset_util;
 use crate::revset_util::UserRevsetEvaluationError;
 use crate::template_builder;
-use crate::template_builder::BuildContext;
-use crate::template_builder::CoreTemplateBuildFnTable;
-use crate::template_builder::CoreTemplatePropertyKind;
-use crate::template_builder::CoreTemplatePropertyVar;
-use crate::template_builder::TemplateBuildFunctionFnMap;
-use crate::template_builder::TemplateBuildMethodFnMap;
 use crate::template_builder::TemplateLanguage;
+use crate::template_builder::TemplatePropertyKind;
+use crate::template_builder::TemplateSymbolTable;
 use crate::template_builder::expect_stringify_expression;
-use crate::template_builder::merge_fn_map;
+use crate::template_builder::register_formattable_list_methods;
+use crate::template_builder::register_unformattable_list_methods;
+use crate::template_value::OpaqueTemplateValue;
+use crate::template_value::TemplateTypeRegistry;
+use crate::template_value::TemplateValue;
 use crate::templater;
-use crate::templater::BoxedAnyProperty;
-use crate::templater::BoxedSerializeProperty;
 use crate::templater::BoxedTemplateProperty;
 use crate::templater::Literal;
 use crate::templater::NoTemplateBooleanCast;
@@ -136,11 +128,12 @@ use crate::templater::Template;
 use crate::templater::TemplateFormatter;
 use crate::templater::TemplatePropertyError;
 use crate::templater::TemplatePropertyExt as _;
-use crate::templater::list_to_boolean;
-use crate::templater::option_to_boolean;
 
 pub trait CommitTemplateLanguageExtension {
-    fn build_fn_table<'repo>(&self) -> CommitTemplateBuildFnTable<'repo>;
+    fn register_symbols<'repo>(
+        &self,
+        table: &mut TemplateSymbolTable<'repo, CommitTemplateLanguage<'repo>>,
+    );
 
     fn build_cache_extensions(&self, extensions: &mut ExtensionsMap);
 }
@@ -161,7 +154,8 @@ pub struct CommitTemplateLanguage<'repo> {
     id_prefix_context: &'repo IdPrefixContext,
     immutable_expression: Arc<UserRevsetExpression>,
     conflict_marker_style: ConflictMarkerStyle,
-    build_fn_table: CommitTemplateBuildFnTable<'repo>,
+    type_registry: TemplateTypeRegistry,
+    symbol_table: TemplateSymbolTable<'repo, Self>,
     keyword_cache: CommitKeywordCache,
     project: Option<jj_lib::project::ProjectId>,
     cache_extensions: ExtensionsMap,
@@ -181,14 +175,18 @@ impl<'repo> CommitTemplateLanguage<'repo> {
         conflict_marker_style: ConflictMarkerStyle,
         extensions: &[impl AsRef<dyn CommitTemplateLanguageExtension>],
     ) -> Self {
-        let mut build_fn_table = CommitTemplateBuildFnTable::builtin();
-        let mut cache_extensions = ExtensionsMap::empty();
+        let mut type_registry = template_builder::new_core_type_registry();
+        operation_templater::register_types(&mut type_registry);
+        register_types(&mut type_registry);
+        let mut symbol_table = TemplateSymbolTable::builtin();
+        operation_templater::register_symbols(&mut symbol_table);
+        register_symbols(&mut symbol_table);
 
+        let mut cache_extensions = ExtensionsMap::empty();
         for extension in extensions {
-            build_fn_table.merge(extension.as_ref().build_fn_table());
-            extension
-                .as_ref()
-                .build_cache_extensions(&mut cache_extensions);
+            let extension = extension.as_ref();
+            extension.register_symbols(&mut symbol_table);
+            extension.build_cache_extensions(&mut cache_extensions);
         }
 
         CommitTemplateLanguage {
@@ -199,7 +197,8 @@ impl<'repo> CommitTemplateLanguage<'repo> {
             id_prefix_context,
             immutable_expression,
             conflict_marker_style,
-            build_fn_table,
+            type_registry,
+            symbol_table,
             keyword_cache: CommitKeywordCache::default(),
             project: None,
             cache_extensions,
@@ -228,8 +227,6 @@ impl<'repo> CommitTemplateLanguage<'repo> {
 }
 
 impl<'repo> TemplateLanguage<'repo> for CommitTemplateLanguage<'repo> {
-    type Property = CommitTemplatePropertyKind<'repo>;
-
     fn settings(&self) -> &UserSettings {
         self.repo.base_repo().settings()
     }
@@ -238,246 +235,12 @@ impl<'repo> TemplateLanguage<'repo> for CommitTemplateLanguage<'repo> {
         self.path_converter.cwd()
     }
 
-    fn build_function(
-        &self,
-        diagnostics: &mut TemplateDiagnostics,
-        build_ctx: &BuildContext<Self::Property>,
-        function: &FunctionCallNode,
-    ) -> TemplateParseResult<Self::Property> {
-        let table = &self.build_fn_table.core;
-        table.build_function(self, diagnostics, build_ctx, function)
+    fn type_registry(&self) -> &TemplateTypeRegistry {
+        &self.type_registry
     }
 
-    fn build_method(
-        &self,
-        diagnostics: &mut TemplateDiagnostics,
-        build_ctx: &BuildContext<Self::Property>,
-        property: Self::Property,
-        function: &FunctionCallNode,
-    ) -> TemplateParseResult<Self::Property> {
-        let type_name = property.type_name();
-        match property {
-            CommitTemplatePropertyKind::Core(property) => {
-                let table = &self.build_fn_table.core;
-                table.build_method(self, diagnostics, build_ctx, property, function)
-            }
-            CommitTemplatePropertyKind::Operation(property) => {
-                let table = &self.build_fn_table.operation;
-                table.build_method(self, diagnostics, build_ctx, property, function)
-            }
-            CommitTemplatePropertyKind::Commit(property) => {
-                let table = &self.build_fn_table.commit_methods;
-                let build = template_parser::lookup_method(type_name, table, function)?;
-                build(self, diagnostics, build_ctx, property, function)
-            }
-            CommitTemplatePropertyKind::CommitOpt(property) => {
-                let inner_property = property.try_unwrap(type_name).into_dyn_wrapped();
-                self.build_method(diagnostics, build_ctx, inner_property, function)
-            }
-            CommitTemplatePropertyKind::CommitList(property) => {
-                let table = &self.build_fn_table.commit_list_methods;
-                let build = template_parser::lookup_method(type_name, table, function)?;
-                build(self, diagnostics, build_ctx, property, function)
-            }
-            CommitTemplatePropertyKind::CommitOptList(property) => {
-                let table = &self.build_fn_table.commit_opt_list_methods;
-                let build = template_parser::lookup_method(type_name, table, function)?;
-                build(self, diagnostics, build_ctx, property, function)
-            }
-            CommitTemplatePropertyKind::CommitEvolutionEntry(property) => {
-                let table = &self.build_fn_table.commit_evolution_entry_methods;
-                let build = template_parser::lookup_method(type_name, table, function)?;
-                build(self, diagnostics, build_ctx, property, function)
-            }
-            CommitTemplatePropertyKind::CommitRef(property) => {
-                let table = &self.build_fn_table.commit_ref_methods;
-                let build = template_parser::lookup_method(type_name, table, function)?;
-                build(self, diagnostics, build_ctx, property, function)
-            }
-            CommitTemplatePropertyKind::CommitRefOpt(property) => {
-                let inner_property = property.try_unwrap(type_name).into_dyn_wrapped();
-                self.build_method(diagnostics, build_ctx, inner_property, function)
-            }
-            CommitTemplatePropertyKind::CommitRefList(property) => {
-                let table = &self.build_fn_table.commit_ref_list_methods;
-                let build = template_parser::lookup_method(type_name, table, function)?;
-                build(self, diagnostics, build_ctx, property, function)
-            }
-            CommitTemplatePropertyKind::WorkspaceRef(property) => {
-                let table = &self.build_fn_table.workspace_ref_methods;
-                let build = template_parser::lookup_method(type_name, table, function)?;
-                build(self, diagnostics, build_ctx, property, function)
-            }
-            CommitTemplatePropertyKind::WorkspaceRefOpt(property) => {
-                let inner_property = property.try_unwrap(type_name).into_dyn_wrapped();
-                self.build_method(diagnostics, build_ctx, inner_property, function)
-            }
-            CommitTemplatePropertyKind::WorkspaceRefList(property) => {
-                let table = &self.build_fn_table.workspace_ref_list_methods;
-                let build = template_parser::lookup_method(type_name, table, function)?;
-                build(self, diagnostics, build_ctx, property, function)
-            }
-            CommitTemplatePropertyKind::ProjectRef(property) => {
-                let table = &self.build_fn_table.project_ref_methods;
-                let build = template_parser::lookup_method(type_name, table, function)?;
-                build(self, diagnostics, build_ctx, property, function)
-            }
-            CommitTemplatePropertyKind::ProjectRefOpt(property) => {
-                let inner_property = property.try_unwrap(type_name).into_dyn_wrapped();
-                self.build_method(diagnostics, build_ctx, inner_property, function)
-            }
-            CommitTemplatePropertyKind::ProjectRefList(property) => {
-                let table = &self.build_fn_table.project_ref_list_methods;
-                let build = template_parser::lookup_method(type_name, table, function)?;
-                build(self, diagnostics, build_ctx, property, function)
-            }
-            CommitTemplatePropertyKind::ProjectRemote(property) => {
-                let table = &self.build_fn_table.project_remote_methods;
-                let build = template_parser::lookup_method(type_name, table, function)?;
-                build(self, diagnostics, build_ctx, property, function)
-            }
-            CommitTemplatePropertyKind::ProjectRemoteOpt(property) => {
-                let inner_property = property.try_unwrap(type_name).into_dyn_wrapped();
-                self.build_method(diagnostics, build_ctx, inner_property, function)
-            }
-            CommitTemplatePropertyKind::ProjectRemoteList(property) => {
-                let table = &self.build_fn_table.project_remote_list_methods;
-                let build = template_parser::lookup_method(type_name, table, function)?;
-                build(self, diagnostics, build_ctx, property, function)
-            }
-            CommitTemplatePropertyKind::RefSymbol(property) => {
-                // Forward to String methods, but the type_name is "RefSymbol"
-                let table = &self.build_fn_table.core.string_methods;
-                let build = template_parser::lookup_method(type_name, table, function)?;
-                let inner_property = property.map(|RefSymbolBuf(s)| s).into_dyn();
-                build(self, diagnostics, build_ctx, inner_property, function)
-            }
-            CommitTemplatePropertyKind::RefSymbolOpt(property) => {
-                let inner_property = property.try_unwrap(type_name).into_dyn_wrapped();
-                self.build_method(diagnostics, build_ctx, inner_property, function)
-            }
-            CommitTemplatePropertyKind::RepoPath(property) => {
-                let table = &self.build_fn_table.repo_path_methods;
-                let build = template_parser::lookup_method(type_name, table, function)?;
-                build(self, diagnostics, build_ctx, property, function)
-            }
-            CommitTemplatePropertyKind::RepoPathOpt(property) => {
-                let inner_property = property.try_unwrap(type_name).into_dyn_wrapped();
-                self.build_method(diagnostics, build_ctx, inner_property, function)
-            }
-            CommitTemplatePropertyKind::ChangeId(property) => {
-                let table = &self.build_fn_table.change_id_methods;
-                let build = template_parser::lookup_method(type_name, table, function)?;
-                build(self, diagnostics, build_ctx, property, function)
-            }
-            CommitTemplatePropertyKind::CommitId(property) => {
-                let table = &self.build_fn_table.commit_id_methods;
-                let build = template_parser::lookup_method(type_name, table, function)?;
-                build(self, diagnostics, build_ctx, property, function)
-            }
-            CommitTemplatePropertyKind::ShortestIdPrefix(property) => {
-                let table = &self.build_fn_table.shortest_id_prefix_methods;
-                let build = template_parser::lookup_method(type_name, table, function)?;
-                build(self, diagnostics, build_ctx, property, function)
-            }
-            CommitTemplatePropertyKind::TreeDiff(property) => {
-                let table = &self.build_fn_table.tree_diff_methods;
-                let build = template_parser::lookup_method(type_name, table, function)?;
-                build(self, diagnostics, build_ctx, property, function)
-            }
-            CommitTemplatePropertyKind::TreeDiffEntry(property) => {
-                let table = &self.build_fn_table.tree_diff_entry_methods;
-                let build = template_parser::lookup_method(type_name, table, function)?;
-                build(self, diagnostics, build_ctx, property, function)
-            }
-            CommitTemplatePropertyKind::TreeDiffEntryOpt(property) => {
-                let inner_property = property.try_unwrap(type_name).into_dyn_wrapped();
-                self.build_method(diagnostics, build_ctx, inner_property, function)
-            }
-            CommitTemplatePropertyKind::TreeDiffEntryList(property) => {
-                let table = &self.build_fn_table.tree_diff_entry_list_methods;
-                let build = template_parser::lookup_method(type_name, table, function)?;
-                build(self, diagnostics, build_ctx, property, function)
-            }
-            CommitTemplatePropertyKind::TreeEntry(property) => {
-                let table = &self.build_fn_table.tree_entry_methods;
-                let build = template_parser::lookup_method(type_name, table, function)?;
-                build(self, diagnostics, build_ctx, property, function)
-            }
-            CommitTemplatePropertyKind::TreeEntryOpt(property) => {
-                let inner_property = property.try_unwrap(type_name).into_dyn_wrapped();
-                self.build_method(diagnostics, build_ctx, inner_property, function)
-            }
-            CommitTemplatePropertyKind::TreeEntryList(property) => {
-                let table = &self.build_fn_table.tree_entry_list_methods;
-                let build = template_parser::lookup_method(type_name, table, function)?;
-                build(self, diagnostics, build_ctx, property, function)
-            }
-            CommitTemplatePropertyKind::TreeValue(property) => {
-                let table = &self.build_fn_table.tree_value_methods;
-                let build = template_parser::lookup_method(type_name, table, function)?;
-                build(self, diagnostics, build_ctx, property, function)
-            }
-            CommitTemplatePropertyKind::TreeValueOpt(property) => {
-                let inner_property = property.try_unwrap(type_name).into_dyn_wrapped();
-                self.build_method(diagnostics, build_ctx, inner_property, function)
-            }
-            CommitTemplatePropertyKind::TreeValueOptList(property) => {
-                let table = &self.build_fn_table.tree_value_opt_list_methods;
-                let build = template_parser::lookup_method(type_name, table, function)?;
-                build(self, diagnostics, build_ctx, property, function)
-            }
-            CommitTemplatePropertyKind::DiffStats(property) => {
-                let table = &self.build_fn_table.diff_stats_methods;
-                let build = template_parser::lookup_method(type_name, table, function)?;
-                // Strip off formatting parameters which are needed only for the
-                // default template output.
-                let property = property.map(|formatted| formatted.stats).into_dyn();
-                build(self, diagnostics, build_ctx, property, function)
-            }
-            CommitTemplatePropertyKind::DiffStatEntry(property) => {
-                let table = &self.build_fn_table.diff_stat_entry_methods;
-                let build = template_parser::lookup_method(type_name, table, function)?;
-                build(self, diagnostics, build_ctx, property, function)
-            }
-            CommitTemplatePropertyKind::DiffStatEntryOpt(property) => {
-                let inner_property = property.try_unwrap(type_name).into_dyn_wrapped();
-                self.build_method(diagnostics, build_ctx, inner_property, function)
-            }
-            CommitTemplatePropertyKind::DiffStatEntryList(property) => {
-                let table = &self.build_fn_table.diff_stat_entry_list_methods;
-                let build = template_parser::lookup_method(type_name, table, function)?;
-                build(self, diagnostics, build_ctx, property, function)
-            }
-            CommitTemplatePropertyKind::CryptographicSignature(property) => {
-                let table = &self.build_fn_table.cryptographic_signature_methods;
-                let build = template_parser::lookup_method(type_name, table, function)?;
-                build(self, diagnostics, build_ctx, property, function)
-            }
-            CommitTemplatePropertyKind::CryptographicSignatureOpt(property) => {
-                let inner_property = property.try_unwrap(type_name).into_dyn_wrapped();
-                self.build_method(diagnostics, build_ctx, inner_property, function)
-            }
-            CommitTemplatePropertyKind::AnnotationLine(property) => {
-                let table = &self.build_fn_table.annotation_line_methods;
-                let build = template_parser::lookup_method(type_name, table, function)?;
-                build(self, diagnostics, build_ctx, property, function)
-            }
-            CommitTemplatePropertyKind::Trailer(property) => {
-                let table = &self.build_fn_table.trailer_methods;
-                let build = template_parser::lookup_method(type_name, table, function)?;
-                build(self, diagnostics, build_ctx, property, function)
-            }
-            CommitTemplatePropertyKind::TrailerOpt(property) => {
-                let inner_property = property.try_unwrap(type_name).into_dyn_wrapped();
-                self.build_method(diagnostics, build_ctx, inner_property, function)
-            }
-            CommitTemplatePropertyKind::TrailerList(property) => {
-                let table = &self.build_fn_table.trailer_list_methods;
-                let build = template_parser::lookup_method(type_name, table, function)?;
-                build(self, diagnostics, build_ctx, property, function)
-            }
-        }
+    fn symbol_table(&self) -> &TemplateSymbolTable<'repo, Self> {
+        &self.symbol_table
     }
 }
 
@@ -517,6 +280,27 @@ impl OperationTemplateEnvironment for CommitTemplateLanguage<'_> {
     }
 }
 
+impl OpaqueTemplateValue for Commit {}
+impl OpaqueTemplateValue for CommitEvolutionEntry {}
+impl OpaqueTemplateValue for Rc<CommitRef> {}
+impl OpaqueTemplateValue for WorkspaceRef {}
+impl OpaqueTemplateValue for Rc<ProjectRef> {}
+impl OpaqueTemplateValue for ProjectRemote {}
+impl OpaqueTemplateValue for RefSymbolBuf {}
+impl OpaqueTemplateValue for RepoPathBuf {}
+impl OpaqueTemplateValue for ChangeId {}
+impl OpaqueTemplateValue for CommitId {}
+impl OpaqueTemplateValue for ShortestIdPrefix {}
+impl OpaqueTemplateValue for TreeDiff {}
+impl OpaqueTemplateValue for TreeDiffEntry {}
+impl OpaqueTemplateValue for TreeEntry {}
+impl OpaqueTemplateValue for TreeValue {}
+impl OpaqueTemplateValue for DiffStatsFormatted {}
+impl OpaqueTemplateValue for DiffStatEntry {}
+impl OpaqueTemplateValue for CryptographicSignature {}
+impl OpaqueTemplateValue for AnnotationLine {}
+impl OpaqueTemplateValue for Trailer {}
+
 impl NoTemplateBooleanCast for Commit {}
 impl NoTemplateBooleanCast for CommitEvolutionEntry {}
 impl NoTemplateBooleanCast for Rc<CommitRef> {}
@@ -532,722 +316,200 @@ impl NoTemplateBooleanCast for TreeDiff {}
 impl NoTemplateBooleanCast for TreeDiffEntry {}
 impl NoTemplateBooleanCast for TreeEntry {}
 impl NoTemplateBooleanCast for TreeValue {}
-impl NoTemplateBooleanCast for DiffStatsFormatted<'_> {}
+impl NoTemplateBooleanCast for DiffStatsFormatted {}
 impl NoTemplateBooleanCast for DiffStatEntry {}
 impl NoTemplateBooleanCast for CryptographicSignature {}
 impl NoTemplateBooleanCast for AnnotationLine {}
 impl NoTemplateBooleanCast for Trailer {}
 
-pub enum CommitTemplatePropertyKind<'repo> {
-    Core(CoreTemplatePropertyKind<'repo>),
-    Operation(OperationTemplatePropertyKind<'repo>),
-    Commit(BoxedTemplateProperty<'repo, Commit>),
-    CommitOpt(BoxedTemplateProperty<'repo, Option<Commit>>),
-    CommitList(BoxedTemplateProperty<'repo, Vec<Commit>>),
-    CommitOptList(BoxedTemplateProperty<'repo, Vec<Option<Commit>>>),
-    CommitEvolutionEntry(BoxedTemplateProperty<'repo, CommitEvolutionEntry>),
-    CommitRef(BoxedTemplateProperty<'repo, Rc<CommitRef>>),
-    CommitRefOpt(BoxedTemplateProperty<'repo, Option<Rc<CommitRef>>>),
-    CommitRefList(BoxedTemplateProperty<'repo, Vec<Rc<CommitRef>>>),
-    WorkspaceRef(BoxedTemplateProperty<'repo, WorkspaceRef>),
-    WorkspaceRefOpt(BoxedTemplateProperty<'repo, Option<WorkspaceRef>>),
-    WorkspaceRefList(BoxedTemplateProperty<'repo, Vec<WorkspaceRef>>),
-    ProjectRef(BoxedTemplateProperty<'repo, Rc<ProjectRef>>),
-    ProjectRefOpt(BoxedTemplateProperty<'repo, Option<Rc<ProjectRef>>>),
-    ProjectRefList(BoxedTemplateProperty<'repo, Vec<Rc<ProjectRef>>>),
-    ProjectRemote(BoxedTemplateProperty<'repo, ProjectRemote>),
-    ProjectRemoteOpt(BoxedTemplateProperty<'repo, Option<ProjectRemote>>),
-    ProjectRemoteList(BoxedTemplateProperty<'repo, Vec<ProjectRemote>>),
-    RefSymbol(BoxedTemplateProperty<'repo, RefSymbolBuf>),
-    RefSymbolOpt(BoxedTemplateProperty<'repo, Option<RefSymbolBuf>>),
-    RepoPath(BoxedTemplateProperty<'repo, RepoPathBuf>),
-    RepoPathOpt(BoxedTemplateProperty<'repo, Option<RepoPathBuf>>),
-    ChangeId(BoxedTemplateProperty<'repo, ChangeId>),
-    CommitId(BoxedTemplateProperty<'repo, CommitId>),
-    ShortestIdPrefix(BoxedTemplateProperty<'repo, ShortestIdPrefix>),
-    TreeDiff(BoxedTemplateProperty<'repo, TreeDiff>),
-    TreeDiffEntry(BoxedTemplateProperty<'repo, TreeDiffEntry>),
-    TreeDiffEntryOpt(BoxedTemplateProperty<'repo, Option<TreeDiffEntry>>),
-    TreeDiffEntryList(BoxedTemplateProperty<'repo, Vec<TreeDiffEntry>>),
-    TreeEntry(BoxedTemplateProperty<'repo, TreeEntry>),
-    TreeEntryOpt(BoxedTemplateProperty<'repo, Option<TreeEntry>>),
-    TreeEntryList(BoxedTemplateProperty<'repo, Vec<TreeEntry>>),
-    TreeValue(BoxedTemplateProperty<'repo, TreeValue>),
-    TreeValueOpt(BoxedTemplateProperty<'repo, Option<TreeValue>>),
-    TreeValueOptList(BoxedTemplateProperty<'repo, Vec<Option<TreeValue>>>),
-    DiffStats(BoxedTemplateProperty<'repo, DiffStatsFormatted<'repo>>),
-    DiffStatEntry(BoxedTemplateProperty<'repo, DiffStatEntry>),
-    DiffStatEntryOpt(BoxedTemplateProperty<'repo, Option<DiffStatEntry>>),
-    DiffStatEntryList(BoxedTemplateProperty<'repo, Vec<DiffStatEntry>>),
-    CryptographicSignature(BoxedTemplateProperty<'repo, CryptographicSignature>),
-    CryptographicSignatureOpt(BoxedTemplateProperty<'repo, Option<CryptographicSignature>>),
-    AnnotationLine(BoxedTemplateProperty<'repo, AnnotationLine>),
-    Trailer(BoxedTemplateProperty<'repo, Trailer>),
-    TrailerOpt(BoxedTemplateProperty<'repo, Option<Trailer>>),
-    TrailerList(BoxedTemplateProperty<'repo, Vec<Trailer>>),
+fn register_types(registry: &mut TemplateTypeRegistry) {
+    registry.register::<Commit>("Commit").serializable();
+    registry
+        .register::<Option<Commit>>("Option<Commit>")
+        .conditionable()
+        .serializable();
+    registry
+        .register::<Vec<Commit>>("List<Commit>")
+        .conditionable()
+        .serializable();
+    registry
+        .register::<Vec<Option<Commit>>>("List<Option<Commit>>")
+        .conditionable()
+        .serializable();
+    registry
+        .register::<CommitEvolutionEntry>("CommitEvolutionEntry")
+        .serializable();
+    registry
+        .register::<Rc<CommitRef>>("CommitRef")
+        .formattable()
+        .serializable();
+    registry
+        .register::<Option<Rc<CommitRef>>>("Option<CommitRef>")
+        .conditionable()
+        .formattable()
+        .serializable();
+    registry
+        .register::<Vec<Rc<CommitRef>>>("List<CommitRef>")
+        .conditionable()
+        .formattable()
+        .serializable();
+    registry
+        .register::<WorkspaceRef>("WorkspaceRef")
+        .formattable()
+        .serializable();
+    registry
+        .register::<Option<WorkspaceRef>>("Option<WorkspaceRef>")
+        .conditionable()
+        .formattable()
+        .serializable();
+    registry
+        .register::<Vec<WorkspaceRef>>("List<WorkspaceRef>")
+        .conditionable()
+        .formattable()
+        .serializable();
+    registry
+        .register::<Rc<ProjectRef>>("ProjectRef")
+        .formattable()
+        .serializable();
+    registry
+        .register::<Option<Rc<ProjectRef>>>("Option<ProjectRef>")
+        .conditionable()
+        .formattable()
+        .serializable();
+    registry
+        .register::<Vec<Rc<ProjectRef>>>("List<ProjectRef>")
+        .conditionable()
+        .formattable()
+        .serializable();
+    registry
+        .register::<ProjectRemote>("ProjectRemote")
+        .formattable()
+        .serializable();
+    registry
+        .register::<Option<ProjectRemote>>("Option<ProjectRemote>")
+        .conditionable()
+        .formattable()
+        .serializable();
+    registry
+        .register::<Vec<ProjectRemote>>("List<ProjectRemote>")
+        .conditionable()
+        .formattable()
+        .serializable();
+    registry
+        .register::<RefSymbolBuf>("RefSymbol")
+        .newtype_of::<String>()
+        .formattable()
+        .serializable()
+        .equatable()
+        .equatable_with::<String>();
+    registry
+        .register::<Option<RefSymbolBuf>>("Option<RefSymbol>")
+        .conditionable()
+        .formattable()
+        .serializable()
+        .equatable();
+    registry
+        .register::<RepoPathBuf>("RepoPath")
+        .formattable()
+        .serializable();
+    registry
+        .register::<Option<RepoPathBuf>>("Option<RepoPath>")
+        .conditionable()
+        .formattable()
+        .serializable();
+    registry
+        .register::<ChangeId>("ChangeId")
+        .formattable()
+        .serializable();
+    registry
+        .register::<CommitId>("CommitId")
+        .formattable()
+        .serializable();
+    registry
+        .register::<ShortestIdPrefix>("ShortestIdPrefix")
+        .formattable()
+        .serializable();
+    registry.register::<TreeDiff>("TreeDiff");
+    registry.register::<TreeDiffEntry>("TreeDiffEntry");
+    registry
+        .register::<Option<TreeDiffEntry>>("Option<TreeDiffEntry>")
+        .conditionable();
+    registry
+        .register::<Vec<TreeDiffEntry>>("List<TreeDiffEntry>")
+        .conditionable();
+    registry.register::<TreeEntry>("TreeEntry");
+    registry
+        .register::<Option<TreeEntry>>("Option<TreeEntry>")
+        .conditionable();
+    registry
+        .register::<Vec<TreeEntry>>("List<TreeEntry>")
+        .conditionable();
+    registry.register::<TreeValue>("TreeValue").formattable();
+    registry
+        .register::<Option<TreeValue>>("Option<TreeValue>")
+        .conditionable()
+        .formattable();
+    registry
+        .register::<Vec<Option<TreeValue>>>("List<Option<TreeValue>>")
+        .conditionable();
+    registry
+        .register::<DiffStatsFormatted>("DiffStats")
+        .formattable();
+    registry.register::<DiffStatEntry>("DiffStatEntry");
+    registry
+        .register::<Option<DiffStatEntry>>("Option<DiffStatEntry>")
+        .conditionable();
+    registry
+        .register::<Vec<DiffStatEntry>>("List<DiffStatEntry>")
+        .conditionable();
+    registry.register::<CryptographicSignature>("CryptographicSignature");
+    registry
+        .register::<Option<CryptographicSignature>>("Option<CryptographicSignature>")
+        .conditionable();
+    registry.register::<AnnotationLine>("AnnotationLine");
+    registry.register::<Trailer>("Trailer").formattable();
+    registry
+        .register::<Option<Trailer>>("Option<Trailer>")
+        .conditionable()
+        .formattable();
+    registry
+        .register::<Vec<Trailer>>("List<Trailer>")
+        .conditionable()
+        .formattable();
 }
 
-template_builder::impl_core_property_wrappers!(<'repo> CommitTemplatePropertyKind<'repo> => Core);
-operation_templater::impl_operation_property_wrappers!(<'repo> CommitTemplatePropertyKind<'repo> => Operation);
-template_builder::impl_property_wrappers!(<'repo> CommitTemplatePropertyKind<'repo> {
-    Commit(Commit),
-    CommitOpt(Option<Commit>),
-    CommitList(Vec<Commit>),
-    CommitOptList(Vec<Option<Commit>>),
-    CommitEvolutionEntry(CommitEvolutionEntry),
-    CommitRef(Rc<CommitRef>),
-    CommitRefOpt(Option<Rc<CommitRef>>),
-    CommitRefList(Vec<Rc<CommitRef>>),
-    WorkspaceRef(WorkspaceRef),
-    WorkspaceRefOpt(Option<WorkspaceRef>),
-    WorkspaceRefList(Vec<WorkspaceRef>),
-    ProjectRef(Rc<ProjectRef>),
-    ProjectRefOpt(Option<Rc<ProjectRef>>),
-    ProjectRefList(Vec<Rc<ProjectRef>>),
-    ProjectRemote(ProjectRemote),
-    ProjectRemoteOpt(Option<ProjectRemote>),
-    ProjectRemoteList(Vec<ProjectRemote>),
-    RefSymbol(RefSymbolBuf),
-    RefSymbolOpt(Option<RefSymbolBuf>),
-    RepoPath(RepoPathBuf),
-    RepoPathOpt(Option<RepoPathBuf>),
-    ChangeId(ChangeId),
-    CommitId(CommitId),
-    ShortestIdPrefix(ShortestIdPrefix),
-    TreeDiff(TreeDiff),
-    TreeDiffEntry(TreeDiffEntry),
-    TreeDiffEntryOpt(Option<TreeDiffEntry>),
-    TreeDiffEntryList(Vec<TreeDiffEntry>),
-    TreeEntry(TreeEntry),
-    TreeEntryOpt(Option<TreeEntry>),
-    TreeEntryList(Vec<TreeEntry>),
-    TreeValue(TreeValue),
-    TreeValueOpt(Option<TreeValue>),
-    TreeValueOptList(Vec<Option<TreeValue>>),
-    DiffStats(DiffStatsFormatted<'repo>),
-    DiffStatEntry(DiffStatEntry),
-    DiffStatEntryOpt(Option<DiffStatEntry>),
-    DiffStatEntryList(Vec<DiffStatEntry>),
-    CryptographicSignature(CryptographicSignature),
-    CryptographicSignatureOpt(Option<CryptographicSignature>),
-    AnnotationLine(AnnotationLine),
-    Trailer(Trailer),
-    TrailerOpt(Option<Trailer>),
-    TrailerList(Vec<Trailer>),
-});
-
-impl<'repo> CoreTemplatePropertyVar<'repo> for CommitTemplatePropertyKind<'repo> {
-    fn wrap_template(template: Box<dyn Template + 'repo>) -> Self {
-        Self::Core(CoreTemplatePropertyKind::wrap_template(template))
-    }
-
-    fn wrap_any(property: BoxedAnyProperty<'repo>) -> Self {
-        Self::Core(CoreTemplatePropertyKind::wrap_any(property))
-    }
-
-    fn wrap_any_list(property: BoxedAnyProperty<'repo>) -> Self {
-        Self::Core(CoreTemplatePropertyKind::wrap_any_list(property))
-    }
-
-    fn type_name(&self) -> &'static str {
-        match self {
-            Self::Core(property) => property.type_name(),
-            Self::Operation(property) => property.type_name(),
-            Self::Commit(_) => "Commit",
-            Self::CommitOpt(_) => "Option<Commit>",
-            Self::CommitList(_) => "List<Commit>",
-            Self::CommitOptList(_) => "List<Option<Commit>>",
-            Self::CommitEvolutionEntry(_) => "CommitEvolutionEntry",
-            Self::CommitRef(_) => "CommitRef",
-            Self::CommitRefOpt(_) => "Option<CommitRef>",
-            Self::CommitRefList(_) => "List<CommitRef>",
-            Self::WorkspaceRef(_) => "WorkspaceRef",
-            Self::WorkspaceRefOpt(_) => "Option<WorkspaceRef>",
-            Self::WorkspaceRefList(_) => "List<WorkspaceRef>",
-            Self::ProjectRef(_) => "ProjectRef",
-            Self::ProjectRefOpt(_) => "Option<ProjectRef>",
-            Self::ProjectRefList(_) => "List<ProjectRef>",
-            Self::ProjectRemote(_) => "ProjectRemote",
-            Self::ProjectRemoteOpt(_) => "Option<ProjectRemote>",
-            Self::ProjectRemoteList(_) => "List<ProjectRemote>",
-            Self::RefSymbol(_) => "RefSymbol",
-            Self::RefSymbolOpt(_) => "Option<RefSymbol>",
-            Self::RepoPath(_) => "RepoPath",
-            Self::RepoPathOpt(_) => "Option<RepoPath>",
-            Self::ChangeId(_) => "ChangeId",
-            Self::CommitId(_) => "CommitId",
-            Self::ShortestIdPrefix(_) => "ShortestIdPrefix",
-            Self::TreeDiff(_) => "TreeDiff",
-            Self::TreeDiffEntry(_) => "TreeDiffEntry",
-            Self::TreeDiffEntryOpt(_) => "Option<TreeDiffEntry>",
-            Self::TreeDiffEntryList(_) => "List<TreeDiffEntry>",
-            Self::TreeEntry(_) => "TreeEntry",
-            Self::TreeEntryOpt(_) => "Option<TreeEntry>",
-            Self::TreeEntryList(_) => "List<TreeEntry>",
-            Self::TreeValue(_) => "TreeValue",
-            Self::TreeValueOpt(_) => "Option<TreeValue>",
-            Self::TreeValueOptList(_) => "List<Option<TreeValue>>",
-            Self::DiffStats(_) => "DiffStats",
-            Self::DiffStatEntry(_) => "DiffStatEntry",
-            Self::DiffStatEntryOpt(_) => "Option<DiffStatEntry>",
-            Self::DiffStatEntryList(_) => "List<DiffStatEntry>",
-            Self::CryptographicSignature(_) => "CryptographicSignature",
-            Self::CryptographicSignatureOpt(_) => "Option<CryptographicSignature>",
-            Self::AnnotationLine(_) => "AnnotationLine",
-            Self::Trailer(_) => "Trailer",
-            Self::TrailerOpt(_) => "Option<Trailer>",
-            Self::TrailerList(_) => "List<Trailer>",
-        }
-    }
-
-    fn try_into_byte_string(self) -> Result<BoxedTemplateProperty<'repo, BString>, Self> {
-        match self {
-            Self::Core(property) => property.try_into_byte_string().map_err(Self::Core),
-            Self::Operation(property) => property.try_into_byte_string().map_err(Self::Operation),
-            _ => Err(self),
-        }
-    }
-
-    fn try_into_string(self) -> Result<BoxedTemplateProperty<'repo, String>, Self> {
-        match self {
-            Self::Core(property) => property.try_into_string().map_err(Self::Core),
-            Self::Operation(property) => property.try_into_string().map_err(Self::Operation),
-            Self::RefSymbol(property) => Ok(property.map(|RefSymbolBuf(s)| s).into_dyn()),
-            Self::RefSymbolOpt(property) => Ok(property
-                .map(|opt| opt.map_or_else(String::new, |RefSymbolBuf(s)| s))
-                .into_dyn()),
-            _ => Err(self),
-        }
-    }
-
-    fn try_into_boolean(self) -> Result<BoxedTemplateProperty<'repo, bool>, Self> {
-        match self {
-            Self::Core(property) => property.try_into_boolean().map_err(Self::Core),
-            Self::Operation(property) => property.try_into_boolean().map_err(Self::Operation),
-            Self::Commit(_) => Err(self),
-            Self::CommitOpt(property) => Ok(option_to_boolean(property)),
-            Self::CommitList(property) => Ok(list_to_boolean(property)),
-            Self::CommitOptList(property) => Ok(list_to_boolean(property)),
-            Self::CommitEvolutionEntry(_) => Err(self),
-            Self::CommitRef(_) => Err(self),
-            Self::CommitRefOpt(property) => Ok(option_to_boolean(property)),
-            Self::CommitRefList(property) => Ok(list_to_boolean(property)),
-            Self::WorkspaceRef(_) => Err(self),
-            Self::WorkspaceRefOpt(property) => Ok(option_to_boolean(property)),
-            Self::WorkspaceRefList(property) => Ok(list_to_boolean(property)),
-            Self::ProjectRef(_) => Err(self),
-            Self::ProjectRefOpt(property) => Ok(option_to_boolean(property)),
-            Self::ProjectRefList(property) => Ok(list_to_boolean(property)),
-            Self::ProjectRemote(_) => Err(self),
-            Self::ProjectRemoteOpt(property) => Ok(option_to_boolean(property)),
-            Self::ProjectRemoteList(property) => Ok(list_to_boolean(property)),
-            Self::RefSymbol(_) => Err(self),
-            Self::RefSymbolOpt(property) => Ok(option_to_boolean(property)),
-            Self::RepoPath(_) => Err(self),
-            Self::RepoPathOpt(property) => Ok(option_to_boolean(property)),
-            Self::ChangeId(_) => Err(self),
-            Self::CommitId(_) => Err(self),
-            Self::ShortestIdPrefix(_) => Err(self),
-            // TODO: boolean cast could be implemented, but explicit
-            // diff.empty() method might be better.
-            Self::TreeDiff(_) => Err(self),
-            Self::TreeDiffEntry(_) => Err(self),
-            Self::TreeDiffEntryOpt(property) => Ok(option_to_boolean(property)),
-            Self::TreeDiffEntryList(property) => Ok(list_to_boolean(property)),
-            Self::TreeEntry(_) => Err(self),
-            Self::TreeEntryOpt(property) => Ok(option_to_boolean(property)),
-            Self::TreeEntryList(property) => Ok(list_to_boolean(property)),
-            Self::TreeValue(_) => Err(self),
-            Self::TreeValueOpt(property) => Ok(option_to_boolean(property)),
-            Self::TreeValueOptList(property) => Ok(list_to_boolean(property)),
-            Self::DiffStats(_) => Err(self),
-            Self::DiffStatEntry(_) => Err(self),
-            Self::DiffStatEntryOpt(property) => Ok(option_to_boolean(property)),
-            Self::DiffStatEntryList(property) => Ok(list_to_boolean(property)),
-            Self::CryptographicSignature(_) => Err(self),
-            Self::CryptographicSignatureOpt(property) => Ok(option_to_boolean(property)),
-            Self::AnnotationLine(_) => Err(self),
-            Self::Trailer(_) => Err(self),
-            Self::TrailerOpt(property) => Ok(option_to_boolean(property)),
-            Self::TrailerList(property) => Ok(list_to_boolean(property)),
-        }
-    }
-
-    fn try_into_integer(self) -> Result<BoxedTemplateProperty<'repo, i64>, Self> {
-        match self {
-            Self::Core(property) => property.try_into_integer().map_err(Self::Core),
-            Self::Operation(property) => property.try_into_integer().map_err(Self::Operation),
-            _ => Err(self),
-        }
-    }
-
-    fn try_into_timestamp(self) -> Result<BoxedTemplateProperty<'repo, Timestamp>, Self> {
-        match self {
-            Self::Core(property) => property.try_into_timestamp().map_err(Self::Core),
-            Self::Operation(property) => property.try_into_timestamp().map_err(Self::Operation),
-            _ => Err(self),
-        }
-    }
-
-    fn try_into_serialize(self) -> Option<BoxedSerializeProperty<'repo>> {
-        match self {
-            Self::Core(property) => property.try_into_serialize(),
-            Self::Operation(property) => property.try_into_serialize(),
-            Self::Commit(property) => Some(property.into_serialize()),
-            Self::CommitOpt(property) => Some(property.into_serialize()),
-            Self::CommitList(property) => Some(property.into_serialize()),
-            Self::CommitOptList(property) => Some(property.into_serialize()),
-            Self::CommitEvolutionEntry(property) => Some(property.into_serialize()),
-            Self::CommitRef(property) => Some(property.into_serialize()),
-            Self::CommitRefOpt(property) => Some(property.into_serialize()),
-            Self::CommitRefList(property) => Some(property.into_serialize()),
-            Self::WorkspaceRef(property) => Some(property.into_serialize()),
-            Self::WorkspaceRefOpt(property) => Some(property.into_serialize()),
-            Self::WorkspaceRefList(property) => Some(property.into_serialize()),
-            Self::ProjectRef(property) => Some(property.into_serialize()),
-            Self::ProjectRefOpt(property) => Some(property.into_serialize()),
-            Self::ProjectRefList(property) => Some(property.into_serialize()),
-            Self::ProjectRemote(property) => Some(property.into_serialize()),
-            Self::ProjectRemoteOpt(property) => Some(property.into_serialize()),
-            Self::ProjectRemoteList(property) => Some(property.into_serialize()),
-            Self::RefSymbol(property) => Some(property.into_serialize()),
-            Self::RefSymbolOpt(property) => Some(property.into_serialize()),
-            Self::RepoPath(property) => Some(property.into_serialize()),
-            Self::RepoPathOpt(property) => Some(property.into_serialize()),
-            Self::ChangeId(property) => Some(property.into_serialize()),
-            Self::CommitId(property) => Some(property.into_serialize()),
-            Self::ShortestIdPrefix(property) => Some(property.into_serialize()),
-            Self::TreeDiff(_) => None,
-            Self::TreeDiffEntry(_) => None,
-            Self::TreeDiffEntryOpt(_) => None,
-            Self::TreeDiffEntryList(_) => None,
-            Self::TreeEntry(_) => None,
-            Self::TreeEntryOpt(_) => None,
-            Self::TreeEntryList(_) => None,
-            Self::TreeValue(_) => None,
-            Self::TreeValueOpt(_) => None,
-            Self::TreeValueOptList(_) => None,
-            Self::DiffStats(_) => None,
-            Self::DiffStatEntry(_) => None,
-            Self::DiffStatEntryOpt(_) => None,
-            Self::DiffStatEntryList(_) => None,
-            Self::CryptographicSignature(_) => None,
-            Self::CryptographicSignatureOpt(_) => None,
-            Self::AnnotationLine(_) => None,
-            Self::Trailer(_) => None,
-            Self::TrailerOpt(_) => None,
-            Self::TrailerList(_) => None,
-        }
-    }
-
-    fn try_into_template(self) -> Option<Box<dyn Template + 'repo>> {
-        match self {
-            Self::Core(property) => property.try_into_template(),
-            Self::Operation(property) => property.try_into_template(),
-            Self::Commit(_) => None,
-            Self::CommitOpt(_) => None,
-            Self::CommitList(_) => None,
-            Self::CommitOptList(_) => None,
-            Self::CommitEvolutionEntry(_) => None,
-            Self::CommitRef(property) => Some(property.into_template()),
-            Self::CommitRefOpt(property) => Some(property.into_template()),
-            Self::CommitRefList(property) => Some(property.into_template()),
-            Self::WorkspaceRef(property) => Some(property.into_template()),
-            Self::WorkspaceRefOpt(property) => Some(property.into_template()),
-            Self::WorkspaceRefList(property) => Some(property.into_template()),
-            Self::ProjectRef(property) => Some(property.into_template()),
-            Self::ProjectRefOpt(property) => Some(property.into_template()),
-            Self::ProjectRefList(property) => Some(property.into_template()),
-            Self::ProjectRemote(property) => Some(property.into_template()),
-            Self::ProjectRemoteOpt(property) => Some(property.into_template()),
-            Self::ProjectRemoteList(property) => Some(property.into_template()),
-            Self::RefSymbol(property) => Some(property.into_template()),
-            Self::RefSymbolOpt(property) => Some(property.into_template()),
-            Self::RepoPath(property) => Some(property.into_template()),
-            Self::RepoPathOpt(property) => Some(property.into_template()),
-            Self::ChangeId(property) => Some(property.into_template()),
-            Self::CommitId(property) => Some(property.into_template()),
-            Self::ShortestIdPrefix(property) => Some(property.into_template()),
-            Self::TreeDiff(_) => None,
-            Self::TreeDiffEntry(_) => None,
-            Self::TreeDiffEntryOpt(_) => None,
-            Self::TreeDiffEntryList(_) => None,
-            Self::TreeEntry(_) => None,
-            Self::TreeEntryOpt(_) => None,
-            Self::TreeEntryList(_) => None,
-            Self::TreeValue(property) => Some(property.into_template()),
-            Self::TreeValueOpt(property) => Some(property.into_template()),
-            Self::TreeValueOptList(_) => None,
-            Self::DiffStats(property) => Some(property.into_template()),
-            Self::DiffStatEntry(_) => None,
-            Self::DiffStatEntryOpt(_) => None,
-            Self::DiffStatEntryList(_) => None,
-            Self::CryptographicSignature(_) => None,
-            Self::CryptographicSignatureOpt(_) => None,
-            Self::AnnotationLine(_) => None,
-            Self::Trailer(property) => Some(property.into_template()),
-            Self::TrailerOpt(property) => Some(property.into_template()),
-            Self::TrailerList(property) => Some(property.into_template()),
-        }
-    }
-
-    fn try_into_eq(self, other: Self) -> Option<BoxedTemplateProperty<'repo, bool>> {
-        type Core<'repo> = CoreTemplatePropertyKind<'repo>;
-        match (self, other) {
-            (Self::Core(lhs), Self::Core(rhs)) => lhs.try_into_eq(rhs),
-            (Self::Core(lhs), Self::Operation(rhs)) => rhs.try_into_eq_core(lhs),
-            (Self::Core(Core::String(lhs)), Self::RefSymbol(rhs)) => {
-                Some((lhs, rhs).map(|(l, r)| RefSymbolBuf(l) == r).into_dyn())
-            }
-            (Self::Core(Core::String(lhs)), Self::RefSymbolOpt(rhs)) => Some(
-                (lhs, rhs)
-                    .map(|(l, r)| Some(RefSymbolBuf(l)) == r)
-                    .into_dyn(),
-            ),
-            (Self::Operation(lhs), Self::Core(rhs)) => lhs.try_into_eq_core(rhs),
-            (Self::Operation(lhs), Self::Operation(rhs)) => lhs.try_into_eq(rhs),
-            (Self::RefSymbol(lhs), Self::Core(Core::String(rhs))) => {
-                Some((lhs, rhs).map(|(l, r)| l == RefSymbolBuf(r)).into_dyn())
-            }
-            (Self::RefSymbol(lhs), Self::RefSymbol(rhs)) => {
-                Some((lhs, rhs).map(|(l, r)| l == r).into_dyn())
-            }
-            (Self::RefSymbol(lhs), Self::RefSymbolOpt(rhs)) => {
-                Some((lhs, rhs).map(|(l, r)| Some(l) == r).into_dyn())
-            }
-            (Self::RefSymbolOpt(lhs), Self::Core(Core::String(rhs))) => Some(
-                (lhs, rhs)
-                    .map(|(l, r)| l == Some(RefSymbolBuf(r)))
-                    .into_dyn(),
-            ),
-            (Self::RefSymbolOpt(lhs), Self::RefSymbol(rhs)) => {
-                Some((lhs, rhs).map(|(l, r)| l == Some(r)).into_dyn())
-            }
-            (Self::RefSymbolOpt(lhs), Self::RefSymbolOpt(rhs)) => {
-                Some((lhs, rhs).map(|(l, r)| l == r).into_dyn())
-            }
-            (Self::Core(_), _) => None,
-            (Self::Operation(_), _) => None,
-            (Self::Commit(_), _) => None,
-            (Self::CommitOpt(_), _) => None,
-            (Self::CommitList(_), _) => None,
-            (Self::CommitOptList(_), _) => None,
-            (Self::CommitEvolutionEntry(_), _) => None,
-            (Self::CommitRef(_), _) => None,
-            (Self::CommitRefOpt(_), _) => None,
-            (Self::CommitRefList(_), _) => None,
-            (Self::WorkspaceRef(_), _) => None,
-            (Self::WorkspaceRefOpt(_), _) => None,
-            (Self::WorkspaceRefList(_), _) => None,
-            (Self::ProjectRef(_), _) => None,
-            (Self::ProjectRefOpt(_), _) => None,
-            (Self::ProjectRefList(_), _) => None,
-            (Self::ProjectRemote(_), _) => None,
-            (Self::ProjectRemoteOpt(_), _) => None,
-            (Self::ProjectRemoteList(_), _) => None,
-            (Self::RefSymbol(_), _) => None,
-            (Self::RefSymbolOpt(_), _) => None,
-            (Self::RepoPath(_), _) => None,
-            (Self::RepoPathOpt(_), _) => None,
-            (Self::ChangeId(_), _) => None,
-            (Self::CommitId(_), _) => None,
-            (Self::ShortestIdPrefix(_), _) => None,
-            (Self::TreeDiff(_), _) => None,
-            (Self::TreeDiffEntry(_), _) => None,
-            (Self::TreeDiffEntryOpt(_), _) => None,
-            (Self::TreeDiffEntryList(_), _) => None,
-            (Self::TreeEntry(_), _) => None,
-            (Self::TreeEntryOpt(_), _) => None,
-            (Self::TreeEntryList(_), _) => None,
-            (Self::TreeValue(_), _) => None,
-            (Self::TreeValueOpt(_), _) => None,
-            (Self::TreeValueOptList(_), _) => None,
-            (Self::DiffStats(_), _) => None,
-            (Self::DiffStatEntry(_), _) => None,
-            (Self::DiffStatEntryOpt(_), _) => None,
-            (Self::DiffStatEntryList(_), _) => None,
-            (Self::CryptographicSignature(_), _) => None,
-            (Self::CryptographicSignatureOpt(_), _) => None,
-            (Self::AnnotationLine(_), _) => None,
-            (Self::Trailer(_), _) => None,
-            (Self::TrailerOpt(_), _) => None,
-            (Self::TrailerList(_), _) => None,
-        }
-    }
-
-    fn try_into_cmp(self, other: Self) -> Option<BoxedTemplateProperty<'repo, Ordering>> {
-        match (self, other) {
-            (Self::Core(lhs), Self::Core(rhs)) => lhs.try_into_cmp(rhs),
-            (Self::Core(lhs), Self::Operation(rhs)) => rhs
-                .try_into_cmp_core(lhs)
-                .map(|property| property.map(Ordering::reverse).into_dyn()),
-            (Self::Operation(lhs), Self::Core(rhs)) => lhs.try_into_cmp_core(rhs),
-            (Self::Operation(lhs), Self::Operation(rhs)) => lhs.try_into_cmp(rhs),
-            (Self::Core(_), _) => None,
-            (Self::Operation(_), _) => None,
-            (Self::Commit(_), _) => None,
-            (Self::CommitOpt(_), _) => None,
-            (Self::CommitList(_), _) => None,
-            (Self::CommitOptList(_), _) => None,
-            (Self::CommitEvolutionEntry(_), _) => None,
-            (Self::CommitRef(_), _) => None,
-            (Self::CommitRefOpt(_), _) => None,
-            (Self::CommitRefList(_), _) => None,
-            (Self::WorkspaceRef(_), _) => None,
-            (Self::WorkspaceRefOpt(_), _) => None,
-            (Self::WorkspaceRefList(_), _) => None,
-            (Self::ProjectRef(_), _) => None,
-            (Self::ProjectRefOpt(_), _) => None,
-            (Self::ProjectRefList(_), _) => None,
-            (Self::ProjectRemote(_), _) => None,
-            (Self::ProjectRemoteOpt(_), _) => None,
-            (Self::ProjectRemoteList(_), _) => None,
-            (Self::RefSymbol(_), _) => None,
-            (Self::RefSymbolOpt(_), _) => None,
-            (Self::RepoPath(_), _) => None,
-            (Self::RepoPathOpt(_), _) => None,
-            (Self::ChangeId(_), _) => None,
-            (Self::CommitId(_), _) => None,
-            (Self::ShortestIdPrefix(_), _) => None,
-            (Self::TreeDiff(_), _) => None,
-            (Self::TreeDiffEntry(_), _) => None,
-            (Self::TreeDiffEntryOpt(_), _) => None,
-            (Self::TreeDiffEntryList(_), _) => None,
-            (Self::TreeEntry(_), _) => None,
-            (Self::TreeEntryOpt(_), _) => None,
-            (Self::TreeEntryList(_), _) => None,
-            (Self::TreeValue(_), _) => None,
-            (Self::TreeValueOpt(_), _) => None,
-            (Self::TreeValueOptList(_), _) => None,
-            (Self::DiffStats(_), _) => None,
-            (Self::DiffStatEntry(_), _) => None,
-            (Self::DiffStatEntryOpt(_), _) => None,
-            (Self::DiffStatEntryList(_), _) => None,
-            (Self::CryptographicSignature(_), _) => None,
-            (Self::CryptographicSignatureOpt(_), _) => None,
-            (Self::AnnotationLine(_), _) => None,
-            (Self::Trailer(_), _) => None,
-            (Self::TrailerOpt(_), _) => None,
-            (Self::TrailerList(_), _) => None,
-        }
-    }
+fn register_symbols(table: &mut CommitTemplateSymbolTable<'_>) {
+    register_functions(table);
+    register_commit_methods(table);
+    register_unformattable_list_methods::<_, Commit>(table);
+    register_unformattable_list_methods::<_, Option<Commit>>(table);
+    register_commit_evolution_entry_methods(table);
+    register_commit_ref_methods(table);
+    register_formattable_list_methods::<_, Rc<CommitRef>>(table);
+    register_workspace_ref_methods(table);
+    register_formattable_list_methods::<_, WorkspaceRef>(table);
+    project::register_symbols(table);
+    register_repo_path_methods(table);
+    register_change_id_methods(table);
+    register_commit_id_methods(table);
+    register_shortest_id_prefix_methods(table);
+    register_tree_diff_methods(table);
+    register_tree_diff_entry_methods(table);
+    register_unformattable_list_methods::<_, TreeDiffEntry>(table);
+    register_tree_entry_methods(table);
+    register_unformattable_list_methods::<_, TreeEntry>(table);
+    register_tree_value_methods(table);
+    register_formattable_list_methods::<_, Option<TreeValue>>(table);
+    register_diff_stats_methods(table);
+    register_diff_stat_entry_methods(table);
+    register_unformattable_list_methods::<_, DiffStatEntry>(table);
+    register_cryptographic_signature_methods(table);
+    register_annotation_line_methods(table);
+    register_trailer_methods(table);
+    register_trailer_list_methods(table);
 }
 
-impl<'repo> OperationTemplatePropertyVar<'repo> for CommitTemplatePropertyKind<'repo> {}
-
-/// Table of functions that translate method call node of self type `T`.
-pub type CommitTemplateBuildMethodFnMap<'repo, T> =
-    TemplateBuildMethodFnMap<'repo, CommitTemplateLanguage<'repo>, T>;
-
-/// Symbol table of methods available in the commit template.
-pub struct CommitTemplateBuildFnTable<'repo> {
-    pub core: CoreTemplateBuildFnTable<'repo, CommitTemplateLanguage<'repo>>,
-    pub operation: OperationTemplateBuildFnTable<'repo, CommitTemplateLanguage<'repo>>,
-    pub commit_methods: CommitTemplateBuildMethodFnMap<'repo, Commit>,
-    pub commit_list_methods: CommitTemplateBuildMethodFnMap<'repo, Vec<Commit>>,
-    pub commit_opt_list_methods: CommitTemplateBuildMethodFnMap<'repo, Vec<Option<Commit>>>,
-    pub commit_evolution_entry_methods: CommitTemplateBuildMethodFnMap<'repo, CommitEvolutionEntry>,
-    pub commit_ref_methods: CommitTemplateBuildMethodFnMap<'repo, Rc<CommitRef>>,
-    pub commit_ref_list_methods: CommitTemplateBuildMethodFnMap<'repo, Vec<Rc<CommitRef>>>,
-    pub workspace_ref_methods: CommitTemplateBuildMethodFnMap<'repo, WorkspaceRef>,
-    pub workspace_ref_list_methods: CommitTemplateBuildMethodFnMap<'repo, Vec<WorkspaceRef>>,
-    pub project_ref_methods: CommitTemplateBuildMethodFnMap<'repo, Rc<ProjectRef>>,
-    pub project_ref_list_methods: CommitTemplateBuildMethodFnMap<'repo, Vec<Rc<ProjectRef>>>,
-    pub project_remote_methods: CommitTemplateBuildMethodFnMap<'repo, ProjectRemote>,
-    pub project_remote_list_methods: CommitTemplateBuildMethodFnMap<'repo, Vec<ProjectRemote>>,
-    pub repo_path_methods: CommitTemplateBuildMethodFnMap<'repo, RepoPathBuf>,
-    pub change_id_methods: CommitTemplateBuildMethodFnMap<'repo, ChangeId>,
-    pub commit_id_methods: CommitTemplateBuildMethodFnMap<'repo, CommitId>,
-    pub shortest_id_prefix_methods: CommitTemplateBuildMethodFnMap<'repo, ShortestIdPrefix>,
-    pub tree_diff_methods: CommitTemplateBuildMethodFnMap<'repo, TreeDiff>,
-    pub tree_diff_entry_methods: CommitTemplateBuildMethodFnMap<'repo, TreeDiffEntry>,
-    pub tree_diff_entry_list_methods: CommitTemplateBuildMethodFnMap<'repo, Vec<TreeDiffEntry>>,
-    pub tree_entry_methods: CommitTemplateBuildMethodFnMap<'repo, TreeEntry>,
-    pub tree_entry_list_methods: CommitTemplateBuildMethodFnMap<'repo, Vec<TreeEntry>>,
-    pub tree_value_methods: CommitTemplateBuildMethodFnMap<'repo, TreeValue>,
-    pub tree_value_opt_list_methods: CommitTemplateBuildMethodFnMap<'repo, Vec<Option<TreeValue>>>,
-    pub diff_stats_methods: CommitTemplateBuildMethodFnMap<'repo, DiffStats>,
-    pub diff_stat_entry_methods: CommitTemplateBuildMethodFnMap<'repo, DiffStatEntry>,
-    pub diff_stat_entry_list_methods: CommitTemplateBuildMethodFnMap<'repo, Vec<DiffStatEntry>>,
-    pub cryptographic_signature_methods:
-        CommitTemplateBuildMethodFnMap<'repo, CryptographicSignature>,
-    pub annotation_line_methods: CommitTemplateBuildMethodFnMap<'repo, AnnotationLine>,
-    pub trailer_methods: CommitTemplateBuildMethodFnMap<'repo, Trailer>,
-    pub trailer_list_methods: CommitTemplateBuildMethodFnMap<'repo, Vec<Trailer>>,
-}
-
-impl CommitTemplateBuildFnTable<'_> {
-    pub fn empty() -> Self {
-        Self {
-            core: CoreTemplateBuildFnTable::empty(),
-            operation: OperationTemplateBuildFnTable::empty(),
-            commit_methods: HashMap::new(),
-            commit_list_methods: HashMap::new(),
-            commit_opt_list_methods: HashMap::new(),
-            commit_evolution_entry_methods: HashMap::new(),
-            commit_ref_methods: HashMap::new(),
-            commit_ref_list_methods: HashMap::new(),
-            workspace_ref_methods: HashMap::new(),
-            workspace_ref_list_methods: HashMap::new(),
-            project_ref_methods: HashMap::new(),
-            project_ref_list_methods: HashMap::new(),
-            project_remote_methods: HashMap::new(),
-            project_remote_list_methods: HashMap::new(),
-            repo_path_methods: HashMap::new(),
-            change_id_methods: HashMap::new(),
-            commit_id_methods: HashMap::new(),
-            shortest_id_prefix_methods: HashMap::new(),
-            tree_diff_methods: HashMap::new(),
-            tree_diff_entry_methods: HashMap::new(),
-            tree_diff_entry_list_methods: HashMap::new(),
-            tree_entry_methods: HashMap::new(),
-            tree_entry_list_methods: HashMap::new(),
-            tree_value_methods: HashMap::new(),
-            tree_value_opt_list_methods: HashMap::new(),
-            diff_stats_methods: HashMap::new(),
-            diff_stat_entry_methods: HashMap::new(),
-            diff_stat_entry_list_methods: HashMap::new(),
-            cryptographic_signature_methods: HashMap::new(),
-            annotation_line_methods: HashMap::new(),
-            trailer_methods: HashMap::new(),
-            trailer_list_methods: HashMap::new(),
-        }
-    }
-
-    fn merge(&mut self, other: Self) {
-        let Self {
-            core,
-            operation,
-            commit_methods,
-            commit_list_methods,
-            commit_opt_list_methods,
-            commit_evolution_entry_methods,
-            commit_ref_methods,
-            commit_ref_list_methods,
-            workspace_ref_methods,
-            workspace_ref_list_methods,
-            project_ref_methods,
-            project_ref_list_methods,
-            project_remote_methods,
-            project_remote_list_methods,
-            repo_path_methods,
-            change_id_methods,
-            commit_id_methods,
-            shortest_id_prefix_methods,
-            tree_diff_methods,
-            tree_diff_entry_methods,
-            tree_diff_entry_list_methods,
-            tree_entry_methods,
-            tree_entry_list_methods,
-            tree_value_methods,
-            tree_value_opt_list_methods,
-            diff_stats_methods,
-            diff_stat_entry_methods,
-            diff_stat_entry_list_methods,
-            cryptographic_signature_methods,
-            annotation_line_methods,
-            trailer_methods,
-            trailer_list_methods,
-        } = other;
-
-        self.core.merge(core);
-        self.operation.merge(operation);
-        merge_fn_map(&mut self.commit_methods, commit_methods);
-        merge_fn_map(&mut self.commit_list_methods, commit_list_methods);
-        merge_fn_map(&mut self.commit_opt_list_methods, commit_opt_list_methods);
-        merge_fn_map(
-            &mut self.commit_evolution_entry_methods,
-            commit_evolution_entry_methods,
-        );
-        merge_fn_map(&mut self.commit_ref_methods, commit_ref_methods);
-        merge_fn_map(&mut self.commit_ref_list_methods, commit_ref_list_methods);
-        merge_fn_map(&mut self.workspace_ref_methods, workspace_ref_methods);
-        merge_fn_map(&mut self.project_ref_methods, project_ref_methods);
-        merge_fn_map(&mut self.project_remote_methods, project_remote_methods);
-        merge_fn_map(
-            &mut self.workspace_ref_list_methods,
-            workspace_ref_list_methods,
-        );
-        merge_fn_map(&mut self.project_ref_list_methods, project_ref_list_methods);
-        merge_fn_map(
-            &mut self.project_remote_list_methods,
-            project_remote_list_methods,
-        );
-        merge_fn_map(&mut self.repo_path_methods, repo_path_methods);
-        merge_fn_map(&mut self.change_id_methods, change_id_methods);
-        merge_fn_map(&mut self.commit_id_methods, commit_id_methods);
-        merge_fn_map(
-            &mut self.shortest_id_prefix_methods,
-            shortest_id_prefix_methods,
-        );
-        merge_fn_map(&mut self.tree_diff_methods, tree_diff_methods);
-        merge_fn_map(&mut self.tree_diff_entry_methods, tree_diff_entry_methods);
-        merge_fn_map(
-            &mut self.tree_diff_entry_list_methods,
-            tree_diff_entry_list_methods,
-        );
-        merge_fn_map(&mut self.tree_entry_methods, tree_entry_methods);
-        merge_fn_map(&mut self.tree_entry_list_methods, tree_entry_list_methods);
-        merge_fn_map(&mut self.tree_value_methods, tree_value_methods);
-        merge_fn_map(
-            &mut self.tree_value_opt_list_methods,
-            tree_value_opt_list_methods,
-        );
-        merge_fn_map(&mut self.diff_stats_methods, diff_stats_methods);
-        merge_fn_map(&mut self.diff_stat_entry_methods, diff_stat_entry_methods);
-        merge_fn_map(
-            &mut self.diff_stat_entry_list_methods,
-            diff_stat_entry_list_methods,
-        );
-        merge_fn_map(
-            &mut self.cryptographic_signature_methods,
-            cryptographic_signature_methods,
-        );
-        merge_fn_map(&mut self.annotation_line_methods, annotation_line_methods);
-        merge_fn_map(&mut self.trailer_methods, trailer_methods);
-        merge_fn_map(&mut self.trailer_list_methods, trailer_list_methods);
-    }
-
-    /// Creates new symbol table containing the builtin methods.
-    fn builtin() -> Self {
-        let mut core = CoreTemplateBuildFnTable::builtin();
-        merge_fn_map(&mut core.functions, builtin_commit_template_functions());
-        Self {
-            core,
-            operation: OperationTemplateBuildFnTable::builtin(),
-            commit_methods: builtin_commit_methods(),
-            commit_list_methods: template_builder::builtin_unformattable_list_methods(),
-            commit_opt_list_methods: template_builder::builtin_unformattable_list_methods(),
-            commit_evolution_entry_methods: builtin_commit_evolution_entry_methods(),
-            commit_ref_methods: builtin_commit_ref_methods(),
-            commit_ref_list_methods: template_builder::builtin_formattable_list_methods(),
-            workspace_ref_methods: builtin_workspace_ref_methods(),
-            workspace_ref_list_methods: template_builder::builtin_formattable_list_methods(),
-            project_ref_methods: project::builtin_project_ref_methods(),
-            project_ref_list_methods: template_builder::builtin_formattable_list_methods(),
-            project_remote_methods: project::builtin_project_remote_methods(),
-            project_remote_list_methods: template_builder::builtin_formattable_list_methods(),
-            repo_path_methods: builtin_repo_path_methods(),
-            change_id_methods: builtin_change_id_methods(),
-            commit_id_methods: builtin_commit_id_methods(),
-            shortest_id_prefix_methods: builtin_shortest_id_prefix_methods(),
-            tree_diff_methods: builtin_tree_diff_methods(),
-            tree_diff_entry_methods: builtin_tree_diff_entry_methods(),
-            tree_diff_entry_list_methods: template_builder::builtin_unformattable_list_methods(),
-            tree_entry_methods: builtin_tree_entry_methods(),
-            tree_entry_list_methods: template_builder::builtin_unformattable_list_methods(),
-            tree_value_methods: builtin_tree_value_methods(),
-            tree_value_opt_list_methods: template_builder::builtin_formattable_list_methods(),
-            diff_stats_methods: builtin_diff_stats_methods(),
-            diff_stat_entry_methods: builtin_diff_stat_entry_methods(),
-            diff_stat_entry_list_methods: template_builder::builtin_unformattable_list_methods(),
-            cryptographic_signature_methods: builtin_cryptographic_signature_methods(),
-            annotation_line_methods: builtin_annotation_line_methods(),
-            trailer_methods: builtin_trailer_methods(),
-            trailer_list_methods: builtin_trailer_list_methods(),
-        }
-    }
-}
+type CommitTemplateSymbolTable<'repo> = TemplateSymbolTable<'repo, CommitTemplateLanguage<'repo>>;
 
 #[derive(Default)]
 pub struct CommitKeywordCache {
@@ -1308,10 +570,9 @@ impl CommitKeywordCache {
 }
 
 /// Builtin functions for the commit template language.
-fn builtin_commit_template_functions<'repo>()
--> TemplateBuildFunctionFnMap<'repo, CommitTemplateLanguage<'repo>> {
-    let mut map = TemplateBuildFunctionFnMap::<CommitTemplateLanguage>::new();
-    map.insert("revset", |language, diagnostics, build_ctx, function| {
+fn register_functions(table: &mut CommitTemplateSymbolTable<'_>) {
+    let mut functions = table.register_functions();
+    functions.insert("revset", |language, diagnostics, build_ctx, function| {
         let [revset_node] = function.expect_exact_arguments()?;
         let revset_property =
             expect_stringify_expression(language, diagnostics, build_ctx, revset_node)?;
@@ -1355,7 +616,7 @@ fn builtin_commit_template_functions<'repo>()
             Ok(out_property.into_dyn_wrapped())
         }
     });
-    map.insert(
+    functions.insert(
         "git_web_url",
         |language, diagnostics, build_ctx, function| {
             let ([], [remote_node]) = function.expect_named_arguments(&["remote"])?;
@@ -1402,14 +663,11 @@ fn builtin_commit_template_functions<'repo>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map
 }
 
-fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Commit> {
-    // Not using maplit::hashmap!{} or custom declarative macro here because
-    // code completion inside macro is quite restricted.
-    let mut map = CommitTemplateBuildMethodFnMap::<Commit>::new();
-    map.insert(
+fn register_commit_methods(table: &mut CommitTemplateSymbolTable<'_>) {
+    let mut methods = table.register_methods::<Commit>();
+    methods.insert(
         "description",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1417,7 +675,7 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "trailers",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1426,7 +684,7 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "change_id",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1434,7 +692,7 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "commit_id",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1442,7 +700,7 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "parents",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1453,7 +711,7 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "author",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1461,7 +719,7 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "committer",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1469,7 +727,7 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "mine",
         |language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1478,7 +736,7 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "signature",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1486,7 +744,7 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "working_copies",
         |language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1495,7 +753,7 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "current_working_copy",
         |language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1506,7 +764,7 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "bookmarks",
         |language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1515,26 +773,13 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
                 .bookmarks_index(language.repo)
                 .map_err(|err| TemplateParseError::expression(err, function.name_span))?
                 .clone();
-            let project = language.project.clone();
-            let repo = language.repo;
-            let out_property = self_property.map(move |commit| {
-                collect_distinct_refs(index.get(commit.id()))
-                    .into_iter()
-                    .filter(|reference| {
-                        project.as_ref().is_none_or(|id| {
-                            jj_lib::revset::remote_ref_project(
-                                repo.view(),
-                                RefName::new(reference.name()),
-                            )
-                            .is_ok_and(|owner| owner.as_ref() == Some(id))
-                        })
-                    })
-                    .collect::<Vec<_>>()
-            });
+            let filter = ProjectRefFilter::new(language);
+            let out_property = self_property
+                .map(move |commit| filter.retain(collect_distinct_refs(index.get(commit.id()))));
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "local_bookmarks",
         |language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1543,26 +788,13 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
                 .bookmarks_index(language.repo)
                 .map_err(|err| TemplateParseError::expression(err, function.name_span))?
                 .clone();
-            let project = language.project.clone();
-            let repo = language.repo;
-            let out_property = self_property.map(move |commit| {
-                collect_local_refs(index.get(commit.id()))
-                    .into_iter()
-                    .filter(|reference| {
-                        project.as_ref().is_none_or(|id| {
-                            jj_lib::revset::remote_ref_project(
-                                repo.view(),
-                                RefName::new(reference.name()),
-                            )
-                            .is_ok_and(|owner| owner.as_ref() == Some(id))
-                        })
-                    })
-                    .collect::<Vec<_>>()
-            });
+            let filter = ProjectRefFilter::new(language);
+            let out_property = self_property
+                .map(move |commit| filter.retain(collect_local_refs(index.get(commit.id()))));
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "remote_bookmarks",
         |language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1571,26 +803,13 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
                 .bookmarks_index(language.repo)
                 .map_err(|err| TemplateParseError::expression(err, function.name_span))?
                 .clone();
-            let project = language.project.clone();
-            let repo = language.repo;
-            let out_property = self_property.map(move |commit| {
-                collect_remote_refs(index.get(commit.id()))
-                    .into_iter()
-                    .filter(|reference| {
-                        project.as_ref().is_none_or(|id| {
-                            jj_lib::revset::remote_ref_project(
-                                repo.view(),
-                                RefName::new(reference.name()),
-                            )
-                            .is_ok_and(|owner| owner.as_ref() == Some(id))
-                        })
-                    })
-                    .collect::<Vec<_>>()
-            });
+            let filter = ProjectRefFilter::new(language);
+            let out_property = self_property
+                .map(move |commit| filter.retain(collect_remote_refs(index.get(commit.id()))));
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "tags",
         |language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1599,26 +818,13 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
                 .tags_index(language.repo)
                 .map_err(|err| TemplateParseError::expression(err, function.name_span))?
                 .clone();
-            let project = language.project.clone();
-            let repo = language.repo;
-            let out_property = self_property.map(move |commit| {
-                collect_distinct_refs(index.get(commit.id()))
-                    .into_iter()
-                    .filter(|reference| {
-                        project.as_ref().is_none_or(|id| {
-                            jj_lib::revset::remote_ref_project(
-                                repo.view(),
-                                RefName::new(reference.name()),
-                            )
-                            .is_ok_and(|owner| owner.as_ref() == Some(id))
-                        })
-                    })
-                    .collect::<Vec<_>>()
-            });
+            let filter = ProjectRefFilter::new(language);
+            let out_property = self_property
+                .map(move |commit| filter.retain(collect_distinct_refs(index.get(commit.id()))));
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "local_tags",
         |language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1627,26 +833,13 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
                 .tags_index(language.repo)
                 .map_err(|err| TemplateParseError::expression(err, function.name_span))?
                 .clone();
-            let project = language.project.clone();
-            let repo = language.repo;
-            let out_property = self_property.map(move |commit| {
-                collect_local_refs(index.get(commit.id()))
-                    .into_iter()
-                    .filter(|reference| {
-                        project.as_ref().is_none_or(|id| {
-                            jj_lib::revset::remote_ref_project(
-                                repo.view(),
-                                RefName::new(reference.name()),
-                            )
-                            .is_ok_and(|owner| owner.as_ref() == Some(id))
-                        })
-                    })
-                    .collect::<Vec<_>>()
-            });
+            let filter = ProjectRefFilter::new(language);
+            let out_property = self_property
+                .map(move |commit| filter.retain(collect_local_refs(index.get(commit.id()))));
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "remote_tags",
         |language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1655,26 +848,13 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
                 .tags_index(language.repo)
                 .map_err(|err| TemplateParseError::expression(err, function.name_span))?
                 .clone();
-            let project = language.project.clone();
-            let repo = language.repo;
-            let out_property = self_property.map(move |commit| {
-                collect_remote_refs(index.get(commit.id()))
-                    .into_iter()
-                    .filter(|reference| {
-                        project.as_ref().is_none_or(|id| {
-                            jj_lib::revset::remote_ref_project(
-                                repo.view(),
-                                RefName::new(reference.name()),
-                            )
-                            .is_ok_and(|owner| owner.as_ref() == Some(id))
-                        })
-                    })
-                    .collect::<Vec<_>>()
-            });
+            let filter = ProjectRefFilter::new(language);
+            let out_property = self_property
+                .map(move |commit| filter.retain(collect_remote_refs(index.get(commit.id()))));
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "divergent",
         |language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1688,7 +868,7 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "hidden",
         |language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1701,7 +881,7 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "change_offset",
         |language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1718,7 +898,7 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "immutable",
         |language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1731,7 +911,7 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "contained_in",
         |language, diagnostics, build_ctx, self_property, function| {
             let [revset_node] = function.expect_exact_arguments()?;
@@ -1771,7 +951,7 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
             }
         },
     );
-    map.insert(
+    methods.insert(
         "conflict",
         |language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1796,7 +976,7 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "empty",
         |language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1822,7 +1002,7 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "diff",
         |language, diagnostics, _build_ctx, self_property, function| {
             let ([], [files_node]) = function.expect_arguments()?;
@@ -1842,7 +1022,7 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "files",
         |language, diagnostics, _build_ctx, self_property, function| {
             let ([], [files_node]) = function.expect_arguments()?;
@@ -1866,7 +1046,7 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "conflicted_files",
         |language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1886,7 +1066,7 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "root",
         |language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1896,7 +1076,33 @@ fn builtin_commit_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Comm
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map
+}
+
+/// Keeps the references owned by the template's project scope, if any.
+struct ProjectRefFilter<'repo> {
+    repo: &'repo dyn Repo,
+    project: Option<jj_lib::project::ProjectId>,
+}
+
+impl<'repo> ProjectRefFilter<'repo> {
+    fn new(language: &CommitTemplateLanguage<'repo>) -> Self {
+        Self {
+            repo: language.repo,
+            project: language.project.clone(),
+        }
+    }
+
+    fn retain(&self, refs: Vec<Rc<CommitRef>>) -> Vec<Rc<CommitRef>> {
+        let Some(id) = &self.project else {
+            return refs;
+        };
+        refs.into_iter()
+            .filter(|reference| {
+                jj_lib::revset::remote_ref_project(self.repo.view(), RefName::new(reference.name()))
+                    .is_ok_and(|owner| owner.as_ref() == Some(id))
+            })
+            .collect()
+    }
 }
 
 fn extract_working_copies(repo: &dyn Repo, commit: &Commit) -> Vec<WorkspaceRef> {
@@ -1986,12 +1192,9 @@ fn parse_evaluate_static_revset(
     })
 }
 
-fn builtin_commit_evolution_entry_methods<'repo>()
--> CommitTemplateBuildMethodFnMap<'repo, CommitEvolutionEntry> {
-    // Not using maplit::hashmap!{} or custom declarative macro here because
-    // code completion inside macro is quite restricted.
-    let mut map = CommitTemplateBuildMethodFnMap::<CommitEvolutionEntry>::new();
-    map.insert(
+fn register_commit_evolution_entry_methods(table: &mut CommitTemplateSymbolTable<'_>) {
+    let mut methods = table.register_methods::<CommitEvolutionEntry>();
+    methods.insert(
         "commit",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -1999,7 +1202,7 @@ fn builtin_commit_evolution_entry_methods<'repo>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "operation",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -2007,7 +1210,7 @@ fn builtin_commit_evolution_entry_methods<'repo>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "predecessors",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -2018,7 +1221,7 @@ fn builtin_commit_evolution_entry_methods<'repo>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "inter_diff",
         |language, diagnostics, _build_ctx, self_property, function| {
             let ([], [files_node]) = function.expect_arguments()?;
@@ -2039,13 +1242,12 @@ fn builtin_commit_evolution_entry_methods<'repo>()
                     from_tree,
                     to_tree,
                     matcher: matcher.clone(),
-                    copy_records: CopyRecords::default(), // TODO: copy tracking
+                    copy_records: Rc::new(CopyRecords::default()), // TODO: copy tracking
                 })
             });
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map
 }
 
 /// Bookmark or tag name with metadata.
@@ -2306,9 +1508,9 @@ impl Template for Vec<WorkspaceRef> {
     }
 }
 
-fn builtin_workspace_ref_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, WorkspaceRef> {
-    let mut map = CommitTemplateBuildMethodFnMap::<WorkspaceRef>::new();
-    map.insert(
+fn register_workspace_ref_methods(table: &mut CommitTemplateSymbolTable<'_>) {
+    let mut methods = table.register_methods::<WorkspaceRef>();
+    methods.insert(
         "name",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -2316,7 +1518,7 @@ fn builtin_workspace_ref_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'rep
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "current_workspace",
         |language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -2326,7 +1528,7 @@ fn builtin_workspace_ref_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'rep
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "target",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -2334,7 +1536,7 @@ fn builtin_workspace_ref_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'rep
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "root",
         |language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -2347,7 +1549,6 @@ fn builtin_workspace_ref_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'rep
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map
 }
 
 #[expect(clippy::ref_option)]
@@ -2362,11 +1563,9 @@ where
     target.serialize(serializer)
 }
 
-fn builtin_commit_ref_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Rc<CommitRef>> {
-    // Not using maplit::hashmap!{} or custom declarative macro here because
-    // code completion inside macro is quite restricted.
-    let mut map = CommitTemplateBuildMethodFnMap::<Rc<CommitRef>>::new();
-    map.insert(
+fn register_commit_ref_methods(table: &mut CommitTemplateSymbolTable<'_>) {
+    let mut methods = table.register_methods::<Rc<CommitRef>>();
+    methods.insert(
         "name",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -2374,7 +1573,7 @@ fn builtin_commit_ref_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, 
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "remote",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -2382,7 +1581,7 @@ fn builtin_commit_ref_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, 
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "present",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -2390,7 +1589,7 @@ fn builtin_commit_ref_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, 
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "conflict",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -2398,7 +1597,7 @@ fn builtin_commit_ref_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, 
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "normal_target",
         |language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -2410,7 +1609,7 @@ fn builtin_commit_ref_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, 
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "removed_targets",
         |language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -2425,7 +1624,7 @@ fn builtin_commit_ref_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, 
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "added_targets",
         |language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -2440,7 +1639,7 @@ fn builtin_commit_ref_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, 
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "tracked",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -2448,7 +1647,7 @@ fn builtin_commit_ref_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, 
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "tracking_present",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -2456,7 +1655,7 @@ fn builtin_commit_ref_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, 
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "tracking_ahead_count",
         |language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -2466,7 +1665,7 @@ fn builtin_commit_ref_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, 
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "tracking_behind_count",
         |language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -2476,7 +1675,7 @@ fn builtin_commit_ref_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, 
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "synced",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -2484,8 +1683,6 @@ fn builtin_commit_ref_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, 
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    project::add_commit_ref_methods(&mut map);
-    map
 }
 
 /// Cache for reverse lookup refs.
@@ -2586,6 +1783,24 @@ impl AsRef<str> for RefSymbolBuf {
     }
 }
 
+impl From<RefSymbolBuf> for String {
+    fn from(value: RefSymbolBuf) -> Self {
+        value.0
+    }
+}
+
+impl PartialEq<String> for RefSymbolBuf {
+    fn eq(&self, other: &String) -> bool {
+        &self.0 == other
+    }
+}
+
+impl PartialEq<RefSymbolBuf> for String {
+    fn eq(&self, other: &RefSymbolBuf) -> bool {
+        self == &other.0
+    }
+}
+
 impl Display for RefSymbolBuf {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.pad(&revset::format_symbol(&self.0))
@@ -2604,11 +1819,9 @@ impl Template for RepoPathBuf {
     }
 }
 
-fn builtin_repo_path_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, RepoPathBuf> {
-    // Not using maplit::hashmap!{} or custom declarative macro here because
-    // code completion inside macro is quite restricted.
-    let mut map = CommitTemplateBuildMethodFnMap::<RepoPathBuf>::new();
-    map.insert(
+fn register_repo_path_methods(table: &mut CommitTemplateSymbolTable<'_>) {
+    let mut methods = table.register_methods::<RepoPathBuf>();
+    methods.insert(
         "absolute",
         |language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -2639,7 +1852,7 @@ fn builtin_repo_path_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, R
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "display",
         |language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -2648,7 +1861,7 @@ fn builtin_repo_path_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, R
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "parent",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -2656,7 +1869,6 @@ fn builtin_repo_path_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, R
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map
 }
 
 trait ShortestIdPrefixLen {
@@ -2675,9 +1887,10 @@ impl Template for ChangeId {
     }
 }
 
-fn builtin_change_id_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, ChangeId> {
-    let mut map = builtin_commit_or_change_id_methods::<ChangeId>();
-    map.insert(
+fn register_change_id_methods(table: &mut CommitTemplateSymbolTable<'_>) {
+    register_commit_or_change_id_methods::<ChangeId>(table);
+    let mut methods = table.register_methods::<ChangeId>();
+    methods.insert(
         "normal_hex",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -2688,12 +1901,11 @@ fn builtin_change_id_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, C
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map
 }
 
 impl ShortestIdPrefixLen for CommitId {
     fn shortest_prefix_len(&self, repo: &dyn Repo, index: &IdPrefixIndex) -> IndexResult<usize> {
-        index.shortest_commit_prefix_len(repo, self)
+        index.shortest_commit_prefix_len(repo, self).block_on()
     }
 }
 
@@ -2703,18 +1915,16 @@ impl Template for CommitId {
     }
 }
 
-fn builtin_commit_id_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, CommitId> {
-    builtin_commit_or_change_id_methods::<CommitId>()
+fn register_commit_id_methods(table: &mut CommitTemplateSymbolTable<'_>) {
+    register_commit_or_change_id_methods::<CommitId>(table);
 }
 
-fn builtin_commit_or_change_id_methods<'repo, O>() -> CommitTemplateBuildMethodFnMap<'repo, O>
+fn register_commit_or_change_id_methods<'repo, O>(table: &mut CommitTemplateSymbolTable<'repo>)
 where
-    O: Display + ShortestIdPrefixLen + 'repo,
+    O: Display + ShortestIdPrefixLen + TemplateValue + 'repo,
 {
-    // Not using maplit::hashmap!{} or custom declarative macro here because
-    // code completion inside macro is quite restricted.
-    let mut map = CommitTemplateBuildMethodFnMap::<O>::new();
-    map.insert(
+    let mut methods = table.register_methods::<O>();
+    methods.insert(
         "short",
         |language, diagnostics, build_ctx, self_property, function| {
             let ([], [len_node]) = function.expect_arguments()?;
@@ -2736,7 +1946,7 @@ where
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "shortest",
         |language, diagnostics, build_ctx, self_property, function| {
             let ([], [len_node]) = function.expect_arguments()?;
@@ -2751,7 +1961,7 @@ where
                 })
                 .transpose()?;
             let repo = language.repo;
-            let index = match language.id_prefix_context.populate(repo) {
+            let index = match language.id_prefix_context.populate(repo).block_on() {
                 Ok(index) => index,
                 Err(err) => {
                     // Not an error because we can still produce somewhat
@@ -2778,7 +1988,6 @@ where
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
@@ -2810,12 +2019,9 @@ impl ShortestIdPrefix {
     }
 }
 
-fn builtin_shortest_id_prefix_methods<'repo>()
--> CommitTemplateBuildMethodFnMap<'repo, ShortestIdPrefix> {
-    // Not using maplit::hashmap!{} or custom declarative macro here because
-    // code completion inside macro is quite restricted.
-    let mut map = CommitTemplateBuildMethodFnMap::<ShortestIdPrefix>::new();
-    map.insert(
+fn register_shortest_id_prefix_methods(table: &mut CommitTemplateSymbolTable<'_>) {
+    let mut methods = table.register_methods::<ShortestIdPrefix>();
+    methods.insert(
         "prefix",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -2823,7 +2029,7 @@ fn builtin_shortest_id_prefix_methods<'repo>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "rest",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -2831,7 +2037,7 @@ fn builtin_shortest_id_prefix_methods<'repo>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "upper",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -2839,7 +2045,7 @@ fn builtin_shortest_id_prefix_methods<'repo>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "lower",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -2847,16 +2053,15 @@ fn builtin_shortest_id_prefix_methods<'repo>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map
 }
 
 /// Pair of trees to be diffed.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct TreeDiff {
     from_tree: MergedTree,
     to_tree: MergedTree,
     matcher: Rc<dyn Matcher>,
-    copy_records: CopyRecords,
+    copy_records: Rc<CopyRecords>,
 }
 
 impl TreeDiff {
@@ -2884,7 +2089,7 @@ impl TreeDiff {
             from_tree,
             to_tree,
             matcher,
-            copy_records,
+            copy_records: Rc::new(copy_records),
         })
     }
 
@@ -2940,12 +2145,10 @@ where
     }
 }
 
-fn builtin_tree_diff_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, TreeDiff> {
-    type P<'repo> = CommitTemplatePropertyKind<'repo>;
-    // Not using maplit::hashmap!{} or custom declarative macro here because
-    // code completion inside macro is quite restricted.
-    let mut map = CommitTemplateBuildMethodFnMap::<TreeDiff>::new();
-    map.insert(
+fn register_tree_diff_methods(table: &mut CommitTemplateSymbolTable<'_>) {
+    let mut methods = table.register_methods::<TreeDiff>();
+    type P<'repo> = TemplatePropertyKind<'repo>;
+    methods.insert(
         "files",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -2955,7 +2158,7 @@ fn builtin_tree_diff_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, T
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "color_words",
         |language, diagnostics, build_ctx, self_property, function| {
             let ([], [context_node]) = function.expect_arguments()?;
@@ -3000,7 +2203,7 @@ fn builtin_tree_diff_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, T
             Ok(P::wrap_template(template))
         },
     );
-    map.insert(
+    methods.insert(
         "git",
         |language, diagnostics, build_ctx, self_property, function| {
             let ([], [context_node]) = function.expect_arguments()?;
@@ -3043,7 +2246,7 @@ fn builtin_tree_diff_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, T
             Ok(P::wrap_template(template))
         },
     );
-    map.insert(
+    methods.insert(
         "stat",
         |language, diagnostics, build_ctx, self_property, function| {
             let ([], [width_node, max_bar_width_node]) =
@@ -3089,7 +2292,7 @@ fn builtin_tree_diff_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, T
                             .block_on()?;
                     Ok(DiffStatsFormatted {
                         stats,
-                        path_converter,
+                        path_converter: path_converter.clone(),
                         // TODO: fall back to current available width
                         width: width.unwrap_or(80),
                         options,
@@ -3099,7 +2302,7 @@ fn builtin_tree_diff_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, T
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "summary",
         |language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -3116,7 +2319,6 @@ fn builtin_tree_diff_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, T
         },
     );
     // TODO: add support for external tools
-    map
 }
 
 /// [`MergedTree`] diff entry.
@@ -3163,12 +2365,9 @@ fn format_diff_path(
     }
 }
 
-fn builtin_tree_diff_entry_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, TreeDiffEntry>
-{
-    // Not using maplit::hashmap!{} or custom declarative macro here because
-    // code completion inside macro is quite restricted.
-    let mut map = CommitTemplateBuildMethodFnMap::<TreeDiffEntry>::new();
-    map.insert(
+fn register_tree_diff_entry_methods(table: &mut CommitTemplateSymbolTable<'_>) {
+    let mut methods = table.register_methods::<TreeDiffEntry>();
+    methods.insert(
         "path",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -3176,7 +2375,7 @@ fn builtin_tree_diff_entry_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'r
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "display_diff_path",
         |language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -3186,7 +2385,7 @@ fn builtin_tree_diff_entry_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'r
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "status",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -3194,7 +2393,7 @@ fn builtin_tree_diff_entry_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'r
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "status_char",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -3202,7 +2401,7 @@ fn builtin_tree_diff_entry_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'r
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "source",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -3210,7 +2409,7 @@ fn builtin_tree_diff_entry_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'r
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "target",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -3218,7 +2417,6 @@ fn builtin_tree_diff_entry_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'r
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map
 }
 
 /// [`MergedTree`] entry.
@@ -3228,11 +2426,9 @@ pub struct TreeEntry {
     pub value: MergedTreeValue,
 }
 
-fn builtin_tree_entry_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, TreeEntry> {
-    // Not using maplit::hashmap!{} or custom declarative macro here because
-    // code completion inside macro is quite restricted.
-    let mut map = CommitTemplateBuildMethodFnMap::<TreeEntry>::new();
-    map.insert(
+fn register_tree_entry_methods(table: &mut CommitTemplateSymbolTable<'_>) {
+    let mut methods = table.register_methods::<TreeEntry>();
+    methods.insert(
         "path",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -3240,7 +2436,7 @@ fn builtin_tree_entry_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, 
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "normal_value",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -3248,7 +2444,7 @@ fn builtin_tree_entry_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, 
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "removed_values",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -3257,7 +2453,7 @@ fn builtin_tree_entry_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, 
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "added_values",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -3266,7 +2462,7 @@ fn builtin_tree_entry_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, 
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "conflict",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -3274,7 +2470,7 @@ fn builtin_tree_entry_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, 
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "conflict_side_count",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -3283,7 +2479,7 @@ fn builtin_tree_entry_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, 
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "file_type",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -3292,7 +2488,7 @@ fn builtin_tree_entry_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, 
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "executable",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -3301,12 +2497,11 @@ fn builtin_tree_entry_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, 
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map
 }
 
-fn builtin_tree_value_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, TreeValue> {
-    let mut map = CommitTemplateBuildMethodFnMap::<TreeValue>::new();
-    map.insert(
+fn register_tree_value_methods(table: &mut CommitTemplateSymbolTable<'_>) {
+    let mut methods = table.register_methods::<TreeValue>();
+    methods.insert(
         "object_id",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -3314,7 +2509,7 @@ fn builtin_tree_value_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, 
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "file_type",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -3323,7 +2518,7 @@ fn builtin_tree_value_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, 
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "executable",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -3331,7 +2526,6 @@ fn builtin_tree_value_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, 
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map
 }
 
 impl Template for TreeValue {
@@ -3380,64 +2574,58 @@ fn is_executable_file(value: &MergedTreeValue) -> Option<bool> {
 
 /// [`DiffStats`] with rendering parameters.
 #[derive(Clone, Debug)]
-pub struct DiffStatsFormatted<'a> {
+pub struct DiffStatsFormatted {
     stats: DiffStats,
-    path_converter: &'a RepoPathUiConverter,
+    path_converter: RepoPathUiConverter,
     width: usize,
     options: DiffStatOptions,
 }
 
-impl Template for DiffStatsFormatted<'_> {
+impl Template for DiffStatsFormatted {
     fn format(&self, formatter: &mut TemplateFormatter) -> io::Result<()> {
         diff_util::show_diff_stats(
             formatter.as_mut(),
             &self.stats,
-            self.path_converter,
+            &self.path_converter,
             self.width,
             &self.options,
         )
     }
 }
 
-fn builtin_diff_stats_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, DiffStats> {
-    // Not using maplit::hashmap!{} or custom declarative macro here because
-    // code completion inside macro is quite restricted.
-    let mut map = CommitTemplateBuildMethodFnMap::<DiffStats>::new();
-    map.insert(
+fn register_diff_stats_methods(table: &mut CommitTemplateSymbolTable<'_>) {
+    let mut methods = table.register_methods::<DiffStatsFormatted>();
+    methods.insert(
         "files",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
-            let out_property = self_property.and_then(|diff| Ok(diff.entries().to_vec()));
+            let out_property = self_property.and_then(|fm| Ok(fm.stats.entries().to_vec()));
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "total_added",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
             let out_property =
-                self_property.and_then(|stats| Ok(i64::try_from(stats.count_total_added())?));
+                self_property.and_then(|fm| Ok(i64::try_from(fm.stats.count_total_added())?));
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "total_removed",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
             let out_property =
-                self_property.and_then(|stats| Ok(i64::try_from(stats.count_total_removed())?));
+                self_property.and_then(|fm| Ok(i64::try_from(fm.stats.count_total_removed())?));
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map
 }
 
-fn builtin_diff_stat_entry_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, DiffStatEntry>
-{
-    // Not using maplit::hashmap!{} or custom declarative macro here because
-    // code completion inside macro is quite restricted.
-    let mut map = CommitTemplateBuildMethodFnMap::<DiffStatEntry>::new();
-    map.insert(
+fn register_diff_stat_entry_methods(table: &mut CommitTemplateSymbolTable<'_>) {
+    let mut methods = table.register_methods::<DiffStatEntry>();
+    methods.insert(
         "path",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -3445,7 +2633,7 @@ fn builtin_diff_stat_entry_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'r
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "display_diff_path",
         |language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -3455,7 +2643,7 @@ fn builtin_diff_stat_entry_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'r
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "status",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -3463,7 +2651,7 @@ fn builtin_diff_stat_entry_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'r
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "status_char",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -3471,7 +2659,7 @@ fn builtin_diff_stat_entry_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'r
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "lines_added",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -3483,7 +2671,7 @@ fn builtin_diff_stat_entry_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'r
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "lines_removed",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -3495,7 +2683,7 @@ fn builtin_diff_stat_entry_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'r
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "bytes_delta",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -3504,10 +2692,9 @@ fn builtin_diff_stat_entry_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'r
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct CryptographicSignature {
     commit: Commit,
 }
@@ -3541,12 +2728,9 @@ impl CryptographicSignature {
     }
 }
 
-fn builtin_cryptographic_signature_methods<'repo>()
--> CommitTemplateBuildMethodFnMap<'repo, CryptographicSignature> {
-    // Not using maplit::hashmap!{} or custom declarative macro here because
-    // code completion inside macro is quite restricted.
-    let mut map = CommitTemplateBuildMethodFnMap::<CryptographicSignature>::new();
-    map.insert(
+fn register_cryptographic_signature_methods(table: &mut CommitTemplateSymbolTable<'_>) {
+    let mut methods = table.register_methods::<CryptographicSignature>();
+    methods.insert(
         "status",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -3558,7 +2742,7 @@ fn builtin_cryptographic_signature_methods<'repo>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "key",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -3566,7 +2750,7 @@ fn builtin_cryptographic_signature_methods<'repo>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "display",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -3574,7 +2758,6 @@ fn builtin_cryptographic_signature_methods<'repo>()
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map
 }
 
 #[derive(Debug, Clone)]
@@ -3586,10 +2769,9 @@ pub struct AnnotationLine {
     pub first_line_in_hunk: bool,
 }
 
-fn builtin_annotation_line_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, AnnotationLine>
-{
-    let mut map = CommitTemplateBuildMethodFnMap::<AnnotationLine>::new();
-    map.insert(
+fn register_annotation_line_methods(table: &mut CommitTemplateSymbolTable<'_>) {
+    let mut methods = table.register_methods::<AnnotationLine>();
+    methods.insert(
         "commit",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -3597,7 +2779,7 @@ fn builtin_annotation_line_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'r
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "content",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -3605,7 +2787,7 @@ fn builtin_annotation_line_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'r
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "line_number",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -3613,7 +2795,7 @@ fn builtin_annotation_line_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'r
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "original_line_number",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -3622,7 +2804,7 @@ fn builtin_annotation_line_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'r
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "first_line_in_hunk",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -3630,7 +2812,6 @@ fn builtin_annotation_line_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'r
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map
 }
 
 impl Template for Trailer {
@@ -3645,9 +2826,9 @@ impl Template for Vec<Trailer> {
     }
 }
 
-fn builtin_trailer_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Trailer> {
-    let mut map = CommitTemplateBuildMethodFnMap::<Trailer>::new();
-    map.insert(
+fn register_trailer_methods(table: &mut CommitTemplateSymbolTable<'_>) {
+    let mut methods = table.register_methods::<Trailer>();
+    methods.insert(
         "key",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -3655,7 +2836,7 @@ fn builtin_trailer_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Tra
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map.insert(
+    methods.insert(
         "value",
         |_language, _diagnostics, _build_ctx, self_property, function| {
             function.expect_no_arguments()?;
@@ -3663,13 +2844,12 @@ fn builtin_trailer_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Tra
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map
 }
 
-fn builtin_trailer_list_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, Vec<Trailer>> {
-    let mut map: CommitTemplateBuildMethodFnMap<Vec<Trailer>> =
-        template_builder::builtin_formattable_list_methods();
-    map.insert(
+fn register_trailer_list_methods(table: &mut CommitTemplateSymbolTable<'_>) {
+    register_formattable_list_methods::<_, Trailer>(table);
+    let mut methods = table.register_methods::<Vec<Trailer>>();
+    methods.insert(
         "contains_key",
         |language, diagnostics, build_ctx, self_property, function| {
             let [key_node] = function.expect_exact_arguments()?;
@@ -3680,7 +2860,6 @@ fn builtin_trailer_list_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo
             Ok(out_property.into_dyn_wrapped())
         },
     );
-    map
 }
 
 #[cfg(test)]
@@ -3700,22 +2879,23 @@ mod tests {
     use jj_lib::revset::RevsetExpression;
     use jj_lib::revset::RevsetExtensions;
     use jj_lib::revset::RevsetWorkspaceContext;
+    use jj_lib::template_parser::FunctionCallNode;
     use jj_lib::template_parser::TemplateAliasesMap;
     use testutils::TestRepoBackend;
     use testutils::TestWorkspace;
     use testutils::repo_path_buf;
 
     use super::*;
+    use crate::template_builder::BuildContext;
     use crate::templater::TemplateRenderer;
-    use crate::templater::WrapTemplateProperty;
 
     // TemplateBuildFunctionFn defined for<'a>
     type BuildFunctionFn = for<'a> fn(
         &CommitTemplateLanguage<'a>,
         &mut TemplateDiagnostics,
-        &BuildContext<CommitTemplatePropertyKind<'a>>,
+        &BuildContext<'a, '_>,
         &FunctionCallNode,
-    ) -> TemplateParseResult<CommitTemplatePropertyKind<'a>>;
+    ) -> TemplateParseResult<TemplatePropertyKind<'a>>;
 
     struct CommitTemplateTestEnv {
         test_workspace: TestWorkspace,
@@ -3789,17 +2969,16 @@ mod tests {
                 ConflictMarkerStyle::Diff,
                 &[] as &[Box<dyn CommitTemplateLanguageExtension>],
             );
-            // Not using .extend() to infer lifetime of f
+            let mut functions = language.symbol_table.register_functions();
             for (&name, &f) in &self.extra_functions {
-                language.build_fn_table.core.functions.insert(name, f);
+                functions.insert(name, f);
             }
             language
         }
 
         fn parse<'a, C>(&'a self, text: &str) -> TemplateParseResult<TemplateRenderer<'a, C>>
         where
-            C: Clone + 'a,
-            CommitTemplatePropertyKind<'a>: WrapTemplateProperty<'a, C>,
+            C: Clone + TemplateValue,
         {
             let language = self.new_language();
             let mut diagnostics = TemplateDiagnostics::new();
@@ -3811,10 +2990,10 @@ mod tests {
             )
         }
 
-        fn render_ok<'a, C>(&'a self, text: &str, context: &C) -> BString
+        #[track_caller]
+        fn render_ok<C>(&self, text: &str, context: &C) -> BString
         where
-            C: Clone + 'a,
-            CommitTemplatePropertyKind<'a>: WrapTemplateProperty<'a, C>,
+            C: Clone + TemplateValue,
         {
             let template = self.parse(text).unwrap();
             template.format_plain_text(context).into()
@@ -3965,6 +3144,26 @@ mod tests {
 
         // JSON
         insta::assert_snapshot!(env.render_ok("json(self)", &sym("foo bar")), @r#""foo bar""#);
+
+        // coerce to integer
+        insta::assert_snapshot!(env.parse::<RefSymbolBuf>("fill(self, '')").err().unwrap(), @"
+         --> 1:6
+          |
+        1 | fill(self, '')
+          |      ^--^
+          |
+          = Expected expression of type `Integer`, but actual type is `RefSymbol`
+        ");
+
+        // unknown method
+        insta::assert_snapshot!(env.parse::<RefSymbolBuf>("self.foo()").err().unwrap(), @"
+         --> 1:6
+          |
+        1 | self.foo()
+          |      ^-^
+          |
+          = Method `foo` doesn't exist for type `RefSymbol`
+        ");
     }
 
     #[test]

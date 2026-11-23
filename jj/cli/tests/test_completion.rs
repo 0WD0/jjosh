@@ -231,6 +231,7 @@ fn test_bookmark_names() {
     --no-integrate-operation	Run the command as usual but don't integrate any operations
     --ignore-immutable	Allow rewriting immutable commits
     --at-operation	Operation to load the repo at
+    --in-project	Interpret paths and references within this registered project
     --debug	Enable debug logging
     --color	When to colorize output
     --quiet	Silence non-primary command output
@@ -813,6 +814,7 @@ fn test_command_completion_short_name() {
     --no-integrate-operation	Run the command as usual but don't integrate any operations
     --ignore-immutable	Allow rewriting immutable commits
     --at-operation	Operation to load the repo at
+    --in-project	Interpret paths and references within this registered project
     --debug	Enable debug logging
     --color	When to colorize output
     --quiet	Silence non-primary command output

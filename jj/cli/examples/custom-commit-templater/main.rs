@@ -16,8 +16,9 @@ use std::sync::Arc;
 
 use futures::TryStreamExt as _;
 use jj_cli::cli_util::CliRunner;
-use jj_cli::commit_templater::CommitTemplateBuildFnTable;
+use jj_cli::commit_templater::CommitTemplateLanguage;
 use jj_cli::commit_templater::CommitTemplateLanguageExtension;
+use jj_cli::template_builder::TemplateSymbolTable;
 use jj_cli::templater::TemplatePropertyExt as _;
 use jj_lib::backend::CommitId;
 use jj_lib::commit::Commit;
@@ -122,9 +123,12 @@ impl SymbolResolverExtension for TheDigitest {
 }
 
 impl CommitTemplateLanguageExtension for HexCounter {
-    fn build_fn_table<'repo>(&self) -> CommitTemplateBuildFnTable<'repo> {
-        let mut table = CommitTemplateBuildFnTable::empty();
-        table.commit_methods.insert(
+    fn register_symbols<'repo>(
+        &self,
+        symbol_table: &mut TemplateSymbolTable<'repo, CommitTemplateLanguage<'repo>>,
+    ) {
+        let mut methods = symbol_table.register_methods::<Commit>();
+        methods.insert(
             "has_most_digits",
             |language, _diagnostics, _build_context, property, call| {
                 call.expect_no_arguments()?;
@@ -137,7 +141,7 @@ impl CommitTemplateLanguageExtension for HexCounter {
                 Ok(out_property.into_dyn_wrapped())
             },
         );
-        table.commit_methods.insert(
+        methods.insert(
             "num_digits_in_id",
             |_language, _diagnostics, _build_context, property, call| {
                 call.expect_no_arguments()?;
@@ -145,7 +149,7 @@ impl CommitTemplateLanguageExtension for HexCounter {
                 Ok(out_property.into_dyn_wrapped())
             },
         );
-        table.commit_methods.insert(
+        methods.insert(
             "num_char_in_id",
             |_language, diagnostics, _build_context, property, call| {
                 let [string_arg] = call.expect_exact_arguments()?;
@@ -169,8 +173,6 @@ impl CommitTemplateLanguageExtension for HexCounter {
                 Ok(out_property.into_dyn_wrapped())
             },
         );
-
-        table
     }
 
     fn build_cache_extensions(&self, extensions: &mut ExtensionsMap) {

@@ -36,7 +36,7 @@ use jj_core::backend::CommitId;
 use jj_core::backend::MillisSinceEpoch;
 use jj_core::backend::Timestamp;
 use jj_core::content_hash::blake2b_hash;
-use jj_core::dag_walk_async;
+use jj_core::dag_walk;
 use jj_core::object_id::HexPrefix;
 use jj_core::object_id::ObjectId;
 use jj_core::object_id::PrefixResolution;
@@ -169,7 +169,7 @@ impl SimpleOpStore {
     fn ensure_store_type(&self, projects: bool, sparse: bool) -> Result<(), PathError> {
         let type_path = self.path.join("type");
         let lock_path = self.path.join("type.lock");
-        let _lock = crate::lock::FileLock::lock(lock_path.clone())
+        let _lock = jj_local_util::lock::FileLock::lock(lock_path.clone())
             .map_err(io::Error::other)
             .context(&lock_path)?;
         let current = match fs::read(&type_path) {
@@ -263,7 +263,7 @@ impl SimpleOpStore {
     /// Call after operation GC so its retention policy determines this set.
     pub async fn retained_project_commit_ids(
         &self,
-    ) -> OpStoreResult<HashSet<crate::backend::CommitId>> {
+    ) -> OpStoreResult<HashSet<jj_core::backend::CommitId>> {
         let dir = self.views_dir();
         let entries = dir
             .read_dir()
@@ -520,7 +520,7 @@ impl SimpleOpStore {
         // parameter. We could collect ancestors of the "new" operations here,
         // but more files can be added anyway after that.
         let read_op = |id: &OperationId| self.read_operation(id).map(|data| (id.clone(), data));
-        let reachable_ops: HashMap<OperationId, Operation> = dag_walk_async::dfs(
+        let reachable_ops: HashMap<OperationId, Operation> = dag_walk::dfs_ok(
             head_ids.iter().map(read_op),
             |(id, _)| id.clone(),
             |(_, data)| data.parents.iter().map(read_op).collect_vec(),
@@ -1064,7 +1064,7 @@ fn view_from_proto(proto: crate::protos::simple_op_store::View) -> Result<View, 
             .collect();
         if !git_tags.is_empty() {
             let git_view = remote_views
-                .entry(crate::git::REMOTE_NAME_FOR_LOCAL_GIT_REPO.to_owned())
+                .entry(jj_core::ref_name::REMOTE_NAME_FOR_LOCAL_GIT_REPO.to_owned())
                 .or_default();
             assert!(git_view.tags.is_empty());
             git_view.tags = git_tags;
@@ -1544,8 +1544,8 @@ mod tests {
 
     #[test]
     fn test_project_history_requires_current_store_type() -> TestResult {
-        use crate::project::ProjectId;
-        use crate::project::ProjectRecord;
+        use jj_core::project::ProjectId;
+        use jj_core::project::ProjectRecord;
         let temp_dir = new_temp_dir();
         let store = SimpleOpStore::init(
             temp_dir.path(),
@@ -1562,7 +1562,7 @@ mod tests {
             project.clone(),
             Merge::normal(ProjectRecord {
                 name: "lib".into(),
-                canonical_root: crate::repo_path::RepoPathBuf::from_internal_string(
+                canonical_root: jj_core::repo_path::RepoPathBuf::from_internal_string(
                     "packages/lib",
                 )?,
             }),
@@ -1593,11 +1593,11 @@ mod tests {
         )?;
         let mut view = create_view();
         let legacy_id = store.write_view(&view)?;
-        let a = WorkingCopyPatterns::from(crate::fileset::FilesetExpression::prefix_path(
-            crate::repo_path::RepoPathBuf::from_internal_string("a")?,
+        let a = WorkingCopyPatterns::from(jj_core::fileset_backend::FilesetExpression::prefix_path(
+            jj_core::repo_path::RepoPathBuf::from_internal_string("a")?,
         ));
-        let b = WorkingCopyPatterns::from(crate::fileset::FilesetExpression::prefix_path(
-            crate::repo_path::RepoPathBuf::from_internal_string("b")?,
+        let b = WorkingCopyPatterns::from(jj_core::fileset_backend::FilesetExpression::prefix_path(
+            jj_core::repo_path::RepoPathBuf::from_internal_string("b")?,
         ));
         let a_id = store.write_working_copy_patterns(&a)?;
         let b_id = store.write_working_copy_patterns(&b)?;
@@ -1633,8 +1633,8 @@ mod tests {
         let mut ids = vec![];
         for name in ["left", "base", "right", "recent", "unreachable"] {
             let patterns =
-                WorkingCopyPatterns::from(crate::fileset::FilesetExpression::prefix_path(
-                    crate::repo_path::RepoPathBuf::from_internal_string(name)?,
+                WorkingCopyPatterns::from(jj_core::fileset_backend::FilesetExpression::prefix_path(
+                    jj_core::repo_path::RepoPathBuf::from_internal_string(name)?,
                 ));
             ids.push(store.write_working_copy_patterns(&patterns)?);
         }

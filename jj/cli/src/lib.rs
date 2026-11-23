@@ -40,6 +40,7 @@ pub mod project_context;
 pub mod revset_util;
 mod source_symbol;
 pub mod template_builder;
+pub mod template_value;
 pub mod templater;
 pub mod text_util;
 pub mod time_util;

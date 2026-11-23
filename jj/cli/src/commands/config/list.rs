@@ -26,8 +26,9 @@ use crate::command_error::CommandError;
 use crate::complete;
 use crate::config::AnnotatedValue;
 use crate::config::resolved_config_values;
-use crate::generic_templater;
 use crate::generic_templater::GenericTemplateLanguage;
+use crate::template_value::OpaqueTemplateValue;
+use crate::templater::ConfigValueWrapper;
 use crate::templater::TemplatePropertyExt as _;
 use crate::templater::TemplateRenderer;
 use crate::ui::Ui;
@@ -123,34 +124,59 @@ pub async fn cmd_config_list(
     Ok(())
 }
 
-type ConfigTemplateLanguage = GenericTemplateLanguage<'static, AnnotatedValue>;
-
-generic_templater::impl_self_property_wrapper!(AnnotatedValue);
+impl OpaqueTemplateValue for AnnotatedValue {}
 
 // AnnotatedValue will be cloned internally in the templater. If the cloning
 // cost matters, wrap it with Rc.
-fn config_template_language(settings: &UserSettings, current_dir: &Path) -> ConfigTemplateLanguage {
-    let mut language = ConfigTemplateLanguage::new(settings, current_dir);
-    language.add_keyword("name", |self_property| {
-        let out_property = self_property.map(|annotated| annotated.name.to_string());
-        Ok(out_property.into_dyn_wrapped())
-    });
-    language.add_keyword("value", |self_property| {
-        // .decorated("", "") to trim leading/trailing whitespace
-        let out_property = self_property.map(|annotated| annotated.value.decorated("", ""));
-        Ok(out_property.into_dyn_wrapped())
-    });
-    language.add_keyword("source", |self_property| {
-        let out_property = self_property.map(|annotated| annotated.source.to_string());
-        Ok(out_property.into_dyn_wrapped())
-    });
-    language.add_keyword("path", |self_property| {
-        let out_property = self_property.map(|annotated| annotated.path);
-        Ok(out_property.into_dyn_wrapped())
-    });
-    language.add_keyword("overridden", |self_property| {
-        let out_property = self_property.map(|annotated| annotated.is_overridden);
-        Ok(out_property.into_dyn_wrapped())
-    });
+fn config_template_language(
+    settings: &UserSettings,
+    current_dir: &Path,
+) -> GenericTemplateLanguage {
+    let mut language = GenericTemplateLanguage::new(settings, current_dir);
+    language
+        .register_type::<AnnotatedValue>("AnnotatedConfigValue")
+        .serializable();
+    let mut methods = language.register_methods::<AnnotatedValue>();
+    methods.insert(
+        "name",
+        |_language, _diagnostics, _build_ctx, self_property, function| {
+            function.expect_no_arguments()?;
+            let out_property = self_property.map(|annotated| annotated.name.to_string());
+            Ok(out_property.into_dyn_wrapped())
+        },
+    );
+    methods.insert(
+        "value",
+        |_language, _diagnostics, _build_ctx, self_property, function| {
+            function.expect_no_arguments()?;
+            let out_property =
+                self_property.map(|annotated| ConfigValueWrapper::new(annotated.value));
+            Ok(out_property.into_dyn_wrapped())
+        },
+    );
+    methods.insert(
+        "source",
+        |_language, _diagnostics, _build_ctx, self_property, function| {
+            function.expect_no_arguments()?;
+            let out_property = self_property.map(|annotated| annotated.source.to_string());
+            Ok(out_property.into_dyn_wrapped())
+        },
+    );
+    methods.insert(
+        "path",
+        |_language, _diagnostics, _build_ctx, self_property, function| {
+            function.expect_no_arguments()?;
+            let out_property = self_property.map(|annotated| annotated.path);
+            Ok(out_property.into_dyn_wrapped())
+        },
+    );
+    methods.insert(
+        "overridden",
+        |_language, _diagnostics, _build_ctx, self_property, function| {
+            function.expect_no_arguments()?;
+            let out_property = self_property.map(|annotated| annotated.is_overridden);
+            Ok(out_property.into_dyn_wrapped())
+        },
+    );
     language
 }

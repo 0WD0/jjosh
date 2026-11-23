@@ -134,6 +134,7 @@ use jj_lib::store_factories::StoreLoadError;
 use jj_lib::store_factories::merge_factories_map;
 use jj_lib::str_util::StringExpression;
 use jj_lib::str_util::StringMatcher;
+use jj_lib::template_parser;
 use jj_lib::template_parser::TemplateAliasesMap;
 use jj_lib::template_parser::TemplateDiagnostics;
 use jj_lib::transaction::Transaction;
@@ -203,8 +204,8 @@ use crate::revset_util::RevsetExpressionEvaluator;
 use crate::revset_util::parse_union_name_patterns;
 use crate::template_builder;
 use crate::template_builder::TemplateLanguage;
+use crate::template_value::TemplateValue;
 use crate::templater::TemplateRenderer;
-use crate::templater::WrapTemplateProperty;
 use crate::text_util;
 use crate::ui::Ui;
 
@@ -304,7 +305,8 @@ impl TracingSubscription {
                     .add_directive("jj_frontend=debug".parse().unwrap())
                     .add_directive("jj_git_backend=debug".parse().unwrap())
                     .add_directive("jj_lib=debug".parse().unwrap())
-                    .add_directive("jj_local_util=debug".parse().unwrap());
+                    .add_directive("jj_local_util=debug".parse().unwrap())
+                    .add_directive("jj_simple_stores=debug".parse().unwrap());
             })
             .map_err(|err| internal_error_with_message("failed to enable debug logging", err))?;
         tracing::info!("debug logging enabled");
@@ -429,9 +431,8 @@ impl CommandHelper {
         template_text: &str,
     ) -> Result<TemplateRenderer<'a, C>, CommandError>
     where
-        C: Clone + 'a,
+        C: Clone + TemplateValue,
         L: TemplateLanguage<'a> + ?Sized,
-        L::Property: WrapTemplateProperty<'a, C>,
     {
         let mut diagnostics = TemplateDiagnostics::new();
         let aliases = load_template_aliases(ui, self.settings().config())?;
@@ -1248,9 +1249,8 @@ impl WorkspaceCommandEnvironment {
         template_text: &str,
     ) -> TemplateRenderer<'a, C>
     where
-        C: Clone + 'a,
+        C: Clone + TemplateValue,
         L: TemplateLanguage<'a> + ?Sized,
-        L::Property: WrapTemplateProperty<'a, C>,
     {
         template_builder::parse(
             language,
@@ -1269,9 +1269,8 @@ impl WorkspaceCommandEnvironment {
         template_text: &str,
     ) -> Result<TemplateRenderer<'a, C>, CommandError>
     where
-        C: Clone + 'a,
+        C: Clone + TemplateValue,
         L: TemplateLanguage<'a> + ?Sized,
-        L::Property: WrapTemplateProperty<'a, C>,
     {
         let mut diagnostics = TemplateDiagnostics::new();
         let template = template_builder::parse(
@@ -1307,6 +1306,29 @@ impl WorkspaceCommandEnvironment {
     pub fn operation_template_extensions(&self) -> &[Arc<dyn OperationTemplateLanguageExtension>] {
         &self.command.data.operation_template_extensions
     }
+}
+
+/// Parses template of the given language into evaluation tree and checks
+/// whether it is corresponds to a `json(...)` or `... ++ json(...) ++ ...`
+/// template. Emitting a warning about `ui.log-word-wrap` possibly mangling
+/// the output if so.
+///
+/// Note that this assumes that `ui.log-word-wrap` is enabled, only use it
+/// in contexts where this is true.
+pub fn check_json_word_wrap_mangling(
+    ui: &Ui,
+    env: &WorkspaceCommandEnvironment,
+    template_text: &str,
+) -> Result<(), CommandError> {
+    let node = template_parser::parse(template_text, &env.template_aliases_map)?;
+    if template_parser::contains_top_level_json_call(&node.kind) {
+        writeln!(
+            ui.warning_default(),
+            "Using `json` with `ui.log-word-wrap=true` may wrap its output, which might not be \
+             desired",
+        )?;
+    }
+    Ok(())
 }
 
 /// Prints [`RunnerEvent`]s for the CLI.
@@ -2022,10 +2044,12 @@ impl WorkspaceOperationRunner {
 
         #[cfg(feature = "git")]
         if self.env.working_copy_shared_with_git()
-            && let Ok(resolved_tree) = new_tree.trees().await?.into_resolved()
-            && resolved_tree
-                .entries_non_recursive()
-                .any(|entry| entry.name().as_internal_str().starts_with(".jjconflict"))
+            && !new_tree.has_conflict()
+            // Conflicts written by the Git backend always have a
+            // `.jjconflict-side-0` directory.
+            && new_tree
+                .has_dir(RepoPath::from_internal_string(".jjconflict-side-0").unwrap())
+                .await?
         {
             event_handler
                 .event(RunnerEvent::JjConflictFilesInWorkingCopy)
@@ -2983,9 +3007,8 @@ to the current parents may contain changes from multiple commits.
         template_text: &str,
     ) -> Result<TemplateRenderer<'a, C>, CommandError>
     where
-        C: Clone + 'a,
+        C: Clone + TemplateValue,
         L: TemplateLanguage<'a> + ?Sized,
-        L::Property: WrapTemplateProperty<'a, C>,
     {
         self.env.parse_template(ui, language, template_text)
     }
@@ -4437,6 +4460,11 @@ impl LogContentFormat {
     /// Current width available to content.
     pub fn width(&self) -> usize {
         self.width
+    }
+
+    /// Whether word wrapping is enabled.
+    pub fn word_wrap(&self) -> bool {
+        self.word_wrap
     }
 
     /// Writes content which will optionally be wrapped at the current width.

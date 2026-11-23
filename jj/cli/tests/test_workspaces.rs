@@ -2766,10 +2766,10 @@ fn test_workspaces_add_colocated_unborn_head() {
 /// Returns the repo's Git HEAD: the ref name if HEAD points at a ref, or the
 /// commit id if HEAD is detached.
 fn git_head(repo: &gix::Repository) -> String {
-    match repo.head().unwrap().kind {
-        gix::head::Kind::Unborn(name) => name.as_bstr().to_string(),
-        gix::head::Kind::Symbolic(reference) => reference.name.as_bstr().to_string(),
-        gix::head::Kind::Detached { target, .. } => target.to_string(),
+    let head = repo.head().unwrap();
+    match head.referent_name() {
+        Some(name) => name.as_bstr().to_string(),
+        None => head.id().unwrap().to_string(),
     }
 }
 

@@ -456,11 +456,11 @@ pub async fn cmd_git_push(
         source: args.source.as_deref(),
     };
 
-    if args.all {
+    if args.all || args.tracked || args.deleted {
         let workspace_helper = tx.base_workspace_helper();
 
         let params = ClassifyParams {
-            allow_new: true, // implied by --all
+            allow_new: true, // implied by --all, doesn't matter for --tracked and --deleted
             allow_delete: args.deleted,
         };
 
@@ -478,68 +478,11 @@ pub async fn cmd_git_push(
                 workspace_helper,
                 &mut commits_validator,
                 remote,
-                |_targets| true,
-                params,
-                routing,
-            )
-            .await?;
-
-            by_remote.push((remote, ref_updates));
-        }
-    } else if args.tracked {
-        let workspace_helper = tx.base_workspace_helper();
-
-        let params = ClassifyParams {
-            allow_new: true, // doesn't matter
-            allow_delete: args.deleted,
-        };
-
-        for remote in matching_remotes {
-            let mut commits_validator = CommitsValidator::new(
-                ui,
-                workspace_helper,
-                remote,
-                args,
-                routing.validation_session(remote),
-            )?;
-
-            let ref_updates = classify_tags_and_bookmark_updates(
-                ui,
-                workspace_helper,
-                &mut commits_validator,
-                remote,
-                |targets| targets.remote_ref.is_tracked(),
-                params,
-                routing,
-            )
-            .await?;
-
-            by_remote.push((remote, ref_updates));
-        }
-    } else if args.deleted {
-        let workspace_helper = tx.base_workspace_helper();
-
-        // There shouldn't be new heads to push, but we run validation for consistency.
-        let params = ClassifyParams {
-            allow_new: true, // doesn't matter
-            allow_delete: true,
-        };
-
-        for remote in matching_remotes {
-            let mut commits_validator = CommitsValidator::new(
-                ui,
-                workspace_helper,
-                remote,
-                args,
-                routing.validation_session(remote),
-            )?;
-
-            let ref_updates = classify_tags_and_bookmark_updates(
-                ui,
-                workspace_helper,
-                &mut commits_validator,
-                remote,
-                |targets| targets.local_target.is_absent(),
+                |targets| {
+                    args.all
+                        || (args.tracked && targets.remote_ref.is_tracked())
+                        || (args.deleted && targets.local_target.is_absent())
+                },
                 params,
                 routing,
             )

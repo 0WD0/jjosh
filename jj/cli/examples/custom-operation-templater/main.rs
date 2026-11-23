@@ -13,8 +13,9 @@
 // limitations under the License.
 
 use jj_cli::cli_util::CliRunner;
-use jj_cli::operation_templater::OperationTemplateLanguageBuildFnTable;
+use jj_cli::operation_templater::OperationTemplateLanguage;
 use jj_cli::operation_templater::OperationTemplateLanguageExtension;
+use jj_cli::template_builder::TemplateSymbolTable;
 use jj_cli::templater::TemplatePropertyExt as _;
 use jj_lib::extensions_map::ExtensionsMap;
 use jj_lib::object_id::ObjectId as _;
@@ -46,9 +47,12 @@ fn num_char_in_id(operation: Operation, ch_match: char) -> i64 {
 }
 
 impl OperationTemplateLanguageExtension for HexCounter {
-    fn build_fn_table(&self) -> OperationTemplateLanguageBuildFnTable {
-        let mut table = OperationTemplateLanguageBuildFnTable::empty();
-        table.operation.operation_methods.insert(
+    fn register_symbols(
+        &self,
+        symbol_table: &mut TemplateSymbolTable<'static, OperationTemplateLanguage>,
+    ) {
+        let mut methods = symbol_table.register_methods::<Operation>();
+        methods.insert(
             "num_digits_in_id",
             |_language, _diagnostics, _build_context, property, call| {
                 call.expect_no_arguments()?;
@@ -56,7 +60,7 @@ impl OperationTemplateLanguageExtension for HexCounter {
                 Ok(out_property.into_dyn_wrapped())
             },
         );
-        table.operation.operation_methods.insert(
+        methods.insert(
             "num_char_in_id",
             |_language, diagnostics, _build_context, property, call| {
                 let [string_arg] = call.expect_exact_arguments()?;
@@ -81,8 +85,6 @@ impl OperationTemplateLanguageExtension for HexCounter {
                 Ok(out_property.into_dyn_wrapped())
             },
         );
-
-        table
     }
 
     fn build_cache_extensions(&self, _extensions: &mut ExtensionsMap) {}

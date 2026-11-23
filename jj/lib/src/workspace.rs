@@ -24,43 +24,41 @@ use std::sync::Arc;
 use jj_core::backend::BackendInitError;
 use jj_core::commit::Commit;
 use jj_core::merged_tree::MergedTree;
+use jj_core::op_heads_store::OpHeadsStoreError;
 use jj_core::op_store::OperationId;
 use jj_core::operation::Operation;
 use jj_core::ref_name::WorkspaceName;
 use jj_core::ref_name::WorkspaceNameBuf;
 use jj_core::signing::Signer;
 use jj_core::workspace_store::WorkspaceStoreError;
+#[cfg(feature = "git")]
+use jj_git_backend::git_backend::GitBackend;
+#[cfg(feature = "git")]
+use jj_git_backend::git_backend::canonicalize_git_repo_path;
 use jj_local_util::file_util;
 use jj_local_util::file_util::BadPathEncoding;
 use jj_local_util::file_util::IoResultExt as _;
 use jj_local_util::file_util::PathError;
 use thiserror::Error;
 
-use crate::default_backend_factories::default_index_store_initializer;
-use crate::default_backend_factories::default_op_heads_store_initializer;
-use crate::default_backend_factories::default_op_store_initializer;
-use crate::default_backend_factories::default_submodule_store_initializer;
+use crate::default_backend_factories::default_backend_initializer;
+use crate::default_backend_factories::default_store_initializers;
 use crate::default_backend_factories::default_working_copy_factory;
-use crate::default_backend_factories::default_workspace_store_initializer;
-use crate::op_heads_store::OpHeadsStoreError;
+#[cfg(feature = "git")]
+use crate::default_backend_factories::git_backend_initializer;
 use crate::repo::CheckOutCommitError;
 use crate::repo::ReadonlyRepo;
 use crate::repo::Repo as _;
-use crate::repo::RepoInitError;
 use crate::repo::RepoLoader;
 use crate::repo::RepoLoaderError;
 use crate::settings::UserSettings;
 use crate::signing_factory::SignInitError;
 use crate::signing_factory::signer_from_settings;
-use crate::simple_backend::SimpleBackend;
 use crate::store_factories::BackendInitializer;
-use crate::store_factories::IndexStoreInitializer;
-use crate::store_factories::OpHeadsStoreInitializer;
-use crate::store_factories::OpStoreInitializer;
+use crate::store_factories::RepoInitError;
 use crate::store_factories::StoreFactories;
+use crate::store_factories::StoreInitializers;
 use crate::store_factories::StoreLoadError;
-use crate::store_factories::SubmoduleStoreInitializer;
-use crate::store_factories::WorkspaceStoreInitializer;
 use crate::store_factories::read_store_type;
 use crate::transaction::TransactionCommitError;
 use crate::working_copy::CheckoutError;
@@ -224,20 +222,19 @@ impl Workspace {
         }
     }
 
-    /// Initializes a workspace with a new repo using the [`SimpleBackend`].
+    /// Initializes a workspace with a new repo using the
+    /// [`SimpleBackend`](jj_simple_stores::simple_backend::SimpleBackend).
     pub async fn init_simple(
         user_settings: &UserSettings,
         workspace_root: &Path,
         workspace_name: &WorkspaceName,
     ) -> Result<(Self, Arc<ReadonlyRepo>), WorkspaceInitError> {
-        let backend_initializer: &BackendInitializer =
-            &|_settings, store_path| Ok(Box::new(SimpleBackend::init(store_path)));
         let signer = signer_from_settings(user_settings)?;
         Self::init_with_backend(
             user_settings,
             workspace_root,
             workspace_name,
-            backend_initializer,
+            default_backend_initializer(),
             signer,
         )
         .await
@@ -252,24 +249,15 @@ impl Workspace {
         workspace_name: &WorkspaceName,
         object_hash: gix::hash::Kind,
     ) -> Result<(Self, Arc<ReadonlyRepo>), WorkspaceInitError> {
-        let backend_initializer: &BackendInitializer = &|settings, store_path| {
-            let git_settings = settings
-                .git_backend_settings()
-                .map_err(BackendInitError::new)?;
-            Ok(Box::new(
-                jj_git_backend::git_backend::GitBackend::init_internal(
-                    &git_settings,
-                    store_path,
-                    object_hash,
-                )?,
-            ))
-        };
+        let backend_initializer = git_backend_initializer(|git_settings, store_path| {
+            GitBackend::init_internal(git_settings, store_path, object_hash)
+        });
         let signer = signer_from_settings(user_settings)?;
         Self::init_with_backend(
             user_settings,
             workspace_root,
             workspace_name,
-            backend_initializer,
+            &backend_initializer,
             signer,
         )
         .await
@@ -284,29 +272,23 @@ impl Workspace {
         workspace_name: &WorkspaceName,
         object_hash: gix::hash::Kind,
     ) -> Result<(Self, Arc<ReadonlyRepo>), WorkspaceInitError> {
-        let backend_initializer = |settings: &UserSettings,
-                                   store_path: &Path|
-         -> Result<Box<dyn jj_core::backend::Backend>, _> {
+        let backend_initializer = git_backend_initializer(|git_settings, store_path| {
             // TODO: Clean up path normalization. store_path is canonicalized by
-            // ReadonlyRepo::init(). workspace_root will be canonicalized by
-            // Workspace::new(), but it's not yet here.
+            // `StoreInitializers::init_repo()`. workspace_root will be
+            // canonicalized by `Workspace::new()`, but it's not yet here.
             let store_relative_workspace_root =
                 if let Ok(workspace_root) = file_util::canonicalize(workspace_root) {
                     file_util::relative_path(store_path, &workspace_root)
                 } else {
                     workspace_root.to_owned()
                 };
-            let git_settings = settings
-                .git_backend_settings()
-                .map_err(BackendInitError::new)?;
-            let backend = jj_git_backend::git_backend::GitBackend::init_colocated(
-                &git_settings,
+            GitBackend::init_colocated(
+                git_settings,
                 store_path,
                 &store_relative_workspace_root,
                 object_hash,
-            )?;
-            Ok(Box::new(backend))
-        };
+            )
+        });
         let signer = signer_from_settings(user_settings)?;
         Self::init_with_backend(
             user_settings,
@@ -329,17 +311,15 @@ impl Workspace {
         workspace_name: &WorkspaceName,
         git_repo_path: &Path,
     ) -> Result<(Self, Arc<ReadonlyRepo>), WorkspaceInitError> {
-        let backend_initializer = |settings: &UserSettings,
-                                   store_path: &Path|
-         -> Result<Box<dyn jj_core::backend::Backend>, _> {
+        let backend_initializer = git_backend_initializer(|git_settings, store_path| {
             // If the git repo is inside the workspace, use a relative path to it so the
             // whole workspace can be moved without breaking.
             // TODO: Clean up path normalization. store_path is canonicalized by
-            // ReadonlyRepo::init(). workspace_root will be canonicalized by
-            // Workspace::new(), but it's not yet here.
+            // `StoreInitializers::init_repo()`. workspace_root will be
+            // canonicalized by `Workspace::new()`, but it's not yet here.
             let store_relative_git_repo_path = match (
                 file_util::canonicalize(workspace_root),
-                jj_git_backend::git_backend::canonicalize_git_repo_path(git_repo_path),
+                canonicalize_git_repo_path(git_repo_path),
             ) {
                 (Ok(workspace_root), Ok(git_repo_path))
                     if git_repo_path.starts_with(&workspace_root) =>
@@ -348,16 +328,8 @@ impl Workspace {
                 }
                 _ => git_repo_path.to_owned(),
             };
-            let git_settings = settings
-                .git_backend_settings()
-                .map_err(BackendInitError::new)?;
-            let backend = jj_git_backend::git_backend::GitBackend::init_external(
-                &git_settings,
-                store_path,
-                &store_relative_git_repo_path,
-            )?;
-            Ok(Box::new(backend))
-        };
+            GitBackend::init_external(git_settings, store_path, &store_relative_git_repo_path)
+        });
         let signer = signer_from_settings(user_settings)?;
         Self::init_with_backend(
             user_settings,
@@ -369,43 +341,28 @@ impl Workspace {
         .await
     }
 
-    /// Initializes a workspace with a new repo, using the given backend and
-    /// store initializers and working-copy factory.
-    #[expect(clippy::too_many_arguments)]
+    /// Initializes a workspace with a new repo, using the given store
+    /// initializers and working-copy factory.
     pub async fn init_with_factories(
         user_settings: &UserSettings,
         workspace_root: &Path,
         workspace_name: &WorkspaceName,
-        backend_initializer: &BackendInitializer<'_>,
+        store_initializers: &StoreInitializers<'_>,
         signer: Signer,
-        workspace_store_initializer: &WorkspaceStoreInitializer<'_>,
-        op_store_initializer: &OpStoreInitializer<'_>,
-        op_heads_store_initializer: &OpHeadsStoreInitializer<'_>,
-        index_store_initializer: &IndexStoreInitializer<'_>,
-        submodule_store_initializer: &SubmoduleStoreInitializer<'_>,
         working_copy_factory: &dyn WorkingCopyFactory,
     ) -> Result<(Self, Arc<ReadonlyRepo>), WorkspaceInitError> {
         let jj_dir = create_jj_dir(workspace_root)?;
         async {
             let repo_dir = jj_dir.join("repo");
             std::fs::create_dir(&repo_dir).context(&repo_dir)?;
-            let repo = ReadonlyRepo::init(
-                user_settings,
-                &repo_dir,
-                backend_initializer,
-                signer,
-                workspace_store_initializer,
-                op_store_initializer,
-                op_heads_store_initializer,
-                index_store_initializer,
-                submodule_store_initializer,
-            )
-            .await
-            .map_err(|repo_init_err| match repo_init_err {
-                RepoInitError::Backend(err) => WorkspaceInitError::Backend(err),
-                RepoInitError::OpHeadsStore(err) => WorkspaceInitError::OpHeadsStore(err),
-                RepoInitError::Path(err) => WorkspaceInitError::Path(err),
-            })?;
+            let repo = store_initializers
+                .init_repo(user_settings, &repo_dir, signer)
+                .await
+                .map_err(|repo_init_err| match repo_init_err {
+                    RepoInitError::Backend(err) => WorkspaceInitError::Backend(err),
+                    RepoInitError::OpHeadsStore(err) => WorkspaceInitError::OpHeadsStore(err),
+                    RepoInitError::Path(err) => WorkspaceInitError::Path(err),
+                })?;
             let (working_copy, repo) = init_working_copy(
                 &repo,
                 workspace_root,
@@ -442,13 +399,11 @@ impl Workspace {
             user_settings,
             workspace_root,
             workspace_name,
-            backend_initializer,
+            &StoreInitializers {
+                backend: backend_initializer,
+                ..default_store_initializers()
+            },
             signer,
-            default_workspace_store_initializer(),
-            default_op_store_initializer(),
-            default_op_heads_store_initializer(),
-            default_index_store_initializer(),
-            default_submodule_store_initializer(),
             &*default_working_copy_factory(),
         )
         .await
@@ -758,8 +713,7 @@ impl WorkspaceLoader for DefaultWorkspaceLoader {
         store_factories: &StoreFactories,
         working_copy_factories: &WorkingCopyFactories,
     ) -> Result<Workspace, WorkspaceLoadError> {
-        let repo_loader =
-            RepoLoader::init_from_file_system(user_settings, &self.repo_path, store_factories)?;
+        let repo_loader = store_factories.load_repo(user_settings, &self.repo_path)?;
         let working_copy_factory = get_working_copy_factory(self, working_copy_factories)?;
         let working_copy = working_copy_factory.load_working_copy(
             repo_loader.store().clone(),

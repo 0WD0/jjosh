@@ -5,13 +5,13 @@
 
 use std::collections::BTreeMap;
 
-use crate::backend::CommitId;
-use crate::merge::Merge;
-use crate::object_id::ObjectId;
-use crate::op_store::View;
-use crate::project::*;
+use jj_core::backend::CommitId;
+use jj_core::merge::Merge;
+use jj_core::object_id::ObjectId;
+use jj_core::op_store::View;
+use jj_core::project::*;
 use crate::protos::simple_op_store as proto;
-use crate::repo_path::RepoPathBuf;
+use jj_core::repo_path::RepoPathBuf;
 
 fn id(bytes: Vec<u8>) -> Result<Vec<u8>, String> {
     if bytes.len() != 16 {
@@ -690,7 +690,7 @@ mod tests {
         let mut restored = View::make_root(CommitId::from_hex("00"));
         decode(encode(&source).unwrap(), &mut restored).unwrap();
         assert_eq!(restored, source);
-        let wrapped = crate::view::View::new(restored, true);
+        let wrapped = jj_core::view::View::new(restored, true);
         let roots: std::collections::HashSet<_> =
             wrapped.all_referenced_commit_ids().cloned().collect();
         assert!(roots.contains(&CommitId::from_hex("11")));
@@ -760,7 +760,7 @@ mod tests {
         let mut restored = View::make_root(CommitId::from_hex("00"));
         decode(encode(&source).unwrap(), &mut restored).unwrap();
         assert_eq!(source, restored);
-        let wrapped = crate::view::View::new(restored, true);
+        let wrapped = jj_core::view::View::new(restored, true);
         assert!(wrapped.validate_project_observation(&key).is_ok());
         assert!(
             wrapped
@@ -793,7 +793,7 @@ mod tests {
             .unwrap()
             .clone();
         let project = source.project_state.projects.keys().next().unwrap().clone();
-        let old_hash = crate::content_hash::blake2b_hash(&source);
+        let old_hash = jj_core::content_hash::blake2b_hash(&source);
         // The v1 hash stream has exactly these three labeled maps; adding even
         // an empty extension would change every historical operation identity.
         let legacy_state = (
@@ -802,14 +802,14 @@ mod tests {
             ("labels".to_owned(), source.project_state.labels.clone()),
         );
         assert_eq!(
-            crate::content_hash::blake2b_hash(&source.project_state),
-            crate::content_hash::blake2b_hash(&legacy_state)
+            jj_core::content_hash::blake2b_hash(&source.project_state),
+            jj_core::content_hash::blake2b_hash(&legacy_state)
         );
         let old = encode(&source).unwrap();
         assert_eq!(old.version, 1);
         let mut restored = View::make_root(CommitId::from_hex("00"));
         decode(old, &mut restored).unwrap();
-        assert_eq!(crate::content_hash::blake2b_hash(&restored), old_hash);
+        assert_eq!(jj_core::content_hash::blake2b_hash(&restored), old_hash);
         source.project_state.remote_names.insert(
             connection,
             Merge::from_vec(vec![
@@ -829,7 +829,7 @@ mod tests {
         let mut restored = View::make_root(CommitId::from_hex("00"));
         decode(encoded.clone(), &mut restored).unwrap();
         assert_eq!(restored, source);
-        assert_ne!(crate::content_hash::blake2b_hash(&restored), old_hash);
+        assert_ne!(jj_core::content_hash::blake2b_hash(&restored), old_hash);
         let mut downgraded = encoded.clone();
         downgraded.version = 1;
         assert!(decode(downgraded, &mut View::make_root(CommitId::from_hex("00"))).is_err());
@@ -878,8 +878,8 @@ mod tests {
         decode(encoded.clone(), &mut restored).unwrap();
         assert_eq!(source, restored);
         assert_eq!(
-            crate::content_hash::blake2b_hash(&source),
-            crate::content_hash::blake2b_hash(&restored)
+            jj_core::content_hash::blake2b_hash(&source),
+            jj_core::content_hash::blake2b_hash(&restored)
         );
         let mut downgraded = encoded;
         downgraded.version = 2;
@@ -895,7 +895,7 @@ mod tests {
         source.project_state.labels.clear();
         let mut restored = View::make_root(CommitId::from_hex("00"));
         decode(encode(&source).unwrap(), &mut restored).unwrap();
-        let wrapped = crate::view::View::new(restored, true);
+        let wrapped = jj_core::view::View::new(restored, true);
         for key in source.project_observations.keys() {
             assert!(wrapped.validate_project_observation(key).is_ok());
         }
