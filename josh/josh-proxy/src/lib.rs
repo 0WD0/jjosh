@@ -137,27 +137,17 @@ impl FetchError {
 
 pub fn fetch_refs_from_url(
     path: &std::path::Path,
-    upstream_repo: &str,
     url: &str,
-    refs_prefixes: &[String],
+    refspecs: &[String],
     remote_auth: &RemoteAuth,
 ) -> Result<(), RetryableError<FetchError>> {
-    let specs: Vec<_> = refs_prefixes
-        .iter()
-        .map(|r| {
-            format!(
-                "+{}:refs/josh/upstream/{}/{}",
-                &r,
-                josh_core::to_ns(upstream_repo),
-                &r
-            )
-        })
-        .collect();
-
     let cmd = ["git", "fetch", "--prune", "--no-tags", url]
         .map(str::to_owned)
         .to_vec();
-    let cmd = cmd.into_iter().chain(specs).collect::<Vec<_>>();
+    let cmd = cmd
+        .into_iter()
+        .chain(refspecs.iter().cloned())
+        .collect::<Vec<_>>();
     let cmd = cmd.iter().map(|s| s as &str).collect::<Vec<&str>>();
 
     tracing::info!("fetch_refs_from_url {:?} {:?} {:?}", cmd, path, "");

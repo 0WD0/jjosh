@@ -31,7 +31,7 @@ pub(super) fn resolve(
                     .iter()
                     .map(|(name, oid)| gix::refspec::match_group::Item {
                         full_ref_name: name.as_str().into(),
-                        target: oid,
+                        target: Some(oid),
                         object: None,
                     }),
             )

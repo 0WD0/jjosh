@@ -110,7 +110,7 @@ fn try_read_remote_config_from_repo(
         &remote_file,
         gix::lock::acquire::Fail::Immediately,
         None,
-        0,
+        Default::default(),
     ) {
         Ok(lock) => lock,
         // No remotes directory means there cannot yet be a published sidecar.
@@ -340,7 +340,7 @@ pub fn write_remote_config(
         &remote_file,
         gix::lock::acquire::Fail::Immediately,
         None,
-        0,
+        Default::default(),
     )
     .with_context(|| {
         format!(
@@ -459,7 +459,7 @@ mod tests {
         config.set_raw_value("remote.origin.url", "https://example.com/new").unwrap();
         let remote_file = repo.common_dir().join("josh/remotes/origin.josh");
         let sidecar_lock = gix::lock::Marker::acquire_to_hold_resource(
-            &remote_file, gix::lock::acquire::Fail::Immediately, None, 0,
+            &remote_file, gix::lock::acquire::Fail::Immediately, None, Default::default(),
         ).unwrap();
         std::fs::write(&remote_file, ":/new").unwrap();
 

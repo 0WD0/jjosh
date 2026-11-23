@@ -664,11 +664,8 @@ fn run_filter(args: Vec<String>) -> anyhow::Result<i32> {
     println!("{}", updated_refs[0].1);
 
     if let Some(gql_query) = args.get_one::<String>("graphql") {
-        let context = josh_graphql::context(transaction.try_clone()?, transaction.try_clone()?);
-
-        // Since we're running on local repo, mark fetch as already completed
-        // so that graphql code doesn't request it again
-        context.fetch_state.complete();
+        let context =
+            josh_graphql::context(transaction.try_clone()?, transaction.try_clone()?, false);
 
         let (res, _errors) = juniper::execute_sync(
             gql_query,

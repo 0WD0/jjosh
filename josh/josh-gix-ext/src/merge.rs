@@ -148,6 +148,7 @@ pub fn merge_trees(
         &mut gix_diff::tree::State::default(),
         &mut platforms.diff,
         &mut platforms.blob,
+        gix_merge::tree::Context::default(),
         options(None),
     )?;
     write_result(objects, outcome, (ours, theirs))
@@ -173,6 +174,7 @@ pub fn merge_commits(
         &mut platforms.blob,
         objects,
         &mut |id| id.to_string(),
+        gix_merge::tree::Context::default(),
         gix_merge::commit::Options {
             allow_missing_merge_base: true,
             use_first_merge_base: false,

@@ -96,6 +96,7 @@ pub(crate) fn write_snapshot(objects_dir: &Path, snapshot: &Snapshot) -> anyhow:
             alloc_limit_bytes: None,
             // Only used to complete thin packs, which this never writes.
             compression: gix_zlib::Compression::BEST_SPEED,
+            shared_repository_permissions: Default::default(),
         },
     )
     .context("mem-odb pack write failed")?;
