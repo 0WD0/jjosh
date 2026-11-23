@@ -701,10 +701,14 @@ pub(super) async fn run(
                 .collect();
             jj_lib::git::get_git_backend(repo.store())?.import_head_commits(ids.iter())?;
             let view = View::make_root(repo.store().root_commit_id().clone());
-            let source =
-                crate::native_source::NativeSource::read_view(repo.store().clone(), view, &ids)
-                    .await
-                    .map_err(user_error)?;
+            let source = crate::native_source::NativeSource::read_view(
+                repo.store().clone(),
+                view,
+                &ids,
+                |id| known.contains_key(id),
+            )
+            .await
+            .map_err(user_error)?;
             let imported = crate::native_import::rewrite_graph(
                 &source,
                 repo,

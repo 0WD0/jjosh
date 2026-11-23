@@ -18,7 +18,6 @@ use jj_lib::project::BindingId;
 use jj_lib::project::BindingRecord;
 use jj_lib::project::BindingTarget;
 use jj_lib::project::ConnectionId;
-use jj_lib::settings::JJRng;
 use jj_lib::project::ProjectState;
 use jj_lib::project::Representation;
 use jj_lib::project::ScopedRemoteName;
@@ -26,6 +25,7 @@ use jj_lib::ref_name::RemoteNameBuf;
 use jj_lib::repo::Repo as _;
 use jj_lib::repo_path::RepoPath;
 use jj_lib::repo_path::RepoPathBuf;
+use jj_lib::settings::JJRng;
 use jj_lib::str_util::StringExpression;
 
 use crate::native_source::NativeSource;
@@ -205,8 +205,12 @@ pub(crate) async fn run_import(
         }
         if matches!(mode, ImportMode::Git) {
             let url = jj_cli::git_util::absolute_git_url(command.cwd(), &path)?;
-            let mut plan =
-                plan_outer(&mut reserved, &name, &mount, command.settings().get_rng().as_ref())?;
+            let mut plan = plan_outer(
+                &mut reserved,
+                &name,
+                &mount,
+                command.settings().get_rng().as_ref(),
+            )?;
             let remote = RemoteNameBuf::from(format!("origin#{name}"));
             reserve_remotes(&git, &reserved, std::iter::once(&remote), &mut remotes)?;
             let binding = plan.metadata.bindings[&plan.binding]
@@ -310,15 +314,21 @@ pub(crate) async fn run_import(
             plan.reserve_into(&mut reserved);
             (ProjectPlan::Preserved(Box::new(plan)), Some(provenance))
         } else {
-            let plan = plan_outer(&mut reserved, &name, &mount, command.settings().get_rng().as_ref())?;
+            let plan = plan_outer(
+                &mut reserved,
+                &name,
+                &mount,
+                command.settings().get_rng().as_ref(),
+            )?;
             (ProjectPlan::Outer(plan), None)
         };
         let extra_roots = provenance
             .as_ref()
             .map_or(&[][..], |capture| capture.canonical_roots.as_slice());
-        let graph = NativeSource::read_view(loader.store().clone(), source_view, extra_roots)
-            .await
-            .map_err(user_error)?;
+        let graph =
+            NativeSource::read_view(loader.store().clone(), source_view, extra_roots, |_| false)
+                .await
+                .map_err(user_error)?;
         let witness = SourceWitness {
             name,
             workspace: source_workspace,

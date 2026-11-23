@@ -116,25 +116,33 @@ impl NativeSource {
         {
             selected.head_ids.extend(target.present_adds().cloned());
         }
-        let source = Self::read_view(loader.store().clone(), selected, &[]).await?;
+        let source = Self::read_view(loader.store().clone(), selected, &[], |_| false).await?;
         state.verify(loader).await?;
         Ok(source)
     }
 
     /// Capture the view's parent closure plus private roots without publishing
-    /// those roots as visible heads or references.
+    /// those roots as visible heads or references. The closure stops at
+    /// `imported` commits: their conversion is known, so neither they nor their
+    /// ancestors are read again, and a fetch costs its new history only.
     pub async fn read_view(
         store: Arc<Store>,
         view: View,
         extra_roots: &[CommitId],
+        imported: impl Fn(&CommitId) -> bool,
     ) -> Result<Self> {
         let native_view = jj_lib::view::View::new(view.clone(), false);
         let mut pending: Vec<_> = native_view.all_referenced_commit_ids().cloned().collect();
         pending.extend_from_slice(extra_roots);
         pending.push(store.root_commit_id().clone());
         let mut commits = HashMap::new();
+        let mut boundary = HashSet::new();
         while let Some(id) = pending.pop() {
-            if commits.contains_key(&id) {
+            if commits.contains_key(&id) || boundary.contains(&id) {
+                continue;
+            }
+            if id != *store.root_commit_id() && imported(&id) {
+                boundary.insert(id);
                 continue;
             }
             let mut commit = store
@@ -147,7 +155,14 @@ impl NativeSource {
             commits.insert(id, commit);
         }
         let root = store.backend().read_commit(store.root_commit_id()).await?;
-        validate_graph(&view, extra_roots, &commits, store.root_commit_id(), &root)?;
+        validate_graph(
+            &view,
+            extra_roots,
+            &commits,
+            &boundary,
+            store.root_commit_id(),
+            &root,
+        )?;
         validate_trees(&store, &commits).await?;
         Ok(Self {
             store,
@@ -245,12 +260,14 @@ fn object_roots(
     roots
 }
 
-/// Validate the complete closure of the recorded view and explicit private
-/// roots. Reject unrelated commits and cycles without making private roots visible.
+/// Validate the closure of the recorded view and explicit private roots, down
+/// to the `boundary` of already imported commits. Reject unrelated commits and
+/// cycles without making private roots visible.
 fn validate_graph(
     view: &View,
     extra_roots: &[CommitId],
     commits: &HashMap<CommitId, backend::Commit>,
+    boundary: &HashSet<CommitId>,
     root_id: &CommitId,
     root: &backend::Commit,
 ) -> Result<()> {
@@ -273,7 +290,7 @@ fn validate_graph(
             done.insert(id);
             continue;
         }
-        if done.contains(&id) {
+        if done.contains(&id) || boundary.contains(&id) {
             continue;
         }
         ensure!(
