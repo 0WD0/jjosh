@@ -14,7 +14,7 @@ repository = "https://github.com/jj-vcs/jj"
 anyhow = "1.0"
 clap = { version = "4.6.5", features = ["derive"] }
 futures = "0.3"
-gix = { version = "0.91.0", default-features = false, features = ["sha1", "sha256", "blocking-http-transport-reqwest-rust-tls"] }
+gix = { version = "0.91.0", default-features = false, features = ["sha1", "sha256", "blocking-http-transport-reqwest-rust-tls", "progress-tree"] }
 gix-pack = { version = "0.78.0", default-features = false, features = ["sha1", "sha256"] }
 gix-hash = { version = "0.29.0", features = ["sha1"] }
 gix-object = "0.67.0"

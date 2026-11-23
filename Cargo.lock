@@ -1876,6 +1876,7 @@ dependencies = [
  "gix-worktree-stream",
  "gix-zlib",
  "nonempty",
+ "prodash",
  "serde",
  "smallvec",
 ]

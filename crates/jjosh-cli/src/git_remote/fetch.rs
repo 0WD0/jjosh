@@ -1,7 +1,6 @@
 use std::collections::BTreeMap;
 use std::io::Write as _;
 use std::path::Path;
-use std::sync::atomic::AtomicBool;
 
 use gix::bstr::ByteSlice as _;
 use jj_cli::cli_util::CommandHelper;
@@ -582,6 +581,9 @@ pub(super) async fn run(
         negotiation_tips.sort_unstable();
         negotiation_tips.dedup();
         let retained_objects = old_raw.values().copied().collect();
+        let progress = gix::progress::tree::Root::new();
+        let display =
+            crate::git_transport::progress::Display::start(ui.progress_output(), progress.clone());
         let outcome = crate::git_transport::fetch::fetch(
             if options.fetch_url.is_some() {
                 raw_git.remote_at(endpoint.as_str()).map_err(user_error)?
@@ -600,9 +602,10 @@ pub(super) async fn run(
             shallow,
             negotiation_tips,
             &retained_objects,
-            &AtomicBool::new(false),
+            &progress,
         )
         .map_err(user_error)?;
+        drop(display);
         let mut advertised = BTreeMap::new();
         for reference in &outcome.advertised {
             let (name, id, ..) = reference.unpack();

@@ -1,10 +1,10 @@
 use std::collections::BTreeSet;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 
 use anyhow::{Context, ensure};
 use gix::bstr::BString;
-use gix::progress::Discard;
+use gix::progress::tree::Root;
 use gix::protocol::handshake::Ref;
 use gix::remote::Direction::Fetch;
 use gix::remote::fetch::{Status, Tags, refmap::Source};
@@ -33,9 +33,8 @@ pub(crate) fn fetch(
     shallow: gix::remote::fetch::Shallow,
     negotiation_tips: Vec<gix::ObjectId>,
     retained_objects: &BTreeSet<gix::ObjectId>,
-    interrupt: &AtomicBool,
+    progress: &Root,
 ) -> anyhow::Result<Outcome> {
-    ensure!(!interrupt.load(Ordering::Relaxed), "Git fetch interrupted");
     let mut remote = remote.with_fetch_tags(Tags::None);
     remote
         .replace_refspecs(std::iter::empty::<&str>(), Fetch)
@@ -44,7 +43,7 @@ pub(crate) fn fetch(
         .connect(Fetch)
         .context("Connecting to Git remote for discovery")?
         .ref_map(
-            Discard,
+            progress.add_child("discover"),
             gix::remote::ref_map::Options {
                 prefix_from_spec_as_filter_on_remote: false,
                 ..Default::default()
@@ -58,7 +57,6 @@ pub(crate) fn fetch(
         .filter(|reference| reference.unpack().1.is_some_and(|id| !id.is_null()))
         .cloned()
         .collect();
-    ensure!(!interrupt.load(Ordering::Relaxed), "Git fetch interrupted");
 
     let reuse_objects = matches!(shallow, gix::remote::fetch::Shallow::NoChange);
     let keep_paths = receive_objects(
@@ -74,7 +72,7 @@ pub(crate) fn fetch(
             .chain(revisions.iter().copied()),
         shallow,
         negotiation_tips,
-        interrupt,
+        progress,
     )?;
     Ok(Outcome {
         advertised,
@@ -89,9 +87,8 @@ fn receive_objects(
     ids: impl IntoIterator<Item = gix::ObjectId>,
     shallow: gix::remote::fetch::Shallow,
     negotiation_tips: Vec<gix::ObjectId>,
-    interrupt: &AtomicBool,
+    progress: &Root,
 ) -> anyhow::Result<Vec<PathBuf>> {
-    ensure!(!interrupt.load(Ordering::Relaxed), "Git fetch interrupted");
     let repo = remote.repo();
     let mut remote = remote.with_fetch_tags(Tags::None);
     let mut ids: Vec<_> = ids.into_iter().collect();
@@ -112,7 +109,7 @@ fn receive_objects(
         .connect(Fetch)
         .context("Connecting to Git remote for object receive")?
         .prepare_fetch(
-            Discard,
+            progress.add_child("negotiate"),
             gix::remote::ref_map::Options {
                 prefix_from_spec_as_filter_on_remote: false,
                 ..Default::default()
@@ -130,7 +127,7 @@ fn receive_objects(
     let outcome = prepared
         .with_shallow(shallow)
         .with_negotiation_tips(negotiation_tips)
-        .receive(Discard, interrupt)
+        .receive(progress.add_child("receive"), &AtomicBool::new(false))
         .context("Receiving advertisement-pinned Git objects")?;
     let (keep_path, edits) = match outcome.status {
         Status::Change {
