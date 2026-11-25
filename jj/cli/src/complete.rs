@@ -14,7 +14,6 @@
 
 use std::collections::BTreeMap;
 use std::collections::HashSet;
-use std::io::BufRead as _;
 use std::path::Path;
 
 use clap::FromArgMatches as _;
@@ -982,34 +981,24 @@ fn all_files_from_rev(rev: String, current: &std::ffi::OsStr) -> Vec<CompletionC
     let Some(current) = current.to_str() else {
         return Vec::new();
     };
-
-    let normalized_prefix = normalize_path(Path::new(current));
-    let normalized_prefix = slash_path(&normalized_prefix);
+    // The directory stays as typed, so `./` and `../` remain in the candidates.
+    let (dir, name) = match current.rfind(std::path::is_separator) {
+        Some(index) => current.split_at(index + 1),
+        None => ("", current),
+    };
 
     with_jj(|jj, _| {
-        let mut child = jj
+        let output = jj
             .build()
-            .arg("file")
-            .arg("list")
-            .arg("--revision")
-            .arg(rev)
-            .arg("--template")
-            .arg(r#"path.display() ++ "\n""#)
-            .arg(current_prefix_to_fileset(current))
-            .stdout(std::process::Stdio::piped())
+            .args(["debug", "dir", "--revision", &rev, "--"])
+            .arg(if dir.is_empty() { "." } else { dir })
             .stderr(std::process::Stdio::null())
-            .spawn()
+            .output()
             .map_err(user_error)?;
-        let stdout = child.stdout.take().unwrap();
-
-        Ok(std::io::BufReader::new(stdout)
+        Ok(String::from_utf8_lossy(&output.stdout)
             .lines()
-            .take(1_000)
-            .map_while(Result::ok)
-            .filter_map(|path| {
-                path_completion_candidate_from(current, &normalized_prefix, Path::new(&path), None)
-            })
-            .dedup() // directories may occur multiple times
+            .filter(|entry| entry.starts_with(name))
+            .map(|entry| CompletionCandidate::new(format!("{dir}{entry}")))
             .collect())
     })
 }

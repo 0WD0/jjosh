@@ -1846,6 +1846,25 @@ fn create_commit(
 }
 
 #[test]
+fn test_files_after_a_large_directory() {
+    let test_env = TestEnvironment::default();
+    test_env.run_jj_in(".", ["git", "init", "repo"]).success();
+    let work_dir = test_env.work_dir("repo");
+    for i in 0..1000 {
+        work_dir.write_file(format!("a_dir/f_{i}"), "");
+    }
+    work_dir.write_file("b_file", "");
+    work_dir.run_jj(["status"]).success();
+
+    let output = work_dir.complete_fish(["log", "--", ""]);
+    insta::assert_snapshot!(output, @"
+    a_dir/
+    b_file
+    [EOF]
+    ");
+}
+
+#[test]
 fn test_files() {
     let test_env = TestEnvironment::default();
     test_env.run_jj_in(".", ["git", "init", "repo"]).success();
@@ -2076,6 +2095,7 @@ fn test_files() {
     ../f_added_2
     ../f_another_renamed_2
     ../f_copied
+    ../f_dir/
     ../f_modified
     ../f_not_yet_copied
     ../f_renamed

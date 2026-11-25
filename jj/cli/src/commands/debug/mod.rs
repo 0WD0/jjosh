@@ -13,6 +13,7 @@
 // limitations under the License.
 
 mod copy_detection;
+mod dir;
 mod fileset;
 mod index;
 mod index_changed_paths;
@@ -33,6 +34,8 @@ use jj_lib::working_copy::WorkingCopy;
 
 use self::copy_detection::CopyDetectionArgs;
 use self::copy_detection::cmd_debug_copy_detection;
+use self::dir::DebugDirArgs;
+use self::dir::cmd_debug_dir;
 use self::fileset::DebugFilesetArgs;
 use self::fileset::cmd_debug_fileset;
 use self::index::DebugIndexArgs;
@@ -69,6 +72,7 @@ use crate::ui::Ui;
 #[command(hide = true)]
 pub enum DebugCommand {
     CopyDetection(CopyDetectionArgs),
+    Dir(DebugDirArgs),
     Fileset(DebugFilesetArgs),
     Index(DebugIndexArgs),
     IndexChangedPaths(DebugIndexChangedPathsArgs),
@@ -93,6 +97,7 @@ pub async fn cmd_debug(
 ) -> Result<(), CommandError> {
     match subcommand {
         DebugCommand::CopyDetection(args) => cmd_debug_copy_detection(ui, command, args).await,
+        DebugCommand::Dir(args) => cmd_debug_dir(ui, command, args).await,
         DebugCommand::Fileset(args) => cmd_debug_fileset(ui, command, args).await,
         DebugCommand::Index(args) => cmd_debug_index(ui, command, args).await,
         DebugCommand::IndexChangedPaths(args) => {
