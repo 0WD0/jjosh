@@ -13,7 +13,7 @@ subproject 不是 submodule，也不是嵌套repo，远端收到的仍是普通�
 
 * 安装与准备
 
-需要 Rust 1.99+ 和 Git。=jjosh= 由本目录中的 =jj/=、=josh/=、=gitoxide/= 源码构建，并沿用 jj 的用户配置。
+需要 Rust 1.100+ 和 Git。=jjosh= 由本目录中的 =jj/=、=josh/=、=gitoxide/= 源码构建，并沿用 jj 的用户配置。
 在 =jjosh/= 目录构建并加入 PATH：
 
 #+begin_src sh
