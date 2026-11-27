@@ -380,21 +380,29 @@ pub(crate) fn record_imported_boundaries<'a>(
 pub(crate) struct Anchors<'a> {
     repo: &'a dyn Repo,
     transaction: &'a Transaction,
+    mount: RepoPathBuf,
     by_raw: HashMap<CommitId, CommitId>,
     by_canonical: HashMap<CommitId, CommitId>,
     pending: Vec<(CommitId, CommitId)>,
+    pending_grafts: Vec<(CommitId, CommitId)>,
     sibling_by_raw: HashMap<CommitId, CommitId>,
 }
 
 impl<'a> Anchors<'a> {
-    pub(crate) fn new(repo: &'a dyn Repo, transaction: &'a Transaction) -> Self {
+    pub(crate) fn new(
+        repo: &'a dyn Repo,
+        transaction: &'a Transaction,
+        mount: RepoPathBuf,
+    ) -> Self {
         let root = repo.store().root_commit_id().clone();
         Self {
             repo,
             transaction,
+            mount,
             by_raw: HashMap::from([(root.clone(), root.clone())]),
             by_canonical: HashMap::from([(root.clone(), root)]),
             pending: Vec::new(),
+            pending_grafts: Vec::new(),
             sibling_by_raw: HashMap::new(),
         }
     }
@@ -463,8 +471,12 @@ impl<'a> Anchors<'a> {
             })?;
         for (kind, raw, canonical) in entries {
             let inserted = self.insert_pair(raw.clone(), canonical.clone(), shared_offline)?;
-            if kind == "origin" && inserted {
-                self.pending.push((raw, canonical));
+            if inserted {
+                match kind.as_str() {
+                    "origin" => self.pending.push((raw, canonical)),
+                    "graft" => self.pending_grafts.push((raw, canonical)),
+                    _ => {}
+                }
             }
         }
         Ok(())
@@ -512,6 +524,10 @@ impl<'a> Anchors<'a> {
             }
         }
         Ok(())
+    }
+
+    pub(crate) fn canonical_boundary_tips(&self) -> impl Iterator<Item = &CommitId> {
+        self.by_canonical.keys()
     }
 
     pub(crate) fn raw_to_canonical_direct(&self, raw: &CommitId) -> Option<&CommitId> {
@@ -575,8 +591,77 @@ impl<'a> Anchors<'a> {
         Ok(())
     }
 
+    async fn expand_graft_pair(
+        &self,
+        raw: &CommitId,
+        canonical: &CommitId,
+    ) -> Result<Vec<(CommitId, CommitId)>> {
+        let Ok(original) = josh_core::objects::CommitData::read(self.transaction.odb(), oid(raw)?)
+        else {
+            return Ok(Vec::new());
+        };
+        let raw_parents: Vec<_> = original
+            .parent_ids()
+            .map(|id| CommitId::from_bytes(id.as_bytes()))
+            .collect();
+        if raw_parents.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mapped = self.repo.store().get_commit_async(canonical).await?;
+        if raw_parents.len() != mapped.parent_ids().len() {
+            return Ok(Vec::new());
+        }
+        let root = self.repo.store().root_commit_id();
+        let mut pairs = Vec::with_capacity(raw_parents.len());
+        for (rp, cp) in raw_parents
+            .into_iter()
+            .zip(mapped.parent_ids().iter().cloned())
+        {
+            if &cp == root {
+                return Ok(Vec::new());
+            }
+            if self.by_raw.get(&rp).is_some_and(|prev| prev != &cp)
+                || self.by_canonical.get(&cp).is_some_and(|prev| prev != &rp)
+            {
+                return Ok(Vec::new());
+            }
+            let Ok(rp_data) =
+                josh_core::objects::CommitData::read(self.transaction.odb(), oid(&rp)?)
+            else {
+                return Ok(Vec::new());
+            };
+            let Ok(parsed) = rp_data.parsed() else {
+                return Ok(Vec::new());
+            };
+            let Ok(author) = parsed.author() else {
+                return Ok(Vec::new());
+            };
+            let Ok(committer) = parsed.committer() else {
+                return Ok(Vec::new());
+            };
+            let cp_commit = self.repo.store().get_commit_async(&cp).await?;
+            if cp_commit.description().as_bytes() != &*parsed.message
+                || cp_commit.author().name.as_bytes() != &*author.name
+                || cp_commit.committer().name.as_bytes() != &*committer.name
+            {
+                return Ok(Vec::new());
+            }
+            let rp_tree = TreeId::from_bytes(parsed.tree().as_bytes());
+            let matches_tree = if let Some(root_tree) = cp_commit.tree_ids().as_resolved() {
+                tree_id_at_path(self.repo.store(), root_tree, &self.mount).await? == rp_tree
+            } else {
+                project_tree(&cp_commit, &self.mount).await?.tree_ids() == &Merge::resolved(rp_tree)
+            };
+            if !matches_tree {
+                return Ok(Vec::new());
+            }
+            pairs.push((rp, cp));
+        }
+        Ok(pairs)
+    }
+
     /// Look up the raw source commit for a canonical monorepo commit, expanding
-    /// only `origin` ancestors that can reach `target_canonical`.
+    /// only `origin` (and isomorphic `graft`) ancestors that can reach `target_canonical`.
     pub(crate) async fn resolve_canonical(
         &mut self,
         target_canonical: &CommitId,
@@ -584,7 +669,7 @@ impl<'a> Anchors<'a> {
         if let Some(raw) = self.by_canonical.get(target_canonical) {
             return Ok(Some(raw.clone()));
         }
-        if self.pending.is_empty() {
+        if self.pending.is_empty() && self.pending_grafts.is_empty() {
             return Ok(None);
         }
         let index = self.repo.index();
@@ -603,6 +688,18 @@ impl<'a> Anchors<'a> {
             }
         }
         self.pending = remaining;
+        let mut work_grafts = Vec::new();
+        let mut remaining_grafts = Vec::with_capacity(self.pending_grafts.len());
+        for (raw, canonical) in self.pending_grafts.drain(..) {
+            if index.has_id(&canonical).await?
+                && index.is_ancestor(target_canonical, &canonical).await?
+            {
+                work_grafts.push((raw, canonical));
+            } else {
+                remaining_grafts.push((raw, canonical));
+            }
+        }
+        self.pending_grafts = remaining_grafts;
         while let Some((raw, canonical)) = work.pop() {
             for (raw_parent, canonical_parent) in self.expand_pair(&raw, &canonical).await? {
                 if !self.insert_pair(raw_parent.clone(), canonical_parent.clone(), false)? {
@@ -625,6 +722,32 @@ impl<'a> Anchors<'a> {
             }
             if let Some(found) = self.by_canonical.get(target_canonical).cloned() {
                 self.pending.extend(work);
+                self.pending_grafts.extend(work_grafts);
+                return Ok(Some(found));
+            }
+        }
+        while let Some((raw, canonical)) = work_grafts.pop() {
+            for (raw_parent, canonical_parent) in self.expand_graft_pair(&raw, &canonical).await? {
+                if !self.insert_pair(raw_parent.clone(), canonical_parent.clone(), false)? {
+                    continue;
+                }
+                if &canonical_parent == target_canonical {
+                    self.pending_grafts.push((raw_parent, canonical_parent));
+                    continue;
+                }
+                if &canonical_parent != self.repo.store().root_commit_id()
+                    && index.has_id(&canonical_parent).await?
+                    && index
+                        .is_ancestor(target_canonical, &canonical_parent)
+                        .await?
+                {
+                    work_grafts.push((raw_parent, canonical_parent));
+                } else {
+                    self.pending_grafts.push((raw_parent, canonical_parent));
+                }
+            }
+            if let Some(found) = self.by_canonical.get(target_canonical).cloned() {
+                self.pending_grafts.extend(work_grafts);
                 return Ok(Some(found));
             }
         }

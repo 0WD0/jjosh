@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::fs::File;
 use std::io::{self, Seek, Write};
 
@@ -409,31 +409,288 @@ fn is_ancestor(objects: &gix::OdbHandle, ancestor: ObjectId, tip: ObjectId) -> R
     Ok(false)
 }
 
+const WANT: u8 = 1;
+const HAVE: u8 = 2;
+
+struct WantCommit {
+    tree: ObjectId,
+    parents: Vec<ObjectId>,
+}
+
+fn commit_time(commit: &gix_object::CommitRef<'_>) -> i64 {
+    commit
+        .committer()
+        .ok()
+        .and_then(|sig| sig.time().ok())
+        .map_or(0, |time| time.seconds)
+}
+
+fn propagate_have(
+    start: &ObjectId,
+    want_commits: &HashMap<ObjectId, WantCommit>,
+    marks: &mut HashMap<ObjectId, u8>,
+    unpopped_want: &mut HashSet<ObjectId>,
+) {
+    let mut stack = vec![*start];
+    while let Some(id) = stack.pop() {
+        let Some(info) = want_commits.get(&id) else {
+            continue;
+        };
+        for &parent in &info.parents {
+            let entry = marks.entry(parent).or_insert(0);
+            if *entry & HAVE == 0 {
+                *entry |= HAVE;
+                unpopped_want.remove(&parent);
+                if want_commits.contains_key(&parent) {
+                    stack.push(parent);
+                }
+            }
+        }
+    }
+}
+
 fn prepare_pack(
     objects: &gix::OdbHandle,
     hash: gix::hash::Kind,
     commands: &[wire::Command],
     remote_objects: &HashSet<ObjectId>,
 ) -> Result<File> {
-    let mut pending: Vec<_> = commands
-        .iter()
-        .filter(|command| !command.new.is_null())
-        .map(|command| {
-            (
-                command.new,
-                command
-                    .name
-                    .starts_with(b"refs/heads/")
-                    .then_some(Kind::Commit),
-            )
-        })
-        .collect();
     let mut visited = HashMap::new();
+    let mut have_objects = remote_objects.clone();
+    let mut have_trees = HashSet::new();
+    let mut marks: HashMap<ObjectId, u8> = HashMap::new();
+    let mut queue: BinaryHeap<(i64, u64, ObjectId)> = BinaryHeap::new();
+    let mut seq = 0u64;
     let mut buffer = Vec::new();
-    while let Some((id, expected_kind)) = pending.pop() {
-        // Advertised objects and their complete closure already belong to this
-        // receive-pack endpoint. Do not walk a shallow source past that frontier.
-        if remote_objects.contains(&id) {
+    let mut parent_buf = Vec::new();
+
+    for &remote_id in remote_objects {
+        let mut current = remote_id;
+        let mut hops = 0usize;
+        while let Some(data) = objects.try_find(current.as_ref(), &mut buffer)? {
+            match data.decode() {
+                Ok(ObjectRef::Commit(commit)) => {
+                    let entry = marks.entry(current).or_insert(0);
+                    if *entry & HAVE == 0 {
+                        *entry |= HAVE;
+                        seq += 1;
+                        queue.push((commit_time(&commit), seq, current));
+                    }
+                    break;
+                }
+                Ok(ObjectRef::Tree(_)) => {
+                    have_trees.insert(current);
+                    break;
+                }
+                Ok(ObjectRef::Tag(tag)) => {
+                    let target = tag.target();
+                    have_objects.insert(target);
+                    if hops >= 64 {
+                        break;
+                    }
+                    hops += 1;
+                    current = target;
+                }
+                _ => break,
+            }
+        }
+    }
+
+    let mut unpopped_want = HashSet::new();
+    let mut missing_want = HashSet::new();
+    let mut pending_objects = Vec::new();
+    for command in commands.iter().filter(|command| !command.new.is_null()) {
+        let mut current = command.new;
+        let mut expected_kind = command
+            .name
+            .starts_with(b"refs/heads/")
+            .then_some(Kind::Commit);
+        loop {
+            if have_objects.contains(&current) {
+                break;
+            }
+            ensure!(
+                current.kind() == hash && !current.is_null(),
+                "invalid reachable object ID {current}"
+            );
+            let data = checked_object(objects, current, &mut buffer)?;
+            ensure!(
+                expected_kind.is_none_or(|expected| expected == data.kind),
+                "object {current} has the wrong kind for a reachable edge"
+            );
+            match data
+                .decode()
+                .with_context(|| format!("corrupt reachable object {current}"))?
+            {
+                ObjectRef::Commit(commit) => {
+                    let entry = marks.entry(current).or_insert(0);
+                    if *entry & (WANT | HAVE) == 0 {
+                        *entry = WANT;
+                        unpopped_want.insert(current);
+                        seq += 1;
+                        queue.push((commit_time(&commit), seq, current));
+                    }
+                    break;
+                }
+                ObjectRef::Tag(tag) => {
+                    visited.insert(current, Kind::Tag);
+                    ensure!(
+                        u32::try_from(visited.len()).is_ok(),
+                        "push pack exceeds the u32 object count limit"
+                    );
+                    expected_kind = Some(tag.target_kind);
+                    current = tag.target();
+                }
+                ObjectRef::Tree(_) | ObjectRef::Blob(_) => {
+                    pending_objects.push((current, expected_kind));
+                    break;
+                }
+            }
+        }
+    }
+
+    let mut want_commits = HashMap::new();
+    let mut want_order = Vec::new();
+    while let Some((_, _, id)) = queue.pop() {
+        let mark = marks.get(&id).copied().unwrap_or(0);
+        if mark == WANT {
+            unpopped_want.remove(&id);
+            let data = checked_object(objects, id, &mut buffer)?;
+            ensure!(
+                data.kind == Kind::Commit,
+                "object {id} has the wrong kind for a reachable edge"
+            );
+            let ObjectRef::Commit(commit) = data
+                .decode()
+                .with_context(|| format!("corrupt reachable object {id}"))?
+            else {
+                unreachable!("checked Kind::Commit above");
+            };
+            let tree = commit.tree();
+            let parents: Vec<_> = commit.parents().collect();
+            for &parent in &parents {
+                let parent_mark = marks.get(&parent).copied().unwrap_or(0);
+                if parent_mark & (WANT | HAVE) != 0 {
+                    continue;
+                }
+                ensure!(
+                    parent.kind() == hash && !parent.is_null(),
+                    "invalid reachable object ID {parent}"
+                );
+                let Some(pdata) = objects.try_find(parent.as_ref(), &mut parent_buf)? else {
+                    missing_want.insert(parent);
+                    continue;
+                };
+                ensure!(
+                    pdata.kind == Kind::Commit,
+                    "object {parent} has the wrong kind for a reachable edge"
+                );
+                let ObjectRef::Commit(pcommit) = pdata
+                    .decode()
+                    .with_context(|| format!("corrupt reachable object {parent}"))?
+                else {
+                    unreachable!("checked Kind::Commit above");
+                };
+                marks.insert(parent, WANT);
+                unpopped_want.insert(parent);
+                seq += 1;
+                queue.push((commit_time(&pcommit), seq, parent));
+            }
+            want_order.push(id);
+            want_commits.insert(id, WantCommit { tree, parents });
+        } else if mark & HAVE != 0 {
+            if unpopped_want.is_empty() && missing_want.is_empty() {
+                break;
+            }
+            if want_commits.contains_key(&id) {
+                propagate_have(&id, &want_commits, &mut marks, &mut unpopped_want);
+            }
+            let Some(data) = objects.try_find(id.as_ref(), &mut buffer)? else {
+                continue;
+            };
+            let Ok(ObjectRef::Commit(commit)) = data.decode() else {
+                continue;
+            };
+            for parent in commit.parents() {
+                let entry = marks.entry(parent).or_insert(0);
+                if *entry & HAVE == 0 {
+                    *entry |= HAVE;
+                    unpopped_want.remove(&parent);
+                    missing_want.remove(&parent);
+                    if want_commits.contains_key(&parent) {
+                        propagate_have(&parent, &want_commits, &mut marks, &mut unpopped_want);
+                    }
+                    if let Some(pdata) = objects.try_find(parent.as_ref(), &mut parent_buf)?
+                        && pdata.kind == Kind::Commit
+                        && let Ok(ObjectRef::Commit(pcommit)) = pdata.decode()
+                    {
+                        seq += 1;
+                        queue.push((commit_time(&pcommit), seq, parent));
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(missing) = missing_want
+        .into_iter()
+        .find(|id| marks.get(id).copied().unwrap_or(0) & HAVE == 0)
+    {
+        bail!("missing object {missing} while preparing push");
+    }
+
+    let mut root_trees = Vec::new();
+    for id in want_order {
+        if marks.get(&id).copied().unwrap_or(0) != WANT {
+            continue;
+        }
+        visited.insert(id, Kind::Commit);
+        ensure!(
+            u32::try_from(visited.len()).is_ok(),
+            "push pack exceeds the u32 object count limit"
+        );
+        let info = &want_commits[&id];
+        root_trees.push(info.tree);
+        for &parent in &info.parents {
+            if marks.get(&parent).copied().unwrap_or(0) & HAVE != 0
+                && let Some(pdata) = objects.try_find(parent.as_ref(), &mut buffer)?
+                && pdata.kind == Kind::Commit
+                && let Ok(ObjectRef::Commit(pcommit)) = pdata.decode()
+            {
+                have_trees.insert(pcommit.tree());
+            }
+        }
+    }
+
+    // Seed remote-owned trees and blobs from advertised tips and boundary commits
+    // without reading blob payloads from the local ODB.
+    let mut tree_queue: Vec<_> = have_trees.into_iter().collect();
+    let mut expanded_have_trees = HashSet::new();
+    while let Some(tree_id) = tree_queue.pop() {
+        if !expanded_have_trees.insert(tree_id) {
+            continue;
+        }
+        have_objects.insert(tree_id);
+        let Some(data) = objects.try_find(tree_id.as_ref(), &mut buffer)? else {
+            continue;
+        };
+        if let Ok(ObjectRef::Tree(tree)) = data.decode() {
+            for entry in tree.entries {
+                if entry.mode.is_commit() {
+                    continue;
+                }
+                let child = entry.oid.to_owned();
+                have_objects.insert(child);
+                if entry.mode.is_tree() && !expanded_have_trees.contains(&child) {
+                    tree_queue.push(child);
+                }
+            }
+        }
+    }
+
+    pending_objects.extend(root_trees.into_iter().map(|tree| (tree, Some(Kind::Tree))));
+    while let Some((id, expected_kind)) = pending_objects.pop() {
+        if have_objects.contains(&id) {
             continue;
         }
         if let Some(kind) = visited.get(&id) {
@@ -461,10 +718,6 @@ fn prepare_pack(
             .decode()
             .with_context(|| format!("corrupt reachable object {id}"))?
         {
-            ObjectRef::Commit(commit) => {
-                pending.push((commit.tree(), Some(Kind::Tree)));
-                pending.extend(commit.parents().map(|parent| (parent, Some(Kind::Commit))));
-            }
             ObjectRef::Tree(tree) => {
                 for entry in tree.entries {
                     if !entry.mode.is_commit() {
@@ -473,12 +726,12 @@ fn prepare_pack(
                         } else {
                             Kind::Blob
                         };
-                        pending.push((entry.oid.to_owned(), Some(kind)));
+                        pending_objects.push((entry.oid.to_owned(), Some(kind)));
                     }
                 }
             }
-            ObjectRef::Tag(tag) => pending.push((tag.target(), Some(tag.target_kind))),
-            ObjectRef::Blob(_) => {}
+            ObjectRef::Tag(tag) => pending_objects.push((tag.target(), Some(tag.target_kind))),
+            ObjectRef::Blob(_) | ObjectRef::Commit(_) => {}
         }
     }
     let count =
@@ -584,6 +837,84 @@ mod tests {
                 .to_string()
                 .contains("remote advertised duplicate ref"),
             "{error:#}"
+        );
+    }
+
+    #[test]
+    fn prepare_pack_prunes_remote_ancestors_and_shared_trees() {
+        use std::io::Read as _;
+        use std::process::Command;
+
+        let dir = tempfile::tempdir().unwrap();
+        let git = |args: &[&str], env: &[(&str, &str)]| -> String {
+            let mut cmd = Command::new("git");
+            cmd.current_dir(dir.path()).args(args);
+            for (k, v) in env {
+                cmd.env(k, v);
+            }
+            let out = cmd.output().unwrap();
+            assert!(
+                out.status.success(),
+                "git {args:?} failed: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            String::from_utf8(out.stdout).unwrap().trim().to_owned()
+        };
+        git(&["init", "-b", "main"], &[]);
+        git(&["config", "user.name", "Test"], &[]);
+        git(&["config", "user.email", "test@example.com"], &[]);
+        std::fs::create_dir_all(dir.path().join("dir")).unwrap();
+        std::fs::write(dir.path().join("base.txt"), "base\n").unwrap();
+        std::fs::write(dir.path().join("dir/sub.txt"), "sub\n").unwrap();
+        git(&["add", "."], &[]);
+        git(
+            &["commit", "-m", "base"],
+            &[("GIT_COMMITTER_DATE", "2026-01-01T00:00:00Z")],
+        );
+        let base_oid = ObjectId::from_hex(git(&["rev-parse", "HEAD"], &[]).as_bytes()).unwrap();
+
+        std::fs::write(dir.path().join("remote.txt"), "remote 1\n").unwrap();
+        git(&["add", "."], &[]);
+        git(
+            &["commit", "-m", "remote 1"],
+            &[("GIT_COMMITTER_DATE", "2026-01-02T00:00:00Z")],
+        );
+        std::fs::write(dir.path().join("remote.txt"), "remote 2\n").unwrap();
+        git(&["add", "."], &[]);
+        git(
+            &["commit", "-m", "remote 2"],
+            &[("GIT_COMMITTER_DATE", "2026-01-03T00:00:00Z")],
+        );
+        let remote_tip = ObjectId::from_hex(git(&["rev-parse", "HEAD"], &[]).as_bytes()).unwrap();
+
+        git(&["checkout", "-b", "topic", &base_oid.to_string()], &[]);
+        std::fs::write(dir.path().join("changed.txt"), "topic\n").unwrap();
+        git(&["add", "."], &[]);
+        git(
+            &["commit", "-m", "topic 1"],
+            &[("GIT_COMMITTER_DATE", "2026-01-04T00:00:00Z")],
+        );
+        let topic_tip = ObjectId::from_hex(git(&["rev-parse", "HEAD"], &[]).as_bytes()).unwrap();
+
+        let repo = gix::open(dir.path()).unwrap();
+        let mut pack = prepare_pack(
+            &repo.objects,
+            repo.object_hash(),
+            &[wire::Command {
+                name: "refs/heads/topic".into(),
+                old: ObjectId::null(repo.object_hash()),
+                new: topic_tip,
+            }],
+            &HashSet::from([remote_tip]),
+        )
+        .unwrap();
+        let mut header = [0u8; 12];
+        pack.read_exact(&mut header).unwrap();
+        assert_eq!(&header[..4], b"PACK");
+        let object_count = u32::from_be_bytes(header[8..12].try_into().unwrap());
+        assert_eq!(
+            object_count, 3,
+            "expected only commit, root tree, and changed blob"
         );
     }
 }

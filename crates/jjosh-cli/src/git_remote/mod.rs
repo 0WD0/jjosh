@@ -401,7 +401,13 @@ impl Session {
         repo: &'a dyn Repo,
         transaction: &'a josh_core::cache::Transaction,
     ) -> Result<crate::native_project::Anchors<'a>, CommandError> {
-        let mut known = crate::native_project::Anchors::new(repo, transaction);
+        let mount = self
+            .project
+            .as_ref()
+            .expect("native project anchors require a project")
+            .mount
+            .clone();
+        let mut known = crate::native_project::Anchors::new(repo, transaction, mount);
         known
             .load_binding(self.binding_id(), false)
             .map_err(user_error)?;

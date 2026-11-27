@@ -3791,3 +3791,123 @@ fn whole_project_fetch_reuses_sibling_history_and_isolates_publications() {
         "shared2",
     ]);
 }
+
+#[test]
+fn whole_project_push_prunes_unrelated_monorepo_branches_and_keeps_deletions() {
+    let remotes = tempfile::tempdir().unwrap();
+    let work = remotes.path().join("work");
+    native_git(
+        remotes.path(),
+        &["init", "-b", "main", work.to_str().unwrap()],
+    );
+    fs::write(work.join("value.txt"), "base\n").unwrap();
+    native_git(&work, &["add", "."]);
+    native_git(&work, &["commit", "-m", "alpha base"]);
+    fs::write(work.join("value.txt"), "v2\n").unwrap();
+    native_git(&work, &["add", "."]);
+    native_git(&work, &["commit", "-m", "alpha v2"]);
+
+    let upstream = remotes.path().join("upstream.git");
+    native_git(
+        remotes.path(),
+        &[
+            "clone",
+            "--bare",
+            work.to_str().unwrap(),
+            upstream.to_str().unwrap(),
+        ],
+    );
+
+    let mono = NativeRepo::new();
+    mono.jj(&["project", "add", "alpha", "--path", "alpha"]);
+    mono.add_project_remote("origin", &upstream, "alpha");
+    mono.jj(&[
+        "git",
+        "fetch",
+        "--remote",
+        "origin#alpha",
+        "--branch",
+        "main",
+    ]);
+    let canonical_v2 = mono.log("main#alpha@origin", "commit_id");
+
+    // Create an unrelated monorepo branch off root().
+    mono.jj(&["new", "root()", "-m", "other 1"]);
+    mono.write("other/file.txt", "step 1\n");
+    for step in 2..=10 {
+        mono.jj(&["new", "-m", &format!("other {step}")]);
+        mono.write("other/file.txt", &format!("step {step}\n"));
+    }
+    mono.jj(&["status"]);
+    let other_tip = mono.log("@", "commit_id");
+
+    // Merge alpha into the unrelated monorepo branch, add an unrelated commit, then edit alpha.
+    mono.jj(&["new", &other_tip, &canonical_v2, "-m", "merge unrelated"]);
+    let mono_merge = mono.log("@", "commit_id");
+    mono.jj(&["new", &mono_merge, "-m", "unrelated after merge"]);
+    mono.write("other/after.txt", "after\n");
+    mono.jj(&["new", "-m", "alpha v3"]);
+    mono.write("alpha/value.txt", "v3\n");
+    mono.jj(&[
+        "bookmark",
+        "track",
+        "main#alpha",
+        "--remote",
+        "origin#alpha",
+    ]);
+    mono.jj(&["bookmark", "set", "main#alpha", "-r", "@"]);
+    mono.jj(&[
+        "git",
+        "push",
+        "--remote",
+        "origin#alpha",
+        "--bookmark",
+        "main#alpha",
+    ]);
+
+    assert_eq!(
+        native_git(&upstream, &["rev-list", "--count", "main"]).trim(),
+        "3"
+    );
+    let raw_v2 = native_git(&upstream, &["rev-parse", "main^"])
+        .trim()
+        .to_owned();
+
+    // Emptying the project subtree on monorepo must retain its project parent rather than
+    // collapsing to synthetic root(), even after merging another unrelated branch.
+    mono.jj(&["new", "root()", "-m", "other side"]);
+    mono.write("other/side.txt", "side\n");
+    mono.jj(&["status"]);
+    let other_side = mono.log("@", "commit_id");
+
+    mono.jj(&["new", "main#alpha", "-m", "drop alpha"]);
+    fs::remove_file(mono.path.join("alpha/value.txt")).unwrap();
+    mono.write("other/keep-nonempty.txt", "still exists outside alpha\n");
+    mono.jj(&["status"]);
+    let drop_alpha = mono.log("@", "commit_id");
+    mono.jj(&[
+        "new",
+        &drop_alpha,
+        &other_side,
+        "-m",
+        "merge unrelated after drop",
+    ]);
+    mono.jj(&[
+        "git",
+        "push",
+        "--remote",
+        "origin#alpha",
+        "--named",
+        "wip#alpha=@",
+    ]);
+
+    assert_eq!(
+        native_git(&upstream, &["rev-list", "--count", "wip"]).trim(),
+        "4"
+    );
+    assert_eq!(
+        native_git(&upstream, &["rev-parse", "wip^^"]).trim(),
+        raw_v2
+    );
+    assert_eq!(native_git(&upstream, &["ls-tree", "-r", "wip"]).trim(), "");
+}

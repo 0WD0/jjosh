@@ -30,7 +30,7 @@ pub(crate) fn commits<'a>(
         }
         let selected: HashSet<_> = ids.iter().collect();
         let transaction = crate::interop::open_josh_transaction(git_path, true)?;
-        let mut known = super::Anchors::new(repo, &transaction);
+        let mut known = super::Anchors::new(repo, &transaction, mount.to_owned());
         known
             .load_binding(self_binding, false)
             .map_err(user_error)?;
@@ -39,10 +39,31 @@ pub(crate) fn commits<'a>(
                 known.load_binding(id, true).map_err(user_error)?;
             }
         }
+        let heads = match repo.index().heads(&mut ids.iter()).await {
+            Ok(heads) => heads,
+            Err(_) => {
+                let mut indexed = Vec::new();
+                let mut unindexed = Vec::new();
+                for id in &ids {
+                    if repo.index().has_id(id).await.map_err(user_error)? {
+                        indexed.push(id);
+                    } else {
+                        unindexed.push(id.clone());
+                    }
+                }
+                let mut heads = repo
+                    .index()
+                    .heads(&mut indexed.into_iter())
+                    .await
+                    .map_err(user_error)?;
+                heads.extend(unindexed);
+                heads
+            }
+        };
         let history = super::history::project(
             repo,
             mount,
-            &ids,
+            &heads,
             &mut known,
             // Policy exclusions aren't projection boundaries: an excluded parent may
             // still collapse into a shared ancestor or the synthetic project root.

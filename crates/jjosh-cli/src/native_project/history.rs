@@ -7,12 +7,16 @@
 use std::collections::{HashMap, HashSet};
 
 use anyhow::Result;
+use futures::TryStreamExt as _;
 use jj_lib::backend::{CommitId, TreeId};
 use jj_lib::commit::Commit;
+use jj_lib::fileset::{FilePattern, FilesetExpression};
+use jj_lib::index::Index;
 use jj_lib::merge::Merge;
 use jj_lib::merged_tree::MergedTree;
 use jj_lib::repo::Repo;
 use jj_lib::repo_path::RepoPath;
+use jj_lib::revset::{RevsetExpression, RevsetFilterPredicate};
 
 pub(super) struct Node<T> {
     pub id: CommitId,
@@ -36,7 +40,163 @@ struct Projected {
 
 enum Visit {
     Read(CommitId),
-    Write(Commit),
+    Write(Commit, Vec<CommitId>),
+}
+
+/// Precomputed subtree reachability scope used to bypass large non-project side branches.
+struct PruneScope<'a> {
+    index: &'a dyn Index,
+    boundaries: Vec<CommitId>,
+    touched_descendants: HashSet<CommitId>,
+    shortcuts: HashMap<CommitId, Vec<CommitId>>,
+}
+
+impl<'a> PruneScope<'a> {
+    async fn new(
+        repo: &'a dyn Repo,
+        mount: &RepoPath,
+        heads: &[CommitId],
+        known: &super::Anchors<'_>,
+        allow_boundary: &impl Fn(&CommitId) -> bool,
+    ) -> Result<Option<Self>> {
+        let index = repo.index();
+        let root = repo.store().root_commit_id();
+        let mut indexed_heads = Vec::new();
+        for id in heads {
+            if id == root {
+                continue;
+            }
+            if !index.has_id(id).await? {
+                return Ok(None);
+            }
+            indexed_heads.push(id);
+        }
+        if indexed_heads.is_empty() {
+            return Ok(None);
+        }
+        let top_heads = index.heads(&mut indexed_heads.into_iter()).await?;
+        let mut boundaries = Vec::new();
+        let mut stop_boundaries = Vec::new();
+        let mut seen = HashSet::new();
+        for id in known.canonical_boundary_tips() {
+            if id == root || !seen.insert(id) || !index.has_id(id).await? {
+                continue;
+            }
+            if allow_boundary(id) {
+                stop_boundaries.push(id.clone());
+            }
+            boundaries.push(id.clone());
+        }
+        let heads_expr = RevsetExpression::commits(top_heads.clone());
+        let scope_expr = if stop_boundaries.is_empty() {
+            heads_expr.ancestors()
+        } else {
+            RevsetExpression::commits(stop_boundaries).range(&heads_expr)
+        };
+        let touched_expr = scope_expr
+            .intersection(&RevsetExpression::filter(RevsetFilterPredicate::File(
+                FilesetExpression::pattern(FilePattern::PrefixPath(mount.to_owned())),
+            )))
+            .dag_range_to(&heads_expr);
+        let revset = touched_expr.evaluate(repo)?;
+        let touched_descendants: HashSet<CommitId> = revset.stream().try_collect().await?;
+        let mut exits = Vec::new();
+        let mut seen_exits = HashSet::new();
+        for id in &touched_descendants {
+            let commit = repo.store().get_commit_async(id).await?;
+            for parent in commit.parent_ids() {
+                if parent != root
+                    && !touched_descendants.contains(parent)
+                    && seen_exits.insert(parent.clone())
+                    && index.has_id(parent).await?
+                {
+                    exits.push(parent.clone());
+                }
+            }
+        }
+        for id in &top_heads {
+            if id != root
+                && !touched_descendants.contains(id)
+                && seen_exits.insert(id.clone())
+                && index.has_id(id).await?
+            {
+                exits.push(id.clone());
+            }
+        }
+        let mut empty_exits = Vec::new();
+        let mut nonempty_exits = Vec::new();
+        for id in exits {
+            let commit = repo.store().get_commit_async(&id).await?;
+            if super::commit_has_project_tree(&commit, mount).await? {
+                nonempty_exits.push(id);
+            } else {
+                empty_exits.push(id);
+            }
+        }
+        let mut shortcuts = HashMap::new();
+        if boundaries.is_empty() {
+            for id in empty_exits.into_iter().chain(nonempty_exits) {
+                shortcuts.insert(id, vec![root.clone()]);
+            }
+        } else {
+            let mut work = Vec::new();
+            if !empty_exits.is_empty() {
+                work.push(empty_exits);
+            }
+            if !nonempty_exits.is_empty() {
+                work.push(nonempty_exits);
+            }
+            while let Some(mut chunk) = work.pop() {
+                let ca = index.common_ancestors(&chunk, &boundaries).await?;
+                if ca.is_empty() || ca.as_slice() == [root.clone()] {
+                    for id in chunk {
+                        shortcuts.insert(id, vec![root.clone()]);
+                    }
+                } else if chunk.len() == 1 {
+                    let id = chunk.pop().unwrap();
+                    if !ca.contains(&id) && ca.len() == 1 {
+                        shortcuts.insert(id, ca);
+                    }
+                } else {
+                    let mid = chunk.len() / 2;
+                    let right = chunk.split_off(mid);
+                    work.push(right);
+                    work.push(chunk);
+                }
+            }
+        }
+        Ok(Some(Self {
+            index,
+            boundaries,
+            touched_descendants,
+            shortcuts,
+        }))
+    }
+
+    async fn effective_parents(&self, commit: &Commit, root: &CommitId) -> Result<Vec<CommitId>> {
+        let id = commit.id();
+        if let Some(parents) = self.shortcuts.get(id) {
+            return Ok(parents.clone());
+        }
+        if self.touched_descendants.contains(id) || !self.index.has_id(id).await? {
+            return Ok(commit.parent_ids().to_vec());
+        }
+        let common = if self.boundaries.is_empty() {
+            Vec::new()
+        } else {
+            self.index
+                .common_ancestors(&[id.clone()], &self.boundaries)
+                .await?
+        };
+        if common.contains(id) || common.len() > 1 {
+            return Ok(commit.parent_ids().to_vec());
+        }
+        if common.is_empty() {
+            Ok(vec![root.clone()])
+        } else {
+            Ok(common)
+        }
+    }
 }
 
 /// Walk each reachable commit once, stopping at explicit boundaries. Only EMIT may write
@@ -50,6 +210,7 @@ pub(super) async fn project<T>(
     allow_boundary: impl Fn(&CommitId) -> bool,
     mut emit: impl FnMut(&Commit, &MergedTree, Vec<CommitId>) -> Result<(CommitId, Option<T>)>,
 ) -> Result<History<T>> {
+    let prune = PruneScope::new(repo, mount, heads, known, &allow_boundary).await?;
     let root = repo.store().root_commit_id();
     let mut nodes = vec![Node {
         id: root.clone(),
@@ -91,15 +252,17 @@ pub(super) async fn project<T>(
                     });
                     continue;
                 }
-                let parents = commit.parent_ids().to_vec();
-                pending.push(Visit::Write(commit));
+                let parents = match &prune {
+                    Some(prune) => prune.effective_parents(&commit, root).await?,
+                    None => commit.parent_ids().to_vec(),
+                };
+                pending.push(Visit::Write(commit, parents.clone()));
                 pending.extend(parents.into_iter().map(Visit::Read));
             }
-            Visit::Write(commit) => {
+            Visit::Write(commit, effective_parents) => {
                 let tree = super::project_tree(&commit, mount).await?;
                 let mut seen = HashSet::new();
-                let mut parents: Vec<_> = commit
-                    .parent_ids()
+                let mut parents: Vec<_> = effective_parents
                     .iter()
                     .map(|id| mapped[id].node)
                     .filter(|&index| seen.insert(&nodes[index].id))
@@ -110,7 +273,7 @@ pub(super) async fn project<T>(
                     parents.retain(|&index| nodes[index].id != *root);
                 }
                 let same_parent = if let [parent] = parents.as_slice() {
-                    commit.parent_ids().iter().find(|id| {
+                    effective_parents.iter().find(|id| {
                         nodes[mapped[*id].node].id == nodes[*parent].id
                             && mapped[*id].tree == *tree.tree_ids()
                     })
