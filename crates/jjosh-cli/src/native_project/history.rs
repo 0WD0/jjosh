@@ -77,9 +77,9 @@ impl<'a> PruneScope<'a> {
         let top_heads = index.heads(&mut indexed_heads.into_iter()).await?;
         let mut boundaries = Vec::new();
         let mut stop_boundaries = Vec::new();
-        let mut seen = HashSet::new();
+        let mut boundary_set = HashSet::new();
         for id in known.canonical_boundary_tips() {
-            if id == root || !seen.insert(id) || !index.has_id(id).await? {
+            if id == root || !boundary_set.insert(id.clone()) || !index.has_id(id).await? {
                 continue;
             }
             if allow_boundary(id) {
@@ -87,16 +87,23 @@ impl<'a> PruneScope<'a> {
             }
             boundaries.push(id.clone());
         }
+        if boundaries.len() > 1 {
+            boundaries = index.heads(&mut boundaries.iter()).await?;
+        }
+        if stop_boundaries.len() > 1 {
+            stop_boundaries = index.heads(&mut stop_boundaries.iter()).await?;
+        }
         let heads_expr = RevsetExpression::commits(top_heads.clone());
         let scope_expr = if stop_boundaries.is_empty() {
             heads_expr.ancestors()
         } else {
             RevsetExpression::commits(stop_boundaries).range(&heads_expr)
         };
+        let files_expr = RevsetExpression::filter(RevsetFilterPredicate::File(
+            FilesetExpression::pattern(FilePattern::PrefixPath(mount.to_owned())),
+        ));
         let touched_expr = scope_expr
-            .intersection(&RevsetExpression::filter(RevsetFilterPredicate::File(
-                FilesetExpression::pattern(FilePattern::PrefixPath(mount.to_owned())),
-            )))
+            .intersection(&files_expr)
             .dag_range_to(&heads_expr);
         let revset = touched_expr.evaluate(repo)?;
         let touched_descendants: HashSet<CommitId> = revset.stream().try_collect().await?;
@@ -107,6 +114,7 @@ impl<'a> PruneScope<'a> {
             for parent in commit.parent_ids() {
                 if parent != root
                     && !touched_descendants.contains(parent)
+                    && !boundary_set.contains(parent)
                     && seen_exits.insert(parent.clone())
                     && index.has_id(parent).await?
                 {
@@ -117,6 +125,7 @@ impl<'a> PruneScope<'a> {
         for id in &top_heads {
             if id != root
                 && !touched_descendants.contains(id)
+                && !boundary_set.contains(id)
                 && seen_exits.insert(id.clone())
                 && index.has_id(id).await?
             {
@@ -134,35 +143,37 @@ impl<'a> PruneScope<'a> {
             }
         }
         let mut shortcuts = HashMap::new();
-        if boundaries.is_empty() {
-            for id in empty_exits.into_iter().chain(nonempty_exits) {
-                shortcuts.insert(id, vec![root.clone()]);
-            }
-        } else {
-            let mut work = Vec::new();
-            if !empty_exits.is_empty() {
-                work.push(empty_exits);
-            }
-            if !nonempty_exits.is_empty() {
-                work.push(nonempty_exits);
-            }
-            while let Some(mut chunk) = work.pop() {
-                let ca = index.common_ancestors(&chunk, &boundaries).await?;
-                if ca.is_empty() || ca.as_slice() == [root.clone()] {
-                    for id in chunk {
-                        shortcuts.insert(id, vec![root.clone()]);
-                    }
-                } else if chunk.len() == 1 {
+        let mut work = Vec::new();
+        if !empty_exits.is_empty() {
+            work.push(empty_exits);
+        }
+        if !nonempty_exits.is_empty() {
+            work.push(nonempty_exits);
+        }
+        while let Some(mut chunk) = work.pop() {
+            let no_mount_history = RevsetExpression::commits(chunk.clone())
+                .ancestors()
+                .intersection(&files_expr)
+                .evaluate(repo)?
+                .is_empty()
+                .await?;
+            if no_mount_history {
+                for id in chunk {
+                    shortcuts.insert(id, vec![root.clone()]);
+                }
+            } else if chunk.len() == 1 {
+                if !boundaries.is_empty() {
                     let id = chunk.pop().unwrap();
+                    let ca = index.common_ancestors(&[id.clone()], &boundaries).await?;
                     if !ca.contains(&id) && ca.len() == 1 {
                         shortcuts.insert(id, ca);
                     }
-                } else {
-                    let mid = chunk.len() / 2;
-                    let right = chunk.split_off(mid);
-                    work.push(right);
-                    work.push(chunk);
                 }
+            } else {
+                let mid = chunk.len() / 2;
+                let right = chunk.split_off(mid);
+                work.push(right);
+                work.push(chunk);
             }
         }
         Ok(Some(Self {

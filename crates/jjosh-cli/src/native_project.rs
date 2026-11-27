@@ -469,9 +469,13 @@ impl<'a> Anchors<'a> {
                 }
                 Ok(())
             })?;
+        let published_raw: HashSet<_> = entries
+            .iter()
+            .filter_map(|(kind, raw, _)| (kind == "published").then(|| raw.clone()))
+            .collect();
         for (kind, raw, canonical) in entries {
             let inserted = self.insert_pair(raw.clone(), canonical.clone(), shared_offline)?;
-            if inserted {
+            if inserted && !published_raw.contains(&raw) {
                 match kind.as_str() {
                     "origin" => self.pending.push((raw, canonical)),
                     "graft" => self.pending_grafts.push((raw, canonical)),

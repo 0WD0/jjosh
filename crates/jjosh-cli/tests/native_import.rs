@@ -3911,3 +3911,62 @@ fn whole_project_push_prunes_unrelated_monorepo_branches_and_keeps_deletions() {
     );
     assert_eq!(native_git(&upstream, &["ls-tree", "-r", "wip"]).trim(), "");
 }
+
+#[test]
+fn whole_project_fetch_of_published_monorepo_merge_does_not_corrupt_origin_chain() {
+    let remotes = tempfile::tempdir().unwrap();
+    let upstream = remotes.path().join("upstream.git");
+    native_git(
+        remotes.path(),
+        &["init", "--bare", upstream.to_str().unwrap()],
+    );
+    let mono = NativeRepo::new();
+    mono.jj(&["project", "add", "alpha", "--path", "alpha"]);
+    mono.add_project_remote("origin", &upstream, "alpha");
+
+    mono.write("alpha/file.txt", "v1\n");
+    mono.jj(&["describe", "-m", "alpha v1"]);
+    mono.jj(&["status"]);
+    let canonical_v1 = mono.log("@", "commit_id");
+    mono.jj(&["new", "-m", "unrelated outside commit"]);
+    mono.write("outside/note.txt", "ignored by alpha\n");
+    mono.jj(&["new", "-m", "alpha v2"]);
+    mono.write("alpha/file.txt", "v2\n");
+    mono.jj(&["status"]);
+    mono.jj(&[
+        "git",
+        "push",
+        "--remote",
+        "origin#alpha",
+        "--named",
+        "main#alpha=@",
+    ]);
+
+    // Re-fetching the already-published tip must not record an expandable origin anchor
+    // whose canonical parent chain contains the collapsed non-project commit.
+    mono.jj(&[
+        "git",
+        "fetch",
+        "--remote",
+        "origin#alpha",
+        "--branch",
+        "main",
+    ]);
+
+    // Pushing a new branch from canonical_v1 resolves v1 without walking raw_v2 -> outside.
+    mono.jj(&["new", &canonical_v1, "-m", "alpha topic"]);
+    mono.write("alpha/topic.txt", "topic\n");
+    mono.jj(&["status"]);
+    mono.jj(&[
+        "git",
+        "push",
+        "--remote",
+        "origin#alpha",
+        "--named",
+        "topic#alpha=@",
+    ]);
+    assert_eq!(
+        native_git(&upstream, &["rev-list", "--count", "topic"]).trim(),
+        "2"
+    );
+}

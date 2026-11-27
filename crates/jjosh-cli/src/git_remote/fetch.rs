@@ -717,6 +717,9 @@ pub(super) async fn run(
                     if let Some(canonical) = self.known.raw_to_canonical_direct(id) {
                         self.resolved_boundaries
                             .insert(id.clone(), canonical.clone());
+                        if !self.known.contains_raw_direct(id) {
+                            self.pre_grafts.push((id.clone(), canonical.clone()));
+                        }
                         return Ok(true);
                     }
                     Ok(false)
@@ -822,7 +825,7 @@ pub(super) async fn run(
                 transaction,
                 session.binding_id(),
                 &imported,
-                &ids,
+                ids.iter().filter(|id| source.commits.contains_key(id)),
             )
             .map_err(user_error)?;
         } else if let Some(filter) = session.filter() {
