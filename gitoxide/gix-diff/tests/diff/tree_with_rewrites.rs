@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use gix_diff::{
     Rewrites,
     rewrites::{Copies, CopySource},
@@ -5,7 +7,10 @@ use gix_diff::{
     tree_with_rewrites::{Change, Options},
 };
 use gix_error::ErrorExt;
-use gix_object::{TreeRefIter, bstr::BStr};
+use gix_object::{
+    TreeRefIter,
+    bstr::{BStr, BString, ByteSlice as _},
+};
 use gix_testtools::TestResult;
 
 #[test]
@@ -262,6 +267,7 @@ fn renames_by_identity() -> TestResult {
                         track_empty,
                         ..Default::default()
                     }),
+                    rewrite_destination_paths: None,
                 },
             )?;
             let actual: Vec<_> = changes
@@ -308,6 +314,7 @@ fn rename_by_similarity() -> TestResult {
                     percentage,
                     ..Default::default()
                 }),
+                rewrite_destination_paths: None,
             },
         )?;
         insta::allow_duplicates! {
@@ -361,6 +368,7 @@ fn rename_by_similarity() -> TestResult {
                 limit: 1, // has no effect as it's just one item here.
                 ..Default::default()
             }),
+            rewrite_destination_paths: None,
         },
     )?;
 
@@ -417,6 +425,7 @@ fn renames_by_similarity_with_limit() -> TestResult {
                 limit: 1, // prevent fuzzy tracking from happening
                 ..Default::default()
             }),
+            rewrite_destination_paths: None,
         },
     )?;
     assert_eq!(
@@ -450,6 +459,7 @@ fn copies_by_identity() -> TestResult {
                 limit: 1, // the limit isn't actually used for identity based checks
                 ..Default::default()
             }),
+            rewrite_destination_paths: None,
         },
     )?;
     insta::assert_snapshot!(crate::normalize_debug_snapshot(&changes).0, @r#"
@@ -507,6 +517,7 @@ fn copies_by_similarity() -> TestResult {
                 copies: Some(Copies::default()),
                 ..Default::default()
             }),
+            rewrite_destination_paths: None,
         },
     )?;
     insta::assert_snapshot!(crate::normalize_debug_snapshot(&changes).0, @r#"
@@ -588,6 +599,37 @@ fn copies_by_similarity() -> TestResult {
 }
 
 #[test]
+fn copies_are_limited_to_selected_destinations() -> TestResult {
+    let (changes, out) = collect_changes_opts(
+        "tc1-identity",
+        "tc2-similarity",
+        Options {
+            location: Some(Location::Path),
+            rewrites: Some(Rewrites {
+                copies: Some(Copies::default()),
+                ..Default::default()
+            }),
+            rewrite_destination_paths: Some(HashSet::from([BString::from("c5")])),
+        },
+    )?;
+
+    let rewrite_destinations: Vec<_> = changes
+        .iter()
+        .filter_map(|change| match change {
+            Change::Rewrite { location, .. } => Some(location.as_bstr()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(rewrite_destinations, [BStr::new("c5")]);
+    let out = out.expect("tracking enabled");
+    assert_eq!(
+        out.num_similarity_checks, 1,
+        "unselected additions should not participate in similarity checks"
+    );
+    Ok(())
+}
+
+#[test]
 fn copies_in_entire_tree_by_similarity() -> TestResult {
     let (changes, out) = collect_changes_opts(
         "tc2-similarity",
@@ -598,6 +640,7 @@ fn copies_in_entire_tree_by_similarity() -> TestResult {
                 copies: Some(Copies::default()),
                 ..Default::default()
             }),
+            rewrite_destination_paths: None,
         },
     )?;
     assert_eq!(
@@ -631,6 +674,7 @@ fn copies_in_entire_tree_by_similarity() -> TestResult {
                 }),
                 ..Default::default()
             }),
+            rewrite_destination_paths: None,
         },
     )?;
     insta::assert_snapshot!(crate::normalize_debug_snapshot(&changes).0, @r#"
@@ -714,6 +758,7 @@ fn copies_in_entire_tree_by_similarity_with_limit() -> TestResult {
                 track_empty: false,
                 ..Default::default()
             }),
+            rewrite_destination_paths: None,
         },
     )?;
     insta::assert_snapshot!(crate::normalize_debug_snapshot(&changes).0, @r#"
@@ -784,6 +829,7 @@ fn copies_by_similarity_with_limit() -> TestResult {
                 limit: 1,
                 ..Default::default()
             }),
+            rewrite_destination_paths: None,
         },
     )?;
 
@@ -848,6 +894,7 @@ fn realistic_renames_by_identity() -> TestResult {
                 track_empty: true,
                 ..Default::default()
             }),
+            rewrite_destination_paths: None,
         },
     )?;
 
@@ -930,6 +977,7 @@ fn realistic_renames_disabled() -> TestResult {
         Options {
             location: Some(Location::Path),
             rewrites: None,
+            rewrite_destination_paths: None,
         },
     )?;
 
@@ -1003,6 +1051,7 @@ fn realistic_renames_disabled_2() -> TestResult {
         Options {
             location: Some(Location::Path),
             rewrites: None,
+            rewrite_destination_paths: None,
         },
     )?;
 
@@ -1270,6 +1319,7 @@ fn realistic_renames_disabled_3() -> TestResult {
         Options {
             location: Some(Location::Path),
             rewrites: None,
+            rewrite_destination_paths: None,
         },
     )?;
 
@@ -1347,6 +1397,7 @@ fn realistic_renames_by_identity_3() -> TestResult {
                 track_empty: true,
                 ..Default::default()
             }),
+            rewrite_destination_paths: None,
         },
     )?;
 
@@ -1426,6 +1477,7 @@ fn realistic_renames_2() -> TestResult {
                 track_empty: true,
                 ..Default::default()
             }),
+            rewrite_destination_paths: None,
         },
     )?;
 
@@ -1689,6 +1741,7 @@ fn realistic_renames_3_without_identity() -> TestResult {
                 limit: 0,
                 track_empty: true,
             }),
+            rewrite_destination_paths: None,
         },
     )?;
 
@@ -1845,6 +1898,7 @@ mod util {
         let options = gix_diff::tree_with_rewrites::Options {
             location: Some(gix_diff::tree::recorder::Location::Path),
             rewrites: None,
+            rewrite_destination_paths: None,
         };
         collect_changes_opts(lhs, rhs, options)
     }

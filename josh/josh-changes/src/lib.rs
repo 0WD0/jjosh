@@ -1,0 +1,32 @@
+//! Stacked-changes metadata store for josh: change identity, comments, votes,
+//! revisions, and stacked-changes push machinery, persisted in `refs/josh/...`
+//! refs.
+//!
+//! The public API is flat: everything is re-exported at the crate root.
+
+pub use josh_core::trailers::{commit_change_meta, parse_change_meta};
+
+mod admission;
+mod change;
+mod change_data;
+mod comments;
+pub mod layout;
+mod publish_mode;
+mod refs;
+mod revisions;
+mod stacked;
+mod store;
+mod votes;
+
+pub mod remote_config;
+
+pub use admission::*;
+pub use change::*;
+pub use change_data::*;
+pub use comments::*;
+pub use publish_mode::*;
+pub use refs::*;
+pub use revisions::*;
+pub use stacked::*;
+pub use store::*;
+pub use votes::*;

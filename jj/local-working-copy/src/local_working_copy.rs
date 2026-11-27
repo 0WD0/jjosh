@@ -1,0 +1,4187 @@
+// Copyright 2020 The Jujutsu Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+//! Working copy backed by files on the local filesystem.
+
+use std::borrow::Cow;
+use std::cmp::Ordering;
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::error::Error;
+use std::ffi::OsString;
+use std::fs;
+use std::fs::DirEntry;
+use std::fs::File;
+use std::fs::Metadata;
+use std::fs::OpenOptions;
+use std::io;
+use std::io::Read as _;
+use std::io::Write as _;
+use std::iter;
+use std::mem;
+use std::ops::Range;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt as _;
+use std::path::Path;
+use std::path::PathBuf;
+use std::slice;
+use std::sync::Arc;
+use std::sync::OnceLock;
+use std::sync::mpsc::Sender;
+use std::sync::mpsc::channel;
+use std::time::SystemTime;
+
+use async_trait::async_trait;
+use either::Either;
+use futures::AsyncRead;
+use futures::AsyncReadExt as _;
+use futures::StreamExt as _;
+use futures::TryStreamExt as _;
+use futures::io::AllowStdIo;
+use itertools::EitherOrBoth;
+use itertools::Itertools as _;
+use jj_config::config::ConfigGetError;
+use jj_config::settings::UserSettings;
+use jj_core::backend::BackendError;
+use jj_core::backend::CopyId;
+use jj_core::backend::FileId;
+use jj_core::backend::MergedTreeValue;
+use jj_core::backend::MergedTreeValueExt as _;
+use jj_core::backend::MillisSinceEpoch;
+use jj_core::backend::SymlinkId;
+use jj_core::backend::TreeId;
+use jj_core::backend::TreeValue;
+use jj_core::commit::Commit;
+use jj_core::conflict_labels::ConflictLabels;
+use jj_core::conflicts;
+use jj_core::conflicts::ConflictMarkerStyle;
+use jj_core::conflicts::ConflictMaterializeOptions;
+use jj_core::conflicts::MIN_CONFLICT_MARKER_LEN;
+use jj_core::conflicts::MaterializedTreeValue;
+use jj_core::conflicts::choose_materialized_conflict_marker_len;
+use jj_core::conflicts::materialize_merge_result_to_bytes;
+use jj_core::conflicts::materialize_tree_value;
+use jj_core::fileset_backend::FilePattern;
+use jj_core::fileset_backend::FilesetExpression;
+use jj_core::matchers::EverythingMatcher;
+use jj_core::matchers::FilesMatcher;
+use jj_core::matchers::IntersectionMatcher;
+use jj_core::matchers::Matcher;
+use jj_core::matchers::PathGlobPattern;
+use jj_core::matchers::PrefixMatcher;
+use jj_core::matchers::UnionMatcher;
+use jj_core::matchers::Visit;
+use jj_core::matchers::VisitDirs;
+use jj_core::matchers::VisitFiles;
+use jj_core::merge::Merge;
+use jj_core::merge::MergeBuilder;
+use jj_core::merge::SameChange;
+use jj_core::merged_tree::MergedTree;
+use jj_core::merged_tree::TreeDiffEntry;
+use jj_core::merged_tree_builder::MergedTreeBuilder;
+use jj_core::object_id::ObjectId as _;
+use jj_core::op_store::OperationId;
+use jj_core::ref_name::WorkspaceName;
+use jj_core::ref_name::WorkspaceNameBuf;
+use jj_core::repo_path::RepoPath;
+use jj_core::repo_path::RepoPathBuf;
+use jj_core::repo_path::RepoPathComponent;
+use jj_core::store::Store;
+use jj_core::working_copy_patterns::WorkingCopyPathBuf;
+use jj_core::working_copy_patterns::WorkingCopyPatterns;
+use jj_dsl::fileset_parser;
+use jj_dsl::fileset_parser::BinaryOp;
+use jj_dsl::fileset_parser::ExpressionKind;
+use jj_dsl::fileset_parser::ExpressionNode;
+use jj_dsl::fileset_parser::FilesetParseError;
+use jj_dsl::fileset_parser::UnaryOp;
+use jj_local_util::file_util::FileIdentity;
+use jj_local_util::file_util::check_symlink_support;
+use jj_local_util::file_util::copy_async_to_sync;
+use jj_local_util::file_util::new_temp_file_with_default_permissions;
+use jj_local_util::file_util::persist_temp_file;
+use jj_local_util::file_util::symlink_file;
+use jj_local_util::lock::FileLock;
+use jj_working_copy::gitignore::GitIgnoreFile;
+use jj_working_copy::working_copy::CheckoutError;
+use jj_working_copy::working_copy::CheckoutStats;
+use jj_working_copy::working_copy::LockedWorkingCopy;
+use jj_working_copy::working_copy::ResetError;
+use jj_working_copy::working_copy::SnapshotError;
+use jj_working_copy::working_copy::SnapshotOptions;
+use jj_working_copy::working_copy::SnapshotProgress;
+use jj_working_copy::working_copy::SnapshotStats;
+use jj_working_copy::working_copy::UntrackedReason;
+use jj_working_copy::working_copy::WorkingCopy;
+use jj_working_copy::working_copy::WorkingCopyFactory;
+use jj_working_copy::working_copy::WorkingCopyStateError;
+use once_cell::unsync::OnceCell;
+use pollster::FutureExt as _;
+use prost::Message as _;
+use rayon::iter::IntoParallelIterator as _;
+use rayon::prelude::IndexedParallelIterator as _;
+use rayon::prelude::ParallelIterator as _;
+use tempfile::NamedTempFile;
+use thiserror::Error;
+use tracing::instrument;
+use tracing::trace_span;
+
+pub use crate::eol::EolConversionMode;
+use crate::eol::TargetEolStrategy;
+use crate::fsmonitor::FsmonitorSettings;
+#[cfg(feature = "watchman")]
+use crate::fsmonitor::WatchmanConfig;
+#[cfg(feature = "watchman")]
+use crate::fsmonitor::watchman;
+
+fn symlink_target_convert_to_store(path: &Path) -> Option<Cow<'_, str>> {
+    let path = path.to_str()?;
+    if std::path::MAIN_SEPARATOR == '/' {
+        Some(Cow::Borrowed(path))
+    } else {
+        // When storing the symlink target on Windows, convert "\" to "/", so that the
+        // symlink remains valid on Unix.
+        //
+        // Note that we don't use std::path to handle the conversion, because it
+        // performs poorly with Windows verbatim paths like \\?\Global\C:\file.txt.
+        Some(Cow::Owned(path.replace(std::path::MAIN_SEPARATOR_STR, "/")))
+    }
+}
+
+fn symlink_target_convert_to_disk(path: &str) -> PathBuf {
+    let path = if std::path::MAIN_SEPARATOR == '/' {
+        Cow::Borrowed(path)
+    } else {
+        // Use the main separator to reformat the input path to avoid creating a broken
+        // symlink with the incorrect separator "/".
+        //
+        // See https://github.com/jj-vcs/jj/issues/6934 for the relevant bug.
+        Cow::Owned(path.replace('/', std::path::MAIN_SEPARATOR_STR))
+    };
+    PathBuf::from(path.as_ref())
+}
+
+/// How to propagate executable bit changes in file metadata to/from the repo.
+///
+/// On Windows, executable bits are always ignored, but on Unix they are
+/// respected by default, but may be ignored by user settings or if we find
+/// that the filesystem of the working copy doesn't support executable bits.
+#[derive(Clone, Copy, Debug)]
+enum ExecChangePolicy {
+    Ignore,
+    #[cfg_attr(not(unix), expect(dead_code))]
+    Respect,
+}
+
+/// The executable bit change setting as exposed to the user.
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ExecChangeSetting {
+    /// Ignores executable bits on disk and preserves the ones in the repo.
+    Ignore,
+    /// Records executable bit changes from disk and applies them on checkout.
+    Respect,
+    /// Respects executable bits if the filesystem supports them, otherwise
+    /// ignores them.
+    #[default]
+    Auto,
+}
+
+impl ExecChangePolicy {
+    /// Get the executable bit policy based on user settings and executable bit
+    /// support in the working copy's state path.
+    ///
+    /// On Unix we check whether executable bits are supported in the working
+    /// copy to determine respect/ignorance, but we default to respect.
+    #[cfg_attr(not(unix), expect(unused_variables))]
+    fn new(exec_change_setting: ExecChangeSetting, state_path: &Path) -> Self {
+        #[cfg(not(unix))]
+        return Self::Ignore;
+        #[cfg(unix)]
+        return match exec_change_setting {
+            ExecChangeSetting::Ignore => Self::Ignore,
+            ExecChangeSetting::Respect => Self::Respect,
+            ExecChangeSetting::Auto => {
+                match jj_local_util::file_util::check_executable_bit_support(state_path) {
+                    Ok(false) => Self::Ignore,
+                    Ok(true) => Self::Respect,
+                    Err(err) => {
+                        tracing::warn!(?err, "Error when checking for executable bit support");
+                        Self::Respect
+                    }
+                }
+            }
+        };
+    }
+}
+
+/// On-disk state of file executable as cached in the file states. This does
+/// *not* necessarily equal the `executable` field of [`TreeValue::File`]: the
+/// two are allowed to diverge if and only if we're ignoring executable bit
+/// changes.
+///
+/// This will only ever be true on Windows if the repo is also being accessed
+/// from a Unix version of jj, such as when accessed from WSL.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ExecBit(bool);
+
+impl ExecBit {
+    /// Get the executable bit for a tree value to write to the repo store.
+    ///
+    /// If we're ignoring the executable bit, then we fallback to the previous
+    /// in-repo executable bit if present.
+    fn for_tree_value(
+        self,
+        exec_policy: ExecChangePolicy,
+        prev_in_repo: impl FnOnce() -> Option<bool>,
+    ) -> bool {
+        match exec_policy {
+            ExecChangePolicy::Ignore => prev_in_repo().unwrap_or(false),
+            ExecChangePolicy::Respect => self.0,
+        }
+    }
+
+    /// Set the on-disk executable bit to be written based on the in-repo bit or
+    /// the previous on-disk executable bit.
+    ///
+    /// On Windows, we return `false` because when we later write files, we
+    /// always create them anew, and the executable bit will be `false` even if
+    /// shared with a Unix machine.
+    ///
+    /// `prev_on_disk` is a closure because it is somewhat expensive and is only
+    /// used if ignoring the executable bit on Unix.
+    fn new_from_repo(
+        in_repo: bool,
+        exec_policy: ExecChangePolicy,
+        prev_on_disk: impl FnOnce() -> Option<Self>,
+    ) -> Self {
+        match exec_policy {
+            _ if cfg!(windows) => Self(false),
+            ExecChangePolicy::Ignore => prev_on_disk().unwrap_or(Self(false)),
+            ExecChangePolicy::Respect => Self(in_repo),
+        }
+    }
+
+    /// Load the on-disk executable bit from file metadata.
+    #[cfg_attr(not(unix), expect(unused_variables))]
+    fn new_from_disk(metadata: &Metadata) -> Self {
+        #[cfg(unix)]
+        return Self(metadata.permissions().mode() & 0o111 != 0);
+        #[cfg(not(unix))]
+        return Self(false);
+    }
+}
+
+/// Set the executable bit of a file on-disk. This is a no-op on Windows.
+///
+/// On Unix, we manually set the executable bit to the previous value on-disk.
+/// This is necessary because we write all files by creating them new, so files
+/// won't preserve their permissions naturally.
+#[cfg_attr(not(unix), expect(unused_variables))]
+fn set_executable(exec_bit: ExecBit, disk_path: &Path) -> Result<(), io::Error> {
+    #[cfg(unix)]
+    {
+        let mode = if exec_bit.0 { 0o755 } else { 0o644 };
+        fs::set_permissions(disk_path, fs::Permissions::from_mode(mode))?;
+    }
+    Ok(())
+}
+
+/// Type of a file tracked in the working copy.
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum FileType {
+    /// Regular file.
+    Normal {
+        /// Whether the file is executable.
+        exec_bit: ExecBit,
+    },
+    /// Symbolic link.
+    Symlink,
+    /// Git submodule.
+    GitSubmodule,
+}
+
+/// Information about a conflict that was materialized in a file on disk.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct MaterializedConflictData {
+    /// Length of the conflict markers written to the file.
+    pub conflict_marker_len: u32,
+}
+
+/// Recorded state of a file in the working copy, used for detecting changes.
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct FileState {
+    /// Type of the file.
+    pub file_type: FileType,
+    /// Modification time of the file.
+    pub mtime: MillisSinceEpoch,
+    /// Size of the file in bytes.
+    pub size: u64,
+    /// Materialized conflict markers in the file, if any.
+    pub materialized_conflict_data: Option<MaterializedConflictData>,
+    // TODO: What else do we need here? Git stores a lot of fields.
+    // TODO: Could possibly handle case-insensitive file systems keeping an
+    //       Option<PathBuf> with the actual path here.
+}
+
+impl FileState {
+    /// Check whether a file state appears clean compared to a previous file
+    /// state, ignoring materialized conflict data.
+    pub fn is_clean(&self, old_file_state: &Self) -> bool {
+        self.file_type == old_file_state.file_type
+            && self.mtime == old_file_state.mtime
+            && self.size == old_file_state.size
+    }
+
+    /// Indicates that a file exists in the tree but that it needs to be
+    /// re-stat'ed on the next snapshot.
+    fn placeholder() -> Self {
+        Self {
+            file_type: FileType::Normal {
+                exec_bit: ExecBit(false),
+            },
+            mtime: MillisSinceEpoch(0),
+            size: 0,
+            materialized_conflict_data: None,
+        }
+    }
+
+    fn for_file(
+        exec_bit: ExecBit,
+        size: u64,
+        metadata: &Metadata,
+    ) -> Result<Self, MtimeOutOfRange> {
+        Ok(Self {
+            file_type: FileType::Normal { exec_bit },
+            mtime: mtime_from_metadata(metadata)?,
+            size,
+            materialized_conflict_data: None,
+        })
+    }
+
+    fn for_symlink(metadata: &Metadata) -> Result<Self, MtimeOutOfRange> {
+        // When using fscrypt, the reported size is not the content size. So if
+        // we were to record the content size here (like we do for regular files), we
+        // would end up thinking the file has changed every time we snapshot.
+        Ok(Self {
+            file_type: FileType::Symlink,
+            mtime: mtime_from_metadata(metadata)?,
+            size: metadata.len(),
+            materialized_conflict_data: None,
+        })
+    }
+
+    fn for_gitsubmodule() -> Self {
+        Self {
+            file_type: FileType::GitSubmodule,
+            mtime: MillisSinceEpoch(0),
+            size: 0,
+            materialized_conflict_data: None,
+        }
+    }
+}
+
+/// Owned map of path to file states, backed by proto data.
+#[derive(Clone, Debug)]
+struct FileStatesMap {
+    data: Vec<crate::protos::local_working_copy::FileStateEntry>,
+}
+
+impl FileStatesMap {
+    fn new() -> Self {
+        Self { data: Vec::new() }
+    }
+
+    fn from_proto(
+        mut data: Vec<crate::protos::local_working_copy::FileStateEntry>,
+        is_sorted: bool,
+    ) -> Self {
+        if !is_sorted {
+            data.sort_unstable_by(|entry1, entry2| {
+                let path1 = RepoPath::from_internal_string(&entry1.path).unwrap();
+                let path2 = RepoPath::from_internal_string(&entry2.path).unwrap();
+                path1.cmp(path2)
+            });
+        }
+        debug_assert!(is_file_state_entries_proto_unique_and_sorted(&data));
+        Self { data }
+    }
+
+    /// Merges changed and deleted entries into this map. The changed entries
+    /// must be sorted by path.
+    fn merge_in(
+        &mut self,
+        changed_file_states: Vec<(RepoPathBuf, FileState)>,
+        deleted_files: &HashSet<RepoPathBuf>,
+    ) {
+        if changed_file_states.is_empty() && deleted_files.is_empty() {
+            return;
+        }
+        debug_assert!(
+            changed_file_states.is_sorted_by(|(path1, _), (path2, _)| path1 < path2),
+            "changed_file_states must be sorted and have no duplicates"
+        );
+        self.data = itertools::merge_join_by(
+            mem::take(&mut self.data),
+            changed_file_states,
+            |old_entry, (changed_path, _)| {
+                RepoPath::from_internal_string(&old_entry.path)
+                    .unwrap()
+                    .cmp(changed_path)
+            },
+        )
+        .filter_map(|diff| match diff {
+            EitherOrBoth::Both(_, (path, state)) | EitherOrBoth::Right((path, state)) => {
+                debug_assert!(!deleted_files.contains(&path));
+                Some(file_state_entry_to_proto(path, &state))
+            }
+            EitherOrBoth::Left(entry) => {
+                let present =
+                    !deleted_files.contains(RepoPath::from_internal_string(&entry.path).unwrap());
+                present.then_some(entry)
+            }
+        })
+        .collect();
+    }
+
+    fn clear(&mut self) {
+        self.data.clear();
+    }
+
+    /// Returns read-only map containing all file states.
+    fn all(&self) -> FileStates<'_> {
+        FileStates::from_sorted(&self.data)
+    }
+}
+
+/// Read-only map of path to file states, possibly filtered by path prefix.
+#[derive(Clone, Copy, Debug)]
+pub struct FileStates<'a> {
+    data: &'a [crate::protos::local_working_copy::FileStateEntry],
+}
+
+impl<'a> FileStates<'a> {
+    fn from_sorted(data: &'a [crate::protos::local_working_copy::FileStateEntry]) -> Self {
+        debug_assert!(is_file_state_entries_proto_unique_and_sorted(data));
+        Self { data }
+    }
+
+    /// Returns file states under the given directory path.
+    pub fn prefixed(&self, base: &RepoPath) -> Self {
+        let range = self.prefixed_range(base);
+        Self::from_sorted(&self.data[range])
+    }
+
+    /// Faster version of `prefixed("<dir>/<base>")`. Requires that all entries
+    /// share the same prefix `dir`.
+    fn prefixed_at(&self, dir: &RepoPath, base: &RepoPathComponent) -> Self {
+        let range = self.prefixed_range_at(dir, base);
+        Self::from_sorted(&self.data[range])
+    }
+
+    /// Returns true if this contains no entries.
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
+    }
+
+    /// Returns true if the given `path` exists.
+    pub fn contains_path(&self, path: &RepoPath) -> bool {
+        self.exact_position(path).is_some()
+    }
+
+    /// Returns file state for the given `path`.
+    pub fn get(&self, path: &RepoPath) -> Option<FileState> {
+        let pos = self.exact_position(path)?;
+        let (_, state) = file_state_entry_from_proto(&self.data[pos]);
+        Some(state)
+    }
+
+    /// Returns the executable bit state if `path` is a normal file.
+    pub fn get_exec_bit(&self, path: &RepoPath) -> Option<ExecBit> {
+        match self.get(path)?.file_type {
+            FileType::Normal { exec_bit } => Some(exec_bit),
+            FileType::Symlink | FileType::GitSubmodule => None,
+        }
+    }
+
+    /// Faster version of `get("<dir>/<name>")`. Requires that all entries share
+    /// the same prefix `dir`.
+    fn get_at(&self, dir: &RepoPath, name: &RepoPathComponent) -> Option<FileState> {
+        let pos = self.exact_position_at(dir, name)?;
+        let (_, state) = file_state_entry_from_proto(&self.data[pos]);
+        Some(state)
+    }
+
+    fn exact_position(&self, path: &RepoPath) -> Option<usize> {
+        self.data
+            .binary_search_by(|entry| {
+                RepoPath::from_internal_string(&entry.path)
+                    .unwrap()
+                    .cmp(path)
+            })
+            .ok()
+    }
+
+    fn exact_position_at(&self, dir: &RepoPath, name: &RepoPathComponent) -> Option<usize> {
+        debug_assert!(self.paths().all(|path| path.starts_with(dir)));
+        let slash_len = usize::from(!dir.is_root());
+        let prefix_len = dir.as_internal_file_string().len() + slash_len;
+        self.data
+            .binary_search_by(|entry| {
+                let tail = entry.path.get(prefix_len..).unwrap_or("");
+                match tail.split_once('/') {
+                    // "<name>/*" > "<name>"
+                    Some((pre, _)) => pre.cmp(name.as_internal_str()).then(Ordering::Greater),
+                    None => tail.cmp(name.as_internal_str()),
+                }
+            })
+            .ok()
+    }
+
+    fn prefixed_range(&self, base: &RepoPath) -> Range<usize> {
+        let start = self
+            .data
+            .partition_point(|entry| RepoPath::from_internal_string(&entry.path).unwrap() < base);
+        let len = self.data[start..].partition_point(|entry| {
+            RepoPath::from_internal_string(&entry.path)
+                .unwrap()
+                .starts_with(base)
+        });
+        start..(start + len)
+    }
+
+    fn prefixed_range_at(&self, dir: &RepoPath, base: &RepoPathComponent) -> Range<usize> {
+        debug_assert!(self.paths().all(|path| path.starts_with(dir)));
+        let slash_len = usize::from(!dir.is_root());
+        let prefix_len = dir.as_internal_file_string().len() + slash_len;
+        let start = self.data.partition_point(|entry| {
+            let tail = entry.path.get(prefix_len..).unwrap_or("");
+            let entry_name = tail.split_once('/').map_or(tail, |(name, _)| name);
+            entry_name < base.as_internal_str()
+        });
+        let len = self.data[start..].partition_point(|entry| {
+            let tail = entry.path.get(prefix_len..).unwrap_or("");
+            let entry_name = tail.split_once('/').map_or(tail, |(name, _)| name);
+            entry_name == base.as_internal_str()
+        });
+        start..(start + len)
+    }
+
+    /// Iterates file state entries sorted by path.
+    pub fn iter(&self) -> FileStatesIter<'a> {
+        self.data.iter().map(file_state_entry_from_proto)
+    }
+
+    /// Iterates sorted file paths.
+    pub fn paths(&self) -> impl ExactSizeIterator<Item = &'a RepoPath> + use<'a> {
+        self.data
+            .iter()
+            .map(|entry| RepoPath::from_internal_string(&entry.path).unwrap())
+    }
+}
+
+type FileStatesIter<'a> = iter::Map<
+    slice::Iter<'a, crate::protos::local_working_copy::FileStateEntry>,
+    fn(&crate::protos::local_working_copy::FileStateEntry) -> (&RepoPath, FileState),
+>;
+
+impl<'a> IntoIterator for FileStates<'a> {
+    type Item = (&'a RepoPath, FileState);
+    type IntoIter = FileStatesIter<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+fn file_state_from_proto(proto: &crate::protos::local_working_copy::FileState) -> FileState {
+    let file_type = match proto.file_type() {
+        crate::protos::local_working_copy::FileType::Normal => FileType::Normal {
+            exec_bit: ExecBit(false),
+        },
+        // On Windows, `FileType::Executable` can exist if the repo is being
+        // shared with a Unix version of jj, such as when accessed from WSL.
+        crate::protos::local_working_copy::FileType::Executable => FileType::Normal {
+            exec_bit: ExecBit(true),
+        },
+        crate::protos::local_working_copy::FileType::Symlink => FileType::Symlink,
+        #[expect(deprecated)]
+        crate::protos::local_working_copy::FileType::Conflict => FileType::Normal {
+            exec_bit: ExecBit(false),
+        },
+        crate::protos::local_working_copy::FileType::GitSubmodule => FileType::GitSubmodule,
+    };
+    FileState {
+        file_type,
+        mtime: MillisSinceEpoch(proto.mtime_millis_since_epoch),
+        size: proto.size,
+        materialized_conflict_data: proto.materialized_conflict_data.as_ref().map(|data| {
+            MaterializedConflictData {
+                conflict_marker_len: data.conflict_marker_len,
+            }
+        }),
+    }
+}
+
+fn file_state_to_proto(file_state: &FileState) -> crate::protos::local_working_copy::FileState {
+    let mut proto = crate::protos::local_working_copy::FileState::default();
+    let file_type = match &file_state.file_type {
+        FileType::Normal { exec_bit } => {
+            if exec_bit.0 {
+                crate::protos::local_working_copy::FileType::Executable
+            } else {
+                crate::protos::local_working_copy::FileType::Normal
+            }
+        }
+        FileType::Symlink => crate::protos::local_working_copy::FileType::Symlink,
+        FileType::GitSubmodule => crate::protos::local_working_copy::FileType::GitSubmodule,
+    };
+    proto.file_type = file_type as i32;
+    proto.mtime_millis_since_epoch = file_state.mtime.0;
+    proto.size = file_state.size;
+    proto.materialized_conflict_data = file_state.materialized_conflict_data.map(|data| {
+        crate::protos::local_working_copy::MaterializedConflictData {
+            conflict_marker_len: data.conflict_marker_len,
+        }
+    });
+    proto
+}
+
+fn file_state_entry_from_proto(
+    proto: &crate::protos::local_working_copy::FileStateEntry,
+) -> (&RepoPath, FileState) {
+    let path = RepoPath::from_internal_string(&proto.path).unwrap();
+    (path, file_state_from_proto(proto.state.as_ref().unwrap()))
+}
+
+fn file_state_entry_to_proto(
+    path: RepoPathBuf,
+    state: &FileState,
+) -> crate::protos::local_working_copy::FileStateEntry {
+    crate::protos::local_working_copy::FileStateEntry {
+        path: path.into_internal_string(),
+        state: Some(file_state_to_proto(state)),
+    }
+}
+
+fn is_file_state_entries_proto_unique_and_sorted(
+    data: &[crate::protos::local_working_copy::FileStateEntry],
+) -> bool {
+    data.iter()
+        .map(|entry| RepoPath::from_internal_string(&entry.path).unwrap())
+        .is_sorted_by(|path1, path2| path1 < path2)
+}
+
+fn parse_legacy_fileset_node(
+    node: &ExpressionNode<'_>,
+) -> Result<FilesetExpression, Box<dyn Error + Send + Sync>> {
+    match &node.kind {
+        ExpressionKind::Identifier(value) => {
+            Ok(FilesetExpression::prefix_path(RepoPathBuf::from_relative_path(
+                Path::new(value),
+            )?))
+        }
+        ExpressionKind::String(value) => {
+            Ok(FilesetExpression::prefix_path(RepoPathBuf::from_relative_path(
+                Path::new(value),
+            )?))
+        }
+        ExpressionKind::Pattern(pattern) => {
+            let value = fileset_parser::expect_string_literal("string pattern", &pattern.value)?;
+            match pattern.name {
+                "cwd" | "root" => Ok(FilesetExpression::prefix_path(
+                    RepoPathBuf::from_relative_path(Path::new(value))?,
+                )),
+                "file" | "root-file" => Ok(FilesetExpression::file_path(
+                    RepoPathBuf::from_relative_path(Path::new(value))?,
+                )),
+                "cwd-glob" | "root-glob" | "glob" => Ok(FilesetExpression::pattern(
+                    FilePattern::FileGlob {
+                        dir: RepoPathBuf::root(),
+                        pattern: Box::new(PathGlobPattern::parse(value)?),
+                    },
+                )),
+                "cwd-glob-i" | "root-glob-i" | "glob-i" => Ok(FilesetExpression::pattern(
+                    FilePattern::FileGlob {
+                        dir: RepoPathBuf::root(),
+                        pattern: Box::new(PathGlobPattern::parse_i(value)?),
+                    },
+                )),
+                "root-prefix-glob" | "prefix-glob" => Ok(FilesetExpression::pattern(
+                    FilePattern::PrefixGlob {
+                        dir: RepoPathBuf::root(),
+                        pattern: Box::new(PathGlobPattern::parse(value)?),
+                    },
+                )),
+                "root-prefix-glob-i" | "prefix-glob-i" => Ok(FilesetExpression::pattern(
+                    FilePattern::PrefixGlob {
+                        dir: RepoPathBuf::root(),
+                        pattern: Box::new(PathGlobPattern::parse_i(value)?),
+                    },
+                )),
+                name => Err(FilesetParseError::expression(
+                    format!("Unknown file pattern kind `{name}`"),
+                    pattern.name_span,
+                )
+                .into()),
+            }
+        }
+        ExpressionKind::Unary(UnaryOp::Negate, arg) => {
+            Ok(FilesetExpression::all().difference(parse_legacy_fileset_node(arg)?))
+        }
+        ExpressionKind::Binary(BinaryOp::Intersection, lhs, rhs) => {
+            Ok(parse_legacy_fileset_node(lhs)?.intersection(parse_legacy_fileset_node(rhs)?))
+        }
+        ExpressionKind::Binary(BinaryOp::Difference, lhs, rhs) => {
+            Ok(parse_legacy_fileset_node(lhs)?.difference(parse_legacy_fileset_node(rhs)?))
+        }
+        ExpressionKind::UnionAll(nodes) => Ok(FilesetExpression::union_all(
+            nodes
+                .iter()
+                .map(parse_legacy_fileset_node)
+                .collect::<Result<Vec<_>, _>>()?,
+        )),
+        ExpressionKind::FunctionCall(function) => {
+            let expr = match function.name {
+                "all" if function.arity() == 0 => FilesetExpression::all(),
+                "none" if function.arity() == 0 => FilesetExpression::none(),
+                "root" if function.arity() == 0 => FilesetExpression::prefix_path(RepoPathBuf::root()),
+                name => {
+                    return Err(FilesetParseError::expression(
+                        format!("Unsupported fileset function `{name}` in legacy sparse patterns"),
+                        function.name_span,
+                    )
+                    .into());
+                }
+            };
+            Ok(expr)
+        }
+        ExpressionKind::AliasExpanded(_, subst) => parse_legacy_fileset_node(subst),
+    }
+}
+
+fn sparse_patterns_from_proto(
+    proto: Option<&crate::protos::local_working_copy::SparsePatterns>,
+    tree_state_path: &Path,
+) -> Result<WorkingCopyPatterns, TreeStateError> {
+    let Some(proto) = proto else {
+        // Working copies predating sparse checkout had no sparse patterns field.
+        return Ok(WorkingCopyPatterns::all());
+    };
+    if !proto.fileset_expression.is_empty() {
+        let node = fileset_parser::parse_program(&proto.fileset_expression).map_err(|source| {
+            TreeStateError::ReadTreeState {
+                path: tree_state_path.to_owned(),
+                source: io::Error::new(io::ErrorKind::InvalidData, source),
+            }
+        })?;
+        return parse_legacy_fileset_node(&node)
+            .map(WorkingCopyPatterns::from)
+            .map_err(|source| TreeStateError::ReadTreeState {
+                path: tree_state_path.to_owned(),
+                source: io::Error::new(io::ErrorKind::InvalidData, source),
+            });
+    }
+    let expressions = proto
+        .prefixes
+        .iter()
+        .map(|prefix| {
+            RepoPathBuf::from_internal_string(prefix)
+                .map(FilesetExpression::prefix_path)
+                .map_err(|source| TreeStateError::ReadTreeState {
+                    path: tree_state_path.to_owned(),
+                    source: io::Error::new(io::ErrorKind::InvalidData, source),
+                })
+        })
+        .try_collect()?;
+    // An explicitly empty legacy prefix list means no files, not all files.
+    Ok(FilesetExpression::union_all(expressions).into())
+}
+
+/// A canonical matcher evaluated against physical working-copy coordinates.
+/// Directory visits are conservative under mappings: a nested destination can
+/// belong to a different source than its parent.
+#[derive(Debug)]
+struct PhysicalMatcher<'a> {
+    patterns: &'a WorkingCopyPatterns,
+    canonical: &'a dyn Matcher,
+    selection: &'a dyn Matcher,
+}
+
+impl Matcher for PhysicalMatcher<'_> {
+    fn matches(&self, path: &RepoPath) -> bool {
+        if self.patterns.is_identity() {
+            return self.canonical.matches(path);
+        }
+        self.patterns
+            .wc_to_repo_with_matcher(
+                &WorkingCopyPathBuf::from_repo_path(path.to_owned()),
+                self.selection,
+            )
+            .expect("validated working-copy mapping")
+            .is_some_and(|path| self.canonical.matches(&path))
+    }
+
+    fn visit(&self, dir: &RepoPath) -> Visit {
+        if self.patterns.is_identity() {
+            return self.canonical.visit(dir);
+        }
+        if self.patterns.mappings.iter().any(|mapping| {
+            let destination = mapping.destination.as_repo_path();
+            if destination != dir && destination.starts_with(dir) {
+                // The mapped source itself may be a file, not just a directory.
+                (self.selection.matches(&mapping.source) && self.canonical.matches(&mapping.source))
+                    || (mapping.recursive
+                        && !self.selection.visit(&mapping.source).is_nothing()
+                        && !self.canonical.visit(&mapping.source).is_nothing())
+            } else if mapping.recursive {
+                let Some(suffix) = dir.strip_prefix(destination) else {
+                    return false;
+                };
+                let mut source_dir = mapping.source.clone();
+                source_dir.extend(suffix.components());
+                !self.selection.visit(&source_dir).is_nothing()
+                    && !self.canonical.visit(&source_dir).is_nothing()
+            } else {
+                false
+            }
+        }) {
+            Visit::Specific {
+                dirs: VisitDirs::All,
+                files: VisitFiles::All,
+            }
+        } else {
+            Visit::Nothing
+        }
+    }
+}
+
+fn patterns_error(err: impl Error + Send + Sync + 'static) -> WorkingCopyStateError {
+    WorkingCopyStateError {
+        message: "Invalid working-copy selection or path mapping".to_owned(),
+        err: Box::new(err),
+    }
+}
+
+#[derive(Default)]
+struct LayoutTransition {
+    // With unchanged ownership, newly included untracked files retain native
+    // sparse semantics: preserve their bytes and snapshot them on the next scan.
+    preserve_untracked: bool,
+    removed: Vec<RepoPathBuf>,
+    added: Vec<RepoPathBuf>,
+    retained: Vec<RepoPathBuf>,
+    removed_physical: HashSet<RepoPathBuf>,
+    remove_directories: Vec<PathBuf>,
+}
+
+fn layout_error(message: impl Into<String>) -> CheckoutError {
+    CheckoutError::Other {
+        message: message.into(),
+        err: io::Error::other("Unsafe working-copy layout transition").into(),
+    }
+}
+
+fn preflight_directory(
+    disk_path: &Path,
+    physical: &RepoPath,
+    removed: &HashSet<RepoPathBuf>,
+) -> Result<(), CheckoutError> {
+    for entry in
+        fs::read_dir(disk_path).map_err(|err| checkout_error_for_stat_error(err, disk_path))?
+    {
+        let entry = entry.map_err(|err| checkout_error_for_stat_error(err, disk_path))?;
+        let name = entry.file_name();
+        let name = name
+            .to_str()
+            .and_then(|name| RepoPathComponent::new(name).ok())
+            .ok_or_else(|| layout_error("An untracked path blocks the new layout"))?;
+        let path = physical.join(name);
+        let metadata = entry
+            .file_type()
+            .map_err(|err| checkout_error_for_stat_error(err, &entry.path()))?;
+        reject_reserved_existing_path(&entry.path())?;
+        if RESERVED_DIR_NAMES.contains(&name.as_internal_str()) {
+            return Err(layout_error("A nested repository blocks the new layout"));
+        }
+        if metadata.is_dir() {
+            preflight_directory(&entry.path(), &path, removed)?;
+        } else if !removed.contains(&path) {
+            return Err(layout_error(format!(
+                "Untracked path {} blocks the new layout",
+                entry.path().display()
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Remove only directories which are still empty after tracked files have
+/// been removed. Never recursively delete files introduced after preflight.
+fn remove_empty_directories(path: &Path) -> Result<(), CheckoutError> {
+    let entries = match fs::read_dir(path) {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(err) => return Err(checkout_error_for_stat_error(err, path)),
+    };
+    for entry in entries {
+        let entry = entry.map_err(|err| checkout_error_for_stat_error(err, path))?;
+        if !entry
+            .file_type()
+            .map_err(|err| checkout_error_for_stat_error(err, &entry.path()))?
+            .is_dir()
+        {
+            return Err(layout_error(
+                "An untracked file appeared during layout transition",
+            ));
+        }
+        reject_reserved_existing_path(&entry.path())?;
+        remove_empty_directories(&entry.path())?;
+    }
+    fs::remove_dir(path).map_err(|err| checkout_error_for_stat_error(err, path))
+}
+
+/// Creates intermediate directories from the `working_copy_path` to the
+/// `repo_path` parent. Returns disk path for the `repo_path` file.
+///
+/// If an intermediate directory exists and if it is a file or symlink, this
+/// function returns `Ok(None)` to signal that the path should be skipped.
+/// The `working_copy_path` directory may be a symlink.
+///
+/// If an existing or newly-created sub directory points to ".git" or ".jj",
+/// this function returns an error.
+///
+/// Note that this does not prevent TOCTOU bugs caused by concurrent checkouts.
+/// Another process may remove the directory created by this function and put a
+/// symlink there.
+fn create_parent_dirs(
+    working_copy_path: &Path,
+    repo_path: &RepoPath,
+) -> Result<Option<PathBuf>, CheckoutError> {
+    let (parent_path, basename) = repo_path.split().expect("repo path shouldn't be root");
+    let mut dir_path = working_copy_path.to_owned();
+    for c in parent_path.components() {
+        // Ensure that the name is a normal entry of the current dir_path.
+        dir_path.push(c.to_fs_name().map_err(|err| err.with_path(repo_path))?);
+        // A directory named ".git" or ".jj" can be temporarily created. It
+        // might trick workspace path discovery, but is harmless so long as the
+        // directory is empty.
+        let (new_dir_created, is_dir) = match fs::create_dir(&dir_path) {
+            Ok(()) => (true, true), // New directory
+            Err(err) => match dir_path.symlink_metadata() {
+                Ok(m) => (false, m.is_dir()), // Existing file or directory
+                Err(_) => {
+                    return Err(CheckoutError::Other {
+                        message: format!(
+                            "Failed to create parent directories for {}",
+                            repo_path.to_fs_path_unchecked(working_copy_path).display(),
+                        ),
+                        err: err.into(),
+                    });
+                }
+            },
+        };
+        // Invalid component (e.g. "..") should have been rejected.
+        // The current dir_path should be an entry of dir_path.parent().
+        reject_reserved_existing_path(&dir_path).inspect_err(|_| {
+            if new_dir_created {
+                fs::remove_dir(&dir_path).ok();
+            }
+        })?;
+        if !is_dir {
+            return Ok(None); // Skip existing file or symlink
+        }
+    }
+
+    let mut file_path = dir_path;
+    file_path.push(
+        basename
+            .to_fs_name()
+            .map_err(|err| err.with_path(repo_path))?,
+    );
+    Ok(Some(file_path))
+}
+
+/// Removes existing file named `disk_path` if any. Returns `Ok(true)` if the
+/// file was there and got removed, meaning that new file can be safely created.
+///
+/// If the existing file points to ".git" or ".jj", this function returns an
+/// error.
+fn remove_old_file(disk_path: &Path) -> Result<bool, CheckoutError> {
+    reject_reserved_existing_path(disk_path)?;
+    match fs::remove_file(disk_path) {
+        Ok(()) => Ok(true),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(false),
+        // Not checking io::ErrorKind::IsADirectory because unlink() of a
+        // directory fails with EPERM on macOS (as allowed by POSIX.)
+        Err(_) if disk_path.symlink_metadata().is_ok_and(|m| m.is_dir()) => Ok(false),
+        Err(err) => Err(CheckoutError::Other {
+            message: format!("Failed to remove file {}", disk_path.display()),
+            err: err.into(),
+        }),
+    }
+}
+
+/// Removes existing submodule directory named `disk_path` if any. Returns
+/// `Ok(true)` if the directory was there and got removed, meaning that new file
+/// can be safely created.
+///
+/// The directory will not be removed if it is not empty, as it could contain
+/// untracked or modified files. This is in line with Git's behavior.
+fn remove_old_submodule_dir(disk_path: &Path) -> Result<bool, CheckoutError> {
+    match fs::remove_dir(disk_path) {
+        Ok(()) => Ok(true),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(err) if err.kind() == io::ErrorKind::DirectoryNotEmpty => Ok(false),
+        Err(err) => Err(CheckoutError::Other {
+            message: format!(
+                "Failed to remove submodule directory {}",
+                disk_path.display()
+            ),
+            err: err.into(),
+        }),
+    }
+}
+
+/// Checks if new file or symlink named `disk_path` can be created.
+///
+/// If the file already exists, this function return `Ok(false)` to signal
+/// that the path should be skipped.
+///
+/// If the path may point to ".git" or ".jj" entry, this function returns an
+/// error.
+///
+/// This function can fail if `disk_path.parent()` isn't a directory.
+fn can_create_new_file(disk_path: &Path) -> Result<bool, CheckoutError> {
+    // New file or symlink will be created by caller. If it were pointed to by
+    // name ".git" or ".jj", git/jj CLI could be tricked to load configuration
+    // from an attacker-controlled location. So we first test the path by
+    // creating an empty file.
+    let new_file = match OpenOptions::new()
+        .write(true)
+        .create_new(true) // Don't overwrite, don't follow symlink
+        .open(disk_path)
+    {
+        Ok(file) => Some(file),
+        Err(err) if err.kind() == io::ErrorKind::AlreadyExists => None,
+        // Workaround for "Access is denied. (os error 5)" error on Windows.
+        Err(_) => match disk_path.symlink_metadata() {
+            Ok(_) => None,
+            Err(err) => {
+                return Err(CheckoutError::Other {
+                    message: format!("Failed to stat {}", disk_path.display()),
+                    err: err.into(),
+                });
+            }
+        },
+    };
+
+    let new_file_created = new_file.is_some();
+
+    if let Some(new_file) = new_file {
+        reject_reserved_existing_file(new_file, disk_path).inspect_err(|_| {
+            // We keep the error from `reject_reserved_existing_file`
+            fs::remove_file(disk_path).ok();
+        })?;
+
+        fs::remove_file(disk_path).map_err(|err| CheckoutError::Other {
+            message: format!("Failed to remove temporary file {}", disk_path.display()),
+            err: err.into(),
+        })?;
+    } else {
+        reject_reserved_existing_path(disk_path)?;
+    }
+    Ok(new_file_created)
+}
+
+const RESERVED_DIR_NAMES: &[&str] = &[".git", ".jj"];
+
+fn file_identity_from_symlink_path(disk_path: &Path) -> io::Result<Option<FileIdentity>> {
+    match FileIdentity::from_symlink_path(disk_path) {
+        Ok(identity) => Ok(Some(identity)),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(err) => Err(err),
+    }
+}
+
+/// Wrapper for [`reject_reserved_existing_file_identity`] which avoids a
+/// syscall by converting the provided `file` to a `FileIdentity` via its
+/// file descriptor.
+///
+/// See [`reject_reserved_existing_file_identity`] for more info.
+fn reject_reserved_existing_file(file: File, disk_path: &Path) -> Result<(), CheckoutError> {
+    // Note: since the file is open, we don't expect that it's possible for
+    // `io::ErrorKind::NotFound` to be a possible error returned here.
+    let file_identity = FileIdentity::from_file(file).map_err(|err| CheckoutError::Other {
+        message: format!("Failed to validate path {}", disk_path.display()),
+        err: err.into(),
+    })?;
+
+    reject_reserved_existing_file_identity(file_identity, disk_path)
+}
+
+/// Wrapper for [`reject_reserved_existing_file_identity`] which converts
+/// the provided `disk_path` to a `FileIdentity`.
+///
+/// See [`reject_reserved_existing_file_identity`] for more info.
+///
+/// # Remarks
+///
+/// On Windows, this incurs an additional syscall cost to open and close the
+/// file `HANDLE` for `disk_path`. On Unix, `lstat()` is used.
+fn reject_reserved_existing_path(disk_path: &Path) -> Result<(), CheckoutError> {
+    let Some(disk_identity) =
+        file_identity_from_symlink_path(disk_path).map_err(|err| CheckoutError::Other {
+            message: format!("Failed to validate path {}", disk_path.display()),
+            err: err.into(),
+        })?
+    else {
+        // If the existing disk_path pointed to the reserved path, we would have
+        // gotten an identity back. Since we got nothing, the file does not exist
+        // and cannot be a reserved path name.
+        return Ok(());
+    };
+
+    reject_reserved_existing_file_identity(disk_identity, disk_path)
+}
+
+/// Suppose the `disk_path` exists, checks if the last component points to
+/// ".git" or ".jj" in the same parent directory.
+///
+/// `disk_identity` is expected to be an identity of the file described by
+/// `disk_path`.
+///
+/// # Remarks
+///
+/// On Windows, this incurs a syscall cost to open and close a file `HANDLE` for
+/// each filename in `RESERVED_DIR_NAMES`. On Unix, `lstat()` is used.
+fn reject_reserved_existing_file_identity(
+    disk_identity: FileIdentity,
+    disk_path: &Path,
+) -> Result<(), CheckoutError> {
+    let parent_dir_path = disk_path.parent().expect("content path shouldn't be root");
+    for name in RESERVED_DIR_NAMES {
+        let reserved_path = parent_dir_path.join(name);
+
+        let Some(reserved_identity) =
+            file_identity_from_symlink_path(&reserved_path).map_err(|err| {
+                CheckoutError::Other {
+                    message: format!("Failed to validate path {}", disk_path.display()),
+                    err: err.into(),
+                }
+            })?
+        else {
+            // If the existing disk_path pointed to the reserved path, we would have
+            // gotten an identity back. Since we got nothing, the file does not exist
+            // and cannot be a reserved path name.
+            continue;
+        };
+
+        if disk_identity == reserved_identity {
+            return Err(CheckoutError::ReservedPathComponent {
+                path: disk_path.to_owned(),
+                name,
+            });
+        }
+    }
+
+    Ok(())
+}
+
+#[derive(Debug, Error)]
+#[error("Out-of-range file modification time")]
+struct MtimeOutOfRange;
+
+fn mtime_from_metadata(metadata: &Metadata) -> Result<MillisSinceEpoch, MtimeOutOfRange> {
+    let time = metadata
+        .modified()
+        .expect("File mtime not supported on this platform?");
+    system_time_to_millis(time).ok_or(MtimeOutOfRange)
+}
+
+fn system_time_to_millis(time: SystemTime) -> Option<MillisSinceEpoch> {
+    let millis = match time.duration_since(SystemTime::UNIX_EPOCH) {
+        Ok(duration) => i64::try_from(duration.as_millis()).ok()?,
+        Err(err) => -i64::try_from(err.duration().as_millis()).ok()?,
+    };
+    Some(MillisSinceEpoch(millis))
+}
+
+/// Create a new [`FileState`] from metadata.
+fn file_state(metadata: &Metadata) -> Result<Option<FileState>, MtimeOutOfRange> {
+    let metadata_file_type = metadata.file_type();
+    let file_type = if metadata_file_type.is_dir() {
+        None
+    } else if metadata_file_type.is_symlink() {
+        Some(FileType::Symlink)
+    } else if metadata_file_type.is_file() {
+        let exec_bit = ExecBit::new_from_disk(metadata);
+        Some(FileType::Normal { exec_bit })
+    } else {
+        None
+    };
+    if let Some(file_type) = file_type {
+        Ok(Some(FileState {
+            file_type,
+            mtime: mtime_from_metadata(metadata)?,
+            size: metadata.len(),
+            materialized_conflict_data: None,
+        }))
+    } else {
+        Ok(None)
+    }
+}
+
+struct FsmonitorMatcher {
+    matcher: Option<Box<dyn Matcher>>,
+    watchman_clock: Option<crate::protos::local_working_copy::WatchmanClock>,
+    should_update_watchman_clock: bool,
+}
+
+/// Settings specific to the tree state of the [`LocalWorkingCopy`] backend.
+#[derive(Clone, Debug)]
+pub struct TreeStateSettings {
+    /// Conflict marker style to use when materializing files or when checking
+    /// changed files.
+    pub conflict_marker_style: ConflictMarkerStyle,
+    /// Configuring auto-converting CRLF line endings into LF when you add a
+    /// file to the backend, and vice versa when it checks out code onto your
+    /// filesystem.
+    pub eol_conversion_mode: EolConversionMode,
+    /// Whether to ignore changes to the executable bit for files on Unix.
+    pub exec_change_setting: ExecChangeSetting,
+    /// The fsmonitor (e.g. Watchman) to use, if any.
+    pub fsmonitor_settings: FsmonitorSettings,
+}
+
+impl TreeStateSettings {
+    /// Create [`TreeStateSettings`] from [`UserSettings`].
+    pub fn try_from_user_settings(user_settings: &UserSettings) -> Result<Self, ConfigGetError> {
+        Ok(Self {
+            conflict_marker_style: user_settings.get("ui.conflict-marker-style")?,
+            eol_conversion_mode: EolConversionMode::try_from_settings(user_settings)?,
+            exec_change_setting: user_settings.get("working-copy.exec-bit-change")?,
+            fsmonitor_settings: FsmonitorSettings::from_settings(user_settings)?,
+        })
+    }
+}
+
+/// State of the files in a working copy, stored in the `tree_state` file.
+pub struct TreeState {
+    store: Arc<Store>,
+    working_copy_path: PathBuf,
+    state_path: PathBuf,
+    tree: MergedTree,
+    file_states: FileStatesMap,
+    sparse_patterns: WorkingCopyPatterns,
+    own_mtime: MillisSinceEpoch,
+    symlink_support: bool,
+
+    /// The most recent clock value returned by Watchman. Will only be set if
+    /// the repo is configured to use the Watchman filesystem monitor and
+    /// Watchman has been queried at least once.
+    watchman_clock: Option<crate::protos::local_working_copy::WatchmanClock>,
+
+    conflict_marker_style: ConflictMarkerStyle,
+    exec_policy: ExecChangePolicy,
+    fsmonitor_settings: FsmonitorSettings,
+    target_eol_strategy: TargetEolStrategy,
+}
+
+/// Error when reading or writing the [`TreeState`].
+#[derive(Debug, Error)]
+pub enum TreeStateError {
+    /// Failed to read the `tree_state` file.
+    #[error("Reading tree state from {path}")]
+    ReadTreeState {
+        /// Path to the `tree_state` file.
+        path: PathBuf,
+        /// Underlying I/O error.
+        source: io::Error,
+    },
+    /// Failed to decode the `tree_state` file.
+    #[error("Decoding tree state from {path}")]
+    DecodeTreeState {
+        /// Path to the `tree_state` file.
+        path: PathBuf,
+        /// Underlying decoding error.
+        source: prost::DecodeError,
+    },
+    /// Failed to write the tree state to a temporary file.
+    #[error("Writing tree state to temporary file {path}")]
+    WriteTreeState {
+        /// Path to the state directory.
+        path: PathBuf,
+        /// Underlying I/O error.
+        source: io::Error,
+    },
+    /// Failed to move the temporary file to the `tree_state` file.
+    #[error("Persisting tree state to file {path}")]
+    PersistTreeState {
+        /// Path to the `tree_state` file.
+        path: PathBuf,
+        /// Underlying I/O error.
+        source: io::Error,
+    },
+    /// Failed to record the working-copy layout capability.
+    #[error("Updating working copy type at {path}")]
+    UpdateWorkingCopyType { path: PathBuf, source: io::Error },
+    /// Error from the filesystem monitor.
+    #[error("Filesystem monitor error")]
+    Fsmonitor(#[source] Box<dyn Error + Send + Sync>),
+}
+
+impl TreeState {
+    /// Returns the root directory of the working copy.
+    pub fn working_copy_path(&self) -> &Path {
+        &self.working_copy_path
+    }
+
+    /// Returns the tree that the working copy was last checked out at or
+    /// snapshotted to.
+    pub fn current_tree(&self) -> &MergedTree {
+        &self.tree
+    }
+
+    /// Returns the recorded states of all tracked files.
+    pub fn file_states(&self) -> FileStates<'_> {
+        self.file_states.all()
+    }
+
+    /// Returns the working-copy selection and path mappings.
+    pub fn sparse_patterns(&self) -> &WorkingCopyPatterns {
+        &self.sparse_patterns
+    }
+
+    fn sparse_matcher(&self) -> Box<dyn Matcher> {
+        self.sparse_patterns.to_matcher()
+    }
+
+    fn canonical_path<'a>(&self, path: &'a RepoPath, matcher: &dyn Matcher) -> Cow<'a, RepoPath> {
+        if self.sparse_patterns.is_identity() {
+            Cow::Borrowed(path)
+        } else {
+            Cow::Owned(
+                self.sparse_patterns
+                    .wc_to_repo_with_matcher(
+                        &WorkingCopyPathBuf::from_repo_path(path.to_owned()),
+                        matcher,
+                    )
+                    .expect("validated working-copy mapping")
+                    .expect("tracked physical path has a canonical owner"),
+            )
+        }
+    }
+
+    /// Creates an empty tree state and saves it in `state_path`.
+    pub fn init(
+        store: Arc<Store>,
+        working_copy_path: PathBuf,
+        state_path: PathBuf,
+        tree_state_settings: &TreeStateSettings,
+    ) -> Result<Self, TreeStateError> {
+        let mut wc = Self::empty(store, working_copy_path, state_path, tree_state_settings);
+        wc.save()?;
+        Ok(wc)
+    }
+
+    /// Like `init` but does not persist the initial empty tree state to
+    /// disk. Use when the caller will save state itself only after a
+    /// successful operation (e.g. to use `tree_state` file absence as a
+    /// dirty marker).
+    pub fn init_without_saving(
+        store: Arc<Store>,
+        working_copy_path: PathBuf,
+        state_path: PathBuf,
+        tree_state_settings: &TreeStateSettings,
+    ) -> Self {
+        Self::empty(store, working_copy_path, state_path, tree_state_settings)
+    }
+
+    fn empty(
+        store: Arc<Store>,
+        working_copy_path: PathBuf,
+        state_path: PathBuf,
+        TreeStateSettings {
+            conflict_marker_style,
+            eol_conversion_mode,
+            exec_change_setting,
+            fsmonitor_settings,
+        }: &TreeStateSettings,
+    ) -> Self {
+        let exec_policy = ExecChangePolicy::new(*exec_change_setting, &state_path);
+        Self {
+            store: store.clone(),
+            working_copy_path,
+            state_path,
+            tree: store.empty_merged_tree(),
+            file_states: FileStatesMap::new(),
+            sparse_patterns: WorkingCopyPatterns::all(),
+            own_mtime: MillisSinceEpoch(0),
+            symlink_support: check_symlink_support().unwrap_or(false),
+            watchman_clock: None,
+            conflict_marker_style: *conflict_marker_style,
+            exec_policy,
+            fsmonitor_settings: fsmonitor_settings.clone(),
+            target_eol_strategy: TargetEolStrategy::new(*eol_conversion_mode),
+        }
+    }
+
+    /// Loads the tree state from `state_path`, initializing a new one if it
+    /// doesn't exist.
+    pub fn load(
+        store: Arc<Store>,
+        working_copy_path: PathBuf,
+        state_path: PathBuf,
+        tree_state_settings: &TreeStateSettings,
+    ) -> Result<Self, TreeStateError> {
+        let tree_state_path = state_path.join("tree_state");
+        let file = match File::open(&tree_state_path) {
+            Err(err) if err.kind() == io::ErrorKind::NotFound => {
+                return Self::init(store, working_copy_path, state_path, tree_state_settings);
+            }
+            Err(err) => {
+                return Err(TreeStateError::ReadTreeState {
+                    path: tree_state_path,
+                    source: err,
+                });
+            }
+            Ok(file) => file,
+        };
+
+        let mut wc = Self::empty(store, working_copy_path, state_path, tree_state_settings);
+        wc.read(&tree_state_path, file)?;
+        Ok(wc)
+    }
+
+    fn update_own_mtime(&mut self) {
+        if let Ok(metadata) = self.state_path.join("tree_state").symlink_metadata()
+            && let Ok(mtime) = mtime_from_metadata(&metadata)
+        {
+            self.own_mtime = mtime;
+        } else {
+            self.own_mtime = MillisSinceEpoch(0);
+        }
+    }
+
+    fn read(&mut self, tree_state_path: &Path, mut file: File) -> Result<(), TreeStateError> {
+        self.update_own_mtime();
+        let mut buf = Vec::new();
+        file.read_to_end(&mut buf)
+            .map_err(|err| TreeStateError::ReadTreeState {
+                path: tree_state_path.to_owned(),
+                source: err,
+            })?;
+        let proto = crate::protos::local_working_copy::TreeState::decode(&*buf).map_err(|err| {
+            TreeStateError::DecodeTreeState {
+                path: tree_state_path.to_owned(),
+                source: err,
+            }
+        })?;
+        #[expect(deprecated)]
+        if proto.tree_ids.is_empty() {
+            self.tree = MergedTree::resolved(
+                self.store.clone(),
+                TreeId::new(proto.legacy_tree_id.clone()),
+            );
+        } else {
+            let tree_ids_builder: MergeBuilder<TreeId> = proto
+                .tree_ids
+                .iter()
+                .map(|id| TreeId::new(id.clone()))
+                .collect();
+            self.tree = MergedTree::new(
+                self.store.clone(),
+                tree_ids_builder.build(),
+                ConflictLabels::from_vec(proto.conflict_labels),
+            );
+        }
+        self.file_states =
+            FileStatesMap::from_proto(proto.file_states, proto.is_file_states_sorted);
+        self.sparse_patterns = if let Some(bytes) = proto.working_copy_patterns {
+            WorkingCopyPatterns::decode(&bytes).map_err(|source| TreeStateError::ReadTreeState {
+                path: tree_state_path.to_owned(),
+                source: io::Error::new(io::ErrorKind::InvalidData, source),
+            })?
+        } else {
+            sparse_patterns_from_proto(proto.sparse_patterns.as_ref(), tree_state_path)?
+        };
+        self.sparse_patterns
+            .validate()
+            .map_err(|source| TreeStateError::ReadTreeState {
+                path: tree_state_path.to_owned(),
+                source: io::Error::new(io::ErrorKind::InvalidData, source),
+            })?;
+        if !self.sparse_patterns.is_identity() {
+            let matcher = self.sparse_patterns.to_matcher();
+            for path in self.file_states.all().paths() {
+                let owner = self
+                    .sparse_patterns
+                    .wc_to_repo_with_matcher(
+                        &WorkingCopyPathBuf::from_repo_path(path.to_owned()),
+                        matcher.as_ref(),
+                    )
+                    .map_err(|source| TreeStateError::ReadTreeState {
+                        path: tree_state_path.to_owned(),
+                        source: io::Error::new(io::ErrorKind::InvalidData, source),
+                    })?;
+                if owner.is_none_or(|owner| !matcher.matches(&owner)) {
+                    return Err(TreeStateError::ReadTreeState {
+                        path: tree_state_path.to_owned(),
+                        source: io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "File state has no selected canonical owner",
+                        ),
+                    });
+                }
+            }
+        }
+        self.watchman_clock = proto.watchman_clock;
+        Ok(())
+    }
+
+    /// Writes the tree state to the `tree_state` file in the state directory.
+    #[expect(clippy::assigning_clones, clippy::field_reassign_with_default)]
+    pub fn save(&mut self) -> Result<(), TreeStateError> {
+        let mut proto: crate::protos::local_working_copy::TreeState = Default::default();
+        proto.tree_ids = self
+            .tree
+            .tree_ids()
+            .iter()
+            .map(|id| id.to_bytes())
+            .collect();
+        proto.conflict_labels = self.tree.labels().as_slice().to_owned();
+        proto.file_states = self.file_states.data.clone();
+        // `FileStatesMap` is guaranteed to be sorted.
+        proto.is_file_states_sorted = true;
+        self.ensure_mapped_working_copy_type()?;
+        proto.working_copy_patterns = Some(self.sparse_patterns.encode());
+        proto.watchman_clock = self.watchman_clock.clone();
+
+        let wrap_write_err = |source| TreeStateError::WriteTreeState {
+            path: self.state_path.clone(),
+            source,
+        };
+        let mut temp_file =
+            new_temp_file_with_default_permissions(&self.state_path).map_err(wrap_write_err)?;
+        temp_file
+            .as_file_mut()
+            .write_all(&proto.encode_to_vec())
+            .map_err(wrap_write_err)?;
+        // update own write time while we before we rename it, so we know
+        // there is no unknown data in it
+        self.update_own_mtime();
+        let target_path = self.state_path.join("tree_state");
+        persist_temp_file(temp_file, &target_path).map_err(|source| {
+            TreeStateError::PersistTreeState {
+                path: target_path.clone(),
+                source,
+            }
+        })?;
+        Ok(())
+    }
+
+    /// Fence off older readers before writing structured physical layout state.
+    /// A standalone tree state has no type marker, and custom working-copy
+    /// implementations own their marker even when they wrap LocalWorkingCopy.
+    fn ensure_mapped_working_copy_type(&self) -> Result<(), TreeStateError> {
+        let type_path = self.state_path.join("type");
+        let wrap_err = |source| TreeStateError::UpdateWorkingCopyType {
+            path: type_path.clone(),
+            source,
+        };
+        let current_type = match fs::read(&type_path) {
+            Ok(value) => value,
+            Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(err) => return Err(wrap_err(err)),
+        };
+        if current_type == LocalWorkingCopy::NAME.as_bytes()
+            || current_type == LocalWorkingCopy::fileset_name().as_bytes()
+        {
+            let mut temp_file = NamedTempFile::new_in(&self.state_path).map_err(wrap_err)?;
+            temp_file
+                .write_all(LocalWorkingCopy::mapped_name().as_bytes())
+                .map_err(wrap_err)?;
+            persist_temp_file(temp_file, &type_path).map_err(wrap_err)?;
+        } else if current_type != LocalWorkingCopy::mapped_name().as_bytes() {
+            return Ok(());
+        }
+        // Persist the rename before incompatible tree state can reach disk.
+        // Also retry this sync after an earlier upgrade failed at this step.
+        #[cfg(unix)]
+        File::open(&self.state_path)
+            .and_then(|directory| directory.sync_all())
+            .map_err(wrap_err)?;
+        Ok(())
+    }
+
+    fn reset_watchman(&mut self) {
+        self.watchman_clock.take();
+    }
+
+    /// Queries Watchman for files changed since the last recorded clock.
+    ///
+    /// Returns the new clock and the changed paths relative to the working
+    /// copy root. If the paths are `None`, the whole working copy must be
+    /// scanned.
+    #[cfg(feature = "watchman")]
+    #[instrument(skip(self))]
+    pub async fn query_watchman(
+        &self,
+        config: &WatchmanConfig,
+    ) -> Result<(watchman::Clock, Option<Vec<PathBuf>>), TreeStateError> {
+        let previous_clock = self.watchman_clock.clone().map(watchman::Clock::from);
+
+        let tokio_fn = async || {
+            let fsmonitor = watchman::Fsmonitor::init(&self.working_copy_path, config)
+                .await
+                .map_err(|err| TreeStateError::Fsmonitor(Box::new(err)))?;
+            fsmonitor
+                .query_changed_files(previous_clock)
+                .await
+                .map_err(|err| TreeStateError::Fsmonitor(Box::new(err)))
+        };
+
+        match tokio::runtime::Handle::try_current() {
+            Ok(_handle) => tokio_fn().await,
+            Err(_) => {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .map_err(|err| TreeStateError::Fsmonitor(Box::new(err)))?;
+                runtime.block_on(tokio_fn())
+            }
+        }
+    }
+
+    /// Returns whether a Watchman trigger is registered for the working copy.
+    #[cfg(feature = "watchman")]
+    #[instrument(skip(self))]
+    pub async fn is_watchman_trigger_registered(
+        &self,
+        config: &WatchmanConfig,
+    ) -> Result<bool, TreeStateError> {
+        let tokio_fn = async || {
+            let fsmonitor = watchman::Fsmonitor::init(&self.working_copy_path, config)
+                .await
+                .map_err(|err| TreeStateError::Fsmonitor(Box::new(err)))?;
+            fsmonitor
+                .is_trigger_registered()
+                .await
+                .map_err(|err| TreeStateError::Fsmonitor(Box::new(err)))
+        };
+
+        match tokio::runtime::Handle::try_current() {
+            Ok(_handle) => tokio_fn().await,
+            Err(_) => {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .map_err(|err| TreeStateError::Fsmonitor(Box::new(err)))?;
+                runtime.block_on(tokio_fn())
+            }
+        }
+    }
+}
+
+/// Functions to snapshot local-disk files to the store.
+impl TreeState {
+    /// Look for changes to the working copy. If there are any changes, create
+    /// a new tree from it.
+    #[instrument(skip_all)]
+    pub async fn snapshot(
+        &mut self,
+        options: &SnapshotOptions<'_>,
+    ) -> Result<(bool, SnapshotStats), SnapshotError> {
+        let SnapshotOptions {
+            base_ignores,
+            progress,
+            start_tracking_matcher,
+            force_tracking_matcher,
+            max_new_file_size,
+        } = options;
+
+        let sparse_matcher = self.sparse_matcher();
+
+        let mut is_dirty = false;
+        let FsmonitorMatcher {
+            matcher: fsmonitor_matcher,
+            watchman_clock,
+            should_update_watchman_clock,
+        } = self
+            .make_fsmonitor_matcher(&self.fsmonitor_settings)
+            .await?;
+        let fsmonitor_matcher = match fsmonitor_matcher.as_ref() {
+            None => &EverythingMatcher,
+            Some(fsmonitor_matcher) => fsmonitor_matcher.as_ref(),
+        };
+
+        let physical_sparse_matcher = PhysicalMatcher {
+            patterns: &self.sparse_patterns,
+            canonical: sparse_matcher.as_ref(),
+            selection: sparse_matcher.as_ref(),
+        };
+        let start_tracking_matcher = PhysicalMatcher {
+            patterns: &self.sparse_patterns,
+            canonical: *start_tracking_matcher,
+            selection: sparse_matcher.as_ref(),
+        };
+        let force_tracking_matcher = PhysicalMatcher {
+            patterns: &self.sparse_patterns,
+            canonical: *force_tracking_matcher,
+            selection: sparse_matcher.as_ref(),
+        };
+        let matcher = IntersectionMatcher::new(
+            &physical_sparse_matcher,
+            UnionMatcher::new(fsmonitor_matcher, &force_tracking_matcher),
+        );
+        if matcher.visit(RepoPath::root()).is_nothing() {
+            // No need to load the current tree, set up channels, etc.
+            if should_update_watchman_clock {
+                is_dirty |= self.watchman_clock != watchman_clock;
+                self.watchman_clock = watchman_clock;
+            }
+            return Ok((is_dirty, SnapshotStats::default()));
+        }
+
+        let (tree_entries_tx, tree_entries_rx) = channel();
+        let (file_states_tx, file_states_rx) = channel();
+        let (untracked_paths_tx, untracked_paths_rx) = channel();
+        let (invalid_utf8_paths_tx, invalid_utf8_paths_rx) = channel();
+        let (deleted_files_tx, deleted_files_rx) = channel();
+
+        trace_span!("traverse filesystem").in_scope(|| -> Result<(), SnapshotError> {
+            let snapshotter = FileSnapshotter {
+                tree_state: self,
+                current_tree: &self.tree,
+                canonical_sparse_matcher: sparse_matcher.as_ref(),
+                matcher: &matcher,
+                start_tracking_matcher: &start_tracking_matcher,
+                force_tracking_matcher: &force_tracking_matcher,
+                // Move tx sides so they'll be dropped at the end of the scope.
+                tree_entries_tx,
+                file_states_tx,
+                untracked_paths_tx,
+                invalid_utf8_paths_tx,
+                deleted_files_tx,
+                error: OnceLock::new(),
+                progress: *progress,
+                max_new_file_size: *max_new_file_size,
+            };
+            let directory_to_visit = DirectoryToVisit {
+                dir: RepoPathBuf::root(),
+                disk_dir: self.working_copy_path.clone(),
+                git_ignore: base_ignores.clone(),
+                file_states: self.file_states.all(),
+            };
+            // Here we use scope as a queue of per-directory jobs.
+            rayon::scope(|scope| {
+                snapshotter.spawn_ok(scope, |scope| {
+                    snapshotter.visit_directory(directory_to_visit, scope)
+                });
+            });
+            snapshotter.into_result()
+        })?;
+
+        let stats = SnapshotStats {
+            untracked_paths: untracked_paths_rx
+                .into_iter()
+                .map(|(path, reason)| {
+                    (
+                        self.canonical_path(&path, sparse_matcher.as_ref())
+                            .into_owned(),
+                        reason,
+                    )
+                })
+                .collect(),
+            invalid_utf8_paths: invalid_utf8_paths_rx.into_iter().collect(),
+        };
+        let mut tree_builder = MergedTreeBuilder::new(self.tree.clone());
+        trace_span!("process tree entries").in_scope(|| {
+            for (path, tree_values) in &tree_entries_rx {
+                tree_builder.set_or_remove_merge(path, tree_values).unwrap();
+            }
+        });
+        let deleted_files = trace_span!("process deleted tree entries").in_scope(|| {
+            let deleted_files = HashSet::from_iter(deleted_files_rx);
+            is_dirty |= !deleted_files.is_empty();
+            for file in &deleted_files {
+                tree_builder.set_or_remove(file.clone(), None);
+                tree_builder.set_or_remove(
+                    self.canonical_path(file, sparse_matcher.as_ref())
+                        .into_owned(),
+                    None,
+                );
+            }
+            deleted_files
+        });
+        trace_span!("process file states").in_scope(|| {
+            let changed_file_states = file_states_rx
+                .iter()
+                .sorted_unstable_by(|(path1, _), (path2, _)| path1.cmp(path2))
+                .collect_vec();
+            is_dirty |= !changed_file_states.is_empty();
+            self.file_states
+                .merge_in(changed_file_states, &deleted_files);
+        });
+        trace_span!("write tree")
+            .in_scope(async || -> Result<(), BackendError> {
+                let new_tree = tree_builder.write_tree().await?;
+                is_dirty |= new_tree.tree_ids_and_labels() != self.tree.tree_ids_and_labels();
+                self.tree = new_tree.clone();
+                Ok(())
+            })
+            .await?;
+        if cfg!(debug_assertions) {
+            let tree_paths: HashSet<_> = self
+                .tree
+                .entries_matching(sparse_matcher.as_ref())
+                .filter_map(async |(path, result)| result.is_ok().then_some(path))
+                .map(|path| {
+                    self.sparse_patterns
+                        .repo_to_wc_with_matcher(&path, sparse_matcher.as_ref())
+                        .expect("validated working-copy mapping")
+                        .expect("selected path has a physical destination")
+                        .as_repo_path()
+                        .to_owned()
+                })
+                .collect()
+                .await;
+            let file_states = self.file_states.all();
+            let state_paths: HashSet<_> = file_states.paths().map(|path| path.to_owned()).collect();
+            assert_eq!(state_paths, tree_paths);
+        }
+        // Since untracked paths aren't cached in the tree state, we'll need to
+        // rescan the working directory changes to report or track them later.
+        // TODO: store untracked paths and update watchman_clock?
+        // A failed monitor query has no clock and causes a full scan. Clear the
+        // old clock after that scan even if it found untracked paths.
+        if should_update_watchman_clock {
+            if (stats.untracked_paths.is_empty() && stats.invalid_utf8_paths.is_empty())
+                || watchman_clock.is_none()
+            {
+                is_dirty |= self.watchman_clock != watchman_clock;
+                self.watchman_clock = watchman_clock;
+            } else {
+                tracing::info!("not updating watchman clock because there are untracked files");
+            }
+        }
+        Ok((is_dirty, stats))
+    }
+
+    #[instrument(skip_all)]
+    async fn make_fsmonitor_matcher(
+        &self,
+        fsmonitor_settings: &FsmonitorSettings,
+    ) -> Result<FsmonitorMatcher, SnapshotError> {
+        let (watchman_clock, changed_files) = match fsmonitor_settings {
+            FsmonitorSettings::None => (None, None),
+            FsmonitorSettings::Test { changed_files } => (None, Some(changed_files.clone())),
+            #[cfg(feature = "watchman")]
+            FsmonitorSettings::Watchman(config) => match self.query_watchman(config).await {
+                Ok((watchman_clock, changed_files)) => (Some(watchman_clock.into()), changed_files),
+                Err(err) => {
+                    tracing::warn!(?err, "Failed to query filesystem monitor");
+                    (None, None)
+                }
+            },
+            #[cfg(not(feature = "watchman"))]
+            FsmonitorSettings::Watchman(_) => {
+                return Err(SnapshotError::Other {
+                    message: "Failed to query the filesystem monitor".to_string(),
+                    err: "Cannot query Watchman because jj was not compiled with the `watchman` \
+                          feature (consider disabling `fsmonitor.backend`)"
+                        .into(),
+                });
+            }
+        };
+        // Do not advance the clock when the monitor reports no changed paths.
+        // This avoids rewriting the tree state just to save the new clock.
+        // Reusing the older clock may make a later query do more work, but it
+        // cannot omit changes.
+        let should_update_watchman_clock = changed_files
+            .as_ref()
+            .is_none_or(|changed_files| !changed_files.is_empty());
+        let matcher: Option<Box<dyn Matcher>> = match changed_files {
+            None => None,
+            Some(changed_files) => {
+                let (repo_paths, gitignore_prefixes) = trace_span!("processing fsmonitor paths")
+                    .in_scope(|| {
+                        let repo_paths = changed_files
+                            .iter()
+                            .filter_map(|path| RepoPathBuf::from_relative_path(path).ok())
+                            .collect_vec();
+                        // .gitignore changes require rescanning parent directories to pick up newly
+                        // unignored files.
+                        let gitignore_prefixes = repo_paths
+                            .iter()
+                            .filter_map(|repo_path| {
+                                let (parent, basename) = repo_path.split()?;
+                                (basename.as_internal_str() == ".gitignore")
+                                    .then(|| parent.to_owned())
+                            })
+                            .collect_vec();
+                        (repo_paths, gitignore_prefixes)
+                    });
+
+                let matcher: Box<dyn Matcher> = if gitignore_prefixes.is_empty() {
+                    Box::new(FilesMatcher::new(repo_paths))
+                } else {
+                    Box::new(UnionMatcher::new(
+                        FilesMatcher::new(repo_paths),
+                        PrefixMatcher::new(gitignore_prefixes),
+                    ))
+                };
+
+                Some(matcher)
+            }
+        };
+        Ok(FsmonitorMatcher {
+            matcher,
+            watchman_clock,
+            should_update_watchman_clock,
+        })
+    }
+}
+
+struct DirectoryToVisit<'a> {
+    dir: RepoPathBuf,
+    disk_dir: PathBuf,
+    git_ignore: Arc<GitIgnoreFile>,
+    file_states: FileStates<'a>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PresentDirEntryKind {
+    Dir,
+    File,
+}
+
+#[derive(Clone, Debug)]
+struct PresentDirEntries {
+    dirs: HashSet<String>,
+    files: HashSet<String>,
+}
+
+/// Helper to scan local-disk directories and files in parallel.
+struct FileSnapshotter<'a> {
+    tree_state: &'a TreeState,
+    current_tree: &'a MergedTree,
+    /// Selection and tree lookups use canonical repository coordinates.
+    canonical_sparse_matcher: &'a dyn Matcher,
+    /// Filesystem traversal and tracking matchers use physical coordinates.
+    matcher: &'a dyn Matcher,
+    start_tracking_matcher: &'a dyn Matcher,
+    force_tracking_matcher: &'a dyn Matcher,
+    tree_entries_tx: Sender<(RepoPathBuf, MergedTreeValue)>,
+    file_states_tx: Sender<(RepoPathBuf, FileState)>,
+    untracked_paths_tx: Sender<(RepoPathBuf, UntrackedReason)>,
+    invalid_utf8_paths_tx: Sender<(RepoPathBuf, OsString)>,
+    deleted_files_tx: Sender<RepoPathBuf>,
+    error: OnceLock<SnapshotError>,
+    progress: Option<&'a SnapshotProgress<'a>>,
+    max_new_file_size: u64,
+}
+
+impl FileSnapshotter<'_> {
+    fn spawn_ok<'scope, F>(&'scope self, scope: &rayon::Scope<'scope>, body: F)
+    where
+        F: FnOnce(&rayon::Scope<'scope>) -> Result<(), SnapshotError> + Send + 'scope,
+    {
+        scope.spawn(|scope| {
+            if self.error.get().is_some() {
+                return;
+            }
+            match body(scope) {
+                Ok(()) => {}
+                Err(err) => self.error.set(err).unwrap_or(()),
+            }
+        });
+    }
+
+    /// Extracts the result of the snapshot.
+    fn into_result(self) -> Result<(), SnapshotError> {
+        match self.error.into_inner() {
+            Some(err) => Err(err),
+            None => Ok(()),
+        }
+    }
+
+    /// Visits the directory entries, spawns jobs to recurse into sub
+    /// directories.
+    fn visit_directory<'scope>(
+        &'scope self,
+        directory_to_visit: DirectoryToVisit<'scope>,
+        scope: &rayon::Scope<'scope>,
+    ) -> Result<(), SnapshotError> {
+        let DirectoryToVisit {
+            dir,
+            disk_dir,
+            mut git_ignore,
+            file_states,
+        } = directory_to_visit;
+
+        let git_ignore_file_name = RepoPathComponent::new(".gitignore").expect("static string");
+        if let Some(git_ignore_contents) = self
+            .read_gitignore(&disk_dir, &dir, git_ignore_file_name)
+            .block_on()?
+        {
+            let git_ignore_disk_path = disk_dir.join(git_ignore_file_name.as_internal_str());
+            git_ignore = git_ignore.chain(&dir, &git_ignore_disk_path, &git_ignore_contents)?;
+        }
+        let dir_entries: Vec<_> = disk_dir
+            .read_dir()
+            .and_then(|entries| entries.try_collect())
+            .map_err(|err| SnapshotError::Other {
+                message: format!("Failed to read directory {}", disk_dir.display()),
+                err: err.into(),
+            })?;
+        let (dirs, files) = dir_entries
+            .into_par_iter()
+            // Don't split into too many small jobs. For a small directory,
+            // sequential scan should be fast enough.
+            .with_min_len(100)
+            .filter_map(|entry| {
+                self.process_dir_entry(&dir, &git_ignore, file_states, &entry, scope)
+                    .block_on()
+                    .transpose()
+            })
+            .map(|item| match item {
+                Ok((PresentDirEntryKind::Dir, name)) => Ok(Either::Left(name)),
+                Ok((PresentDirEntryKind::File, name)) => Ok(Either::Right(name)),
+                Err(err) => Err(err),
+            })
+            .collect::<Result<_, _>>()?;
+        let present_entries = PresentDirEntries { dirs, files };
+        self.emit_deleted_files(&dir, file_states, &present_entries);
+        Ok(())
+    }
+
+    /// Loads the ignore file named `file_name` and returns its contents if it
+    /// exists, supports sparse working copies.
+    ///
+    /// * `disk_dir` is the directory on disk containing the ignore file
+    /// * `physical_dir` is the working-copy directory, translated to repository
+    ///   coordinates for the fallback if the ignore file is excluded.
+    /// * `file_name` is the name of the ignore file (e.g. `.gitignore`)
+    ///
+    /// If the file isn't materialized on disk because it is excluded by the sparse
+    /// patterns, it is read from the repository directory instead to make sure
+    /// that ignored files are not tracked.
+    ///
+    /// Function also applies special handling for symlinks, `.gitignore` files are only
+    /// processed if they are regular files, symlinks and other filesystem entities are
+    /// explicitly ignored.
+    async fn read_gitignore(
+        &self,
+        disk_dir: &Path,
+        physical_dir: &RepoPath,
+        file_name: &RepoPathComponent,
+    ) -> Result<Option<Vec<u8>>, SnapshotError> {
+        let ignore_disk_path = disk_dir.join(file_name.as_internal_str());
+        match ignore_disk_path.symlink_metadata() {
+            Ok(symlink_metadata) => {
+                // TODO: If the path is excluded by the sparse patterns, the potential on-disk .gitignore file
+                // in that dir will never be snapshotted. Should we prefer the tree version in that case?
+                // Currently we match Git, which prefers on-disk content.
+                return symlink_metadata
+                    .is_file()
+                    .then(|| {
+                        fs::read(&ignore_disk_path).map_err(|err| SnapshotError::Other {
+                            message: format!(
+                                "Failed to read ignore patterns from file {}",
+                                ignore_disk_path.display()
+                            ),
+                            err: Box::new(err),
+                        })
+                    })
+                    .transpose();
+            }
+            Err(err) if err.kind() == io::ErrorKind::NotFound => {
+                // File doesn't exist, try to read from the canonical tree.
+            }
+            Err(err) => {
+                return Err(SnapshotError::Other {
+                    message: format!(
+                        "Error accessing ignore patterns file {}",
+                        ignore_disk_path.display()
+                    ),
+                    err: Box::new(err),
+                });
+            }
+        }
+
+        let ignore_physical_path = physical_dir.join(file_name);
+        let patterns = &self.tree_state.sparse_patterns;
+        let ignore_fallback_repo_path = if patterns.is_identity() {
+            ignore_physical_path
+        } else {
+            let Some(path) = patterns
+                .wc_to_repo_with_matcher(
+                    &WorkingCopyPathBuf::from_repo_path(ignore_physical_path),
+                    self.canonical_sparse_matcher,
+                )
+                .expect("validated working-copy mapping")
+            else {
+                // Synthetic parent directories and excluded overlapping mappings
+                // may have no unique canonical ignore file.
+                return Ok(None);
+            };
+            path
+        };
+        if self
+            .canonical_sparse_matcher
+            .matches(&ignore_fallback_repo_path)
+        {
+            // The file should have been materialized, so its absence means it
+            // was deleted from the working copy.
+            return Ok(None);
+        }
+
+        let tree_values = self
+            .current_tree
+            .path_value(&ignore_fallback_repo_path)
+            .await?;
+        let file_id = match tree_values.as_normal() {
+            Some(TreeValue::File { id, .. }) => id,
+            None
+            | Some(TreeValue::Symlink(_) | TreeValue::GitSubmodule(_) | TreeValue::Tree(_)) => {
+                return Ok(None);
+            }
+        };
+        let mut buf = vec![];
+        let mut reader = self
+            .store()
+            .read_file(&ignore_fallback_repo_path, file_id)
+            .await?;
+        reader
+            .read_to_end(&mut buf)
+            .await
+            .map_err(|err| BackendError::ReadFile {
+                path: ignore_fallback_repo_path,
+                id: file_id.clone(),
+                source: err.into(),
+            })?;
+        Ok(Some(buf))
+    }
+
+    async fn process_dir_entry<'scope>(
+        &'scope self,
+        dir: &RepoPath,
+        git_ignore: &Arc<GitIgnoreFile>,
+        file_states: FileStates<'scope>,
+        entry: &DirEntry,
+        scope: &rayon::Scope<'scope>,
+    ) -> Result<Option<(PresentDirEntryKind, String)>, SnapshotError> {
+        let file_type = entry.file_type().unwrap();
+        let file_name = entry.file_name();
+        let name_string = match file_name.into_string() {
+            Ok(name_string) => name_string,
+            Err(name) => {
+                // A path that isn't valid UTF-8 can't be represented as a
+                // RepoPath, so it can never be tracked. Skip it instead of
+                // failing the whole snapshot, and let the caller report it.
+                self.invalid_utf8_paths_tx.send((dir.to_owned(), name)).ok();
+                return Ok(None);
+            }
+        };
+
+        if RESERVED_DIR_NAMES.contains(&name_string.as_str()) {
+            return Ok(None);
+        }
+        let name = RepoPathComponent::new(&name_string).unwrap();
+        let path = dir.join(name);
+        let maybe_current_file_state = file_states.get_at(dir, name);
+        if let Some(file_state) = &maybe_current_file_state
+            && file_state.file_type == FileType::GitSubmodule
+        {
+            return Ok(None);
+        }
+
+        if file_type.is_dir() {
+            let file_states = file_states.prefixed_at(dir, name);
+            // If a submodule was added in commit C, and a user decides to run
+            // `jj new <something before C>` from after C, then the submodule
+            // files stick around but it is no longer seen as a submodule.
+            // We need to ensure that it is not tracked as if it was added to
+            // the main repo.
+            // See https://github.com/jj-vcs/jj/issues/4349.
+            // To solve this, we ignore all nested repos entirely.
+            let disk_dir = entry.path();
+            for &name in RESERVED_DIR_NAMES {
+                if disk_dir.join(name).symlink_metadata().is_ok() {
+                    return Ok(None);
+                }
+            }
+
+            if git_ignore.matches_dir(&path)
+                && self.force_tracking_matcher.visit(&path).is_nothing()
+            {
+                // If the whole directory is ignored by .gitignore, visit only
+                // paths we're already tracking. This is because .gitignore in
+                // ignored directory must be ignored. It's also more efficient.
+                // start_tracking_matcher is NOT tested here because we need to
+                // scan directory entries to report untracked paths.
+                self.spawn_ok(scope, move |_| {
+                    self.visit_tracked_files(file_states).block_on()
+                });
+            } else if !self.matcher.visit(&path).is_nothing() {
+                let directory_to_visit = DirectoryToVisit {
+                    dir: path,
+                    disk_dir,
+                    git_ignore: git_ignore.clone(),
+                    file_states,
+                };
+                self.spawn_ok(scope, |scope| {
+                    self.visit_directory(directory_to_visit, scope)
+                });
+            }
+            // Whether or not the directory path matches, any child file entries
+            // shouldn't be touched within the current recursion step.
+            Ok(Some((PresentDirEntryKind::Dir, name_string)))
+        } else if self.matcher.matches(&path) {
+            if let Some(progress) = self.progress {
+                progress(&path);
+            }
+            if maybe_current_file_state.is_none()
+                && (git_ignore.matches_file(&path) && !self.force_tracking_matcher.matches(&path))
+            {
+                // If it wasn't already tracked and it matches
+                // the ignored paths, then ignore it.
+                Ok(None)
+            } else if maybe_current_file_state.is_none()
+                && !self.start_tracking_matcher.matches(&path)
+            {
+                // Leave the file untracked
+                self.untracked_paths_tx
+                    .send((path, UntrackedReason::FileNotAutoTracked))
+                    .ok();
+                Ok(None)
+            } else {
+                let metadata = entry.metadata().map_err(|err| SnapshotError::Other {
+                    message: format!("Failed to stat file {}", entry.path().display()),
+                    err: err.into(),
+                })?;
+                if maybe_current_file_state.is_none()
+                    && (metadata.len() > self.max_new_file_size
+                        && !self.force_tracking_matcher.matches(&path))
+                {
+                    // Leave the large file untracked
+                    let reason = UntrackedReason::FileTooLarge {
+                        size: metadata.len(),
+                        max_size: self.max_new_file_size,
+                    };
+                    self.untracked_paths_tx.send((path, reason)).ok();
+                    Ok(None)
+                } else if let Some(new_file_state) = file_state(&metadata)
+                    .map_err(|err| snapshot_error_for_mtime_out_of_range(err, &entry.path()))?
+                {
+                    self.process_present_file(
+                        path,
+                        &entry.path(),
+                        maybe_current_file_state.as_ref(),
+                        new_file_state,
+                    )
+                    .await?;
+                    Ok(Some((PresentDirEntryKind::File, name_string)))
+                } else {
+                    // Special file is not considered present
+                    Ok(None)
+                }
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Visits only paths we're already tracking.
+    async fn visit_tracked_files(&self, file_states: FileStates<'_>) -> Result<(), SnapshotError> {
+        for (tracked_path, current_file_state) in file_states {
+            if current_file_state.file_type == FileType::GitSubmodule {
+                continue;
+            }
+            if !self.matcher.matches(tracked_path) {
+                continue;
+            }
+            if !self.tree_state.sparse_patterns.is_identity() {
+                self.tree_state
+                    .preflight_path(tracked_path, &HashSet::new(), false)
+                    .map_err(|err| SnapshotError::Other {
+                        message: "Cannot snapshot through an unsafe physical parent path"
+                            .to_owned(),
+                        err: err.into(),
+                    })?;
+            }
+            let disk_path = tracked_path.to_fs_path(&self.tree_state.working_copy_path)?;
+            let metadata = match disk_path.symlink_metadata() {
+                Ok(metadata) => Some(metadata),
+                Err(err) if err.kind() == io::ErrorKind::NotFound => None,
+                Err(err) => {
+                    return Err(SnapshotError::Other {
+                        message: format!("Failed to stat file {}", disk_path.display()),
+                        err: err.into(),
+                    });
+                }
+            };
+            if let Some(metadata) = &metadata
+                && let Some(new_file_state) = file_state(metadata)
+                    .map_err(|err| snapshot_error_for_mtime_out_of_range(err, &disk_path))?
+            {
+                self.process_present_file(
+                    tracked_path.to_owned(),
+                    &disk_path,
+                    Some(&current_file_state),
+                    new_file_state,
+                )
+                .await?;
+            } else {
+                self.deleted_files_tx.send(tracked_path.to_owned()).ok();
+            }
+        }
+        Ok(())
+    }
+
+    async fn process_present_file(
+        &self,
+        path: RepoPathBuf,
+        disk_path: &Path,
+        maybe_current_file_state: Option<&FileState>,
+        mut new_file_state: FileState,
+    ) -> Result<(), SnapshotError> {
+        let canonical_path = self
+            .tree_state
+            .canonical_path(&path, self.canonical_sparse_matcher);
+        let update = self
+            .get_updated_tree_value(
+                &canonical_path,
+                disk_path,
+                maybe_current_file_state,
+                &new_file_state,
+            )
+            .await?;
+        // Preserve materialized conflict data for normal, non-resolved files
+        if matches!(new_file_state.file_type, FileType::Normal { .. })
+            && !update.as_ref().is_some_and(|update| update.is_resolved())
+        {
+            new_file_state.materialized_conflict_data =
+                maybe_current_file_state.and_then(|state| state.materialized_conflict_data);
+        }
+        if let Some(tree_value) = update {
+            self.tree_entries_tx
+                .send((canonical_path.into_owned(), tree_value))
+                .ok();
+        }
+        if Some(&new_file_state) != maybe_current_file_state {
+            self.file_states_tx.send((path, new_file_state)).ok();
+        }
+        Ok(())
+    }
+
+    /// Emits file paths that don't exist in the `present_entries`.
+    fn emit_deleted_files(
+        &self,
+        dir: &RepoPath,
+        file_states: FileStates<'_>,
+        present_entries: &PresentDirEntries,
+    ) {
+        let file_state_chunks = file_states.iter().chunk_by(|(path, _state)| {
+            // Extract <name> from <dir>, <dir>/<name>, or <dir>/<name>/**.
+            // (file_states may contain <dir> file on file->dir transition.)
+            debug_assert!(path.starts_with(dir));
+            let slash = usize::from(!dir.is_root());
+            let len = dir.as_internal_file_string().len() + slash;
+            let tail = path.as_internal_file_string().get(len..).unwrap_or("");
+            match tail.split_once('/') {
+                Some((name, _)) => (PresentDirEntryKind::Dir, name),
+                None => (PresentDirEntryKind::File, tail),
+            }
+        });
+        file_state_chunks
+            .into_iter()
+            .filter(|&((kind, name), _)| match kind {
+                PresentDirEntryKind::Dir => !present_entries.dirs.contains(name),
+                PresentDirEntryKind::File => !present_entries.files.contains(name),
+            })
+            .flat_map(|(_, chunk)| chunk)
+            // Whether or not the entry exists, submodule should be ignored
+            .filter(|(_, state)| state.file_type != FileType::GitSubmodule)
+            .filter(|(path, _)| self.matcher.matches(path))
+            .try_for_each(|(path, _)| self.deleted_files_tx.send(path.to_owned()))
+            .ok();
+    }
+
+    async fn get_updated_tree_value(
+        &self,
+        repo_path: &RepoPath,
+        disk_path: &Path,
+        maybe_current_file_state: Option<&FileState>,
+        new_file_state: &FileState,
+    ) -> Result<Option<MergedTreeValue>, SnapshotError> {
+        let clean = match maybe_current_file_state {
+            None => {
+                // untracked
+                false
+            }
+            Some(current_file_state) => {
+                // If the file's mtime was set at the same time as this state file's own mtime,
+                // then we don't know if the file was modified before or after this state file.
+                new_file_state.is_clean(current_file_state)
+                    && current_file_state.mtime < self.tree_state.own_mtime
+            }
+        };
+        if clean {
+            Ok(None)
+        } else {
+            let current_tree_values = self.current_tree.path_value(repo_path).await?;
+            let new_file_type = if !self.tree_state.symlink_support {
+                let mut new_file_type = new_file_state.file_type.clone();
+                if matches!(new_file_type, FileType::Normal { .. })
+                    && matches!(current_tree_values.as_normal(), Some(TreeValue::Symlink(_)))
+                {
+                    new_file_type = FileType::Symlink;
+                }
+                new_file_type
+            } else {
+                new_file_state.file_type.clone()
+            };
+            let new_tree_values = match new_file_type {
+                FileType::Normal { exec_bit } => {
+                    self.write_path_to_store(
+                        repo_path,
+                        disk_path,
+                        &current_tree_values,
+                        exec_bit,
+                        maybe_current_file_state.and_then(|state| state.materialized_conflict_data),
+                    )
+                    .await?
+                }
+                FileType::Symlink => {
+                    let id = self.write_symlink_to_store(repo_path, disk_path).await?;
+                    Merge::normal(TreeValue::Symlink(id))
+                }
+                FileType::GitSubmodule => panic!("git submodule cannot be written to store"),
+            };
+            if new_tree_values != current_tree_values {
+                Ok(Some(new_tree_values))
+            } else {
+                Ok(None)
+            }
+        }
+    }
+
+    fn store(&self) -> &Store {
+        &self.tree_state.store
+    }
+
+    async fn write_path_to_store(
+        &self,
+        repo_path: &RepoPath,
+        disk_path: &Path,
+        current_tree_values: &MergedTreeValue,
+        exec_bit: ExecBit,
+        materialized_conflict_data: Option<MaterializedConflictData>,
+    ) -> Result<MergedTreeValue, SnapshotError> {
+        if let Some(current_tree_value) = current_tree_values.as_resolved() {
+            let id = self.write_file_to_store(repo_path, disk_path).await?;
+            // On Windows, we preserve the executable bit from the current tree.
+            let executable = exec_bit.for_tree_value(self.tree_state.exec_policy, || {
+                if let Some(TreeValue::File {
+                    id: _,
+                    executable,
+                    copy_id: _,
+                }) = current_tree_value
+                {
+                    Some(*executable)
+                } else {
+                    None
+                }
+            });
+            // Preserve the copy id from the current tree
+            let copy_id = {
+                if let Some(TreeValue::File {
+                    id: _,
+                    executable: _,
+                    copy_id,
+                }) = current_tree_value
+                {
+                    copy_id.clone()
+                } else {
+                    CopyId::placeholder()
+                }
+            };
+            Ok(Merge::normal(TreeValue::File {
+                id,
+                executable,
+                copy_id,
+            }))
+        } else if let Some(old_file_ids) = current_tree_values.to_file_id_merge() {
+            // Safe to unwrap because the copy id exists exactly on the file variant
+            let copy_id_merge = current_tree_values.to_copy_id_merge().unwrap();
+            let copy_id = copy_id_merge
+                .resolve_trivial(SameChange::Accept)
+                .cloned()
+                .flatten()
+                .unwrap_or_else(CopyId::placeholder);
+            let mut contents = vec![];
+            let file = File::open(disk_path).map_err(|err| SnapshotError::Other {
+                message: format!("Failed to open file {}", disk_path.display()),
+                err: err.into(),
+            })?;
+            self.tree_state
+                .target_eol_strategy
+                .convert_eol_for_snapshot(AllowStdIo::new(file))
+                .await
+                .map_err(|err| SnapshotError::Other {
+                    message: "Failed to convert the EOL".to_string(),
+                    err: err.into(),
+                })?
+                .read_to_end(&mut contents)
+                .await
+                .map_err(|err| SnapshotError::Other {
+                    message: "Failed to read the EOL converted contents".to_string(),
+                    err: err.into(),
+                })?;
+            // If the file contained a conflict before and is a normal file on
+            // disk, we try to parse any conflict markers in the file into a
+            // conflict.
+            let new_file_ids = conflicts::update_from_content(
+                &old_file_ids,
+                self.store(),
+                repo_path,
+                &contents,
+                materialized_conflict_data.map_or(MIN_CONFLICT_MARKER_LEN, |data| {
+                    data.conflict_marker_len as usize
+                }),
+            )
+            .await?;
+            match new_file_ids.into_resolved() {
+                Ok(file_id) => {
+                    // On Windows, we preserve the executable bit from the merged trees.
+                    let executable = exec_bit.for_tree_value(self.tree_state.exec_policy, || {
+                        current_tree_values
+                            .to_executable_merge()
+                            .as_ref()
+                            .and_then(conflicts::resolve_file_executable)
+                    });
+                    Ok(Merge::normal(TreeValue::File {
+                        id: file_id.unwrap(),
+                        executable,
+                        copy_id,
+                    }))
+                }
+                Err(new_file_ids) => {
+                    if new_file_ids != old_file_ids {
+                        Ok(current_tree_values.with_new_file_ids(&new_file_ids))
+                    } else {
+                        Ok(current_tree_values.clone())
+                    }
+                }
+            }
+        } else {
+            Ok(current_tree_values.clone())
+        }
+    }
+
+    async fn write_file_to_store(
+        &self,
+        path: &RepoPath,
+        disk_path: &Path,
+    ) -> Result<FileId, SnapshotError> {
+        let file = File::open(disk_path).map_err(|err| SnapshotError::Other {
+            message: format!("Failed to open file {}", disk_path.display()),
+            err: err.into(),
+        })?;
+        let mut contents = self
+            .tree_state
+            .target_eol_strategy
+            .convert_eol_for_snapshot(AllowStdIo::new(file))
+            .await
+            .map_err(|err| SnapshotError::Other {
+                message: "Failed to convert the EOL".to_string(),
+                err: err.into(),
+            })?;
+        Ok(self.store().write_file(path, &mut contents).await?)
+    }
+
+    async fn write_symlink_to_store(
+        &self,
+        path: &RepoPath,
+        disk_path: &Path,
+    ) -> Result<SymlinkId, SnapshotError> {
+        if self.tree_state.symlink_support {
+            let target = disk_path.read_link().map_err(|err| SnapshotError::Other {
+                message: format!("Failed to read symlink {}", disk_path.display()),
+                err: err.into(),
+            })?;
+            let str_target = symlink_target_convert_to_store(&target).ok_or_else(|| {
+                SnapshotError::InvalidUtf8SymlinkTarget {
+                    path: disk_path.to_path_buf(),
+                }
+            })?;
+            Ok(self.store().write_symlink(path, &str_target).await?)
+        } else {
+            let target = fs::read(disk_path).map_err(|err| SnapshotError::Other {
+                message: format!("Failed to read file {}", disk_path.display()),
+                err: err.into(),
+            })?;
+            let string_target =
+                String::from_utf8(target).map_err(|_| SnapshotError::InvalidUtf8SymlinkTarget {
+                    path: disk_path.to_path_buf(),
+                })?;
+            Ok(self.store().write_symlink(path, &string_target).await?)
+        }
+    }
+}
+
+fn snapshot_error_for_mtime_out_of_range(err: MtimeOutOfRange, path: &Path) -> SnapshotError {
+    SnapshotError::Other {
+        message: format!("Failed to process file metadata {}", path.display()),
+        err: err.into(),
+    }
+}
+
+/// Functions to update local-disk files from the store.
+impl TreeState {
+    async fn write_file(
+        &self,
+        disk_path: &Path,
+        contents: impl AsyncRead + Send + Unpin,
+        exec_bit: ExecBit,
+        apply_eol_conversion: bool,
+    ) -> Result<FileState, CheckoutError> {
+        let mut file = File::options()
+            .write(true)
+            .create_new(true) // Don't overwrite un-ignored file. Don't follow symlink.
+            .open(disk_path)
+            .map_err(|err| CheckoutError::Other {
+                message: format!("Failed to open file {} for writing", disk_path.display()),
+                err: err.into(),
+            })?;
+        let contents = if apply_eol_conversion {
+            self.target_eol_strategy
+                .convert_eol_for_update(contents)
+                .await
+                .map_err(|err| CheckoutError::Other {
+                    message: "Failed to convert the EOL for the content".to_string(),
+                    err: err.into(),
+                })?
+        } else {
+            Box::new(contents)
+        };
+        let size = copy_async_to_sync(contents, &mut file)
+            .await
+            .map_err(|err| CheckoutError::Other {
+                message: format!(
+                    "Failed to write the content to the file {}",
+                    disk_path.display()
+                ),
+                err: err.into(),
+            })?;
+        set_executable(exec_bit, disk_path)
+            .map_err(|err| checkout_error_for_stat_error(err, disk_path))?;
+        // Read the file state from the file descriptor. That way, know that the file
+        // exists and is of the expected type, and the stat information is most likely
+        // accurate, except for other processes modifying the file concurrently (The
+        // mtime is set at write time and won't change when we close the file.)
+        let metadata = file
+            .metadata()
+            .map_err(|err| checkout_error_for_stat_error(err, disk_path))?;
+        FileState::for_file(exec_bit, size as u64, &metadata)
+            .map_err(|err| checkout_error_for_mtime_out_of_range(err, disk_path))
+    }
+
+    fn write_symlink(&self, disk_path: &Path, target: String) -> Result<FileState, CheckoutError> {
+        let target = symlink_target_convert_to_disk(&target);
+
+        if cfg!(windows) {
+            // On Windows, "/" can't be part of valid file name, and "/" is also not a valid
+            // separator for the symlink target. See an example of this issue in
+            // https://github.com/jj-vcs/jj/issues/6934.
+            //
+            // We use debug_assert_* instead of assert_* because we want to avoid panic in
+            // release build, and we are sure that we shouldn't create invalid symlinks in
+            // tests.
+            debug_assert_ne!(
+                target.as_os_str().to_str().map(|path| path.contains('/')),
+                Some(true),
+                r#"Expect the symlink target doesn't contain "/", but got invalid symlink target: {}."#,
+                target.display()
+            );
+        }
+
+        // On Windows, this will create a nonfunctional link for directories,
+        // but at the moment we don't have enough information in the tree to
+        // determine whether the symlink target is a file or a directory.
+        symlink_file(&target, disk_path).map_err(|err| CheckoutError::Other {
+            message: format!(
+                "Failed to create symlink from {} to {}",
+                disk_path.display(),
+                target.display()
+            ),
+            err: err.into(),
+        })?;
+        let metadata = disk_path
+            .symlink_metadata()
+            .map_err(|err| checkout_error_for_stat_error(err, disk_path))?;
+        FileState::for_symlink(&metadata)
+            .map_err(|err| checkout_error_for_mtime_out_of_range(err, disk_path))
+    }
+
+    async fn write_conflict(
+        &self,
+        disk_path: &Path,
+        contents: &[u8],
+        exec_bit: ExecBit,
+    ) -> Result<FileState, CheckoutError> {
+        let contents = self
+            .target_eol_strategy
+            .convert_eol_for_update(contents)
+            .await
+            .map_err(|err| CheckoutError::Other {
+                message: "Failed to convert the EOL when writing a merge conflict".to_string(),
+                err: err.into(),
+            })?;
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true) // Don't overwrite un-ignored file. Don't follow symlink.
+            .open(disk_path)
+            .map_err(|err| CheckoutError::Other {
+                message: format!("Failed to open file {} for writing", disk_path.display()),
+                err: err.into(),
+            })?;
+        let size = copy_async_to_sync(contents, &mut file)
+            .await
+            .map_err(|err| CheckoutError::Other {
+                message: format!("Failed to write conflict to file {}", disk_path.display()),
+                err: err.into(),
+            })? as u64;
+        set_executable(exec_bit, disk_path)
+            .map_err(|err| checkout_error_for_stat_error(err, disk_path))?;
+        let metadata = file
+            .metadata()
+            .map_err(|err| checkout_error_for_stat_error(err, disk_path))?;
+        FileState::for_file(exec_bit, size, &metadata)
+            .map_err(|err| checkout_error_for_mtime_out_of_range(err, disk_path))
+    }
+
+    /// Updates the files on disk to match `new_tree`.
+    pub async fn check_out(
+        &mut self,
+        new_tree: &MergedTree,
+    ) -> Result<CheckoutStats, CheckoutError> {
+        let old_tree = self.tree.clone();
+        let stats = self
+            .update(&old_tree, new_tree, self.sparse_matcher().as_ref(), None)
+            .await?;
+        self.tree = new_tree.clone();
+        Ok(stats)
+    }
+
+    /// Changes the sparse patterns and updates the files on disk accordingly.
+    pub async fn set_sparse_patterns(
+        &mut self,
+        sparse_patterns: WorkingCopyPatterns,
+    ) -> Result<CheckoutStats, CheckoutError> {
+        self.check_out_with_sparse_patterns(&self.tree.clone(), sparse_patterns)
+    }
+
+    fn prepare_layout_transition(
+        &self,
+        new_tree: &MergedTree,
+        patterns: &WorkingCopyPatterns,
+    ) -> Result<LayoutTransition, CheckoutError> {
+        patterns.validate().map_err(patterns_error)?;
+        if !patterns.is_identity()
+            && self
+                .working_copy_path
+                .join(".git")
+                .symlink_metadata()
+                .is_ok()
+        {
+            return Err(layout_error(
+                "Mapped working copies cannot be colocated with Git",
+            ));
+        }
+        let inventory = |tree: &MergedTree, patterns: &WorkingCopyPatterns| {
+            let mut paths = HashMap::new();
+            let matcher = patterns.to_matcher();
+            let entries = tree
+                .entries_matching(matcher.as_ref())
+                .collect::<Vec<_>>()
+                .block_on();
+            for (source, value) in entries {
+                value?;
+                let destination = patterns
+                    .repo_to_wc_with_matcher(&source, matcher.as_ref())
+                    .map_err(patterns_error)?
+                    .expect("effective matcher only selects mapped sources")
+                    .as_repo_path()
+                    .to_owned();
+                if destination.is_root() || paths.insert(destination, source).is_some() {
+                    return Err(layout_error(
+                        "Multiple canonical files map to one physical path",
+                    ));
+                }
+            }
+            Ok::<_, CheckoutError>(paths)
+        };
+        let old_paths = inventory(&self.tree, &self.sparse_patterns)?;
+        let new_paths = inventory(new_tree, patterns)?;
+        let preserve_untracked = self.sparse_patterns.mappings == patterns.mappings
+            || (self.sparse_patterns.is_identity() && patterns.is_identity());
+        let mut transition = LayoutTransition {
+            preserve_untracked,
+            ..Default::default()
+        };
+        for (destination, source) in &old_paths {
+            if new_paths.get(destination) == Some(source) {
+                transition.retained.push(source.clone());
+            } else {
+                transition.removed.push(source.clone());
+                transition.removed_physical.insert(destination.clone());
+            }
+            self.preflight_path(destination, &HashSet::new(), false)?;
+        }
+        for (destination, source) in &new_paths {
+            if old_paths.get(destination) != Some(source) {
+                transition.added.push(source.clone());
+                self.preflight_path(
+                    destination,
+                    &transition.removed_physical,
+                    !preserve_untracked,
+                )?;
+                let disk_path = destination.to_fs_path(&self.working_copy_path)?;
+                if !preserve_untracked
+                    && disk_path
+                        .symlink_metadata()
+                        .is_ok_and(|metadata| metadata.is_dir())
+                {
+                    preflight_directory(&disk_path, destination, &transition.removed_physical)?;
+                    transition.remove_directories.push(disk_path);
+                }
+            }
+        }
+        // Prefix ownership collisions can also arise from files already in the
+        // canonical tree (file-vs-directory), even when domains are invertible.
+        for destination in new_paths.keys() {
+            let mut ancestor = destination.parent();
+            while let Some(path) = ancestor {
+                if new_paths.contains_key(path) {
+                    return Err(layout_error(
+                        "Mapped files collide with a physical parent directory",
+                    ));
+                }
+                ancestor = path.parent();
+            }
+        }
+        Ok(transition)
+    }
+
+    fn preflight_path(
+        &self,
+        path: &RepoPath,
+        removed: &HashSet<RepoPathBuf>,
+        new_file: bool,
+    ) -> Result<(), CheckoutError> {
+        // Validate the whole lexical path even if an earlier parent does not
+        // exist yet. Otherwise a later .jj/.git component escapes preflight.
+        if path.components().any(|component| {
+            RESERVED_DIR_NAMES
+                .iter()
+                .any(|name| component.as_internal_str().eq_ignore_ascii_case(name))
+        }) {
+            return Err(layout_error(
+                "A mapped destination contains reserved metadata",
+            ));
+        }
+        let mut physical = RepoPathBuf::root();
+        for component in path.components() {
+            physical = physical.join(component);
+            let disk_path = physical.to_fs_path(&self.working_copy_path)?;
+            reject_reserved_existing_path(&disk_path)?;
+            match disk_path.symlink_metadata() {
+                Ok(metadata) => {
+                    if &*physical != path && !metadata.is_dir() {
+                        if removed.contains(&physical) {
+                            // This tracked file is removed before descendants
+                            // are created. Never inspect through its symlink.
+                            return Ok(());
+                        }
+                        return Err(layout_error(format!(
+                            "Physical parent {} is not a directory",
+                            disk_path.display()
+                        )));
+                    }
+                    if &*physical == path
+                        && new_file
+                        && !metadata.is_dir()
+                        && !removed.contains(&physical)
+                    {
+                        return Err(layout_error(format!(
+                            "Untracked path {} blocks the new layout",
+                            disk_path.display()
+                        )));
+                    }
+                }
+                Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(()),
+                Err(err) => return Err(checkout_error_for_stat_error(err, &disk_path)),
+            }
+        }
+        Ok(())
+    }
+
+    pub fn check_out_with_sparse_patterns(
+        &mut self,
+        new_tree: &MergedTree,
+        patterns: WorkingCopyPatterns,
+    ) -> Result<CheckoutStats, CheckoutError> {
+        if patterns == self.sparse_patterns
+            && new_tree.tree_ids_and_labels() == self.tree.tree_ids_and_labels()
+        {
+            return Ok(CheckoutStats::default());
+        }
+        let transition = self.prepare_layout_transition(new_tree, &patterns)?;
+        self.apply_layout_transition(new_tree, patterns, transition)
+    }
+
+    fn apply_layout_transition(
+        &mut self,
+        new_tree: &MergedTree,
+        patterns: WorkingCopyPatterns,
+        transition: LayoutTransition,
+    ) -> Result<CheckoutStats, CheckoutError> {
+        self.ensure_mapped_working_copy_type()
+            .map_err(patterns_error)?;
+        let old_tree = self.tree.clone();
+        let empty_tree = self.store.empty_merged_tree();
+        // Crucially remove all old-only physical owners before writing any new
+        // owner, including swaps and file/directory transitions.
+        let removed = self
+            .update(
+                &old_tree,
+                &empty_tree,
+                &FilesMatcher::new(transition.removed),
+                None,
+            )
+            .block_on()?;
+        for directory in transition.remove_directories {
+            remove_empty_directories(&directory)?;
+        }
+        let added = self
+            .update(
+                &empty_tree,
+                new_tree,
+                &FilesMatcher::new(transition.added),
+                Some(&patterns),
+            )
+            .block_on()?;
+        let retained = self
+            .update(
+                &old_tree,
+                new_tree,
+                &FilesMatcher::new(transition.retained),
+                Some(&patterns),
+            )
+            .block_on()?;
+        if removed.skipped_files + retained.skipped_files != 0
+            || (!transition.preserve_untracked && added.skipped_files != 0)
+        {
+            return Err(layout_error(
+                "The physical layout changed during checkout; update remains interrupted",
+            ));
+        }
+        self.tree = new_tree.clone();
+        self.sparse_patterns = patterns;
+        self.watchman_clock = None;
+        Ok(CheckoutStats {
+            updated_files: retained.updated_files,
+            added_files: added.added_files,
+            removed_files: removed.removed_files,
+            skipped_files: added.skipped_files,
+        })
+    }
+
+    async fn update(
+        &mut self,
+        old_tree: &MergedTree,
+        new_tree: &MergedTree,
+        matcher: &dyn Matcher,
+        patterns: Option<&WorkingCopyPatterns>,
+    ) -> Result<CheckoutStats, CheckoutError> {
+        // TODO: maybe it's better not include the skipped counts in the "intended"
+        // counts
+        let mut stats = CheckoutStats {
+            updated_files: 0,
+            added_files: 0,
+            removed_files: 0,
+            skipped_files: 0,
+        };
+        let mut changed_file_states = Vec::new();
+        let mut deleted_files = HashSet::new();
+        let mut prev_created_path: RepoPathBuf = RepoPathBuf::root();
+        let patterns = patterns.unwrap_or(&self.sparse_patterns);
+        let selection = (!patterns.is_identity()).then(|| patterns.to_matcher());
+
+        let mut process_diff_entry = async |path: RepoPathBuf,
+                                            before: MergedTreeValue,
+                                            after: MaterializedTreeValue|
+               -> Result<(), CheckoutError> {
+            let path = if patterns.is_identity() {
+                path
+            } else {
+                patterns
+                    .repo_to_wc_with_matcher(&path, selection.as_ref().unwrap().as_ref())
+                    .map_err(patterns_error)?
+                    .expect("effective matcher only selects mapped sources")
+                    .as_repo_path()
+                    .to_owned()
+            };
+            if after.is_absent() {
+                stats.removed_files += 1;
+            } else if before.is_absent() {
+                stats.added_files += 1;
+            } else {
+                stats.updated_files += 1;
+            }
+
+            // Existing Git submodule can be a non-empty directory on disk. We
+            // shouldn't attempt to manage it as a tracked path.
+            //
+            // TODO: It might be better to add general support for paths not
+            // tracked by jj than processing submodules specially. For example,
+            // paths excluded by .gitignore can be marked as such so that
+            // newly-"unignored" paths won't be snapshotted automatically.
+            if matches!(before.as_normal(), Some(TreeValue::GitSubmodule(_)))
+                && matches!(after, MaterializedTreeValue::GitSubmodule(_))
+            {
+                eprintln!("ignoring git submodule at {path:?}");
+                // Not updating the file state as if there were no diffs. Leave
+                // the state type as FileType::GitSubmodule if it was before.
+                return Ok(());
+            }
+
+            // This path and the previous one we did work for may have a common prefix. We
+            // can adjust the "working copy" path to the parent directory which we know
+            // is already created. If there is no common prefix, this will by default use
+            // RepoPath::root() as the common prefix.
+            let (common_prefix, adjusted_diff_file_path) =
+                path.split_common_prefix(&prev_created_path);
+
+            let disk_path = if adjusted_diff_file_path.is_root() {
+                // The path being "root" here implies that the entire path has already been
+                // created.
+                //
+                // e.g we may have have already processed a path like: "foo/bar/baz" and this is
+                // our `prev_created_path`.
+                //
+                // and the current path is:
+                // "foo/bar"
+                //
+                // This results in a common prefix of "foo/bar" with empty string for the
+                // remainder since its entire prefix has already been created.
+                // This means that we _dont_ need to create its parent dirs
+                // either.
+
+                path.to_fs_path(self.working_copy_path())?
+            } else {
+                let adjusted_working_copy_path =
+                    common_prefix.to_fs_path(self.working_copy_path())?;
+
+                // Create parent directories no matter if after.is_present(). This
+                // ensures that the path never traverses symlinks.
+                let Some(disk_path) =
+                    create_parent_dirs(&adjusted_working_copy_path, adjusted_diff_file_path)?
+                else {
+                    changed_file_states.push((path, FileState::placeholder()));
+                    stats.skipped_files += 1;
+                    return Ok(());
+                };
+
+                // Cache this path for the next iteration. This must occur after
+                // `create_parent_dirs` to ensure that the path is only set when
+                // no symlinks are encountered. Otherwise there could be
+                // opportunity for a filesystem write-what-where attack.
+                prev_created_path = path
+                    .parent()
+                    .map(RepoPath::to_owned)
+                    .expect("diff path has no parent");
+
+                disk_path
+            };
+
+            // If the path was present, check reserved path first and delete it.
+            let present_file_deleted = before.is_present()
+                && if matches!(before.as_normal(), Some(TreeValue::GitSubmodule(_))) {
+                    remove_old_submodule_dir(&disk_path)?
+                } else {
+                    remove_old_file(&disk_path)?
+                };
+
+            // If not, create temporary file to test the path validity.
+            if !present_file_deleted && !can_create_new_file(&disk_path)? {
+                if matches!(after, MaterializedTreeValue::GitSubmodule(_)) && disk_path.is_dir() {
+                    // Failing to materialize submodule, over a directory which
+                    // is presumably the submodule before it was added in a
+                    // commit, is not an error.
+                    // Falling through to the "after" state code, to set the
+                    // correct file state.
+                } else if matches!(before.as_normal(), Some(TreeValue::GitSubmodule(_)))
+                    && after.is_absent()
+                {
+                    // Failing to delete un-tracked submodule directory is not
+                    // an error, as the, possibly untracked, contents would
+                    // otherwise be lost.
+                    // Falling through to the "after" state code in case there
+                    // are parents to be deleted.
+                } else {
+                    changed_file_states.push((path, FileState::placeholder()));
+                    stats.skipped_files += 1;
+                    return Ok(());
+                }
+            }
+
+            // We get the previous executable bit from the file states and not
+            // the tree value because only the file states store the on-disk
+            // executable bit.
+            let get_prev_exec = || self.file_states().get_exec_bit(&path);
+
+            // TODO: Check that the file has not changed before overwriting/removing it.
+            let file_state = match after {
+                MaterializedTreeValue::Absent | MaterializedTreeValue::AccessDenied(_) => {
+                    // Reset the previous path to avoid scenarios where this path is deleted,
+                    // then on the next iteration recreation is skipped because of this
+                    // optimization.
+                    prev_created_path = RepoPathBuf::root();
+
+                    let mut parent_dir = disk_path.parent().unwrap();
+                    while parent_dir != self.working_copy_path {
+                        if fs::remove_dir(parent_dir).is_err() {
+                            break;
+                        }
+
+                        parent_dir = parent_dir.parent().unwrap();
+                    }
+                    deleted_files.insert(path);
+                    return Ok(());
+                }
+                MaterializedTreeValue::File(file) => {
+                    let exec_bit =
+                        ExecBit::new_from_repo(file.executable, self.exec_policy, get_prev_exec);
+                    self.write_file(&disk_path, file.reader, exec_bit, true)
+                        .await?
+                }
+                MaterializedTreeValue::Symlink { id: _, target } => {
+                    if self.symlink_support {
+                        self.write_symlink(&disk_path, target)?
+                    } else {
+                        // The fake symlink file shouldn't be executable.
+                        self.write_file(&disk_path, target.as_bytes(), ExecBit(false), false)
+                            .await?
+                    }
+                }
+                MaterializedTreeValue::GitSubmodule(_) => {
+                    eprintln!("ignoring git submodule at {path:?}");
+                    // Git behavior: Create the submodule directory but don't
+                    // populate/overwrite the contents.
+                    match fs::create_dir(&disk_path) {
+                        Ok(()) => {}
+                        Err(err) if err.kind() == io::ErrorKind::AlreadyExists => {}
+                        Err(err) => eprintln!(
+                            "warning: failed to create submodule directory {path:?}: {err}"
+                        ),
+                    }
+                    FileState::for_gitsubmodule()
+                }
+                MaterializedTreeValue::Tree(_) => {
+                    panic!("unexpected tree entry in diff at {path:?}");
+                }
+                MaterializedTreeValue::FileConflict(file) => {
+                    let conflict_marker_len =
+                        choose_materialized_conflict_marker_len(&file.contents);
+                    let options = ConflictMaterializeOptions {
+                        marker_style: self.conflict_marker_style,
+                        marker_len: Some(conflict_marker_len),
+                        merge: self.store.merge_options().clone(),
+                    };
+                    let exec_bit = ExecBit::new_from_repo(
+                        file.executable.unwrap_or(false),
+                        self.exec_policy,
+                        get_prev_exec,
+                    );
+                    let contents =
+                        materialize_merge_result_to_bytes(&file.contents, &file.labels, &options);
+                    let mut file_state =
+                        self.write_conflict(&disk_path, &contents, exec_bit).await?;
+                    file_state.materialized_conflict_data = Some(MaterializedConflictData {
+                        conflict_marker_len: conflict_marker_len.try_into().unwrap_or(u32::MAX),
+                    });
+                    file_state
+                }
+                MaterializedTreeValue::OtherConflict { id, labels } => {
+                    // Unless all terms are regular files, we can't do much
+                    // better than trying to describe the merge.
+                    let contents = id.describe(&labels);
+                    // Since this is a dummy file, it shouldn't be executable.
+                    self.write_conflict(&disk_path, contents.as_bytes(), ExecBit(false))
+                        .await?
+                }
+            };
+            changed_file_states.push((path, file_state));
+            Ok(())
+        };
+
+        let mut diff_stream = old_tree
+            .diff_for_file_system(new_tree, matcher)
+            .map(async |TreeDiffEntry { path, values }| match values {
+                Ok(diff) => {
+                    let result =
+                        materialize_tree_value(&self.store, &path, diff.after, new_tree.labels())
+                            .await;
+                    (path, result.map(|value| (diff.before, value)))
+                }
+                Err(err) => (path, Err(err)),
+            })
+            .buffered(self.store.concurrency());
+
+        // If a conflicted file didn't change between the two trees, but the conflict
+        // labels did, we still need to re-materialize it in the working copy. We don't
+        // need to do this if the conflicts have different numbers of sides though since
+        // these conflicts are considered different, so they will be materialized by
+        // `MergedTree::diff_for_file_system` already.
+        let mut conflicts_to_rematerialize: HashMap<RepoPathBuf, MergedTreeValue> =
+            if old_tree.tree_ids().num_sides() == new_tree.tree_ids().num_sides()
+                && old_tree.labels() != new_tree.labels()
+            {
+                // TODO: it might be better to merge this stream with the other diff stream,
+                // but it could be difficult since the diff stream is not sorted in the same
+                // order as the conflicts stream.
+                new_tree
+                    .conflicts_matching(matcher)
+                    .map(|(path, value)| value.map(|value| (path, value)))
+                    .try_collect()
+                    .await?
+            } else {
+                HashMap::new()
+            };
+
+        while let Some((path, data)) = diff_stream.next().await {
+            let (before, after) = data?;
+            conflicts_to_rematerialize.remove(&path);
+            process_diff_entry(path, before, after).await?;
+        }
+
+        if !conflicts_to_rematerialize.is_empty() {
+            for (path, conflict) in conflicts_to_rematerialize {
+                let materialized =
+                    materialize_tree_value(&self.store, &path, conflict.clone(), new_tree.labels())
+                        .await?;
+                process_diff_entry(path, conflict, materialized).await?;
+            }
+        }
+        // Canonical diff order is not physical path order under mappings.
+        if !patterns.is_identity() || old_tree.labels() != new_tree.labels() {
+            changed_file_states.sort_unstable_by(|(path1, _), (path2, _)| path1.cmp(path2));
+        }
+
+        self.file_states
+            .merge_in(changed_file_states, &deleted_files);
+        Ok(stats)
+    }
+
+    /// Sets the current tree to `new_tree` without touching the files on
+    /// disk.
+    ///
+    /// Changed files get a zero mtime so they will be rechecked on the next
+    /// snapshot.
+    pub async fn reset(&mut self, new_tree: &MergedTree) -> Result<(), ResetError> {
+        let matcher = self.sparse_matcher();
+        let mut changed_file_states = Vec::new();
+        let mut deleted_files = HashSet::new();
+        let mut diff_stream = self.tree.diff_for_file_system(new_tree, matcher.as_ref());
+        while let Some(TreeDiffEntry { path, values }) = diff_stream.next().await {
+            let path = if self.sparse_patterns.is_identity() {
+                path
+            } else {
+                self.sparse_patterns
+                    .repo_to_wc_with_matcher(&path, matcher.as_ref())
+                    .map_err(patterns_error)?
+                    .expect("effective matcher only selects mapped sources")
+                    .as_repo_path()
+                    .to_owned()
+            };
+            let after = values?.after;
+            if after.is_absent() {
+                deleted_files.insert(path);
+            } else {
+                let file_type = match after.into_resolved() {
+                    Ok(value) => match value.unwrap() {
+                        TreeValue::File {
+                            id: _,
+                            executable,
+                            copy_id: _,
+                        } => {
+                            let get_prev_exec = || self.file_states().get_exec_bit(&path);
+                            let exec_bit =
+                                ExecBit::new_from_repo(executable, self.exec_policy, get_prev_exec);
+                            FileType::Normal { exec_bit }
+                        }
+                        TreeValue::Symlink(_id) => FileType::Symlink,
+                        TreeValue::GitSubmodule(_id) => {
+                            eprintln!("ignoring git submodule at {path:?}");
+                            FileType::GitSubmodule
+                        }
+                        TreeValue::Tree(_id) => {
+                            panic!("unexpected tree entry in diff at {path:?}");
+                        }
+                    },
+                    Err(_values) => {
+                        // TODO: Try to set the executable bit based on the conflict
+                        FileType::Normal {
+                            exec_bit: ExecBit(false),
+                        }
+                    }
+                };
+                let file_state = FileState {
+                    file_type,
+                    mtime: MillisSinceEpoch(0),
+                    size: 0,
+                    materialized_conflict_data: None,
+                };
+                changed_file_states.push((path, file_state));
+            }
+        }
+        if !self.sparse_patterns.is_identity() {
+            changed_file_states.sort_unstable_by(|(path1, _), (path2, _)| path1.cmp(path2));
+        }
+        self.file_states
+            .merge_in(changed_file_states, &deleted_files);
+        self.tree = new_tree.clone();
+        Ok(())
+    }
+
+    /// Like [`Self::reset()`], but discards all recorded file states first so
+    /// that all files will be rechecked on the next snapshot.
+    pub async fn recover(&mut self, new_tree: &MergedTree) -> Result<(), ResetError> {
+        self.file_states.clear();
+        self.tree = self.store.empty_merged_tree();
+        self.reset(new_tree).await
+    }
+}
+
+fn checkout_error_for_stat_error(err: io::Error, path: &Path) -> CheckoutError {
+    CheckoutError::Other {
+        message: format!("Failed to stat file {}", path.display()),
+        err: err.into(),
+    }
+}
+
+fn checkout_error_for_mtime_out_of_range(err: MtimeOutOfRange, path: &Path) -> CheckoutError {
+    CheckoutError::Other {
+        message: format!("Failed to process file metadata {}", path.display()),
+        err: err.into(),
+    }
+}
+
+/// Working copy state stored in "checkout" file.
+#[derive(Clone, Debug)]
+struct CheckoutState {
+    operation_id: OperationId,
+    workspace_name: WorkspaceNameBuf,
+}
+
+impl CheckoutState {
+    fn load(state_path: &Path) -> Result<Self, WorkingCopyStateError> {
+        let wrap_err = |err| WorkingCopyStateError {
+            message: "Failed to read checkout state".to_owned(),
+            err,
+        };
+        let buf = fs::read(state_path.join("checkout")).map_err(|err| wrap_err(err.into()))?;
+        let proto = crate::protos::local_working_copy::Checkout::decode(&*buf)
+            .map_err(|err| wrap_err(err.into()))?;
+        Ok(Self {
+            operation_id: OperationId::new(proto.operation_id),
+            workspace_name: if proto.workspace_name.is_empty() {
+                // For compatibility with old working copies.
+                // TODO: Delete in mid 2022 or so
+                WorkspaceName::DEFAULT.to_owned()
+            } else {
+                proto.workspace_name.into()
+            },
+        })
+    }
+
+    #[instrument(skip_all)]
+    fn save(&self, state_path: &Path) -> Result<(), WorkingCopyStateError> {
+        let wrap_err = |err| WorkingCopyStateError {
+            message: "Failed to write checkout state".to_owned(),
+            err,
+        };
+        let proto = crate::protos::local_working_copy::Checkout {
+            operation_id: self.operation_id.to_bytes(),
+            workspace_name: (*self.workspace_name).into(),
+        };
+        let mut temp_file = new_temp_file_with_default_permissions(state_path)
+            .map_err(|err| wrap_err(err.into()))?;
+        temp_file
+            .as_file_mut()
+            .write_all(&proto.encode_to_vec())
+            .map_err(|err| wrap_err(err.into()))?;
+        // TODO: Retry if persisting fails (it will on Windows if the file happened to
+        // be open for read).
+        persist_temp_file(temp_file, state_path.join("checkout"))
+            .map_err(|err| wrap_err(err.into()))?;
+        Ok(())
+    }
+}
+
+/// Working copy stored as files on the local filesystem.
+pub struct LocalWorkingCopy {
+    store: Arc<Store>,
+    working_copy_path: PathBuf,
+    state_path: PathBuf,
+    checkout_state: CheckoutState,
+    tree_state: OnceCell<TreeState>,
+    tree_state_settings: TreeStateSettings,
+}
+
+#[async_trait(?Send)]
+impl WorkingCopy for LocalWorkingCopy {
+    fn name(&self) -> &str {
+        Self::mapped_name()
+    }
+
+    fn workspace_name(&self) -> &WorkspaceName {
+        &self.checkout_state.workspace_name
+    }
+
+    fn operation_id(&self) -> &OperationId {
+        &self.checkout_state.operation_id
+    }
+
+    fn tree(&self) -> Result<&MergedTree, WorkingCopyStateError> {
+        Ok(self.tree_state()?.current_tree())
+    }
+
+    fn sparse_patterns(&self) -> Result<&WorkingCopyPatterns, WorkingCopyStateError> {
+        Ok(self.tree_state()?.sparse_patterns())
+    }
+
+    async fn start_mutation(&self) -> Result<Box<dyn LockedWorkingCopy>, WorkingCopyStateError> {
+        let lock_path = self.state_path.join("working_copy.lock");
+        let lock = FileLock::lock(lock_path).map_err(|err| WorkingCopyStateError {
+            message: "Failed to lock working copy".to_owned(),
+            err: err.into(),
+        })?;
+        // This records an interrupted mutation, not a desired sparse selection.
+        // Never snapshot a partially de-materialized working copy: missing files
+        // could otherwise be recorded as canonical deletions.
+        let sparse_guard = self.state_path.join("sparse-update-in-progress");
+        if sparse_guard
+            .try_exists()
+            .map_err(|err| WorkingCopyStateError {
+                message: "Failed to check for an interrupted sparse update".to_owned(),
+                err: err.into(),
+            })?
+        {
+            return Err(WorkingCopyStateError {
+                message: "A sparse working-copy update did not finish; refusing to snapshot or \
+                          modify potentially partially materialized files"
+                    .to_owned(),
+                err: io::Error::other(
+                    "Preserve the remaining working-copy files and use a healthy workspace to \
+                     create a replacement workspace from the repository. Do not remove \
+                     sparse-update-in-progress and snapshot this workspace: absent files may have \
+                     been removed by the interrupted update, not by you.",
+                )
+                .into(),
+            });
+        }
+
+        let wc = Self {
+            store: self.store.clone(),
+            working_copy_path: self.working_copy_path.clone(),
+            state_path: self.state_path.clone(),
+            // Re-read the state after taking the lock
+            checkout_state: CheckoutState::load(&self.state_path)?,
+            // Empty so we re-read the state after taking the lock
+            // TODO: It's expensive to reload the whole tree. We should copy it from `self` if it
+            // hasn't changed.
+            tree_state: OnceCell::new(),
+            tree_state_settings: self.tree_state_settings.clone(),
+        };
+        let old_operation_id = wc.operation_id().clone();
+        let old_tree = wc.tree()?.clone();
+        Ok(Box::new(LockedLocalWorkingCopy {
+            wc,
+            old_operation_id,
+            old_tree,
+            tree_state_dirty: false,
+            sparse_update_in_progress: false,
+            sparse_update_completed: false,
+            new_workspace_name: None,
+            _lock: lock,
+        }))
+    }
+}
+
+impl LocalWorkingCopy {
+    /// Name of this working copy implementation.
+    pub const NAME: &str = "local";
+
+    /// Type identifier that prevents older binaries from reading sparse filesets.
+    pub fn fileset_name() -> &'static str {
+        "local-fileset"
+    }
+
+    /// Type identifier fencing readers unaware of structured path mappings.
+    pub fn mapped_name() -> &'static str {
+        "local-working-copy-mapped"
+    }
+
+    /// Initializes a new working copy at `working_copy_path`. The working
+    /// copy's state will be stored in the `state_path` directory. The working
+    /// copy will have the empty tree checked out.
+    pub fn init(
+        store: Arc<Store>,
+        working_copy_path: PathBuf,
+        state_path: PathBuf,
+        operation_id: OperationId,
+        workspace_name: WorkspaceNameBuf,
+        user_settings: &UserSettings,
+    ) -> Result<Self, WorkingCopyStateError> {
+        let checkout_state = CheckoutState {
+            operation_id,
+            workspace_name,
+        };
+        checkout_state.save(&state_path)?;
+        let tree_state_settings = TreeStateSettings::try_from_user_settings(user_settings)
+            .map_err(|err| WorkingCopyStateError {
+                message: "Failed to read the tree state settings".to_string(),
+                err: err.into(),
+            })?;
+        let tree_state = TreeState::init(
+            store.clone(),
+            working_copy_path.clone(),
+            state_path.clone(),
+            &tree_state_settings,
+        )
+        .map_err(|err| WorkingCopyStateError {
+            message: "Failed to initialize working copy state".to_string(),
+            err: err.into(),
+        })?;
+        Ok(Self {
+            store,
+            working_copy_path,
+            state_path,
+            checkout_state,
+            tree_state: OnceCell::with_value(tree_state),
+            tree_state_settings,
+        })
+    }
+
+    /// Loads an existing working copy. The tree state is loaded lazily.
+    pub fn load(
+        store: Arc<Store>,
+        working_copy_path: PathBuf,
+        state_path: PathBuf,
+        user_settings: &UserSettings,
+    ) -> Result<Self, WorkingCopyStateError> {
+        let checkout_state = CheckoutState::load(&state_path)?;
+        let tree_state_settings = TreeStateSettings::try_from_user_settings(user_settings)
+            .map_err(|err| WorkingCopyStateError {
+                message: "Failed to read the tree state settings".to_string(),
+                err: err.into(),
+            })?;
+        Ok(Self {
+            store,
+            working_copy_path,
+            state_path,
+            checkout_state,
+            tree_state: OnceCell::new(),
+            tree_state_settings,
+        })
+    }
+
+    /// Returns the directory where the working copy state is stored.
+    pub fn state_path(&self) -> &Path {
+        &self.state_path
+    }
+
+    #[instrument(skip_all)]
+    fn tree_state(&self) -> Result<&TreeState, WorkingCopyStateError> {
+        self.tree_state.get_or_try_init(|| {
+            TreeState::load(
+                self.store.clone(),
+                self.working_copy_path.clone(),
+                self.state_path.clone(),
+                &self.tree_state_settings,
+            )
+            .map_err(|err| WorkingCopyStateError {
+                message: "Failed to read working copy state".to_string(),
+                err: err.into(),
+            })
+        })
+    }
+
+    fn tree_state_mut(&mut self) -> Result<&mut TreeState, WorkingCopyStateError> {
+        self.tree_state()?; // ensure loaded
+        Ok(self.tree_state.get_mut().unwrap())
+    }
+
+    /// Returns the recorded states of all tracked files.
+    pub fn file_states(&self) -> Result<FileStates<'_>, WorkingCopyStateError> {
+        Ok(self.tree_state()?.file_states())
+    }
+
+    /// Queries Watchman for changed files. See [`TreeState::query_watchman()`].
+    #[cfg(feature = "watchman")]
+    pub async fn query_watchman(
+        &self,
+        config: &WatchmanConfig,
+    ) -> Result<(watchman::Clock, Option<Vec<PathBuf>>), WorkingCopyStateError> {
+        self.tree_state()?
+            .query_watchman(config)
+            .await
+            .map_err(|err| WorkingCopyStateError {
+                message: "Failed to query watchman".to_string(),
+                err: err.into(),
+            })
+    }
+
+    /// Returns whether a Watchman trigger is registered for the working copy.
+    #[cfg(feature = "watchman")]
+    pub async fn is_watchman_trigger_registered(
+        &self,
+        config: &WatchmanConfig,
+    ) -> Result<bool, WorkingCopyStateError> {
+        self.tree_state()?
+            .is_watchman_trigger_registered(config)
+            .await
+            .map_err(|err| WorkingCopyStateError {
+                message: "Failed to query watchman".to_string(),
+                err: err.into(),
+            })
+    }
+}
+
+/// Factory for [`LocalWorkingCopy`].
+pub struct LocalWorkingCopyFactory {}
+
+impl WorkingCopyFactory for LocalWorkingCopyFactory {
+    fn init_working_copy(
+        &self,
+        store: Arc<Store>,
+        working_copy_path: PathBuf,
+        state_path: PathBuf,
+        operation_id: OperationId,
+        workspace_name: WorkspaceNameBuf,
+        settings: &UserSettings,
+    ) -> Result<Box<dyn WorkingCopy>, WorkingCopyStateError> {
+        Ok(Box::new(LocalWorkingCopy::init(
+            store,
+            working_copy_path,
+            state_path,
+            operation_id,
+            workspace_name,
+            settings,
+        )?))
+    }
+
+    fn load_working_copy(
+        &self,
+        store: Arc<Store>,
+        working_copy_path: PathBuf,
+        state_path: PathBuf,
+        settings: &UserSettings,
+    ) -> Result<Box<dyn WorkingCopy>, WorkingCopyStateError> {
+        Ok(Box::new(LocalWorkingCopy::load(
+            store,
+            working_copy_path,
+            state_path,
+            settings,
+        )?))
+    }
+}
+
+/// A working copy that's locked on disk. The lock is held until you call
+/// `finish()` or `discard()`.
+pub struct LockedLocalWorkingCopy {
+    wc: LocalWorkingCopy,
+    old_operation_id: OperationId,
+    old_tree: MergedTree,
+    tree_state_dirty: bool,
+    sparse_update_in_progress: bool,
+    sparse_update_completed: bool,
+    new_workspace_name: Option<WorkspaceNameBuf>,
+    _lock: FileLock,
+}
+
+impl LockedLocalWorkingCopy {
+    /// Replaces the filesystem monitor setting used by snapshots and returns
+    /// the previous setting.
+    pub fn replace_fsmonitor_settings(
+        &mut self,
+        fsmonitor_settings: FsmonitorSettings,
+    ) -> FsmonitorSettings {
+        let old_settings = std::mem::replace(
+            &mut self.wc.tree_state_settings.fsmonitor_settings,
+            fsmonitor_settings.clone(),
+        );
+        if let Some(tree_state) = self.wc.tree_state.get_mut() {
+            tree_state.fsmonitor_settings = fsmonitor_settings;
+        }
+        old_settings
+    }
+}
+
+#[async_trait]
+impl LockedWorkingCopy for LockedLocalWorkingCopy {
+    fn old_operation_id(&self) -> &OperationId {
+        &self.old_operation_id
+    }
+
+    fn old_tree(&self) -> &MergedTree {
+        &self.old_tree
+    }
+
+    async fn snapshot(
+        &mut self,
+        options: &SnapshotOptions,
+    ) -> Result<(MergedTree, SnapshotStats), SnapshotError> {
+        if self.sparse_update_in_progress {
+            return Err(WorkingCopyStateError {
+                message: "Finish the sparse update before snapshotting the working copy".to_owned(),
+                err: io::Error::other("Sparse update is still in progress").into(),
+            }
+            .into());
+        }
+        let tree_state = self.wc.tree_state_mut()?;
+        let (is_dirty, stats) = tree_state.snapshot(options).await?;
+        self.tree_state_dirty |= is_dirty;
+        Ok((tree_state.current_tree().clone(), stats))
+    }
+
+    async fn check_out(&mut self, commit: &Commit) -> Result<CheckoutStats, CheckoutError> {
+        if !self.wc.sparse_patterns()?.is_identity() {
+            return self
+                .check_out_tree_with_patterns(&commit.tree(), self.wc.sparse_patterns()?.clone());
+        }
+        if self.sparse_update_in_progress && !self.sparse_update_completed {
+            return Err(layout_error(
+                "Cannot check out after an interrupted layout update",
+            ));
+        }
+        let new_tree = commit.tree();
+        let tree_state = self.wc.tree_state_mut()?;
+        if tree_state.tree.tree_ids_and_labels() != new_tree.tree_ids_and_labels() {
+            let stats = tree_state.check_out(&new_tree).await?;
+            self.tree_state_dirty = true;
+            Ok(stats)
+        } else {
+            Ok(CheckoutStats::default())
+        }
+    }
+
+    async fn check_out_with_sparse_patterns(
+        &mut self,
+        commit: &Commit,
+        patterns: WorkingCopyPatterns,
+    ) -> Result<CheckoutStats, CheckoutError> {
+        if &patterns == self.wc.sparse_patterns()? && patterns.is_identity() {
+            return self.check_out(commit).await;
+        }
+        self.check_out_tree_with_patterns(&commit.tree(), patterns)
+    }
+
+    fn rename_workspace(&mut self, new_name: WorkspaceNameBuf) {
+        self.new_workspace_name = Some(new_name);
+    }
+
+    async fn reset(&mut self, commit: &Commit) -> Result<(), ResetError> {
+        let new_tree = commit.tree();
+        self.wc.tree_state_mut()?.reset(&new_tree).await?;
+        self.tree_state_dirty = true;
+        Ok(())
+    }
+
+    async fn recover(&mut self, commit: &Commit) -> Result<(), ResetError> {
+        let new_tree = commit.tree();
+        self.wc.tree_state_mut()?.recover(&new_tree).await?;
+        self.tree_state_dirty = true;
+        Ok(())
+    }
+
+    fn sparse_patterns(&self) -> Result<&WorkingCopyPatterns, WorkingCopyStateError> {
+        self.wc.sparse_patterns()
+    }
+
+    async fn set_sparse_patterns(
+        &mut self,
+        patterns: WorkingCopyPatterns,
+    ) -> Result<CheckoutStats, CheckoutError> {
+        let tree = self.wc.tree()?.clone();
+        self.check_out_tree_with_patterns(&tree, patterns)
+    }
+
+    #[instrument(skip_all)]
+    async fn finish(
+        mut self: Box<Self>,
+        operation_id: OperationId,
+    ) -> Result<Box<dyn WorkingCopy>, WorkingCopyStateError> {
+        if self.sparse_update_in_progress && !self.sparse_update_completed {
+            return Err(WorkingCopyStateError {
+                message: "Cannot finish a failed sparse working-copy update".to_owned(),
+                err: io::Error::other("The interruption guard must remain in place").into(),
+            });
+        }
+        assert!(
+            self.tree_state_dirty
+                || self.old_tree.tree_ids_and_labels() == self.wc.tree()?.tree_ids_and_labels()
+        );
+        if self.tree_state_dirty {
+            self.wc
+                .tree_state_mut()?
+                .save()
+                .map_err(|err| WorkingCopyStateError {
+                    message: "Failed to write working copy state".to_string(),
+                    err: Box::new(err),
+                })?;
+        }
+        if self.old_operation_id != operation_id || self.new_workspace_name.is_some() {
+            self.wc.checkout_state.operation_id = operation_id;
+            if let Some(workspace_name) = self.new_workspace_name {
+                self.wc.checkout_state.workspace_name = workspace_name;
+            }
+            self.wc.checkout_state.save(&self.wc.state_path)?;
+        }
+        if self.sparse_update_in_progress {
+            // The guard must not disappear durably before the matching actual
+            // tree/layout and checkout operation have reached stable storage.
+            for name in ["tree_state", "checkout"] {
+                File::open(self.wc.state_path.join(name))
+                    .and_then(|file| file.sync_all())
+                    .map_err(|err| WorkingCopyStateError {
+                        message: "Failed to persist the completed working-copy layout".to_owned(),
+                        err: err.into(),
+                    })?;
+            }
+            #[cfg(unix)]
+            File::open(&self.wc.state_path)
+                .and_then(|directory| directory.sync_all())
+                .map_err(|err| WorkingCopyStateError {
+                    message: "Failed to persist the working-copy state directory".to_owned(),
+                    err: err.into(),
+                })?;
+            fs::remove_file(self.wc.state_path.join("sparse-update-in-progress")).map_err(
+                |err| WorkingCopyStateError {
+                    message: "Failed to clear the completed sparse working-copy update".to_owned(),
+                    err: err.into(),
+                },
+            )?;
+        }
+        Ok(Box::new(self.wc))
+    }
+}
+
+impl LockedLocalWorkingCopy {
+    fn check_out_tree_with_patterns(
+        &mut self,
+        new_tree: &MergedTree,
+        patterns: WorkingCopyPatterns,
+    ) -> Result<CheckoutStats, CheckoutError> {
+        if self.sparse_update_in_progress && !self.sparse_update_completed {
+            return Err(layout_error(
+                "Cannot retry an interrupted working-copy layout update",
+            ));
+        }
+        let tree_state = self.wc.tree_state()?;
+        if &patterns == tree_state.sparse_patterns()
+            && new_tree.tree_ids_and_labels() == tree_state.tree.tree_ids_and_labels()
+        {
+            return Ok(CheckoutStats::default());
+        }
+        // Preflight failures do not create an interruption guard: no files have
+        // changed, so the original working copy remains usable.
+        // Unchanged layouts retain the native incremental tree diff rather
+        // than inventorying every visible file for each revision checkout.
+        let transition = if &patterns == tree_state.sparse_patterns() {
+            None
+        } else {
+            Some(tree_state.prepare_layout_transition(new_tree, &patterns)?)
+        };
+        tree_state
+            .ensure_mapped_working_copy_type()
+            .map_err(patterns_error)?;
+        if !self.sparse_update_in_progress {
+            let guard_path = self.wc.state_path.join("sparse-update-in-progress");
+            OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&guard_path)
+                .and_then(|file| file.sync_all())
+                .map_err(|err| WorkingCopyStateError {
+                    message: "Failed to record the start of a working-copy layout update"
+                        .to_owned(),
+                    err: err.into(),
+                })?;
+            self.sparse_update_in_progress = true;
+            #[cfg(unix)]
+            File::open(&self.wc.state_path)
+                .and_then(|directory| directory.sync_all())
+                .map_err(|err| WorkingCopyStateError {
+                    message: "Failed to persist the working-copy interruption guard".to_owned(),
+                    err: err.into(),
+                })?;
+        }
+        self.sparse_update_completed = false;
+        let stats = match transition {
+            Some(transition) => self
+                .wc
+                .tree_state_mut()?
+                .apply_layout_transition(new_tree, patterns, transition)?,
+            None => self.wc.tree_state_mut()?.check_out(new_tree).block_on()?,
+        };
+        self.sparse_update_completed = true;
+        self.tree_state_dirty = true;
+        Ok(stats)
+    }
+    /// Clears the recorded Watchman clock so that the next snapshot scans the
+    /// whole working copy.
+    pub fn reset_watchman(&mut self) -> Result<(), SnapshotError> {
+        self.wc.tree_state_mut()?.reset_watchman();
+        self.tree_state_dirty = true;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use maplit::hashset;
+
+    use super::*;
+
+    fn repo_path(value: &str) -> &RepoPath {
+        RepoPath::from_internal_string(value).unwrap()
+    }
+
+    fn repo_path_component(value: &str) -> &RepoPathComponent {
+        RepoPathComponent::new(value).unwrap()
+    }
+
+    fn new_state(size: u64) -> FileState {
+        FileState {
+            file_type: FileType::Normal {
+                exec_bit: ExecBit(false),
+            },
+            mtime: MillisSinceEpoch(0),
+            size,
+            materialized_conflict_data: None,
+        }
+    }
+
+    #[test]
+    fn test_file_states_merge() {
+        let new_static_entry = |path: &'static str, size| (repo_path(path), new_state(size));
+        let new_owned_entry = |path: &str, size| (repo_path(path).to_owned(), new_state(size));
+        let new_proto_entry = |path: &str, size| {
+            file_state_entry_to_proto(repo_path(path).to_owned(), &new_state(size))
+        };
+        let data = vec![
+            new_proto_entry("aa", 0),
+            new_proto_entry("b#", 4), // '#' < '/'
+            new_proto_entry("b/c", 1),
+            new_proto_entry("b/d/e", 2),
+            new_proto_entry("b/e", 3),
+            new_proto_entry("bc", 5),
+        ];
+        let mut file_states = FileStatesMap::from_proto(data, false);
+
+        let changed_file_states = vec![
+            new_owned_entry("aa", 10),    // change
+            new_owned_entry("b/d/f", 11), // add
+            new_owned_entry("b/e", 12),   // change
+            new_owned_entry("c", 13),     // add
+        ];
+        let deleted_files = hashset! {
+            repo_path("b/c").to_owned(),
+            repo_path("b#").to_owned(),
+        };
+        file_states.merge_in(changed_file_states, &deleted_files);
+        assert_eq!(
+            file_states.all().iter().collect_vec(),
+            vec![
+                new_static_entry("aa", 10),
+                new_static_entry("b/d/e", 2),
+                new_static_entry("b/d/f", 11),
+                new_static_entry("b/e", 12),
+                new_static_entry("bc", 5),
+                new_static_entry("c", 13),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_file_states_lookup() {
+        let new_proto_entry = |path: &str, size| {
+            file_state_entry_to_proto(repo_path(path).to_owned(), &new_state(size))
+        };
+        let data = vec![
+            new_proto_entry("aa", 0),
+            new_proto_entry("b/c", 1),
+            new_proto_entry("b/d/e", 2),
+            new_proto_entry("b/e", 3),
+            new_proto_entry("b#", 4), // '#' < '/'
+            new_proto_entry("bc", 5),
+        ];
+        let file_states = FileStates::from_sorted(&data);
+
+        assert_eq!(
+            file_states.prefixed(repo_path("")).paths().collect_vec(),
+            ["aa", "b/c", "b/d/e", "b/e", "b#", "bc"].map(repo_path)
+        );
+        assert!(file_states.prefixed(repo_path("a")).is_empty());
+        assert_eq!(
+            file_states.prefixed(repo_path("aa")).paths().collect_vec(),
+            ["aa"].map(repo_path)
+        );
+        assert_eq!(
+            file_states.prefixed(repo_path("b")).paths().collect_vec(),
+            ["b/c", "b/d/e", "b/e"].map(repo_path)
+        );
+        assert_eq!(
+            file_states.prefixed(repo_path("b/d")).paths().collect_vec(),
+            ["b/d/e"].map(repo_path)
+        );
+        assert_eq!(
+            file_states.prefixed(repo_path("b#")).paths().collect_vec(),
+            ["b#"].map(repo_path)
+        );
+        assert_eq!(
+            file_states.prefixed(repo_path("bc")).paths().collect_vec(),
+            ["bc"].map(repo_path)
+        );
+        assert!(file_states.prefixed(repo_path("z")).is_empty());
+
+        assert!(!file_states.contains_path(repo_path("a")));
+        assert!(file_states.contains_path(repo_path("aa")));
+        assert!(file_states.contains_path(repo_path("b/d/e")));
+        assert!(!file_states.contains_path(repo_path("b/d")));
+        assert!(file_states.contains_path(repo_path("b#")));
+        assert!(file_states.contains_path(repo_path("bc")));
+        assert!(!file_states.contains_path(repo_path("z")));
+
+        assert_eq!(file_states.get(repo_path("a")), None);
+        assert_eq!(file_states.get(repo_path("aa")), Some(new_state(0)));
+        assert_eq!(file_states.get(repo_path("b/d/e")), Some(new_state(2)));
+        assert_eq!(file_states.get(repo_path("bc")), Some(new_state(5)));
+        assert_eq!(file_states.get(repo_path("z")), None);
+    }
+
+    #[test]
+    fn test_file_states_lookup_at() {
+        let new_proto_entry = |path: &str, size| {
+            file_state_entry_to_proto(repo_path(path).to_owned(), &new_state(size))
+        };
+        let data = vec![
+            new_proto_entry("b/c", 0),
+            new_proto_entry("b/d/e", 1),
+            new_proto_entry("b/d#", 2), // '#' < '/'
+            new_proto_entry("b/e", 3),
+            new_proto_entry("b#", 4), // '#' < '/'
+        ];
+        let file_states = FileStates::from_sorted(&data);
+
+        // At root
+        assert_eq!(
+            file_states.get_at(RepoPath::root(), repo_path_component("b")),
+            None
+        );
+        assert_eq!(
+            file_states.get_at(RepoPath::root(), repo_path_component("b#")),
+            Some(new_state(4))
+        );
+
+        // At prefixed dir
+        let prefixed_states = file_states.prefixed_at(RepoPath::root(), repo_path_component("b"));
+        assert_eq!(
+            prefixed_states.paths().collect_vec(),
+            ["b/c", "b/d/e", "b/d#", "b/e"].map(repo_path)
+        );
+        assert_eq!(
+            prefixed_states.get_at(repo_path("b"), repo_path_component("c")),
+            Some(new_state(0))
+        );
+        assert_eq!(
+            prefixed_states.get_at(repo_path("b"), repo_path_component("d")),
+            None
+        );
+        assert_eq!(
+            prefixed_states.get_at(repo_path("b"), repo_path_component("d#")),
+            Some(new_state(2))
+        );
+
+        // At nested prefixed dir
+        let prefixed_states = prefixed_states.prefixed_at(repo_path("b"), repo_path_component("d"));
+        assert_eq!(
+            prefixed_states.paths().collect_vec(),
+            ["b/d/e"].map(repo_path)
+        );
+        assert_eq!(
+            prefixed_states.get_at(repo_path("b/d"), repo_path_component("e")),
+            Some(new_state(1))
+        );
+        assert_eq!(
+            prefixed_states.get_at(repo_path("b/d"), repo_path_component("#")),
+            None
+        );
+
+        // At prefixed file
+        let prefixed_states = file_states.prefixed_at(RepoPath::root(), repo_path_component("b#"));
+        assert_eq!(prefixed_states.paths().collect_vec(), ["b#"].map(repo_path));
+        assert_eq!(
+            prefixed_states.get_at(repo_path("b#"), repo_path_component("#")),
+            None
+        );
+    }
+
+    #[test]
+    fn test_system_time_to_millis() {
+        let epoch = SystemTime::UNIX_EPOCH;
+        assert_eq!(system_time_to_millis(epoch), Some(MillisSinceEpoch(0)));
+        if let Some(time) = epoch.checked_add(Duration::from_millis(1)) {
+            assert_eq!(system_time_to_millis(time), Some(MillisSinceEpoch(1)));
+        }
+        if let Some(time) = epoch.checked_sub(Duration::from_millis(1)) {
+            assert_eq!(system_time_to_millis(time), Some(MillisSinceEpoch(-1)));
+        }
+        if let Some(time) = epoch.checked_add(Duration::from_millis(i64::MAX as u64)) {
+            assert_eq!(
+                system_time_to_millis(time),
+                Some(MillisSinceEpoch(i64::MAX))
+            );
+        }
+        if let Some(time) = epoch.checked_sub(Duration::from_millis(i64::MAX as u64)) {
+            assert_eq!(
+                system_time_to_millis(time),
+                Some(MillisSinceEpoch(-i64::MAX))
+            );
+        }
+        if let Some(time) = epoch.checked_sub(Duration::from_millis(i64::MAX as u64 + 1)) {
+            // i64::MIN could be returned, but we don't care such old timestamp
+            assert_eq!(system_time_to_millis(time), None);
+        }
+    }
+}

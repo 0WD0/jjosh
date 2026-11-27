@@ -1,0 +1,137 @@
+// Copyright 2020 The Jujutsu Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+//! Jujutsu version control system.
+
+#![warn(missing_docs)]
+#![deny(unused_must_use)]
+#![deny(unsafe_code)]
+
+pub mod absorb;
+pub mod annotate;
+pub use jj_core::backend;
+pub mod bisect;
+pub use jj_core::commit;
+pub mod commit_builder;
+pub use jj_config::config;
+pub use jj_core::conflict_labels;
+pub use jj_core::conflicts;
+pub use jj_core::content_hash;
+pub mod converge;
+pub use jj_core::copies;
+pub use jj_core::dag_walk;
+pub use jj_core::dag_walk_async;
+pub mod default_backend_factories;
+pub use jj_default_index as default_index;
+pub mod default_submodule_store;
+pub use jj_core::diff;
+pub mod diff_presentation;
+pub use jj_dsl::dsl_util;
+pub use jj_dsl::template_parser;
+pub mod evolution;
+pub mod extensions_map;
+pub use jj_core::files;
+pub use jj_local_util::file_util;
+pub mod fileset;
+pub use jj_core::filtered_tree_writer;
+use jj_dsl::fileset_parser;
+pub mod fix;
+pub use jj_config::fmt_util;
+pub use jj_local_working_copy::fsmonitor;
+#[cfg(feature = "git")]
+pub mod git;
+#[cfg(feature = "git")]
+pub use jj_git_backend::git_backend;
+#[cfg(feature = "git")]
+mod git_subprocess;
+pub use jj_working_copy::gitignore;
+pub mod gpg_signing;
+pub use jj_core::graph;
+pub mod graph_dominators;
+pub use jj_core::hex_util;
+pub mod id_prefix;
+pub use jj_core::index;
+pub use jj_core::index_store;
+pub use jj_core::iter_util;
+pub use jj_core::matchers;
+pub use jj_core::merge;
+pub use jj_core::merged_tree;
+pub use jj_core::merged_tree_builder;
+pub use jj_core::object_id;
+pub use jj_core::op_heads_store;
+pub use jj_core::op_store;
+pub use jj_local_util::lock;
+pub use jj_local_working_copy::local_working_copy;
+pub mod op_walk;
+pub use jj_core::operation;
+#[expect(missing_docs)]
+pub mod protos;
+pub use jj_core::project;
+pub use jj_core::ref_name;
+pub use jj_core::refs;
+pub mod repo;
+pub use jj_core::repo_path;
+pub mod revset;
+pub mod rewrite;
+pub use jj_config::secure_config;
+pub use jj_config::settings;
+pub use jj_core::signing;
+#[cfg(feature = "testing")]
+pub use jj_git_backend::secret_backend;
+pub mod signing_factory;
+pub mod store_factories;
+pub use jj_core::tree_merge;
+// TODO: This file is mostly used for testing, whenever we no longer require it
+// in the lib it should be moved to the examples (e.g
+// "examples/simple-backend/").
+pub use jj_simple_stores::simple_backend;
+pub use jj_simple_stores::simple_op_heads_store;
+pub use jj_simple_stores::simple_op_store;
+pub mod simple_workspace_store;
+pub mod ssh_signing;
+pub use jj_core::store;
+pub use jj_core::str_util;
+pub use jj_local_util::stacked_table;
+pub mod submodule_store;
+pub use jj_local_util::subprocess_util;
+#[cfg(feature = "testing")]
+pub mod test_signing_backend;
+pub use jj_core::time_util;
+pub mod trailer;
+pub mod transaction;
+pub use jj_core::tree;
+pub mod ui_path;
+pub use jj_core::union_find;
+pub use jj_core::view;
+pub use jj_working_copy::working_copy;
+pub use jj_core::working_copy_patterns;
+pub mod workspace;
+pub use jj_core::workspace_store;
+
+#[cfg(test)]
+mod tests {
+    use tempfile::TempDir;
+
+    // Copied from `testutils::TestResult` to remove dependency cycle.
+    pub type TestResult<T = ()> = eyre::Result<T>;
+
+    /// Unlike `testutils::new_temp_dir()`, this function doesn't set up
+    /// hermetic Git environment.
+    pub fn new_temp_dir() -> TempDir {
+        tempfile::Builder::new()
+            .prefix("jj-test-")
+            .tempdir()
+            .unwrap()
+    }
+}

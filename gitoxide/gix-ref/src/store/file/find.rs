@@ -360,8 +360,11 @@ impl file::Store {
         ))
     }
 
-    /// Implements the logic required to transform a fully qualified refname into a filesystem path
-    pub(crate) fn reference_path(&self, name: &FullNameRef) -> Result<PathBuf> {
+    /// Return the loose-reference path for `name`, resolving the store's namespace and worktree routing.
+    ///
+    /// The reference need not exist and may be stored only in packed-refs. This is also the resource path
+    /// locked by a file transaction; the returned path is not canonicalized.
+    pub fn reference_path(&self, name: &FullNameRef) -> Result<PathBuf> {
         let (base, relative_path) = self.reference_path_with_base(name)?;
         Ok(base.join(relative_path))
     }

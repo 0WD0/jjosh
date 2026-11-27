@@ -253,6 +253,7 @@ fn unreachable_owners(
         let changes_reference = match &edit.change {
             Change::Update { log, .. } => log.mode == RefLog::AndReference,
             Change::Delete { log, .. } => *log == RefLog::AndReference,
+            Change::Verify { .. } => false,
         };
         if !changes_reference {
             continue;

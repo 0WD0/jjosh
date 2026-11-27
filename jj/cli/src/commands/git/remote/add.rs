@@ -1,0 +1,210 @@
+// Copyright 2020-2023 The Jujutsu Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+use gix::Url;
+use gix::remote::Direction;
+use jj_lib::git;
+use jj_lib::merge::Merge;
+use jj_lib::object_id::ObjectId as _;
+use jj_lib::project::BindingId;
+use jj_lib::project::ConnectionId;
+use jj_lib::project::ScopedRemoteName;
+use jj_lib::ref_name::RemoteName;
+use jj_lib::ref_name::RemoteNameBuf;
+use jj_lib::repo::Repo;
+
+use crate::cli_util::CommandHelper;
+use crate::command_error::CommandError;
+use crate::git_util::absolute_git_url;
+use crate::ui::Ui;
+
+/// Add a Git remote
+#[derive(clap::Args, Clone, Debug)]
+pub struct GitRemoteAddArgs {
+    /// The remote's name
+    remote: RemoteNameBuf,
+
+    /// The remote's URL or path
+    ///
+    /// Local path will be resolved to absolute form.
+    #[arg(value_hint = clap::ValueHint::Url)]
+    url: String,
+
+    /// The URL used for push
+    ///
+    /// Local path will be resolved to absolute form
+    #[arg(long, value_hint = clap::ValueHint::Url)]
+    push_url: Option<String>,
+
+    #[command(flatten)]
+    binding: crate::git_remote::GitRemoteBindingArgs,
+}
+
+pub async fn cmd_git_remote_add(
+    ui: &mut Ui,
+    command: &CommandHelper,
+    args: &GitRemoteAddArgs,
+) -> Result<(), CommandError> {
+    let mut workspace_command = command.workspace_helper_no_snapshot(ui).await?;
+    let url = absolute_git_url(command.cwd(), &args.url)?;
+    let push_url = args
+        .push_url
+        .as_deref()
+        .map(|url| absolute_git_url(command.cwd(), url))
+        .transpose()?;
+
+    let (local_name, requested_scope) = super::new_remote_name(
+        &workspace_command,
+        &args.remote,
+        args.binding.project.as_deref(),
+    )?;
+    let connection = ConnectionId::new(command.settings().get_rng().new_random_id(16));
+    let mut binding_args = args.binding.clone();
+    if let Some(project) = &requested_scope {
+        binding_args.project = Some(
+            workspace_command.repo().view().project_state().projects[project]
+                .as_resolved()
+                .and_then(Option::as_ref)
+                .expect("validated project")
+                .name
+                .clone(),
+        );
+    }
+    let git_lock = workspace_command.lock_git_import_export()?;
+    let preparation_remote = match &requested_scope {
+        Some(project) => {
+            super::scoped_remote_name(workspace_command.repo().view(), &local_name, project)?
+        }
+        None => local_name.clone(),
+    };
+    let binding = super::prepare_binding(
+        command,
+        &workspace_command,
+        &preparation_remote,
+        &connection,
+        &binding_args,
+    )?;
+    let scope = binding.as_ref().and_then(super::binding_scope).cloned();
+    super::ensure_available_remote_name(&workspace_command, &local_name, scope.as_ref())?;
+    let remote = match &scope {
+        Some(project) => {
+            super::scoped_remote_name(workspace_command.repo().view(), &local_name, project)?
+        }
+        None => local_name.clone(),
+    };
+    let mut git_repo = git::get_git_repo(workspace_command.repo().store())?;
+    git_repo
+        .reload()
+        .map_err(crate::command_error::user_error)?;
+    if git::try_find_active_remote(&git_repo, &remote)?.is_some() {
+        return Err(git::GitRemoteManagementError::RemoteAlreadyExists(local_name.clone()).into());
+    }
+    let mut tx = workspace_command.start_transaction();
+    tx.repo_mut().view_mut().clear_remote_observations(&remote);
+    let mut keys = vec![("jjosh-connectionId".into(), connection.hex())];
+    if binding.is_some() {
+        keys.push(("jjosh-requiredCapability".into(), "jjosh-v1".into()));
+    }
+    git::add_remote(tx.repo_mut(), &remote, &url, push_url.as_deref(), &keys)?;
+    if let Some(binding) = binding {
+        if let Some(project) = scope {
+            tx.repo_mut()
+                .view_mut()
+                .project_state_mut()
+                .remote_names
+                .insert(
+                    connection.clone(),
+                    Merge::resolved(Some(ScopedRemoteName {
+                        project,
+                        name: local_name.clone(),
+                    })),
+                );
+        }
+        tx.repo_mut()
+            .view_mut()
+            .project_state_mut()
+            .bindings
+            .insert(
+                BindingId::new(command.settings().get_rng().new_random_id(16)),
+                Merge::resolved(Some(binding)),
+            );
+    }
+    tx.repo_mut()
+        .view_mut()
+        .store_view_mut()
+        .remote_connections
+        .insert(remote.clone(), Merge::resolved(Some(connection.clone())));
+    warn_if_remote_url_matches(ui, tx.repo(), &remote, &url, push_url.as_deref())?;
+    let display_name = tx.repo().view().remote_qualified_name(&remote);
+    tx.finish_with_git_import_export_lock(ui, format!("add git remote {display_name}"), &git_lock)
+        .await?;
+    Ok(())
+}
+
+/// Warns if the new configured URL exactly matches an existing configured URL.
+///
+/// URL equivalence is not reliable. For example, HTTPS, SSH, .git suffixes, and
+/// redirects can identify the same repository. Git URL rewrite rules can also
+/// make different configured strings resolve to the same destination, so this
+/// is only an exact-match warning. A remote without a configured push URL is
+/// treated as pushing to its fetch URL, matching Git's behavior.
+fn warn_if_remote_url_matches(
+    ui: &Ui,
+    repo: &dyn Repo,
+    new_remote: &RemoteName,
+    new_fetch_url: &str,
+    new_push_url: Option<&str>,
+) -> Result<(), CommandError> {
+    let git_repo = git::get_git_repo(repo.store())?;
+    // Git uses the fetch URL for push when no push URL is configured.
+    let new_push_url = new_push_url.unwrap_or(new_fetch_url);
+    let mut warned = false;
+    for remote_name in git_repo.remote_names() {
+        // Ignore the remote that was just added.
+        if remote_name == new_remote.as_str() {
+            continue;
+        }
+        // Ignore empty or unloadable remote sections for this advisory warning.
+        let Some(Ok(remote)) = git_repo.try_find_remote_without_url_rewrite(&**remote_name) else {
+            continue;
+        };
+        let remote_fetch_url = remote.url(Direction::Fetch).map(Url::to_bstring);
+        let remote_push_url = remote.url(Direction::Push).map(Url::to_bstring);
+        let remote_url_matches = [remote_fetch_url, remote_push_url]
+            .iter()
+            .flatten()
+            .any(|remote_url| remote_url == new_fetch_url || remote_url == new_push_url);
+        // Don't print the URL itself because remote URLs can contain credentials,
+        // such as user:password or token path segments.
+        if remote_url_matches {
+            let Ok(name) = str::from_utf8(&remote_name) else {
+                continue;
+            };
+            let remote_name = repo.view().remote_qualified_name(RemoteName::new(name));
+            writeln!(
+                ui.warning_default(),
+                "Remote {remote_name} already uses the same URL."
+            )?;
+            warned = true;
+        }
+    }
+    if warned {
+        writeln!(
+            ui.hint_default(),
+            "If this was a mistake, run `jj git remote remove {new_remote}`.",
+            new_remote = repo.view().remote_qualified_name(new_remote)
+        )?;
+    }
+    Ok(())
+}

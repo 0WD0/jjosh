@@ -44,6 +44,10 @@ impl RefChange {
                 expected,
                 log: RefLog::AndReference,
             } => (state_from_expected(expected)?, State::Missing),
+            Change::Verify { expected } => {
+                let state = state_from_expected(expected)?;
+                (state.clone(), state)
+            }
             _ => return Ok(None),
         };
         Ok(Some(RefChange {

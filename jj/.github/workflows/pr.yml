@@ -1,0 +1,53 @@
+name: Validate pull request
+
+on:
+  pull_request:
+    types: [opened, synchronize, edited]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  check-pr:
+    name: Commit subject lines
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run validation script
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const pullRequest = {
+              pull_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+            };
+
+            const { data: commits } = await github.rest.pulls.listCommits(pullRequest);
+
+            // Ensure commit subject lines are in the form `area or areas: description`.
+            const subjectLineFormat = /^.+:\s.+$/;
+            const badCommits = commits
+              .map(c => [c.sha.slice(0, 7), c.commit.message.split('\n')[0]])
+              .filter(([_, s]) => !subjectLineFormat.test(s))
+              .map(([sha, title]) => `- ${sha}: ${title}`);
+
+            if (badCommits.length > 0) {
+              // One or more commits are bad. Fail the workflow.
+              const body = 'The following commits do not follow our format for subject lines:\n\n'
+                + `${badCommits.join('\n')}\n\nCommits should have a subject line following the `
+                + 'format `<topic>: <description>`.\nPlease review the commit guidelines '
+                + '(https://docs.jj-vcs.dev/prerelease/contributing/#commit-guidelines) for '
+                + 'more information.';
+
+              await core.summary
+                .addHeading('Commit Subject Line Validation Failed', 2)
+                .addRaw(body, true)
+                .write();
+
+              core.setFailed(body);
+            }
+            else {
+              console.log('All commits were correctly formatted.');
+            }

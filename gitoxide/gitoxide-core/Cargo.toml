@@ -84,7 +84,7 @@ smallvec = { version = "1.15.1", optional = true }
 
 # for 'query' and 'corpus'
 # Use patched bundled SQLite (RUSTSEC-2026-0459).
-rusqlite = { version = "0.43.0", optional = true, features = ["bundled", "fallible_uint"] }
+rusqlite = { version = "0.42.0", optional = true, features = ["bundled", "fallible_uint"] }
 
 # for 'corpus'
 parking_lot = { version = "0.13.0", optional = true }

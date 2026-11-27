@@ -1,0 +1,799 @@
+// Copyright 2024 The Jujutsu Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+//! Methods that allow annotation (attribution and blame) for a file in a
+//! repository.
+//!
+//! TODO: Add support for different blame layers with a trait in the future.
+//! Like commit metadata and more.
+
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::collections::VecDeque;
+use std::collections::hash_map;
+use std::iter;
+use std::ops::Range;
+use std::sync::Arc;
+
+use bstr::BStr;
+use bstr::BString;
+use futures::FutureExt as _;
+use futures::StreamExt as _;
+use futures::TryStreamExt as _;
+use futures::future::BoxFuture;
+use futures::stream::FuturesUnordered;
+use itertools::Itertools as _;
+use jj_core::backend::BackendError;
+use jj_core::backend::BackendResult;
+use jj_core::backend::CommitId;
+use jj_core::commit::Commit;
+use jj_core::conflicts::ConflictMarkerStyle;
+use jj_core::conflicts::ConflictMaterializeOptions;
+use jj_core::conflicts::MaterializedTreeValue;
+use jj_core::conflicts::materialize_merge_result_to_bytes;
+use jj_core::conflicts::materialize_tree_value;
+use jj_core::diff::ContentDiff;
+use jj_core::diff::DiffHunkKind;
+use jj_core::files::FileMergeHunkLevel;
+use jj_core::files::MergeOptions;
+use jj_core::fileset_backend::FilesetExpression;
+use jj_core::graph::GraphEdge;
+use jj_core::graph::GraphNode;
+use jj_core::merge::SameChange;
+use jj_core::merged_tree::MergedTree;
+use jj_core::repo_path::RepoPath;
+use jj_core::repo_path::RepoPathBuf;
+use jj_core::revset_backend::RevsetEvaluationError;
+use jj_core::revset_backend::RevsetFilterPredicate;
+use jj_core::store::Store;
+
+use crate::repo::Repo;
+use crate::revset::ResolvedRevsetExpression;
+use crate::revset::RevsetExpression;
+
+/// Annotation results for a specific file
+#[derive(Clone, Debug)]
+pub struct FileAnnotation {
+    line_map: OriginalLineMap,
+    text: BString,
+}
+
+impl FileAnnotation {
+    /// Returns iterator over `(line_origin, line)`s.
+    ///
+    /// For each line, `Ok(line_origin)` returns information about the
+    /// originator commit of the line. If no originator commit was found
+    /// within the domain, `Err(line_origin)` should be set. It points to the
+    /// commit outside of the domain where the search stopped.
+    ///
+    /// The `line` includes newline character.
+    pub fn line_origins(&self) -> impl Iterator<Item = (Result<&LineOrigin, &LineOrigin>, &BStr)> {
+        itertools::zip_eq(&self.line_map, self.text.split_inclusive(|b| *b == b'\n'))
+            .map(|(line_origin, line)| (line_origin.as_ref(), line.as_ref()))
+    }
+
+    /// Returns iterator over `(commit_id, line)`s.
+    ///
+    /// For each line, `Ok(commit_id)` points to the originator commit of the
+    /// line. If no originator commit was found within the domain,
+    /// `Err(commit_id)` should be set. It points to the commit outside of the
+    /// domain where the search stopped.
+    ///
+    /// The `line` includes newline character.
+    pub fn lines(&self) -> impl Iterator<Item = (Result<&Commit, &Commit>, &BStr)> {
+        itertools::zip_eq(
+            self.commit_ids(),
+            self.text
+                .split_inclusive(|b| *b == b'\n')
+                .map(AsRef::as_ref),
+        )
+    }
+
+    /// Returns iterator over `(commit_id, line_range)`s.
+    ///
+    /// See [`Self::lines()`] for `commit_id`s.
+    ///
+    /// The `line_range` is a slice range in the file `text`. Consecutive ranges
+    /// having the same `commit_id` are not compacted.
+    pub fn line_ranges(&self) -> impl Iterator<Item = (Result<&Commit, &Commit>, Range<usize>)> {
+        let ranges = self
+            .text
+            .split_inclusive(|b| *b == b'\n')
+            .scan(0, |total, line| {
+                let start = *total;
+                *total += line.len();
+                Some(start..*total)
+            });
+        itertools::zip_eq(self.commit_ids(), ranges)
+    }
+
+    /// Returns iterator over compacted `(commit_id, line_range)`s.
+    ///
+    /// Consecutive ranges having the same `commit_id` are merged into one.
+    pub fn compact_line_ranges(
+        &self,
+    ) -> impl Iterator<Item = (Result<&Commit, &Commit>, Range<usize>)> {
+        let mut ranges = self.line_ranges();
+        let mut acc = ranges.next();
+        iter::from_fn(move || {
+            let (acc_commit, acc_range) = acc.as_mut()?;
+            for (cur_commit, cur_range) in ranges.by_ref() {
+                if *acc_commit == cur_commit {
+                    acc_range.end = cur_range.end;
+                } else {
+                    return acc.replace((cur_commit, cur_range));
+                }
+            }
+            acc.take()
+        })
+    }
+
+    /// File content at the starting commit.
+    pub fn text(&self) -> &BStr {
+        self.text.as_ref()
+    }
+
+    fn commit_ids(&self) -> impl Iterator<Item = Result<&Commit, &Commit>> {
+        self.line_map.iter().map(|line_origin| {
+            line_origin
+                .as_ref()
+                .map(|origin| &origin.commit)
+                .map_err(|origin| &origin.commit)
+        })
+    }
+}
+
+/// Annotation process for a specific file.
+#[derive(Clone, Debug)]
+pub struct FileAnnotator {
+    // If we add copy-tracing support, file_path might be tracked by state.
+    file_path: RepoPathBuf,
+    starting_text: BString,
+    state: AnnotationState,
+}
+
+impl FileAnnotator {
+    /// Initializes annotator for a specific file in the `starting_commit`.
+    ///
+    /// If the file is not found, the result would be empty.
+    pub async fn from_commit(
+        starting_commit: &Commit,
+        file_path: &RepoPath,
+    ) -> BackendResult<Self> {
+        let source = Source::load(starting_commit.clone(), file_path).await?;
+        Ok(Self::with_source(file_path, source))
+    }
+
+    /// Initializes annotator for a specific file path starting with the given
+    /// content.
+    ///
+    /// The file content at the `starting_commit` is set to `starting_text`.
+    /// This is typically one of the file contents in the conflict or
+    /// merged-parent tree.
+    pub fn with_file_content(
+        starting_commit: &Commit,
+        file_path: &RepoPath,
+        starting_text: impl Into<Vec<u8>>,
+    ) -> Self {
+        let source = Source::new(starting_commit.clone(), BString::new(starting_text.into()));
+        Self::with_source(file_path, source)
+    }
+
+    fn with_source(file_path: &RepoPath, mut source: Source) -> Self {
+        source.fill_line_map();
+        let starting_text = source.text.clone();
+        let num_empty_sources = usize::from(source.line_map.is_empty());
+        let state = AnnotationState {
+            original_line_map: (0..source.line_map.len())
+                .map(|line_number| {
+                    Err(LineOrigin {
+                        commit: source.commit.clone(),
+                        line_number,
+                    })
+                })
+                .collect(),
+            commit_source_map: HashMap::from([(source.commit.id().clone(), source)]),
+            num_unresolved_roots: 0,
+            num_empty_sources,
+        };
+        Self {
+            file_path: file_path.to_owned(),
+            starting_text,
+            state,
+        }
+    }
+
+    /// Computes line-by-line annotation within the `domain`.
+    ///
+    /// The `domain` expression narrows the range of ancestors to search. It
+    /// will be intersected as `domain & ::pending_commits & files(file_path)`.
+    /// The `pending_commits` is assumed to be included in the `domain`.
+    pub async fn compute(
+        &mut self,
+        repo: &dyn Repo,
+        domain: &Arc<ResolvedRevsetExpression>,
+    ) -> Result<(), RevsetEvaluationError> {
+        process_commits(repo, &mut self.state, domain, &self.file_path).await
+    }
+
+    /// Remaining commit ids to visit from.
+    pub fn pending_commits(&self) -> impl Iterator<Item = &CommitId> {
+        self.state
+            .commit_source_map
+            .iter()
+            .filter(|(_, source)| !source.line_map.is_empty())
+            .map(|(commit_id, _)| commit_id)
+    }
+
+    /// Returns the current state as line-oriented annotation.
+    pub fn to_annotation(&self) -> FileAnnotation {
+        // Just clone the line map. We might want to change the underlying data
+        // model something akin to interleaved delta in order to get annotation
+        // at a certain ancestor commit without recomputing.
+        FileAnnotation {
+            line_map: self.state.original_line_map.clone(),
+            text: self.starting_text.clone(),
+        }
+    }
+}
+
+/// Intermediate state of file annotation.
+#[derive(Clone, Debug)]
+struct AnnotationState {
+    original_line_map: OriginalLineMap,
+    /// Commits to file line mappings and contents.
+    commit_source_map: HashMap<CommitId, Source>,
+    /// Number of unresolved root commits in `commit_source_map`.
+    num_unresolved_roots: usize,
+    /// Number of sources in `commit_source_map` with no lines mapped to them.
+    /// They're kept so their contents don't have to be reloaded if another
+    /// child maps lines to them later.
+    num_empty_sources: usize,
+}
+
+impl AnnotationState {
+    /// Whether `commit_id` has lines to propagate to its parents.
+    fn has_lines(&self, commit_id: &CommitId) -> bool {
+        self.commit_source_map
+            .get(commit_id)
+            .is_some_and(|source| !source.line_map.is_empty())
+    }
+}
+
+/// Line mapping and file content at a certain commit.
+#[derive(Clone, Debug)]
+struct Source {
+    /// Mapping of line numbers in the file at the current commit to the
+    /// starting file, sorted by the line numbers at the current commit.
+    line_map: Vec<(usize, usize)>,
+    /// The current commit.
+    commit: Commit,
+    /// File content at the current commit.
+    text: BString,
+}
+
+impl Source {
+    fn new(commit: Commit, text: BString) -> Self {
+        Self {
+            line_map: Vec::new(),
+            commit,
+            text,
+        }
+    }
+
+    async fn load(commit: Commit, file_path: &RepoPath) -> Result<Self, BackendError> {
+        let tree = commit.tree();
+        let text = get_file_contents(commit.store(), file_path, &tree).await?;
+        Ok(Self::new(commit, text))
+    }
+
+    fn fill_line_map(&mut self) {
+        let lines = self.text.split_inclusive(|b| *b == b'\n');
+        self.line_map = lines.enumerate().map(|(i, _)| (i, i)).collect();
+    }
+}
+
+/// List of origins for each line, indexed by line numbers in the
+/// starting file.
+type OriginalLineMap = Vec<Result<LineOrigin, LineOrigin>>;
+
+/// Information about the origin of an annotated line.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LineOrigin {
+    /// Commit where the line was introduced.
+    pub commit: Commit,
+    /// 0-based line number of the line in the origin commit.
+    pub line_number: usize,
+}
+
+/// Loads file contents at commits before they're needed, so that loads from
+/// slow backends overlap.
+struct ContentPrefetcher {
+    store: Arc<Store>,
+    file_path: RepoPathBuf,
+    /// Loads that haven't completed yet.
+    pending: FuturesUnordered<BoxFuture<'static, BackendResult<Source>>>,
+    /// Commits with a load in `pending`. A load dropped by `retain()` keeps
+    /// running, so this avoids starting a second load if the commit is
+    /// requested again before the first one completes.
+    in_flight: HashSet<CommitId>,
+    /// Commits whose contents are still needed. Loaded contents of other
+    /// commits are dropped.
+    wanted: HashSet<CommitId>,
+    /// Completed loads that haven't been taken yet.
+    loaded: HashMap<CommitId, Source>,
+}
+
+impl ContentPrefetcher {
+    fn new(store: &Arc<Store>, file_path: &RepoPath) -> Self {
+        Self {
+            store: store.clone(),
+            file_path: file_path.to_owned(),
+            pending: FuturesUnordered::new(),
+            in_flight: HashSet::new(),
+            wanted: HashSet::new(),
+            loaded: HashMap::new(),
+        }
+    }
+
+    /// Number of commits whose contents have been requested but not taken.
+    fn num_wanted(&self) -> usize {
+        self.wanted.len()
+    }
+
+    /// Starts loading the contents at `commit_id` unless already started.
+    fn prefetch(&mut self, commit_id: &CommitId) {
+        if !self.wanted.insert(commit_id.clone()) || self.in_flight.contains(commit_id) {
+            return;
+        }
+        self.in_flight.insert(commit_id.clone());
+        let store = self.store.clone();
+        let file_path = self.file_path.clone();
+        let commit_id = commit_id.clone();
+        self.pending.push(
+            async move {
+                let commit = store.get_commit_async(&commit_id).await?;
+                Source::load(commit, &file_path).await
+            }
+            .boxed(),
+        );
+    }
+
+    /// Returns the contents at `commit_id`, loading them if they weren't
+    /// prefetched. Other loads that complete while waiting are kept for later.
+    async fn take(&mut self, commit_id: &CommitId) -> BackendResult<Source> {
+        self.prefetch(commit_id);
+        while !self.loaded.contains_key(commit_id) {
+            let source = self
+                .pending
+                .next()
+                .await
+                .expect("wanted commit should be in flight")?;
+            let id = source.commit.id();
+            self.in_flight.remove(id);
+            if self.wanted.contains(id) {
+                self.loaded.insert(id.clone(), source);
+            }
+        }
+        self.wanted.remove(commit_id);
+        Ok(self.loaded.remove(commit_id).unwrap())
+    }
+
+    /// Drops the contents of commits for which `keep` returns false. Loads
+    /// that are still in flight can't be canceled, but their results are
+    /// dropped when they complete.
+    fn retain(&mut self, mut keep: impl FnMut(&CommitId) -> bool) {
+        self.wanted.retain(|id| keep(id));
+        self.loaded.retain(|id, _| keep(id));
+    }
+}
+
+/// Parents of nodes in `lookahead` that may still get lines propagated to them.
+///
+/// A node propagates lines to its parents if it has lines when it's processed.
+/// That's the case if it has lines now, or if it may get lines from a child
+/// that hasn't been processed yet. Since children come before parents in
+/// `lookahead`, a single pass finds the latter.
+fn reachable_parents(
+    state: &AnnotationState,
+    lookahead: &VecDeque<GraphNode<CommitId>>,
+) -> HashSet<CommitId> {
+    let mut reachable = HashSet::new();
+    for (commit_id, edges) in lookahead {
+        if state.has_lines(commit_id) || reachable.contains(commit_id) {
+            reachable.extend(edges.iter().map(|edge| edge.target.clone()));
+        }
+    }
+    reachable
+}
+
+/// Starting from the source commits, compute changes at that commit relative to
+/// its direct parents, updating the mappings as we go.
+async fn process_commits(
+    repo: &dyn Repo,
+    state: &mut AnnotationState,
+    domain: &Arc<ResolvedRevsetExpression>,
+    file_name: &RepoPath,
+) -> Result<(), RevsetEvaluationError> {
+    let predicate = RevsetFilterPredicate::File(FilesetExpression::file_path(file_name.to_owned()));
+    // TODO: If the domain isn't a contiguous range, changes masked out by it
+    // might not be caught by the closest ancestor revision. For example,
+    // domain=merges() would pick up almost nothing because merge revisions
+    // are usually empty. Perhaps, we want to query `files(file_path,
+    // within_sub_graph=domain)`, not `domain & files(file_path)`.
+    let heads = RevsetExpression::commits(state.commit_source_map.keys().cloned().collect());
+    let revset = heads
+        .union(&domain.intersection(&heads.ancestors()).filtered(predicate))
+        .evaluate(repo)?;
+
+    state.num_unresolved_roots = 0;
+    let concurrency = repo.store().concurrency();
+    let mut prefetcher = ContentPrefetcher::new(repo.store(), file_name);
+    let mut nodes = revset.stream_graph().fuse();
+    // Nodes read ahead of the one being processed, so the contents at their
+    // parents can be loaded concurrently.
+    let mut lookahead: VecDeque<GraphNode<CommitId>> = VecDeque::new();
+    let mut reachable = HashSet::new();
+    loop {
+        while lookahead.is_empty()
+            || (lookahead.len() < concurrency && prefetcher.num_wanted() < concurrency)
+        {
+            let Some((commit_id, edges)) = nodes.try_next().await? else {
+                break;
+            };
+            if state.has_lines(&commit_id) || reachable.contains(&commit_id) {
+                for edge in &edges {
+                    reachable.insert(edge.target.clone());
+                    // Parents already in the map don't need to be loaded.
+                    if !state.commit_source_map.contains_key(&edge.target) {
+                        prefetcher.prefetch(&edge.target);
+                    }
+                }
+            }
+            lookahead.push_back((commit_id, edges));
+        }
+        let Some((commit_id, edge_list)) = lookahead.pop_front() else {
+            break;
+        };
+        process_commit(&mut prefetcher, state, &commit_id, &edge_list).await?;
+        debug_assert_eq!(
+            state.num_empty_sources,
+            state
+                .commit_source_map
+                .values()
+                .filter(|source| source.line_map.is_empty())
+                .count()
+        );
+        if state.commit_source_map.len() == state.num_unresolved_roots + state.num_empty_sources {
+            // No more lines to propagate to ancestors.
+            break;
+        }
+        // Parents that got no lines from the commit no longer need to be
+        // loaded, and neither do their ancestors (unless reachable from
+        // another node with lines).
+        reachable = reachable_parents(state, &lookahead);
+        prefetcher.retain(|id| reachable.contains(id));
+    }
+    Ok(())
+}
+
+/// For a given commit, for each parent, we compare the version in the parent
+/// tree with the current version, updating the mappings for any lines in
+/// common. If the parent doesn't have the file, we skip it.
+async fn process_commit(
+    prefetcher: &mut ContentPrefetcher,
+    state: &mut AnnotationState,
+    current_commit_id: &CommitId,
+    edges: &[GraphEdge<CommitId>],
+) -> Result<(), BackendError> {
+    let Some(mut current_source) = state.commit_source_map.remove(current_commit_id) else {
+        return Ok(());
+    };
+    if current_source.line_map.is_empty() {
+        // No lines to propagate to the parents.
+        state.num_empty_sources -= 1;
+        return Ok(());
+    }
+
+    for parent_edge in edges {
+        let parent_commit_id = &parent_edge.target;
+        let parent_source = match state.commit_source_map.entry(parent_commit_id.clone()) {
+            hash_map::Entry::Occupied(entry) => entry.into_mut(),
+            hash_map::Entry::Vacant(entry) => {
+                let source = prefetcher.take(entry.key()).await?;
+                state.num_empty_sources += 1;
+                entry.insert(source)
+            }
+        };
+        let parent_was_empty = parent_source.line_map.is_empty();
+
+        // For two versions of the same file, for all the lines in common,
+        // overwrite the new mapping in the results for the new commit. Let's
+        // say I have a file in commit A and commit B. We know that according to
+        // local line_map, in commit A, line 3 corresponds to line 7 of the
+        // starting file. Now, line 3 in Commit A corresponds to line 6 in
+        // commit B. Then, we update local line_map to say that "Commit B line 6
+        // goes to line 7 of the starting file". We repeat this for all lines in
+        // common in the two commits.
+        let mut current_lines = current_source.line_map.iter().copied().peekable();
+        let mut new_current_line_map = Vec::new();
+        let mut new_parent_line_map = Vec::new();
+        copy_same_lines_with(
+            &current_source.text,
+            &parent_source.text,
+            |current_start, parent_start, count| {
+                new_current_line_map
+                    .extend(current_lines.peeking_take_while(|&(cur, _)| cur < current_start));
+                while let Some((current, starting)) =
+                    current_lines.next_if(|&(cur, _)| cur < current_start + count)
+                {
+                    let parent = parent_start + (current - current_start);
+                    new_parent_line_map.push((parent, starting));
+                }
+            },
+        );
+        new_current_line_map.extend(current_lines);
+        current_source.line_map = new_current_line_map;
+        parent_source.line_map = if parent_was_empty {
+            new_parent_line_map
+        } else {
+            itertools::merge(parent_source.line_map.iter().copied(), new_parent_line_map).collect()
+        };
+        if parent_source.line_map.is_empty() {
+            continue;
+        }
+        if parent_was_empty {
+            state.num_empty_sources -= 1;
+        }
+        if parent_edge.is_missing() {
+            // If an omitted parent had the file, leave these lines unresolved.
+            // The origin of the unresolved lines is represented as
+            // Err(LineOrigin { parent_commit, parent_line_number }).
+            for &(parent_line_number, starting_line_number) in &parent_source.line_map {
+                state.original_line_map[starting_line_number] = Err(LineOrigin {
+                    commit: parent_source.commit.clone(),
+                    line_number: parent_line_number,
+                });
+            }
+            state.num_unresolved_roots += 1;
+        }
+    }
+
+    // Once we've looked at all parents of a commit, any leftover lines must be
+    // original to the current commit, so we save this information in
+    // original_line_map.
+    for (current_line_number, starting_line_number) in current_source.line_map {
+        state.original_line_map[starting_line_number] = Ok(LineOrigin {
+            commit: current_source.commit.clone(),
+            line_number: current_line_number,
+        });
+    }
+
+    Ok(())
+}
+
+/// For two files, calls `copy(current_start, parent_start, count)` for each
+/// range of contiguous lines in common (e.g. line 8-10 maps to line 9-11.)
+fn copy_same_lines_with(
+    current_contents: &[u8],
+    parent_contents: &[u8],
+    mut copy: impl FnMut(usize, usize, usize),
+) {
+    let diff = ContentDiff::by_line([current_contents, parent_contents]);
+    let mut current_line_counter: usize = 0;
+    let mut parent_line_counter: usize = 0;
+    for hunk in diff.hunks() {
+        match hunk.kind {
+            DiffHunkKind::Matching => {
+                let count = count_lines(hunk.contents[0]);
+                copy(current_line_counter, parent_line_counter, count);
+                current_line_counter += count;
+                parent_line_counter += count;
+            }
+            DiffHunkKind::Different => {
+                let current_output = hunk.contents[0];
+                let parent_output = hunk.contents[1];
+                current_line_counter += count_lines(current_output);
+                parent_line_counter += count_lines(parent_output);
+            }
+        }
+    }
+}
+
+/// Counts the number of lines in `text`, where the last line may not end with
+/// a newline character. Equivalent to `text.split_inclusive(|b| *b ==
+/// b'\n').count()`, but faster.
+fn count_lines(text: &[u8]) -> usize {
+    let newlines = memchr::memchr_iter(b'\n', text).count();
+    let end_is_not_newline = text.last().is_some_and(|b| *b != b'\n');
+    newlines + usize::from(end_is_not_newline)
+}
+
+async fn get_file_contents(
+    store: &Store,
+    path: &RepoPath,
+    tree: &MergedTree,
+) -> Result<BString, BackendError> {
+    let file_value = tree.path_value(path).await?;
+    let effective_file_value =
+        materialize_tree_value(store, path, file_value, tree.labels()).await?;
+    match effective_file_value {
+        MaterializedTreeValue::File(mut file) => Ok(file.read_all(path).await?.into()),
+        MaterializedTreeValue::FileConflict(file) => {
+            // TODO: track line origins without materializing
+            let options = ConflictMaterializeOptions {
+                marker_style: ConflictMarkerStyle::Diff,
+                marker_len: None,
+                merge: MergeOptions {
+                    hunk_level: FileMergeHunkLevel::Line,
+                    same_change: SameChange::Accept,
+                },
+            };
+            Ok(materialize_merge_result_to_bytes(
+                &file.contents,
+                &file.labels,
+                &options,
+            ))
+        }
+        _ => Ok(BString::default()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use jj_core::backend::make_root_commit;
+    use jj_core::signing::Signer;
+    use jj_simple_stores::simple_backend::SimpleBackend;
+
+    use super::*;
+    use crate::tests::new_temp_dir;
+
+    fn new_store(store_path: &Path) -> Arc<Store> {
+        let merge_options = MergeOptions {
+            hunk_level: FileMergeHunkLevel::Line,
+            same_change: SameChange::Accept,
+        };
+        Store::new(
+            Box::new(SimpleBackend::init(store_path)),
+            Signer::new(None, vec![]),
+            merge_options,
+        )
+    }
+
+    /// Creates a commit object with the given id. The commit isn't written to
+    /// the store.
+    fn make_commit(store: &Arc<Store>, commit_id_hex: &'static str) -> Commit {
+        let data = make_root_commit(
+            store.root_change_id().clone(),
+            store.empty_tree_id().clone(),
+        );
+        Commit::new(
+            store.clone(),
+            CommitId::from_hex(commit_id_hex),
+            Arc::new(data),
+        )
+    }
+
+    fn make_line_origin(commit: &Commit, line_number: usize) -> LineOrigin {
+        LineOrigin {
+            commit: commit.clone(),
+            line_number,
+        }
+    }
+
+    #[test]
+    fn test_lines_iterator_empty() {
+        let annotation = FileAnnotation {
+            line_map: vec![],
+            text: "".into(),
+        };
+        assert_eq!(annotation.line_origins().collect_vec(), vec![]);
+        assert_eq!(annotation.lines().collect_vec(), vec![]);
+        assert_eq!(annotation.line_ranges().collect_vec(), vec![]);
+        assert_eq!(annotation.compact_line_ranges().collect_vec(), vec![]);
+    }
+
+    #[test]
+    fn test_lines_iterator_with_content() {
+        let temp_dir = new_temp_dir();
+        let store = new_store(temp_dir.path());
+        let commit1 = make_commit(&store, "111111");
+        let commit2 = make_commit(&store, "222222");
+        let commit3 = make_commit(&store, "333333");
+        let annotation = FileAnnotation {
+            line_map: vec![
+                Ok(make_line_origin(&commit1, 0)),
+                Ok(make_line_origin(&commit2, 1)),
+                Ok(make_line_origin(&commit3, 2)),
+            ],
+            text: "foo\n\nbar\n".into(),
+        };
+        assert_eq!(
+            annotation.line_origins().collect_vec(),
+            vec![
+                (Ok(&make_line_origin(&commit1, 0)), "foo\n".as_ref()),
+                (Ok(&make_line_origin(&commit2, 1)), "\n".as_ref()),
+                (Ok(&make_line_origin(&commit3, 2)), "bar\n".as_ref()),
+            ]
+        );
+        assert_eq!(
+            annotation.lines().collect_vec(),
+            vec![
+                (Ok(&commit1), "foo\n".as_ref()),
+                (Ok(&commit2), "\n".as_ref()),
+                (Ok(&commit3), "bar\n".as_ref()),
+            ]
+        );
+        assert_eq!(
+            annotation.line_ranges().collect_vec(),
+            vec![
+                (Ok(&commit1), 0..4),
+                (Ok(&commit2), 4..5),
+                (Ok(&commit3), 5..9),
+            ]
+        );
+        assert_eq!(
+            annotation.compact_line_ranges().collect_vec(),
+            vec![
+                (Ok(&commit1), 0..4),
+                (Ok(&commit2), 4..5),
+                (Ok(&commit3), 5..9),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_lines_iterator_compaction() {
+        let temp_dir = new_temp_dir();
+        let store = new_store(temp_dir.path());
+        let commit1 = make_commit(&store, "111111");
+        let commit2 = make_commit(&store, "222222");
+        let commit3 = make_commit(&store, "333333");
+        let annotation = FileAnnotation {
+            line_map: vec![
+                Ok(make_line_origin(&commit1, 0)),
+                Ok(make_line_origin(&commit1, 1)),
+                Ok(make_line_origin(&commit2, 2)),
+                Ok(make_line_origin(&commit1, 3)),
+                Ok(make_line_origin(&commit3, 4)),
+                Ok(make_line_origin(&commit3, 5)),
+                Ok(make_line_origin(&commit3, 6)),
+            ],
+            text: "\n".repeat(7).into(),
+        };
+        assert_eq!(
+            annotation.compact_line_ranges().collect_vec(),
+            vec![
+                (Ok(&commit1), 0..2),
+                (Ok(&commit2), 2..3),
+                (Ok(&commit1), 3..4),
+                (Ok(&commit3), 4..7),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_count_lines() {
+        assert_eq!(count_lines(b""), 0);
+        assert_eq!(count_lines(b"\n"), 1);
+        assert_eq!(count_lines(b"foo"), 1);
+        assert_eq!(count_lines(b"foo\n"), 1);
+        assert_eq!(count_lines(b"foo\nbar"), 2);
+        assert_eq!(count_lines(b"foo\nbar\n"), 2);
+        assert_eq!(count_lines(b"foo\n\nbar\n"), 3);
+        assert_eq!(count_lines(b"foo\n\nbar\n\n"), 4);
+    }
+}

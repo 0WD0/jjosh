@@ -1,0 +1,84 @@
+// Copyright 2026 The Jujutsu Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+//! The core library powering the Jujutsu Version Control System. It contains
+//! all "base" types such as `Commit` and the `Backend` trait.
+
+#![warn(missing_docs)]
+#![forbid(unsafe_code)]
+#![deny(unused_must_use)]
+
+// Needed so that proc macros can be used inside jj_core and by external crates
+// that depend on it.
+//
+// See:
+// - https://github.com/rust-lang/rust/issues/54647#issuecomment-432015102
+// - https://github.com/rust-lang/rust/issues/54363
+extern crate self as jj_core;
+
+// Re-exported for use by the `id_type!` macro.
+#[doc(hidden)]
+pub use serde;
+
+pub mod backend;
+mod cached_loader;
+pub mod commit;
+pub mod conflict_labels;
+pub mod conflicts;
+pub mod content_hash;
+pub mod copies;
+pub mod dag_walk;
+pub mod dag_walk_async;
+pub mod diff;
+pub mod files;
+pub mod fileset_backend;
+pub mod filtered_tree_writer;
+pub mod graph;
+pub mod hex_util;
+pub mod index;
+pub mod index_store;
+pub mod iter_util;
+pub mod matchers;
+pub mod merge;
+pub mod merged_tree;
+pub mod merged_tree_builder;
+pub mod object_id;
+pub mod op_heads_store;
+pub mod op_store;
+pub mod op_walk;
+pub mod operation;
+pub mod project;
+pub mod ref_name;
+pub mod refs;
+pub mod repo_path;
+pub mod revset_backend;
+pub mod signing;
+pub mod store;
+pub mod str_util;
+pub mod symbol_util;
+pub mod time_util;
+pub mod tree;
+pub mod tree_merge;
+mod tree_rewriter;
+mod tree_walk;
+pub mod union_find;
+pub mod view;
+pub mod working_copy_patterns;
+pub mod workspace_store;
+
+#[cfg(test)]
+mod tests {
+    // Copied from `testutils::TestResult` to remove dependency cycle.
+    pub type TestResult<T = ()> = eyre::Result<T>;
+}

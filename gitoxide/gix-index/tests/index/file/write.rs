@@ -1,5 +1,7 @@
 use filetime::FileTime;
 use gix_index::{State, Version, entry, extension, write, write::Options};
+use gix_error::ErrorExt;
+use gix_error::ResultExt;
 use gix_testtools::TestResult;
 
 use crate::Fixture::*;
@@ -382,6 +384,69 @@ fn skip_hash() -> TestResult {
         );
     }
 
+    Ok(())
+}
+
+#[test]
+fn write_with_inspects_staged_bytes_and_can_reject_commit() -> TestResult {
+    let tmp = gix_testtools::tempfile::TempDir::new()?;
+    let path = tmp.path().join("index");
+    let lock_path = tmp.path().join("index.lock");
+    let object_hash = gix_testtools::object_hash();
+    let mut index = Generated("v2").open();
+    index.set_path(&path);
+    index.write(Options::default())?;
+    let original_bytes = std::fs::read(&path)?;
+    let original_checksum = index.checksum();
+    index.entries_mut()[0].flags.insert(entry::Flags::EXTENDED);
+
+    let mut staged_bytes = Vec::new();
+    let err = index
+        .write_with(Options::default(), |lock| {
+            assert_eq!(std::fs::read(lock.resource_path()).or_error()?, original_bytes);
+            assert!(matches!(
+                gix_lock::File::acquire_to_update_resource(
+                    lock.resource_path(),
+                    gix_lock::acquire::Fail::Immediately,
+                    None,
+                    0,
+                ),
+                Err(err) if err.downcast_any_ref::<std::io::Error>()
+                    .is_some_and(|source| source.kind() == std::io::ErrorKind::AlreadyExists)
+            ));
+            let staged = gix_index::File::at(lock.lock_path(), object_hash, false, Default::default())?;
+            assert_eq!(staged.version(), Version::V3);
+            assert!(staged.entries()[0].flags.contains(entry::Flags::EXTENDED));
+            staged_bytes = std::fs::read(lock.lock_path()).or_error()?;
+            Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied).raise())
+        })
+        .expect_err("the callback rejects the commit");
+    let source = err.downcast_any_ref::<std::io::Error>().expect("original callback error");
+    assert_eq!(
+        source.kind(),
+        std::io::ErrorKind::PermissionDenied
+    );
+    assert_eq!(std::fs::read(&path)?, original_bytes);
+    assert_eq!(index.version(), Version::V2);
+    assert_eq!(index.checksum(), original_checksum);
+    drop(gix_lock::File::acquire_to_update_resource(
+        &path,
+        gix_lock::acquire::Fail::Immediately,
+        None,
+        0,
+    )?);
+
+    index.write_with(Options::default(), |lock| {
+        assert_eq!(std::fs::read(lock.resource_path()).or_error()?, original_bytes);
+        assert_eq!(std::fs::read(lock.lock_path()).or_error()?, staged_bytes);
+        Ok(())
+    })?;
+    assert_eq!(std::fs::read(&path)?, staged_bytes);
+    assert!(!lock_path.exists(), "commit releases the lock");
+    let committed = gix_index::File::at(&path, object_hash, false, Default::default())?;
+    assert_eq!(index.version(), committed.version());
+    assert_eq!(index.checksum(), committed.checksum());
+    assert_ne!(index.checksum(), original_checksum);
     Ok(())
 }
 

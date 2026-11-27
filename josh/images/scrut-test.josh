@@ -1,0 +1,9 @@
+:$label="scrut test"
+
+bases = :[
+    :#BUILDER_IMAGE[:+images/rust-base]
+]
+context = :[
+    :/images/scrut-test
+    ::lfs-test-server/
+]

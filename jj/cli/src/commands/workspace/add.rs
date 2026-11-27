@@ -1,0 +1,372 @@
+// Copyright 2020 The Jujutsu Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+use std::fs;
+
+use futures::future::try_join_all;
+use itertools::Itertools as _;
+use jj_lib::commit::CommitIteratorExt as _;
+use jj_lib::file_util;
+use jj_lib::file_util::IoResultExt as _;
+#[cfg(feature = "git")]
+use jj_lib::git::GitSubprocessOptions;
+#[cfg(feature = "git")]
+use jj_lib::git::create_worktree;
+use jj_lib::merge::Merge;
+use jj_lib::ref_name::WorkspaceNameBuf;
+use jj_lib::repo::Repo as _;
+use jj_lib::rewrite::merge_commit_trees;
+use jj_lib::working_copy_patterns::WorkingCopyPatterns;
+use jj_lib::workspace::Workspace;
+use tracing::instrument;
+
+use crate::cli_util::CommandHelper;
+use crate::cli_util::RevisionArg;
+use crate::command_error::CommandError;
+use crate::command_error::internal_error_with_message;
+use crate::command_error::user_error;
+#[cfg(feature = "git")]
+use crate::commands::git::maybe_add_gitignore;
+use crate::description_util::add_trailers;
+use crate::description_util::join_message_paragraphs;
+use crate::ui::Ui;
+
+/// How to handle sparse patterns when creating a new workspace.
+#[derive(clap::ValueEnum, Clone, Debug, Eq, PartialEq)]
+pub(crate) enum SparseInheritance {
+    /// Copy all sparse patterns from the current workspace.
+    Copy,
+    /// Include all files in the new workspace.
+    Full,
+    /// Clear all files from the workspace (it will be empty).
+    Empty,
+}
+
+/// Add a workspace
+///
+/// By default, the new workspace inherits the sparse patterns of the current
+/// workspace. You can override this with the `--sparse-patterns` option.
+#[derive(clap::Args, Clone, Debug)]
+pub struct WorkspaceAddArgs {
+    /// Where to create the new workspace
+    #[arg(value_hint = clap::ValueHint::DirPath)]
+    destination: String,
+
+    /// A name for the workspace
+    ///
+    /// To override the default, which is the basename of the destination
+    /// directory.
+    #[arg(long)]
+    name: Option<WorkspaceNameBuf>,
+
+    /// A list of parent revisions for the working-copy commit of the newly
+    /// created workspace. You may specify nothing, or any number of parents.
+    ///
+    /// If no revisions are specified, this defaults to the
+    /// `revsets.workspace-add` setting, or `heads(::@ & immutable())` if it is
+    /// not set. The revset is evaluated in the current workspace, so with the
+    /// default setting, the new working-copy commit will be created on top of
+    /// the closest immutable ancestors of the current working-copy commit.
+    /// That way, the workspaces don't share any mutable commits, which reduces
+    /// the risk of making one of them stale or causing divergence when
+    /// rewriting commits from the other.
+    ///
+    /// If any revisions are specified, the new workspace will be created, and
+    /// the new working-copy commit will be created with all these revisions as
+    /// parents, i.e. the working-copy commit will exist as if you had run `jj
+    /// new r1 r2 r3 ...`.
+    #[arg(long = "revision", short, value_name = "REVSETS", alias = "revisions")]
+    revisions: Vec<RevisionArg>,
+
+    /// The change description to use
+    #[arg(long = "message", short, value_name = "MESSAGE")]
+    message_paragraphs: Vec<String>,
+
+    /// Create a corresponding Git worktree for this workspace
+    ///
+    /// By default, a Git worktree is created when the current workspace is
+    /// colocated and the [git.colocate config] is `true`.
+    ///
+    /// [git.colocate config]:
+    ///     https://docs.jj-vcs.dev/latest/config/#default-colocation
+    #[cfg(feature = "git")]
+    #[arg(long, conflicts_with = "no_colocate")]
+    colocate: bool,
+
+    /// Do not create a Git worktree for this workspace
+    #[cfg(feature = "git")]
+    #[arg(long, conflicts_with = "colocate")]
+    no_colocate: bool,
+
+    /// How to handle sparse patterns when creating a new workspace.
+    #[arg(long, value_enum, default_value_t = SparseInheritance::Copy)]
+    sparse_patterns: SparseInheritance,
+}
+
+#[instrument(skip_all)]
+pub async fn cmd_workspace_add(
+    ui: &mut Ui,
+    command: &CommandHelper,
+    args: &WorkspaceAddArgs,
+) -> Result<(), CommandError> {
+    check_new_workspace_operation(command)?;
+    let old_workspace_command = command.workspace_helper(ui).await?;
+    let source_desired = old_workspace_command
+        .repo()
+        .view()
+        .get_wc_sparse_patterns(old_workspace_command.workspace_name())
+        .filter(|value| value.as_resolved() != Some(&None));
+    let sparsity = match args.sparse_patterns {
+        SparseInheritance::Full => WorkingCopyPatterns::all(),
+        SparseInheritance::Empty => WorkingCopyPatterns::none(),
+        SparseInheritance::Copy => match source_desired.and_then(Merge::as_resolved) {
+            Some(Some(id)) => {
+                old_workspace_command
+                    .repo()
+                    .op_store()
+                    .read_working_copy_patterns(id)
+                    .await?
+            }
+            _ => old_workspace_command
+                .working_copy()
+                .sparse_patterns()?
+                .clone(),
+        },
+    };
+    sparsity.validate().map_err(user_error)?;
+    let desired = match source_desired {
+        Some(source) if args.sparse_patterns == SparseInheritance::Copy => Some(source.clone()),
+        // Deferred initialization cannot leave the initial selection only in
+        // memory: the new working copy still has its default physical layout.
+        None if command.is_working_copy_writable() => None,
+        _ => Some(Merge::resolved(Some(
+            old_workspace_command
+                .repo()
+                .op_store()
+                .write_working_copy_patterns(&sparsity)
+                .await?,
+        ))),
+    };
+
+    #[cfg(feature = "git")]
+    let should_colocate = if args.colocate {
+        true
+    } else if args.no_colocate {
+        false
+    } else {
+        old_workspace_command.working_copy_shared_with_git()
+            && old_workspace_command.settings().get_bool("git.colocate")?
+    };
+    #[cfg(feature = "git")]
+    if should_colocate {
+        if !sparsity.is_identity() {
+            return Err(user_error(
+                "Path mappings are not supported in colocated Git working copies; use \
+                 --no-colocate or --sparse-patterns full.",
+            ));
+        }
+        if let Some(desired) = &desired {
+            for id in desired.iter().flatten() {
+                if !old_workspace_command
+                    .repo()
+                    .op_store()
+                    .read_working_copy_patterns(id)
+                    .await?
+                    .is_identity()
+                {
+                    return Err(user_error(
+                        "Conflicted path mappings cannot be inherited by a colocated Git working \
+                         copy.",
+                    ));
+                }
+            }
+        }
+    }
+    let destination_path = command.cwd().join(&args.destination);
+    let workspace_name = if let Some(name) = &args.name {
+        name.to_owned()
+    } else {
+        let file_name = destination_path.file_name().unwrap();
+        file_name
+            .to_str()
+            .ok_or_else(|| user_error("Destination path is not valid UTF-8"))?
+            .into()
+    };
+    if workspace_name.as_str().is_empty() {
+        return Err(user_error("New workspace name cannot be empty"));
+    }
+
+    let repo = old_workspace_command.repo();
+    if repo.view().get_wc_commit_id(&workspace_name).is_some() {
+        return Err(user_error(format!(
+            "Workspace named '{name}' already exists",
+            name = workspace_name.as_symbol()
+        )));
+    }
+    // Resolve the parents before creating the workspace so an invalid revset
+    // doesn't leave a half-created workspace behind. If no parent revisions are
+    // specified, use `revsets.workspace-add`.
+    let mut differs_from_wc_parents = false;
+    let parent_ids = if !args.revisions.is_empty() {
+        old_workspace_command
+            .resolve_some_revsets(ui, &args.revisions)
+            .await?
+    } else {
+        let revset = old_workspace_command
+            .settings()
+            .get_string("revsets.workspace-add")?;
+        let parent_ids = old_workspace_command
+            .resolve_some_revsets(ui, &[RevisionArg::from(revset)])
+            .await
+            .map_err(|err| err.hinted("Use `--revision` to specify parent revisions."))?;
+        if let Some(old_wc_commit) = old_workspace_command.get_wc_commit().await? {
+            // Only tell the user about it if the result differs from the current
+            // working copy's parents.
+            differs_from_wc_parents = !parent_ids
+                .iter()
+                .sorted()
+                .eq(old_wc_commit.parent_ids().iter().sorted());
+        }
+        parent_ids
+    };
+    let parents = try_join_all(
+        parent_ids
+            .iter()
+            .map(|id| repo.store().get_commit_async(id)),
+    )
+    .await?;
+
+    if !destination_path.exists() {
+        fs::create_dir(&destination_path).context(&destination_path)?;
+    } else if !file_util::is_empty_dir(&destination_path)? {
+        return Err(user_error(
+            "Destination path exists and is not an empty directory",
+        ));
+    }
+
+    #[cfg(feature = "git")]
+    {
+        if should_colocate {
+            let subprocess_options =
+                GitSubprocessOptions::from_settings(old_workspace_command.settings())?;
+            create_worktree(repo.store(), subprocess_options, &destination_path)?;
+            writeln!(ui.status(), "Created Git worktree for the new workspace.")?;
+        }
+    }
+
+    let working_copy_factory = command.get_working_copy_factory()?;
+    let repo_path = old_workspace_command.repo_path();
+    // If we add per-workspace configuration, we'll need to reload settings for
+    // the new workspace.
+    let (new_workspace, repo) = Workspace::init_workspace_with_existing_repo(
+        &destination_path,
+        repo_path,
+        repo,
+        working_copy_factory,
+        workspace_name.clone(),
+        Some(old_workspace_command.workspace_name()),
+    )
+    .await?;
+    writeln!(
+        ui.status(),
+        "Created workspace in \"{}\"",
+        file_util::relative_path(command.cwd(), &destination_path).display()
+    )?;
+    // Show a warning if the user passed a path without a separator, since they
+    // may have intended the argument to only be the name for the workspace.
+    if !args.destination.contains(std::path::is_separator) {
+        writeln!(
+            ui.warning_default(),
+            r#"Workspace created inside current directory. If this was unintentional, delete the "{}" directory and run `jj workspace forget {name}` to remove it."#,
+            args.destination,
+            name = workspace_name.as_symbol()
+        )?;
+    }
+
+    let mut new_workspace_command = command.for_workable_repo(ui, new_workspace, repo)?;
+    // Keep the colocated Git worktree from tracking Jujutsu's own files.
+    #[cfg(feature = "git")]
+    maybe_add_gitignore(&new_workspace_command)?;
+
+    if command.is_working_copy_writable() {
+        let (mut locked_ws, _wc_commit) =
+            new_workspace_command.start_working_copy_mutation().await?;
+        locked_ws
+            .locked_wc()
+            .set_sparse_patterns(sparsity)
+            .await
+            .map_err(|err| internal_error_with_message("Failed to set sparse patterns", err))?;
+        let operation_id = locked_ws.locked_wc().old_operation_id().clone();
+        locked_ws.finish(operation_id).await?;
+    }
+
+    let mut tx = new_workspace_command.start_transaction();
+    if let Some(desired) = desired {
+        tx.repo_mut()
+            .set_wc_sparse_patterns(workspace_name.clone(), desired);
+    }
+
+    // Attribute the operation to the workspace the command was run in, so e.g.
+    // `jj undo` there undoes it
+    tx.set_workspace_name(old_workspace_command.workspace_name());
+    // TODO: Delete this warning in jj 0.54+
+    if differs_from_wc_parents {
+        writeln!(
+            ui.status(),
+            "Created working copy on top of `revsets.workspace-add` instead of the current \
+             working copy's parents."
+        )?;
+        writeln!(
+            ui.hint_default(),
+            "Use `-r @-` to create it on top of the current working copy's parents instead."
+        )?;
+    }
+
+    let tree = merge_commit_trees(tx.repo(), &parents).await?;
+    let parent_ids = parents.iter().ids().cloned().collect_vec();
+    let mut commit_builder = tx.repo_mut().new_commit(parent_ids, tree).detach();
+    let mut description = join_message_paragraphs(&args.message_paragraphs);
+    if !description.is_empty() {
+        // The first trailer would become the first line of the description.
+        // Also, a commit with no description is treated in a special way in jujutsu: it
+        // can be discarded as soon as it's no longer the working copy. Adding a
+        // trailer to an empty description would break that logic.
+        commit_builder.set_description(description);
+        description = add_trailers(ui, &tx, &commit_builder).await?;
+    }
+    commit_builder.set_description(&description);
+    let new_wc_commit = commit_builder.write(tx.repo_mut()).await?;
+
+    tx.edit(&new_wc_commit)?;
+    tx.finish(
+        ui,
+        format!(
+            "create initial working-copy commit in workspace {name}",
+            name = workspace_name.as_symbol()
+        ),
+    )
+    .await?;
+    Ok(())
+}
+
+// A checkout can be deferred, but its workspace registration must be published.
+fn check_new_workspace_operation(command: &CommandHelper) -> Result<(), CommandError> {
+    if command.global_args().no_integrate_operation {
+        return Err(
+            user_error("This command must be able to update the working copy.")
+                .hinted("Don't use --no-integrate-operation."),
+        );
+    }
+    Ok(())
+}

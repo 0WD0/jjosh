@@ -1,0 +1,1346 @@
+// Copyright 2022-2024 The Jujutsu Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+use std::error;
+use std::error::Error as _;
+use std::fmt;
+use std::io;
+use std::io::Write as _;
+use std::iter;
+use std::sync::Arc;
+
+use itertools::Itertools as _;
+use jj_frontend::runner::RunnerError;
+use jj_frontend::runner::StaleWorkingCopyError;
+use jj_frontend::runner::WorkingCopyNotWritableReason;
+use jj_frontend::workspace_env::WorkspaceEnvironmentError;
+use jj_lib::absorb::AbsorbError;
+use jj_lib::backend::BackendError;
+use jj_lib::backend::CommitId;
+use jj_lib::bisect::BisectionError;
+use jj_lib::config::ConfigFileSaveError;
+use jj_lib::config::ConfigGetError;
+use jj_lib::config::ConfigLoadError;
+use jj_lib::config::ConfigMigrateError;
+use jj_lib::converge::ConvergeError;
+use jj_lib::dsl_util::Diagnostics;
+use jj_lib::dsl_util::take_most_similar;
+use jj_lib::evolution::WalkPredecessorsError;
+use jj_lib::fileset::FilePatternParseError;
+use jj_lib::fileset::FilesetParseError;
+use jj_lib::fileset::FilesetParseErrorKind;
+use jj_lib::fix::FixError;
+use jj_lib::gitignore::GitIgnoreError;
+use jj_lib::index::IndexError;
+use jj_lib::op_heads_store::OpHeadsStoreError;
+use jj_lib::op_store::OpStoreError;
+use jj_lib::op_walk::OpsetEvaluationError;
+use jj_lib::op_walk::OpsetResolutionError;
+use jj_lib::ref_name::RemoteRefSymbolBuf;
+use jj_lib::repo::CheckOutCommitError;
+use jj_lib::repo::EditCommitError;
+use jj_lib::repo::RepoLoaderError;
+use jj_lib::repo::RewriteRootCommit;
+use jj_lib::repo_path::RepoPathBuf;
+use jj_lib::revset;
+use jj_lib::revset::RevsetEvaluationError;
+use jj_lib::revset::RevsetParseError;
+use jj_lib::revset::RevsetParseErrorKind;
+use jj_lib::revset::RevsetResolutionError;
+use jj_lib::secure_config::SecureConfigError;
+use jj_lib::str_util::StringPatternParseError;
+use jj_lib::template_parser::TemplateParseError;
+use jj_lib::template_parser::TemplateParseErrorKind;
+use jj_lib::trailer::TrailerParseError;
+use jj_lib::transaction::TransactionCommitError;
+use jj_lib::ui_path::UiPathParseError;
+use jj_lib::view::RenameWorkspaceError;
+use jj_lib::working_copy::ResetError;
+use jj_lib::working_copy::SnapshotError;
+use jj_lib::working_copy::WorkingCopyStateError;
+use jj_lib::workspace::RecoverWorkspaceError;
+use jj_lib::workspace::WorkspaceInitError;
+use jj_lib::workspace_store::WorkspaceStoreError;
+use thiserror::Error;
+
+use crate::cli_util::CliEventHandlerError;
+use crate::cli_util::short_operation_hash;
+use crate::description_util::ParseBulkEditMessageError;
+use crate::description_util::TempTextEditError;
+use crate::description_util::TextEditError;
+use crate::diff_util::DiffRenderError;
+use crate::formatter::FormatRecorder;
+use crate::formatter::Formatter;
+use crate::formatter::FormatterExt as _;
+use crate::merge_tools::ConflictResolveError;
+use crate::merge_tools::DiffEditError;
+use crate::merge_tools::MergeToolConfigError;
+use crate::merge_tools::MergeToolPartialResolutionError;
+use crate::revset_util::BookmarkNameParseError;
+use crate::revset_util::TagNameParseError;
+use crate::revset_util::UserRevsetEvaluationError;
+use crate::ui::Ui;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CommandErrorKind {
+    User,
+    Config,
+    /// Invalid command line. The inner error type may be `clap::Error`.
+    Cli,
+    BrokenPipe,
+    Internal,
+}
+
+#[derive(Clone, Debug)]
+pub struct CommandError {
+    pub kind: CommandErrorKind,
+    pub error: Arc<dyn error::Error + Send + Sync>,
+    pub hints: Vec<ErrorHint>,
+}
+
+impl CommandError {
+    pub fn new(
+        kind: CommandErrorKind,
+        err: impl Into<Box<dyn error::Error + Send + Sync>>,
+    ) -> Self {
+        Self {
+            kind,
+            error: Arc::from(err.into()),
+            hints: vec![],
+        }
+    }
+
+    pub fn with_message(
+        kind: CommandErrorKind,
+        message: impl Into<String>,
+        source: impl Into<Box<dyn error::Error + Send + Sync>>,
+    ) -> Self {
+        Self::new(kind, ErrorWithMessage::new(message, source))
+    }
+
+    /// Returns error with the given plain-text `hint` attached.
+    pub fn hinted(mut self, hint: impl Into<String>) -> Self {
+        self.add_hint(hint);
+        self
+    }
+
+    /// Appends plain-text `hint` to the error.
+    pub fn add_hint(&mut self, hint: impl Into<String>) {
+        self.hints.push(ErrorHint::PlainText(hint.into()));
+    }
+
+    /// Appends formatted `hint` to the error.
+    pub fn add_formatted_hint(&mut self, hint: FormatRecorder) {
+        self.hints.push(ErrorHint::Formatted(hint));
+    }
+
+    /// Constructs formatted hint and appends it to the error.
+    pub fn add_formatted_hint_with(
+        &mut self,
+        write: impl FnOnce(&mut dyn Formatter) -> io::Result<()>,
+    ) {
+        let mut formatter = FormatRecorder::new(true);
+        write(&mut formatter).expect("write() to FormatRecorder should never fail");
+        self.add_formatted_hint(formatter);
+    }
+
+    /// Appends 0 or more plain-text `hints` to the error.
+    pub fn extend_hints(&mut self, hints: impl IntoIterator<Item = String>) {
+        self.hints
+            .extend(hints.into_iter().map(ErrorHint::PlainText));
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum ErrorHint {
+    PlainText(String),
+    Formatted(FormatRecorder),
+}
+
+/// Wraps error with user-visible message.
+#[derive(Debug, Error)]
+#[error("{message}")]
+struct ErrorWithMessage {
+    message: String,
+    source: Box<dyn error::Error + Send + Sync>,
+}
+
+impl ErrorWithMessage {
+    fn new(
+        message: impl Into<String>,
+        source: impl Into<Box<dyn error::Error + Send + Sync>>,
+    ) -> Self {
+        Self {
+            message: message.into(),
+            source: source.into(),
+        }
+    }
+}
+
+pub fn user_error(err: impl Into<Box<dyn error::Error + Send + Sync>>) -> CommandError {
+    CommandError::new(CommandErrorKind::User, err)
+}
+
+pub fn user_error_with_message(
+    message: impl Into<String>,
+    source: impl Into<Box<dyn error::Error + Send + Sync>>,
+) -> CommandError {
+    CommandError::with_message(CommandErrorKind::User, message, source)
+}
+
+pub fn config_error(err: impl Into<Box<dyn error::Error + Send + Sync>>) -> CommandError {
+    CommandError::new(CommandErrorKind::Config, err)
+}
+
+pub fn config_error_with_message(
+    message: impl Into<String>,
+    source: impl Into<Box<dyn error::Error + Send + Sync>>,
+) -> CommandError {
+    CommandError::with_message(CommandErrorKind::Config, message, source)
+}
+
+pub fn cli_error(err: impl Into<Box<dyn error::Error + Send + Sync>>) -> CommandError {
+    CommandError::new(CommandErrorKind::Cli, err)
+}
+
+pub fn cli_error_with_message(
+    message: impl Into<String>,
+    source: impl Into<Box<dyn error::Error + Send + Sync>>,
+) -> CommandError {
+    CommandError::with_message(CommandErrorKind::Cli, message, source)
+}
+
+pub fn internal_error(err: impl Into<Box<dyn error::Error + Send + Sync>>) -> CommandError {
+    CommandError::new(CommandErrorKind::Internal, err)
+}
+
+pub fn internal_error_with_message(
+    message: impl Into<String>,
+    source: impl Into<Box<dyn error::Error + Send + Sync>>,
+) -> CommandError {
+    CommandError::with_message(CommandErrorKind::Internal, message, source)
+}
+
+/// Number of similar names to list before summarizing the rest.
+const MAX_SIMILAR_NAMES: usize = 5;
+
+fn format_similarity_hint<S: AsRef<str> + fmt::Display>(
+    name: &str,
+    candidates: &[S],
+    max: Option<usize>,
+) -> Option<String> {
+    match candidates {
+        [] => None,
+        names => {
+            let similar_names = match max {
+                Some(max) => take_most_similar(name, names, max),
+                None => names.iter().collect(),
+            };
+            let quoted_names = similar_names.iter().map(|s| format!("`{s}`")).join(", ");
+            match names.len() - similar_names.len() {
+                0 => Some(format!("Did you mean {quoted_names}?")),
+                n => Some(format!("Did you mean {quoted_names}, or {n} others?")),
+            }
+        }
+    }
+}
+
+impl From<WorkspaceEnvironmentError> for CommandError {
+    fn from(err: WorkspaceEnvironmentError) -> Self {
+        match err {
+            WorkspaceEnvironmentError::WorkingCopyState(err) => err.into(),
+            WorkspaceEnvironmentError::ColocatedPathMappings => user_error(err),
+            WorkspaceEnvironmentError::Config(err) => err.into(),
+            WorkspaceEnvironmentError::InvalidImmutableHeads(_)
+            | WorkspaceEnvironmentError::InvalidShortPrefixes(_) => config_error(err),
+            #[cfg(feature = "git")]
+            WorkspaceEnvironmentError::GitRepoAtWorkdir(err) => err.into(),
+        }
+    }
+}
+
+impl From<RunnerError> for CommandError {
+    fn from(err: RunnerError) -> Self {
+        match err {
+            RunnerError::WorkingCopyNotWritable(reason) => {
+                let hint = match reason {
+                    WorkingCopyNotWritableReason::IgnoringWorkingCopy => {
+                        "Don't use --ignore-working-copy."
+                    }
+                    WorkingCopyNotWritableReason::NotIntegratingOperations => {
+                        "Don't use --no-integrate-operation."
+                    }
+                    WorkingCopyNotWritableReason::NotAtHeadOperation => "Don't use --at-op.",
+                };
+                user_error("This command must be able to update the working copy.").hinted(hint)
+            }
+            RunnerError::NothingCheckedOut | RunnerError::ConcurrentWorkingCopyOperation => {
+                user_error(err)
+            }
+            RunnerError::GitImportExportLock(_) => user_error(err),
+            RunnerError::InvalidImmutableHeads(_) => config_error(err),
+            RunnerError::CheckOut { .. } => internal_error(err),
+            RunnerError::StaleWorkingCopy(err) => match err {
+                StaleWorkingCopyError::Stale { wc_op_id } => user_error(format!(
+                    "The working copy is stale (not updated since operation {}).",
+                    short_operation_hash(&wc_op_id)
+                ))
+                .hinted(
+                    "Run `jj workspace update-stale` to update it.
+See https://docs.jj-vcs.dev/latest/working-copy/#stale-working-copy \
+                     for more information.",
+                ),
+                StaleWorkingCopyError::SiblingOperation {
+                    repo_op_id,
+                    wc_op_id,
+                } => internal_error(format!(
+                    "The repo was loaded at operation {}, which seems to be a sibling of the \
+                     working copy's operation {}",
+                    short_operation_hash(&repo_op_id),
+                    short_operation_hash(&wc_op_id)
+                ))
+                .hinted(format!(
+                    "Run `jj op integrate {}` to add the working copy's operation to the \
+                     operation log.",
+                    short_operation_hash(&wc_op_id)
+                )),
+                StaleWorkingCopyError::OperationNotFound(_) => {
+                    user_error("Could not read working copy's operation.").hinted(
+                        "Run `jj workspace update-stale` to recover.
+See https://docs.jj-vcs.dev/latest/working-copy/#stale-working-copy \
+                         for more information.",
+                    )
+                }
+            },
+            RunnerError::Environment(err) => err.into(),
+            RunnerError::Backend(err) => err.into(),
+            RunnerError::OpStore(err) => err.into(),
+            RunnerError::RepoLoader(err) => err.into(),
+            RunnerError::Snapshot(err) => err.into(),
+            RunnerError::WorkingCopyState(err) => err.into(),
+            RunnerError::RevsetEvaluation(err) => err.into(),
+            RunnerError::RewriteRootCommit(err) => err.into(),
+            RunnerError::CheckOutCommit(err) => err.into(),
+            RunnerError::Reset(err) => err.into(),
+            RunnerError::TransactionCommit(err) => err.into(),
+            #[cfg(feature = "git")]
+            RunnerError::GitImport(err) => err.into(),
+            #[cfg(feature = "git")]
+            RunnerError::GitExport(err) => err.into(),
+            #[cfg(feature = "git")]
+            RunnerError::GitResetHead(err) => err.into(),
+            RunnerError::EventHandling(err) => match err.downcast::<CliEventHandlerError>() {
+                Ok(err) => err.0,
+                Err(err) => internal_error(err),
+            },
+        }
+    }
+}
+
+/// Formatted symbol compared by the name it refers to, ignoring quotes and escapes.
+struct SimilarSymbol<'a> {
+    key: String,
+    symbol: &'a str,
+}
+
+impl<'a> SimilarSymbol<'a> {
+    fn new(symbol: &'a str) -> Self {
+        let key = similarity_key(symbol);
+        SimilarSymbol { key, symbol }
+    }
+}
+
+impl AsRef<str> for SimilarSymbol<'_> {
+    fn as_ref(&self) -> &str {
+        &self.key
+    }
+}
+
+impl fmt::Display for SimilarSymbol<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.symbol)
+    }
+}
+
+/// Returns the string a formatted symbol is compared by.
+///
+/// A remote symbol's name and remote are joined by NUL, which Git doesn't allow
+/// in a ref name, so the local `"a@b"` isn't taken for `a@b`.
+fn similarity_key(symbol: &str) -> String {
+    use revset::ExpressionKind;
+    match revset::parse_program(symbol).map(|node| node.kind) {
+        Ok(ExpressionKind::Identifier(name)) => name.to_owned(),
+        Ok(ExpressionKind::String(name)) => name,
+        Ok(ExpressionKind::RemoteSymbol(RemoteRefSymbolBuf { name, remote })) => {
+            format!("{}\0{}", name.as_str(), remote.as_str())
+        }
+        _ => symbol.to_owned(),
+    }
+}
+
+impl From<io::Error> for CommandError {
+    fn from(err: io::Error) -> Self {
+        let kind = match err.kind() {
+            io::ErrorKind::BrokenPipe => CommandErrorKind::BrokenPipe,
+            _ => CommandErrorKind::User,
+        };
+        Self::new(kind, err)
+    }
+}
+
+impl From<jj_lib::file_util::PathError> for CommandError {
+    fn from(err: jj_lib::file_util::PathError) -> Self {
+        user_error(err)
+    }
+}
+
+impl From<ConfigFileSaveError> for CommandError {
+    fn from(err: ConfigFileSaveError) -> Self {
+        user_error(err)
+    }
+}
+
+impl From<ConfigGetError> for CommandError {
+    fn from(err: ConfigGetError) -> Self {
+        let hint = config_get_error_hint(&err);
+        let mut cmd_err = config_error(err);
+        cmd_err.extend_hints(hint);
+        cmd_err
+    }
+}
+
+impl From<ConfigLoadError> for CommandError {
+    fn from(err: ConfigLoadError) -> Self {
+        let hint = match &err {
+            ConfigLoadError::Read(_) => None,
+            ConfigLoadError::Parse { source_path, .. } => source_path
+                .as_ref()
+                .map(|path| format!("Check the config file: {}", path.display())),
+        };
+        let mut cmd_err = config_error(err);
+        cmd_err.extend_hints(hint);
+        cmd_err
+    }
+}
+
+impl From<ConfigMigrateError> for CommandError {
+    fn from(err: ConfigMigrateError) -> Self {
+        let hint = err
+            .source_path
+            .as_ref()
+            .map(|path| format!("Check the config file: {}", path.display()));
+        let mut cmd_err = config_error(err);
+        cmd_err.extend_hints(hint);
+        cmd_err
+    }
+}
+
+impl From<RewriteRootCommit> for CommandError {
+    fn from(err: RewriteRootCommit) -> Self {
+        internal_error_with_message("Attempted to rewrite the root commit", err)
+    }
+}
+
+impl From<EditCommitError> for CommandError {
+    fn from(err: EditCommitError) -> Self {
+        internal_error_with_message("Failed to edit a commit", err)
+    }
+}
+
+impl From<CheckOutCommitError> for CommandError {
+    fn from(err: CheckOutCommitError) -> Self {
+        internal_error_with_message("Failed to check out a commit", err)
+    }
+}
+
+impl From<RenameWorkspaceError> for CommandError {
+    fn from(err: RenameWorkspaceError) -> Self {
+        user_error_with_message("Failed to rename a workspace", err)
+    }
+}
+
+impl From<BackendError> for CommandError {
+    fn from(err: BackendError) -> Self {
+        match &err {
+            BackendError::Unsupported(_) => user_error(err),
+            _ => internal_error_with_message("Unexpected error from backend", err),
+        }
+    }
+}
+
+impl From<IndexError> for CommandError {
+    fn from(err: IndexError) -> Self {
+        internal_error_with_message("Unexpected error from index", err)
+    }
+}
+
+impl From<OpHeadsStoreError> for CommandError {
+    fn from(err: OpHeadsStoreError) -> Self {
+        internal_error_with_message("Unexpected error from operation heads store", err)
+    }
+}
+
+impl From<WorkspaceStoreError> for CommandError {
+    fn from(err: WorkspaceStoreError) -> Self {
+        internal_error_with_message("Unexpected error from workspace store", err)
+    }
+}
+
+impl From<WorkspaceInitError> for CommandError {
+    fn from(err: WorkspaceInitError) -> Self {
+        match err {
+            WorkspaceInitError::DestinationExists(_) => {
+                user_error("The target repo already exists")
+            }
+            WorkspaceInitError::EncodeRepoPath(_) => user_error(err),
+            WorkspaceInitError::CheckOutCommit(err) => {
+                internal_error_with_message("Failed to check out the initial commit", err)
+            }
+            WorkspaceInitError::Path(err) => {
+                internal_error_with_message("Failed to access the repository", err)
+            }
+            WorkspaceInitError::OpHeadsStore(err) => {
+                user_error_with_message("Failed to record initial operation", err)
+            }
+            WorkspaceInitError::WorkspaceStore(err) => {
+                internal_error_with_message("Failed to record workspace path", err)
+            }
+            WorkspaceInitError::Backend(err) => {
+                user_error_with_message("Failed to access the repository", err)
+            }
+            WorkspaceInitError::WorkingCopyState(err) => {
+                internal_error_with_message("Failed to access the repository", err)
+            }
+            WorkspaceInitError::SignInit(err) => user_error(err),
+            WorkspaceInitError::TransactionCommit(err) => err.into(),
+        }
+    }
+}
+
+impl From<OpsetEvaluationError> for CommandError {
+    fn from(err: OpsetEvaluationError) -> Self {
+        match err {
+            OpsetEvaluationError::OpsetResolution(err) => {
+                let hint = opset_resolution_error_hint(&err);
+                let mut cmd_err = user_error(err);
+                cmd_err.extend_hints(hint);
+                cmd_err
+            }
+            OpsetEvaluationError::OpHeadsStore(err) => err.into(),
+            OpsetEvaluationError::OpStore(err) => err.into(),
+        }
+    }
+}
+
+impl From<SnapshotError> for CommandError {
+    fn from(err: SnapshotError) -> Self {
+        internal_error_with_message("Failed to snapshot the working copy", err)
+    }
+}
+
+impl From<OpStoreError> for CommandError {
+    fn from(err: OpStoreError) -> Self {
+        internal_error_with_message("Failed to load an operation", err)
+    }
+}
+
+impl From<RepoLoaderError> for CommandError {
+    fn from(err: RepoLoaderError) -> Self {
+        internal_error_with_message("Failed to load the repo", err)
+    }
+}
+
+impl From<ResetError> for CommandError {
+    fn from(err: ResetError) -> Self {
+        internal_error_with_message("Failed to reset the working copy", err)
+    }
+}
+
+impl From<TransactionCommitError> for CommandError {
+    fn from(err: TransactionCommitError) -> Self {
+        internal_error(err)
+    }
+}
+
+impl From<WalkPredecessorsError> for CommandError {
+    fn from(err: WalkPredecessorsError) -> Self {
+        match err {
+            WalkPredecessorsError::Backend(err) => err.into(),
+            WalkPredecessorsError::OpStore(err) => err.into(),
+            WalkPredecessorsError::CycleDetected(_) => internal_error(err),
+        }
+    }
+}
+
+impl From<ConvergeError> for CommandError {
+    fn from(err: ConvergeError) -> Self {
+        match err {
+            ConvergeError::Backend(err) => err.into(),
+            ConvergeError::Index(err) => err.into(),
+            ConvergeError::RevsetEvaluation(err) => err.into(),
+            ConvergeError::WalkPredecessors(err) => err.into(),
+            ConvergeError::IO(err) => err.into(),
+            ConvergeError::Other(err) => internal_error(err),
+        }
+    }
+}
+
+impl From<DiffEditError> for CommandError {
+    fn from(err: DiffEditError) -> Self {
+        user_error_with_message("Failed to edit diff", err)
+    }
+}
+
+impl From<DiffRenderError> for CommandError {
+    fn from(err: DiffRenderError) -> Self {
+        match err {
+            DiffRenderError::DiffGenerate(_) => user_error(err),
+            DiffRenderError::Backend(err) => err.into(),
+            DiffRenderError::AccessDenied { .. } => user_error(err),
+            DiffRenderError::InvalidRepoPath(_) => user_error(err),
+            DiffRenderError::Io(err) => err.into(),
+        }
+    }
+}
+
+impl From<ConflictResolveError> for CommandError {
+    fn from(err: ConflictResolveError) -> Self {
+        match err {
+            ConflictResolveError::Backend(err) => err.into(),
+            ConflictResolveError::Io(err) => err.into(),
+            _ => {
+                let hint = match &err {
+                    ConflictResolveError::ConflictTooComplicated { .. } => Some(
+                        "Edit the conflict markers to resolve this, e.g. with `jj resolve --tool \
+                         :editor`."
+                            .to_owned(),
+                    ),
+                    ConflictResolveError::ExecutableConflict { .. } => {
+                        Some("Use `jj file chmod` to update the executable bit.".to_owned())
+                    }
+                    _ => None,
+                };
+                let mut cmd_err = user_error_with_message("Failed to resolve conflicts", err);
+                cmd_err.extend_hints(hint);
+                cmd_err
+            }
+        }
+    }
+}
+
+impl From<MergeToolPartialResolutionError> for CommandError {
+    fn from(err: MergeToolPartialResolutionError) -> Self {
+        user_error(err)
+    }
+}
+
+impl From<MergeToolConfigError> for CommandError {
+    fn from(err: MergeToolConfigError) -> Self {
+        match &err {
+            MergeToolConfigError::MergeArgsNotConfigured { tool_name } => {
+                let tool_name = tool_name.clone();
+                user_error(err).hinted(format!(
+                    "To use `{tool_name}` as a merge tool, the config \
+                     `merge-tools.{tool_name}.merge-args` must be defined (see docs for details)"
+                ))
+            }
+            _ => user_error_with_message("Failed to load tool configuration", err),
+        }
+    }
+}
+
+impl From<TextEditError> for CommandError {
+    fn from(err: TextEditError) -> Self {
+        user_error(err)
+    }
+}
+
+impl From<TempTextEditError> for CommandError {
+    fn from(err: TempTextEditError) -> Self {
+        let hint = err.path.as_ref().map(|path| {
+            let name = err.name.as_deref().unwrap_or("file");
+            format!("Edited {name} is left in {path}", path = path.display())
+        });
+        let mut cmd_err = user_error(err);
+        cmd_err.extend_hints(hint);
+        cmd_err
+    }
+}
+
+impl From<TempTextEditError> for ConvergeError {
+    fn from(err: TempTextEditError) -> Self {
+        Self::Other(Box::new(err))
+    }
+}
+
+impl From<TrailerParseError> for CommandError {
+    fn from(err: TrailerParseError) -> Self {
+        user_error(err)
+    }
+}
+
+#[cfg(feature = "git")]
+mod git {
+    use jj_lib::git::GitCreateWorktreeError;
+    use jj_lib::git::GitDefaultRefspecError;
+    use jj_lib::git::GitExportError;
+    use jj_lib::git::GitFetchError;
+    use jj_lib::git::GitImportError;
+    use jj_lib::git::GitPushError;
+    use jj_lib::git::GitRefExpansionError;
+    use jj_lib::git::GitRemoteManagementError;
+    use jj_lib::git::GitResetHeadError;
+    use jj_lib::git::UnexpectedGitBackendError;
+    use jj_lib::git_backend::GitRepoAtWorkdirError;
+
+    use super::CommandError;
+    use super::user_error;
+    use super::user_error_with_message;
+
+    const OBJECT_FORMAT_MISMATCH_HINT: &str = "jj cannot convert between object formats. To use \
+                                               this remote, clone it into a new repository with \
+                                               `jj git clone`.";
+
+    impl From<GitImportError> for CommandError {
+        fn from(err: GitImportError) -> Self {
+            let hint = match &err {
+                GitImportError::MissingHeadTarget { .. }
+                | GitImportError::MissingRefAncestor { .. } => Some(
+                    "\
+Is this Git repository a partial clone (cloned with the --filter argument)?
+jj currently does not support partial clones. To use jj with this repository, try re-cloning with \
+                     the full repository contents."
+                        .to_string(),
+                ),
+                GitImportError::Backend(_) => None,
+                GitImportError::Index(_) => None,
+                GitImportError::RevsetEvaluation(_) => None,
+                GitImportError::Git(_) => None,
+                GitImportError::GitRepoAtWorkdir(_) => None,
+                GitImportError::UnexpectedBackend(_) => None,
+                GitImportError::ManagedState(_) => None,
+            };
+            let mut cmd_err =
+                user_error_with_message("Failed to import refs from underlying Git repo", err);
+            cmd_err.extend_hints(hint);
+            cmd_err
+        }
+    }
+
+    impl From<GitExportError> for CommandError {
+        fn from(err: GitExportError) -> Self {
+            user_error_with_message("Failed to export refs to underlying Git repo", err)
+        }
+    }
+
+    impl From<GitFetchError> for CommandError {
+        fn from(err: GitFetchError) -> Self {
+            match err {
+                GitFetchError::NoSuchRemote(_) => user_error(err),
+                GitFetchError::RemoteName(_) => {
+                    user_error(err).hinted("Run `jj git remote rename` to give a different name.")
+                }
+                GitFetchError::RefExpansion(err) => err.into(),
+                GitFetchError::Subprocess(_) if err.is_object_format_mismatch() => {
+                    user_error(err).hinted(OBJECT_FORMAT_MISMATCH_HINT)
+                }
+                GitFetchError::RejectedUpdates(_)
+                | GitFetchError::FailedToPrune(_)
+                | GitFetchError::Subprocess(_)
+                | GitFetchError::ManagedState(_) => user_error(err),
+            }
+        }
+    }
+
+    impl From<GitDefaultRefspecError> for CommandError {
+        fn from(err: GitDefaultRefspecError) -> Self {
+            match err {
+                GitDefaultRefspecError::NoSuchRemote(_) => user_error(err),
+                GitDefaultRefspecError::InvalidRemoteConfiguration(_, _) => user_error(err),
+            }
+        }
+    }
+
+    impl From<GitRefExpansionError> for CommandError {
+        fn from(err: GitRefExpansionError) -> Self {
+            match &err {
+                GitRefExpansionError::Expression(_) => user_error(err)
+                    .hinted("Specify patterns in `(positive | ...) & ~(negative | ...)` form."),
+                GitRefExpansionError::InvalidBranchPattern(_) => user_error(err),
+            }
+        }
+    }
+
+    impl From<GitPushError> for CommandError {
+        fn from(err: GitPushError) -> Self {
+            match err {
+                GitPushError::ManagedState(_) | GitPushError::NoSuchRemote(_) => user_error(err),
+                GitPushError::RemoteName(_) => {
+                    user_error(err).hinted("Run `jj git remote rename` to give a different name.")
+                }
+                GitPushError::Subprocess(_) if err.is_object_format_mismatch() => {
+                    user_error(err).hinted(OBJECT_FORMAT_MISMATCH_HINT)
+                }
+                GitPushError::Subprocess(_) => user_error(err),
+                GitPushError::UnexpectedBackend(_) => user_error(err),
+            }
+        }
+    }
+
+    impl From<GitRemoteManagementError> for CommandError {
+        fn from(err: GitRemoteManagementError) -> Self {
+            user_error(err)
+        }
+    }
+
+    impl From<GitCreateWorktreeError> for CommandError {
+        fn from(err: GitCreateWorktreeError) -> Self {
+            user_error(err)
+        }
+    }
+
+    impl From<GitResetHeadError> for CommandError {
+        fn from(err: GitResetHeadError) -> Self {
+            user_error_with_message("Failed to reset Git HEAD state", err)
+        }
+    }
+
+    impl From<UnexpectedGitBackendError> for CommandError {
+        fn from(err: UnexpectedGitBackendError) -> Self {
+            user_error(err)
+        }
+    }
+
+    impl From<GitRepoAtWorkdirError> for CommandError {
+        fn from(err: GitRepoAtWorkdirError) -> Self {
+            user_error(err)
+        }
+    }
+}
+
+impl From<RevsetEvaluationError> for CommandError {
+    fn from(err: RevsetEvaluationError) -> Self {
+        user_error(err)
+    }
+}
+
+impl From<FilesetParseError> for CommandError {
+    fn from(err: FilesetParseError) -> Self {
+        let hint = fileset_parse_error_hint(&err);
+        let mut cmd_err =
+            user_error_with_message(format!("Failed to parse fileset: {}", err.kind()), err);
+        cmd_err.extend_hints(hint);
+        cmd_err
+    }
+}
+
+impl From<RecoverWorkspaceError> for CommandError {
+    fn from(err: RecoverWorkspaceError) -> Self {
+        match err {
+            RecoverWorkspaceError::Backend(err) => err.into(),
+            RecoverWorkspaceError::Reset(err) => err.into(),
+            RecoverWorkspaceError::RewriteRootCommit(err) => err.into(),
+            RecoverWorkspaceError::TransactionCommit(err) => err.into(),
+            err @ RecoverWorkspaceError::WorkspaceMissingWorkingCopy(_) => user_error(err),
+        }
+    }
+}
+
+impl From<RevsetParseError> for CommandError {
+    fn from(err: RevsetParseError) -> Self {
+        let hint = revset_parse_error_hint(&err);
+        let mut cmd_err =
+            user_error_with_message(format!("Failed to parse revset: {}", err.kind()), err);
+        cmd_err.extend_hints(hint);
+        cmd_err
+    }
+}
+
+impl From<RevsetResolutionError> for CommandError {
+    fn from(err: RevsetResolutionError) -> Self {
+        let hints = revset_resolution_error_hints(&err);
+        let mut cmd_err = user_error(err);
+        cmd_err.extend_hints(hints);
+        cmd_err
+    }
+}
+
+impl From<UserRevsetEvaluationError> for CommandError {
+    fn from(err: UserRevsetEvaluationError) -> Self {
+        match err {
+            UserRevsetEvaluationError::Resolution(err) => err.into(),
+            UserRevsetEvaluationError::Evaluation(err) => err.into(),
+        }
+    }
+}
+
+impl From<TemplateParseError> for CommandError {
+    fn from(err: TemplateParseError) -> Self {
+        let hint = template_parse_error_hint(&err);
+        let mut cmd_err =
+            user_error_with_message(format!("Failed to parse template: {}", err.kind()), err);
+        cmd_err.extend_hints(hint);
+        cmd_err
+    }
+}
+
+impl From<UiPathParseError> for CommandError {
+    fn from(err: UiPathParseError) -> Self {
+        user_error(err)
+    }
+}
+
+impl From<clap::Error> for CommandError {
+    fn from(err: clap::Error) -> Self {
+        let hint = find_source_parse_error_hint(&err);
+        let mut cmd_err = cli_error(err);
+        cmd_err.extend_hints(hint);
+        cmd_err
+    }
+}
+
+impl From<WorkingCopyStateError> for CommandError {
+    fn from(err: WorkingCopyStateError) -> Self {
+        internal_error_with_message("Failed to access working copy state", err)
+    }
+}
+
+impl From<GitIgnoreError> for CommandError {
+    fn from(err: GitIgnoreError) -> Self {
+        user_error_with_message("Failed to process .gitignore.", err)
+    }
+}
+
+impl From<ParseBulkEditMessageError> for CommandError {
+    fn from(err: ParseBulkEditMessageError) -> Self {
+        user_error(err)
+    }
+}
+
+impl From<AbsorbError> for CommandError {
+    fn from(err: AbsorbError) -> Self {
+        match err {
+            AbsorbError::Backend(err) => err.into(),
+            AbsorbError::RevsetEvaluation(err) => err.into(),
+        }
+    }
+}
+
+impl From<FixError> for CommandError {
+    fn from(err: FixError) -> Self {
+        match err {
+            FixError::Backend(err) => err.into(),
+            FixError::RevsetEvaluation(err) => err.into(),
+            FixError::Io(err) => err.into(),
+            FixError::FixContent(err) => internal_error_with_message(
+                "An error occurred while attempting to fix file content",
+                err,
+            ),
+        }
+    }
+}
+
+impl From<BisectionError> for CommandError {
+    fn from(err: BisectionError) -> Self {
+        match err {
+            BisectionError::BackendError(_) => user_error(err),
+            BisectionError::RevsetEvaluationError(_) => user_error(err),
+        }
+    }
+}
+
+impl From<SecureConfigError> for CommandError {
+    fn from(err: SecureConfigError) -> Self {
+        internal_error_with_message("Failed to determine the secure config for a repo", err)
+    }
+}
+
+fn find_source_parse_error_hint(err: &dyn error::Error) -> Option<String> {
+    let source = err.source()?;
+    if let Some(source) = source.downcast_ref() {
+        bookmark_name_parse_error_hint(source)
+    } else if let Some(source) = source.downcast_ref() {
+        config_get_error_hint(source)
+    } else if let Some(source) = source.downcast_ref() {
+        file_pattern_parse_error_hint(source)
+    } else if let Some(source) = source.downcast_ref() {
+        fileset_parse_error_hint(source)
+    } else if let Some(source) = source.downcast_ref() {
+        revset_parse_error_hint(source)
+    } else if let Some(source) = source.downcast_ref() {
+        // TODO: propagate all hints?
+        revset_resolution_error_hints(source).into_iter().next()
+    } else if let Some(UserRevsetEvaluationError::Resolution(source)) = source.downcast_ref() {
+        // TODO: propagate all hints?
+        revset_resolution_error_hints(source).into_iter().next()
+    } else if let Some(source) = source.downcast_ref() {
+        string_pattern_parse_error_hint(source)
+    } else if let Some(source) = source.downcast_ref() {
+        tag_name_parse_error_hint(source)
+    } else if let Some(source) = source.downcast_ref() {
+        template_parse_error_hint(source)
+    } else {
+        None
+    }
+}
+
+const REVSET_SYMBOL_HINT: &str = "See https://docs.jj-vcs.dev/latest/revsets/ or use `jj help -k \
+                                  revsets` for how to quote symbols.";
+
+fn bookmark_name_parse_error_hint(err: &BookmarkNameParseError) -> Option<String> {
+    use revset::ExpressionKind;
+    match revset::parse_program(&err.input).map(|node| node.kind) {
+        Ok(ExpressionKind::RemoteSymbol(symbol)) => Some(format!(
+            "Looks like remote bookmark. Run `jj bookmark track {symbol}` to track it."
+        )),
+        _ => Some(REVSET_SYMBOL_HINT.to_owned()),
+    }
+}
+
+fn config_get_error_hint(err: &ConfigGetError) -> Option<String> {
+    match &err {
+        ConfigGetError::NotFound { .. } => None,
+        ConfigGetError::Type { source_path, .. } => source_path
+            .as_ref()
+            .map(|path| format!("Check the config file: {}", path.display())),
+    }
+}
+
+fn file_pattern_parse_error_hint(err: &FilePatternParseError) -> Option<String> {
+    match err {
+        FilePatternParseError::InvalidKind(_) => Some(String::from(
+            "See https://docs.jj-vcs.dev/latest/filesets/#file-patterns or `jj help -k filesets` \
+             for valid prefixes.",
+        )),
+        // Suggest root:"<path>" if input can be parsed as repo-relative path
+        FilePatternParseError::UiPath(UiPathParseError::Fs(e)) => {
+            RepoPathBuf::from_relative_path(&e.input).ok().map(|path| {
+                format!(r#"Consider using root:{path:?} to specify repo-relative path"#)
+            })
+        }
+        FilePatternParseError::UiPath(
+            UiPathParseError::Mapping(_) | UiPathParseError::Project(_),
+        ) => None,
+        FilePatternParseError::RelativePath(_) => None,
+        FilePatternParseError::GlobPattern(_) => None,
+    }
+}
+
+fn fileset_parse_error_hint(err: &FilesetParseError) -> Option<String> {
+    match err.kind() {
+        FilesetParseErrorKind::SyntaxError => Some(String::from(
+            "See https://docs.jj-vcs.dev/latest/filesets/ or use `jj help -k filesets` for \
+             filesets syntax and how to match file paths.",
+        )),
+        FilesetParseErrorKind::NoSuchFunction { name, candidates } => {
+            format_similarity_hint(name, candidates, Some(MAX_SIMILAR_NAMES))
+        }
+        FilesetParseErrorKind::InvalidArguments { .. } => find_source_parse_error_hint(&err),
+        FilesetParseErrorKind::RedefinedFunctionParameter => None,
+        FilesetParseErrorKind::Expression(_) => find_source_parse_error_hint(&err),
+        FilesetParseErrorKind::InAliasExpansion(_)
+        | FilesetParseErrorKind::InParameterExpansion(_)
+        | FilesetParseErrorKind::RecursiveAlias(_) => None,
+    }
+}
+
+fn opset_resolution_error_hint(err: &OpsetResolutionError) -> Option<String> {
+    match err {
+        OpsetResolutionError::MultipleOperations {
+            expr: _,
+            candidates,
+        } => Some(format!(
+            "Try specifying one of the operations by ID: {}",
+            candidates.iter().map(short_operation_hash).join(", ")
+        )),
+        OpsetResolutionError::EmptyOperations(_)
+        | OpsetResolutionError::InvalidIdPrefix(_)
+        | OpsetResolutionError::NoSuchOperation(_)
+        | OpsetResolutionError::AmbiguousIdPrefix(_) => None,
+    }
+}
+
+pub(crate) fn revset_parse_error_hint(err: &RevsetParseError) -> Option<String> {
+    // Only for the bottom error, which is usually the root cause
+    let bottom_err = iter::successors(Some(err), |e| e.origin()).last().unwrap();
+    match bottom_err.kind() {
+        RevsetParseErrorKind::SyntaxError => Some(
+            "See https://docs.jj-vcs.dev/latest/revsets/ or use `jj help -k revsets` for revsets \
+             syntax and how to quote symbols."
+                .into(),
+        ),
+        RevsetParseErrorKind::NotPostfixOperator {
+            op: _,
+            similar_op,
+            description,
+        }
+        | RevsetParseErrorKind::NotInfixOperator {
+            op: _,
+            similar_op,
+            description,
+        } => Some(format!("Did you mean `{similar_op}` for {description}?")),
+        RevsetParseErrorKind::NoSuchFunction { name, candidates } => {
+            format_similarity_hint(name, candidates, Some(MAX_SIMILAR_NAMES))
+        }
+        RevsetParseErrorKind::InvalidFunctionArguments { .. }
+        | RevsetParseErrorKind::Expression(_) => find_source_parse_error_hint(bottom_err),
+        _ => None,
+    }
+}
+
+fn revset_resolution_error_hints(err: &RevsetResolutionError) -> Vec<String> {
+    let multiple_targets_hint = |targets: &[CommitId]| {
+        format!(
+            "Use commit ID to select single revision from: {}",
+            targets.iter().map(|id| format!("{id:.12}")).join(", ")
+        )
+    };
+    match err {
+        RevsetResolutionError::NoSuchRevision { name, candidates } => {
+            let symbols = candidates
+                .iter()
+                .map(|symbol| SimilarSymbol::new(symbol))
+                .collect_vec();
+            format_similarity_hint(&similarity_key(name), &symbols, Some(MAX_SIMILAR_NAMES))
+                .into_iter()
+                .collect()
+        }
+        RevsetResolutionError::DivergentChangeId {
+            symbol,
+            visible_targets,
+        } => vec![
+            format!(
+                "Use change offset to select single revision: {}",
+                visible_targets
+                    .iter()
+                    .map(|(offset, _)| format!("{symbol}/{offset}"))
+                    .join(", ")
+            ),
+            format!("Use `change_id({symbol})` to select all revisions"),
+            "To abandon unneeded revisions, run `jj abandon <commit_id>`".to_owned(),
+        ],
+        RevsetResolutionError::ConflictedRef {
+            kind: "bookmark",
+            symbol,
+            targets,
+        } => vec![
+            multiple_targets_hint(targets),
+            format!("Use `bookmarks({symbol})` to select all revisions"),
+            format!(
+                "To set which revision the bookmark points to, run `jj bookmark set {symbol} -r \
+                 <REVISION>`"
+            ),
+        ],
+        RevsetResolutionError::ConflictedRef {
+            kind: _,
+            symbol: _,
+            targets,
+        } => {
+            vec![multiple_targets_hint(targets)]
+        }
+        RevsetResolutionError::EmptyString
+        | RevsetResolutionError::WorkspaceMissingWorkingCopy { .. }
+        | RevsetResolutionError::AmbiguousCommitIdPrefix(_)
+        | RevsetResolutionError::AmbiguousChangeIdPrefix(_)
+        | RevsetResolutionError::Backend(_)
+        | RevsetResolutionError::Other(_) => vec![],
+    }
+}
+
+fn string_pattern_parse_error_hint(err: &StringPatternParseError) -> Option<String> {
+    match err {
+        StringPatternParseError::InvalidKind(_) => Some(
+            "Try prefixing with one of `exact:`, `glob:`, `regex:`, `substring:`, or one of these \
+             with `-i` suffix added (e.g. `glob-i:`) for case-insensitive matching"
+                .into(),
+        ),
+        StringPatternParseError::GlobPattern(_) | StringPatternParseError::Regex(_) => None,
+    }
+}
+
+fn tag_name_parse_error_hint(_: &TagNameParseError) -> Option<String> {
+    Some(REVSET_SYMBOL_HINT.to_owned())
+}
+
+fn template_parse_error_hint(err: &TemplateParseError) -> Option<String> {
+    // Only for the bottom error, which is usually the root cause
+    let bottom_err = iter::successors(Some(err), |e| e.origin()).last().unwrap();
+    match bottom_err.kind() {
+        // Keyword hints aren't capped or reordered. `-Tbuiltin` uses this to
+        // list every builtin_* alias, and template-aliases share the list, so a
+        // large alias set isn't truncated here either. (#9811)
+        TemplateParseErrorKind::NoSuchKeyword {
+            name, candidates, ..
+        } => format_similarity_hint(name, candidates, None),
+        TemplateParseErrorKind::NoSuchFunction {
+            name, candidates, ..
+        }
+        | TemplateParseErrorKind::NoSuchMethod {
+            name, candidates, ..
+        } => format_similarity_hint(name, candidates, Some(MAX_SIMILAR_NAMES)),
+        TemplateParseErrorKind::InvalidArguments { .. } | TemplateParseErrorKind::Expression(_) => {
+            find_source_parse_error_hint(bottom_err)
+        }
+        _ => None,
+    }
+}
+
+const BROKEN_PIPE_EXIT_CODE: u8 = 3;
+
+pub(crate) fn handle_command_result(ui: &mut Ui, result: Result<(), CommandError>) -> u8 {
+    try_handle_command_result(ui, result).unwrap_or(BROKEN_PIPE_EXIT_CODE)
+}
+
+fn try_handle_command_result(ui: &mut Ui, result: Result<(), CommandError>) -> io::Result<u8> {
+    let Err(cmd_err) = &result else {
+        return Ok(0);
+    };
+    let err = &cmd_err.error;
+    let hints = &cmd_err.hints;
+    match cmd_err.kind {
+        CommandErrorKind::User => {
+            print_error(ui, "Error: ", err, hints)?;
+            Ok(1)
+        }
+        CommandErrorKind::Config => {
+            print_error(ui, "Config error: ", err, hints)?;
+            writeln!(
+                ui.stderr_formatter().labeled("hint"),
+                "For help, see https://docs.jj-vcs.dev/latest/config/ or use `jj help -k config`."
+            )?;
+            Ok(1)
+        }
+        CommandErrorKind::Cli => {
+            if let Some(err) = err.downcast_ref::<clap::Error>() {
+                handle_clap_error(ui, err, hints)
+            } else {
+                print_error(ui, "Error: ", err, hints)?;
+                Ok(2)
+            }
+        }
+        CommandErrorKind::BrokenPipe => {
+            // A broken pipe is not an error, but a signal to exit gracefully.
+            Ok(BROKEN_PIPE_EXIT_CODE)
+        }
+        CommandErrorKind::Internal => {
+            print_error(ui, "Internal error: ", err, hints)?;
+            Ok(255)
+        }
+    }
+}
+
+fn print_error(
+    ui: &Ui,
+    heading: &str,
+    err: &dyn error::Error,
+    hints: &[ErrorHint],
+) -> io::Result<()> {
+    writeln!(ui.error_with_heading(heading), "{err}")?;
+    print_error_sources(ui, err.source())?;
+    print_error_hints(ui, hints)?;
+    Ok(())
+}
+
+/// Prints a non-fatal command error as a warning, including its sources and hints.
+pub(crate) fn print_command_warning(ui: &Ui, error: &CommandError) -> io::Result<()> {
+    writeln!(ui.warning_default(), "{}", error.error)?;
+    print_error_sources(ui, error.error.source())?;
+    print_error_hints(ui, &error.hints)?;
+    Ok(())
+}
+
+/// Prints error sources one by one from the given `source` inclusive.
+pub fn print_error_sources(ui: &Ui, source: Option<&dyn error::Error>) -> io::Result<()> {
+    let Some(err) = source else {
+        return Ok(());
+    };
+    let mut formatter = ui.stderr_formatter().into_labeled("error_source");
+    if err.source().is_none() {
+        write!(formatter.labeled("heading"), "Caused by: ")?;
+        writeln!(formatter, "{err}")?;
+    } else {
+        writeln!(formatter.labeled("heading"), "Caused by:")?;
+        for (i, err) in iter::successors(Some(err), |&err| err.source()).enumerate() {
+            write!(formatter.labeled("heading"), "{}: ", i + 1)?;
+            writeln!(formatter, "{err}")?;
+        }
+    }
+    Ok(())
+}
+
+fn print_error_hints(ui: &Ui, hints: &[ErrorHint]) -> io::Result<()> {
+    let mut formatter = ui.stderr_formatter().into_labeled("hint");
+    for hint in hints {
+        write!(formatter.labeled("heading"), "Hint: ")?;
+        match hint {
+            ErrorHint::PlainText(message) => {
+                writeln!(formatter, "{message}")?;
+            }
+            ErrorHint::Formatted(recorded) => {
+                recorded.replay(formatter.as_mut())?;
+                // Formatted hint is usually multi-line text, and it's
+                // convenient if trailing "\n" doesn't have to be omitted.
+                if !recorded.data().ends_with(b"\n") {
+                    writeln!(formatter)?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn handle_clap_error(ui: &mut Ui, err: &clap::Error, hints: &[ErrorHint]) -> io::Result<u8> {
+    let clap_str = if ui.color() {
+        err.render().ansi().to_string()
+    } else {
+        err.render().to_string()
+    };
+
+    match err.kind() {
+        clap::error::ErrorKind::DisplayHelp
+        | clap::error::ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand => ui.request_pager(),
+        _ => {}
+    }
+    // Definitions for exit codes and streams come from
+    // https://github.com/clap-rs/clap/blob/master/src/error/mod.rs
+    match err.kind() {
+        clap::error::ErrorKind::DisplayHelp | clap::error::ErrorKind::DisplayVersion => {
+            write!(ui.stdout(), "{clap_str}")?;
+            return Ok(0);
+        }
+        _ => {}
+    }
+    write!(ui.stderr(), "{clap_str}")?;
+    // Skip the first source error, which should be printed inline.
+    print_error_sources(ui, err.source().and_then(|err| err.source()))?;
+    print_error_hints(ui, hints)?;
+    Ok(2)
+}
+
+/// Prints diagnostic messages emitted during parsing.
+pub fn print_parse_diagnostics<T: error::Error>(
+    ui: &Ui,
+    context_message: &str,
+    diagnostics: &Diagnostics<T>,
+) -> io::Result<()> {
+    for diag in diagnostics {
+        writeln!(ui.warning_default(), "{context_message}")?;
+        for err in iter::successors(Some(diag as &dyn error::Error), |&err| err.source()) {
+            writeln!(ui.stderr(), "{err}")?;
+        }
+        // If we add support for multiple error diagnostics, we might have to do
+        // find_source_parse_error_hint() and print it here.
+    }
+    Ok(())
+}

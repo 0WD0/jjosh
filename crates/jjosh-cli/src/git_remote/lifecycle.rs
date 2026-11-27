@@ -1,0 +1,147 @@
+use jj_cli::cli_util::WorkspaceCommandHelper;
+use jj_cli::command_error::CommandError;
+use jj_cli::command_error::user_error;
+use jj_cli::git_remote::GitRemoteBindingArgs;
+use jj_lib::project::BindingRecord;
+use jj_lib::project::BindingTarget;
+use jj_lib::project::ConnectionId;
+use jj_lib::project::Representation;
+use jj_lib::ref_name::RemoteName;
+use jj_lib::repo::Repo as _;
+
+/// Prepare semantic state only. The core remote command owns connection policy,
+/// the new BindingId, and native configuration publication.
+pub(super) fn prepare_binding(
+    workspace: &WorkspaceCommandHelper,
+    remote: &RemoteName,
+    connection_id: &ConnectionId,
+    args: &GitRemoteBindingArgs,
+) -> Result<BindingRecord, CommandError> {
+    let git = jj_lib::git::get_git_backend(workspace.repo().store())?.git_repo();
+    jj_lib::git::check_obsolete_remote_config(&git, remote).map_err(user_error)?;
+    if git.object_hash() != gix::hash::Kind::Sha1 {
+        return Err(user_error(
+            "jjosh-v1 history conversion requires a SHA-1 Git backend",
+        ));
+    }
+    for key in ["jjosh-project", "jjosh-mount", "jjosh-base"] {
+        if super::config_string(&git, &format!("remote.{}.{key}", remote.as_str()))
+            .map_err(user_error)?
+            .is_some()
+        {
+            return Err(user_error(format!(
+                "Remote {} still has legacy configuration; migrate the repository with a \
+                 historical jjosh version before attaching a new definition",
+                remote.as_str()
+            )));
+        }
+    }
+    if !remote.as_str().contains('/') {
+        let sidecar = git
+            .common_dir()
+            .join("josh/remotes")
+            .join(format!("{}.josh", remote.as_str()));
+        match std::fs::symlink_metadata(&sidecar) {
+            Ok(_) => {
+                return Err(user_error(format!(
+                    "Legacy sidecar {} belongs to an old jjosh format; upgrade with the \
+                     historical jjosh version that created it, or explicitly remove it only after \
+                     confirming it is obsolete, before creating a new binding",
+                    sidecar.display()
+                )));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(user_error(error)),
+        }
+    }
+    let projects = workspace.repo().view().projects();
+    let count = usize::from(args.whole)
+        + usize::from(args.filter.is_some())
+        + usize::from(args.view.is_some())
+        + usize::from(args.like_remote.is_some());
+    if count != 1 {
+        return Err(user_error(
+            "A binding requires exactly one of --whole, --filter, --view, or --like; \
+             representations are never inherited implicitly",
+        ));
+    }
+    let project = args
+        .project
+        .as_deref()
+        .map(|name| {
+            let (id, _) = projects.project_by_name(name).map_err(user_error)?;
+            Ok::<_, CommandError>(id)
+        })
+        .transpose()?;
+    let (target, representation, base) = if let Some(source) = &args.like_remote {
+        let source_name = jj_cli::git_remote::resolve_remote_selector(
+            workspace,
+            source,
+            args.project.as_deref(),
+        )?;
+        git.find_remote(source_name.as_str()).map_err(user_error)?;
+        let id = jj_lib::git::remote_connection_id(&git, &source_name)
+            .map_err(user_error)?
+            .ok_or_else(|| {
+                user_error(format!(
+                    "Remote {source} has no adopted connection; legacy configuration must be \
+                     migrated with a historical jjosh version"
+                ))
+            })?;
+        let (_, source_binding) = projects
+            .binding_for_connection(&id)
+            .map_err(user_error)?
+            .ok_or_else(|| user_error(format!("Remote {source} has no binding to copy")))?;
+        if let Some(project) = &project
+            && source_binding.target != BindingTarget::Project(project.clone())
+        {
+            return Err(user_error(
+                "--project must agree with the target copied by --like",
+            ));
+        }
+        if args.base.is_some() {
+            return Err(user_error(
+                "--like copies the base selection rule; do not combine it with --base",
+            ));
+        }
+        (
+            source_binding.target.clone(),
+            source_binding.representation.clone(),
+            source_binding.base.clone(),
+        )
+    } else {
+        let representation = if args.whole {
+            Representation::Whole
+        } else if let Some(filter) = &args.filter {
+            crate::binding_config::parse_filter(filter).map_err(user_error)?
+        } else {
+            crate::binding_config::parse_view(args.view.as_deref().unwrap()).map_err(user_error)?
+        };
+        (
+            project
+                .map(BindingTarget::Project)
+                .unwrap_or(BindingTarget::RepositoryView),
+            representation,
+            args.base
+                .as_deref()
+                .map(crate::binding_config::parse_base)
+                .transpose()
+                .map_err(user_error)?,
+        )
+    };
+    if let BindingTarget::Project(project) = &target {
+        projects.validate_project(project).map_err(user_error)?;
+    }
+    crate::binding_config::filter(&representation).map_err(user_error)?;
+    if target == BindingTarget::RepositoryView && representation == Representation::Whole {
+        return Err(user_error(
+            "--whole requires --project; omit conversion options for an ordinary repository remote",
+        ));
+    }
+    Ok(BindingRecord {
+        target,
+        connection_id: connection_id.clone(),
+        representation,
+        base,
+    })
+}

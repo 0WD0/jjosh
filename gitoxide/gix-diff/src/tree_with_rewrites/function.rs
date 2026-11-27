@@ -52,6 +52,7 @@ pub fn diff(
         location: options.location,
         objects,
         tracked: options.rewrites.map(rewrites::Tracker::new),
+        rewrite_destination_paths: options.rewrite_destination_paths,
         directories: Directories::default(),
         err: None,
     };
@@ -76,6 +77,7 @@ struct Delegate<'a, 'old, VisitFn, Objects> {
     objects: &'a Objects,
     visit: VisitFn,
     tracked: Option<rewrites::Tracker<crate::tree::visit::Change>>,
+    rewrite_destination_paths: Option<std::collections::HashSet<bstr::BString>>,
     directories: Directories,
     location: Option<crate::tree::recorder::Location>,
     err: Option<gix_error::Error>,
@@ -187,6 +189,19 @@ where
     }
 
     fn visit(&mut self, change: crate::tree::visit::Change) -> crate::tree::visit::Action {
+        if matches!(change, crate::tree::visit::Change::Addition { .. })
+            && self
+                .rewrite_destination_paths
+                .as_ref()
+                .is_some_and(|paths| !paths.contains(self.recorder.path()))
+        {
+            return Self::emit_change(
+                ChangeRef::from_tree_change(&change, self.recorder.path()),
+                self.location,
+                &mut self.visit,
+                &mut self.err,
+            );
+        }
         let change = match self.tracked.as_mut() {
             Some(_) if change.entry_mode().is_tree() => {
                 self.directories.push(change.clone(), self.recorder.path());

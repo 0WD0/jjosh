@@ -1,0 +1,354 @@
+// Copyright 2020 The Jujutsu Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+use jj_config::config::ConfigLayer;
+use jj_config::config::ConfigSource;
+use jj_config::settings::UserSettings;
+use jj_core::backend::TreeValue;
+use jj_core::conflict_labels::ConflictLabels;
+use jj_core::merge::Merge;
+use jj_core::merge::SameChange;
+use jj_core::merged_tree::MergedTree;
+use jj_lib::repo::Repo as _;
+use jj_lib::rewrite::rebase_commit;
+use pollster::FutureExt as _;
+use test_case::test_case;
+use testutils::CommitBuilderExt as _;
+use testutils::TestRepo;
+use testutils::TestResult;
+use testutils::assert_tree_eq;
+use testutils::create_tree;
+use testutils::repo_path;
+
+#[test]
+fn test_simplify_conflict_after_resolving_parent() -> TestResult {
+    let test_repo = TestRepo::init();
+    let repo = &test_repo.repo;
+
+    // Set up a repo like this:
+    // D
+    // | C
+    // | B
+    // |/
+    // A
+    //
+    // Commit A has a file with 3 lines. B and D make conflicting changes to the
+    // first line. C changes the third line. We then rebase B and C onto D,
+    // which creates a conflict. We resolve the conflict in the first line and
+    // rebase C2 (the rebased C) onto the resolved conflict. C3 should not have
+    // a conflict since it changed an unrelated line.
+    let path = repo_path("dir/file");
+    let mut tx = repo.start_transaction();
+    let tree_a = create_tree(repo, &[(path, "abc\ndef\nghi\n")]);
+    let commit_a = tx
+        .repo_mut()
+        .new_commit(vec![repo.store().root_commit_id().clone()], tree_a)
+        .write_unwrap();
+    let tree_b = create_tree(repo, &[(path, "Abc\ndef\nghi\n")]);
+    let commit_b = tx
+        .repo_mut()
+        .new_commit(vec![commit_a.id().clone()], tree_b)
+        .write_unwrap();
+    let tree_c = create_tree(repo, &[(path, "Abc\ndef\nGhi\n")]);
+    let commit_c = tx
+        .repo_mut()
+        .new_commit(vec![commit_b.id().clone()], tree_c)
+        .write_unwrap();
+    let tree_d = create_tree(repo, &[(path, "abC\ndef\nghi\n")]);
+    let commit_d = tx
+        .repo_mut()
+        .new_commit(vec![commit_a.id().clone()], tree_d)
+        .write_unwrap();
+
+    let commit_b2 =
+        rebase_commit(tx.repo_mut(), commit_b, vec![commit_d.id().clone()]).block_on()?;
+    let commit_c2 =
+        rebase_commit(tx.repo_mut(), commit_c, vec![commit_b2.id().clone()]).block_on()?;
+
+    // Test the setup: Both B and C should have conflicts.
+    let tree_b2 = commit_b2.tree();
+    let tree_c2 = commit_b2.tree();
+    assert!(!tree_b2.path_value(path).block_on()?.is_resolved());
+    assert!(!tree_c2.path_value(path).block_on()?.is_resolved());
+
+    // Create the resolved B and rebase C on top.
+    let tree_b3 = create_tree(repo, &[(path, "AbC\ndef\nghi\n")]);
+    let commit_b3 = tx
+        .repo_mut()
+        .rewrite_commit(&commit_b2)
+        .block_on()
+        .set_tree(tree_b3)
+        .write_unwrap();
+    let commit_c3 =
+        rebase_commit(tx.repo_mut(), commit_c2, vec![commit_b3.id().clone()]).block_on()?;
+    tx.repo_mut().rebase_descendants().block_on()?;
+    let repo = tx.commit("test").block_on()?;
+
+    // The conflict should now be resolved.
+    let tree_c2 = commit_c3.tree();
+    let resolved_value = tree_c2.path_value(path).block_on()?;
+    match resolved_value.into_resolved() {
+        Ok(Some(TreeValue::File {
+            id,
+            executable: false,
+            copy_id: _,
+        })) => {
+            assert_eq!(
+                testutils::read_file(repo.store(), path, &id),
+                b"AbC\ndef\nGhi\n"
+            );
+        }
+        other => {
+            panic!("unexpected value: {other:#?}");
+        }
+    }
+    Ok(())
+}
+
+// TODO: Add tests for simplification of multi-way conflicts. Both the content
+// and the executable bit need testing.
+
+#[test_case(SameChange::Keep)]
+#[test_case(SameChange::Accept)]
+fn test_rebase_linearize_lossy_merge(same_change: SameChange) -> TestResult {
+    let settings = settings_with_same_change(same_change);
+    let test_repo = TestRepo::init_with_settings(&settings);
+    let repo = &test_repo.repo;
+
+    // Test this rebase:
+    // D    foo=2          D' foo=1 or 2
+    // |\                  |
+    // | C  foo=2          |
+    // | |           =>    B  foo=2
+    // B |  foo=2          |
+    // |/                  |
+    // A    foo=1          A  foo=1
+    //
+    // Since both B and C changed "1" to "2" but only one "2" remains in D, it
+    // effectively discarded a change from "1" to "2". With `SameChange::Keep`,
+    // D' is therefore "1". However, with `SameChange::Accept`, `jj show D` etc.
+    // currently don't tell the user about the discarded change, so it's
+    // surprising that the change in commit D is interpreted that way.
+    let path = repo_path("foo");
+    let mut tx = repo.start_transaction();
+    let repo_mut = tx.repo_mut();
+    let tree_1 = create_tree(repo, &[(path, "1")]);
+    let tree_2 = create_tree(repo, &[(path, "2")]);
+    let commit_a = repo_mut
+        .new_commit(vec![repo.store().root_commit_id().clone()], tree_1.clone())
+        .write_unwrap();
+    let commit_b = repo_mut
+        .new_commit(vec![commit_a.id().clone()], tree_2.clone())
+        .write_unwrap();
+    let commit_c = repo_mut
+        .new_commit(vec![commit_a.id().clone()], tree_2.clone())
+        .write_unwrap();
+    let commit_d = repo_mut
+        .new_commit(
+            vec![commit_b.id().clone(), commit_c.id().clone()],
+            tree_2.clone(),
+        )
+        .write_unwrap();
+
+    match same_change {
+        SameChange::Keep => assert!(!commit_d.is_empty(repo_mut.index()).block_on()?),
+        SameChange::Accept => assert!(commit_d.is_empty(repo_mut.index()).block_on()?),
+    }
+
+    let commit_d2 = rebase_commit(repo_mut, commit_d, vec![commit_b.id().clone()]).block_on()?;
+
+    match same_change {
+        SameChange::Keep => assert_tree_eq!(commit_d2.tree(), tree_1),
+        SameChange::Accept => assert_tree_eq!(commit_d2.tree(), tree_2),
+    }
+    Ok(())
+}
+
+#[test_case(SameChange::Keep)]
+#[test_case(SameChange::Accept)]
+fn test_rebase_on_lossy_merge(same_change: SameChange) -> TestResult {
+    let settings = settings_with_same_change(same_change);
+    let test_repo = TestRepo::init_with_settings(&settings);
+    let repo = &test_repo.repo;
+
+    // Test this rebase:
+    // D    foo=2          D'   foo=3 or 2+(3-1) (conflict)
+    // |\                  |\
+    // | C  foo=2          | C' foo=3
+    // | |           =>    | |
+    // B |  foo=2          B |  foo=2
+    // |/                  |/
+    // A    foo=1          A    foo=1
+    //
+    // Commit D effectively discarded a change from "1" to "2", so one
+    // reasonable result in D' is "3". That's the result with
+    // `SameChange::Keep`. However, with `SameChange::Accept`, we resolve the
+    // auto-merged parents to just "2" before the rebase in order to be
+    // consistent with `jj show D` and other commands for inspecting the commit,
+    // so we instead get a conflict after the rebase.
+    let path = repo_path("foo");
+    let mut tx = repo.start_transaction();
+    let repo_mut = tx.repo_mut();
+    let tree_1 = create_tree(repo, &[(path, "1")]);
+    let tree_2 = create_tree(repo, &[(path, "2")]);
+    let tree_3 = create_tree(repo, &[(path, "3")]);
+    let commit_a = repo_mut
+        .new_commit(vec![repo.store().root_commit_id().clone()], tree_1.clone())
+        .write_unwrap();
+    let commit_b = repo_mut
+        .new_commit(vec![commit_a.id().clone()], tree_2.clone())
+        .write_unwrap();
+    let commit_c = repo_mut
+        .new_commit(vec![commit_a.id().clone()], tree_2.clone())
+        .write_unwrap();
+    let commit_d = repo_mut
+        .new_commit(
+            vec![commit_b.id().clone(), commit_c.id().clone()],
+            tree_2.clone(),
+        )
+        .write_unwrap();
+
+    match same_change {
+        SameChange::Keep => assert!(!commit_d.is_empty(repo_mut.index()).block_on()?),
+        SameChange::Accept => assert!(commit_d.is_empty(repo_mut.index()).block_on()?),
+    }
+
+    let commit_c2 = repo_mut
+        .new_commit(vec![commit_a.id().clone()], tree_3.clone())
+        .write_unwrap();
+    let commit_d2 = rebase_commit(
+        repo_mut,
+        commit_d,
+        vec![commit_b.id().clone(), commit_c2.id().clone()],
+    )
+    .block_on()?;
+
+    match same_change {
+        SameChange::Keep => assert_tree_eq!(commit_d2.tree(), tree_3),
+        SameChange::Accept => {
+            let expected_tree_id = Merge::from_vec(vec![
+                tree_2.into_tree_ids(),
+                tree_1.into_tree_ids(),
+                tree_3.into_tree_ids(),
+            ])
+            .flatten();
+            assert_eq!(*commit_d2.tree_ids(), expected_tree_id);
+        }
+    }
+    Ok(())
+}
+
+fn settings_with_same_change(same_change: SameChange) -> UserSettings {
+    let mut config = testutils::base_user_config();
+    let mut layer = ConfigLayer::empty(ConfigSource::User);
+    let same_change_str = match same_change {
+        SameChange::Keep => "keep",
+        SameChange::Accept => "accept",
+    };
+    layer
+        .set_value("merge.same-change", same_change_str)
+        .unwrap();
+    config.add_layer(layer);
+    testutils::user_settings_from_config(config)
+}
+
+#[test]
+fn test_resolve_directory_after_canceling_file_terms() -> TestResult {
+    let settings = settings_with_same_change(SameChange::Keep);
+    let test_repo = TestRepo::init_with_settings(&settings);
+    let repo = &test_repo.repo;
+    let d = repo_path("d");
+    let a = repo_path("d/a");
+    let b = repo_path("d/b");
+    let q = repo_path("q");
+    let terms = [
+        create_tree(repo, &[(a, "1\n"), (q, "0\n")]),
+        create_tree(repo, &[(d, "9\n"), (q, "0\n")]),
+        create_tree(repo, &[(d, "9\n"), (q, "1\n")]),
+        create_tree(repo, &[(a, "0\n"), (q, "1\n")]),
+        create_tree(repo, &[(a, "0\n"), (b, "2\n"), (q, "0\n")]),
+    ];
+    let tree_ids = Merge::from_vec(terms.map(|tree| tree.tree_ids().first().clone()).to_vec());
+    // The two file terms at d cancel, but their containing trees differ at q.
+    // Resolving q used to expose the directory merge only on the second pass.
+    assert_eq!(tree_ids.simplify(), tree_ids);
+    let tree = MergedTree::new(
+        repo.store().clone(),
+        tree_ids,
+        ConflictLabels::from_vec(
+            ["a", "base1", "b", "base2", "c"]
+                .map(str::to_owned)
+                .to_vec(),
+        ),
+    );
+    let expected = create_tree(repo, &[(a, "1\n"), (b, "2\n"), (q, "0\n")]);
+    let resolved = tree.resolve().block_on()?;
+    assert_tree_eq!(resolved, expected);
+    let again = resolved.clone().resolve().block_on()?;
+    assert_tree_eq!(again, resolved);
+    Ok(())
+}
+
+#[test]
+fn test_resolve_directory_cancellation_with_unresolved_terms() -> TestResult {
+    let settings = settings_with_same_change(SameChange::Keep);
+    let test_repo = TestRepo::init_with_settings(&settings);
+    let repo = &test_repo.repo;
+    let d = repo_path("d");
+    let a = repo_path("d/a");
+    let q = repo_path("q");
+    let terms = [
+        create_tree(repo, &[(a, "1\n"), (q, "0\n")]),
+        create_tree(repo, &[(d, "9\n"), (q, "1\n")]),
+        create_tree(repo, &[(d, "9\n"), (q, "2\n")]),
+        create_tree(repo, &[(a, "0\n"), (q, "3\n")]),
+        create_tree(repo, &[(a, "2\n"), (q, "4\n")]),
+    ];
+    let tree = MergedTree::new(
+        repo.store().clone(),
+        Merge::from_vec(terms.map(|tree| tree.tree_ids().first().clone()).to_vec()),
+        ConflictLabels::from_vec(
+            ["a", "base1", "b", "base2", "c"]
+                .map(str::to_owned)
+                .to_vec(),
+        ),
+    );
+    // The file terms at d cancel, but d/a and q still conflict. The canceled
+    // file at d is removed from its terms, which doesn't change the meaning of
+    // the merge.
+    let expected = MergedTree::new(
+        repo.store().clone(),
+        Merge::from_vec(
+            [
+                create_tree(repo, &[(a, "1\n"), (q, "0\n")]),
+                create_tree(repo, &[(q, "1\n")]),
+                create_tree(repo, &[(q, "2\n")]),
+                create_tree(repo, &[(a, "0\n"), (q, "3\n")]),
+                create_tree(repo, &[(a, "2\n"), (q, "4\n")]),
+            ]
+            .map(|tree| tree.tree_ids().first().clone())
+            .to_vec(),
+        ),
+        ConflictLabels::from_vec(
+            ["a", "base1", "b", "base2", "c"]
+                .map(str::to_owned)
+                .to_vec(),
+        ),
+    );
+    let resolved = tree.resolve().block_on()?;
+    assert_tree_eq!(resolved, expected);
+    let again = resolved.clone().resolve().block_on()?;
+    assert_tree_eq!(again, resolved);
+    Ok(())
+}

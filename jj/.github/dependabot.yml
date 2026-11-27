@@ -1,0 +1,61 @@
+version: 2
+updates:
+- package-ecosystem: "cargo"
+  directory: "/"
+  schedule:
+    interval: "weekly"
+  cooldown:
+    default-days: 7
+  open-pull-requests-limit: 10
+  commit-message:
+    prefix: "cargo:"
+  groups:
+    cargo-dependencies:
+      patterns:
+      - "*"
+- package-ecosystem: "github-actions"
+  directory: "/"
+  schedule:
+    interval: "weekly"
+  cooldown:
+    default-days: 7
+  open-pull-requests-limit: 10
+  commit-message:
+    prefix: "github:"
+  groups:
+    github-dependencies:
+      patterns:
+      - "*"
+- package-ecosystem: "nix"
+  directory: "/"
+  schedule:
+    interval: "weekly"
+  cooldown:
+    default-days: 7
+  open-pull-requests-limit: 10
+  commit-message:
+    prefix: "nix:"
+  groups:
+    nix-dependencies:
+      patterns:
+      - "*"
+# Docs website
+- package-ecosystem: "npm"
+  directory: "/web/docs"
+  schedule:
+    interval: "weekly"
+  cooldown:
+    default-days: 7
+  open-pull-requests-limit: 10
+  commit-message:
+    prefix: "npm:"
+  groups:
+    npm-dependencies:
+      patterns:
+      - "*"
+  ignore:
+  # Starlight imports the default export from js-yaml 4, and its code is
+  # bundled such that it resolves our top-level js-yaml. Keep it at the same
+  # major version as Starlight's.
+  - dependency-name: "js-yaml"
+    update-types: ["version-update:semver-major"]

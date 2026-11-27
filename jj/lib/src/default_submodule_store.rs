@@ -1,0 +1,52 @@
+// Copyright 2023 The Jujutsu Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+//! Default implementation of [`SubmoduleStore`].
+
+use std::path::Path;
+use std::path::PathBuf;
+
+use crate::submodule_store::SubmoduleStore;
+
+/// Default [`SubmoduleStore`] implementation, which stores nothing yet.
+#[derive(Debug)]
+pub struct DefaultSubmoduleStore {
+    #[expect(dead_code)]
+    path: PathBuf,
+}
+
+impl DefaultSubmoduleStore {
+    /// Name of this submodule store type.
+    pub const NAME: &str = "default";
+
+    /// Load an existing SubmoduleStore
+    pub fn load(store_path: &Path) -> Self {
+        Self {
+            path: store_path.to_path_buf(),
+        }
+    }
+
+    /// Initializes a new submodule store at `store_path`.
+    pub fn init(store_path: &Path) -> Self {
+        Self {
+            path: store_path.to_path_buf(),
+        }
+    }
+}
+
+impl SubmoduleStore for DefaultSubmoduleStore {
+    fn name(&self) -> &str {
+        Self::NAME
+    }
+}

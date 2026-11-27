@@ -1,0 +1,650 @@
+// Copyright 2020 The Jujutsu Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+//! Types for repository views and operations.
+
+use std::any::Any;
+use std::collections::BTreeMap;
+use std::collections::HashSet;
+use std::fmt::Debug;
+use std::iter;
+use std::time::SystemTime;
+
+use async_trait::async_trait;
+use itertools::Itertools as _;
+use thiserror::Error;
+
+use crate::backend::CommitId;
+use crate::backend::MillisSinceEpoch;
+use crate::backend::Timestamp;
+use crate::content_hash::ContentHash;
+use crate::content_hash::DigestUpdate;
+use crate::merge::Merge;
+use crate::object_id::HexPrefix;
+use crate::object_id::ObjectId as _;
+use crate::object_id::PrefixResolution;
+use crate::object_id::id_type;
+use crate::project::{ConnectionId, ConversionObservation, ObservationKey, ProjectState};
+use crate::ref_name::GitRefNameBuf;
+use crate::ref_name::RefName;
+use crate::ref_name::RefNameBuf;
+use crate::ref_name::RemoteName;
+use crate::ref_name::RemoteNameBuf;
+use crate::ref_name::RemoteRefSymbol;
+use crate::ref_name::WorkspaceNameBuf;
+use crate::working_copy_patterns::WorkingCopyPatterns;
+
+id_type!(
+    /// Identifier for a [`View`] object.
+    pub ViewId { hex() }
+);
+id_type!(
+    /// Identifier for an [`Operation`] object.
+    pub OperationId { hex() }
+);
+id_type!(
+    /// Identifier for a canonical sparse selection and working-copy layout.
+    pub WorkingCopyPatternsId { hex() }
+);
+
+/// Non-conflicting target pointing to no commit.
+///
+/// This will typically be used in place of `None` returned by a map lookup.
+pub static ABSENT_REF_TARGET: RefTarget = RefTarget::absent();
+/// Remote ref pointing to no commit.
+///
+/// This will typically be used in place of `None` returned by a map lookup.
+pub static ABSENT_REMOTE_REF: RemoteRef = RemoteRef::absent();
+
+/// Bookmark or tag target.
+pub type RefTarget = Merge<Option<CommitId>>;
+
+/// Remote bookmark or tag.
+#[derive(ContentHash, Clone, Debug, Eq, Hash, PartialEq)]
+pub struct RemoteRef {
+    /// Target commits.
+    pub target: RefTarget,
+    /// Whether the ref is tracked or not.
+    pub state: RemoteRefState,
+}
+
+impl RemoteRef {
+    /// Creates remote ref pointing to no commit.
+    pub const fn absent() -> Self {
+        Self {
+            target: RefTarget::absent(),
+            state: RemoteRefState::New,
+        }
+    }
+
+    /// Returns true if the target points to no commit.
+    pub fn is_absent(&self) -> bool {
+        self.target.is_absent()
+    }
+
+    /// Returns true if the target points to any commit.
+    pub fn is_present(&self) -> bool {
+        self.target.is_present()
+    }
+
+    /// Returns true if the ref is supposed to be merged in to the local ref.
+    pub fn is_tracked(&self) -> bool {
+        self.state == RemoteRefState::Tracked
+    }
+
+    /// Target that should have been merged in to the local ref.
+    ///
+    /// Use this as the base or known target when merging new remote ref in to
+    /// local or pushing local ref to remote.
+    pub fn tracked_target(&self) -> &RefTarget {
+        if self.is_tracked() {
+            &self.target
+        } else {
+            &ABSENT_REF_TARGET
+        }
+    }
+}
+
+/// Whether the ref is tracked or not.
+#[derive(ContentHash, Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum RemoteRefState {
+    /// Remote ref is not merged in to the local ref.
+    New,
+    /// Remote ref has been merged in to the local ref. Incoming ref will be
+    /// merged, too.
+    Tracked,
+}
+
+/// Helper to strip redundant `Option<T>` from `RefTarget` lookup result.
+pub trait RefTargetOptionExt {
+    /// The resulting type after flattening.
+    type Value;
+
+    /// Flattens nested structure.
+    fn flatten(self) -> Self::Value;
+}
+
+impl RefTargetOptionExt for Option<RefTarget> {
+    type Value = RefTarget;
+
+    fn flatten(self) -> Self::Value {
+        self.unwrap_or_else(RefTarget::absent)
+    }
+}
+
+impl<'a> RefTargetOptionExt for Option<&'a RefTarget> {
+    type Value = &'a RefTarget;
+
+    fn flatten(self) -> Self::Value {
+        self.unwrap_or(&ABSENT_REF_TARGET)
+    }
+}
+
+impl RefTargetOptionExt for Option<RemoteRef> {
+    type Value = RemoteRef;
+
+    fn flatten(self) -> Self::Value {
+        self.unwrap_or_else(RemoteRef::absent)
+    }
+}
+
+impl<'a> RefTargetOptionExt for Option<&'a RemoteRef> {
+    type Value = &'a RemoteRef;
+
+    fn flatten(self) -> Self::Value {
+        self.unwrap_or(&ABSENT_REMOTE_REF)
+    }
+}
+
+/// Local and remote refs of the same name.
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct LocalRemoteRefTarget<'a> {
+    /// The commit the ref points to locally.
+    pub local_target: &'a RefTarget,
+    /// `(remote_name, remote_ref)` pairs in lexicographical order.
+    pub remote_refs: Vec<(&'a RemoteName, &'a RemoteRef)>,
+}
+
+/// Represents the way the repo looks at a given time, just like how a Tree
+/// object represents how the file system looks at a given time.
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct View {
+    /// All head commits. There should be at least one head commit.
+    pub head_ids: HashSet<CommitId>,
+    /// Local bookmark names and targets.
+    pub local_bookmarks: BTreeMap<RefNameBuf, RefTarget>,
+    /// Local tag names and targets.
+    pub local_tags: BTreeMap<RefNameBuf, RefTarget>,
+    /// Remote names and views.
+    pub remote_views: BTreeMap<RemoteNameBuf, RemoteView>,
+    /// Git ref names and targets.
+    pub git_refs: BTreeMap<GitRefNameBuf, RefTarget>,
+    /// The commit each workspace's Git HEAD points to, keyed by workspace name.
+    // TODO: Do we want to store the current bookmark name too?
+    pub git_heads: BTreeMap<WorkspaceNameBuf, RefTarget>,
+    /// Workspace names and checked-out commits.
+    // The commit that *should be* checked out in the workspace. Note that the working copy
+    // (.jj/working_copy/) has the source of truth about which commit *is* checked out (to be
+    // precise: the commit to which we most recently completed an update to).
+    pub wc_commit_ids: BTreeMap<WorkspaceNameBuf, CommitId>,
+    /// Desired canonical sparse selection and layout object IDs.
+    /// Missing entries retain unknown-history, working-copy-local configuration.
+    pub wc_sparse_patterns: BTreeMap<WorkspaceNameBuf, Merge<Option<WorkingCopyPatternsId>>>,
+    /// Operation-owned project definitions.
+    pub project_state: ProjectState,
+    /// Current remote connection membership.
+    pub remote_connections: BTreeMap<RemoteNameBuf, Merge<Option<ConnectionId>>>,
+    /// Identity snapshots belonging to retained remote tracking state, not membership.
+    pub observed_remote_connections: BTreeMap<RemoteNameBuf, Merge<Option<ConnectionId>>>,
+    /// Scoped names observed for retained remote connection identities.
+    pub observed_remote_names:
+        BTreeMap<ConnectionId, Merge<Option<crate::project::ScopedRemoteName>>>,
+    /// Immutable conversion evidence for retained remote refs.
+    pub project_observations: BTreeMap<ObservationKey, Merge<Option<ConversionObservation>>>,
+}
+
+impl ContentHash for View {
+    fn hash(&self, state: &mut impl DigestUpdate) {
+        // Preserve the historical field order and hash of unregistered views.
+        self.head_ids.hash(state);
+        self.local_bookmarks.hash(state);
+        self.local_tags.hash(state);
+        self.remote_views.hash(state);
+        self.git_refs.hash(state);
+        self.git_heads.hash(state);
+        self.wc_commit_ids.hash(state);
+        if !self.wc_sparse_patterns.is_empty() {
+            self.wc_sparse_patterns.hash(state);
+        }
+        if !self.project_state.is_empty()
+            || !self.remote_connections.is_empty()
+            || !self.project_observations.is_empty()
+        {
+            "jjosh-project-state-v1".hash(state);
+            "definitions".hash(state);
+            self.project_state.hash(state);
+            "remote-connections".hash(state);
+            self.remote_connections.hash(state);
+            "conversion-observations".hash(state);
+            self.project_observations.hash(state);
+        }
+        // Keep old object IDs stable until historical state is explicitly captured.
+        if !self.observed_remote_connections.is_empty() || !self.observed_remote_names.is_empty() {
+            "jjosh-remote-observations-v1".hash(state);
+            self.observed_remote_connections.hash(state);
+            self.observed_remote_names.hash(state);
+        }
+    }
+}
+
+impl View {
+    /// Creates new (mostly empty) view containing the given commit as the head.
+    pub fn make_root(root_commit_id: CommitId) -> Self {
+        Self {
+            head_ids: HashSet::from([root_commit_id]),
+            local_bookmarks: BTreeMap::new(),
+            local_tags: BTreeMap::new(),
+            remote_views: BTreeMap::new(),
+            git_refs: BTreeMap::new(),
+            git_heads: BTreeMap::new(),
+            wc_commit_ids: BTreeMap::new(),
+            wc_sparse_patterns: BTreeMap::new(),
+            project_state: ProjectState::default(),
+            remote_connections: BTreeMap::new(),
+            observed_remote_connections: BTreeMap::new(),
+            observed_remote_names: BTreeMap::new(),
+            project_observations: BTreeMap::new(),
+        }
+    }
+}
+
+/// Represents the state of the remote repo.
+#[derive(ContentHash, Clone, Debug, Default, Eq, PartialEq)]
+pub struct RemoteView {
+    /// Bookmark names, targets, and states.
+    // TODO: Do we need to support tombstones for remote bookmarks? For example, if the bookmark
+    // has been deleted locally and you pull from a remote, maybe it should make a difference
+    // whether the bookmark is known to have existed on the remote. We may not want to resurrect
+    // the bookmark if the bookmark's state on the remote was just not known.
+    pub bookmarks: BTreeMap<RefNameBuf, RemoteRef>,
+    /// Tag names, targets, and states.
+    pub tags: BTreeMap<RefNameBuf, RemoteRef>,
+}
+
+/// Iterates pair of local and remote refs by name.
+pub fn merge_join_ref_views<'a>(
+    local_refs: &'a BTreeMap<RefNameBuf, RefTarget>,
+    remote_views: &'a BTreeMap<RemoteNameBuf, RemoteView>,
+    get_remote_refs: impl FnMut(&RemoteView) -> &BTreeMap<RefNameBuf, RemoteRef>,
+) -> impl Iterator<Item = (&'a RefName, LocalRemoteRefTarget<'a>)> {
+    let mut local_refs_iter = local_refs
+        .iter()
+        .map(|(name, target)| (&**name, target))
+        .peekable();
+    let mut remote_refs_iter = flatten_remote_refs(remote_views, get_remote_refs).peekable();
+
+    iter::from_fn(move || {
+        // Pick earlier bookmark name
+        let (name, local_target) = if let Some((symbol, _)) = remote_refs_iter.peek() {
+            local_refs_iter
+                .next_if(|&(local_name, _)| local_name <= symbol.name)
+                .unwrap_or((symbol.name, &ABSENT_REF_TARGET))
+        } else {
+            local_refs_iter.next()?
+        };
+        let remote_refs = remote_refs_iter
+            .peeking_take_while(|(symbol, _)| symbol.name == name)
+            .map(|(symbol, remote_ref)| (symbol.remote, remote_ref))
+            .collect();
+        let local_remote_target = LocalRemoteRefTarget {
+            local_target,
+            remote_refs,
+        };
+        Some((name, local_remote_target))
+    })
+}
+
+/// Iterates `(symbol, remote_ref)`s in lexicographical order.
+pub fn flatten_remote_refs(
+    remote_views: &BTreeMap<RemoteNameBuf, RemoteView>,
+    mut get_remote_refs: impl FnMut(&RemoteView) -> &BTreeMap<RefNameBuf, RemoteRef>,
+) -> impl Iterator<Item = (RemoteRefSymbol<'_>, &RemoteRef)> {
+    remote_views
+        .iter()
+        .map(|(remote, remote_view)| {
+            get_remote_refs(remote_view)
+                .iter()
+                .map(move |(name, remote_ref)| (name.to_remote_symbol(remote), remote_ref))
+        })
+        .kmerge_by(|(symbol1, _), (symbol2, _)| symbol1 < symbol2)
+}
+
+/// Start and end times of an [`Operation`].
+// Could be aliased to Range<Timestamp> if needed.
+#[derive(Clone, ContentHash, Debug, Eq, PartialEq, serde::Serialize)]
+pub struct TimestampRange {
+    /// Time when the operation started.
+    pub start: Timestamp,
+    /// Time when the operation ended.
+    pub end: Timestamp,
+}
+
+/// Represents an operation (transaction) on the repo view, just like how a
+/// Commit object represents an operation on the tree.
+///
+/// Operations and views are not meant to be exchanged between repos or users;
+/// they represent local state and history.
+///
+/// The operation history will almost always be linear. It will only have
+/// forks when parallel operations occurred. The parent is determined when
+/// the transaction starts. When the transaction commits, a lock will be
+/// taken and it will be checked that the current head of the operation
+/// graph is unchanged. If the current head has changed, there has been
+/// concurrent operation.
+#[derive(ContentHash, PartialEq, Eq, Clone, Debug, serde::Serialize)]
+pub struct Operation {
+    /// [`View`] produced by this operation.
+    #[serde(skip)] // TODO: should be exposed?
+    pub view_id: ViewId,
+    /// Parent operations.
+    pub parents: Vec<OperationId>,
+    /// Details of this operation.
+    #[serde(flatten)]
+    pub metadata: OperationMetadata,
+    /// Mapping from new commit to its predecessors, or `None` if predecessors
+    /// weren't recorded when the operation was written.
+    ///
+    /// * `commit_id: []` if the commit was newly created.
+    /// * `commit_id: [predecessor_id, ..]` if the commit was rewritten.
+    ///
+    /// This mapping preserves all transitive predecessors if a commit was
+    /// rewritten multiple times within the same transaction. For example, if
+    /// `X` was rewritten as `Y`, then rebased as `Z`, these modifications are
+    /// recorded as `{Y: [X], Z: [Y]}`.
+    ///
+    /// Existing commits (including some commits imported from Git) aren't
+    /// tracked even if they became visible at this operation.
+    // BTreeMap for ease of deterministic serialization. If the deserialization
+    // cost matters, maybe this can be changed to sorted Vec.
+    #[serde(skip)] // TODO: should be exposed?
+    pub commit_predecessors: Option<BTreeMap<CommitId, Vec<CommitId>>>,
+}
+
+impl Operation {
+    /// Creates the root operation for the given view.
+    pub fn make_root(root_view_id: ViewId) -> Self {
+        let timestamp = Timestamp {
+            timestamp: MillisSinceEpoch(0),
+            tz_offset: 0,
+        };
+        let metadata = OperationMetadata {
+            time: TimestampRange {
+                start: timestamp,
+                end: timestamp,
+            },
+            description: "".to_string(),
+            hostname: "".to_string(),
+            username: "".to_string(),
+            is_snapshot: false,
+            workspace_name: None,
+            attributes: BTreeMap::new(),
+        };
+        Self {
+            view_id: root_view_id,
+            parents: vec![],
+            metadata,
+            // The root operation is guaranteed to have no new commits. The root
+            // commit could be considered born at the root operation, but there
+            // may be other commits created within the abandoned operations.
+            // They don't have any predecessors records as well.
+            commit_predecessors: Some(BTreeMap::new()),
+        }
+    }
+}
+
+/// Details recorded for an [`Operation`].
+#[derive(ContentHash, PartialEq, Eq, Clone, Debug, serde::Serialize)]
+pub struct OperationMetadata {
+    /// Start and end times.
+    pub time: TimestampRange,
+    /// User-facing short description.
+    pub description: String,
+    /// Host where the operation ran.
+    pub hostname: String,
+    /// User who ran the operation.
+    pub username: String,
+    /// Whether this operation represents a pure snapshotting of the working
+    /// copy.
+    pub is_snapshot: bool,
+    /// The workspace this operation was performed in, if any
+    pub workspace_name: Option<WorkspaceNameBuf>,
+    /// Additional metadata.
+    pub attributes: BTreeMap<String, String>,
+}
+
+/// Data to be loaded into the root operation/view.
+#[derive(Clone, Debug)]
+pub struct RootOperationData {
+    /// The root commit ID, which should exist in the root view.
+    pub root_commit_id: CommitId,
+}
+
+/// Error while reading or writing operation store objects.
+#[derive(Debug, Error)]
+pub enum OpStoreError {
+    /// The requested object does not exist.
+    #[error("Object {hash} of type {object_type} not found")]
+    ObjectNotFound {
+        /// Type of the object.
+        object_type: String,
+        /// Identifier of the object.
+        hash: String,
+        /// Underlying error.
+        source: Option<Box<dyn std::error::Error + Send + Sync>>,
+    },
+    /// Object could not be read.
+    #[error("Error when reading object {hash} of type {object_type}")]
+    ReadObject {
+        /// Type of the object.
+        object_type: String,
+        /// Identifier of the object.
+        hash: String,
+        /// Underlying error.
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+    /// Object could not be written.
+    #[error("Could not write object of type {object_type}")]
+    WriteObject {
+        /// Type of the object.
+        object_type: &'static str,
+        /// Underlying error.
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+    /// Some other error that doesn't fit into the above categories.
+    #[error(transparent)]
+    Other(Box<dyn std::error::Error + Send + Sync>),
+}
+
+/// Result of [`OpStore`] operations.
+pub type OpStoreResult<T> = Result<T, OpStoreError>;
+
+/// Interface for operation store backends.
+#[async_trait]
+pub trait OpStore: Any + Send + Sync + Debug {
+    /// A unique name that identifies this backend.
+    fn name(&self) -> &str;
+
+    /// The root operation ID.
+    fn root_operation_id(&self) -> &OperationId;
+
+    /// Reads a view by ID.
+    async fn read_view(&self, id: &ViewId) -> OpStoreResult<View>;
+
+    /// Writes a view and returns its ID.
+    async fn write_view(&self, contents: &View) -> OpStoreResult<ViewId>;
+
+    /// Reads a canonical sparse selection and working-copy layout by ID.
+    async fn read_working_copy_patterns(
+        &self,
+        id: &WorkingCopyPatternsId,
+    ) -> OpStoreResult<WorkingCopyPatterns>;
+
+    /// Writes a canonical sparse selection and working-copy layout.
+    async fn write_working_copy_patterns(
+        &self,
+        contents: &WorkingCopyPatterns,
+    ) -> OpStoreResult<WorkingCopyPatternsId>;
+
+    /// Reads an operation by ID.
+    async fn read_operation(&self, id: &OperationId) -> OpStoreResult<Operation>;
+
+    /// Writes an operation and returns its ID.
+    async fn write_operation(&self, contents: &Operation) -> OpStoreResult<OperationId>;
+
+    /// Resolves an unambiguous operation ID prefix.
+    async fn resolve_operation_id_prefix(
+        &self,
+        prefix: &HexPrefix,
+    ) -> OpStoreResult<PrefixResolution<OperationId>>;
+
+    /// Prunes unreachable operations and views.
+    ///
+    /// All operations and views reachable from the `head_ids` won't be
+    /// removed. In addition to that, objects created after `keep_newer` will be
+    /// preserved. This mitigates a risk of deleting new heads created
+    /// concurrently by another process.
+    // TODO: return stats?
+    async fn gc(&self, head_ids: &[OperationId], keep_newer: SystemTime) -> OpStoreResult<()>;
+}
+
+impl dyn OpStore {
+    /// Returns reference of the implementation type.
+    pub fn downcast_ref<T: OpStore>(&self) -> Option<&T> {
+        (self as &dyn Any).downcast_ref()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use maplit::btreemap;
+
+    use super::*;
+
+    #[test]
+    fn test_merge_join_bookmark_views() {
+        let remote_ref = |target: &RefTarget| RemoteRef {
+            target: target.clone(),
+            state: RemoteRefState::Tracked, // doesn't matter
+        };
+        let local_bookmark1_target = RefTarget::normal(CommitId::from_hex("111111"));
+        let local_bookmark2_target = RefTarget::normal(CommitId::from_hex("222222"));
+        let git_bookmark1_remote_ref = remote_ref(&RefTarget::normal(CommitId::from_hex("333333")));
+        let git_bookmark2_remote_ref = remote_ref(&RefTarget::normal(CommitId::from_hex("444444")));
+        let remote1_bookmark1_remote_ref =
+            remote_ref(&RefTarget::normal(CommitId::from_hex("555555")));
+        let remote2_bookmark2_remote_ref =
+            remote_ref(&RefTarget::normal(CommitId::from_hex("666666")));
+
+        let local_bookmarks = btreemap! {
+            "bookmark1".into() => local_bookmark1_target.clone(),
+            "bookmark2".into() => local_bookmark2_target.clone(),
+        };
+        let remote_views = btreemap! {
+            "git".into() => RemoteView {
+                bookmarks: btreemap! {
+                    "bookmark1".into() => git_bookmark1_remote_ref.clone(),
+                    "bookmark2".into() => git_bookmark2_remote_ref.clone(),
+                },
+                tags: btreemap! {},
+            },
+            "remote1".into() => RemoteView {
+                bookmarks: btreemap! {
+                    "bookmark1".into() => remote1_bookmark1_remote_ref.clone(),
+                },
+                tags: btreemap! {},
+            },
+            "remote2".into() => RemoteView {
+                bookmarks: btreemap! {
+                    "bookmark2".into() => remote2_bookmark2_remote_ref.clone(),
+                },
+                tags: btreemap! {},
+            },
+        };
+        assert_eq!(
+            merge_join_ref_views(&local_bookmarks, &remote_views, |view| &view.bookmarks)
+                .collect_vec(),
+            vec![
+                (
+                    "bookmark1".as_ref(),
+                    LocalRemoteRefTarget {
+                        local_target: &local_bookmark1_target,
+                        remote_refs: vec![
+                            ("git".as_ref(), &git_bookmark1_remote_ref),
+                            ("remote1".as_ref(), &remote1_bookmark1_remote_ref),
+                        ],
+                    },
+                ),
+                (
+                    "bookmark2".as_ref(),
+                    LocalRemoteRefTarget {
+                        local_target: &local_bookmark2_target.clone(),
+                        remote_refs: vec![
+                            ("git".as_ref(), &git_bookmark2_remote_ref),
+                            ("remote2".as_ref(), &remote2_bookmark2_remote_ref),
+                        ],
+                    },
+                ),
+            ],
+        );
+
+        // Local only
+        let local_bookmarks = btreemap! {
+            "bookmark1".into() => local_bookmark1_target.clone(),
+        };
+        let remote_views = btreemap! {};
+        assert_eq!(
+            merge_join_ref_views(&local_bookmarks, &remote_views, |view| &view.bookmarks)
+                .collect_vec(),
+            vec![(
+                "bookmark1".as_ref(),
+                LocalRemoteRefTarget {
+                    local_target: &local_bookmark1_target,
+                    remote_refs: vec![]
+                },
+            )],
+        );
+
+        // Remote only
+        let local_bookmarks = btreemap! {};
+        let remote_views = btreemap! {
+            "remote1".into() => RemoteView {
+                bookmarks: btreemap! {
+                    "bookmark1".into() => remote1_bookmark1_remote_ref.clone(),
+                },
+                tags: btreemap! {},
+            },
+        };
+        assert_eq!(
+            merge_join_ref_views(&local_bookmarks, &remote_views, |view| &view.bookmarks)
+                .collect_vec(),
+            vec![(
+                "bookmark1".as_ref(),
+                LocalRemoteRefTarget {
+                    local_target: &RefTarget::absent(),
+                    remote_refs: vec![("remote1".as_ref(), &remote1_bookmark1_remote_ref)],
+                },
+            )],
+        );
+    }
+}

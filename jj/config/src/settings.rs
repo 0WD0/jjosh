@@ -1,0 +1,520 @@
+// Copyright 2020 The Jujutsu Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+//! User settings loaded from the configuration.
+
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::str::FromStr;
+use std::sync::Arc;
+use std::sync::Mutex;
+
+use itertools::Itertools as _;
+use jj_core::backend::ChangeId;
+use jj_core::backend::Commit;
+use jj_core::backend::Signature;
+use jj_core::backend::Timestamp;
+use jj_core::files::MergeOptions;
+use jj_core::ref_name::RemoteNameBuf;
+use jj_core::time_util;
+use jj_local_util::file_util::expand_home_path;
+use rand::prelude::*;
+use rand_chacha::ChaCha20Rng;
+use serde::Deserialize;
+
+use crate::config::ConfigGetError;
+use crate::config::ConfigGetResultExt as _;
+use crate::config::ConfigTable;
+use crate::config::ConfigValue;
+use crate::config::StackedConfig;
+use crate::config::ToConfigNamePath;
+use crate::fmt_util::binary_prefix;
+
+/// User settings, backed by the stacked config.
+#[derive(Debug, Clone)]
+pub struct UserSettings {
+    config: Arc<StackedConfig>,
+    data: Arc<UserSettingsData>,
+    rng: Arc<JJRng>,
+}
+
+#[derive(Debug)]
+struct UserSettingsData {
+    user_name: String,
+    user_email: String,
+    commit_timestamp: Option<Timestamp>,
+    operation_timestamp: Option<Timestamp>,
+    operation_hostname: String,
+    operation_username: String,
+    signing_behavior: SignBehavior,
+    // Environment for expanding paths:
+    home_dir: Option<PathBuf>,
+}
+
+/// Map of remote names to their settings.
+pub type RemoteSettingsMap = HashMap<RemoteNameBuf, RemoteSettings>;
+
+/// Per-remote settings from the `remotes.<name>` config tables.
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct RemoteSettings {
+    /// String matcher expression whether to track bookmarks automatically.
+    #[serde(default)]
+    pub auto_track_bookmarks: Option<String>,
+    /// String matcher expression whether to track locally-created bookmarks
+    /// automatically.
+    #[serde(default)]
+    pub auto_track_created_bookmarks: Option<String>,
+    /// Bookmark name expression to fetch by default.
+    #[serde(default)]
+    pub fetch_bookmarks: Option<String>,
+    /// Tag name expression to fetch by default.
+    #[serde(default)]
+    pub fetch_tags: Option<String>,
+}
+
+impl RemoteSettings {
+    /// Loads the settings of all remotes from `settings`.
+    pub fn table_from_settings(
+        settings: &UserSettings,
+    ) -> Result<RemoteSettingsMap, ConfigGetError> {
+        settings
+            .table_keys("remotes")
+            .map(|name| Ok((name.into(), settings.get(["remotes", name])?)))
+            .try_collect()
+    }
+}
+
+/// A enum that describes if a created/rewritten commit should be signed or not.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SignBehavior {
+    /// Drop existing signatures.
+    /// This is what jj did before signing support or does now when a signing
+    /// backend is not configured.
+    Drop,
+    /// Only sign commits that were authored by self and already signed,
+    /// "preserving" the signature across rewrites.
+    /// This is what jj does when a signing backend is configured.
+    Keep,
+    /// Sign/re-sign commits that were authored by self and drop them for
+    /// others. This is what jj does when configured to always sign.
+    Own,
+    /// Always sign commits, regardless of who authored or signed them before.
+    /// This is what jj does on `jj sign -f`.
+    Force,
+}
+
+/// Commit signing settings, describes how to and if to sign commits.
+#[derive(Debug, Clone)]
+pub struct SignSettings {
+    /// What to actually do, see [SignBehavior].
+    pub behavior: SignBehavior,
+    /// The email address to compare against the commit author when determining
+    /// if the existing signature is "our own" in terms of the sign behavior.
+    pub user_email: String,
+}
+
+impl SignSettings {
+    /// Check if a commit should be signed according to the configured behavior
+    /// and email.
+    pub fn should_sign(&self, commit: &Commit) -> bool {
+        match self.behavior {
+            SignBehavior::Drop => false,
+            SignBehavior::Keep => {
+                commit.secure_sig.is_some() && commit.author.email == self.user_email
+            }
+            SignBehavior::Own => commit.author.email == self.user_email,
+            SignBehavior::Force => true,
+        }
+    }
+}
+
+fn to_timestamp(value: ConfigValue) -> Result<Timestamp, Box<dyn std::error::Error + Send + Sync>> {
+    // Since toml_edit::Datetime isn't the date-time type used across our code
+    // base, we accept both string and date-time types.
+    if let Some(s) = value.as_str() {
+        Ok(time_util::parse_from_rfc3339(s)?)
+    } else if let Some(d) = value.as_datetime() {
+        // It's easier to re-parse the TOML date-time expression.
+        Ok(time_util::parse_from_rfc3339(&d.to_string())?)
+    } else {
+        let ty = value.type_name();
+        Err(format!("invalid type: {ty}, expected a date-time").into())
+    }
+}
+
+impl UserSettings {
+    /// Creates new settings from the given config and environment.
+    pub fn from_config_and_home_dir(
+        config: StackedConfig,
+        home_dir: Option<PathBuf>,
+    ) -> Result<Self, ConfigGetError> {
+        let rng_seed = config.get::<u64>("debug.randomness-seed").optional()?;
+        Self::from_inner(config, home_dir, Arc::new(JJRng::new(rng_seed)))
+    }
+
+    fn from_inner(
+        config: StackedConfig,
+        home_dir: Option<PathBuf>,
+        rng: Arc<JJRng>,
+    ) -> Result<Self, ConfigGetError> {
+        let user_name = config.get("user.name")?;
+        let user_email = config.get("user.email")?;
+        let commit_timestamp = config
+            .get_value_with("debug.commit-timestamp", to_timestamp)
+            .optional()?;
+        let operation_timestamp = config
+            .get_value_with("debug.operation-timestamp", to_timestamp)
+            .optional()?;
+        let operation_hostname = config.get("operation.hostname")?;
+        let operation_username = config.get("operation.username")?;
+        let signing_behavior = config.get("signing.behavior")?;
+        let data = UserSettingsData {
+            user_name,
+            user_email,
+            commit_timestamp,
+            operation_timestamp,
+            operation_hostname,
+            operation_username,
+            signing_behavior,
+            home_dir,
+        };
+        Ok(Self {
+            config: Arc::new(config),
+            data: Arc::new(data),
+            rng,
+        })
+    }
+
+    /// Creates settings with a new config while retaining the internal state.
+    ///
+    /// This ensures that no duplicated change IDs are generated within the
+    /// current process. New `debug.randomness-seed` value is ignored.
+    pub fn with_new_config(&self, config: StackedConfig) -> Result<Self, ConfigGetError> {
+        Self::from_inner(config, self.data.home_dir.clone(), self.rng.clone())
+    }
+
+    /// Returns the shared random number generator.
+    pub fn get_rng(&self) -> Arc<JJRng> {
+        self.rng.clone()
+    }
+
+    /// Returns the configured user name (`user.name`).
+    pub fn user_name(&self) -> &str {
+        &self.data.user_name
+    }
+
+    /// Returns the configured user email (`user.email`).
+    pub fn user_email(&self) -> &str {
+        &self.data.user_email
+    }
+
+    /// Returns the timestamp to use for commits instead of the current time,
+    /// if configured by `debug.commit-timestamp`.
+    pub fn commit_timestamp(&self) -> Option<Timestamp> {
+        self.data.commit_timestamp
+    }
+
+    /// Returns the timestamp to use for operations instead of the current
+    /// time, if configured by `debug.operation-timestamp`.
+    pub fn operation_timestamp(&self) -> Option<Timestamp> {
+        self.data.operation_timestamp
+    }
+
+    /// Returns the hostname to record in operations (`operation.hostname`).
+    pub fn operation_hostname(&self) -> &str {
+        &self.data.operation_hostname
+    }
+
+    /// Returns the username to record in operations (`operation.username`).
+    pub fn operation_username(&self) -> &str {
+        &self.data.operation_username
+    }
+
+    /// Returns a signature for the configured user, timestamped with
+    /// [`commit_timestamp()`](Self::commit_timestamp) or the current time.
+    pub fn signature(&self) -> Signature {
+        let timestamp = self.data.commit_timestamp.unwrap_or_else(Timestamp::now);
+        Signature {
+            name: self.user_name().to_owned(),
+            email: self.user_email().to_owned(),
+            timestamp,
+        }
+    }
+
+    /// Returns low-level config object.
+    ///
+    /// You should typically use `settings.get_<type>()` methods instead.
+    pub fn config(&self) -> &StackedConfig {
+        &self.config
+    }
+
+    /// Loads the settings of all remotes.
+    pub fn remote_settings(&self) -> Result<RemoteSettingsMap, ConfigGetError> {
+        RemoteSettings::table_from_settings(self)
+    }
+
+    /// Returns the configured signing backend (`signing.backend`), or `None`
+    /// if it's set to `"none"`.
+    // separate from sign_settings as those two are needed in pretty different
+    // places
+    pub fn signing_backend(&self) -> Result<Option<String>, ConfigGetError> {
+        let backend = self.get_string("signing.backend")?;
+        Ok((backend != "none").then_some(backend))
+    }
+
+    /// Returns the settings for deciding whether to sign commits (`user.email`
+    /// and `signing.behavior`).
+    pub fn sign_settings(&self) -> SignSettings {
+        SignSettings {
+            behavior: self.data.signing_behavior,
+            user_email: self.data.user_email.clone(),
+        }
+    }
+
+    /// Loads options for tree/file conflict resolution.
+    pub fn merge_options(&self) -> Result<MergeOptions, ConfigGetError> {
+        Ok(MergeOptions {
+            // Maybe we can add hunk-level=file to disable content merging if
+            // needed. It wouldn't be translated to FileMergeHunkLevel.
+            hunk_level: self.get("merge.hunk-level")?,
+            same_change: self.get("merge.same-change")?,
+        })
+    }
+}
+
+/// General-purpose accessors.
+impl UserSettings {
+    /// Looks up value of the specified type `T` by `name`.
+    pub fn get<'de, T: Deserialize<'de>>(
+        &self,
+        name: impl ToConfigNamePath,
+    ) -> Result<T, ConfigGetError> {
+        self.config.get(name)
+    }
+
+    /// Looks up string value by `name`.
+    pub fn get_string(&self, name: impl ToConfigNamePath) -> Result<String, ConfigGetError> {
+        self.get(name)
+    }
+
+    /// Looks up integer value by `name`.
+    pub fn get_int(&self, name: impl ToConfigNamePath) -> Result<i64, ConfigGetError> {
+        self.get(name)
+    }
+
+    /// Looks up boolean value by `name`.
+    pub fn get_bool(&self, name: impl ToConfigNamePath) -> Result<bool, ConfigGetError> {
+        self.get(name)
+    }
+
+    /// Looks up string value by `name`, expands "~/" to the home directory.
+    pub fn get_path(&self, name: impl ToConfigNamePath) -> Result<PathBuf, ConfigGetError> {
+        let value = self.get_string(name)?;
+        Ok(expand_home_path(&value, self.data.home_dir.as_deref()))
+    }
+
+    /// Looks up generic value by `name`.
+    pub fn get_value(&self, name: impl ToConfigNamePath) -> Result<ConfigValue, ConfigGetError> {
+        self.config.get_value(name)
+    }
+
+    /// Looks up value by `name`, converts it by using the given function.
+    pub fn get_value_with<T, E: Into<Box<dyn std::error::Error + Send + Sync>>>(
+        &self,
+        name: impl ToConfigNamePath,
+        convert: impl FnOnce(ConfigValue) -> Result<T, E>,
+    ) -> Result<T, ConfigGetError> {
+        self.config.get_value_with(name, convert)
+    }
+
+    /// Looks up sub table by `name`.
+    ///
+    /// Use `table_keys(prefix)` and `get([prefix, key])` instead if table
+    /// values have to be converted to non-generic value type.
+    pub fn get_table(&self, name: impl ToConfigNamePath) -> Result<ConfigTable, ConfigGetError> {
+        self.config.get_table(name)
+    }
+
+    /// Returns iterator over sub table keys at `name`.
+    pub fn table_keys(&self, name: impl ToConfigNamePath) -> impl Iterator<Item = &str> {
+        self.config.table_keys(name)
+    }
+}
+
+/// This Rng uses interior mutability to allow generating random values using an
+/// immutable reference. It also fixes a specific seedable RNG for
+/// reproducibility.
+#[derive(Debug)]
+pub struct JJRng(Mutex<ChaCha20Rng>);
+impl JJRng {
+    /// Generates a random change ID of `length` bytes.
+    pub fn new_change_id(&self, length: usize) -> ChangeId {
+        let mut rng = self.0.lock().unwrap();
+        let random_bytes = (0..length).map(|_| rng.random::<u8>()).collect();
+        ChangeId::new(random_bytes)
+    }
+
+    /// Generates a random byte string from the settings-seeded RNG.
+    ///
+    /// Used for project and connection identities so that operation contents
+    /// (and therefore operation IDs) are reproducible under
+    /// `debug.randomness-seed`.
+    pub fn new_random_id(&self, length: usize) -> Vec<u8> {
+        let mut rng = self.0.lock().unwrap();
+        (0..length).map(|_| rng.random::<u8>()).collect()
+    }
+
+    /// Creates a new RNGs. Could be made public, but we'd like to encourage all
+    /// RNGs references to point to the same RNG.
+    fn new(seed: Option<u64>) -> Self {
+        Self(Mutex::new(Self::internal_rng_from_seed(seed)))
+    }
+
+    fn internal_rng_from_seed(seed: Option<u64>) -> ChaCha20Rng {
+        match seed {
+            Some(seed) => ChaCha20Rng::seed_from_u64(seed),
+            None => rand::make_rng(),
+        }
+    }
+}
+
+/// A size in bytes optionally formatted/serialized with binary prefixes
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+pub struct HumanByteSize(pub u64);
+
+impl std::fmt::Display for HumanByteSize {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let (value, prefix) = binary_prefix(self.0 as f32);
+        write!(f, "{value:.1}{prefix}B")
+    }
+}
+
+impl FromStr for HumanByteSize {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.parse() {
+            Ok(bytes) => Ok(Self(bytes)),
+            Err(_) => {
+                let bytes = parse_human_byte_size(s)?;
+                Ok(Self(bytes))
+            }
+        }
+    }
+}
+
+impl TryFrom<ConfigValue> for HumanByteSize {
+    type Error = &'static str;
+
+    fn try_from(value: ConfigValue) -> Result<Self, Self::Error> {
+        if let Some(n) = value.as_integer() {
+            let n = u64::try_from(n).map_err(|_| "Integer out of range")?;
+            Ok(Self(n))
+        } else if let Some(s) = value.as_str() {
+            s.parse()
+        } else {
+            Err("Expected a positive integer or a string in '<number><unit>' form")
+        }
+    }
+}
+
+fn parse_human_byte_size(v: &str) -> Result<u64, &'static str> {
+    let digit_end = v.find(|c: char| !c.is_ascii_digit()).unwrap_or(v.len());
+    if digit_end == 0 {
+        return Err("must start with a number");
+    }
+    let (digits, trailing) = v.split_at(digit_end);
+    let exponent = match trailing.trim_start() {
+        "" | "B" => 0,
+        unit => {
+            const PREFIXES: [char; 8] = ['K', 'M', 'G', 'T', 'P', 'E', 'Z', 'Y'];
+            let Some(prefix) = PREFIXES.iter().position(|&x| unit.starts_with(x)) else {
+                return Err("unrecognized unit prefix");
+            };
+            let ("" | "B" | "i" | "iB") = &unit[1..] else {
+                return Err("unrecognized unit");
+            };
+            prefix as u32 + 1
+        }
+    };
+    // A string consisting only of base 10 digits is either a valid u64 or really
+    // huge.
+    let factor = digits.parse::<u64>().unwrap_or(u64::MAX);
+    Ok(factor.saturating_mul(1024u64.saturating_pow(exponent)))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::assert_matches;
+
+    use jj_core::backend::MillisSinceEpoch;
+
+    use super::*;
+
+    #[test]
+    fn parse_timestamp_with_numeric_offset() {
+        let value = ConfigValue::from("2001-02-03T04:05:06+07:00");
+        let ts = to_timestamp(value).unwrap();
+        assert_eq!(ts.timestamp, MillisSinceEpoch(981147906000));
+        assert_eq!(ts.tz_offset, 7 * 60);
+    }
+
+    #[test]
+    fn parse_timestamp_with_z_suffix() {
+        let value = ConfigValue::from("2001-02-03T04:05:06Z");
+        let ts = to_timestamp(value).unwrap();
+        assert_eq!(ts.tz_offset, 0);
+    }
+
+    #[test]
+    fn byte_size_parse() {
+        assert_eq!(parse_human_byte_size("0"), Ok(0));
+        assert_eq!(parse_human_byte_size("42"), Ok(42));
+        assert_eq!(parse_human_byte_size("42B"), Ok(42));
+        assert_eq!(parse_human_byte_size("42 B"), Ok(42));
+        assert_eq!(parse_human_byte_size("42K"), Ok(42 * 1024));
+        assert_eq!(parse_human_byte_size("42 K"), Ok(42 * 1024));
+        assert_eq!(parse_human_byte_size("42 KB"), Ok(42 * 1024));
+        assert_eq!(parse_human_byte_size("42 KiB"), Ok(42 * 1024));
+        assert_eq!(
+            parse_human_byte_size("42 LiB"),
+            Err("unrecognized unit prefix")
+        );
+        assert_eq!(parse_human_byte_size("42 KiC"), Err("unrecognized unit"));
+        assert_eq!(parse_human_byte_size("42 KC"), Err("unrecognized unit"));
+        assert_eq!(
+            parse_human_byte_size("KiB"),
+            Err("must start with a number")
+        );
+        assert_eq!(parse_human_byte_size(""), Err("must start with a number"));
+    }
+
+    #[test]
+    fn byte_size_from_config_value() {
+        assert_eq!(
+            HumanByteSize::try_from(ConfigValue::from(42)).unwrap(),
+            HumanByteSize(42)
+        );
+        assert_eq!(
+            HumanByteSize::try_from(ConfigValue::from("42K")).unwrap(),
+            HumanByteSize(42 * 1024)
+        );
+        assert_matches!(
+            HumanByteSize::try_from(ConfigValue::from(-1)),
+            Err("Integer out of range")
+        );
+    }
+}

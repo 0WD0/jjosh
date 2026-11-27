@@ -1,0 +1,887 @@
+pub(crate) mod export;
+mod history;
+pub(crate) mod validation;
+
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::sync::Arc;
+
+use anyhow::Context as _;
+use anyhow::Result;
+use anyhow::ensure;
+use jj_lib::backend::ChangeId;
+use jj_lib::backend::CommitId;
+use jj_lib::backend::Tree;
+use jj_lib::backend::TreeId;
+use jj_lib::backend::TreeValue;
+use jj_lib::backend::{self};
+use jj_lib::commit::Commit;
+use jj_lib::conflict_labels::ConflictLabels;
+use jj_lib::merge::Merge;
+use jj_lib::merged_tree::MergedTree;
+use jj_lib::object_id::HexPrefix;
+use jj_lib::object_id::ObjectId as _;
+use jj_lib::object_id::PrefixResolution;
+use jj_lib::project::BindingId;
+use jj_lib::repo::MutableRepo;
+use jj_lib::repo::Repo;
+use jj_lib::repo_path::RepoPath;
+use jj_lib::repo_path::RepoPathBuf;
+use jj_lib::store::Store;
+use josh_core::cache::Expected;
+use josh_core::cache::Transaction;
+
+const OFFLINE_IMPORT_MARKER: &[u8] = b"offline-native-import-v1\n";
+
+pub(crate) fn parse_project(name: &str) -> Result<String> {
+    let name = jj_lib::revset::parse_symbol(name)
+        .map_err(|err| anyhow::anyhow!("Invalid project name: {}", err.kind()))?;
+    ensure!(
+        !name.contains('#'),
+        "Project names cannot contain '#'; it separates NAME#PROJECT"
+    );
+    ensure!(
+        !name.contains('/'),
+        "Project names cannot contain '/'; use --mount for the dest path"
+    );
+    gix_validate::reference::name_partial(name.as_bytes().into()).map_err(|err| {
+        anyhow::anyhow!("Project name {name:?} is not a valid Git ref component: {err}")
+    })?;
+    Ok(name)
+}
+
+pub(crate) fn validate_project(name: &str) -> Result<()> {
+    parse_project(name).map(|_| ())
+}
+
+pub(crate) fn binding_ref_prefix(binding: &BindingId) -> String {
+    format!("refs/jjosh/native-bindings/{}/", binding.hex())
+}
+
+/// Materialize only immutable objects; the importer owns ref installation and publication.
+pub(crate) fn prepare_offline_import(
+    git: &gix::Repository,
+    binding: &BindingId,
+    source: &crate::native_source::NativeSource,
+    ids: &HashMap<CommitId, CommitId>,
+) -> Result<Vec<gix::refs::transaction::RefEdit>> {
+    use gix::refs::transaction::{PreviousValue, RefEdit};
+
+    let prefix = binding_ref_prefix(binding);
+    let marker = git.write_blob(OFFLINE_IMPORT_MARKER)?.detach();
+    let mut refs = vec![(format!("{prefix}offline"), marker)];
+    let parents: HashSet<_> = source
+        .commits
+        .values()
+        .flat_map(|commit| &commit.parents)
+        .collect();
+    for raw in source.commits.keys().filter(|id| !parents.contains(id)) {
+        if raw.as_bytes().iter().all(|byte| *byte == 0) {
+            continue;
+        }
+        refs.push((format!("{prefix}{}", raw.hex()), oid(raw)?));
+        refs.push((format!("{prefix}origin/{}", raw.hex()), oid(&ids[raw])?));
+    }
+    refs.into_iter()
+        .map(|(name, id)| {
+            // This binding was allocated by the import plan, not adopted from
+            // any existing destination relation.
+            ensure!(
+                git.try_find_reference(&name)?.is_none(),
+                "Imported native binding already has provenance: {name}"
+            );
+            Ok(RefEdit::update(
+                name.try_into()?,
+                id,
+                PreviousValue::MustNotExist,
+                "import offline native relation",
+            ))
+        })
+        .collect()
+}
+
+pub(crate) fn is_offline_binding(transaction: &Transaction, binding: &BindingId) -> Result<bool> {
+    let name = format!("{}offline", binding_ref_prefix(binding));
+    Ok(transaction.resolve_ref(&name)?.is_some())
+}
+
+/// Dest directory for a native project. Identity stays `NAME`; this path may be nested.
+pub(crate) fn parse_mount(value: &str) -> Result<RepoPathBuf> {
+    ensure!(
+        !value.is_empty() && !value.contains('\\') && !value.contains('\0'),
+        "Project mount {value:?} must be a repository-relative directory"
+    );
+    let path = RepoPathBuf::from_internal_string(value)?;
+    ensure!(
+        !path.is_root()
+            && path.components().all(|component| {
+                let name = component.as_internal_str();
+                name != "." && name != ".."
+            }),
+        "Project mount {value:?} must stay within the repository and cannot be the root"
+    );
+    Ok(path)
+}
+
+pub(crate) fn default_mount(project: &str) -> Result<RepoPathBuf> {
+    parse_mount(project)
+}
+
+fn mounts_overlap(left: &RepoPath, right: &RepoPath) -> bool {
+    left.starts_with(right) || right.starts_with(left)
+}
+
+/// Import destinations must be disjoint even though registered delivery scopes may nest.
+/// Two sources writing into the same subtree require an explicit history integration.
+pub(crate) fn check_mounts_disjoint<'a>(
+    mounts: impl IntoIterator<Item = (&'a str, &'a RepoPath)>,
+) -> Result<()> {
+    let mounts: Vec<_> = mounts.into_iter().collect();
+    for (i, (left_name, left)) in mounts.iter().enumerate() {
+        for (right_name, right) in mounts.iter().skip(i + 1) {
+            ensure!(
+                !mounts_overlap(left, right),
+                "Project mounts {} ({left_name}) and {} ({right_name}) overlap",
+                left.as_internal_file_string(),
+                right.as_internal_file_string()
+            );
+        }
+    }
+    Ok(())
+}
+
+async fn value_at_path(
+    store: &Arc<Store>,
+    tree_id: &TreeId,
+    path: &RepoPath,
+) -> Result<Option<TreeValue>> {
+    ensure!(
+        !path.is_root(),
+        "Project mount cannot be the repository root"
+    );
+    let mut current = tree_id.clone();
+    let mut directory = RepoPathBuf::root();
+    let components: Vec<_> = path.components().collect();
+    for (index, component) in components.iter().enumerate() {
+        // Go through Store's bounded tree cache. Git histories share subtrees across
+        // many commits; reading Backend directly repeatedly decodes those same objects.
+        let tree = store.get_tree(directory.clone(), &current).await?;
+        match tree.value(component) {
+            None => return Ok(None),
+            Some(value) if index + 1 == components.len() => return Ok(Some(value.clone())),
+            Some(TreeValue::Tree(id)) => {
+                current = id.clone();
+                directory = directory.join(component);
+            }
+            Some(value) => return Ok(Some(value.clone())),
+        }
+    }
+    Ok(None)
+}
+
+pub(crate) async fn commit_path_occupied(commit: &Commit, path: &RepoPath) -> Result<bool> {
+    let store = commit.store();
+    for id in commit.tree_ids().iter() {
+        if value_at_path(store, id, path).await?.is_some() {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+pub(crate) async fn commit_has_project_tree(commit: &Commit, mount: &RepoPath) -> Result<bool> {
+    let store = commit.store();
+    let mut present = false;
+    for id in commit.tree_ids().iter() {
+        match value_at_path(store, id, mount).await? {
+            Some(TreeValue::Tree(_)) => present = true,
+            Some(_) => anyhow::bail!(
+                "Project mount {} is not a directory in {}",
+                mount.as_internal_file_string(),
+                commit.id()
+            ),
+            None => {}
+        }
+    }
+    Ok(present)
+}
+
+async fn tree_id_at_path(store: &Arc<Store>, tree_id: &TreeId, path: &RepoPath) -> Result<TreeId> {
+    match value_at_path(store, tree_id, path).await? {
+        Some(TreeValue::Tree(id)) => Ok(id),
+        None => Ok(store.empty_tree_id().clone()),
+        Some(_) => anyhow::bail!(
+            "Project mount {} is not a directory",
+            path.as_internal_file_string()
+        ),
+    }
+}
+
+pub(crate) async fn prefix_tree(store: &Store, mount: &RepoPath, inner: &TreeId) -> Result<TreeId> {
+    ensure!(
+        !mount.is_root(),
+        "Project mount cannot be the repository root"
+    );
+    if inner == store.empty_tree_id() {
+        return Ok(inner.clone());
+    }
+    let mut current = inner.clone();
+    for component in mount.components().rev() {
+        let tree =
+            Tree::from_sorted_entries(vec![(component.to_owned(), TreeValue::Tree(current))]);
+        current = store.backend().write_tree(RepoPath::root(), &tree).await?;
+    }
+    Ok(current)
+}
+
+async fn without_path(store: &Store, tree_id: &TreeId, path: &RepoPath) -> Result<TreeId> {
+    let empty = store.empty_tree_id();
+    let components: Vec<_> = path.components().collect();
+    ensure!(
+        !components.is_empty(),
+        "Project mount cannot be the repository root"
+    );
+    if tree_id == empty {
+        return Ok(empty.clone());
+    }
+    let mut current = tree_id.clone();
+    let mut stack = Vec::with_capacity(components.len());
+    for (index, component) in components.iter().enumerate() {
+        let tree = store
+            .backend()
+            .read_tree(RepoPath::root(), &current)
+            .await?;
+        let last = index + 1 == components.len();
+        let child = match tree.value(component) {
+            Some(TreeValue::Tree(id)) if !last => Some(id.clone()),
+            Some(TreeValue::Tree(_)) if last => None,
+            None if last => return Ok(tree_id.clone()),
+            None => return Ok(tree_id.clone()),
+            Some(_) if last => None,
+            Some(_) => anyhow::bail!(
+                "Project mount is not a directory at {}",
+                component.as_internal_str()
+            ),
+        };
+        stack.push((tree, *component, last));
+        if let Some(id) = child {
+            current = id;
+        }
+    }
+    let mut rewritten: Option<TreeId> = None;
+    while let Some((tree, component, last)) = stack.pop() {
+        let mut entries = Vec::new();
+        for entry in tree.entries() {
+            if entry.name() != component {
+                entries.push((entry.name().to_owned(), entry.value().clone()));
+                continue;
+            }
+            if last {
+                continue;
+            }
+            if let Some(child) = &rewritten
+                && child != empty
+            {
+                entries.push((entry.name().to_owned(), TreeValue::Tree(child.clone())));
+            }
+        }
+        rewritten = Some(if entries.is_empty() {
+            empty.clone()
+        } else {
+            store
+                .backend()
+                .write_tree(RepoPath::root(), &Tree::from_sorted_entries(entries))
+                .await?
+        });
+    }
+    Ok(rewritten.unwrap_or_else(|| tree_id.clone()))
+}
+
+fn oid(id: &CommitId) -> Result<gix_hash::ObjectId> {
+    Ok(gix_hash::ObjectId::try_from(id.as_bytes())?)
+}
+
+fn retain_original(transaction: &Transaction, binding: &BindingId, raw: &CommitId) -> Result<()> {
+    if raw.as_bytes().iter().all(|byte| *byte == 0) {
+        return Ok(());
+    }
+    // A ref in the private namespace keeps raw ancestry alive without exposing
+    // it as a branch or importing it into jj's visible graph.
+    let name = format!("{}{}", binding_ref_prefix(binding), raw.hex());
+    let value = oid(raw)?;
+    let previous = transaction.resolve_ref(&name)?;
+    ensure!(
+        previous.is_none_or(|old| old == value),
+        "Native object retention ref was modified: {name}"
+    );
+    transaction.update_ref(
+        &name,
+        previous.map_or(Expected::Absent, Expected::At),
+        value,
+        "retain native project source",
+    )?;
+    Ok(())
+}
+
+pub(crate) fn record_anchor(
+    transaction: &Transaction,
+    binding: &BindingId,
+    kind: &str,
+    raw: &CommitId,
+    canonical: &CommitId,
+) -> Result<()> {
+    if raw.as_bytes().iter().all(|byte| *byte == 0) {
+        return Ok(());
+    }
+    let name = format!("{}{kind}/{}", binding_ref_prefix(binding), raw.hex());
+    let value = oid(canonical)?;
+    let previous = transaction.resolve_ref(&name)?;
+    ensure!(
+        previous.is_none_or(|old| old == value),
+        "Native correspondence {name} already identifies another monorepo revision"
+    );
+    retain_original(transaction, binding, raw)?;
+    transaction.update_ref(
+        &name,
+        previous.map_or(Expected::Absent, Expected::At),
+        value,
+        "record native history boundary",
+    )?;
+    Ok(())
+}
+
+pub(crate) fn record_imported_boundaries<'a>(
+    transaction: &Transaction,
+    binding: &BindingId,
+    imported: &crate::native_import::Imported,
+    tips: impl IntoIterator<Item = &'a CommitId>,
+) -> Result<()> {
+    let mut grafted = HashSet::new();
+    for (raw, canonical) in &imported.grafts {
+        record_anchor(transaction, binding, "graft", raw, canonical)?;
+        grafted.insert(raw.clone());
+    }
+    for raw in tips {
+        if grafted.contains(raw) {
+            continue;
+        }
+        let Some(canonical) = imported.ids.get(raw) else {
+            continue;
+        };
+        record_anchor(transaction, binding, "origin", raw, canonical)?;
+    }
+    Ok(())
+}
+
+/// Demand-driven correspondence index for a `Whole` project binding.
+///
+/// Direct `graft`, `published`, and `origin` tip refs load immediately, while
+/// `origin` ancestor chains expand only when a lookup can plausibly reach them.
+pub(crate) struct Anchors<'a> {
+    repo: &'a dyn Repo,
+    transaction: &'a Transaction,
+    mount: RepoPathBuf,
+    by_raw: HashMap<CommitId, CommitId>,
+    by_canonical: HashMap<CommitId, CommitId>,
+    pending: Vec<(CommitId, CommitId)>,
+    pending_grafts: Vec<(CommitId, CommitId)>,
+    sibling_by_raw: HashMap<CommitId, CommitId>,
+}
+
+impl<'a> Anchors<'a> {
+    pub(crate) fn new(
+        repo: &'a dyn Repo,
+        transaction: &'a Transaction,
+        mount: RepoPathBuf,
+    ) -> Self {
+        let root = repo.store().root_commit_id().clone();
+        Self {
+            repo,
+            transaction,
+            mount,
+            by_raw: HashMap::from([(root.clone(), root.clone())]),
+            by_canonical: HashMap::from([(root.clone(), root)]),
+            pending: Vec::new(),
+            pending_grafts: Vec::new(),
+            sibling_by_raw: HashMap::new(),
+        }
+    }
+
+    fn insert_pair(
+        &mut self,
+        raw: CommitId,
+        canonical: CommitId,
+        shared_offline: bool,
+    ) -> Result<bool> {
+        if let Some(previous) = self.by_raw.get(&raw) {
+            ensure!(
+                *previous == canonical,
+                if shared_offline {
+                    "Ambiguous offline native correspondence".to_owned()
+                } else {
+                    format!("Inconsistent native correspondence for {raw}")
+                }
+            );
+            if let Some(prev_raw) = self.by_canonical.get(&canonical) {
+                ensure!(
+                    prev_raw == &raw,
+                    "Project has ambiguous reverse history correspondence at {canonical}"
+                );
+            } else {
+                self.by_canonical.insert(canonical, raw);
+            }
+            return Ok(false);
+        }
+        if let Some(prev_raw) = self.by_canonical.get(&canonical) {
+            ensure!(
+                prev_raw == &raw,
+                "Project has ambiguous reverse history correspondence at {canonical}"
+            );
+        }
+        self.by_raw.insert(raw.clone(), canonical.clone());
+        self.by_canonical.insert(canonical, raw);
+        Ok(true)
+    }
+
+    pub(crate) fn load_binding(&mut self, binding: &BindingId, shared_offline: bool) -> Result<()> {
+        let prefix = binding_ref_prefix(binding);
+        let mut entries = Vec::new();
+        self.transaction
+            .for_each_ref_prefixed(&prefix, |name, canonical| {
+                let Some((kind, raw)) = name[prefix.len()..].split_once('/') else {
+                    return Ok(()); // Raw-object retention ref, not a correspondence.
+                };
+                let raw = CommitId::try_from_hex(raw)
+                    .context("Invalid native correspondence commit ID")?;
+                ensure!(
+                    raw.as_bytes().len() == 20,
+                    "Invalid native correspondence commit ID"
+                );
+                if kind == "observed" {
+                    return Ok(());
+                }
+                let canonical = CommitId::from_bytes(canonical.as_bytes());
+                match kind {
+                    "origin" | "published" | "graft" => {
+                        entries.push((kind.to_owned(), raw, canonical));
+                    }
+                    _ => anyhow::bail!("Unknown native correspondence kind: {kind}"),
+                }
+                Ok(())
+            })?;
+        let published_raw: HashSet<_> = entries
+            .iter()
+            .filter_map(|(kind, raw, _)| (kind == "published").then(|| raw.clone()))
+            .collect();
+        for (kind, raw, canonical) in entries {
+            let inserted = self.insert_pair(raw.clone(), canonical.clone(), shared_offline)?;
+            if inserted && !published_raw.contains(&raw) {
+                match kind.as_str() {
+                    "origin" => self.pending.push((raw, canonical)),
+                    "graft" => self.pending_grafts.push((raw, canonical)),
+                    _ => {}
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Collect unambiguous `origin` and `graft` tip mappings from other `Whole`
+    /// bindings of the same project for fetch reuse. Never used for push/validation.
+    pub(crate) fn load_sibling_imported_tips(&mut self, bindings: &[BindingId]) -> Result<()> {
+        let mut candidates: HashMap<CommitId, Option<CommitId>> = HashMap::new();
+        for binding in bindings {
+            let prefix = binding_ref_prefix(binding);
+            self.transaction
+                .for_each_ref_prefixed(&prefix, |name, canonical| {
+                    let Some((kind, raw)) = name[prefix.len()..].split_once('/') else {
+                        return Ok(());
+                    };
+                    if !matches!(kind, "origin" | "graft") {
+                        return Ok(());
+                    }
+                    let raw = CommitId::try_from_hex(raw)
+                        .context("Invalid native correspondence commit ID")?;
+                    ensure!(
+                        raw.as_bytes().len() == 20,
+                        "Invalid native correspondence commit ID"
+                    );
+                    let canonical = CommitId::from_bytes(canonical.as_bytes());
+                    match candidates.get_mut(&raw) {
+                        None => {
+                            candidates.insert(raw, Some(canonical));
+                        }
+                        Some(slot) => {
+                            if slot.as_ref().is_some_and(|prev| prev != &canonical) {
+                                *slot = None;
+                            }
+                        }
+                    }
+                    Ok(())
+                })?;
+        }
+        for (raw, canonical) in candidates {
+            if let Some(canonical) = canonical
+                && !self.by_raw.contains_key(&raw)
+            {
+                self.sibling_by_raw.insert(raw, canonical);
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn canonical_boundary_tips(&self) -> impl Iterator<Item = &CommitId> {
+        self.by_canonical.keys()
+    }
+
+    pub(crate) fn raw_to_canonical_direct(&self, raw: &CommitId) -> Option<&CommitId> {
+        self.by_raw
+            .get(raw)
+            .or_else(|| self.sibling_by_raw.get(raw))
+    }
+
+    pub(crate) fn contains_raw_direct(&self, raw: &CommitId) -> bool {
+        self.by_raw.contains_key(raw)
+    }
+
+    pub(crate) fn has_pending(&self) -> bool {
+        !self.pending.is_empty()
+    }
+
+    pub(crate) fn direct_map(&self) -> HashMap<CommitId, CommitId> {
+        let mut map = self.sibling_by_raw.clone();
+        map.extend(
+            self.by_raw
+                .iter()
+                .map(|(raw, canonical)| (raw.clone(), canonical.clone())),
+        );
+        map
+    }
+
+    async fn expand_pair(
+        &mut self,
+        raw: &CommitId,
+        canonical: &CommitId,
+    ) -> Result<Vec<(CommitId, CommitId)>> {
+        let original = josh_core::objects::CommitData::read(self.transaction.odb(), oid(raw)?)
+            .with_context(|| format!("Original source object {raw} is unavailable"))?;
+        let mut raw_parents: Vec<_> = original
+            .parent_ids()
+            .map(|id| CommitId::from_bytes(id.as_bytes()))
+            .collect();
+        if raw_parents.is_empty() {
+            raw_parents.push(self.repo.store().root_commit_id().clone());
+        }
+        let mapped = self.repo.store().get_commit_async(canonical).await?;
+        ensure!(
+            raw_parents.len() == mapped.parent_ids().len(),
+            "Native source ancestry no longer corresponds at {raw}"
+        );
+        Ok(raw_parents
+            .into_iter()
+            .zip(mapped.parent_ids().iter().cloned())
+            .collect())
+    }
+
+    /// Expand all remaining `origin` chains (used as fallback when needed).
+    pub(crate) async fn expand_all_origins(&mut self) -> Result<()> {
+        while let Some((raw, canonical)) = self.pending.pop() {
+            for (raw_parent, canonical_parent) in self.expand_pair(&raw, &canonical).await? {
+                if self.insert_pair(raw_parent.clone(), canonical_parent.clone(), false)? {
+                    self.pending.push((raw_parent, canonical_parent));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    async fn expand_graft_pair(
+        &self,
+        raw: &CommitId,
+        canonical: &CommitId,
+    ) -> Result<Vec<(CommitId, CommitId)>> {
+        let Ok(original) = josh_core::objects::CommitData::read(self.transaction.odb(), oid(raw)?)
+        else {
+            return Ok(Vec::new());
+        };
+        let raw_parents: Vec<_> = original
+            .parent_ids()
+            .map(|id| CommitId::from_bytes(id.as_bytes()))
+            .collect();
+        if raw_parents.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mapped = self.repo.store().get_commit_async(canonical).await?;
+        if raw_parents.len() != mapped.parent_ids().len() {
+            return Ok(Vec::new());
+        }
+        let root = self.repo.store().root_commit_id();
+        let mut pairs = Vec::with_capacity(raw_parents.len());
+        for (rp, cp) in raw_parents
+            .into_iter()
+            .zip(mapped.parent_ids().iter().cloned())
+        {
+            if &cp == root {
+                return Ok(Vec::new());
+            }
+            if self.by_raw.get(&rp).is_some_and(|prev| prev != &cp)
+                || self.by_canonical.get(&cp).is_some_and(|prev| prev != &rp)
+            {
+                return Ok(Vec::new());
+            }
+            let Ok(rp_data) =
+                josh_core::objects::CommitData::read(self.transaction.odb(), oid(&rp)?)
+            else {
+                return Ok(Vec::new());
+            };
+            let Ok(parsed) = rp_data.parsed() else {
+                return Ok(Vec::new());
+            };
+            let Ok(author) = parsed.author() else {
+                return Ok(Vec::new());
+            };
+            let Ok(committer) = parsed.committer() else {
+                return Ok(Vec::new());
+            };
+            let cp_commit = self.repo.store().get_commit_async(&cp).await?;
+            if cp_commit.description().as_bytes() != &*parsed.message
+                || cp_commit.author().name.as_bytes() != &*author.name
+                || cp_commit.committer().name.as_bytes() != &*committer.name
+            {
+                return Ok(Vec::new());
+            }
+            let rp_tree = TreeId::from_bytes(parsed.tree().as_bytes());
+            let matches_tree = if let Some(root_tree) = cp_commit.tree_ids().as_resolved() {
+                tree_id_at_path(self.repo.store(), root_tree, &self.mount).await? == rp_tree
+            } else {
+                project_tree(&cp_commit, &self.mount).await?.tree_ids() == &Merge::resolved(rp_tree)
+            };
+            if !matches_tree {
+                return Ok(Vec::new());
+            }
+            pairs.push((rp, cp));
+        }
+        Ok(pairs)
+    }
+
+    /// Look up the raw source commit for a canonical monorepo commit, expanding
+    /// only `origin` (and isomorphic `graft`) ancestors that can reach `target_canonical`.
+    pub(crate) async fn resolve_canonical(
+        &mut self,
+        target_canonical: &CommitId,
+    ) -> Result<Option<CommitId>> {
+        if let Some(raw) = self.by_canonical.get(target_canonical) {
+            return Ok(Some(raw.clone()));
+        }
+        if self.pending.is_empty() && self.pending_grafts.is_empty() {
+            return Ok(None);
+        }
+        let index = self.repo.index();
+        if !index.has_id(target_canonical).await? {
+            return Ok(None);
+        }
+        let mut work = Vec::new();
+        let mut remaining = Vec::with_capacity(self.pending.len());
+        for (raw, canonical) in self.pending.drain(..) {
+            if index.has_id(&canonical).await?
+                && index.is_ancestor(target_canonical, &canonical).await?
+            {
+                work.push((raw, canonical));
+            } else {
+                remaining.push((raw, canonical));
+            }
+        }
+        self.pending = remaining;
+        let mut work_grafts = Vec::new();
+        let mut remaining_grafts = Vec::with_capacity(self.pending_grafts.len());
+        for (raw, canonical) in self.pending_grafts.drain(..) {
+            if index.has_id(&canonical).await?
+                && index.is_ancestor(target_canonical, &canonical).await?
+            {
+                work_grafts.push((raw, canonical));
+            } else {
+                remaining_grafts.push((raw, canonical));
+            }
+        }
+        self.pending_grafts = remaining_grafts;
+        while let Some((raw, canonical)) = work.pop() {
+            for (raw_parent, canonical_parent) in self.expand_pair(&raw, &canonical).await? {
+                if !self.insert_pair(raw_parent.clone(), canonical_parent.clone(), false)? {
+                    continue;
+                }
+                if &canonical_parent == target_canonical {
+                    self.pending.push((raw_parent, canonical_parent));
+                    continue;
+                }
+                if &canonical_parent != self.repo.store().root_commit_id()
+                    && index.has_id(&canonical_parent).await?
+                    && index
+                        .is_ancestor(target_canonical, &canonical_parent)
+                        .await?
+                {
+                    work.push((raw_parent, canonical_parent));
+                } else {
+                    self.pending.push((raw_parent, canonical_parent));
+                }
+            }
+            if let Some(found) = self.by_canonical.get(target_canonical).cloned() {
+                self.pending.extend(work);
+                self.pending_grafts.extend(work_grafts);
+                return Ok(Some(found));
+            }
+        }
+        while let Some((raw, canonical)) = work_grafts.pop() {
+            for (raw_parent, canonical_parent) in self.expand_graft_pair(&raw, &canonical).await? {
+                if !self.insert_pair(raw_parent.clone(), canonical_parent.clone(), false)? {
+                    continue;
+                }
+                if &canonical_parent == target_canonical {
+                    self.pending_grafts.push((raw_parent, canonical_parent));
+                    continue;
+                }
+                if &canonical_parent != self.repo.store().root_commit_id()
+                    && index.has_id(&canonical_parent).await?
+                    && index
+                        .is_ancestor(target_canonical, &canonical_parent)
+                        .await?
+                {
+                    work_grafts.push((raw_parent, canonical_parent));
+                } else {
+                    self.pending_grafts.push((raw_parent, canonical_parent));
+                }
+            }
+            if let Some(found) = self.by_canonical.get(target_canonical).cloned() {
+                self.pending_grafts.extend(work_grafts);
+                return Ok(Some(found));
+            }
+        }
+        Ok(self.by_canonical.get(target_canonical).cloned())
+    }
+}
+
+/// After prefix/filter, a dest commit is the same version iff the project tree
+/// and preserved metadata match. Parents are remapped, so they are not compared.
+/// Return the visible commits of each of CHANGE_IDS that has any, found with
+/// one change-ID index: building one visits every visible head, so an index
+/// per lookup would cost that for each commit of a large import.
+pub(crate) async fn visible_versions<'a>(
+    repo: &MutableRepo,
+    change_ids: impl IntoIterator<Item = &'a ChangeId>,
+) -> Result<HashMap<ChangeId, Vec<CommitId>>> {
+    let index = repo
+        .mutable_index()
+        .change_id_index(&mut repo.view().heads().iter())?;
+    let mut versions = HashMap::new();
+    for change_id in change_ids.into_iter().collect::<HashSet<_>>() {
+        let PrefixResolution::SingleMatch(targets) =
+            index.resolve_prefix(&HexPrefix::from_id(change_id)).await?
+        else {
+            continue;
+        };
+        let visible: Vec<_> = targets
+            .visible_with_offsets()
+            .map(|(_, id)| id.clone())
+            .collect();
+        if !visible.is_empty() {
+            versions.insert(change_id.clone(), visible);
+        }
+    }
+    Ok(versions)
+}
+
+/// Return the one of VISIBLE, the visible commits of SOURCE's change, that
+/// is SOURCE at MOUNT.
+pub(crate) async fn existing_same_project_version(
+    repo: &dyn Repo,
+    mount: &RepoPath,
+    source: &backend::Commit,
+    visible: &[CommitId],
+) -> Result<Option<CommitId>> {
+    let mut matched: Option<CommitId> = None;
+    for id in visible {
+        let commit = repo.store().get_commit_async(id).await?;
+        if !commit_has_project_tree(&commit, mount).await? {
+            continue;
+        }
+        if commit.description() != source.description
+            || commit.author() != &source.author
+            || commit.committer() != &source.committer
+        {
+            continue;
+        }
+        let projected = project_tree(&commit, mount).await?;
+        if projected.tree_ids() != &source.root_tree {
+            continue;
+        }
+        if let Some(previous) = &matched {
+            ensure!(
+                previous == id,
+                "Change {} has multiple matching {} versions {} and {}",
+                source.change_id.hex(),
+                mount.as_internal_file_string(),
+                previous.hex(),
+                id.hex()
+            );
+        }
+        matched = Some(id.clone());
+    }
+    Ok(matched)
+}
+
+pub(crate) async fn inherit_other_projects(
+    repo: &dyn Repo,
+    mount: &RepoPath,
+    incoming: &backend::Commit,
+) -> Result<MergedTree> {
+    let store = repo.store();
+    let mut parents = Vec::with_capacity(incoming.parents.len());
+    for id in &incoming.parents {
+        parents.push(store.get_commit_async(id).await?);
+    }
+    let parent_tree = jj_lib::rewrite::merge_commit_trees(repo, &parents).await?;
+    let mut outside = HashMap::new();
+    for id in parent_tree.tree_ids().iter() {
+        if !outside.contains_key(id) {
+            let id_out = without_path(store.as_ref(), id, mount).await?;
+            outside.insert(id.clone(), id_out);
+        }
+    }
+    let incoming = MergedTree::new(
+        store.clone(),
+        incoming.root_tree.clone(),
+        ConflictLabels::from_merge(incoming.conflict_labels.clone()),
+    );
+    if outside.values().all(|id| id == store.empty_tree_id()) {
+        return Ok(incoming);
+    }
+    let outside = MergedTree::new(
+        store.clone(),
+        parent_tree.tree_ids().map(|id| outside[id].clone()),
+        parent_tree.labels().clone(),
+    );
+    let empty = MergedTree::resolved(store.clone(), store.empty_tree_id().clone());
+    Ok(MergedTree::merge(Merge::from_vec(vec![
+        (outside, "other projects at source boundary".to_owned()),
+        (empty, String::new()),
+        (incoming, "received project state".to_owned()),
+    ]))
+    .await?)
+}
+
+pub(crate) async fn project_tree(commit: &Commit, mount: &RepoPath) -> Result<MergedTree> {
+    let store = commit.store();
+    let mut terms = HashMap::new();
+    for id in commit.tree_ids().iter() {
+        if terms.contains_key(id) {
+            continue;
+        }
+        terms.insert(id.clone(), tree_id_at_path(store, id, mount).await?);
+    }
+    Ok(MergedTree::new(
+        store.clone(),
+        commit.tree_ids().map(|id| terms[id].clone()),
+        commit.tree().labels().clone(),
+    )
+    .resolve()
+    .await?)
+}

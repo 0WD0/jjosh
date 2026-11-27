@@ -1,0 +1,58 @@
+Setup
+
+  $ export TESTTMP=${PWD}
+
+Create a test repository with some content
+
+  $ mkdir remote
+  $ cd remote
+  $ git init -q --bare
+  $ cd ..
+
+  $ mkdir local
+  $ cd local
+  $ git init -q
+  $ mkdir -p sub1
+  $ echo "file1 content" > sub1/file1
+  $ git add .
+  $ git commit -q -m "add file1"
+  $ git remote add origin ${TESTTMP}/remote
+  $ git push -q origin master
+  $ cd ..
+
+Clone with josh filter
+
+  $ josh clone ${TESTTMP}/remote :/sub1 filtered
+  Added remote 'origin' with filter ':/sub1'
+  Already on 'master'
+  
+  Cloned repository to: ${TESTTMP}/filtered/
+  $ cd filtered
+
+Make stacked changes with binary files
+
+  $ printf '\x00\x01\x02' > binfile
+  $ git add binfile
+  $ git commit -q -m "Change-Id: bin1"
+  $ printf '\x00\x03\x04' > binfile2
+  $ git add binfile2
+  $ git commit -q -m "Change-Id: bin2"
+
+Set up git config for author
+
+  $ git config user.email "josh@example.com"
+  $ git config user.name "Josh Test"
+
+Push with stacked changes containing binary files
+
+  $ josh changes publish
+  published 2 changes (2 new)
+
+
+Verify binary content is preserved on the change branches
+
+  $ cd ${TESTTMP}/remote
+  $ git cat-file -p refs/heads/@changes/master/josh@example.com/bin1:sub1/binfile | xxd
+  00000000: 0001 02                                  ...
+  $ git cat-file -p refs/heads/@changes/master/josh@example.com/bin2:sub1/binfile2 | xxd
+  00000000: 0003 04                                  ...

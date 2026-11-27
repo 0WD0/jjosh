@@ -1,0 +1,41 @@
+query GetPrComments($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      title
+      url
+      state
+      comments(first: 100) {
+        nodes {
+          id
+          body
+          author { __typename login }
+          createdAt
+        }
+        pageInfo { hasNextPage endCursor }
+      }
+      reviews(first: 100) {
+        nodes {
+          id
+          body
+          author { __typename login }
+          createdAt
+          commit { oid }
+          comments(first: 100) {
+            nodes {
+              id
+              body
+              author { __typename login }
+              createdAt
+              commit { oid }
+              path
+              line
+              replyTo { __typename id }
+            }
+            pageInfo { hasNextPage endCursor }
+          }
+        }
+        pageInfo { hasNextPage endCursor }
+      }
+    }
+  }
+}

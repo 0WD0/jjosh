@@ -1,0 +1,1197 @@
+// Copyright 2021 The Jujutsu Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+//! Contains file utilities which work in a cross-platform way.
+
+use std::borrow::Cow;
+use std::ffi::OsString;
+use std::fs;
+use std::fs::File;
+use std::io;
+use std::io::ErrorKind;
+use std::io::Write;
+use std::path::Component;
+use std::path::Path;
+use std::path::PathBuf;
+use std::time::Duration;
+
+use futures::AsyncRead;
+use futures::AsyncReadExt as _;
+use tempfile::NamedTempFile;
+use tempfile::PersistError;
+use thiserror::Error;
+
+#[cfg(unix)]
+pub use self::platform::check_executable_bit_support;
+pub use self::platform::check_symlink_support;
+pub use self::platform::symlink_dir;
+pub use self::platform::symlink_file;
+use crate::backoff::BackoffIterator;
+
+/// An error which can occur when accessing paths.
+#[derive(Debug, Error)]
+#[error("Cannot access {path}")]
+pub struct PathError {
+    /// The path which is inaccessible.
+    pub path: PathBuf,
+    /// The underlying error source.
+    pub source: io::Error,
+}
+
+/// An extension trait to `io::Result` to allow adding a path as context.
+pub trait IoResultExt<T> {
+    /// Provide more context to the `io::Result`.
+    fn context(self, path: impl AsRef<Path>) -> Result<T, PathError>;
+}
+
+impl<T> IoResultExt<T> for io::Result<T> {
+    fn context(self, path: impl AsRef<Path>) -> Result<T, PathError> {
+        self.map_err(|error| PathError {
+            path: path.as_ref().to_path_buf(),
+            source: error,
+        })
+    }
+}
+
+/// Creates a directory or does nothing if the directory already exists.
+///
+/// Returns the underlying error if the directory can't be created.
+/// The function will also fail if intermediate directories on the path do not
+/// already exist.
+pub fn create_or_reuse_dir(dirname: &Path) -> io::Result<()> {
+    match fs::create_dir(dirname) {
+        Ok(()) => Ok(()),
+        Err(_) if dirname.is_dir() => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
+/// Removes all files in the directory, but not the directory itself.
+///
+/// The directory must exist, and there should be no sub directories.
+pub fn remove_dir_contents(dirname: &Path) -> Result<(), PathError> {
+    for entry in dirname.read_dir().context(dirname)? {
+        let entry = entry.context(dirname)?;
+        let path = entry.path();
+        fs::remove_file(&path).context(&path)?;
+    }
+    Ok(())
+}
+
+/// Checks if path points at an empty directory.
+pub fn is_empty_dir(path: &Path) -> Result<bool, PathError> {
+    match path.read_dir() {
+        Ok(mut entries) => Ok(entries.next().is_none()),
+        Err(error) => match error.kind() {
+            ErrorKind::NotADirectory => Ok(false),
+            ErrorKind::NotFound => Ok(false),
+            _ => Err(error).context(path)?,
+        },
+    }
+}
+
+/// An error which occurs when we encounter a path which isn't UTF-8 encoded.
+#[derive(Debug, Error)]
+#[error(transparent)]
+pub struct BadPathEncoding(platform::BadOsStrEncoding);
+
+/// Constructs [`Path`] from `bytes` in platform-specific manner.
+///
+/// On Unix, this function never fails because paths are just bytes. On Windows,
+/// this may return error if the input wasn't well-formed UTF-8.
+pub fn path_from_bytes(bytes: &[u8]) -> Result<&Path, BadPathEncoding> {
+    let s = platform::os_str_from_bytes(bytes).map_err(BadPathEncoding)?;
+    Ok(Path::new(s))
+}
+
+/// Converts `path` to bytes in platform-specific manner.
+///
+/// On Unix, this function never fails because paths are just bytes. On Windows,
+/// this may return error if the input wasn't well-formed UTF-8.
+///
+/// The returned byte sequence can be considered a superset of ASCII (such as
+/// UTF-8 bytes.)
+pub fn path_to_bytes(path: &Path) -> Result<&[u8], BadPathEncoding> {
+    platform::os_str_to_bytes(path.as_ref()).map_err(BadPathEncoding)
+}
+
+/// Expands "~/" to the given `home_dir` path.
+pub fn expand_home_path(path_str: &str, home_dir: Option<&Path>) -> PathBuf {
+    if let Some(remainder) = path_str.strip_prefix("~/")
+        && let Some(home_dir) = home_dir
+    {
+        return home_dir.join(remainder);
+    }
+    PathBuf::from(path_str)
+}
+
+/// Turns the given `to` path into relative path starting from the `from` path.
+///
+/// Both `from` and `to` paths are supposed to be absolute and normalized in the
+/// same manner. If `from` and `to` share no common prefix, the returned path is
+/// unchanged. This also means `relative_path(abs, rel)` will return `rel`.
+pub fn relative_path(from: &Path, to: &Path) -> PathBuf {
+    let Some((from_suffix, to_suffix)) = strip_common_path_prefix(from, to) else {
+        // No common prefix found. Return the original path.
+        return to.to_owned();
+    };
+    let depth = from_suffix.components().count();
+    let mut relative = PathBuf::with_capacity(2 * depth + 1 + to_suffix.as_os_str().len());
+    for _ in 0..depth {
+        relative.push(Component::ParentDir);
+    }
+    if !to_suffix.as_os_str().is_empty() {
+        relative.push(to_suffix);
+    } else if depth == 0 {
+        relative.push(Component::CurDir);
+    }
+    relative
+}
+
+fn strip_common_path_prefix<'a, 'b>(
+    path1: &'a Path,
+    path2: &'b Path,
+) -> Option<(&'a Path, &'b Path)> {
+    let mut components1 = path1.components();
+    let mut components2 = path2.components();
+    let mut suffix_paths = None;
+    while let (Some(c1), Some(c2)) = (components1.next(), components2.next()) {
+        if c1 != c2 {
+            break;
+        }
+        suffix_paths = Some((components1.as_path(), components2.as_path()));
+    }
+    suffix_paths
+}
+
+/// Returns an absolute, normalized path.
+///
+/// On platforms other than WASI, resolves symlinks and requires the path to
+/// exist. On Windows, uses `dunce` to avoid verbatim paths where possible.
+///
+/// On WASI, only accepts paths that are already absolute and contain no
+/// redundant components or separators. Returns these paths unchanged, without
+/// resolving symlinks or checking whether they exist.
+pub fn canonicalize(path: impl AsRef<Path>) -> io::Result<PathBuf> {
+    platform::canonicalize(path.as_ref())
+}
+
+/// Consumes as much `..` and `.` as possible without considering symlinks.
+pub fn normalize_path(path: &Path) -> PathBuf {
+    let mut result = PathBuf::new();
+    for c in path.components() {
+        match c {
+            Component::CurDir => {}
+            Component::ParentDir
+                if matches!(result.components().next_back(), Some(Component::Normal(_))) =>
+            {
+                // Do not pop ".."
+                let popped = result.pop();
+                assert!(popped);
+            }
+            _ => {
+                result.push(c);
+            }
+        }
+    }
+
+    if result.as_os_str().is_empty() {
+        ".".into()
+    } else {
+        result
+    }
+}
+
+/// Converts the given `path` to Unix-like path separated by "/".
+///
+/// The returned path might not work on Windows if it was canonicalized. On
+/// Unix, this function is noop.
+pub fn slash_path(path: &Path) -> Cow<'_, Path> {
+    if cfg!(windows) {
+        Cow::Owned(to_slash_separated(path).into())
+    } else {
+        Cow::Borrowed(path)
+    }
+}
+
+fn to_slash_separated(path: &Path) -> OsString {
+    let mut buf = OsString::with_capacity(path.as_os_str().len());
+    let mut components = path.components();
+    match components.next() {
+        Some(c) => buf.push(c),
+        None => return buf,
+    }
+    for c in components {
+        buf.push("/");
+        buf.push(c);
+    }
+    buf
+}
+
+/// Creates a temporary file with normal file creation permissions.
+pub fn new_temp_file_with_default_permissions(dir: impl AsRef<Path>) -> io::Result<NamedTempFile> {
+    #[cfg(unix)]
+    let builder = {
+        use std::os::unix::fs::PermissionsExt as _;
+        let mut builder = tempfile::Builder::new();
+        // Request normal file mode. The umask applies to the actual mode.
+        builder.permissions(fs::Permissions::from_mode(0o666));
+        builder
+    };
+    #[cfg(not(unix))]
+    let builder = tempfile::Builder::new();
+    builder.tempfile_in(dir)
+}
+
+/// Creates a temporary file beside `path` for an atomic replacement.
+///
+/// If `path` is a symlink to an existing file, resolves it and returns the
+/// target path. Permissions are copied from the existing file.
+pub fn new_temp_file_for_replacement(
+    path: impl AsRef<Path>,
+) -> io::Result<(NamedTempFile, PathBuf)> {
+    let path = path.as_ref();
+    let (old_metadata, new_path) = match path.symlink_metadata() {
+        Ok(m) if m.is_symlink() => match canonicalize(path) {
+            Ok(new_path) => (Some(new_path.symlink_metadata()?), new_path),
+            Err(err) if err.kind() == io::ErrorKind::NotFound => (None, path.to_owned()),
+            Err(err) => return Err(err),
+        },
+        Ok(m) => (Some(m), path.to_owned()),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => (None, path.to_owned()),
+        Err(err) => return Err(err),
+    };
+    let dir = new_path
+        .parent()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path has no parent"))?;
+    let temp_file = new_temp_file_with_default_permissions(dir)?;
+    if let Some(m) = old_metadata.filter(|m| m.is_file()) {
+        temp_file.as_file().set_permissions(m.permissions())?;
+    }
+    Ok((temp_file, new_path))
+}
+
+/// Persists the temporary file after synchronizing the content.
+///
+/// After system crash, the persisted file should have a valid content if
+/// existed. However, the persisted file name (or directory entry) could be
+/// lost. It's up to caller to synchronize the directory entries.
+///
+/// See also <https://lwn.net/Articles/457667/> for the behavior on Linux.
+///
+/// On Windows, replacing the target fails while another process has it open,
+/// even if it was opened with `FILE_SHARE_DELETE` (as `std::fs` does), because
+/// the rename doesn't use POSIX semantics. Since readers typically hold the
+/// file open only briefly, the rename is retried with backoff for up to about
+/// 2 seconds in that case.
+pub fn persist_temp_file<P: AsRef<Path>>(
+    mut temp_file: NamedTempFile,
+    new_path: P,
+) -> io::Result<File> {
+    // Ensure persisted file content is flushed to disk.
+    temp_file.as_file().sync_data()?;
+    let new_path = new_path.as_ref();
+    let mut retry_delays = BackoffIterator::with_max_elapsed(Duration::from_secs(2));
+    loop {
+        match temp_file.persist(new_path) {
+            Ok(file) => return Ok(file),
+            Err(PersistError { error, file }) => {
+                if is_transient_file_error(&error)
+                    && let Some(delay) = retry_delays.next()
+                {
+                    std::thread::sleep(delay);
+                    temp_file = file;
+                } else {
+                    return Err(error);
+                }
+            }
+        }
+    }
+}
+
+/// Returns true if a file error may go away once other processes close a file.
+pub(crate) fn is_transient_file_error(error: &io::Error) -> bool {
+    // ERROR_SHARING_VIOLATION isn't mapped to any `ErrorKind`.
+    const ERROR_SHARING_VIOLATION: i32 = 32;
+    cfg!(windows)
+        && (error.kind() == ErrorKind::PermissionDenied
+            || error.raw_os_error() == Some(ERROR_SHARING_VIOLATION))
+}
+
+/// Like [`persist_temp_file()`], but doesn't try to overwrite the existing
+/// target on Windows.
+pub fn persist_content_addressed_temp_file<P: AsRef<Path>>(
+    temp_file: NamedTempFile,
+    new_path: P,
+) -> io::Result<File> {
+    // Ensure new file content is flushed to disk, so the old file content
+    // wouldn't be lost if existed at the same location.
+    temp_file.as_file().sync_data()?;
+    if cfg!(windows) {
+        // On Windows, overwriting file can fail if the file is opened without
+        // FILE_SHARE_DELETE for example. We don't need to take a risk if the
+        // file already exists.
+        match temp_file.persist_noclobber(&new_path) {
+            Ok(file) => Ok(file),
+            Err(PersistError { error, file: _ }) => {
+                if let Ok(existing_file) = File::open(new_path) {
+                    // TODO: Update mtime to help GC keep this file
+                    Ok(existing_file)
+                } else {
+                    Err(error)
+                }
+            }
+        }
+    } else {
+        // On Unix, rename() is atomic and should succeed even if the
+        // destination file exists. Checking if the target exists might involve
+        // non-atomic operation, so don't use persist_noclobber().
+        temp_file
+            .persist(new_path)
+            .map_err(|PersistError { error, file: _ }| error)
+    }
+}
+
+/// Opaque value that can be tested to know whether file or directory paths
+/// point to the same filesystem entity.
+///
+/// The primary use case is to detect file name aliases on case-insensitive
+/// filesystem. On Unix, device and inode numbers are compared.
+#[derive(Debug, Eq, Hash, PartialEq)]
+pub struct FileIdentity(platform::FileIdentity);
+
+impl FileIdentity {
+    /// Queries file identity without following symlinks.
+    pub fn from_symlink_path(path: impl AsRef<Path>) -> io::Result<Self> {
+        platform::file_identity_from_symlink_path(path.as_ref()).map(Self)
+    }
+
+    /// Queries file identity of the given `file`.
+    // TODO: do not consume file object
+    pub fn from_file(file: File) -> io::Result<Self> {
+        platform::file_identity_from_file(file).map(Self)
+    }
+}
+
+/// Reads from an async source and writes to a sync destination. Does not spawn
+/// a task, so writes will block.
+pub async fn copy_async_to_sync<R: AsyncRead, W: Write + ?Sized>(
+    reader: R,
+    writer: &mut W,
+) -> io::Result<usize> {
+    let mut buf = vec![0; 16 << 10];
+    let mut total_written_bytes = 0;
+
+    let mut reader = std::pin::pin!(reader);
+    loop {
+        let written_bytes = reader.read(&mut buf).await?;
+        if written_bytes == 0 {
+            return Ok(total_written_bytes);
+        }
+        writer.write_all(&buf[0..written_bytes])?;
+        total_written_bytes += written_bytes;
+    }
+}
+
+/// Returns true if the first 8000 bytes of `contents` contain a null character,
+/// which suggests that the file is binary.
+pub fn is_binary(contents: &[u8]) -> bool {
+    // This is the same heuristic used by git as of writing:
+    // https://github.com/git/git/blob/eea0e59ffbed6e33d171ace5be13cde9faa41639/xdiff-interface.c#L192-L198
+    const PEEK_SIZE: usize = 8000;
+    let start = &contents[..PEEK_SIZE.min(contents.len())];
+    start.contains(&b'\0')
+}
+
+#[cfg(unix)]
+mod platform {
+    use std::convert::Infallible;
+    use std::ffi::OsStr;
+    use std::fs;
+    use std::fs::File;
+    pub use std::fs::canonicalize;
+    use std::io;
+    use std::os::unix::ffi::OsStrExt as _;
+    use std::os::unix::fs::MetadataExt as _;
+    use std::os::unix::fs::PermissionsExt;
+    use std::os::unix::fs::symlink;
+    use std::path::Path;
+
+    pub type BadOsStrEncoding = Infallible;
+
+    pub fn os_str_from_bytes(data: &[u8]) -> Result<&OsStr, BadOsStrEncoding> {
+        Ok(OsStr::from_bytes(data))
+    }
+
+    pub fn os_str_to_bytes(data: &OsStr) -> Result<&[u8], BadOsStrEncoding> {
+        Ok(data.as_bytes())
+    }
+
+    /// Whether changing executable bits is permitted on the filesystem of this
+    /// directory, and whether attempting to flip one has an observable effect.
+    pub fn check_executable_bit_support(path: impl AsRef<Path>) -> io::Result<bool> {
+        // Get current permissions and try to flip just the user's executable bit.
+        let temp_file = tempfile::tempfile_in(path)?;
+        let old_mode = temp_file.metadata()?.permissions().mode();
+        let new_mode = old_mode ^ 0o100;
+        let result = temp_file.set_permissions(PermissionsExt::from_mode(new_mode));
+        match result {
+            // If permission was denied, we do not have executable bit support.
+            Err(err) if err.kind() == io::ErrorKind::PermissionDenied => Ok(false),
+            Err(err) => Err(err),
+            Ok(()) => {
+                // Verify that the permission change was not silently ignored.
+                let mode = temp_file.metadata()?.permissions().mode();
+                Ok(mode == new_mode)
+            }
+        }
+    }
+
+    /// Symlinks are always available on Unix.
+    pub fn check_symlink_support() -> io::Result<bool> {
+        Ok(true)
+    }
+
+    /// Creates a new symlink `link` pointing to the `original` path.
+    ///
+    /// On Unix, the `original` path doesn't have to be a directory.
+    pub fn symlink_dir<P: AsRef<Path>, Q: AsRef<Path>>(original: P, link: Q) -> io::Result<()> {
+        symlink(original, link)
+    }
+
+    /// Creates a new symlink `link` pointing to the `original` path.
+    ///
+    /// On Unix, the `original` path doesn't have to be a file.
+    pub fn symlink_file<P: AsRef<Path>, Q: AsRef<Path>>(original: P, link: Q) -> io::Result<()> {
+        symlink(original, link)
+    }
+
+    #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+    pub struct FileIdentity {
+        // https://github.com/BurntSushi/same-file/blob/1.0.6/src/unix.rs#L30
+        dev: u64,
+        ino: u64,
+    }
+
+    impl FileIdentity {
+        fn from_metadata(metadata: fs::Metadata) -> Self {
+            Self {
+                dev: metadata.dev(),
+                ino: metadata.ino(),
+            }
+        }
+    }
+
+    pub fn file_identity_from_symlink_path(path: &Path) -> io::Result<FileIdentity> {
+        path.symlink_metadata().map(FileIdentity::from_metadata)
+    }
+
+    pub fn file_identity_from_file(file: File) -> io::Result<FileIdentity> {
+        file.metadata().map(FileIdentity::from_metadata)
+    }
+}
+
+#[cfg(windows)]
+mod platform {
+    use std::fs::File;
+    use std::fs::OpenOptions;
+    use std::io;
+    use std::os::windows::fs::OpenOptionsExt as _;
+    pub use std::os::windows::fs::symlink_dir;
+    pub use std::os::windows::fs::symlink_file;
+    use std::path::Path;
+
+    pub use dunce::canonicalize;
+    use winreg::RegKey;
+    use winreg::enums::HKEY_LOCAL_MACHINE;
+
+    pub use super::fallback::BadOsStrEncoding;
+    pub use super::fallback::os_str_from_bytes;
+    pub use super::fallback::os_str_to_bytes;
+
+    /// Symlinks may or may not be enabled on Windows. They require the
+    /// Developer Mode setting, which is stored in the registry key below.
+    ///
+    /// Note: If developer mode is not enabled, the error code of symlink
+    /// creation will be 1314, `ERROR_PRIVILEGE_NOT_HELD`.
+    pub fn check_symlink_support() -> io::Result<bool> {
+        let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+        let sideloading =
+            hklm.open_subkey("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\AppModelUnlock")?;
+        let developer_mode: u32 = sideloading.get_value("AllowDevelopmentWithoutDevLicense")?;
+        Ok(developer_mode == 1)
+    }
+
+    pub type FileIdentity = same_file::Handle;
+
+    pub fn file_identity_from_symlink_path(path: &Path) -> io::Result<FileIdentity> {
+        // `same_file::Handle::from_path()` follows symlinks, because it opens
+        // the path without `FILE_FLAG_OPEN_REPARSE_POINT`. Open the file the
+        // same way it does (read access, plus `FILE_FLAG_BACKUP_SEMANTICS` so a
+        // directory can be opened too), but add `FILE_FLAG_OPEN_REPARSE_POINT`
+        // so the handle refers to the symlink itself instead of its target.
+        // This matches the Unix implementation, which uses `symlink_metadata()`.
+        // The reparse-point flag is ignored for paths that aren't reparse
+        // points, so regular files and hard links are unaffected.
+        const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+        const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+        let file = OpenOptions::new()
+            .read(true)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+            .open(path)?;
+        same_file::Handle::from_file(file)
+    }
+
+    pub fn file_identity_from_file(file: File) -> io::Result<FileIdentity> {
+        same_file::Handle::from_file(file)
+    }
+}
+
+#[cfg(target_os = "wasi")]
+mod platform {
+    use std::fs::File;
+    use std::io;
+    use std::path::Component;
+    use std::path::Path;
+    use std::path::PathBuf;
+
+    // TODO: Use `std::os::wasi::ffi::OsStrExt` when it becomes stable.
+    //
+    // https://github.com/rust-lang/rust/issues/130323
+    // https://github.com/jj-vcs/jj/pull/9849#discussion_r4501151696
+    pub use super::fallback::BadOsStrEncoding;
+    pub use super::fallback::os_str_from_bytes;
+    pub use super::fallback::os_str_to_bytes;
+
+    pub fn canonicalize(path: &Path) -> io::Result<PathBuf> {
+        if !path.is_absolute()
+            || path
+                .components()
+                .any(|c| matches!(c, Component::CurDir | Component::ParentDir))
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "path must be absolute and contain no redundant components or separators",
+            ));
+        }
+
+        Ok(path.components().collect())
+    }
+
+    /// Whether symlinks are supported. WASI preview 2 can expose symlinks, but
+    /// creating them requires the unstable `wasi_ext` std feature, so we report
+    /// them as unsupported on stable Rust.
+    pub fn check_symlink_support() -> io::Result<bool> {
+        Ok(false)
+    }
+
+    /// Creates a new symlink `link` pointing to the `original` path.
+    pub fn symlink_dir<P: AsRef<Path>, Q: AsRef<Path>>(_original: P, _link: Q) -> io::Result<()> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "symlinks are not supported on WASI",
+        ))
+    }
+
+    /// Creates a new symlink `link` pointing to the `original` path.
+    pub fn symlink_file<P: AsRef<Path>, Q: AsRef<Path>>(_original: P, _link: Q) -> io::Result<()> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "symlinks are not supported on WASI",
+        ))
+    }
+
+    /// File identity is unavailable on WASI with stable Rust, because its
+    /// `MetadataExt` requires the unstable `wasi_ext` feature.
+    #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+    pub enum FileIdentity {}
+
+    pub fn file_identity_from_symlink_path(_path: &Path) -> io::Result<FileIdentity> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "file identity is not supported on WASI",
+        ))
+    }
+
+    pub fn file_identity_from_file(_file: File) -> io::Result<FileIdentity> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "file identity is not supported on WASI",
+        ))
+    }
+}
+
+#[cfg_attr(unix, expect(dead_code))]
+mod fallback {
+    use std::ffi::OsStr;
+
+    use thiserror::Error;
+
+    // Define error per platform so we can explicitly say UTF-8 is expected.
+    #[derive(Debug, Error)]
+    #[error("Invalid UTF-8 sequence")]
+    pub struct BadOsStrEncoding;
+
+    pub fn os_str_from_bytes(data: &[u8]) -> Result<&OsStr, BadOsStrEncoding> {
+        Ok(str::from_utf8(data).map_err(|_| BadOsStrEncoding)?.as_ref())
+    }
+
+    pub fn os_str_to_bytes(data: &OsStr) -> Result<&[u8], BadOsStrEncoding> {
+        Ok(data.to_str().ok_or(BadOsStrEncoding)?.as_ref())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt as _;
+
+    use futures::io::Cursor;
+    use itertools::Itertools as _;
+    use pollster::FutureExt as _;
+    use test_case::test_case;
+
+    use super::*;
+    use crate::tests::TestResult;
+    use crate::tests::new_temp_dir;
+
+    #[test]
+    #[cfg(unix)]
+    fn exec_bit_support_in_temp_dir() -> TestResult {
+        // Temporary directories on Unix should always have executable support.
+        // Note that it would be problematic to test in a non-temp directory, as
+        // a developer's filesystem may or may not have executable bit support.
+        let dir = new_temp_dir();
+        let supported = check_executable_bit_support(dir.path())?;
+        assert!(supported);
+        Ok(())
+    }
+
+    #[test]
+    fn test_path_bytes_roundtrip() -> TestResult {
+        let bytes = b"ascii";
+        let path = path_from_bytes(bytes)?;
+        assert_eq!(path_to_bytes(path)?, bytes);
+
+        let bytes = b"utf-8.\xc3\xa0";
+        let path = path_from_bytes(bytes)?;
+        assert_eq!(path_to_bytes(path)?, bytes);
+
+        let bytes = b"latin1.\xe0";
+        if cfg!(unix) {
+            let path = path_from_bytes(bytes)?;
+            assert_eq!(path_to_bytes(path)?, bytes);
+        } else {
+            assert!(path_from_bytes(bytes).is_err());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_relative_path() {
+        // Compare as strings, not as (normalized) paths
+        let p = |slash_path: &str| {
+            let mut native_path = slash_path.replace('/', std::path::MAIN_SEPARATOR_STR);
+            if cfg!(windows) && slash_path.starts_with('/') {
+                native_path.insert_str(0, "c:"); // make the path truly absolute
+            }
+            native_path
+        };
+        let relative = |from: &str, to: &str| {
+            relative_path(p(from).as_ref(), p(to).as_ref())
+                .into_os_string()
+                .into_string()
+                .unwrap()
+        };
+
+        assert_eq!(relative("/foo/bar", "/foo/bar"), p("."));
+        assert_eq!(relative("/foo", "/foo/bar"), p("bar"));
+        assert_eq!(relative("/", "/foo/bar"), p("foo/bar"));
+
+        assert_eq!(relative("/foo/bar/baz", "/foo/bar"), p(".."));
+        assert_eq!(relative("/foo/baz", "/foo/bar"), p("../bar"));
+        assert_eq!(relative("/baz", "/foo/bar"), p("../foo/bar"));
+
+        assert_eq!(relative("/foo/bar/baz/qux", "/foo/bar"), p("../.."));
+        assert_eq!(relative("/foo/baz/qux", "/foo/bar"), p("../../bar"));
+        assert_eq!(relative("/baz/qux", "/foo/bar"), p("../../foo/bar"));
+
+        // No common prefix components
+        assert_eq!(relative("foo/bar", "/foo/bar"), p("/foo/bar"));
+        assert_eq!(relative("/foo/bar", "foo/bar"), p("foo/bar"));
+        assert_eq!(relative("./foo/bar", "/./foo/bar"), p("/./foo/bar"));
+        assert_eq!(relative("/./foo/bar", "./foo/bar"), p("./foo/bar"));
+        assert_eq!(relative("/foo", ""), p("")); // or "."
+        assert_eq!(relative("", "/foo"), p("/foo"));
+        assert_eq!(relative("", ""), p("")); // or "."
+
+        // Redundant components are skipped by Path::components()
+        assert_eq!(relative("/./foo/./bar", "/foo/bar"), p("."));
+        assert_eq!(relative("/foo/bar", "/./foo/./bar"), p("."));
+        assert_eq!(relative("/./foo/./bar", "/foo"), p(".."));
+        assert_eq!(relative("/foo", "/./foo/./bar"), p("bar"));
+    }
+
+    #[test]
+    fn test_relative_path_windows() {
+        // Compare as strings, not as (normalized) paths
+        let relative = |from: &str, to: &str| {
+            relative_path(from.as_ref(), to.as_ref())
+                .into_os_string()
+                .into_string()
+                .unwrap()
+        };
+
+        if cfg!(windows) {
+            assert_eq!(relative(r"c:\foo\bar", r"c:\foo\bar"), ".");
+            assert_eq!(relative(r"c:\foo", r"c:\foo\bar"), "bar");
+            assert_eq!(relative(r"c:\", r"c:\foo\bar"), r"foo\bar");
+
+            assert_eq!(relative(r"d:\foo", r"c:\foo\bar"), r"c:\foo\bar");
+            assert_eq!(relative(r"d:\", r"c:\foo\bar"), r"c:\foo\bar");
+
+            assert_eq!(relative(r"\\foo\bar", r"\foo\bar"), r"\foo\bar");
+            assert_eq!(relative(r"\\foo\bar", r"\\foo\bar"), ".");
+            assert_eq!(relative(r"\\foo\bar\baz", r"\\foo\bar\baz"), ".");
+            assert_eq!(relative(r"\\foo\bar\baz", r"\\foo\bar\qux"), r"..\qux");
+            assert_eq!(
+                relative(r"\\foo\bar\baz", r"\\qux\bar\baz"),
+                r"\\qux\bar\baz"
+            );
+        }
+    }
+
+    #[test]
+    fn normalize_too_many_dot_dot() {
+        assert_eq!(normalize_path(Path::new("foo/..")), Path::new("."));
+        assert_eq!(normalize_path(Path::new("foo/../..")), Path::new(".."));
+        assert_eq!(
+            normalize_path(Path::new("foo/../../..")),
+            Path::new("../..")
+        );
+        assert_eq!(
+            normalize_path(Path::new("foo/../../../bar/baz/..")),
+            Path::new("../../bar")
+        );
+    }
+
+    #[test]
+    fn test_slash_path() {
+        assert_eq!(slash_path(Path::new("")), Path::new(""));
+        assert_eq!(slash_path(Path::new("foo")), Path::new("foo"));
+        assert_eq!(slash_path(Path::new("foo/bar")), Path::new("foo/bar"));
+        assert_eq!(slash_path(Path::new("foo/bar/..")), Path::new("foo/bar/.."));
+        assert_eq!(
+            slash_path(Path::new(r"foo\bar")),
+            if cfg!(windows) {
+                Path::new("foo/bar")
+            } else {
+                Path::new(r"foo\bar")
+            }
+        );
+        assert_eq!(
+            slash_path(Path::new(r"..\foo\bar")),
+            if cfg!(windows) {
+                Path::new("../foo/bar")
+            } else {
+                Path::new(r"..\foo\bar")
+            }
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_new_temp_file_with_default_permissions() -> TestResult {
+        let temp_dir = new_temp_dir();
+        let file = File::create(temp_dir.path().join("file"))?;
+        let temp_file = new_temp_file_with_default_permissions(temp_dir.path())?;
+        assert_eq!(
+            temp_file.as_file().metadata()?.permissions().mode() & 0o777,
+            file.metadata()?.permissions().mode() & 0o777
+        );
+        Ok(())
+    }
+
+    #[test_case(false; "new file")]
+    #[test_case(true; "existing file")]
+    fn test_new_temp_file_for_replacement(existing: bool) -> TestResult {
+        let temp_dir = new_temp_dir();
+        let path = temp_dir.path().join("file");
+        if existing {
+            fs::write(&path, b"")?;
+            #[cfg(unix)]
+            {
+                fs::set_permissions(&path, fs::Permissions::from_mode(0o640))?;
+            }
+        }
+        let (temp_file, new_path) = new_temp_file_for_replacement(&path)?;
+        assert_eq!(new_path, path);
+        assert_eq!(temp_file.path().parent(), path.parent());
+        #[cfg(unix)]
+        if existing {
+            assert_eq!(
+                temp_file.as_file().metadata()?.permissions(),
+                path.metadata()?.permissions()
+            );
+        } else {
+            let normal_file = File::create(temp_dir.path().join("normal"))?;
+            assert_eq!(
+                temp_file.as_file().metadata()?.permissions().mode() & 0o777,
+                normal_file.metadata()?.permissions().mode() & 0o777
+            );
+        }
+        Ok(())
+    }
+
+    #[test_case(false, false; "relative target")]
+    #[test_case(true, false; "absolute target")]
+    #[test_case(false, true; "relative chain")]
+    fn test_new_temp_file_for_replacement_valid_symlink(absolute: bool, chain: bool) -> TestResult {
+        if !check_symlink_support()? {
+            return Ok(());
+        }
+        let temp_dir = new_temp_dir();
+        let target_dir = temp_dir.path().join("target");
+        fs::create_dir(&target_dir)?;
+        let target_path = target_dir.join("file");
+        fs::write(&target_path, b"")?;
+        #[cfg(unix)]
+        {
+            fs::set_permissions(&target_path, fs::Permissions::from_mode(0o640))?;
+        }
+        let link_target = if chain {
+            symlink_file("file", target_dir.join("middle"))?;
+            PathBuf::from_iter(["target", "middle"])
+        } else {
+            PathBuf::from_iter(["target", "file"])
+        };
+        let link_target = if absolute {
+            temp_dir.path().join(link_target)
+        } else {
+            link_target
+        };
+        let link_path = temp_dir.path().join("link");
+        symlink_file(&link_target, &link_path)?;
+
+        let (temp_file, new_path) = new_temp_file_for_replacement(&link_path)?;
+        assert_eq!(new_path, canonicalize(&target_path)?);
+        assert_eq!(temp_file.path().parent(), new_path.parent());
+        if cfg!(unix) {
+            assert_eq!(
+                temp_file.as_file().metadata()?.permissions(),
+                target_path.metadata()?.permissions()
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_new_temp_file_for_replacement_dangling_symlink() -> TestResult {
+        if !check_symlink_support()? {
+            return Ok(());
+        }
+        let temp_dir = new_temp_dir();
+        let link_path = temp_dir.path().join("link");
+        symlink_file("missing_file", &link_path)?;
+        let (temp_file, new_path) = new_temp_file_for_replacement(&link_path)?;
+        assert_eq!(new_path, link_path);
+        assert_eq!(temp_file.path().parent(), link_path.parent());
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_new_temp_file_for_replacement_symlink_loop() -> TestResult {
+        let temp_dir = new_temp_dir();
+        let link_path = temp_dir.path().join("link");
+        symlink_file("link", &link_path)?;
+        assert!(new_temp_file_for_replacement(&link_path).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_persist_no_existing_file() -> TestResult {
+        let temp_dir = new_temp_dir();
+        let target = temp_dir.path().join("file");
+        let mut temp_file = NamedTempFile::new_in(&temp_dir)?;
+        temp_file.write_all(b"contents")?;
+        assert!(persist_content_addressed_temp_file(temp_file, target).is_ok());
+        Ok(())
+    }
+
+    #[test]
+    fn test_persist_temp_file_target_open_briefly() -> TestResult {
+        let temp_dir = new_temp_dir();
+        let target = temp_dir.path().join("file");
+        fs::write(&target, b"old")?;
+        let mut temp_file = NamedTempFile::new_in(&temp_dir)?;
+        temp_file.write_all(b"new")?;
+
+        // On Windows, an open file can't be replaced until it's closed.
+        let reader = File::open(&target)?;
+        let reader_thread = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(100));
+            drop(reader);
+        });
+        persist_temp_file(temp_file, &target)?;
+        reader_thread.join().unwrap();
+        assert_eq!(fs::read(&target)?, b"new");
+        Ok(())
+    }
+
+    #[test_case(false ; "existing file open")]
+    #[test_case(true ; "existing file closed")]
+    fn test_persist_target_exists(existing_file_closed: bool) -> TestResult {
+        let temp_dir = new_temp_dir();
+        let target = temp_dir.path().join("file");
+        let mut temp_file = NamedTempFile::new_in(&temp_dir)?;
+        temp_file.write_all(b"contents")?;
+
+        let mut file = File::create(&target)?;
+        file.write_all(b"contents")?;
+        if existing_file_closed {
+            drop(file);
+        }
+
+        assert!(persist_content_addressed_temp_file(temp_file, &target).is_ok());
+        Ok(())
+    }
+
+    #[cfg(not(target_os = "wasi"))]
+    #[test]
+    fn test_file_identity_hard_link() -> TestResult {
+        let temp_dir = new_temp_dir();
+        let file_path = temp_dir.path().join("file");
+        let other_file_path = temp_dir.path().join("other_file");
+        let link_path = temp_dir.path().join("link");
+        fs::write(&file_path, "")?;
+        fs::write(&other_file_path, "")?;
+        fs::hard_link(&file_path, &link_path)?;
+        assert_eq!(
+            FileIdentity::from_symlink_path(&file_path)?,
+            FileIdentity::from_symlink_path(&link_path)?
+        );
+        assert_ne!(
+            FileIdentity::from_symlink_path(&other_file_path)?,
+            FileIdentity::from_symlink_path(&link_path)?
+        );
+        assert_eq!(
+            FileIdentity::from_symlink_path(&file_path)?,
+            FileIdentity::from_file(File::open(&link_path)?)?
+        );
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_file_identity_unix_symlink_dir() -> TestResult {
+        let temp_dir = new_temp_dir();
+        let dir_path = temp_dir.path().join("dir");
+        let symlink_path = temp_dir.path().join("symlink");
+        fs::create_dir(&dir_path)?;
+        std::os::unix::fs::symlink("dir", &symlink_path)?;
+        // symlink should be identical to itself
+        assert_eq!(
+            FileIdentity::from_symlink_path(&symlink_path)?,
+            FileIdentity::from_symlink_path(&symlink_path)?
+        );
+        // symlink should be different from the target directory
+        assert_ne!(
+            FileIdentity::from_symlink_path(&dir_path)?,
+            FileIdentity::from_symlink_path(&symlink_path)?
+        );
+        // File::open() follows symlinks
+        assert_eq!(
+            FileIdentity::from_symlink_path(&dir_path)?,
+            FileIdentity::from_file(File::open(&symlink_path)?)?
+        );
+        assert_ne!(
+            FileIdentity::from_symlink_path(&symlink_path)?,
+            FileIdentity::from_file(File::open(&symlink_path)?)?
+        );
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_file_identity_windows_symlink_file() -> TestResult {
+        if !check_symlink_support()? {
+            return Ok(());
+        }
+        let temp_dir = new_temp_dir();
+        let file_path = temp_dir.path().join("file");
+        let symlink_path = temp_dir.path().join("symlink");
+        fs::write(&file_path, "")?;
+        symlink_file("file", &symlink_path)?;
+        // symlink should be identical to itself
+        assert_eq!(
+            FileIdentity::from_symlink_path(&symlink_path)?,
+            FileIdentity::from_symlink_path(&symlink_path)?
+        );
+        // symlink should be different from the target file
+        assert_ne!(
+            FileIdentity::from_symlink_path(&file_path)?,
+            FileIdentity::from_symlink_path(&symlink_path)?
+        );
+        // File::open() follows symlinks
+        assert_eq!(
+            FileIdentity::from_symlink_path(&file_path)?,
+            FileIdentity::from_file(File::open(&symlink_path)?)?
+        );
+        assert_ne!(
+            FileIdentity::from_symlink_path(&symlink_path)?,
+            FileIdentity::from_file(File::open(&symlink_path)?)?
+        );
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_file_identity_windows_symlink_dir() -> TestResult {
+        if !check_symlink_support()? {
+            return Ok(());
+        }
+        let temp_dir = new_temp_dir();
+        let dir_path = temp_dir.path().join("dir");
+        let symlink_path = temp_dir.path().join("symlink");
+        fs::create_dir(&dir_path)?;
+        symlink_dir("dir", &symlink_path)?;
+        // symlink should be identical to itself
+        assert_eq!(
+            FileIdentity::from_symlink_path(&symlink_path)?,
+            FileIdentity::from_symlink_path(&symlink_path)?
+        );
+        // symlink should be different from the target directory. The
+        // `File::open()` follow-through is not checked here because File::open()
+        // can't open a directory on Windows.
+        assert_ne!(
+            FileIdentity::from_symlink_path(&dir_path)?,
+            FileIdentity::from_symlink_path(&symlink_path)?
+        );
+        Ok(())
+    }
+
+    #[cfg(not(target_os = "wasi"))]
+    #[test]
+    fn test_file_identity_directory() -> TestResult {
+        let temp_dir = new_temp_dir();
+        let dir_path = temp_dir.path().join("dir");
+        let other_dir_path = temp_dir.path().join("other_dir");
+        fs::create_dir(&dir_path)?;
+        fs::create_dir(&other_dir_path)?;
+        // a directory should be identical to itself
+        assert_eq!(
+            FileIdentity::from_symlink_path(&dir_path)?,
+            FileIdentity::from_symlink_path(&dir_path)?
+        );
+        // distinct directories should differ
+        assert_ne!(
+            FileIdentity::from_symlink_path(&dir_path)?,
+            FileIdentity::from_symlink_path(&other_dir_path)?
+        );
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_file_identity_unix_symlink_loop() -> TestResult {
+        let temp_dir = new_temp_dir();
+        let lower_file_path = temp_dir.path().join("file");
+        let upper_file_path = temp_dir.path().join("FILE");
+        let lower_symlink_path = temp_dir.path().join("symlink");
+        let upper_symlink_path = temp_dir.path().join("SYMLINK");
+        fs::write(&lower_file_path, "")?;
+        std::os::unix::fs::symlink("symlink", &lower_symlink_path)?;
+        let is_icase_fs = upper_file_path.try_exists()?;
+        // symlink should be identical to itself
+        assert_eq!(
+            FileIdentity::from_symlink_path(&lower_symlink_path)?,
+            FileIdentity::from_symlink_path(&lower_symlink_path)?
+        );
+        assert_ne!(
+            FileIdentity::from_symlink_path(&lower_symlink_path)?,
+            FileIdentity::from_symlink_path(&lower_file_path)?
+        );
+        if is_icase_fs {
+            assert_eq!(
+                FileIdentity::from_symlink_path(&lower_symlink_path)?,
+                FileIdentity::from_symlink_path(&upper_symlink_path)?
+            );
+        } else {
+            assert!(FileIdentity::from_symlink_path(&upper_symlink_path).is_err());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_copy_async_to_sync_small() -> TestResult {
+        let input = b"hello";
+        let mut output = vec![];
+
+        let result = copy_async_to_sync(Cursor::new(&input), &mut output).block_on();
+        assert!(result.is_ok());
+        assert_eq!(result?, 5);
+        assert_eq!(output, input);
+        Ok(())
+    }
+
+    #[test]
+    fn test_copy_async_to_sync_large() -> TestResult {
+        // More than 1 buffer worth of data
+        let input = (0..100u8).cycle().take(40000).collect_vec();
+        let mut output = vec![];
+
+        let result = copy_async_to_sync(Cursor::new(&input), &mut output).block_on();
+        assert!(result.is_ok());
+        assert_eq!(result?, 40000);
+        assert_eq!(output, input);
+        Ok(())
+    }
+
+    #[test_case(b"", false; "empty")]
+    #[test_case(b"a\nb\n", false; "text")]
+    #[test_case(b"a\rb", false; "lone CR")]
+    #[test_case(b"a\0b", true; "null character")]
+    fn test_is_binary(contents: &[u8], expected: bool) {
+        assert_eq!(is_binary(contents), expected);
+    }
+
+    #[test]
+    fn test_is_binary_probe_size() {
+        let mut contents = vec![b'a'; 8001];
+        contents[8000] = b'\0';
+        assert!(!is_binary(&contents));
+        contents[7999] = b'\0';
+        assert!(is_binary(&contents));
+    }
+
+    #[cfg(target_os = "wasi")]
+    #[test]
+    fn test_file_identity_unsupported() -> TestResult {
+        let temp_dir = new_temp_dir();
+        let file_path = temp_dir.path().join("file");
+        let file = File::create(&file_path)?;
+        assert_eq!(
+            FileIdentity::from_symlink_path(&file_path)
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::Unsupported
+        );
+        assert_eq!(
+            FileIdentity::from_file(file).unwrap_err().kind(),
+            io::ErrorKind::Unsupported
+        );
+        Ok(())
+    }
+}

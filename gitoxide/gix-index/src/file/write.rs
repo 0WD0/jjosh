@@ -49,7 +49,24 @@ impl File {
     /// with its original state to retain and selectively invalidate both caches before writing with
     /// [`write::Extensions::AllUnconditionally`].
     pub fn write(&mut self, options: write::Options, shared_repository_permissions: SharedPermissions) -> Result {
-        use gix_error::{ErrorExt, ResultExt, bail, message};
+        self.write_with(options, shared_repository_permissions, |_| Ok(()))
+    }
+
+    /// Write ourselves like [`File::write()`], invoking `before_commit` after all serialized bytes have been flushed
+    /// to the index lock file, but before committing it to the index path.
+    ///
+    /// The callback receives the held lock so it can inspect the staged bytes at [`gix_lock::File::lock_path()`]
+    /// and the original index at [`gix_lock::File::resource_path()`]. If it fails, the lock is dropped without
+    /// changing the original index or updating our version and checksum.
+    ///
+    /// The cache considerations documented on [`File::write()`] also apply here.
+    pub fn write_with(
+        &mut self,
+        options: write::Options,
+        shared_repository_permissions: SharedPermissions,
+        before_commit: impl FnOnce(&gix_lock::File) -> Result,
+    ) -> Result {
+        use gix_error::{ResultExt, message};
 
         let _span = gix_trace::detail!("gix_index::File::write()", path = ?self.path);
         let mut lock = std::io::BufWriter::with_capacity(
@@ -66,17 +83,13 @@ impl File {
         let (version, digest) = self
             .write_to(&mut lock, options)
             .or_raise(|| message("Could not write index"))?;
-        match lock.into_inner() {
-            Ok(lock) => lock
-                .commit()
-                .or_raise(|| message("Could not commit lock for index file"))?,
-            Err(err) => {
-                bail!(
-                    err.into_error()
-                        .and_raise(message("Could not flush buffered index data"))
-                );
-            }
-        };
+        let lock = lock
+            .into_inner()
+            .map_err(|err| err.into_error())
+            .or_raise(|| message("Could not flush buffered index data"))?;
+        before_commit(&lock).or_raise(|| message("Index write rejected before committing the lock"))?;
+        lock.commit()
+            .or_raise(|| message("Could not commit lock for index file"))?;
         self.state.version = version;
         self.checksum = (!digest.is_null()).then_some(digest);
         Ok(())

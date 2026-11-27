@@ -2077,7 +2077,7 @@ dependencies = [
  "gix-imara-diff",
  "gix-object",
  "gix-testtools",
- "hashbrown 0.16.1",
+ "hashbrown 0.17.1",
 ]
 
 [[package]]
@@ -2906,8 +2906,6 @@ dependencies = [
 [[package]]
 name = "glob"
 version = "0.3.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e4eba85ea1d0a966a983acd07deee566e67395d2d96b6fb39e62b5a833f1eb0b"
 
 [[package]]
 name = "gloo-timers"
@@ -3741,8 +3739,6 @@ dependencies = [
 [[package]]
 name = "libsqlite3-sys"
 version = "0.40.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b06e69070b7e12262b0cd90832f0a7396f142a2b330181255562decf9f0c6215"
 dependencies = [
  "cc",
  "pkg-config",
@@ -4770,9 +4766,7 @@ dependencies = [
 
 [[package]]
 name = "rusqlite"
-version = "0.43.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f172c4812a19b26d1c23cdb0070e69db335503dfa378b910eb857386e5b8beba"
+version = "0.42.0"
 dependencies = [
  "bitflags 2.13.2",
  "fallible-iterator",

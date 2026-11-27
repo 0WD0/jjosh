@@ -1,0 +1,60 @@
+[package]
+name = "jj-core"
+description = "Core types and algorithms for Jujutsu - an experimental version control system"
+
+version.workspace = true
+license.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+readme.workspace = true
+homepage.workspace = true
+repository.workspace = true
+documentation.workspace = true
+categories.workspace = true
+keywords.workspace = true
+
+include = [
+    "/LICENSE",
+    "/src/",
+]
+
+[[bench]]
+name = "diff_bench"
+harness = false
+
+[dependencies]
+async-trait = { workspace = true }
+blake2 = { workspace = true }
+bstr = { workspace = true }
+clru = { workspace = true }
+digest = { workspace = true }
+either = { workspace = true }
+futures = { workspace = true }
+globset = { workspace = true }
+hashbrown = { workspace = true }
+indexmap = { workspace = true }
+interim = { workspace = true }
+itertools = { workspace = true }
+jiff = { workspace = true }
+jj-core-proc-macros = { workspace = true }
+pollster = { workspace = true }
+prost = { workspace = true }
+rand = { workspace = true }
+ref-cast = { workspace = true }
+regex = { workspace = true }
+serde = { workspace = true }
+smallvec = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+eyre = { workspace = true }
+indoc = { workspace = true }
+insta = { workspace = true }
+maplit = { workspace = true }
+sapling-renderdag = { workspace = true }
+test-case = { workspace = true }
+
+[lints]
+workspace = true

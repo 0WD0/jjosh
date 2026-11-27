@@ -1,0 +1,184 @@
+name: rust
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ '**' ]
+    types: [opened, synchronize, reopened, ready_for_review]
+  merge_group:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  JOSH_EXPERIMENTAL_FEATURES: "1"
+  # Bootstrap the `josh` binary used by CI to drive `josh compose run`, sync the
+  # compose result ref through Git, and pull/push volumes and images from R2.
+  # Keep this pinned so every branch reuses one known-good binary from R2. Bump
+  # it only when an incompatible compose metadata or transport change requires
+  # a newer bootstrap.
+  JOSH_BOOTSTRAP_SHA: 5f5e41b3199a4653e3af8e008a573571d48bee89
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    name: CI
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    env:
+      # Fork PRs and dependabot PRs run with a restricted token and no repository
+      # secrets, so they can't reach R2 or authenticate the sccache-proxy sidecar.
+      # Drop the sidecars overlay for those runs so the build is fully
+      # self-contained (falls back to the local sccache disk cache), and skip the
+      # R2 and remote-cache checks below.
+      SECRETLESS: ${{ github.event.pull_request.head.repo.fork == true || github.actor == 'dependabot[bot]' }}
+      COMPOSE_FILTER: ${{ (github.event.pull_request.head.repo.fork == true || github.actor == 'dependabot[bot]') && ':+compose' || ':[::sidecars.josh=ci-sidecars.josh,:/]:+compose' }}
+    steps:
+    - name: Free up disk space
+      shell: bash
+      run: |
+        set -eu
+        CLEANUP_DIRS=(
+          "/usr/local/lib/android"
+          "/usr/share/dotnet"
+          "/usr/share/swift"
+          "/usr/local/.ghcup"
+        )
+        for dir in "${CLEANUP_DIRS[@]}"; do
+          if [[ -d "$dir" ]]; then
+            echo "removing ${dir}"
+            sudo rm -rf "$dir"
+          fi
+        done
+    - name: Setup BuildX
+      uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        fetch-depth: 0
+        persist-credentials: false
+    - name: Get tags
+      run: git fetch --tags origin
+    - name: Install podman
+      shell: bash
+      run: .github/workflows/scripts/install-podman.sh
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # stable
+      with:
+        toolchain: stable
+    - name: Bootstrap josh binary
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      run: .github/workflows/scripts/bootstrap-josh.sh
+    - name: Pull compose results ref and cached volumes
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      run: |
+        export PATH="$(pwd)/target/release:$PATH"
+        export JOSH_EXPERIMENTAL_FEATURES=1
+        .github/workflows/scripts/pull-jobs.sh HEAD "$COMPOSE_FILTER"
+    - name: Pull cached images from R2
+      if: env.SECRETLESS != 'true'
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      run: |
+        export PATH="$(pwd)/target/release:$PATH"
+        export JOSH_EXPERIMENTAL_FEATURES=1
+        .github/workflows/scripts/pull-images.sh HEAD "$COMPOSE_FILTER"
+    - name: Run tests
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      run: |
+        set -o pipefail
+        target/release/josh compose run HEAD \
+          "$COMPOSE_FILTER" 2>&1 \
+          | tee /tmp/compose-run.log
+        # Secretless runs (forks, dependabot) have no sidecar-provided remote
+        # cache, so the local fallback is expected; only enforce it otherwise.
+        if [ "$SECRETLESS" != "true" ] && grep -q SCCACHE_REMOTE_CACHE_MISSING /tmp/compose-run.log; then
+          echo "::error::sccache remote cache was not used during the build"
+          exit 1
+        fi
+    - name: Push cached volumes to R2
+      if: success() && env.SECRETLESS != 'true'
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      run: |
+        export PATH="$(pwd)/target/release:$PATH"
+        export JOSH_EXPERIMENTAL_FEATURES=1
+        .github/workflows/scripts/push-volumes.sh HEAD "$COMPOSE_FILTER"
+    - name: Bundle compose results
+      if: success() && env.SECRETLESS != 'true'
+      run: git bundle create "$RUNNER_TEMP/compose-results.bundle" refs/josh/compose
+    - name: Upload compose results bundle
+      if: success() && env.SECRETLESS != 'true'
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: compose-results
+        path: ${{ runner.temp }}/compose-results.bundle
+        if-no-files-found: error
+        retention-days: 1
+    - name: Push built images to R2
+      if: success() && env.SECRETLESS != 'true'
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      run: |
+        export PATH="$(pwd)/target/release:$PATH"
+        export JOSH_EXPERIMENTAL_FEATURES=1
+        .github/workflows/scripts/push-images.sh HEAD "$COMPOSE_FILTER"
+
+  publish-compose-results:
+    runs-on: ubuntu-latest
+    name: Publish compose results
+    needs: test
+    if: needs.test.result == 'success' && github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false)
+    permissions:
+      contents: write
+    steps:
+    - name: Checkout default branch
+      env:
+        DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        REPOSITORY: ${{ github.repository }}
+      run: |
+        git init .
+        git remote add origin "https://github.com/${REPOSITORY}.git"
+        git fetch --no-tags --depth=1 origin "refs/heads/${DEFAULT_BRANCH}"
+        git checkout --detach FETCH_HEAD
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # stable
+      with:
+        toolchain: stable
+    - name: Bootstrap josh binary
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      run: .github/workflows/scripts/bootstrap-josh.sh
+    - name: Download compose results bundle
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: compose-results
+        path: ${{ runner.temp }}/compose-results
+    - name: Import compose results
+      run: |
+        git fetch \
+          "$RUNNER_TEMP/compose-results/compose-results.bundle" \
+          refs/josh/compose:refs/josh/compose
+    - name: Push compose results ref
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+      run: |
+        auth="$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 --wrap=0)"
+        echo "::add-mask::$auth"
+        export GIT_CONFIG_COUNT=1
+        export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+        export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth"
+        export PATH="$(pwd)/target/release:$PATH"
+        export JOSH_EXPERIMENTAL_FEATURES=1
+        josh compose push --remote origin

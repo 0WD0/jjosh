@@ -1,0 +1,1015 @@
+// Copyright 2020 The Jujutsu Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+//! Defines the commit backend trait and related types. This is the lowest-level
+//! trait for reading and writing commits, trees, files, etc.
+
+use std::any::Any;
+use std::borrow::Borrow;
+use std::fmt::Debug;
+use std::fmt::Write as _;
+use std::iter::zip;
+use std::pin::Pin;
+use std::slice;
+use std::time::SystemTime;
+
+use async_trait::async_trait;
+use futures::AsyncRead;
+use futures::stream::BoxStream;
+use jiff::ZonedDateTime;
+use jiff::tz::Offset;
+use jiff::tz::TimeZone;
+use smallvec::SmallVec;
+use thiserror::Error;
+
+use crate::conflict_labels::ConflictLabels;
+use crate::content_hash::ContentHash;
+use crate::hex_util;
+use crate::merge::Merge;
+use crate::object_id::ObjectId as _;
+use crate::object_id::id_type;
+use crate::repo_path::RepoPath;
+use crate::repo_path::RepoPathBuf;
+use crate::repo_path::RepoPathComponent;
+use crate::repo_path::RepoPathComponentBuf;
+use crate::signing::SignResult;
+
+id_type!(
+    /// Identifier for a [`Commit`] based on its content. When a commit is
+    /// rewritten, its `CommitId` changes.
+    pub CommitId { hex() }
+);
+id_type!(
+    /// Stable identifier for a [`Commit`]. Unlike the `CommitId`, the `ChangeId`
+    /// follows the commit and is not updated when the commit is rewritten.
+    pub ChangeId { reverse_hex() }
+);
+id_type!(
+    /// Identifier for a tree object.
+    pub TreeId { hex() }
+);
+id_type!(
+    /// Identifier for a file content.
+    pub FileId { hex() }
+);
+id_type!(
+    /// Identifier for a symlink.
+    pub SymlinkId { hex() }
+);
+id_type!(
+    /// Identifier for a copy history.
+    pub CopyId { hex() }
+);
+
+impl ChangeId {
+    /// Parses the given "reverse" hex string into a `ChangeId`.
+    pub fn try_from_reverse_hex(hex: impl AsRef<[u8]>) -> Option<Self> {
+        hex_util::decode_reverse_hex(hex).map(Self)
+    }
+
+    /// Returns the hex string representation of this ID, which uses `z-k`
+    /// "digits" instead of `0-9a-f`.
+    pub fn reverse_hex(&self) -> String {
+        hex_util::encode_reverse_hex(&self.0)
+    }
+}
+
+impl CopyId {
+    /// Returns a placeholder copy id to be used when we don't have a real copy
+    /// id yet.
+    // TODO: Delete this
+    pub fn placeholder() -> Self {
+        Self::new(vec![])
+    }
+}
+
+/// Error that may occur when converting a `Timestamp` to a `Zoned`.
+#[derive(Debug, Error)]
+#[error("Out-of-range date")]
+pub struct TimestampOutOfRange;
+
+/// The number of milliseconds since the Unix epoch.
+#[derive(ContentHash, Hash, Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
+pub struct MillisSinceEpoch(pub i64);
+
+/// A timestamp with millisecond precision and a time zone offset.
+#[derive(ContentHash, Hash, Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
+pub struct Timestamp {
+    /// The number of milliseconds since the Unix epoch.
+    pub timestamp: MillisSinceEpoch,
+    /// Timezone offset in minutes
+    pub tz_offset: i32,
+}
+
+impl Timestamp {
+    /// Returns the current local time as a `Timestamp`.
+    pub fn now() -> Self {
+        Self::from_zoned(ZonedDateTime::now())
+    }
+
+    /// Creates a `Timestamp` from the given `Zoned`.
+    pub fn from_zoned(zoned: ZonedDateTime) -> Self {
+        Self {
+            timestamp: MillisSinceEpoch(zoned.timestamp().as_millisecond()),
+            tz_offset: zoned.offset().seconds() / 60,
+        }
+    }
+
+    /// Converts this `Timestamp` to a `Zoned`.
+    pub fn to_zoned(&self) -> Result<ZonedDateTime, TimestampOutOfRange> {
+        let timestamp =
+            jiff::Timestamp::from_millisecond(self.timestamp.0).map_err(|_| TimestampOutOfRange)?;
+        let offset = Offset::from_seconds(self.tz_offset * 60)
+            .unwrap_or_else(|_| Offset::from_seconds(0).unwrap());
+        let tz = TimeZone::fixed(offset);
+        Ok(timestamp.to_zoned_datetime(tz))
+    }
+}
+
+impl serde::Serialize for Timestamp {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        // TODO: test is_human_readable() to use raw format?
+        let t = self.to_zoned().map_err(serde::ser::Error::custom)?;
+        // Format as RFC 3339 without the timezone annotation in square brackets
+        let rfc3339 = t.strftime("%Y-%m-%dT%H:%M:%S%.f%:z").to_string();
+        rfc3339.serialize(serializer)
+    }
+}
+
+/// Represents a person/entity and a timestamp for when they authored or
+/// committed a commit.
+#[derive(ContentHash, Hash, Debug, PartialEq, Eq, Clone, serde::Serialize)]
+pub struct Signature {
+    /// The name of the person/entity.
+    pub name: String,
+    /// The email address of the person/entity.
+    pub email: String,
+    /// The timestamp for when the person/entity authored or committed the
+    /// commit.
+    pub timestamp: Timestamp,
+}
+
+/// Represents a cryptographically signed [`Commit`] signature.
+#[derive(ContentHash, Debug, PartialEq, Eq, Clone)]
+pub struct SecureSig {
+    /// The raw data that was signed to produce this signature.
+    pub data: Vec<u8>,
+    /// The signature itself.
+    pub sig: Vec<u8>,
+}
+
+/// Function called to sign a commit. The input is the raw data to sign, and the
+/// output is the signature.
+pub type SigningFn<'a> = dyn FnMut(&[u8]) -> SignResult<Vec<u8>> + Send + 'a;
+
+/// Represents a commit object, which contains a reference to the contents a
+/// that point in time, along with metadata about the commit.
+#[derive(ContentHash, Debug, PartialEq, Eq, Clone, serde::Serialize)]
+pub struct Commit {
+    /// The parent commits of this commit. Commits typically have one parents,
+    /// but they can have any number of parents. Only the root commit has no
+    /// parents.
+    pub parents: Vec<CommitId>,
+    /// The predecessor commits of this commit, i.e. commits that were rewritten
+    /// to create this commit.
+    //
+    // TODO: delete commit.predecessors when we can assume that most commits are
+    // tracked by op.commit_predecessors. (in jj 0.42 or so?)
+    #[serde(skip)] // deprecated
+    pub predecessors: Vec<CommitId>,
+    /// The tree at the root directory in this commit.
+    #[serde(skip)] // TODO: should be exposed?
+    pub root_tree: Merge<TreeId>,
+    /// If resolved, must be empty string. Otherwise, must have same number of
+    /// terms as `root_tree`.
+    #[serde(skip)]
+    pub conflict_labels: Merge<String>,
+    /// The change ID of this commit. This is a stable identifier that follows
+    /// the commit when it's rewritten.
+    pub change_id: ChangeId,
+    /// The description (commit message).
+    pub description: String,
+    /// The person/entity that authored this commit.
+    pub author: Signature,
+    /// The person/entity that committed this commit.
+    pub committer: Signature,
+    /// A cryptographic signature of this commit.
+    #[serde(skip)] // raw data wouldn't be useful
+    pub secure_sig: Option<SecureSig>,
+}
+
+/// An individual copy event, from file A -> B.
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct CopyRecord {
+    /// The destination of the copy, B.
+    pub target: RepoPathBuf,
+    /// The CommitId where the copy took place.
+    pub target_commit: CommitId,
+    /// The source path a target was copied from.
+    ///
+    /// It is not required that the source path is different than the target
+    /// path. A custom backend may choose to represent 'rollbacks' as copies
+    /// from a file unto itself, from a specific prior commit.
+    pub source: RepoPathBuf,
+    /// The file id of the source file.
+    pub source_file: FileId,
+    /// The source commit the target was copied from. Backends may use this
+    /// field to implement 'integration' logic, where a source may be
+    /// periodically merged into a target, similar to a branch, but the
+    /// branching occurs at the file level rather than the repository level. It
+    /// also follows naturally that any copy source targeted to a specific
+    /// commit should avoid copy propagation on rebasing, which is desirable
+    /// for 'fork' style copies.
+    ///
+    /// It is required that the commit id is an ancestor of the commit with
+    /// which this copy source is associated.
+    pub source_commit: CommitId,
+}
+
+/// Describes the copy history of a file. The copy object is unchanged when a
+/// file is modified.
+#[derive(ContentHash, Debug, PartialEq, Eq, Clone, PartialOrd, Ord)]
+pub struct CopyHistory {
+    /// The file's current path.
+    pub current_path: RepoPathBuf,
+    /// IDs of the files that became the current incarnation of this file.
+    ///
+    /// A newly created file has no parents. A regular copy or rename has one
+    /// parent. A merge of multiple files has multiple parents.
+    pub parents: Vec<CopyId>,
+    /// An optional piece of data to give the Copy object a different ID. May be
+    /// randomly generated. This allows a commit to say that a file was replaced
+    /// by a new incarnation of it, indicating a logically distinct file
+    /// taking the place of the previous file at the path.
+    pub salt: Vec<u8>,
+}
+
+/// A `CopyHistory` along with its `CopyId`.
+#[derive(Debug, Eq, PartialEq)]
+pub struct RelatedCopy {
+    /// The copy id.
+    pub id: CopyId,
+    /// The copy history.
+    pub history: CopyHistory,
+}
+
+/// Error that may occur during backend initialization.
+#[derive(Debug, Error)]
+#[error(transparent)]
+pub struct BackendInitError(pub Box<dyn std::error::Error + Send + Sync>);
+
+impl BackendInitError {
+    /// Wraps an error that occurred during backend initialization.
+    pub fn new(err: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Self {
+        Self(err.into())
+    }
+}
+
+/// Error that may occur during backend loading.
+#[derive(Debug, Error)]
+#[error(transparent)]
+pub struct BackendLoadError(pub Box<dyn std::error::Error + Send + Sync>);
+
+impl BackendLoadError {
+    /// Wraps an error that occurred during backend loading.
+    pub fn new(err: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Self {
+        Self(err.into())
+    }
+}
+
+/// Commit-backend error that may occur after the backend is loaded.
+#[derive(Debug, Error)]
+pub enum BackendError {
+    /// The caller attempted to read an object by specifying an ID with an
+    /// invalid hash length for this backend.
+    #[error(
+        "Invalid hash length for object of type {object_type} (expected {expected} bytes, got \
+         {actual} bytes): {hash}"
+    )]
+    InvalidHashLength {
+        /// The expected length of the hash in bytes for this backend.
+        expected: usize,
+        /// The actual length of the hash in bytes that was provided.
+        actual: usize,
+        /// The type of the object that we attempted to read, e.g. "commit" or
+        /// "tree".
+        object_type: String,
+        /// The hex hash that had an invalid length.
+        hash: String,
+    },
+    /// The caller attempted to read an object that internally stored as invalid
+    /// UTF-8, such as a symlink target with invalid UTF-8 stored in the Git
+    /// backend.
+    #[error("Invalid UTF-8 for object {hash} of type {object_type}")]
+    InvalidUtf8 {
+        /// The type of the object that we attempted to read, e.g. "commit" or
+        /// "tree".
+        object_type: String,
+        /// The hex hash of the object that had invalid UTF-8.
+        hash: String,
+        /// The source error.
+        source: std::str::Utf8Error,
+    },
+    /// The caller attempted to read an object that doesn't exist.
+    #[error("Object {hash} of type {object_type} not found")]
+    ObjectNotFound {
+        /// The type of the object that we attempted to read, e.g. "commit" or
+        /// "tree".
+        object_type: String,
+        /// The hex hash of the object that was not found.
+        hash: String,
+        /// The source error.
+        source: Option<Box<dyn std::error::Error + Send + Sync>>,
+    },
+    /// Failed to read an object due to an I/O error or other unexpected error.
+    #[error("Error when reading object {hash} of type {object_type}")]
+    ReadObject {
+        /// The type of the object that we attempted to read, e.g. "commit" or
+        /// "tree".
+        object_type: String,
+        /// The hex hash of the object that we failed to read.
+        hash: String,
+        /// The source error.
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+    /// The caller attempted to read an object but doesn't have permission to
+    /// read it.
+    #[error("Access denied to read object {hash} of type {object_type}")]
+    ReadAccessDenied {
+        /// The type of the object that we attempted to read, e.g. "commit" or
+        /// "tree".
+        object_type: String,
+        /// The hex hash of the object that the caller doesn't have permission
+        /// to read.
+        hash: String,
+        /// The source error.
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+    /// Failed to read a file's content due to an I/O error or other unexpected
+    /// error.
+    #[error(
+        "Error when reading file content for file {path} with id {id}",
+        path = path.as_internal_file_string()
+    )]
+    ReadFile {
+        /// The path of the file we failed to read.
+        path: RepoPathBuf,
+        /// The ID of the file we failed to read.
+        id: FileId,
+        /// The source error.
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+    /// Failed to write an object due to an I/O error or other unexpected error.
+    #[error("Could not write object of type {object_type}")]
+    WriteObject {
+        /// The type of the object that we attempted to write, e.g. "commit" or
+        /// "tree".
+        object_type: &'static str,
+        /// The source error.
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+    /// Some other error that doesn't fit into the above categories.
+    #[error(transparent)]
+    Other(Box<dyn std::error::Error + Send + Sync>),
+    /// A valid operation was attempted, but it failed because it isn't
+    /// supported by the particular backend.
+    #[error("{0}")]
+    Unsupported(String),
+}
+
+/// A specialized [`Result`] type for commit backend errors.
+pub type BackendResult<T> = Result<T, BackendError>;
+
+/// Identifies the content at a given path in a tree.
+#[derive(ContentHash, Debug, PartialEq, Eq, Clone, Hash)]
+pub enum TreeValue {
+    // TODO: When there's a CopyId here, the copy object's path must match
+    // the path identified by the tree.
+    /// This path is a regular file, possibly executable.
+    File {
+        /// The file's content ID.
+        id: FileId,
+        /// Whether the file is executable.
+        executable: bool,
+        /// The copy id.
+        copy_id: CopyId,
+    },
+    /// This path is a symbolic link.
+    Symlink(SymlinkId),
+    /// This path is a directory.
+    Tree(TreeId),
+    /// This path is a Git submodule.
+    GitSubmodule(CommitId),
+}
+
+impl TreeValue {
+    /// The copy id if this value represents a file.
+    pub fn copy_id(&self) -> Option<&CopyId> {
+        match self {
+            Self::File { copy_id, .. } => Some(copy_id),
+            _ => None,
+        }
+    }
+}
+
+/// Borrowed `MergedTreeValue`.
+pub type MergedTreeVal<'a> = Merge<Option<&'a TreeValue>>;
+
+/// The value at a given path in a commit.
+///
+/// It depends on the context whether it can be absent
+/// (`Merge::is_absent()`). For example, when getting the value at a
+/// specific path, it may be, but when iterating over entries in a
+/// tree, it shouldn't be.
+pub type MergedTreeValue = Merge<Option<TreeValue>>;
+
+/// Extension methods for tree-value merges such as [`MergedTreeValue`] and
+/// [`MergedTreeVal`].
+pub trait MergedTreeValueExt {
+    /// Whether this merge should be recursed into when doing directory walks.
+    fn is_tree(&self) -> bool;
+
+    /// Whether this merge is present and not a tree
+    fn is_file_like(&self) -> bool;
+
+    /// If this merge is a tree merge as defined by [`Self::is_tree()`], returns
+    /// a merge of the `TreeId`s, with `None` in place of absent terms. If the
+    /// merge contains non-tree terms that cancel out, all canceled terms are
+    /// replaced by `None`.
+    fn to_tree_id_merge(&self) -> Option<Merge<Option<TreeId>>>;
+
+    /// If this merge contains only files or absent entries, ignoring non-file
+    /// terms that cancel out against each other, returns a merge of the
+    /// `FileId`s, with `None` in place of absent terms and canceled terms. The
+    /// executable bits and copy IDs will be ignored. Use
+    /// `Merge::with_new_file_ids()` to produce a new merge with the original
+    /// executable bits preserved.
+    fn to_file_id_merge(&self) -> Option<Merge<Option<FileId>>>;
+
+    /// If this merge contains only files or absent entries, ignoring non-file
+    /// terms that cancel out against each other, returns a merge of the files'
+    /// executable bits, with `None` in place of absent terms and canceled
+    /// terms.
+    fn to_executable_merge(&self) -> Option<Merge<Option<bool>>>;
+
+    /// If this merge contains only files or absent entries, ignoring non-file
+    /// terms that cancel out against each other, returns a merge of the files'
+    /// copy IDs, with `None` in place of absent terms and canceled terms.
+    fn to_copy_id_merge(&self) -> Option<Merge<Option<CopyId>>>;
+
+    /// Creates a new merge with the file ids from the given merge. In other
+    /// words, the executable bits and copy IDs from `self` will be preserved.
+    ///
+    /// The given `file_ids` should have the same shape as `self`. Only the
+    /// `FileId` values may differ.
+    fn with_new_file_ids(&self, file_ids: &Merge<Option<FileId>>) -> Merge<Option<TreeValue>>;
+
+    /// Give a summary description of the conflict's "removes" and "adds"
+    fn describe(&self, labels: &ConflictLabels) -> String;
+}
+
+impl<T> MergedTreeValueExt for Merge<Option<T>>
+where
+    T: Borrow<TreeValue>,
+{
+    fn is_tree(&self) -> bool {
+        self.is_present() && borrow_tree_id_merge(self).is_some()
+    }
+
+    fn is_file_like(&self) -> bool {
+        self.is_present() && !self.is_tree()
+    }
+
+    fn to_tree_id_merge(&self) -> Option<Merge<Option<TreeId>>> {
+        borrow_tree_id_merge(self).map(|ids| ids.map(|id| id.cloned()))
+    }
+
+    fn to_file_id_merge(&self) -> Option<Merge<Option<FileId>>> {
+        convert_terms_ignoring_canceled(self, |value| match value {
+            TreeValue::File {
+                id,
+                executable: _,
+                copy_id: _,
+            } => Some(id.clone()),
+            _ => None,
+        })
+    }
+
+    fn to_executable_merge(&self) -> Option<Merge<Option<bool>>> {
+        convert_terms_ignoring_canceled(self, |value| match value {
+            TreeValue::File {
+                id: _,
+                executable,
+                copy_id: _,
+            } => Some(*executable),
+            _ => None,
+        })
+    }
+
+    fn to_copy_id_merge(&self) -> Option<Merge<Option<CopyId>>> {
+        convert_terms_ignoring_canceled(self, |value| match value {
+            TreeValue::File {
+                id: _,
+                executable: _,
+                copy_id,
+            } => Some(copy_id.clone()),
+            _ => None,
+        })
+    }
+
+    fn with_new_file_ids(&self, file_ids: &Merge<Option<FileId>>) -> Merge<Option<TreeValue>> {
+        assert_eq!(self.num_sides(), file_ids.num_sides());
+        let values: SmallVec<_> = zip(self, file_ids.iter().cloned())
+            .map(
+                |(tree_value, file_id)| match (borrow_tree_value(tree_value.as_ref()), file_id) {
+                    (
+                        Some(TreeValue::File {
+                            id: _,
+                            executable,
+                            copy_id,
+                        }),
+                        Some(id),
+                    ) => Some(TreeValue::File {
+                        id,
+                        executable: *executable,
+                        copy_id: copy_id.clone(),
+                    }),
+                    (None, None) => None,
+                    // Non-file terms that cancel out have no file ID.
+                    (Some(old), None) if !matches!(old, TreeValue::File { .. }) => None,
+                    // New files are populated to preserve the materialized conflict. The file won't
+                    // be checked out to the disk. So the metadata is not important, and we will
+                    // just use the default values.
+                    (None, Some(id)) => Some(TreeValue::File {
+                        id,
+                        executable: false,
+                        copy_id: CopyId::placeholder(),
+                    }),
+                    (old, new) => panic!("incompatible update: {old:?} to {new:?}"),
+                },
+            )
+            .collect();
+        Merge::from_vec(values)
+    }
+
+    fn describe(&self, labels: &ConflictLabels) -> String {
+        let mut buf = String::new();
+        writeln!(buf, "Conflict:").unwrap();
+        for (term, label) in self
+            .removes()
+            .enumerate()
+            .filter_map(|(i, term)| term.as_ref().map(|term| (term, labels.get_remove(i))))
+        {
+            write!(buf, "  Removing {}", describe_conflict_term(term.borrow())).unwrap();
+            if let Some(label) = label {
+                write!(buf, " ({label})").unwrap();
+            }
+            buf.push('\n');
+        }
+        for (term, label) in self
+            .adds()
+            .enumerate()
+            .filter_map(|(i, term)| term.as_ref().map(|term| (term, labels.get_add(i))))
+        {
+            write!(buf, "  Adding {}", describe_conflict_term(term.borrow())).unwrap();
+            if let Some(label) = label {
+                write!(buf, " ({label})").unwrap();
+            }
+            buf.push('\n');
+        }
+        buf
+    }
+}
+
+/// Like [`MergedTreeValueExt::to_tree_id_merge()`], but borrows the tree IDs.
+fn borrow_tree_id_merge<T: Borrow<TreeValue>>(
+    merge: &Merge<Option<T>>,
+) -> Option<Merge<Option<&TreeId>>> {
+    convert_terms_ignoring_canceled(merge, |value| match value {
+        TreeValue::Tree(id) => Some(id),
+        _ => None,
+    })
+}
+
+/// Converts the present terms of `merge` using `convert`, with `None` in place
+/// of absent terms. If some terms can't be converted, but they cancel out,
+/// all canceled terms are replaced by `None`, which preserves the meaning of
+/// the merge as well as its arity. Returns `None` if there are terms that
+/// can't be converted and don't cancel out, or if no term can be converted.
+fn convert_terms_ignoring_canceled<'a, T: Borrow<TreeValue>, U>(
+    merge: &'a Merge<Option<T>>,
+    convert: impl Fn(&'a TreeValue) -> Option<U>,
+) -> Option<Merge<Option<U>>> {
+    let convert_term = |value: &Option<&'a TreeValue>| match value {
+        None => Ok(None),
+        Some(value) => convert(value).map(Some).ok_or(()),
+    };
+
+    let values = merge.map(|term| borrow_tree_value(term.as_ref()));
+    if let Ok(converted) = values.try_map(convert_term) {
+        return Some(converted);
+    }
+    // Only a mix of convertible and non-convertible terms can become
+    // convertible by canceling out terms.
+    if !values
+        .iter()
+        .flatten()
+        .any(|value| convert(value).is_some())
+    {
+        return None;
+    }
+    values
+        .replace_canceled_terms(None)
+        .try_map(convert_term)
+        .ok()
+}
+
+/// Borrow the Option's `TreeValue` if it exists.
+pub fn borrow_tree_value<T: Borrow<TreeValue> + ?Sized>(term: Option<&T>) -> Option<&TreeValue> {
+    term.map(|value| value.borrow())
+}
+
+fn describe_conflict_term(value: &TreeValue) -> String {
+    match value {
+        TreeValue::File {
+            id,
+            executable: false,
+            copy_id: _,
+        } => {
+            // TODO: include the copy here once we start using it
+            format!("file with id {id}")
+        }
+        TreeValue::File {
+            id,
+            executable: true,
+            copy_id: _,
+        } => {
+            // TODO: include the copy here once we start using it
+            format!("executable file with id {id}")
+        }
+        TreeValue::Symlink(id) => {
+            format!("symlink with id {id}")
+        }
+        TreeValue::Tree(id) => {
+            format!("tree with id {id}")
+        }
+        TreeValue::GitSubmodule(id) => {
+            format!("Git submodule with id {id}")
+        }
+    }
+}
+
+/// An entry in a `Tree` consisting of a basename and a `TreeValue`.
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct TreeEntry<'a> {
+    name: &'a RepoPathComponent,
+    value: &'a TreeValue,
+}
+
+impl<'a> TreeEntry<'a> {
+    /// Creates a new `TreeEntry` with the given name and value.
+    pub fn new(name: &'a RepoPathComponent, value: &'a TreeValue) -> Self {
+        Self { name, value }
+    }
+
+    /// Returns the basename at this path.
+    pub fn name(&self) -> &'a RepoPathComponent {
+        self.name
+    }
+
+    /// Returns the tree value at this path.
+    pub fn value(&self) -> &'a TreeValue {
+        self.value
+    }
+}
+
+/// Iterator over the direct entries in a `Tree`.
+pub struct TreeEntriesNonRecursiveIterator<'a> {
+    iter: slice::Iter<'a, (RepoPathComponentBuf, TreeValue)>,
+}
+
+impl<'a> Iterator for TreeEntriesNonRecursiveIterator<'a> {
+    type Item = TreeEntry<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter
+            .next()
+            .map(|(name, value)| TreeEntry { name, value })
+    }
+}
+
+/// A tree object, which represents a directory. It contains the direct entries
+/// of the directory. Subdirectories are represented by the `TreeValue::Tree`
+/// variant. The `Tree` object associated with the root directory thus
+/// represents the entire repository at a given point in time.
+///
+/// The entries must be sorted (by `RepoPathComponentBuf`'s ordering) and must
+/// not contain duplicate names.
+#[derive(ContentHash, Default, PartialEq, Eq, Debug, Clone)]
+pub struct Tree {
+    entries: Vec<(RepoPathComponentBuf, TreeValue)>,
+}
+
+impl Tree {
+    /// Creates a new `Tree` from the given entries. The entries must be sorted
+    /// by name and must not contain duplicate names.
+    pub fn from_sorted_entries(entries: Vec<(RepoPathComponentBuf, TreeValue)>) -> Self {
+        debug_assert!(entries.is_sorted_by(|(a, _), (b, _)| a < b));
+        Self { entries }
+    }
+
+    /// Checks if this tree has no entries.
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    /// Returns an iterator over the names of the entries in this tree.
+    pub fn names(&self) -> impl Iterator<Item = &RepoPathComponent> {
+        self.entries.iter().map(|(name, _)| name.as_ref())
+    }
+
+    /// Returns an iterator over the entries in this tree.
+    pub fn entries(&self) -> TreeEntriesNonRecursiveIterator<'_> {
+        TreeEntriesNonRecursiveIterator {
+            iter: self.entries.iter(),
+        }
+    }
+
+    /// Returns the entry at the given basename, if it exists.
+    pub fn entry(&self, name: &RepoPathComponent) -> Option<TreeEntry<'_>> {
+        let index = self
+            .entries
+            .binary_search_by_key(&name, |(name, _)| name)
+            .ok()?;
+        let (name, value) = &self.entries[index];
+        Some(TreeEntry { name, value })
+    }
+
+    /// Returns the value at the given basename, if it exists.
+    pub fn value(&self, name: &RepoPathComponent) -> Option<&TreeValue> {
+        self.entry(name).map(|entry| entry.value)
+    }
+}
+
+/// Creates a root commit object.
+pub fn make_root_commit(root_change_id: ChangeId, empty_tree_id: TreeId) -> Commit {
+    let timestamp = Timestamp {
+        timestamp: MillisSinceEpoch(0),
+        tz_offset: 0,
+    };
+    let signature = Signature {
+        name: String::new(),
+        email: String::new(),
+        timestamp,
+    };
+    Commit {
+        parents: vec![],
+        predecessors: vec![],
+        root_tree: Merge::resolved(empty_tree_id),
+        conflict_labels: Merge::resolved(String::new()),
+        change_id: root_change_id,
+        description: String::new(),
+        author: signature.clone(),
+        committer: signature,
+        secure_sig: None,
+    }
+}
+
+/// Defines the interface for commit backends.
+#[async_trait]
+pub trait Backend: Any + Send + Sync + Debug {
+    /// A unique name that identifies this backend. Written to
+    /// `.jj/repo/store/type` when the repo is created.
+    fn name(&self) -> &str;
+
+    /// The length of commit IDs in bytes.
+    fn commit_id_length(&self) -> usize;
+
+    /// The length of change IDs in bytes.
+    fn change_id_length(&self) -> usize;
+
+    /// The root commit's ID.
+    ///
+    /// The root commit is a possibly virtual commit that is an ancestor of all
+    /// commits in the repository. It is the only commit that has no parents.
+    fn root_commit_id(&self) -> &CommitId;
+
+    /// The root commit's change ID.
+    fn root_change_id(&self) -> &ChangeId;
+
+    /// The empty tree's ID. All empty trees must have the same ID regardless of
+    /// the path.
+    fn empty_tree_id(&self) -> &TreeId;
+
+    /// An estimate of how many concurrent requests this backend handles well. A
+    /// local backend like the Git backend (at until it supports partial clones)
+    /// may want to set this to 1. A cloud-backed backend may want to set it to
+    /// 100 or so.
+    /// It is guaranteed to return at least 1.
+    ///
+    /// It is not guaranteed that at most this number of concurrent requests are
+    /// sent. It is the backend's responsibility to make sure it doesn't put
+    /// too much load on its storage, e.g. by queueing requests if necessary.
+    fn concurrency(&self) -> usize;
+
+    /// Returns a reader for reading the contents of a file from the backend.
+    async fn read_file(
+        &self,
+        path: &RepoPath,
+        id: &FileId,
+    ) -> BackendResult<Pin<Box<dyn AsyncRead + Send>>>;
+
+    /// Writes the contents of the writer to the backend. Returns the ID of the
+    /// written file.
+    async fn write_file(
+        &self,
+        path: &RepoPath,
+        contents: &mut (dyn AsyncRead + Send + Unpin),
+    ) -> BackendResult<FileId>;
+
+    /// Reads the target of a symlink from the backend. Returns the target path.
+    /// It is not a `RepoPath` because it doesn't necessarily point within the
+    /// repository.
+    async fn read_symlink(&self, path: &RepoPath, id: &SymlinkId) -> BackendResult<String>;
+
+    /// Writes a symlink with the given target to the backend and returns its
+    /// ID.
+    async fn write_symlink(&self, path: &RepoPath, target: &str) -> BackendResult<SymlinkId>;
+
+    /// Read the specified `CopyHistory` object.
+    ///
+    /// Backends that don't support copy tracking may return
+    /// `BackendError::Unsupported`.
+    async fn read_copy(&self, id: &CopyId) -> BackendResult<CopyHistory>;
+
+    /// Write the `CopyHistory` object and return its ID.
+    ///
+    /// Backends that don't support copy tracking may return
+    /// `BackendError::Unsupported`.
+    async fn write_copy(&self, copy: &CopyHistory) -> BackendResult<CopyId>;
+
+    /// Find all copy histories that are related to the specified one. This is
+    /// defined as those that are ancestors of the given specified one, plus
+    /// all descendants of those ancestors. Children must be returned before
+    /// parents, and the order should be deterministic.
+    ///
+    /// It is valid (but wasteful) to include other copy histories, such as
+    /// siblings, or even completely unrelated copy histories.
+    ///
+    /// Backends that don't support copy tracking may return
+    /// `BackendError::Unsupported`.
+    async fn get_related_copies(&self, copy_id: &CopyId) -> BackendResult<Vec<RelatedCopy>>;
+
+    /// Reads the tree at the given path with the given ID.
+    ///
+    /// The returned future may be polled by a different task than the one that
+    /// called this method, since `Store` shares the read between concurrent
+    /// callers. It must therefore not depend on the caller's context, such as
+    /// task-locals or the presence of a particular async runtime.
+    async fn read_tree(&self, path: &RepoPath, id: &TreeId) -> BackendResult<Tree>;
+
+    /// Writes the given tree at the given path to the backend and returns its
+    /// ID.
+    async fn write_tree(&self, path: &RepoPath, contents: &Tree) -> BackendResult<TreeId>;
+
+    /// Reads the commit with the given ID.
+    ///
+    /// The returned future may be polled by a different task than the one that
+    /// called this method, since `Store` shares the read between concurrent
+    /// callers. It must therefore not depend on the caller's context, such as
+    /// task-locals or the presence of a particular async runtime.
+    async fn read_commit(&self, id: &CommitId) -> BackendResult<Commit>;
+
+    /// Writes a commit and returns its ID and the commit itself. The commit
+    /// should contain the data that was actually written, which may differ
+    /// from the data passed in. For example, the backend may change the
+    /// committer name to an authenticated user's name, or the backend's
+    /// timestamps may have less precision than the millisecond precision in
+    /// `Commit`.
+    ///
+    /// The `sign_with` parameter could contain a function to cryptographically
+    /// sign some binary representation of the commit.
+    /// If the backend supports it, it could call it and store the result in
+    /// an implementation specific fashion, and both `read_commit` and the
+    /// return of `write_commit` should read it back as the `secure_sig`
+    /// field.
+    async fn write_commit(
+        &self,
+        contents: Commit,
+        sign_with: Option<&mut SigningFn>,
+    ) -> BackendResult<(CommitId, Commit)>;
+
+    /// Get copy records for the dag range `root..head`. If `paths` is None
+    /// include all paths, otherwise restrict to only `paths`.
+    ///
+    /// The exact order these are returned is unspecified, but it is guaranteed
+    /// to be reverse-topological. That is, for any two copy records with
+    /// different commit ids A and B, if A is an ancestor of B, A is streamed
+    /// after B.
+    ///
+    /// Streaming by design to better support large backends which may have very
+    /// large single-file histories. This also allows more iterative algorithms
+    /// like blame/annotate to short-circuit after a point without wasting
+    /// unnecessary resources.
+    fn get_copy_records(
+        &self,
+        paths: Option<&[RepoPathBuf]>,
+        root: &CommitId,
+        head: &CommitId,
+    ) -> BackendResult<BoxStream<'_, BackendResult<CopyRecord>>>;
+
+    /// Perform garbage collection.
+    ///
+    /// All commits reachable from `heads` won't be removed. In addition to that,
+    /// objects created after `keep_newer` will be preserved. This mitigates a
+    /// risk of deleting new commits created concurrently by another process.
+    async fn gc(&self, heads: &[CommitId], keep_newer: SystemTime) -> BackendResult<()>;
+}
+
+impl dyn Backend {
+    /// Returns reference of the implementation type.
+    pub fn downcast_ref<T: Backend>(&self) -> Option<&T> {
+        (self as &dyn Any).downcast_ref()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_display_object_id() {
+        let commit_id = CommitId::from_hex("deadbeef0123");
+        assert_eq!(format!("{commit_id}"), "deadbeef0123");
+        assert_eq!(format!("{commit_id:.6}"), "deadbe");
+
+        let change_id = ChangeId::from_hex("deadbeef0123");
+        assert_eq!(format!("{change_id}"), "mlpmollkzyxw");
+        assert_eq!(format!("{change_id:.6}"), "mlpmol");
+    }
+
+    #[test]
+    fn test_to_tree_id_merge() {
+        let tree_id = |hex| Some(TreeId::from_hex(hex));
+        let tree = |hex| Some(TreeValue::Tree(TreeId::from_hex(hex)));
+        let file = |hex| {
+            Some(TreeValue::File {
+                id: FileId::from_hex(hex),
+                executable: false,
+                copy_id: CopyId::placeholder(),
+            })
+        };
+
+        // Trees and absent terms
+        let merge = Merge::from_vec(vec![tree("01"), None, tree("02")]);
+        assert!(merge.is_tree());
+        assert_eq!(
+            merge.to_tree_id_merge(),
+            Some(Merge::from_vec(vec![tree_id("01"), None, tree_id("02"),]))
+        );
+
+        // Only files
+        let merge = Merge::from_vec(vec![file("01"), None, file("02")]);
+        assert!(!merge.is_tree());
+        assert_eq!(merge.to_tree_id_merge(), None);
+
+        // A file that doesn't cancel out
+        let merge = Merge::from_vec(vec![tree("01"), None, file("02")]);
+        assert!(!merge.is_tree());
+        assert_eq!(merge.to_tree_id_merge(), None);
+
+        // Files that cancel out are replaced by `None`
+        let merge = Merge::from_vec(vec![tree("01"), file("02"), file("02"), None, tree("03")]);
+        assert!(merge.is_tree());
+        assert_eq!(
+            merge.to_tree_id_merge(),
+            Some(Merge::from_vec(vec![
+                tree_id("01"),
+                None,
+                None,
+                None,
+                tree_id("03"),
+            ]))
+        );
+
+        // Files that are equal but don't cancel out because they have the same
+        // sign
+        let merge = Merge::from_vec(vec![tree("01"), None, file("02"), None, file("02")]);
+        assert!(!merge.is_tree());
+        assert_eq!(merge.to_tree_id_merge(), None);
+    }
+}

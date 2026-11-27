@@ -125,6 +125,7 @@ fn tree_and_index_copies_use_the_original_source() -> TestResult {
                 Ok(std::ops::ControlFlow::Continue(()))
             },
             gix_diff::tree_with_rewrites::Options {
+                rewrite_destination_paths: None,
                 location: Some(gix_diff::tree::recorder::Location::Path),
                 rewrites: Some(rewrites),
             },
@@ -424,6 +425,7 @@ fn cancellation_stops_file_changes_and_inferred_directories() -> TestResult {
                 })
             },
             gix_diff::tree_with_rewrites::Options {
+                rewrite_destination_paths: None,
                 location: Some(gix_diff::tree::recorder::Location::Path),
                 rewrites: Some(Rewrites {
                     percentage: None,
@@ -472,6 +474,7 @@ fn cancellation_stops_file_changes_and_inferred_directories() -> TestResult {
             Ok(std::ops::ControlFlow::Break(()))
         },
         gix_diff::tree_with_rewrites::Options {
+            rewrite_destination_paths: None,
             location: Some(gix_diff::tree::recorder::Location::Path),
             rewrites: Some(Rewrites::default()),
         },
@@ -541,6 +544,7 @@ fn location_projection_preserves_file_and_directory_matches() -> TestResult {
                 Ok(std::ops::ControlFlow::Continue(()))
             },
             gix_diff::tree_with_rewrites::Options {
+                rewrite_destination_paths: None,
                 location,
                 rewrites: Some(Rewrites {
                     percentage: None,
@@ -734,6 +738,7 @@ fn directory_rewrites_match_git(
             Ok(std::ops::ControlFlow::Continue(()))
         },
         gix_diff::tree_with_rewrites::Options {
+            rewrite_destination_paths: None,
             location: Some(gix_diff::tree::recorder::Location::Path),
             rewrites: Some(rewrites),
         },

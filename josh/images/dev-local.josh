@@ -1,0 +1,6 @@
+:$label="josh development local"
+
+bases = :[
+    :#BASE_IMAGE[:+images/dev]
+]
+context = :/images/dev-local

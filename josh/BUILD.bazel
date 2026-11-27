@@ -1,0 +1,34 @@
+load("@rules_rust//rust:defs.bzl", "rust_test")
+
+exports_files(
+    [
+        "Cargo.toml",
+        "Cargo.lock",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+# Unmodified upstream serialization tests.
+[
+    rust_test(
+        name = "josh_serde_%s_test" % name,
+        size = "small",
+        srcs = ["josh-git-serde/tests/%s.rs" % name],
+        edition = "2024",
+        target_compatible_with = [
+            "@platforms//os:linux",
+            "@platforms//cpu:x86_64",
+        ],
+        deps = [
+            "@jjosh_crates//anyhow",
+            "@jjosh_crates//gix-hash",
+            "@jjosh_crates//gix-object",
+            "@jjosh_crates//josh-git-serde-26.8.28",
+            "@jjosh_crates//serde",
+        ],
+    )
+    for name in [
+        "ser",
+        "de",
+    ]
+]

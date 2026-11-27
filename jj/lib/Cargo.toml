@@ -1,0 +1,88 @@
+[package]
+name = "jj-lib"
+description = "Library for Jujutsu - an experimental version control system"
+autotests = false
+
+version.workspace = true
+license.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+readme.workspace = true
+homepage.workspace = true
+repository.workspace = true
+documentation.workspace = true
+categories.workspace = true
+keywords.workspace = true
+
+include = [
+    "/LICENSE",
+    "/src/",
+    "/tests/",
+    "!*.pending-snap",
+    "!*.snap*",
+]
+
+[[test]]
+name = "runner"
+
+[dependencies]
+async-trait = { workspace = true }
+blake2 = { workspace = true }
+bstr = { workspace = true }
+digest = { workspace = true }
+either = { workspace = true }
+futures = { workspace = true }
+gix = { workspace = true, optional = true, features = ["serde"] }
+globset = { workspace = true }
+indexmap = { workspace = true }
+itertools = { workspace = true }
+jiff = { workspace = true }
+jj-config = { workspace = true }
+jj-core = { workspace = true }
+jj-default-index = { workspace = true }
+jj-dsl = { workspace = true }
+jj-git-backend = { workspace = true, optional = true }
+jj-local-util = { workspace = true }
+jj-local-working-copy = { workspace = true }
+jj-simple-stores = { workspace = true }
+jj-working-copy = { workspace = true }
+maplit = { workspace = true }
+memchr = { workspace = true }
+once_cell = { workspace = true }
+prost = { workspace = true }
+rand = { workspace = true }
+rayon = { workspace = true }
+ref-cast = { workspace = true }
+regex = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+smallvec = { workspace = true }
+tempfile = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+dunce = { workspace = true }
+eyre = { workspace = true }
+hegeltest = { workspace = true }
+indoc = { workspace = true }
+insta = { workspace = true }
+num_cpus = { workspace = true }
+pollster = { workspace = true }
+pretty_assertions = { workspace = true }
+rustversion = { workspace = true }
+test-case = { workspace = true }
+testutils = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+
+[target.'cfg(unix)'.dev-dependencies]
+nix = { workspace = true, features = [ "fs" ] }
+
+[features]
+default = ["git"]
+git = ["dep:gix", "jj-simple-stores/git", "dep:jj-git-backend"]
+watchman = ["jj-local-working-copy/watchman"]
+testing = ["git", "jj-default-index/testing", "jj-git-backend/testing"]
+
+[lints]
+workspace = true

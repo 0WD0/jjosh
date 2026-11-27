@@ -1,0 +1,349 @@
+// Copyright 2020 The Jujutsu Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+//! A single (non-conflicted) tree loaded from the [`Store`].
+
+use std::borrow::Borrow;
+use std::fmt::Debug;
+use std::fmt::Error;
+use std::fmt::Formatter;
+use std::hash::Hash;
+use std::hash::Hasher;
+use std::sync::Arc;
+
+use futures::StreamExt as _;
+use futures::future;
+use futures::stream::BoxStream;
+use itertools::Itertools as _;
+
+use crate::backend;
+use crate::backend::BackendResult;
+use crate::backend::MergedTreeVal;
+use crate::backend::MergedTreeValueExt as _;
+use crate::backend::TreeEntriesNonRecursiveIterator;
+use crate::backend::TreeId;
+use crate::backend::TreeValue;
+use crate::matchers::Matcher;
+use crate::merge::Merge;
+use crate::repo_path::RepoPath;
+use crate::repo_path::RepoPathBuf;
+use crate::repo_path::RepoPathComponent;
+use crate::store::Store;
+use crate::tree_walk::OrderedTreeWalk;
+use crate::tree_walk::TreeWalkQueue;
+use crate::tree_walk::TreeWalkVisitor;
+
+/// A tree object read from the backend, along with its ID, its directory
+/// path, and the store it came from.
+///
+/// Equality and hashing are based on the tree ID and directory path only.
+#[derive(Clone)]
+pub struct Tree {
+    store: Arc<Store>,
+    dir: RepoPathBuf,
+    id: TreeId,
+    data: Arc<backend::Tree>,
+}
+
+impl Debug for Tree {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
+        f.debug_struct("Tree")
+            .field("dir", &self.dir)
+            .field("id", &self.id)
+            .finish()
+    }
+}
+
+impl PartialEq for Tree {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id && self.dir == other.dir
+    }
+}
+
+impl Eq for Tree {}
+
+impl Hash for Tree {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.dir.hash(state);
+        self.id.hash(state);
+    }
+}
+
+impl Tree {
+    /// Creates a tree object from its backend representation.
+    pub fn new(store: Arc<Store>, dir: RepoPathBuf, id: TreeId, data: Arc<backend::Tree>) -> Self {
+        Self {
+            store,
+            dir,
+            id,
+            data,
+        }
+    }
+
+    /// Creates an empty tree at directory `dir`.
+    pub fn empty(store: Arc<Store>, dir: RepoPathBuf) -> Self {
+        let id = store.empty_tree_id().clone();
+        Self {
+            store,
+            dir,
+            id,
+            data: Arc::new(backend::Tree::default()),
+        }
+    }
+
+    /// The store this tree was loaded from.
+    pub fn store(&self) -> &Arc<Store> {
+        &self.store
+    }
+
+    /// The directory path of this tree within the repository.
+    pub fn dir(&self) -> &RepoPath {
+        &self.dir
+    }
+
+    /// The tree ID.
+    pub fn id(&self) -> &TreeId {
+        &self.id
+    }
+
+    /// The backend representation of the tree.
+    pub fn data(&self) -> &backend::Tree {
+        &self.data
+    }
+
+    /// Iterates over the entries directly in this tree, without descending
+    /// into subtrees.
+    pub fn entries_non_recursive(&self) -> TreeEntriesNonRecursiveIterator<'_> {
+        self.data.entries()
+    }
+
+    /// Stream of the non-tree entries matching `matcher`, in path order.
+    /// Subtrees are visited recursively.
+    pub fn entries_matching<'matcher>(
+        &self,
+        matcher: &'matcher dyn Matcher,
+    ) -> BoxStream<'matcher, (RepoPathBuf, BackendResult<TreeValue>)> {
+        let mut queue = TreeWalkQueue::new(self.store.concurrency());
+        if !matcher.visit(&self.dir).is_nothing() {
+            queue.schedule(self.dir.clone(), future::ready(Ok(self.clone())));
+        }
+        let visitor = TreeEntriesVisitor { matcher };
+        OrderedTreeWalk::new(visitor, queue).boxed()
+    }
+
+    /// Looks up the value of the entry named `basename` directly in this tree.
+    pub fn value(&self, basename: &RepoPathComponent) -> Option<&TreeValue> {
+        self.data.value(basename)
+    }
+
+    /// Looks up the value at `path`, which is relative to this tree. Must be
+    /// called on the root tree.
+    pub async fn path_value(&self, path: &RepoPath) -> BackendResult<Option<TreeValue>> {
+        assert_eq!(self.dir(), RepoPath::root());
+        match path.split() {
+            Some((dir, basename)) => {
+                let tree = self.sub_tree_recursive(dir).await?;
+                Ok(tree.and_then(|tree| tree.data.value(basename).cloned()))
+            }
+            None => Ok(Some(TreeValue::Tree(self.id.clone()))),
+        }
+    }
+
+    /// Loads the subtree named `name` directly in this tree. Returns `None` if
+    /// there's no such entry or if it's not a tree.
+    pub async fn sub_tree(&self, name: &RepoPathComponent) -> BackendResult<Option<Self>> {
+        if let Some(sub_tree) = self.data.value(name) {
+            match sub_tree {
+                TreeValue::Tree(sub_tree_id) => {
+                    let subdir = self.dir.join(name);
+                    let sub_tree = self.store.get_tree(subdir, sub_tree_id).await?;
+                    Ok(Some(sub_tree))
+                }
+                _ => Ok(None),
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Look up the tree at the given path.
+    pub async fn sub_tree_recursive(&self, path: &RepoPath) -> BackendResult<Option<Self>> {
+        let mut current_tree = self.clone();
+        for name in path.components() {
+            match current_tree.sub_tree(name).await? {
+                None => {
+                    return Ok(None);
+                }
+                Some(sub_tree) => {
+                    current_tree = sub_tree;
+                }
+            }
+        }
+        // TODO: It would be nice to be able to return a reference here, but
+        // then we would have to figure out how to share Tree instances
+        // across threads.
+        Ok(Some(current_tree))
+    }
+}
+
+/// Visits the entries in a tree, reading subtrees concurrently.
+struct TreeEntriesVisitor<'matcher> {
+    matcher: &'matcher dyn Matcher,
+}
+
+impl<'matcher> TreeWalkVisitor<'matcher> for TreeEntriesVisitor<'matcher> {
+    type Work = Tree;
+    type Item = TreeValue;
+
+    fn visit(
+        &self,
+        dir: &RepoPath,
+        tree: Self::Work,
+        queue: &mut TreeWalkQueue<'matcher, Self::Work, Self::Item>,
+    ) {
+        for entry in tree.entries_non_recursive() {
+            let path = dir.join(entry.name());
+            match entry.value() {
+                TreeValue::Tree(id) => {
+                    // TODO: Handle the other cases (specific files and trees)
+                    if self.matcher.visit(&path).is_nothing() {
+                        continue;
+                    }
+                    let store = tree.store.clone();
+                    let id = id.clone();
+                    queue.schedule(path.clone(), async move { store.get_tree(path, &id).await });
+                }
+                value => {
+                    if self.matcher.matches(&path) {
+                        queue.emit(path, value.clone());
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Extension method for converting a tree-value merge to a `Merge<Tree>`.
+pub(crate) trait ToTreeMergeExt {
+    /// If a `MergedTreeValue` is a tree merge as defined by
+    /// [`MergedTreeValueExt::is_tree()`](crate::backend::MergedTreeValueExt::is_tree), this converts it to
+    /// a `Merge<Tree>`, with empty trees instead of any `None` terms and of any
+    /// non-tree terms that cancel out. Otherwise, returns `None`.
+    async fn to_tree_merge(
+        &self,
+        store: &Arc<Store>,
+        dir: &RepoPath,
+    ) -> BackendResult<Option<Merge<Tree>>>;
+}
+
+impl<T> ToTreeMergeExt for Merge<Option<T>>
+where
+    T: Borrow<TreeValue>,
+{
+    async fn to_tree_merge(
+        &self,
+        store: &Arc<Store>,
+        dir: &RepoPath,
+    ) -> BackendResult<Option<Merge<Tree>>> {
+        let tree_id_merge = self.to_tree_id_merge();
+        if let Some(tree_id_merge) = tree_id_merge {
+            Ok(Some(
+                tree_id_merge
+                    .try_map_async(async |id| {
+                        if let Some(id) = id {
+                            store.get_tree(dir.to_owned(), id).await
+                        } else {
+                            Ok(Tree::empty(store.clone(), dir.to_owned()))
+                        }
+                    })
+                    .await?,
+            ))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+/// Extension methods for `Merge<Tree>`.
+pub(crate) trait TreeMergeExt: Sized {
+    /// The directory that is shared by all trees in the merge.
+    fn dir(&self) -> &RepoPath;
+
+    /// The value at the given basename. The value can be `Resolved` even if
+    /// `self` is conflicted, which happens if the value at the path can be
+    /// trivially merged. Does not recurse, so if `basename` refers to a Tree,
+    /// then a `TreeValue::Tree` will be returned.
+    fn value(&self, basename: &RepoPathComponent) -> MergedTreeVal<'_>;
+
+    /// Gets the `Merge<Tree>` in a subdirectory of the current tree. If the
+    /// path doesn't correspond to a tree in any of the inputs to the merge,
+    /// then that entry will be replaced by an empty tree in the result.
+    async fn sub_tree(&self, name: &RepoPathComponent) -> BackendResult<Option<Self>>;
+
+    /// Look up the tree at the given path.
+    async fn sub_tree_recursive(&self, path: &RepoPath) -> BackendResult<Option<Self>>;
+}
+
+impl TreeMergeExt for Merge<Tree> {
+    fn dir(&self) -> &RepoPath {
+        debug_assert!(self.iter().map(|tree| tree.dir()).all_equal());
+        self.first().dir()
+    }
+
+    fn value(&self, basename: &RepoPathComponent) -> MergedTreeVal<'_> {
+        if let Some(tree) = self.as_resolved() {
+            return Merge::resolved(tree.value(basename));
+        }
+        let same_change = self.first().store().merge_options().same_change;
+        let value = self.map(|tree| tree.value(basename));
+        if let Some(resolved) = value.resolve_trivial(same_change) {
+            return Merge::resolved(*resolved);
+        }
+        value
+    }
+
+    async fn sub_tree(&self, name: &RepoPathComponent) -> BackendResult<Option<Self>> {
+        let store = self.first().store();
+        match self.value(name).into_resolved() {
+            Ok(Some(TreeValue::Tree(sub_tree_id))) => {
+                let subdir = self.dir().join(name);
+                Ok(Some(Self::resolved(
+                    store.get_tree(subdir, sub_tree_id).await?,
+                )))
+            }
+            Ok(_) => Ok(None),
+            Err(merge) => {
+                if !merge.is_tree() {
+                    return Ok(None);
+                }
+                merge.to_tree_merge(store, &self.dir().join(name)).await
+            }
+        }
+    }
+
+    async fn sub_tree_recursive(&self, path: &RepoPath) -> BackendResult<Option<Self>> {
+        let mut current_tree = self.clone();
+        for name in path.components() {
+            match current_tree.sub_tree(name).await? {
+                None => {
+                    return Ok(None);
+                }
+                Some(sub_tree) => {
+                    current_tree = sub_tree;
+                }
+            }
+        }
+        Ok(Some(current_tree))
+    }
+}

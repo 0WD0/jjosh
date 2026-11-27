@@ -1,0 +1,220 @@
+// Copyright 2020 The Jujutsu Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+use std::path::Path;
+use std::path::PathBuf;
+
+use clap_complete::ArgValueCandidates;
+use jj_lib::config::ConfigNamePathBuf;
+use jj_lib::config::ConfigSource;
+use jj_lib::settings::UserSettings;
+use tracing::instrument;
+
+use super::ConfigLevelArgs;
+use crate::cli_util::CommandHelper;
+use crate::command_error::CommandError;
+use crate::complete;
+use crate::config::AnnotatedValue;
+use crate::config::resolved_config_values;
+use crate::template_builder;
+use crate::template_builder::TemplateLanguage;
+use crate::template_builder::TemplateSymbolTable;
+use crate::template_value::OpaqueTemplateValue;
+use crate::template_value::TemplateTypeRegistry;
+use crate::templater::ConfigValueWrapper;
+use crate::templater::TemplatePropertyExt as _;
+use crate::templater::TemplateRenderer;
+use crate::ui::Ui;
+
+/// List variables set in config files, along with their values.
+#[derive(clap::Args, Clone, Debug)]
+#[command(mut_group("config_level", |g| g.required(false)))]
+pub struct ConfigListArgs {
+    /// An optional name of a specific config option to look up.
+    #[arg(add = ArgValueCandidates::new(complete::config_keys))]
+    pub name: Option<ConfigNamePathBuf>,
+
+    /// Whether to explicitly include built-in default values in the list.
+    #[arg(long, conflicts_with = "config_level")]
+    pub include_defaults: bool,
+
+    /// Allow printing overridden values.
+    #[arg(long)]
+    pub include_overridden: bool,
+
+    #[command(flatten)]
+    pub level: ConfigLevelArgs,
+
+    /// Render each variable using the given template
+    ///
+    /// The following keywords are available in the template expression:
+    ///
+    /// * `name: String`: Config name, in [TOML's "dotted key" format].
+    /// * `value: ConfigValue`: Value to be formatted in TOML syntax.
+    /// * `overridden: Boolean`: True if the value is shadowed by other.
+    /// * `source: String`: Source of the value.
+    /// * `path: Option<FsPath>`: Path to the config file.
+    ///
+    /// Can be overridden by the `templates.config_list` setting. To
+    /// see a detailed config list, use the `builtin_config_list_detailed`
+    /// template.
+    ///
+    /// See [`jj help -k templates`][templates] for more information.
+    ///
+    /// [TOML's "dotted key" format]: https://toml.io/en/v1.0.0#keys
+    ///
+    /// [templates]: https://docs.jj-vcs.dev/latest/templates/
+    #[arg(long, short = 'T', verbatim_doc_comment)]
+    #[arg(add = ArgValueCandidates::new(complete::template_aliases))]
+    template: Option<String>,
+}
+
+#[instrument(skip_all)]
+pub async fn cmd_config_list(
+    ui: &mut Ui,
+    command: &CommandHelper,
+    args: &ConfigListArgs,
+) -> Result<(), CommandError> {
+    let template: TemplateRenderer<AnnotatedValue> = {
+        let language = ConfigTemplateLanguage::new(command.settings(), command.cwd());
+        let text = match &args.template {
+            Some(value) => value.to_owned(),
+            None => command.settings().get_string("templates.config_list")?,
+        };
+        command
+            .parse_template(ui, &language, &text)?
+            .labeled(["config_list"])
+    };
+
+    let name_path = args.name.clone().unwrap_or_else(ConfigNamePathBuf::root);
+    let mut annotated_values = resolved_config_values(command.settings().config(), &name_path);
+    // The default layer could be excluded beforehand as layers[len..], but we
+    // can't do the same for "annotated.source == target_source" in order for
+    // resolved_config_values() to mark values overridden by the upper layers.
+    if let Some(target_source) = args.level.get_source_kind() {
+        annotated_values.retain(|annotated| annotated.source == target_source);
+    } else if !args.include_defaults {
+        annotated_values.retain(|annotated| annotated.source != ConfigSource::Default);
+    }
+    if !args.include_overridden {
+        annotated_values.retain(|annotated| !annotated.is_overridden);
+    }
+
+    if !annotated_values.is_empty() {
+        ui.request_pager();
+        let mut formatter = ui.stdout_formatter();
+        for annotated in &annotated_values {
+            template.format(annotated, formatter.as_mut())?;
+        }
+    } else {
+        // Note to stderr explaining why output is empty.
+        if let Some(name) = &args.name {
+            writeln!(ui.warning_default(), "No matching config key for: {name}")?;
+        } else {
+            writeln!(ui.warning_default(), "No config to list.")?;
+        }
+    }
+    Ok(())
+}
+
+struct ConfigTemplateLanguage {
+    settings: UserSettings,
+    current_dir: PathBuf,
+    type_registry: TemplateTypeRegistry,
+    symbol_table: TemplateSymbolTable<'static, Self>,
+}
+
+impl ConfigTemplateLanguage {
+    fn new(settings: &UserSettings, current_dir: &Path) -> Self {
+        let mut type_registry = template_builder::new_core_type_registry();
+        type_registry
+            .register::<AnnotatedValue>("AnnotatedConfigValue")
+            .serializable();
+        let mut symbol_table = TemplateSymbolTable::builtin();
+        register_symbols(&mut symbol_table);
+        Self {
+            settings: settings.clone(),
+            current_dir: current_dir.to_owned(),
+            type_registry,
+            symbol_table,
+        }
+    }
+}
+
+impl TemplateLanguage<'static> for ConfigTemplateLanguage {
+    fn settings(&self) -> &UserSettings {
+        &self.settings
+    }
+
+    fn current_dir(&self) -> &Path {
+        &self.current_dir
+    }
+
+    fn type_registry(&self) -> &TemplateTypeRegistry {
+        &self.type_registry
+    }
+
+    fn symbol_table(&self) -> &TemplateSymbolTable<'static, Self> {
+        &self.symbol_table
+    }
+}
+
+// AnnotatedValue will be cloned internally in the templater. If the cloning
+// cost matters, wrap it with Rc.
+impl OpaqueTemplateValue for AnnotatedValue {}
+
+fn register_symbols(table: &mut TemplateSymbolTable<'static, ConfigTemplateLanguage>) {
+    let mut methods = table.register_methods::<AnnotatedValue>();
+    methods.insert(
+        "name",
+        |_language, _diagnostics, _build_ctx, self_property, function| {
+            function.expect_no_arguments()?;
+            let out_property = self_property.map(|annotated| annotated.name.to_string());
+            Ok(out_property.into_dyn_wrapped())
+        },
+    );
+    methods.insert(
+        "value",
+        |_language, _diagnostics, _build_ctx, self_property, function| {
+            function.expect_no_arguments()?;
+            let out_property =
+                self_property.map(|annotated| ConfigValueWrapper::new(annotated.value));
+            Ok(out_property.into_dyn_wrapped())
+        },
+    );
+    methods.insert(
+        "source",
+        |_language, _diagnostics, _build_ctx, self_property, function| {
+            function.expect_no_arguments()?;
+            let out_property = self_property.map(|annotated| annotated.source.to_string());
+            Ok(out_property.into_dyn_wrapped())
+        },
+    );
+    methods.insert(
+        "path",
+        |_language, _diagnostics, _build_ctx, self_property, function| {
+            function.expect_no_arguments()?;
+            let out_property = self_property.map(|annotated| annotated.path);
+            Ok(out_property.into_dyn_wrapped())
+        },
+    );
+    methods.insert(
+        "overridden",
+        |_language, _diagnostics, _build_ctx, self_property, function| {
+            function.expect_no_arguments()?;
+            let out_property = self_property.map(|annotated| annotated.is_overridden);
+            Ok(out_property.into_dyn_wrapped())
+        },
+    );
+}

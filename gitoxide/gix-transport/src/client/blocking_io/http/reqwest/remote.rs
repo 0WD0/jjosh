@@ -63,6 +63,8 @@ impl Default for Remote {
                 if client.is_none() {
                     let mut builder = reqwest::blocking::ClientBuilder::new()
                         .connect_timeout(std::time::Duration::from_secs(20))
+                        // Pack generation and streaming may pause longer than reqwest's default read timeout.
+                        .timeout(None)
                         .http1_title_case_headers();
                     if let Some(backend) = config.backend.as_ref() {
                         let mut backend = backend

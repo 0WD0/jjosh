@@ -96,6 +96,13 @@ where
                                 let next = std::mem::replace(expected, PreviousValue::Any);
                                 RefEdit::update_with_log(referent, new.clone(), next, current).with_deref(true)
                             }
+                            Change::Verify { expected } => {
+                                let next = std::mem::replace(
+                                    expected,
+                                    PreviousValue::MustExistAndMatch(Target::Symbolic(referent.clone())),
+                                );
+                                RefEdit::verify(referent, next).with_deref(true)
+                            }
                         },
                     ));
                 }

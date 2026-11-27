@@ -1,0 +1,407 @@
+#+title: jjosh 项目、连接与历史状态模型
+#+options: toc:2 num:nil
+
+* 一张开发图，多个交付范围
+
+项目定义给出完整树中的非根目录；目录暂时为空并不表示项目不存在。
+登记检查已有树中的路径占用，不把普通文件或 symlink 当作可用目录。
+
+=apps/app/= 与 =libs/parser/= 可以在同一个 change 中修改。
+把这个版本发布为 parser，只选择 parser 的交付范围，不表示应用部分已经发布：目录内容、引用归属和本次传输目的地是三个不同问题。
+
+工作副本 sparse/layout 是完整树的检出映射，不改变项目的 canonical 路径。
+把 =libs/parser/= 检出到磁盘根，和检出完整 monorepo，仍在操作同一份开发图。
+登记、改名等项目操作记录定义变化，不代替文件移动或源码提交。
+
+父子项目的 ID、label、连接、转换观察和 publication lease 相互独立；移除或改名父项目不级联修改子项目。
+父发布包含内层源码的本地表示；它不递归执行内层 binding 的逆转换，也不向子项目 remote 推送。
+父 fetch 拿到内层源码不等于观察到了子项目的服务器，子项目 fetch/push 同样不更新父项目的观察或 lease。
+同一修改从父、子来源到达时仍按原生版本与转换证据校验整合，路径包含关系本身不证明同版本、不授权覆盖，也不授权跨范围发布。
+
+* 四个独立领域
+
+| 领域 | 回答的问题 | 权威状态 |
+|------+------------+----------|
+| 逻辑拓扑 | 现在有哪些项目、绑定和 remote，名字属于谁？ | operation View 的 repo 部分 |
+| 本地传输配置 | 当前机器怎样连接这个 remote？ | Git config、仓库本地默认值 |
+| 历史观察 | 当时哪个连接看到了什么版本，怎样转换？ | operation View 的 remote-tracking 部分 |
+| 外部结果与来源材料 | 哪些 raw 对象、来源代际及发布旧值仍须保留？ | backend、来源对象库、endpoint/ref ledger |
+
+** 仓库本地的稳定身份
+
+| 类型 | 含义 | 变化规则 |
+|------+------|----------|
+| ProjectId | 一个开发项目 | 显示名变化时保持 |
+| BindingId | 一条不可变转换关系 | 改变关系须创建新绑定 |
+| ConnectionId | 一个逻辑 remote 实例 | rename 保持；remove 后重新 add 是新实例 |
+
+ID 只在本仓库中有意义，不按名字、地址或提交内容自动建立跨仓库等价关系。
+当前逻辑连接与历史观察复用 =ConnectionId=，不另设“历史连接 ID”。
+
+核心记录如下；省略集合实现细节，不省略身份关联：
+
+#+begin_example
+ProjectRecord { name, canonical_root }
+BindingRecord { target, connection_id, representation, base }
+BindingTarget = Project(ProjectId) | RepositoryView
+Representation = Whole | JoshFilter(String) | JoshView(String)
+ScopedRemoteName { project: ProjectId, name }
+#+end_example
+
+project 的完整树路径与 binding 的定义不随显示名或 URL 改动。
+一个连接最多有一个活动绑定。
+=--like= 复制已有绑定的 target、representation、base 值，为新连接建立新绑定；它不共享对方的 endpoint、
+观察或发布授权。
+
+** 当前逻辑拓扑
+
+=ProjectState= 保存以下带符号的映射：
+
+#+begin_example
+projects:     ProjectId    -> Merge<Option<ProjectRecord>>
+bindings:     BindingId    -> Merge<Option<BindingRecord>>
+labels:       String       -> Merge<Option<ProjectId>>
+remote_names: ConnectionId -> Merge<Option<ScopedRemoteName>>
+
+View.remote_connections:
+  physical remote key -> Merge<Option<ConnectionId>>
+#+end_example
+
+这五部分属于同一个 repo 恢复边界。
+=remote_names= 是当前项目内别名，=remote_connections= 是当前物理键的逻辑所有者；两者都不是 fetch 留下的缓存。
+
+项目 remote 的逻辑命名空间是 =(ProjectId, name)=，所以不同项目都可以有 origin。
+根 remote 保留普通 Git 名字。
+项目内别名改动不改变 =ConnectionId=、=BindingId= 或物理 handle；项目显示名改动也不改变已有引用 label。
+
+** 派生查询绑定所选 View
+
+=ProjectState= 是可合并的持久化数据，不是另一个 Repo，也不要求所有定义健康才能加载 operation。
+项目没有独立的 commit DAG 或 transaction。
+
+=jj_lib::view::ProjectView= 负责当前项目名、label、binding 的严格查询；它只借用同一份不可变
+=ProjectState=，派生索引不能由调用方任意配对。
+仓库查询使用 =View::projects()=，裸 operation 状态的导入／修复规划使用 =ProjectView::new()=，
+并在每次状态修改后重新建立查询视图。
+
+=View= 按需构建项目约束及 connection→binding 索引；未修改的 View clone 共享只读索引，
+=project_state_mut()=、=store_view_mut()= 和 =set_view()= 在可变访问或替换前使本实例的索引失效。
+索引不按仓库路径、commit ID 或全局进程缓存：相同 commit 可以对应不同 operation 拓扑。
+仅修改 heads 的规范化不使项目索引失效。
+
+约束推导保留所有正项候选以及相关实体的首个错误，后续引用查询不重新生成全局诊断。
+同名／同根只比较相同键的候选组，严格包含仍合法。
+坏定义只阻断相关身份；完整诊断由显式 check/list 路径组合。
+
+此索引只依赖 =ProjectState= 的四张映射，不缓存物理 remote 所有权、历史观察、Git 配置或发布 lease。
+历史身份查询及恢复继续使用记录的 signed 证据；transport session 复用捕获的 View。
+
+** 本地配置与物理兼容
+
+Git remote section 是扁平的。
+项目连接的物理名字是 =REMOTE#LABEL=，例如 =origin#parser=；普通根 remote 仍使用 origin。
+=ConnectionId= 只存储为显式身份元数据，不编码成 remote 名。
+创建、重命名和导入都检查配置碰撞；
+同名 section 不证明连接身份相同。
+
+URL、push URL、认证、未知 per-remote 项和 include/global 配置来源继续由 Git 配置管理，不展平为 operation
+状态。
+原生 Git 能看见物理 handle，但直接访问远端不经过 jjosh 的项目历史转换。
+
+项目默认值 =git.projects.LABEL.fetch= / =git.projects.LABEL.push= 按稳定 label 定位，
+并在各项目内解析，不继承根 =git.fetch= / =git.push=。
+仓库内默认值随 remote 生命周期更新，用户级配置独立维护。
+默认值只选择连接，不定义转换表示或历史身份。
+
+* 引用、转换依据、发布 lease
+
+** 引用选取开发版本
+
+本地 bookmark/tag 以普通名字存储，登记的稳定 label 解释项目后缀：
+
+#+begin_example
+topic                         根本地引用
+topic#parser                  parser 的交付引用，仍指向完整提交
+topic#parser@origin           parser 的 origin 历史记录
+#+end_example
+
+没有登记的 =#后缀= 是字面名字。
+登记检查已有引用，避免重新解释现存名字；根或 RepositoryView 来源不能把与活动 label 冲突的 raw ref 当普通根名字写入。
+项目发布的 wire ref 去掉交付 label。
+
+这是当前引用模型的明确限制：登记 =parser= 后，根中的字面 =topic#parser= 与 parser 的交付引用不能作为两个独立本地身份共存，
+碰撞会被拒绝。
+label 参与引用归属，不是纯展示字段；登记和移除都须检查引用依赖，不能静默改变既有名字的归属。
+
+解析、显示、补全、模板和命令选择应复用一致的 label／remote 解析与格式化规则，不在业务层各自拆分显示字符串来判断归属。
+这些是现有 subproject 引用约定的维护要求，不改变引用存储格式。
+
+=RefTarget= 保存完整 =Merge<Option<CommitId>>=；remote ref 还保存 tracking 状态。
+冲突不能简化为一个 OID，同一 change ID 的多个版本也不是可随意互换的：change ID 联系开发身份，commit ID 才选定具体版本。
+
+** 转换依据解释版本的来源
+
+从外部表示到本地项目，内容映射可写成 =L ∘ F=：F 求值 Whole、Josh filter 或版本相关的 Josh view，L 将结果放到
+canonical_root。
+RepositoryView 不做项目挂载，而把转换结果作为整仓库的根历史；独立 projection 使用这种边界，并连接真实来源 endpoint。
+
+发布不是简单的逆函数。
+filter 已丢掉的外围内容、raw 父图和来源 base 必须来自保存的来源材料。
+Whole 的本地 jj 导入可保留原生 change 身份、有序父边、空提交、divergence 和冲突树；filter/view 可以裁剪内容、
+提交和父关系，不能宣称同样无损。
+重写使签名失效时移除并报告，不沿用原签名有效性。
+当前转换使用 SHA-1 Git backend，gitlink 保留其引用身份。
+
+转换观察的结构为：
+
+#+begin_example
+ObservationKey { remote: physical key, name, kind }
+kind = Bookmark | Tag | Revision
+ConversionObservation {
+  binding_id, binding, connection_id,
+  endpoint, raw_ref, terms, base, generation
+}
+ConversionTerm { canonical: Option<CommitId>, raw: Option<String> }
+View.project_observations:
+  ObservationKey -> Merge<Option<ConversionObservation>>
+#+end_example
+
+观察包含不可变 binding 的快照，不要求当前仍有活动绑定才能解释历史。
+terms 保留正负项和缺失项；generation 指定不可变 normalization 依据。
+一次性导出所用来源绑定与被观察的目的连接可以不同，两者不能混淆。
+
+上游只修改项目外内容时，新 raw commit 可以转换成原来的 canonical commit。
+此时引用不动，转换观察仍须更新；否则下一次发布会丢掉新的外围内容。
+引用 target 与来源依据因此分别保存和合并，不能因 canonical target 收敛便丢弃 endpoint、raw 或 generation
+的候选。
+
+** lease 约束实际写入目标
+
+发布计划必须同时确定：
+
+1. 所选引用动作和 canonical 版本；
+2. 转换使用的 binding、raw 上下文、base 与 generation；
+3. 实际 endpoint、完整 wire ref 与 expected-old raw 对象 ID。
+
+lease 按 endpoint/ref 保存。
+来源 base、另一 fork 的观察、恢复出的旧 remote ref，都不能替代目标 lease。
+annotated tag 必须比较直接 tag 对象 ID，而非只比较 peeled commit，才能发现仅注释变化。
+
+operation restore 不回退 ledger，也不能撤销服务器上的发布。
+保存了来源材料不代表可以覆盖目标；有 lease 也不证明转换结果正确。
+
+* 观察与恢复
+
+** 观察只属于所选 operation
+
+remote-tracking 保存引用、tracking、=ConnectionId= 和转换依据。
+这些字段支持恢复时验证身份，不是额外的历史 remote 命名空间。
+
+当前 origin=B 时，=main#parser@origin= 只能选择 B。
+恢复 A 时代的 tracking 不会给 B 补授 A 的身份、tracking 或覆盖授权。
+相同 =ConnectionId= 且不可变 binding 相同的改名可以重定位观察；同名重建属于不同实例，不能接续。
+内置 =@git= 是本地 backend 镜像，不是停用的外部连接；读取旧 operation 不会创建新 remote 或修改配置。
+
+** 带符号合并
+
+项目、绑定、label、当前和历史 remote 身份、转换观察都使用 =Merge<Option<T>>=。
+三方合并组合 =own - base + other= 的完整表达式，再消去可平凡化的项，而不是只对可见正项做集合并集。
+缺失是删除语义的一部分；重复同改动可以收敛，改名冲突和删除／修改冲突必须保留。
+
+按稳定 ID 合并后才推导跨记录约束：同名、同根、多绑定、悬空 label、物理所有者冲突、观察与不可变定义不一致等。
+严格包含不是冲突，父定义冲突也不使健康子定义自动失效。
+项目记录按整条合并，不从不同分支拼出一个未发生过的定义。
+诊断定位相关项目／绑定／引用，健康项目不因无关坏定义一律停用。
+
+诊断与枚举路径必须能读取 unresolved/conflicted 状态：
+=project list/show=、引用列表、commit template。
+
+以及不指定一个精确 logical identity 的集合式 remote-ref revset，遇到 scope 校验失败时保留已持久化的 ref，并退回显示物理 remote key。
+它们不因此获得操作权限。
+精确 selector、transport、tracking 修改和其他 mutation 仍必须成功验证 project／binding／connection identity 后才能继续。
+
+** 恢复矩阵
+
+表中的“历史”指所选旧 operation，“当前”指恢复前状态。
+默认同时选择 repo 与 remote-tracking。
+
+| 状态 | 仅 =--what repo= | 仅 =--what remote-tracking= | 两者均选 |
+|------+-----------------+----------------------------+----------|
+| heads、本地引用、workspace 目标及 sparse/layout | 历史 | 当前 | 历史 |
+| projects、bindings、labels、remote_names | 历史 | 当前 | 历史 |
+| 当前 remote_connections | 历史 | 当前 | 历史 |
+| remote_views、project_observations | 当前有效连接的观察 | 仍对应所选逻辑连接的历史观察 | 历史观察 |
+| observed_remote_connections、observed_remote_names | 随所保留观察 | 随所恢复观察 | 随历史观察 |
+| Git mirror 同步基线 git_refs / git_heads | 当前 | 当前 | 当前 |
+| URL、认证、实际本地配置与默认值 | 不回退 | 不回退 | 不回退 |
+| endpoint/ref lease、外部服务器状态 | 不回退 | 不回退 | 不回退 |
+
+组合不同部分时，先按 =ConnectionId= 与相同的不可变绑定对齐同一实例：根 remote 改名后，只恢复 tracking
+会把同一连接的旧观察接到当前物理键，保留当前别名，不改 Git config。
+名字互换也按身份重定位，不互换 tracking 的归属。
+不同实例的旧观察退出当前 View，不按同名或同 URL 接续；旧的纯名字快照不能证明属于当前实例时同样隔离，不补授当前连接身份。
+只恢复 tracking 不需要“修复当前名字”，也不会把旧表示绑定到重建后的同名连接。
+
+** 断开连接是合法状态
+
+删除 A、以同名创建 B，再恢复旧 operation，可得到以下结果：
+
+- 只恢复 tracking：B 仍是当前逻辑连接，继续使用 B 的表示和配置；A 的观察只留在旧 operation，B 不继承 A 的 tracking。
+- 恢复 repo 或完整状态：逻辑 A 可以重新出现，但 A 的旧 URL／认证不会复活。
+  本地已经没有 A 的配置时，A 就是断开的当前连接。
+- A 与 B 可以使用同一个可读配置键，但 =ConnectionId= 不同；若该 section 仍属于 B，恢复 A 不能覆盖或借用它。
+
+=git remote remove= 支持离线移除当前逻辑连接及其当前引用／元数据，不要求先能传输；旧 operation 仍保留过去的历史，不删除他人所有的配置。
+=git remote set-url NAME URL= 可显式接通没有本地配置的当前连接，保留 =ConnectionId= 和 binding，不产生 fetch 观察或修改 tracking。
+若同一根物理键由另一个连接拥有，本地配置冲突会拒绝，必须先明确处理该配置。
+
+配置 section 是否存在、是否属于当前连接、是否有可用 endpoint 是三个独立事实。
+属于当前连接但暂时没有 URL 的 section 仍随 remove／根 rename 删除或改名；别的连接的 section 即使没有 URL 也不能被接管。
+管理预检与实际修改共用 Git 层的所有权、锁和 expected-value 检查。
+重连直接创建本地配置，不通过启动并丢弃语义事务来筛选副作用。
+
+set-url 只改变传输地址，不改变 Whole/filter/view。
+想采用不同表示，应有意建立新的绑定／remote，而不是让旧观察随当前 URL 重新解释。
+纯历史观察不是可由 set-url 隐式激活的当前连接。
+
+* 传输边界
+
+** fetch
+
+无项目选择时只获取根。
+=--project= 可重复且去重，=--all-projects= 选择全部未删除登记项目。
+每个项目分别解析显式 remote、项目默认值、唯一连接／origin 回退；=--all-remotes= 只展开已选范围。
+=--revision= / =--fetch-url= 要求整批去重后只有一个物理 remote。
+
+首个网络请求前完成整批范围、默认值、连接和绑定预检。
+=--all-projects= 包含冲突候选；没有连接、错误别名或未解决定义都会报错，不静默跳过。
+网络阶段仍可能部分失败，不承诺跨服务器原子获取。
+
+获取先收 raw refs／对象，按明确绑定和 normalization 代际转换，安装 mirror 与转换观察，再交给 jj tracking
+合并本地引用。
+删除推断只覆盖本次实际完成的选择范围，未请求或失败不是远端删除。
+根 Git scanner 的扫描集及观察候选集都隔离 scoped 私有状态，没扫描到的项目 refs 不被当作删除。
+
+相同 change ID 或相同项目子树不授权整份 synthetic rewrite；转换必须保留未发布的其他项目工作和合法的多版本状态，消除
+divergence 不是正确性标准。
+
+** push
+
+每个引用由 label 选择项目及默认目的地。
+=--remote fork= 在每个选中项目内解释；=--remote origin#= 明确选择根。
+目的绑定存在时用目的表示；向未绑定目的地导出，用 =--source= 明确选择来源关系。
+整批选择不按提交修改了哪些目录分发。
+
+所有引用先完成版本、转换上下文、目标可发布性及 endpoint/ref 碰撞检查，再开始网络写入。
+转换关系当前要求所选方向恰好一个 endpoint，不会只处理多个 push URL 中的第一个。
+dry-run 展示准备后的 raw 计划。
+
+项目校验与 Whole 导出共用 canonical 子树历史的遍历和剪枝规则：保留有序父边，去重投影后的父版本，移除空项目历史形成的虚拟根父边，
+折叠与唯一有效父版本子树相同的提交。
+空子树的删除版本仍保留其项目祖先，不能被当成虚拟根。
+实际合并不同项目版本的 merge 仍需校验，=touched_projects= 或文件 diff 不能代替历史规划。
+已知远端／不可变历史只限定 metadata 校验范围，不直接截断投影遍历；校验与 Whole 导出的投影边界取自 immutable raw
+correspondence。
+只有候选集内保留下来的原 canonical commit 执行 description、作者和 private revset 检查，
+并使用规划时解析的项目子树判断冲突；校验排除不授予发布依据或 lease。
+filter/view 的逆转换与 raw 可发布性检查仍属于转换层。
+JJ CLI 只消费 remote 扩展提供的校验流，不实现项目剪枝。
+普通根 remote 沿用有界并发的流式 commit 读取，可在首个无效提交处停止；仅项目历史规划需要收集候选 ID 并遍历至可信
+correspondence，只为需要校验的幸存候选保留 commit 对象，不保留跨命令缓存。
+
+已有目标的逆转换保留 filter 外内容和正确 raw 父图；新目标的来源基线须能由所选历史确定，歧义时要求明确选择。
+项目内没有变化不能成为把目标退回旧等价投影的理由。
+只有独立确认成功的更新才推进相应发布记录；多个 remote 不具备原子发布保证。
+
+* 项目导入
+
+=project import= 接受 =--git=、=--nested= 与 =--preserve= 三种来源，均可重复、混用，
+来源名跨模式唯一；=--mount NAME=DEST= 覆盖默认挂载。
+所有来源共同规划并发布一个目标 operation，目标工作副本不快照、不切换。
+
+** Git 远端
+
+=--git= 创建新外层项目及项目内 =origin= Whole 连接，使用普通 project fetch 的传输、历史转换、观察与
+provenance 路径获取全部分支和标签的完整历史。
+URL 和本地 Git 路径按普通 remote add 的规则解析；不要求预先 clone，不提供浅获取选项。
+来源引用按项目 label 限定，例如 =main#parser@origin=，跟踪策略沿用普通 fetch；后续直接使用该连接 fetch/push。
+
+所有来源准备成功并通过资源复核后，才安装连接配置和 canonical mirrors、导入远端观察并提交共同 operation；获取失败不会发布部分来源。
+空 Git 仓库仍登记项目和连接，可在上游出现提交后继续 fetch。
+网络获取和转换不持有共享 Git import/export 锁；公开 mirrors 在该锁内发布。
+安装开始后的跨资源失败仍遵守[[*跨资源修改按单调阶段收敛][跨资源修改]]的恢复边界。
+
+** 本地 JJ 的两种状态合同
+
+本地两种模式读取来源已记录的开发图，不导入未记录工作文件，也不会联系来源配置的远端。
+
+| 内容 | nested | preserve |
+|------+--------+----------|
+| 项目布局 | 创建新外层项目，整体挂载来源图 | 保留来源项目身份，只增加路径前缀，不建外层项目 |
+| 来源内部定义 | 不激活内部项目／绑定 | 保留项目、绑定、稳定 label 和当前逻辑连接 |
+| 来源 remote | 不导入 remote 身份、tracking 或传输配置 | 保留来源明确记录的连接与转换状态，不生成 opaque 名字 |
+| 本地连接配置 | 不复制来源连接配置 | 复制受支持项目连接的 URL、push URL 和 remote 设置 |
+| 网络行为 | 不 fetch / push | 不 fetch / push，不复制全局凭据配置 |
+
+nested 只导入来源已记录开发图、本地 bookmarks/tags 及所需祖先。
+来源 remote、remote tracking、endpoint lease 和 Git config 不变成目标连接。
+导入后显式 add remote 并 fetch，才获得该目标 endpoint 的观察和自动 push lease。
+
+preserve 的项目引用保持原 label，普通根引用加来源名前缀。
+已有的父子项目身份一并保留，只统一增加路径前缀；可以导入现有父项目下的空目录。
+多个来源的实际导入位置仍须互不包含，且不能覆盖已有文件；这与允许项目交付范围嵌套是两回事。
+保留模式拒绝项目身份复用、名字／目录冲突及不一致转换依据，不静默换 ID。
+
+来源 RepositoryView 无法在保持整仓库语义的同时挂到子目录；有地址但无活动项目绑定的连接也不能直接续接，所以这两类输入被拒绝，需选择
+nested 或保持独立仓库。
+
+两种模式都保留真实引用、原生版本、空提交、有序父边、冲突和 divergence，不把工作副本或 Git HEAD 伪造成书签。
+来源内置 =@git= 在两种模式下均排除；目标 =@git= 只描述目标自己的 Git 镜像同步。
+
+preserve 还搬运私有原生锚点、raw 对象、normalization generations 和 publication ledger；
+canonical ID 随映射重写，raw ID、endpoint、generation 不重新解释。
+ledger 的捕获独立于当前观察，不能遗漏未跟踪分支或旧 lease。
+完整来源代际闭包验证后才安装；配置、私有 refs 和 mirrors 使用各自资源锁／原生事务安装。
+失败后可能留下不可变对象或已经完整安装的本地资源，它们不等于导入 operation 已提交；重试必须重新验证所有权和碰撞。
+
+* 持久化与数据边界
+
+** 保留材料不是缓存
+
+转换观察引用的 canonical commits 参与保留根遍历。
+raw 历史、浅边界、旧 normalization 代际、原生对应关系和发布 ledger 则由 backend／来源存储保留。
+浅来源按 endpoint 隔离，完整与浅获取走同一转换路径；来源 shallow 状态不会变成 monorepo 的全局缺父图。
+加深来源历史可生成新代际，旧观察仍引用旧代际。
+
+保活不要求把 raw commits 变成用户 heads，但可见树和 canonical commits 不足以重建全部逆转换输入。
+这就是来源对象库不能当作“可重算缓存”清理的原因。
+备份须覆盖不可重建 provenance；普通 Git clone 不承担完整 jj 仓库备份的职责。
+
+** 项目格式
+
+编码区分当前逻辑身份与历史 observed 身份，并保留完整 signed terms。
+父子项目使用同一套 ProjectRecord、signed project state 和 metadata 编码；允许严格包含只是拓扑约束变化，不新增字段、
+ID、metadata version 或 operation-store 类型。
+因此嵌套项目不设置额外 writer capability gate；格式标记的作用是阻止理解不了当前状态的程序写入。
+
+** 跨资源修改按单调阶段收敛
+
+remote 管理和导入跨越 Git config、refs、来源存储与 jj operation。
+operation 是逻辑状态的提交边界：一旦包含最终项目／连接身份的 operation 发布，后续本地物理修改只能向该状态收敛。
+
+发布 operation 前只允许准备可重复、不会夺取现有逻辑所有权的材料，例如复制对象、安装不可变 provenance／generation、
+写入可验证的来源锚点或尚未激活的 transport marker。
+失败时这些已经完整写入的材料可以保留；重试必须重新验证目标资源，不能因上一次留下材料便跳过身份或内容检查。
+
+发布 operation 后的 Git config/ref cutover 使用资源自己的锁、=ConnectionId= 所有权检查和
+expected-old/CAS。
+已提交的 config、ref 或来源状态不因后续步骤失败而回滚；并发修改导致 expected value 不匹配时保留实际资源并停止，
+由相同命令在冲突处理后重新运行。
+Git config 与 refs 是独立的原生事务：ref 锁在 config 发布前准备，但 config 已提交后 ref commit
+仍可能失败或部分完成，错误会明确报告这种状态。
+
+=project import= 在完整逻辑 View 发布前安装所需对象、provenance、连接配置和 mirrors。
+导入失败不会修改来源仓库；目标中已经复制的对象以及完整完成的 config/ref 安装可以保留，重试时重新做碰撞与所有权检查。
+
+这些修改不建立覆盖全部资源的总回滚日志。
+原生 Git 或绕过这些锁的其他写入不受保护；远端已经完成的网络写入从不参与本地回滚。

@@ -1,0 +1,35 @@
+[package]
+name = "testutils"
+description = "Integration test utils for the jj-lib crate"
+publish = false
+
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+async-trait = { workspace = true }
+bstr = { workspace = true }
+eyre = { workspace = true }
+futures = { workspace = true }
+gix = { workspace = true, features = [
+    "status",
+    "worktree-mutation",
+] }
+hegeltest = { workspace = true }
+itertools = { workspace = true }
+jj-config = { workspace = true }
+jj-core = { workspace = true }
+jj-git-backend = { workspace = true, features = ["testing"] }
+jj-lib = { workspace = true, features = ["testing"] }
+jj-simple-stores = { workspace = true }
+jj-working-copy = { workspace = true }
+pollster = { workspace = true }
+rand = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true }
+toml_edit = { workspace = true }
+
+[lints]
+workspace = true

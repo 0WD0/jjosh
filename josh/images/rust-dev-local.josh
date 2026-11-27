@@ -1,0 +1,6 @@
+:$label="rust development local"
+
+bases = :[
+    :#BASE_IMAGE[:+images/rust-dev]
+]
+context = :/images/rust-dev-local

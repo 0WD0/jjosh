@@ -59,6 +59,11 @@ impl packed::Transaction {
         // Remove all edits which are deletions that aren't here in the first place
         let mut prepared_edits = Vec::new();
         for mut edit in edits {
+            // Verification is performed by the loose transaction while this packed lock is held.
+            // It must never enter the packed writer, where an edit replaces an existing record.
+            if matches!(edit.change, Change::Verify { .. }) {
+                continue;
+            }
             use gix_object::bstr::ByteSlice;
             if self.precompose_unicode {
                 let precomposed = edit
@@ -265,6 +270,7 @@ fn write_edit(out: &mut dyn std::io::Write, edit: &Edit, lines_written: &mut i32
             new: Target::Symbolic(_),
             ..
         } => unreachable!("BUG: packed refs cannot contain symbolic refs, catch that in prepare(…)"),
+        Change::Verify { .. } => unreachable!("verification edits are removed during preparation"),
     }
     Ok(())
 }
