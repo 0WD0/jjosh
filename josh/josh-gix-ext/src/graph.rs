@@ -1,8 +1,8 @@
 //! Reachability queries over an object source, so they see the same objects as the rest of
 //! a transaction -- including the filtered commits it has not written out yet.
 //!
-//! Both queries are merge-base computations: `gix_revision` walks the commits it reads from
-//! `objects`, keeping the answers consistent with what the caller can see.
+//! Queries delegate to `gix_revision` over `objects`, keeping answers consistent with what
+//! the caller can see while allowing a caller to reuse the decoded commit graph across checks.
 
 /// A commit the walk cannot read is indistinguishable from unrelated history, so the inputs
 /// are checked up front: asking about an object that is not there is a caller bug, not an
@@ -23,6 +23,49 @@ fn ensure_commit(objects: &impl gix_object::Find, oid: gix_hash::ObjectId) -> an
     Ok(())
 }
 
+/// Reusable commit-ancestry graph over a single object source.
+///
+/// Decoded commits stay cached in the graph across repeated `is_ancestor` /
+/// `is_descendant_of` calls during one batch.
+pub struct AncestryGraph<'find> {
+    graph: gix_revwalk::Graph<
+        'find,
+        'static,
+        gix_revwalk::graph::Commit<gix_revision::merge_base::Flags>,
+    >,
+}
+
+impl<'find> AncestryGraph<'find> {
+    /// Construct an empty ancestry graph backed by `objects`.
+    pub fn new(objects: impl gix_object::Find + 'find) -> Self {
+        Self {
+            graph: gix_revision::Graph::new(objects, None),
+        }
+    }
+
+    /// Whether `ancestor` is reachable from `descendant` by following zero or more parents.
+    pub fn is_ancestor(
+        &mut self,
+        ancestor: gix_hash::ObjectId,
+        descendant: gix_hash::ObjectId,
+    ) -> anyhow::Result<bool> {
+        gix_revision::merge_base::is_ancestor(ancestor, descendant, &mut self.graph)
+            .map_err(|e| anyhow::anyhow!("is_ancestor: {e}"))
+    }
+
+    /// Whether `ancestor` is strictly reachable from `commit` by following one or more parents.
+    pub fn is_descendant_of(
+        &mut self,
+        commit: gix_hash::ObjectId,
+        ancestor: gix_hash::ObjectId,
+    ) -> anyhow::Result<bool> {
+        if commit == ancestor {
+            return Ok(false);
+        }
+        self.is_ancestor(ancestor, commit)
+    }
+}
+
 /// Whether `ancestor` is reachable from `commit` by following parents. A commit does not
 /// descend from itself.
 pub fn is_descendant_of(
@@ -35,12 +78,7 @@ pub fn is_descendant_of(
     }
     ensure_commit(objects, commit)?;
     ensure_commit(objects, ancestor)?;
-    let ancestor = ancestor;
-    let mut graph = gix_revision::Graph::new(objects, None);
-    // Reachable is exactly "is one of the best common ancestors of the two".
-    let bases = gix_revision::merge_base(commit, &[ancestor], &mut graph)
-        .map_err(|e| anyhow::anyhow!("is_descendant_of: {e}"))?;
-    Ok(bases.is_some_and(|bases| bases.iter().any(|base| *base == ancestor)))
+    AncestryGraph::new(objects).is_descendant_of(commit, ancestor)
 }
 
 /// The best common ancestor of `a` and `b`, erroring when they share no history. With

@@ -32,7 +32,7 @@ pub mod graph;
 pub mod merge;
 pub mod revwalk;
 
-pub use graph::{is_descendant_of, merge_base, merge_base_octopus};
+pub use graph::{AncestryGraph, is_descendant_of, merge_base, merge_base_octopus};
 pub use merge::{merge_commits, merge_trees};
 pub use revwalk::{GenerationFrontier, RangeWalk, RevWalk};
 

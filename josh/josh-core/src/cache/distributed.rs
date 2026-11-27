@@ -60,9 +60,12 @@ impl DistributedCacheBackend {
     }
 
     fn open(repo_path: impl AsRef<std::path::Path>, writable: bool) -> anyhow::Result<Self> {
+        let options = gix::open::Options::isolated().object_store_slots(
+            gix::odb::store::init::Slots::Given(crate::cache::GIX_PACK_SLOTS),
+        );
         let repo = std::sync::Arc::new(gix::ThreadSafeRepository::open_opts(
             repo_path.as_ref(),
-            gix::open::Options::isolated(),
+            options,
         )?);
         let objects_dir = repo.objects.path().to_owned();
         let mem_odb = josh_memodb::MemOdb::new(None, objects_dir.clone());
