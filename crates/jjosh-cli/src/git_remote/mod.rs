@@ -2,7 +2,6 @@ mod fetch;
 mod lifecycle;
 mod push;
 
-use std::collections::HashMap;
 use std::path::PathBuf;
 
 use anyhow::Context;
@@ -378,44 +377,59 @@ impl Session {
             .0
     }
 
+    fn other_whole_bindings(&self) -> Vec<BindingId> {
+        let Some(project) = &self.project else {
+            return Vec::new();
+        };
+        self.view
+            .project_state()
+            .bindings
+            .iter()
+            .filter_map(|(id, value)| {
+                let record = value.as_resolved().and_then(Option::as_ref)?;
+                (id != self.binding_id()
+                    && record.target == BindingTarget::Project(project.id.clone())
+                    && record.representation == Representation::Whole)
+                    .then(|| id.clone())
+            })
+            .collect()
+    }
+
     /// Offline native imports carry reusable lossless evidence, not a project mode.
-    async fn anchors(
+    async fn anchors<'a>(
         &self,
-        repo: &dyn Repo,
-        transaction: &josh_core::cache::Transaction,
-    ) -> Result<HashMap<CommitId, CommitId>, CommandError> {
-        let mut known = crate::native_project::anchors(repo, transaction, self.binding_id())
-            .await
+        repo: &'a dyn Repo,
+        transaction: &'a josh_core::cache::Transaction,
+    ) -> Result<crate::native_project::Anchors<'a>, CommandError> {
+        let mut known = crate::native_project::Anchors::new(repo, transaction);
+        known
+            .load_binding(self.binding_id(), false)
             .map_err(user_error)?;
-        if let Some(project) = &self.project {
-            for (id, value) in &self.view.project_state().bindings {
-                let Some(record) = value.as_resolved().and_then(Option::as_ref) else {
-                    continue;
-                };
-                if id == self.binding_id()
-                    || record.target != BindingTarget::Project(project.id.clone())
-                    || record.representation != Representation::Whole
-                {
-                    continue;
-                }
-                if !crate::native_project::is_offline_binding(transaction, id)
-                    .map_err(user_error)?
-                {
-                    continue;
-                }
-                for (raw, canonical) in crate::native_project::anchors(repo, transaction, id)
-                    .await
-                    .map_err(user_error)?
-                {
-                    if known
-                        .get(&raw)
-                        .is_some_and(|previous| previous != &canonical)
-                    {
-                        return Err(user_error("Ambiguous offline native correspondence"));
-                    }
-                    known.insert(raw, canonical);
-                }
+        for id in self.other_whole_bindings() {
+            if crate::native_project::is_offline_binding(transaction, &id).map_err(user_error)? {
+                known.load_binding(&id, true).map_err(user_error)?;
             }
+        }
+        Ok(known)
+    }
+
+    /// For fetches, also reuse unambiguous imported tips from sibling online `Whole` bindings.
+    async fn fetch_anchors<'a>(
+        &self,
+        repo: &'a dyn Repo,
+        transaction: &'a josh_core::cache::Transaction,
+    ) -> Result<crate::native_project::Anchors<'a>, CommandError> {
+        let mut known = self.anchors(repo, transaction).await?;
+        let mut online_siblings = Vec::new();
+        for id in self.other_whole_bindings() {
+            if !crate::native_project::is_offline_binding(transaction, &id).map_err(user_error)? {
+                online_siblings.push(id);
+            }
+        }
+        if !online_siblings.is_empty() {
+            known
+                .load_sibling_imported_tips(&online_siblings)
+                .map_err(user_error)?;
         }
         Ok(known)
     }
@@ -509,10 +523,9 @@ impl GitRemoteSession for Session {
                 repo,
                 &project.mount,
                 candidates,
-                async move {
-                    let transaction = crate::interop::open_josh_transaction(&self.git_path, true)?;
-                    self.anchors(repo, &transaction).await
-                },
+                &self.git_path,
+                self.binding_id(),
+                self.other_whole_bindings(),
             ),
             None => jj_cli::git_remote::default_push_validation_commits(repo, candidates),
         }

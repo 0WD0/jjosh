@@ -3641,3 +3641,153 @@ fn preserve_projects_filtered_publication_survives_source_repository_relocation(
         "never publish destination root\n"
     );
 }
+
+#[test]
+fn whole_project_fetch_reuses_sibling_history_and_isolates_publications() {
+    let remotes = tempfile::tempdir().unwrap();
+    let work = remotes.path().join("work");
+    native_git(
+        remotes.path(),
+        &["init", "-b", "main", work.to_str().unwrap()],
+    );
+    let mut revs = Vec::new();
+    for step in 1..=4 {
+        fs::write(work.join("value.txt"), format!("v{step}\n")).unwrap();
+        native_git(&work, &["add", "."]);
+        native_git(&work, &["commit", "-m", &format!("step {step}")]);
+        revs.push(native_git(&work, &["rev-parse", "HEAD"]).trim().to_owned());
+    }
+    let upstream = remotes.path().join("upstream.git");
+    let fork = remotes.path().join("fork.git");
+    native_git(
+        remotes.path(),
+        &[
+            "clone",
+            "--bare",
+            work.to_str().unwrap(),
+            upstream.to_str().unwrap(),
+        ],
+    );
+    native_git(
+        remotes.path(),
+        &[
+            "clone",
+            "--bare",
+            work.to_str().unwrap(),
+            fork.to_str().unwrap(),
+        ],
+    );
+    // Point fork's main at step 3 (not origin's tip step 4), and add an older branch at step 2.
+    native_git(&fork, &["update-ref", "refs/heads/main", &revs[2]]);
+    native_git(&fork, &["update-ref", "refs/heads/older", &revs[1]]);
+
+    let mono = NativeRepo::new();
+    mono.write("outside.txt", "root v1\n");
+    mono.jj(&["describe", "-m", "monorepo root"]);
+    let root_base = mono.log("@", "commit_id");
+    mono.jj(&["project", "add", "alpha", "--path", "alpha"]);
+    mono.add_project_remote("origin", &upstream, "alpha");
+    mono.add_project_remote("wd", &fork, "alpha");
+
+    mono.jj(&[
+        "git",
+        "fetch",
+        "--remote",
+        "origin#alpha",
+        "--branch",
+        "main",
+    ]);
+    let canonical_step4 = mono.log("main#alpha@origin", "commit_id");
+    let canonical_step3 = mono.log("main#alpha@origin-", "commit_id");
+    let canonical_step2 = mono.log("main#alpha@origin--", "commit_id");
+    let canonical_step1 = mono.log("main#alpha@origin---", "commit_id");
+    assert_ne!(canonical_step4, "");
+
+    // Fetching main (step 3) and older (step 2) from sibling wd#alpha reuses the
+    // canonical commits imported via origin#alpha without creating divergent copies.
+    mono.jj(&[
+        "git", "fetch", "--remote", "wd#alpha", "--branch", "main", "--branch", "older",
+    ]);
+    assert_eq!(mono.log("main#alpha@wd", "commit_id"), canonical_step3);
+    assert_eq!(mono.log("older#alpha@wd", "commit_id"), canonical_step2);
+    assert_eq!(mono.log("divergent()", "commit_id"), "");
+
+    // Pushing from an internal ancestor (step 1) on origin#alpha lazily resolves
+    // its origin anchor through origin/step4 without walking unrelated commits.
+    mono.jj(&["new", &canonical_step1, "-m", "branch from step 1"]);
+    mono.write("alpha/value.txt", "branch edit\n");
+    mono.jj(&["describe", "-m", "branch from step 1"]);
+    mono.jj(&[
+        "git",
+        "push",
+        "--remote",
+        "origin#alpha",
+        "--named",
+        "topic#alpha=@",
+    ]);
+    assert_eq!(
+        native_git(&upstream, &["rev-parse", "topic^"]).trim(),
+        revs[0]
+    );
+
+    // Fetching step 4 on wd#alpha directly reuses origin#alpha's imported tip.
+    native_git(&fork, &["update-ref", "refs/heads/tip4", &revs[3]]);
+    mono.jj(&["git", "fetch", "--remote", "wd#alpha", "--branch", "tip4"]);
+    assert_eq!(mono.log("tip4#alpha@wd", "commit_id"), canonical_step4);
+
+    // Two remotes publishing different canonical commits that project to the exact
+    // same raw commit must not collide as ambiguous correspondence.
+    mono.jj(&[
+        "config",
+        "set",
+        "--repo",
+        "git.write-change-id-header",
+        "false",
+    ]);
+    mono.jj(&["new", &root_base, &canonical_step3, "-m", "outside v1"]);
+    mono.write("alpha/value.txt", "shared change\n");
+    mono.jj(&["describe", "-m", "shared change"]);
+    mono.jj(&[
+        "git",
+        "push",
+        "--remote",
+        "wd#alpha",
+        "--named",
+        "shared#alpha=@",
+    ]);
+
+    mono.jj(&["new", &root_base, "-m", "outside v2"]);
+    mono.write("outside.txt", "root v2\n");
+    mono.jj(&["describe", "-m", "outside v2"]);
+    let root_v2 = mono.log("@", "commit_id");
+    mono.jj(&["new", &root_v2, &canonical_step3, "-m", "shared change"]);
+    mono.write("alpha/value.txt", "shared change\n");
+    mono.jj(&["describe", "-m", "shared change"]);
+    mono.jj(&[
+        "git",
+        "push",
+        "--remote",
+        "origin#alpha",
+        "--named",
+        "shared2#alpha=@",
+    ]);
+    assert_eq!(
+        native_git(&fork, &["rev-parse", "shared^{tree}"]),
+        native_git(&upstream, &["rev-parse", "shared2^{tree}"])
+    );
+    assert_eq!(
+        native_git(&fork, &["rev-parse", "shared^"]),
+        native_git(&upstream, &["rev-parse", "shared2^"])
+    );
+
+    // Both remotes can still fetch and push after independent publications.
+    mono.jj(&["git", "fetch", "--remote", "wd#alpha", "--branch", "shared"]);
+    mono.jj(&[
+        "git",
+        "fetch",
+        "--remote",
+        "origin#alpha",
+        "--branch",
+        "shared2",
+    ]);
+}

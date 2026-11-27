@@ -458,7 +458,7 @@ pub(super) async fn run(
             .project
             .as_ref()
             .expect("native project checked above");
-        let known = session.anchors(repo, transaction).await?;
+        let known = session.fetch_anchors(repo, transaction).await?.direct_map();
         let imported = crate::native_import::rewrite_graph(
             &source,
             repo,
@@ -694,30 +694,123 @@ pub(super) async fn run(
             let transaction = transaction
                 .as_ref()
                 .expect("native project has a Josh transaction");
-            let known = session.anchors(repo, transaction).await?;
+            let known = session.fetch_anchors(repo, transaction).await?;
             let ids: Vec<_> = commits
                 .values()
                 .map(|id| CommitId::from_bytes(id.as_bytes()))
                 .collect();
             jj_lib::git::get_git_backend(repo.store())?.import_head_commits(ids.iter())?;
             let view = View::make_root(repo.store().root_commit_id().clone());
-            let source = crate::native_source::NativeSource::read_view(
-                repo.store().clone(),
-                view,
-                &ids,
-                |id| known.contains_key(id),
-            )
-            .await
-            .map_err(user_error)?;
-            let imported = crate::native_import::rewrite_graph(
+
+            struct WholeFetchBoundary<'a> {
+                repo: &'a jj_lib::repo::MutableRepo,
+                mount: &'a jj_lib::repo_path::RepoPath,
+                known: crate::native_project::Anchors<'a>,
+                resolved_boundaries: BTreeMap<CommitId, CommitId>,
+                pre_grafts: Vec<(CommitId, CommitId)>,
+                change_id_index: Option<Box<dyn jj_lib::index::ChangeIdIndex + 'a>>,
+                unmapped_count: usize,
+            }
+
+            impl crate::native_source::ReadBoundaryChecker for WholeFetchBoundary<'_> {
+                async fn before_read(&mut self, id: &CommitId) -> anyhow::Result<bool> {
+                    if let Some(canonical) = self.known.raw_to_canonical_direct(id) {
+                        self.resolved_boundaries
+                            .insert(id.clone(), canonical.clone());
+                        return Ok(true);
+                    }
+                    Ok(false)
+                }
+
+                async fn after_read(
+                    &mut self,
+                    id: &CommitId,
+                    commit: &jj_lib::backend::Commit,
+                ) -> anyhow::Result<bool> {
+                    let index = match &self.change_id_index {
+                        Some(index) => index,
+                        None => self.change_id_index.insert(
+                            self.repo
+                                .mutable_index()
+                                .change_id_index(&mut self.repo.view().heads().iter())?,
+                        ),
+                    };
+                    if let jj_lib::object_id::PrefixResolution::SingleMatch(targets) = index
+                        .resolve_prefix(&jj_lib::object_id::HexPrefix::from_id(&commit.change_id))
+                        .await?
+                    {
+                        let visible: Vec<_> = targets
+                            .visible_with_offsets()
+                            .map(|(_, target_id)| target_id.clone())
+                            .collect();
+                        if !visible.is_empty()
+                            && let Some(existing) =
+                                crate::native_project::existing_same_project_version(
+                                    self.repo, self.mount, commit, &visible,
+                                )
+                                .await?
+                        {
+                            self.resolved_boundaries
+                                .insert(id.clone(), existing.clone());
+                            self.pre_grafts.push((id.clone(), existing));
+                            return Ok(true);
+                        }
+                    }
+                    self.unmapped_count += 1;
+                    if self.unmapped_count >= 4096 && self.known.has_pending() {
+                        self.known.expand_all_origins().await?;
+                        if let Some(canonical) = self.known.raw_to_canonical_direct(id) {
+                            self.resolved_boundaries
+                                .insert(id.clone(), canonical.clone());
+                            return Ok(true);
+                        }
+                    }
+                    Ok(false)
+                }
+            }
+
+            let (source, resolved_boundaries, pre_grafts) = {
+                let mut checker = WholeFetchBoundary {
+                    repo,
+                    mount: &project.mount,
+                    known,
+                    resolved_boundaries: BTreeMap::from([(
+                        repo.store().root_commit_id().clone(),
+                        repo.store().root_commit_id().clone(),
+                    )]),
+                    pre_grafts: Vec::new(),
+                    change_id_index: None,
+                    unmapped_count: 0,
+                };
+                let source = crate::native_source::NativeSource::read_view_with(
+                    repo.store().clone(),
+                    view,
+                    &ids,
+                    &mut checker,
+                )
+                .await
+                .map_err(user_error)?;
+                let WholeFetchBoundary {
+                    resolved_boundaries,
+                    pre_grafts,
+                    ..
+                } = checker;
+                (
+                    source,
+                    resolved_boundaries.into_iter().collect(),
+                    pre_grafts,
+                )
+            };
+            let mut imported = crate::native_import::rewrite_graph(
                 &source,
                 repo,
                 &project.name,
                 &project.mount,
-                known,
+                resolved_boundaries,
             )
             .await
             .map_err(user_error)?;
+            imported.grafts.extend(pre_grafts);
             for (name, raw) in &commits {
                 let id = &imported.ids[&CommitId::from_bytes(raw.as_bytes())];
                 converted.insert(

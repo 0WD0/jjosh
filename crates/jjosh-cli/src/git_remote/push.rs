@@ -958,32 +958,35 @@ async fn prepare_scope(
     } else {
         None
     };
-    let native_exports = if let Some(project) =
-        scope.project.as_ref().filter(|_| scope.whole() && has_new)
-    {
-        let known = scope.anchors(repo, canonical_transaction).await?;
-        let mut seen = HashSet::new();
-        let mut heads = Vec::new();
-        for (index, _) in updates {
-            if let Some(target) = canonical[*index].targets.after {
-                let id = CommitId::from_bytes(peel_commit(git, target)?.as_bytes());
-                if seen.insert(id.clone()) {
-                    heads.push(repo.store().get_commit_async(&id).await?);
+    let native_exports =
+        if let Some(project) = scope.project.as_ref().filter(|_| scope.whole() && has_new) {
+            let mut known = scope.anchors(repo, canonical_transaction).await?;
+            let mut seen = HashSet::new();
+            let mut heads = Vec::new();
+            for (index, _) in updates {
+                if let Some(target) = canonical[*index].targets.after {
+                    let id = CommitId::from_bytes(peel_commit(git, target)?.as_bytes());
+                    if seen.insert(id.clone()) {
+                        heads.push(repo.store().get_commit_async(&id).await?);
+                    }
                 }
             }
-        }
-        let exports =
-            crate::native_project::export::export_projects(repo, &project.mount, &heads, &known)
-                .await
-                .map_err(user_error)?;
-        heads
-            .into_iter()
-            .zip(exports)
-            .map(|(head, exported)| (head.id().clone(), exported))
-            .collect()
-    } else {
-        HashMap::new()
-    };
+            let exports = crate::native_project::export::export_projects(
+                repo,
+                &project.mount,
+                &heads,
+                &mut known,
+            )
+            .await
+            .map_err(user_error)?;
+            heads
+                .into_iter()
+                .zip(exports)
+                .map(|(head, exported)| (head.id().clone(), exported))
+                .collect()
+        } else {
+            HashMap::new()
+        };
     let destination_connection = destination_connection.ok_or_else(|| user_error("Converted publication requires an identified destination connection; explicitly adopt the remote first"))?;
     let mut prepared = Vec::with_capacity(updates.len());
     for (index, destination) in updates {

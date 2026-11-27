@@ -100,12 +100,49 @@ async fn index_existing_project_versions(
         return Ok(HashMap::new());
     }
     let root = dest.store().root_commit_id();
+    let has_root_parent = source.commits.iter().any(|(id, commit)| {
+        !already_mapped.contains_key(id)
+            && commit
+                .parents
+                .iter()
+                .any(|parent| parent == source.store.root_commit_id())
+    });
+    let boundaries: Vec<CommitId> = if has_root_parent {
+        Vec::new()
+    } else {
+        let mut unique = HashSet::new();
+        let mut list = Vec::new();
+        for canonical in already_mapped.values() {
+            if canonical != root
+                && unique.insert(canonical.clone())
+                && dest.index().has_id(canonical).await?
+            {
+                list.push(canonical.clone());
+            }
+        }
+        if list.is_empty() {
+            return Ok(HashMap::new());
+        }
+        list
+    };
     let mut pending: Vec<_> = dest.view().heads().iter().cloned().collect();
     let mut visited = HashSet::new();
     let mut versions: HashMap<ProjectVersionKey, Vec<ExistingProjectVersion>> = HashMap::new();
     while let Some(id) = pending.pop() {
         if id == *root || !visited.insert(id.clone()) {
             continue;
+        }
+        if !boundaries.is_empty() {
+            let mut strict_descendant = false;
+            for boundary in &boundaries {
+                if boundary != &id && dest.index().is_ancestor(boundary, &id).await? {
+                    strict_descendant = true;
+                    break;
+                }
+            }
+            if !strict_descendant {
+                continue;
+            }
         }
         let commit = dest.store().get_commit_async(&id).await?;
         pending.extend(commit.parent_ids().iter().cloned());
@@ -189,11 +226,15 @@ pub(crate) async fn rewrite_graph(
     let dest_git = jj_lib::git::get_git_backend(&dest_store)?;
     source.copy_objects_to(dest_git)?;
     let existing_versions = index_existing_project_versions(source, dest, mount, &ids).await?;
-    let visible_versions = crate::native_project::visible_versions(
-        dest,
-        source.commits.values().map(|commit| &commit.change_id),
-    )
-    .await?;
+    let visible_versions = if source.commits.is_empty() {
+        HashMap::new()
+    } else {
+        crate::native_project::visible_versions(
+            dest,
+            source.commits.values().map(|commit| &commit.change_id),
+        )
+        .await?
+    };
     let batch = dest_git.commit_batch();
 
     // A captured source may also retain hidden canonical versions referenced

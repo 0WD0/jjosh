@@ -373,72 +373,263 @@ pub(crate) fn record_imported_boundaries<'a>(
     Ok(())
 }
 
-/// Lossless imported ancestry can be recovered from pairs of graph roots.
-/// Published projections are explicit boundaries: their parent graphs may have
-/// pruned unrelated changes and must never be zipped with the canonical graph.
-pub(crate) async fn anchors(
-    repo: &dyn Repo,
-    transaction: &Transaction,
-    binding: &BindingId,
-) -> Result<HashMap<CommitId, CommitId>> {
-    let prefix = binding_ref_prefix(binding);
-    let mut ids = HashMap::from([(
-        repo.store().root_commit_id().clone(),
-        repo.store().root_commit_id().clone(),
-    )]);
-    let mut pending = Vec::new();
-    transaction.for_each_ref_prefixed(&prefix, |name, canonical| {
-        let Some((kind, raw)) = name[prefix.len()..].split_once('/') else {
-            return Ok(()); // Raw-object retention ref, not a correspondence.
-        };
-        let raw = CommitId::try_from_hex(raw).context("Invalid native correspondence commit ID")?;
-        ensure!(
-            raw.as_bytes().len() == 20,
-            "Invalid native correspondence commit ID"
-        );
-        if kind == "observed" {
-            return Ok(());
+/// Demand-driven correspondence index for a `Whole` project binding.
+///
+/// Direct `graft`, `published`, and `origin` tip refs load immediately, while
+/// `origin` ancestor chains expand only when a lookup can plausibly reach them.
+pub(crate) struct Anchors<'a> {
+    repo: &'a dyn Repo,
+    transaction: &'a Transaction,
+    by_raw: HashMap<CommitId, CommitId>,
+    by_canonical: HashMap<CommitId, CommitId>,
+    pending: Vec<(CommitId, CommitId)>,
+    sibling_by_raw: HashMap<CommitId, CommitId>,
+}
+
+impl<'a> Anchors<'a> {
+    pub(crate) fn new(repo: &'a dyn Repo, transaction: &'a Transaction) -> Self {
+        let root = repo.store().root_commit_id().clone();
+        Self {
+            repo,
+            transaction,
+            by_raw: HashMap::from([(root.clone(), root.clone())]),
+            by_canonical: HashMap::from([(root.clone(), root)]),
+            pending: Vec::new(),
+            sibling_by_raw: HashMap::new(),
         }
-        let canonical = CommitId::from_bytes(canonical.as_bytes());
-        match kind {
-            "origin" => pending.push((raw, canonical.clone())),
-            "published" | "graft" => {
-                ids.insert(raw, canonical.clone());
-            }
-            _ => anyhow::bail!("Unknown native correspondence kind: {kind}"),
-        }
-        Ok(())
-    })?;
-    while let Some((raw, canonical)) = pending.pop() {
-        if let Some(previous) = ids.get(&raw) {
+    }
+
+    fn insert_pair(
+        &mut self,
+        raw: CommitId,
+        canonical: CommitId,
+        shared_offline: bool,
+    ) -> Result<bool> {
+        if let Some(previous) = self.by_raw.get(&raw) {
             ensure!(
                 *previous == canonical,
-                "Inconsistent native correspondence for {raw}"
+                if shared_offline {
+                    "Ambiguous offline native correspondence".to_owned()
+                } else {
+                    format!("Inconsistent native correspondence for {raw}")
+                }
             );
-            continue;
+            if let Some(prev_raw) = self.by_canonical.get(&canonical) {
+                ensure!(
+                    prev_raw == &raw,
+                    "Project has ambiguous reverse history correspondence at {canonical}"
+                );
+            } else {
+                self.by_canonical.insert(canonical, raw);
+            }
+            return Ok(false);
         }
-        let original = josh_core::objects::CommitData::read(transaction.odb(), oid(&raw)?)
+        if let Some(prev_raw) = self.by_canonical.get(&canonical) {
+            ensure!(
+                prev_raw == &raw,
+                "Project has ambiguous reverse history correspondence at {canonical}"
+            );
+        }
+        self.by_raw.insert(raw.clone(), canonical.clone());
+        self.by_canonical.insert(canonical, raw);
+        Ok(true)
+    }
+
+    pub(crate) fn load_binding(&mut self, binding: &BindingId, shared_offline: bool) -> Result<()> {
+        let prefix = binding_ref_prefix(binding);
+        let mut entries = Vec::new();
+        self.transaction
+            .for_each_ref_prefixed(&prefix, |name, canonical| {
+                let Some((kind, raw)) = name[prefix.len()..].split_once('/') else {
+                    return Ok(()); // Raw-object retention ref, not a correspondence.
+                };
+                let raw = CommitId::try_from_hex(raw)
+                    .context("Invalid native correspondence commit ID")?;
+                ensure!(
+                    raw.as_bytes().len() == 20,
+                    "Invalid native correspondence commit ID"
+                );
+                if kind == "observed" {
+                    return Ok(());
+                }
+                let canonical = CommitId::from_bytes(canonical.as_bytes());
+                match kind {
+                    "origin" | "published" | "graft" => {
+                        entries.push((kind.to_owned(), raw, canonical));
+                    }
+                    _ => anyhow::bail!("Unknown native correspondence kind: {kind}"),
+                }
+                Ok(())
+            })?;
+        for (kind, raw, canonical) in entries {
+            let inserted = self.insert_pair(raw.clone(), canonical.clone(), shared_offline)?;
+            if kind == "origin" && inserted {
+                self.pending.push((raw, canonical));
+            }
+        }
+        Ok(())
+    }
+
+    /// Collect unambiguous `origin` and `graft` tip mappings from other `Whole`
+    /// bindings of the same project for fetch reuse. Never used for push/validation.
+    pub(crate) fn load_sibling_imported_tips(&mut self, bindings: &[BindingId]) -> Result<()> {
+        let mut candidates: HashMap<CommitId, Option<CommitId>> = HashMap::new();
+        for binding in bindings {
+            let prefix = binding_ref_prefix(binding);
+            self.transaction
+                .for_each_ref_prefixed(&prefix, |name, canonical| {
+                    let Some((kind, raw)) = name[prefix.len()..].split_once('/') else {
+                        return Ok(());
+                    };
+                    if !matches!(kind, "origin" | "graft") {
+                        return Ok(());
+                    }
+                    let raw = CommitId::try_from_hex(raw)
+                        .context("Invalid native correspondence commit ID")?;
+                    ensure!(
+                        raw.as_bytes().len() == 20,
+                        "Invalid native correspondence commit ID"
+                    );
+                    let canonical = CommitId::from_bytes(canonical.as_bytes());
+                    match candidates.get_mut(&raw) {
+                        None => {
+                            candidates.insert(raw, Some(canonical));
+                        }
+                        Some(slot) => {
+                            if slot.as_ref().is_some_and(|prev| prev != &canonical) {
+                                *slot = None;
+                            }
+                        }
+                    }
+                    Ok(())
+                })?;
+        }
+        for (raw, canonical) in candidates {
+            if let Some(canonical) = canonical
+                && !self.by_raw.contains_key(&raw)
+            {
+                self.sibling_by_raw.insert(raw, canonical);
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn raw_to_canonical_direct(&self, raw: &CommitId) -> Option<&CommitId> {
+        self.by_raw
+            .get(raw)
+            .or_else(|| self.sibling_by_raw.get(raw))
+    }
+
+    pub(crate) fn contains_raw_direct(&self, raw: &CommitId) -> bool {
+        self.by_raw.contains_key(raw)
+    }
+
+    pub(crate) fn has_pending(&self) -> bool {
+        !self.pending.is_empty()
+    }
+
+    pub(crate) fn direct_map(&self) -> HashMap<CommitId, CommitId> {
+        let mut map = self.sibling_by_raw.clone();
+        map.extend(
+            self.by_raw
+                .iter()
+                .map(|(raw, canonical)| (raw.clone(), canonical.clone())),
+        );
+        map
+    }
+
+    async fn expand_pair(
+        &mut self,
+        raw: &CommitId,
+        canonical: &CommitId,
+    ) -> Result<Vec<(CommitId, CommitId)>> {
+        let original = josh_core::objects::CommitData::read(self.transaction.odb(), oid(raw)?)
             .with_context(|| format!("Original source object {raw} is unavailable"))?;
         let mut raw_parents: Vec<_> = original
             .parent_ids()
             .map(|id| CommitId::from_bytes(id.as_bytes()))
             .collect();
         if raw_parents.is_empty() {
-            raw_parents.push(repo.store().root_commit_id().clone());
+            raw_parents.push(self.repo.store().root_commit_id().clone());
         }
-        let mapped = repo.store().get_commit_async(&canonical).await?;
+        let mapped = self.repo.store().get_commit_async(canonical).await?;
         ensure!(
             raw_parents.len() == mapped.parent_ids().len(),
             "Native source ancestry no longer corresponds at {raw}"
         );
-        pending.extend(
-            raw_parents
-                .into_iter()
-                .zip(mapped.parent_ids().iter().cloned()),
-        );
-        ids.insert(raw, canonical);
+        Ok(raw_parents
+            .into_iter()
+            .zip(mapped.parent_ids().iter().cloned())
+            .collect())
     }
-    Ok(ids)
+
+    /// Expand all remaining `origin` chains (used as fallback when needed).
+    pub(crate) async fn expand_all_origins(&mut self) -> Result<()> {
+        while let Some((raw, canonical)) = self.pending.pop() {
+            for (raw_parent, canonical_parent) in self.expand_pair(&raw, &canonical).await? {
+                if self.insert_pair(raw_parent.clone(), canonical_parent.clone(), false)? {
+                    self.pending.push((raw_parent, canonical_parent));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Look up the raw source commit for a canonical monorepo commit, expanding
+    /// only `origin` ancestors that can reach `target_canonical`.
+    pub(crate) async fn resolve_canonical(
+        &mut self,
+        target_canonical: &CommitId,
+    ) -> Result<Option<CommitId>> {
+        if let Some(raw) = self.by_canonical.get(target_canonical) {
+            return Ok(Some(raw.clone()));
+        }
+        if self.pending.is_empty() {
+            return Ok(None);
+        }
+        let index = self.repo.index();
+        if !index.has_id(target_canonical).await? {
+            return Ok(None);
+        }
+        let mut work = Vec::new();
+        let mut remaining = Vec::with_capacity(self.pending.len());
+        for (raw, canonical) in self.pending.drain(..) {
+            if index.has_id(&canonical).await?
+                && index.is_ancestor(target_canonical, &canonical).await?
+            {
+                work.push((raw, canonical));
+            } else {
+                remaining.push((raw, canonical));
+            }
+        }
+        self.pending = remaining;
+        while let Some((raw, canonical)) = work.pop() {
+            for (raw_parent, canonical_parent) in self.expand_pair(&raw, &canonical).await? {
+                if !self.insert_pair(raw_parent.clone(), canonical_parent.clone(), false)? {
+                    continue;
+                }
+                if &canonical_parent == target_canonical {
+                    self.pending.push((raw_parent, canonical_parent));
+                    continue;
+                }
+                if &canonical_parent != self.repo.store().root_commit_id()
+                    && index.has_id(&canonical_parent).await?
+                    && index
+                        .is_ancestor(target_canonical, &canonical_parent)
+                        .await?
+                {
+                    work.push((raw_parent, canonical_parent));
+                } else {
+                    self.pending.push((raw_parent, canonical_parent));
+                }
+            }
+            if let Some(found) = self.by_canonical.get(target_canonical).cloned() {
+                self.pending.extend(work);
+                return Ok(Some(found));
+            }
+        }
+        Ok(self.by_canonical.get(target_canonical).cloned())
+    }
 }
 
 /// After prefix/filter, a dest commit is the same version iff the project tree

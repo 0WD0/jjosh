@@ -82,6 +82,23 @@ impl SourceState {
     }
 }
 
+pub(crate) trait ReadBoundaryChecker {
+    async fn before_read(&mut self, id: &CommitId) -> Result<bool>;
+    async fn after_read(&mut self, id: &CommitId, commit: &backend::Commit) -> Result<bool>;
+}
+
+struct FnBoundaryChecker<F>(F);
+
+impl<F: Fn(&CommitId) -> bool> ReadBoundaryChecker for FnBoundaryChecker<F> {
+    async fn before_read(&mut self, id: &CommitId) -> Result<bool> {
+        Ok((self.0)(id))
+    }
+
+    async fn after_read(&mut self, _id: &CommitId, _commit: &backend::Commit) -> Result<bool> {
+        Ok(false)
+    }
+}
+
 /// A recorded local native state and its authoritative commit metadata.
 pub(crate) struct NativeSource {
     pub store: Arc<Store>,
@@ -131,6 +148,15 @@ impl NativeSource {
         extra_roots: &[CommitId],
         imported: impl Fn(&CommitId) -> bool,
     ) -> Result<Self> {
+        Self::read_view_with(store, view, extra_roots, &mut FnBoundaryChecker(imported)).await
+    }
+
+    pub async fn read_view_with<C: ReadBoundaryChecker>(
+        store: Arc<Store>,
+        view: View,
+        extra_roots: &[CommitId],
+        checker: &mut C,
+    ) -> Result<Self> {
         let native_view = jj_lib::view::View::new(view.clone(), false);
         let mut pending: Vec<_> = native_view.all_referenced_commit_ids().cloned().collect();
         pending.extend_from_slice(extra_roots);
@@ -141,7 +167,7 @@ impl NativeSource {
             if commits.contains_key(&id) || boundary.contains(&id) {
                 continue;
             }
-            if id != *store.root_commit_id() && imported(&id) {
+            if id != *store.root_commit_id() && checker.before_read(&id).await? {
                 boundary.insert(id);
                 continue;
             }
@@ -151,6 +177,10 @@ impl NativeSource {
                 .await
                 .with_context(|| format!("Reading native source commit {id}"))?;
             commit.predecessors.clear();
+            if id != *store.root_commit_id() && checker.after_read(&id, &commit).await? {
+                boundary.insert(id);
+                continue;
+            }
             pending.extend(commit.parents.iter().cloned());
             commits.insert(id, commit);
         }

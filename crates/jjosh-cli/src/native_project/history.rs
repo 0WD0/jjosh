@@ -4,10 +4,9 @@
 //! Validation can omit retained values without stopping projection of their ancestry.
 //! A project name or another remote's publication state is not correspondence evidence.
 
-use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 
-use anyhow::{Result, ensure};
+use anyhow::Result;
 use jj_lib::backend::{CommitId, TreeId};
 use jj_lib::commit::Commit;
 use jj_lib::merge::Merge;
@@ -40,28 +39,6 @@ enum Visit {
     Write(Commit),
 }
 
-pub(super) fn reverse_anchors(
-    known: impl IntoIterator<Item = (CommitId, CommitId)>,
-) -> Result<HashMap<CommitId, CommitId>> {
-    let known = known.into_iter();
-    let mut reverse = HashMap::with_capacity(known.size_hint().0);
-    for (raw, canonical) in known {
-        match reverse.entry(canonical) {
-            Entry::Vacant(entry) => {
-                entry.insert(raw);
-            }
-            Entry::Occupied(entry) => {
-                ensure!(
-                    entry.get() == &raw,
-                    "Project has ambiguous reverse history correspondence at {}",
-                    entry.key()
-                );
-            }
-        }
-    }
-    Ok(reverse)
-}
-
 /// Walk each reachable commit once, stopping at explicit boundaries. Only EMIT may write
 /// transport commits; validation supplies a read-only callback. The same resolved subtree,
 /// ordered-parent deduplication, synthetic-root removal, and empty-commit rule serve both.
@@ -69,7 +46,8 @@ pub(super) async fn project<T>(
     repo: &dyn Repo,
     mount: &RepoPath,
     heads: &[CommitId],
-    boundary: impl Fn(&CommitId) -> Option<CommitId>,
+    known: &mut super::Anchors<'_>,
+    allow_boundary: impl Fn(&CommitId) -> bool,
     mut emit: impl FnMut(&Commit, &MergedTree, Vec<CommitId>) -> Result<(CommitId, Option<T>)>,
 ) -> Result<History<T>> {
     let root = repo.store().root_commit_id();
@@ -94,7 +72,9 @@ pub(super) async fn project<T>(
                     continue;
                 }
                 let commit = repo.store().get_commit_async(&id).await?;
-                if let Some(representative) = boundary(&id) {
+                if allow_boundary(&id)
+                    && let Some(representative) = known.resolve_canonical(&id).await?
+                {
                     let tree = super::project_tree(&commit, mount).await?;
                     mapped.insert(
                         id,

@@ -3,7 +3,7 @@
 //! Computation is batch-local. Each result retains its own reachable evidence so that
 //! accepting one ref never records the unpublished history of a rejected sibling.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use anyhow::{Result, ensure};
@@ -61,7 +61,7 @@ pub(crate) async fn export_projects(
     repo: &dyn Repo,
     mount: &RepoPath,
     heads: &[Commit],
-    known: &HashMap<CommitId, CommitId>,
+    known: &mut super::Anchors<'_>,
 ) -> Result<Vec<ExportedProject>> {
     for head in heads {
         ensure!(
@@ -70,18 +70,14 @@ pub(crate) async fn export_projects(
             mount.as_internal_file_string()
         );
     }
-    let reverse = super::history::reverse_anchors(
-        known
-            .iter()
-            .map(|(raw, canonical)| (raw.clone(), canonical.clone())),
-    )?;
     let backend = jj_lib::git::get_git_backend(repo.store())?;
     let heads: Vec<_> = heads.iter().map(|head| head.id().clone()).collect();
     let projected = super::history::project(
         repo,
         mount,
         &heads,
-        |id| reverse.get(id).cloned(),
+        known,
+        |_| true,
         |commit, tree, parents| {
             let mut contents = commit.store_commit().as_ref().clone();
             contents.parents = parents;
@@ -103,7 +99,7 @@ pub(crate) async fn export_projects(
         .nodes
         .into_iter()
         .map(|node| ExportNode {
-            canonical: node.value.filter(|_| !known.contains_key(&node.id)),
+            canonical: node.value.filter(|_| !known.contains_raw_direct(&node.id)),
             raw: node.id,
             parents: node.parents,
         })
