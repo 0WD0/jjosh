@@ -373,6 +373,21 @@ pub(crate) fn record_imported_boundaries<'a>(
     Ok(())
 }
 
+fn parse_correspondence_raw_id(raw: &str) -> Result<CommitId> {
+    let raw = CommitId::try_from_hex(raw).context("Invalid native correspondence commit ID")?;
+    ensure!(
+        raw.as_bytes().len() == 20,
+        "Invalid native correspondence commit ID"
+    );
+    Ok(raw)
+}
+
+#[derive(Clone, Copy)]
+enum AnchorQueue {
+    Origin,
+    Graft,
+}
+
 /// Demand-driven correspondence index for a `Whole` project binding.
 ///
 /// Direct `graft`, `published`, and `origin` tip refs load immediately, while
@@ -451,15 +466,10 @@ impl<'a> Anchors<'a> {
                 let Some((kind, raw)) = name[prefix.len()..].split_once('/') else {
                     return Ok(()); // Raw-object retention ref, not a correspondence.
                 };
-                let raw = CommitId::try_from_hex(raw)
-                    .context("Invalid native correspondence commit ID")?;
-                ensure!(
-                    raw.as_bytes().len() == 20,
-                    "Invalid native correspondence commit ID"
-                );
                 if kind == "observed" {
                     return Ok(());
                 }
+                let raw = parse_correspondence_raw_id(raw)?;
                 let canonical = CommitId::from_bytes(canonical.as_bytes());
                 match kind {
                     "origin" | "published" | "graft" => {
@@ -500,12 +510,7 @@ impl<'a> Anchors<'a> {
                     if !matches!(kind, "origin" | "graft") {
                         return Ok(());
                     }
-                    let raw = CommitId::try_from_hex(raw)
-                        .context("Invalid native correspondence commit ID")?;
-                    ensure!(
-                        raw.as_bytes().len() == 20,
-                        "Invalid native correspondence commit ID"
-                    );
+                    let raw = parse_correspondence_raw_id(raw)?;
                     let canonical = CommitId::from_bytes(canonical.as_bytes());
                     match candidates.get_mut(&raw) {
                         None => {
@@ -664,6 +669,63 @@ impl<'a> Anchors<'a> {
         Ok(pairs)
     }
 
+    fn queue_mut(&mut self, queue: AnchorQueue) -> &mut Vec<(CommitId, CommitId)> {
+        match queue {
+            AnchorQueue::Origin => &mut self.pending,
+            AnchorQueue::Graft => &mut self.pending_grafts,
+        }
+    }
+
+    async fn resolve_from_queue(
+        &mut self,
+        queue: AnchorQueue,
+        target_canonical: &CommitId,
+    ) -> Result<Option<CommitId>> {
+        let index = self.repo.index();
+        let drained: Vec<_> = self.queue_mut(queue).drain(..).collect();
+        let mut work = Vec::new();
+        let mut remaining = Vec::with_capacity(drained.len());
+        for (raw, canonical) in drained {
+            if index.has_id(&canonical).await?
+                && index.is_ancestor(target_canonical, &canonical).await?
+            {
+                work.push((raw, canonical));
+            } else {
+                remaining.push((raw, canonical));
+            }
+        }
+        *self.queue_mut(queue) = remaining;
+
+        let root = self.repo.store().root_commit_id().clone();
+        while let Some((raw, canonical)) = work.pop() {
+            let parents = match queue {
+                AnchorQueue::Origin => self.expand_pair(&raw, &canonical).await?,
+                AnchorQueue::Graft => self.expand_graft_pair(&raw, &canonical).await?,
+            };
+            for (raw_parent, canonical_parent) in parents {
+                if !self.insert_pair(raw_parent.clone(), canonical_parent.clone(), false)? {
+                    continue;
+                }
+                if &canonical_parent != target_canonical
+                    && canonical_parent != root
+                    && index.has_id(&canonical_parent).await?
+                    && index
+                        .is_ancestor(target_canonical, &canonical_parent)
+                        .await?
+                {
+                    work.push((raw_parent, canonical_parent));
+                } else {
+                    self.queue_mut(queue).push((raw_parent, canonical_parent));
+                }
+            }
+            if let Some(found) = self.by_canonical.get(target_canonical).cloned() {
+                self.queue_mut(queue).extend(work);
+                return Ok(Some(found));
+            }
+        }
+        Ok(None)
+    }
+
     /// Look up the raw source commit for a canonical monorepo commit, expanding
     /// only `origin` (and isomorphic `graft`) ancestors that can reach `target_canonical`.
     pub(crate) async fn resolve_canonical(
@@ -676,84 +738,20 @@ impl<'a> Anchors<'a> {
         if self.pending.is_empty() && self.pending_grafts.is_empty() {
             return Ok(None);
         }
-        let index = self.repo.index();
-        if !index.has_id(target_canonical).await? {
+        if !self.repo.index().has_id(target_canonical).await? {
             return Ok(None);
         }
-        let mut work = Vec::new();
-        let mut remaining = Vec::with_capacity(self.pending.len());
-        for (raw, canonical) in self.pending.drain(..) {
-            if index.has_id(&canonical).await?
-                && index.is_ancestor(target_canonical, &canonical).await?
-            {
-                work.push((raw, canonical));
-            } else {
-                remaining.push((raw, canonical));
-            }
+        if let Some(found) = self
+            .resolve_from_queue(AnchorQueue::Origin, target_canonical)
+            .await?
+        {
+            return Ok(Some(found));
         }
-        self.pending = remaining;
-        let mut work_grafts = Vec::new();
-        let mut remaining_grafts = Vec::with_capacity(self.pending_grafts.len());
-        for (raw, canonical) in self.pending_grafts.drain(..) {
-            if index.has_id(&canonical).await?
-                && index.is_ancestor(target_canonical, &canonical).await?
-            {
-                work_grafts.push((raw, canonical));
-            } else {
-                remaining_grafts.push((raw, canonical));
-            }
-        }
-        self.pending_grafts = remaining_grafts;
-        while let Some((raw, canonical)) = work.pop() {
-            for (raw_parent, canonical_parent) in self.expand_pair(&raw, &canonical).await? {
-                if !self.insert_pair(raw_parent.clone(), canonical_parent.clone(), false)? {
-                    continue;
-                }
-                if &canonical_parent == target_canonical {
-                    self.pending.push((raw_parent, canonical_parent));
-                    continue;
-                }
-                if &canonical_parent != self.repo.store().root_commit_id()
-                    && index.has_id(&canonical_parent).await?
-                    && index
-                        .is_ancestor(target_canonical, &canonical_parent)
-                        .await?
-                {
-                    work.push((raw_parent, canonical_parent));
-                } else {
-                    self.pending.push((raw_parent, canonical_parent));
-                }
-            }
-            if let Some(found) = self.by_canonical.get(target_canonical).cloned() {
-                self.pending.extend(work);
-                self.pending_grafts.extend(work_grafts);
-                return Ok(Some(found));
-            }
-        }
-        while let Some((raw, canonical)) = work_grafts.pop() {
-            for (raw_parent, canonical_parent) in self.expand_graft_pair(&raw, &canonical).await? {
-                if !self.insert_pair(raw_parent.clone(), canonical_parent.clone(), false)? {
-                    continue;
-                }
-                if &canonical_parent == target_canonical {
-                    self.pending_grafts.push((raw_parent, canonical_parent));
-                    continue;
-                }
-                if &canonical_parent != self.repo.store().root_commit_id()
-                    && index.has_id(&canonical_parent).await?
-                    && index
-                        .is_ancestor(target_canonical, &canonical_parent)
-                        .await?
-                {
-                    work_grafts.push((raw_parent, canonical_parent));
-                } else {
-                    self.pending_grafts.push((raw_parent, canonical_parent));
-                }
-            }
-            if let Some(found) = self.by_canonical.get(target_canonical).cloned() {
-                self.pending_grafts.extend(work_grafts);
-                return Ok(Some(found));
-            }
+        if let Some(found) = self
+            .resolve_from_queue(AnchorQueue::Graft, target_canonical)
+            .await?
+        {
+            return Ok(Some(found));
         }
         Ok(self.by_canonical.get(target_canonical).cloned())
     }

@@ -111,11 +111,15 @@ impl SourceRepo {
     fn open_at(main: &gix::Repository, path: &Path) -> Result<Self> {
         let mut git = gix::open_opts(
             path,
-            gix::open::Options::default().config_overrides([
-                "core.bare=true",
-                "core.logAllRefUpdates=false",
-                "gitoxide.core.shallowFile=shallow",
-            ]),
+            gix::open::Options::default()
+                .object_store_slots(gix::odb::store::init::Slots::Given(
+                    josh_core::cache::GIX_PACK_SLOTS,
+                ))
+                .config_overrides([
+                    "core.bare=true",
+                    "core.logAllRefUpdates=false",
+                    "gitoxide.core.shallowFile=shallow",
+                ]),
         )?;
         git.clear_namespace();
         ensure!(git.is_bare(), "Source cache must be bare");
@@ -796,7 +800,12 @@ pub(crate) fn transport_repository(
         alternates,
     )?;
     drop(repository);
-    let repository = gix::open(directory.path())?;
+    let repository = gix::open_opts(
+        directory.path(),
+        gix::open::Options::default().object_store_slots(gix::odb::store::init::Slots::Given(
+            josh_core::cache::GIX_PACK_SLOTS,
+        )),
+    )?;
     Ok((directory, repository))
 }
 enum CommitWork {
